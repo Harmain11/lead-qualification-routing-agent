@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from lead_agent.api.routes.intake import _verify_signature
 from lead_agent.infrastructure.intake.adapters import (
@@ -46,7 +46,7 @@ def test_email_adapter_maps_sender_subject_body_and_domain() -> None:
     event = EmailAdapter().adapt(
         {
             "external_message_id": "mail-001",
-            "sender": 'Jane Doe <jane@example.com>',
+            "sender": "Jane Doe <jane@example.com>",
             "subject": "Workflow pricing",
             "body": "We need help with manual qualification.",
             "timestamp": "2026-09-21T10:00:00Z",

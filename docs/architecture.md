@@ -142,6 +142,12 @@ The future reasoning adapter should accept a normalized lead, relevant prior int
 
 The planned OpenAI adapter should use schema-constrained JSON output through the Responses API and explicitly configure storage/retention according to the project’s privacy policy. The official API reference documents JSON/structured output support and response metadata: <https://developers.openai.com/api/reference/cli/resources/responses/methods/create>.
 
+### Phase 3 reasoning implementation
+
+`ReasoningProvider` is a domain port. The offline deterministic provider and OpenAI Responses API provider return the same strict `ReasoningOutput` schema; provider code cannot assign points, choose a score band, or initiate external actions. Hard disqualifiers run before the selected provider. The application validates provider output, applies confidence policy, and then passes only extracted signals and evidence into deterministic scoring.
+
+Each lead persists a Phase 3 `analysis_runs` record containing structured context, explicit/inferred/unknown provenance, evidence references, ICP evaluation, summary, provider/model/prompt metadata, confidence, review status, and error details. Provider failure uses deterministic extraction as a visible fallback and marks the source event for manual review rather than dropping the lead.
+
 ## Failure handling
 
 - Invalid signature or malformed payload: reject with an auditable ingestion error; do not create a lead.

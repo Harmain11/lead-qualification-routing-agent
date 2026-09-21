@@ -20,6 +20,7 @@ from lead_agent.api.schemas import (
     lead_response,
 )
 from lead_agent.application.services import process_source_event
+from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.intake.adapters import (
@@ -28,6 +29,7 @@ from lead_agent.infrastructure.intake.adapters import (
     LinkedInAdapter,
     WebsiteAdapter,
 )
+from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/intake", tags=["intake"])
@@ -58,10 +60,11 @@ def _intake(
     payload: Mapping[str, Any],
     session: Session,
     policies: tuple[IcpConfig, RoutingConfig],
+    provider: ReasoningProvider,
 ) -> LeadResponse:
     try:
         event = adapter.adapt(payload)
-        result = process_source_event(session, event, *policies)
+        result = process_source_event(session, event, *policies, provider=provider)
     except (ValueError, ValidationError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return lead_response(result.lead)
@@ -73,6 +76,7 @@ async def website_intake(
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     settings: Settings = Depends(get_settings),
+    provider: ReasoningProvider = Depends(get_reasoning_provider),
 ) -> LeadResponse:
     raw_body = await request.body()
     _verify_signature(
@@ -83,7 +87,7 @@ async def website_intake(
         validated = LeadCreateRequest.model_validate(payload)
     except ValidationError as error:
         raise HTTPException(status_code=422, detail=error.errors()) from error
-    return _intake(WebsiteAdapter(), validated.model_dump(mode="json"), session, policies)
+    return _intake(WebsiteAdapter(), validated.model_dump(mode="json"), session, policies, provider)
 
 
 @router.post("/email", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
@@ -91,8 +95,9 @@ def email_intake(
     request: EmailIntakeRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
+    provider: ReasoningProvider = Depends(get_reasoning_provider),
 ) -> LeadResponse:
-    return _intake(EmailAdapter(), request.model_dump(mode="json"), session, policies)
+    return _intake(EmailAdapter(), request.model_dump(mode="json"), session, policies, provider)
 
 
 @router.post("/linkedin", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
@@ -100,8 +105,9 @@ def linkedin_intake(
     request: LinkedInIntakeRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
+    provider: ReasoningProvider = Depends(get_reasoning_provider),
 ) -> LeadResponse:
-    return _intake(LinkedInAdapter(), request.model_dump(mode="json"), session, policies)
+    return _intake(LinkedInAdapter(), request.model_dump(mode="json"), session, policies, provider)
 
 
 @router.post("/fourth", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
@@ -109,5 +115,6 @@ def fourth_channel_intake(
     request: ClutchIntakeRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
+    provider: ReasoningProvider = Depends(get_reasoning_provider),
 ) -> LeadResponse:
-    return _intake(ClutchAdapter(), request.model_dump(mode="json"), session, policies)
+    return _intake(ClutchAdapter(), request.model_dump(mode="json"), session, policies, provider)

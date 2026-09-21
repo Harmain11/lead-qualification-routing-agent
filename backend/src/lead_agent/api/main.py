@@ -11,7 +11,7 @@ settings = get_runtime_settings()
 app = FastAPI(
     title="Lead Qualification & Routing Agent",
     version=__version__,
-    description="Explainable lead normalization, qualification, and routing vertical slice.",
+    description="Grounded context analysis and explainable lead qualification.",
 )
 app.add_middleware(
     CORSMiddleware,

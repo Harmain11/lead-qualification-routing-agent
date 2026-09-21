@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 from uuid import UUID, uuid4
-
 
 SOURCE_EVENT_STATUSES = {"received", "processing", "processed", "failed", "manual_review"}
 
@@ -50,4 +50,3 @@ class ChannelAdapter(Protocol):
 
     def adapt(self, payload: Mapping[str, Any]) -> SourceEvent:
         """Convert one provider payload into the common source-event contract."""
-

@@ -15,8 +15,10 @@ from lead_agent.api.schemas import (
     qualification_response,
 )
 from lead_agent.application.services import process_lead
+from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
 from lead_agent.infrastructure.repositories import get_lead, get_qualification, list_leads
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
@@ -30,9 +32,12 @@ def _process_create_request(
     request: LeadCreateRequest,
     session: Session,
     policies: tuple[IcpConfig, RoutingConfig],
+    provider: ReasoningProvider,
 ) -> LeadResponse:
     try:
-        _, _, row = process_lead(session, request.model_dump(mode="json"), *policies)
+        _, _, row = process_lead(
+            session, request.model_dump(mode="json"), *policies, provider=provider
+        )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return lead_response(row)
@@ -43,8 +48,9 @@ def create_lead(
     request: LeadCreateRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    provider: ReasoningProvider = Depends(get_reasoning_provider),
 ) -> LeadResponse:
-    return _process_create_request(request, session, policies)
+    return _process_create_request(request, session, policies, provider)
 
 
 @router.get("", response_model=LeadListResponse)

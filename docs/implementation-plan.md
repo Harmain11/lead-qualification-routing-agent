@@ -61,6 +61,15 @@ Live Gmail/Microsoft Graph, LinkedIn, Clutch mailbox access, queue execution, an
 
 **Exit criteria:** four representative channel fixtures produce inspectable normalized and enriched records.
 
+### Phase 3 implementation status
+
+- Completed the `ReasoningProvider` port with deterministic and OpenAI implementations.
+- Added strict structured extraction for all context questions, explicit/inferred/unknown provenance, evidence, ICP criteria, confidence, summary, and prepared action.
+- Persisted analysis runs and exposed them through the lead API and inspection UI.
+- Kept hard exclusions and the 40/35/25 score and routing bands deterministic.
+- Added fallback/manual-review behavior for timeout, unavailable provider, malformed schema, low confidence, and contradictory evidence.
+- Added a reusable four-channel evaluation dataset. Live OpenAI execution remains credential-dependent and is not required for local tests.
+
 ## Phase 4 — ICP scoring and qualification (Week 4)
 
 - Load versioned ICP configuration and validate its schema.

@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from lead_agent.domain.analysis import LeadContextAnalysis
+
 
 class LeadCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -103,6 +105,11 @@ class QualificationResponse(BaseModel):
     created_at: datetime | None = None
 
 
+class AnalysisResponse(LeadContextAnalysis):
+    id: UUID
+    created_at: datetime
+
+
 class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -126,6 +133,7 @@ class LeadResponse(BaseModel):
     normalization_version: str
     created_at: datetime
     qualification: QualificationResponse | None
+    analysis: AnalysisResponse | None
 
 
 class LeadListResponse(BaseModel):
@@ -158,6 +166,17 @@ def qualification_response(row: Any) -> QualificationResponse | None:
     )
 
 
+def analysis_response(row: Any) -> AnalysisResponse | None:
+    if row is None:
+        return None
+    analysis = LeadContextAnalysis.model_validate(row.structured_output)
+    return AnalysisResponse(
+        **analysis.model_dump(),
+        id=row.id,
+        created_at=row.created_at,
+    )
+
+
 def lead_response(row: Any) -> LeadResponse:
     return LeadResponse(
         id=row.id,
@@ -180,4 +199,5 @@ def lead_response(row: Any) -> LeadResponse:
         normalization_version=row.normalization_version,
         created_at=row.created_at,
         qualification=qualification_response(row.qualification),
+        analysis=analysis_response(row.analysis),
     )

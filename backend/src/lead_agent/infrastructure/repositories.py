@@ -7,8 +7,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from lead_agent.domain.analysis import LeadContextAnalysis
 from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.infrastructure.db.models import (
+    AnalysisRunORM,
     LeadORM,
     OutboxMessageORM,
     QualificationResultORM,
@@ -42,6 +44,7 @@ def create_lead_with_result(
     session: Session,
     lead: NormalizedLead,
     result: QualificationResult,
+    analysis: LeadContextAnalysis | None = None,
     source_event: SourceEventORM | None = None,
 ) -> LeadORM:
     now = datetime.now(UTC)
@@ -91,6 +94,21 @@ def create_lead_with_result(
         updated_at=now,
     )
     row.qualification = _qualification_row(lead.id, result, now)
+    if analysis is not None:
+        row.analysis = AnalysisRunORM(
+            id=uuid4(),
+            lead_id=lead.id,
+            status=analysis.status,
+            provider=analysis.provider,
+            model=analysis.model,
+            prompt_version=analysis.prompt_version,
+            confidence=analysis.overall_confidence,
+            requires_manual_review=analysis.requires_manual_review,
+            error_code=analysis.error_code,
+            error_message=analysis.error_message,
+            structured_output=analysis.model_dump(mode="json"),
+            created_at=now,
+        )
     session.add(row)
     session.add(
         OutboxMessageORM(
@@ -167,7 +185,7 @@ def list_leads(session: Session) -> list[LeadORM]:
     return list(
         session.scalars(
             select(LeadORM)
-            .options(joinedload(LeadORM.qualification))
+            .options(joinedload(LeadORM.qualification), joinedload(LeadORM.analysis))
             .order_by(LeadORM.created_at.desc())
         ).unique()
     )
@@ -175,7 +193,9 @@ def list_leads(session: Session) -> list[LeadORM]:
 
 def get_lead(session: Session, lead_id: UUID) -> LeadORM | None:
     return session.scalar(
-        select(LeadORM).options(joinedload(LeadORM.qualification)).where(LeadORM.id == lead_id)
+        select(LeadORM)
+        .options(joinedload(LeadORM.qualification), joinedload(LeadORM.analysis))
+        .where(LeadORM.id == lead_id)
     )
 
 

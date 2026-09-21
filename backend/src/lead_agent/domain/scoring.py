@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import cast
 
+from lead_agent.domain.analysis import AnalyzedField, LeadContextAnalysis
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.models import NormalizedLead, QualificationResult, ScoreLine
 
@@ -40,7 +42,9 @@ def _line(
     )
 
 
-def _hard_disqualifier(lead: NormalizedLead, icp: IcpConfig) -> tuple[str, str] | None:
+def find_hard_disqualifier(lead: NormalizedLead, icp: IcpConfig) -> tuple[str, str] | None:
+    """Return the first configured hard exclusion before provider reasoning."""
+
     searchable = " ".join(
         value
         for value in (
@@ -63,12 +67,36 @@ def _hard_disqualifier(lead: NormalizedLead, icp: IcpConfig) -> tuple[str, str] 
     return None
 
 
-def qualify_lead(
-    lead: NormalizedLead, icp: IcpConfig, routing: RoutingConfig
-) -> QualificationResult:
-    """Score a normalized lead deterministically and produce an explainable decision."""
+def _analysis_field(analysis: LeadContextAnalysis | None, name: str) -> AnalyzedField | None:
+    if analysis is None:
+        return None
+    return cast(AnalyzedField | None, getattr(analysis.context, name))
 
-    disqualifier = _hard_disqualifier(lead, icp)
+
+def _field_signal(field: AnalyzedField | None, accepted: Iterable[str] | None = None) -> str | None:
+    if field is None or field.information_kind == "unknown" or not field.value:
+        return None
+    if accepted is None:
+        return field.value
+    normalized = _norm(field.value)
+    return field.value if any(_norm(value) in normalized for value in accepted) else None
+
+
+def _field_evidence(field: AnalyzedField | None) -> tuple[str, ...]:
+    if field is None:
+        return ()
+    return tuple(f"{item.source_field}: {item.excerpt}" for item in field.evidence)
+
+
+def qualify_lead(
+    lead: NormalizedLead,
+    icp: IcpConfig,
+    routing: RoutingConfig,
+    analysis: LeadContextAnalysis | None = None,
+) -> QualificationResult:
+    """Apply deterministic scoring, optionally using validated reasoning as evidence."""
+
+    disqualifier = find_hard_disqualifier(lead, icp)
     if disqualifier:
         code, reason = disqualifier
         band = routing.band_for(0)
@@ -111,6 +139,7 @@ def qualify_lead(
             ),
             score_breakdown=skipped,
             policy_version=routing.policy_version,
+            confidence=analysis.overall_confidence if analysis else 1.0,
         )
 
     points = icp.scoring.component_points
@@ -161,7 +190,9 @@ def qualify_lead(
     )
 
     roles = [*icp.buyer_roles.get("decision_makers", []), *icp.buyer_roles.get("influencers", [])]
-    role = _matches_list(lead.job_title, roles)
+    analyzed_role = _analysis_field(analysis, "person_role")
+    role_value = lead.job_title or (analyzed_role.value if analyzed_role else None)
+    role = _matches_list(role_value, roles)
     lines.append(
         _line(
             "icp_fit",
@@ -171,6 +202,7 @@ def qualify_lead(
             f"Buyer title {'matches' if role else 'does not match or is missing'} "
             "configured roles.",
             role or "no role match",
+            *_field_evidence(analyzed_role),
         )
     )
 
@@ -189,7 +221,10 @@ def qualify_lead(
 
     intent_points = points.get("intent_urgency", {})
     text = _norm(f"{lead.message} {lead.product_or_service}")
-    urgent = _contains_any(text, icp.scoring.signals.get("urgent", []))
+    analyzed_urgency = _analysis_field(analysis, "urgency")
+    urgent = _contains_any(text, icp.scoring.signals.get("urgent", [])) or _field_signal(
+        analyzed_urgency, ["high", "urgent", "immediate"]
+    )
     lines.append(
         _line(
             "intent_urgency",
@@ -198,9 +233,13 @@ def qualify_lead(
             intent_points.get("urgency", 0),
             f"Urgency signal {'found' if urgent else 'not found'}.",
             urgent or "no urgency signal",
+            *_field_evidence(analyzed_urgency),
         )
     )
-    buying_stage = _contains_any(text, icp.scoring.signals.get("ready_to_buy", []))
+    analyzed_stage = _analysis_field(analysis, "buying_stage")
+    buying_stage = _contains_any(
+        text, icp.scoring.signals.get("ready_to_buy", [])
+    ) or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"])
     lines.append(
         _line(
             "intent_urgency",
@@ -209,10 +248,14 @@ def qualify_lead(
             intent_points.get("buying_stage", 0),
             f"Ready-to-buy signal {'found' if buying_stage else 'not found'}.",
             buying_stage or "no ready-to-buy signal",
+            *_field_evidence(analyzed_stage),
         )
     )
-    budget_signal = lead.budget is not None or _contains_any(
-        text, icp.scoring.signals.get("budget", [])
+    analyzed_budget = _analysis_field(analysis, "budget_information")
+    budget_signal = (
+        lead.budget is not None
+        or _contains_any(text, icp.scoring.signals.get("budget", []))
+        or _field_signal(analyzed_budget)
     )
     lines.append(
         _line(
@@ -222,9 +265,13 @@ def qualify_lead(
             intent_points.get("budget_signal", 0),
             f"Budget signal {'present' if budget_signal else 'absent'}.",
             str(lead.budget) if lead.budget is not None else "no budget signal",
+            *_field_evidence(analyzed_budget),
         )
     )
-    specific = _contains_any(text, icp.scoring.signals.get("specific_request", []))
+    analyzed_technical = _analysis_field(analysis, "technical_requirements")
+    specific = _contains_any(
+        text, icp.scoring.signals.get("specific_request", [])
+    ) or _field_signal(analyzed_technical)
     lines.append(
         _line(
             "intent_urgency",
@@ -233,6 +280,7 @@ def qualify_lead(
             intent_points.get("specific_request", 0),
             f"Specific request signal {'found' if specific else 'not found'}.",
             specific or "no specific request signal",
+            *_field_evidence(analyzed_technical),
         )
     )
 
@@ -270,8 +318,11 @@ def qualify_lead(
             f"{completeness} of {len(completeness_fields)} contact fields were provided.",
         )
     )
-    pain = _contains_any(text, icp.scoring.signals.get("pain_point", [])) or _contains_any(
-        text, icp.pain_points
+    analyzed_pain = _analysis_field(analysis, "pain_point")
+    pain = (
+        _contains_any(text, icp.scoring.signals.get("pain_point", []))
+        or _contains_any(text, icp.pain_points)
+        or _field_signal(analyzed_pain)
     )
     lines.append(
         _line(
@@ -281,6 +332,7 @@ def qualify_lead(
             engagement_points.get("pain_clarity", 0),
             f"Pain point {'is clear' if pain else 'is not clearly expressed'}.",
             pain or "no configured pain signal",
+            *_field_evidence(analyzed_pain),
         )
     )
     channel_context = bool(lead.source and lead.source_detail)
@@ -313,4 +365,5 @@ def qualify_lead(
         rationale=rationale,
         score_breakdown=tuple(lines),
         policy_version=routing.policy_version,
+        confidence=analysis.overall_confidence if analysis else 1.0,
     )

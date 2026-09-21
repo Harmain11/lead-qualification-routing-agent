@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"
     llm_provider: str = "none"
+    openai_api_key: str = ""
+    openai_model: str = ""
+    openai_org_id: str = ""
+    openai_timeout_seconds: float = 30.0
+    openai_max_retries: int = 2
+    openai_store_responses: bool = False
     crm_provider: str = "none"
     mailbox_provider: str = "none"
     social_provider: str = "none"

@@ -76,6 +76,34 @@ class LeadORM(Base):
     qualification: Mapped[QualificationResultORM | None] = relationship(
         back_populates="lead", uselist=False, cascade="all, delete-orphan"
     )
+    analysis: Mapped[AnalysisRunORM | None] = relationship(
+        back_populates="lead", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class AnalysisRunORM(Base):
+    __tablename__ = "analysis_runs"
+    __table_args__ = (
+        Index("ix_analysis_status_created", "status", "created_at"),
+        UniqueConstraint("lead_id", name="uq_analysis_lead"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(48), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
+    requires_manual_review: Mapped[bool] = mapped_column(nullable=False, default=False)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    structured_output: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    lead: Mapped[LeadORM] = relationship(back_populates="analysis")
 
 
 class QualificationResultORM(Base):

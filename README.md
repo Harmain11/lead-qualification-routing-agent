@@ -6,7 +6,7 @@ This repository currently contains the architecture, configuration contracts, do
 
 ## Project status
 
-Phase 2 — durable multi-channel intake and normalization on top of the Phase 1 vertical slice.
+Phase 3 — grounded context/intent intelligence and explainable hybrid qualification on top of the durable multi-channel pipeline.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are summarized in [`docs/requirements.md`](docs/requirements.md), and the production architecture is documented in [`docs/architecture.md`](docs/architecture.md).
 
@@ -16,7 +16,7 @@ The source build plan is preserved in [`doc/Lead Qualification & Routing Agent �
 - **Async processing:** Celery with Redis initially; keep the queue port replaceable with a managed broker later
 - **Database:** PostgreSQL 16 with UUID identifiers, JSONB for provider payloads, append-only decision/audit records, and materialized analytics views as needed
 - **Dashboard:** React, TypeScript, Vite, TanStack Query, React Router, and a charting library such as Recharts
-- **AI boundary:** an internal `ReasoningProvider` port. The planned OpenAI adapter will use the Responses API with schema-constrained JSON outputs, but it is not part of this scaffold. See the [official OpenAI Responses API reference](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
+- **AI boundary:** an internal `ReasoningProvider` port with deterministic and OpenAI implementations. The OpenAI adapter uses the Responses API with schema-constrained Pydantic output; it is optional for local operation. See the [official structured outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs).
 - **Operations:** Docker Compose for local dependencies, OpenTelemetry-compatible tracing, structured JSON logs, health/readiness endpoints, and CI checks for formatting, typing, tests, migrations, and dependency auditing
 
 The system is intentionally a modular monolith for v1: one deployable API, one worker process, one dashboard, and one database. The domain and provider ports keep the system ready to split services later if throughput or tenant isolation requires it.
@@ -53,7 +53,7 @@ The system is intentionally a modular monolith for v1: one deployable API, one w
 
 ## Local setup
 
-This phase includes a durable website intake path plus fixture-backed email, LinkedIn, and Clutch mailbox-boundary adapters. Live provider credentials and external SDKs remain disabled.
+This phase includes durable intake plus persisted context analysis, ICP grounding, confidence handling, summaries, and explainable qualification. Live channel providers remain disabled; OpenAI is optional.
 
 Prerequisites: Python 3.12+, Node.js 22+, Docker Desktop, and `uv`.
 
@@ -107,7 +107,19 @@ The default v1 CRM mode is `none` until a Salesforce or HubSpot decision and cre
 
 Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml) and [`config/routing.example.yaml`](config/routing.example.yaml). The seed command creates illustrative Hot, Warm, Needs Qualifying, Nurture, and Disqualified records.
 
-Every intake adapter emits the same durable source-event contract. Raw payloads, source attribution, processing attempts, status, and errors are retained before the existing normalization and qualification pipeline runs. Replaying a channel event with the same external identifier returns the existing lead; a different inquiry from the same person remains a separate event.
+Every intake adapter emits the same durable source-event contract. Raw payloads, source attribution, processing attempts, status, and errors are retained before normalization, context analysis, and qualification run. Replaying a channel event with the same external identifier returns the existing lead; a different inquiry from the same person remains a separate event.
+
+## Phase 3 reasoning configuration
+
+The default `LLM_PROVIDER=deterministic` runs completely offline and is the supported mode for tests and credential-free development. To exercise the live adapter, set `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and an approved `OPENAI_MODEL` in the ignored local `.env`. `OPENAI_STORE_RESPONSES=false` remains the safe default.
+
+Provider output is schema-validated and cannot set numeric scores or routing bands. Hard disqualifiers execute first. Timeout, missing credentials, unavailable providers, invalid output, low confidence, and contradictions preserve the lead and place its source event in manual review with inspectable error details.
+
+After pulling Phase 3, apply the analysis migration:
+
+```powershell
+uv run --project backend alembic -c backend/alembic.ini upgrade head
+```
 
 ## Design principles
 

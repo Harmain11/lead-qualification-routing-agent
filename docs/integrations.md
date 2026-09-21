@@ -24,6 +24,13 @@ Phase 2 fixture status:
 - LinkedIn: fixture-only through `/v1/intake/linkedin`; live use requires an officially approved lead-form, webhook, or export/import access path.
 - Fourth channel: fixture-only through `/v1/intake/fourth`, currently representing the documented Clutch notification-email recommendation behind the mailbox boundary.
 
+### Phase 3 reasoning status
+
+- `LLM_PROVIDER=deterministic` (and legacy `none`) uses the offline provider and needs no credentials.
+- `LLM_PROVIDER=openai` selects the schema-constrained OpenAI Responses API adapter. `OPENAI_API_KEY` and `OPENAI_MODEL` must then be supplied outside Git.
+- `OPENAI_STORE_RESPONSES=false` is the safe local default; any change requires an approved retention/privacy decision.
+- Missing credentials, timeout, provider unavailability, or invalid structured output creates a persisted fallback analysis and manual-review state.
+
 ## Credential handling
 
 - Generate credentials in each provider’s developer/admin console; never paste them into source, fixtures, documentation, screenshots, or seed data.
@@ -65,4 +72,4 @@ The complete placeholder contract is in [`.env.example`](../.env.example). Varia
 - LinkedIn and optional social credentials;
 - webhook security, demo-data mode, and telemetry.
 
-The current safe defaults are `LLM_PROVIDER=none`, `CRM_PROVIDER=none`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.
+The current safe defaults are `LLM_PROVIDER=deterministic`, `CRM_PROVIDER=none`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.

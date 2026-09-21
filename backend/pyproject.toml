@@ -1,12 +1,13 @@
 [project]
 name = "lead-qualification-routing-agent"
-version = "0.1.0"
-description = "Explainable lead normalization, qualification, and routing vertical slice"
+version = "0.3.0"
+description = "Grounded, explainable multi-channel lead qualification system"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2.0",
   "celery>=5.4,<6.0",
   "fastapi>=0.115,<1.0",
+  "openai>=1.68,<3.0",
   "psycopg[binary]>=3.2,<4.0",
   "pydantic-settings>=2.6,<3.0",
   "python-multipart>=0.0.20,<1.0",

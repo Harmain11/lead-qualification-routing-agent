@@ -1,0 +1,90 @@
+[
+  {
+    "id": "eval-web-hot",
+    "channel": "website",
+    "inquiry": "We need a Salesforce-integrated lead routing workflow live within 30 days. I am the VP of Operations and have a $35,000 approved budget.",
+    "expected": {
+      "intent_level": "high",
+      "urgency": "high",
+      "icp_characteristics": ["decision-maker", "budget", "technical requirement"],
+      "qualification_category": "hot"
+    }
+  },
+  {
+    "id": "eval-web-browse",
+    "channel": "website",
+    "inquiry": "Just curious about your services. No timeline yet.",
+    "expected": {
+      "intent_level": "low",
+      "urgency": "low",
+      "icp_characteristics": ["insufficient company context"],
+      "qualification_category": "nurture"
+    }
+  },
+  {
+    "id": "eval-email-evaluation",
+    "channel": "email",
+    "inquiry": "Subject: Qualification options. We are comparing HubSpot workflow options for next quarter and would like pricing.",
+    "expected": {
+      "intent_level": "medium",
+      "urgency": "medium",
+      "icp_characteristics": ["competitor/current tool", "pricing signal"],
+      "qualification_category": "warm"
+    }
+  },
+  {
+    "id": "eval-email-researcher",
+    "channel": "email",
+    "inquiry": "I am researching lead automation for an internal report and do not own the buying decision.",
+    "expected": {
+      "intent_level": "low",
+      "urgency": "unknown",
+      "icp_characteristics": ["non-decision-maker"],
+      "qualification_category": "needs_qualifying"
+    }
+  },
+  {
+    "id": "eval-linkedin-urgent",
+    "channel": "linkedin",
+    "inquiry": "Can we book a call this week? Missed inquiries are hurting our pipeline and we need an API integration.",
+    "expected": {
+      "intent_level": "high",
+      "urgency": "high",
+      "icp_characteristics": ["pain relevance", "technical requirement"],
+      "qualification_category": "warm"
+    }
+  },
+  {
+    "id": "eval-linkedin-vague",
+    "channel": "linkedin",
+    "inquiry": "Could you send an overview?",
+    "expected": {
+      "intent_level": "unknown",
+      "urgency": "unknown",
+      "icp_characteristics": ["missing budget", "missing timeline"],
+      "qualification_category": "nurture"
+    }
+  },
+  {
+    "id": "eval-clutch-project",
+    "channel": "clutch",
+    "inquiry": "We need to replace a manual qualification process and want implementation scope, timeline, and pricing this month.",
+    "expected": {
+      "intent_level": "high",
+      "urgency": "high",
+      "icp_characteristics": ["pain relevance", "specific request"],
+      "qualification_category": "warm"
+    }
+  },
+  {
+    "id": "eval-clutch-disqualified",
+    "channel": "clutch",
+    "inquiry": "I am a student seeking help with a school project about lead scoring.",
+    "expected": {
+      "intent_level": "low",
+      "urgency": "unknown",
+      "icp_characteristics": ["hard disqualifier"],
+      "qualification_category": "disqualify"
+    }
+  }
+]
