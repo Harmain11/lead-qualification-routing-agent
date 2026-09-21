@@ -1,6 +1,6 @@
 # APIs, integrations, credentials, and data requirements
 
-All items in this document are planning requirements. No provider SDK, OAuth flow, webhook handler, or API client is implemented in the current phase.
+Provider SDKs and OAuth clients remain deferred. Phase 2 implements provider-neutral adapter boundaries, fixture payloads, source-event persistence, and the website signature hook without requiring live credentials.
 
 ## Required external boundaries
 
@@ -16,6 +16,13 @@ All items in this document are planning requirements. No provider SDK, OAuth flo
 | Slack | Slack Web API for channel notification delivery; interactive review actions are optional | Bot token, channel ID, signing secret if receiving interactions | `SLACK_*` |
 | Reasoning | OpenAI Responses API through an internal provider adapter | Project API key, approved model, data-retention decision | `OPENAI_*` |
 | Observability | OTLP collector and optional error tracking | Collector endpoint and optional DSN | `OTEL_EXPORTER_OTLP_ENDPOINT`, `SENTRY_DSN` |
+
+Phase 2 fixture status:
+
+- Website: functional through `/v1/intake/web`; HMAC-SHA256 verification is enabled when `WEBHOOK_SIGNING_SECRET` is configured.
+- Email: functional through `/v1/intake/email` using a provider-neutral sender/subject/body contract; Gmail and Microsoft Graph adapters are not connected.
+- LinkedIn: fixture-only through `/v1/intake/linkedin`; live use requires an officially approved lead-form, webhook, or export/import access path.
+- Fourth channel: fixture-only through `/v1/intake/fourth`, currently representing the documented Clutch notification-email recommendation behind the mailbox boundary.
 
 ## Credential handling
 

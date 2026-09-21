@@ -11,6 +11,7 @@ This plan follows the nine-week build plan while making dependencies and feasibi
 - Hard disqualifiers, explainable score lines, routing bands, seed records, and automated unit tests.
 - React/TypeScript manual intake and decision-trail view.
 - Redis/Celery boundary scaffolded without unnecessary background jobs.
+- Durable source-event lifecycle with replay-safe channel adapters for website, email, LinkedIn fixtures, and the selected Clutch mailbox-boundary fixture.
 
 ## Phase 0 — foundation and architecture (complete in this change)
 
@@ -37,6 +38,17 @@ This plan follows the nine-week build plan while making dependencies and feasibi
 - Build website webhook and mailbox intake behind `ChannelIntakePort`.
 - Add the LinkedIn adapter only for the approved official access path.
 - Normalize all available sources into the canonical lead contract and verify deduplication.
+
+### Phase 2 implementation status
+
+- Completed the common `ChannelAdapter` boundary and immutable `SourceEvent` contract.
+- Added source-event lifecycle fields: received, processing, processed, failed, and manual-review-capable status, attempts, error details, and timestamps.
+- Added website HMAC signature support and safe JSON/schema validation.
+- Added provider-neutral email, LinkedIn official-access fixture, and Clutch notification-email fixture adapters.
+- Connected every adapter to the existing normalization and deterministic qualification pipeline without adding Phase 3 reasoning.
+- Added replay, distinct-inquiry, processing-failure/retry, malformed-payload, attribution, and adapter mapping tests.
+
+Live Gmail/Microsoft Graph, LinkedIn, Clutch mailbox access, queue execution, and external infrastructure remain integration-test/deployment work.
 
 **Exit criteria:** website, email, LinkedIn path, and raw replay all produce the same canonical lead shape.
 

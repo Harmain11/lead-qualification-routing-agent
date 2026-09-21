@@ -6,7 +6,7 @@ This repository currently contains the architecture, configuration contracts, do
 
 ## Project status
 
-Phase 1 — local application foundation and first working lead-processing vertical slice.
+Phase 2 — durable multi-channel intake and normalization on top of the Phase 1 vertical slice.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are summarized in [`docs/requirements.md`](docs/requirements.md), and the production architecture is documented in [`docs/architecture.md`](docs/architecture.md).
 
@@ -53,7 +53,7 @@ The system is intentionally a modular monolith for v1: one deployable API, one w
 
 ## Local setup
 
-This phase includes a working local website/manual intake path. External providers remain disabled.
+This phase includes a durable website intake path plus fixture-backed email, LinkedIn, and Clutch mailbox-boundary adapters. Live provider credentials and external SDKs remain disabled.
 
 Prerequisites: Python 3.12+, Node.js 22+, Docker Desktop, and `uv`.
 
@@ -93,16 +93,21 @@ See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the staged 
 
 The default v1 CRM mode is `none` until a Salesforce or HubSpot decision and credentials are available. No Salesforce, HubSpot, Slack, LinkedIn, Gmail/Outlook, social, Clutch, or OpenAI client has been added. Redis/Celery are only structured as the future asynchronous boundary; this first slice runs synchronously so its result is immediately visible.
 
-## Phase 1 API
+## Intake and Phase 1 API
 
 - `POST /v1/leads` — create, normalize, qualify, route, and persist a website/manual lead.
-- `POST /v1/intake/web` — website intake alias using the same canonical processing path.
+- `POST /v1/intake/web` — validated website webhook with optional HMAC-SHA256 verification via `WEBHOOK_SIGNING_SECRET`.
+- `POST /v1/intake/email` — provider-neutral inbound email fixture/intake contract.
+- `POST /v1/intake/linkedin` — official LinkedIn lead-form/export fixture contract; no scraping.
+- `POST /v1/intake/fourth` — selected fourth-channel Clutch notification-email fixture contract.
 - `GET /v1/leads` — list persisted leads and current qualification results.
 - `GET /v1/leads/{lead_id}` — retrieve the canonical lead and decision.
 - `GET /v1/leads/{lead_id}/qualification` — retrieve the explainable qualification result.
 - `GET /health/live` and `GET /health/ready` — liveness/readiness checks.
 
 Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml) and [`config/routing.example.yaml`](config/routing.example.yaml). The seed command creates illustrative Hot, Warm, Needs Qualifying, Nurture, and Disqualified records.
+
+Every intake adapter emits the same durable source-event contract. Raw payloads, source attribution, processing attempts, status, and errors are retained before the existing normalization and qualification pipeline runs. Replaying a channel event with the same external identifier returns the existing lead; a different inquiry from the same person remains a separate event.
 
 ## Design principles
 

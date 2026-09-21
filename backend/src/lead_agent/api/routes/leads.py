@@ -20,7 +20,6 @@ from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import get_lead, get_qualification, list_leads
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
-intake_router = APIRouter(prefix="/v1/intake", tags=["intake"])
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:
@@ -41,15 +40,6 @@ def _process_create_request(
 
 @router.post("", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
 def create_lead(
-    request: LeadCreateRequest,
-    session: Session = Depends(get_db),
-    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
-) -> LeadResponse:
-    return _process_create_request(request, session, policies)
-
-
-@intake_router.post("/web", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
-def website_intake(
     request: LeadCreateRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),

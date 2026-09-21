@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -41,10 +42,10 @@ def create_lead_with_result(
     session: Session,
     lead: NormalizedLead,
     result: QualificationResult,
+    source_event: SourceEventORM | None = None,
 ) -> LeadORM:
     now = datetime.now(UTC)
-    source_event: SourceEventORM | None = None
-    if lead.external_id:
+    if source_event is None and lead.external_id:
         source_event = session.scalar(
             select(SourceEventORM).where(
                 SourceEventORM.provider == lead.source,
@@ -53,7 +54,7 @@ def create_lead_with_result(
         )
         if source_event and source_event.lead:
             return source_event.lead
-    if not source_event:
+    if source_event is None:
         source_event = SourceEventORM(
             id=uuid4(),
             provider=lead.source,
@@ -61,6 +62,7 @@ def create_lead_with_result(
             raw_payload=lead.raw_payload,
             received_at=lead.received_at,
             created_at=now,
+            updated_at=now,
         )
         session.add(source_event)
 
@@ -102,6 +104,63 @@ def create_lead_with_result(
     )
     session.commit()
     return get_lead(session, lead.id)  # type: ignore[return-value]
+
+
+def get_source_event(
+    session: Session, provider: str, external_event_id: str
+) -> SourceEventORM | None:
+    return session.scalar(
+        select(SourceEventORM).where(
+            SourceEventORM.provider == provider,
+            SourceEventORM.external_event_id == external_event_id,
+        )
+    )
+
+
+def create_source_event(
+    session: Session,
+    provider: str,
+    external_event_id: str,
+    raw_payload: dict[str, Any],
+    received_at: datetime,
+    now: datetime | None = None,
+) -> SourceEventORM:
+    timestamp = now or datetime.now(UTC)
+    row = SourceEventORM(
+        id=uuid4(),
+        provider=provider,
+        external_event_id=external_event_id,
+        raw_payload=raw_payload,
+        received_at=received_at,
+        created_at=timestamp,
+        updated_at=timestamp,
+        status="received",
+        processing_attempts=0,
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def update_source_event(
+    session: Session,
+    row: SourceEventORM,
+    *,
+    status: str,
+    error_message: str | None = None,
+    processed_at: datetime | None = None,
+    increment_attempt: bool = False,
+) -> SourceEventORM:
+    row.status = status
+    row.error_message = error_message
+    row.processed_at = processed_at
+    row.updated_at = datetime.now(UTC)
+    if increment_attempt:
+        row.processing_attempts += 1
+    session.commit()
+    session.refresh(row)
+    return row
 
 
 def list_leads(session: Session) -> list[LeadORM]:

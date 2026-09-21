@@ -12,6 +12,7 @@ class LeadCreateRequest(BaseModel):
 
     source: str = "website"
     source_detail: str | None = None
+    event_id: str | None = None
     external_id: str | None = None
     full_name: str
     email: str
@@ -26,6 +27,55 @@ class LeadCreateRequest(BaseModel):
     product_or_service: str
     message: str
     received_at: datetime | None = None
+
+
+class EmailIntakeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str | None = None
+    external_message_id: str | None = None
+    sender: str
+    sender_name: str | None = None
+    subject: str
+    body: str
+    timestamp: datetime | None = None
+    received_at: datetime | None = None
+    provider: str = "fixture"
+    company: str | None = None
+    job_title: str | None = None
+    geography: str | None = None
+    phone: str | None = None
+    industry: str | None = None
+    budget: float | None = Field(default=None, ge=0)
+
+
+class LinkedInIntakeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str | None = None
+    lead_id: str | None = None
+    message_id: str | None = None
+    sender_name: str
+    email: str | None = None
+    message: str
+    company_name: str | None = None
+    job_title: str | None = None
+    product_or_service: str | None = None
+    source_detail: str = "official-fixture"
+    timestamp: datetime | None = None
+
+
+class ClutchIntakeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inquiry_id: str | None = None
+    external_message_id: str | None = None
+    sender: str
+    sender_name: str | None = None
+    subject: str
+    body: str
+    timestamp: datetime | None = None
+    company: str | None = None
 
 
 class ScoreBreakdownResponse(BaseModel):

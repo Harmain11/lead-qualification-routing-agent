@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     log_level: str = "INFO"
     secret_key: str = "local-development-only"
+    webhook_signing_secret: str = ""
     cors_allowed_origins: str = "http://localhost:5173"
     database_url: str = "postgresql+psycopg://lead_agent:lead_agent@localhost:5432/lead_agent"
     redis_url: str = "redis://localhost:6379/0"
