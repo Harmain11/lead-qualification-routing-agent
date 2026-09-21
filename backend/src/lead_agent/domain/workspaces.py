@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 DEFAULT_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000001")
+DEMO_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000006")
 
 
 @dataclass(frozen=True)

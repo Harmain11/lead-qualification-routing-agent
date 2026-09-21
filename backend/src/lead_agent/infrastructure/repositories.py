@@ -30,6 +30,7 @@ def ensure_workspace(
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
     *,
     name: str = "Default Workspace",
+    is_demo: bool = False,
 ) -> WorkspaceORM:
     existing = session.get(WorkspaceORM, workspace_id)
     if existing is not None:
@@ -40,6 +41,7 @@ def ensure_workspace(
         name=name,
         slug=("default" if workspace_id == DEFAULT_WORKSPACE_ID else f"workspace-{workspace_id}"),
         status="active",
+        is_demo=is_demo,
         created_at=now,
         updated_at=now,
     )

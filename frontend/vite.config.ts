@@ -4,9 +4,12 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8000";
-  const allowedHosts = env.VITE_ALLOWED_HOSTS
+  const configuredHosts = env.VITE_ALLOWED_HOSTS
     ? env.VITE_ALLOWED_HOSTS.split(",").map((host) => host.trim()).filter(Boolean)
     : [];
+  const allowedHosts = Array.from(
+    new Set([...configuredHosts, "localhost", "lead-agent-frontend", "host.docker.internal"]),
+  );
 
   return {
     plugins: [react()],

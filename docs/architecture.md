@@ -212,3 +212,11 @@ The intended orchestration remains:
 `Orchestrator → Intake/Context Agent → Qualification Agent → Routing Agent → Action Planning Agent → CRM Tool → Notification Tool`
 
 Future agents may add follow-up, enrichment, and analytics/insight behavior. Authentication, authorization, tenant isolation, hard disqualifiers, score limits, routing thresholds, retries, validation, and idempotency remain deterministic application policy and cannot be overridden by an LLM.
+
+## Phase 6 analytics read model and product shell
+
+Analytics is a workspace-scoped application read service. Product endpoints never expose cross-workspace aggregates, and the frontend consumes structured server-side metrics rather than loading all records to calculate business analytics in the browser.
+
+`LeadOutcome` is a separate commercial fact attached one-to-one to a lead. It stores pipeline stage, opportunity value, closed revenue, currency, and provenance (`crm`, `demo`, or unavailable) without mutating qualification or routing evidence. The workspace carries an explicit `is_demo` marker; the Phase 6 seed command writes only to the reserved demo workspace.
+
+The application shell maps Dashboard, Leads, Pipeline, Agents / AI Activity, Analytics, Integrations, Manual Review, and Settings to the same workspace context. Agent activity is derived from durable pipeline events and controlled tool-audit events and exposes business-facing structured output only—never hidden chain-of-thought.

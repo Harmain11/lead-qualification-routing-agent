@@ -28,6 +28,7 @@ class WorkspaceORM(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    is_demo: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -102,6 +103,7 @@ class LeadORM(Base):
         Index("ix_leads_source_created", "source", "created_at"),
         Index("ix_leads_email", "email"),
         Index("ix_leads_workspace_created", "workspace_id", "created_at"),
+        Index("ix_leads_workspace_received", "workspace_id", "received_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -146,6 +148,9 @@ class LeadORM(Base):
     )
     crm_syncs: Mapped[list[CrmSyncORM]] = relationship(
         back_populates="lead", cascade="all, delete-orphan"
+    )
+    outcome: Mapped[LeadOutcomeORM | None] = relationship(
+        back_populates="lead", uselist=False, cascade="all, delete-orphan"
     )
 
 
@@ -275,7 +280,10 @@ class NotificationORM(Base):
 
 class PipelineEventORM(Base):
     __tablename__ = "pipeline_events"
-    __table_args__ = (Index("ix_pipeline_lead_created", "lead_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_pipeline_lead_created", "lead_id", "created_at"),
+        Index("ix_pipeline_events_workspace_created", "workspace_id", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(
@@ -380,3 +388,31 @@ class AgentToolAuditORM(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LeadOutcomeORM(Base):
+    __tablename__ = "lead_outcomes"
+    __table_args__ = (
+        Index("ix_lead_outcomes_workspace_stage", "workspace_id", "pipeline_stage"),
+        Index("ix_lead_outcomes_workspace_closed", "workspace_id", "closed_at"),
+        UniqueConstraint("lead_id", name="uq_lead_outcome_lead"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    pipeline_stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    opportunity_value: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    closed_revenue: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    data_source: Mapped[str] = mapped_column(String(32), nullable=False, default="unavailable")
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    lead: Mapped[LeadORM] = relationship(back_populates="outcome")

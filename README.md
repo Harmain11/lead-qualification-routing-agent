@@ -4,7 +4,7 @@ Production-ready foundation for a channel-agnostic lead qualification, explainab
 
 ## Project status
 
-Phases 1–5.5 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, and a controlled agent-tool boundary. Live Salesforce/HubSpot validation and the Phase 6 analytics dashboard remain deferred.
+Phases 1–6 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, and a workspace-scoped analytics product experience. Live Salesforce/HubSpot validation and final Phase 7 hardening remain deferred.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are in [`docs/requirements.md`](docs/requirements.md), and the production architecture is in [`docs/architecture.md`](docs/architecture.md).
 
@@ -55,6 +55,8 @@ docker compose -f infra/compose/docker-compose.yml up -d
 uv sync --project backend --extra dev
 uv run --project backend alembic -c backend/alembic.ini upgrade head
 uv run --project backend python -m lead_agent.seed
+# Optional: populate the isolated Phase 6 demo workspace used by the product UI.
+uv run --project backend python -m lead_agent.seed --demo
 ```
 
 Run the API:
@@ -100,6 +102,7 @@ If `uv` is unavailable, use `python -m venv .venv`, activate it, install with `p
 - `POST /v1/integrations/{provider}/credentials` — store a manual credential through the secret port.
 - `POST /v1/integrations/connections/{id}/test` — validate connection state safely.
 - `POST /v1/integrations/connections/{id}/disconnect` or `/reconnect` — rotate connection state without returning secrets.
+- `GET /v1/analytics/{dashboard|channels|pipeline|revenue|reps|time-series|agent-activity|manual-review}` — workspace-scoped weekly, monthly, or annual product analytics.
 - `GET /health/live` and `GET /health/ready` — liveness/readiness checks.
 
 ## Configuration and secrets
@@ -127,3 +130,11 @@ docker exec lead-agent-frontend sh -lc "npm run typecheck && npm run build"
 ```
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md), [`docs/architecture.md`](docs/architecture.md), and [`docs/integrations.md`](docs/integrations.md) for design boundaries and deferred integration work.
+
+## Phase 6 analytics and product experience
+
+Analytics is aggregated on the server and every response includes generated-at, workspace, time-window, and demo/live provenance metadata. Revenue facts remain separate from qualification evidence and are labeled `crm`, `demo`, `mixed`, or `unavailable`; seeded revenue is never represented as production data.
+
+The frontend reads `VITE_WORKSPACE_ID` at dev/build startup. Its development default targets the reserved demo workspace (`00000000-0000-0000-0000-000000000006`); set this to an owned live workspace for live-mode inspection. The demo seed command never inserts records into the default/live workspace.
+
+The product shell provides Dashboard, Leads, Pipeline, Agents / AI Activity, Analytics, Integrations, Manual Review, and Settings. Its signature operating-flow visualization uses lightweight CSS/SVG effects, stable transform/opacity motion, responsive layouts, and `prefers-reduced-motion` fallbacks.

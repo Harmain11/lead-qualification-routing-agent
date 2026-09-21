@@ -246,3 +246,133 @@ export type IntegrationCard = {
   manual_fields: string[];
   connection: ProviderConnection | null;
 };
+
+export type TimeRange = "weekly" | "monthly" | "annual";
+
+export type AnalyticsMetadata = {
+  generated_at: string;
+  range: TimeRange;
+  range_start: string;
+  range_end: string;
+  workspace_id: string;
+  workspace_name: string;
+  data_mode: "demo" | "live";
+};
+
+export type LeadCard = {
+  id: string;
+  name: string;
+  company: string;
+  source: string;
+  service: string;
+  score: number;
+  band: string;
+  received_at: string;
+  routing_status: string;
+  assigned_rep: string | null;
+  crm_status: string;
+  manual_review: boolean;
+  pipeline_stage: string;
+};
+
+export type DashboardAnalytics = {
+  metadata: AnalyticsMetadata;
+  metrics: Array<{
+    key: string;
+    label: string;
+    value: number;
+    change_percent: number | null;
+    previous_value: number | null;
+  }>;
+  band_distribution: Array<{ band: string; count: number }>;
+  attention_leads: LeadCard[];
+  recent_leads: LeadCard[];
+};
+
+export type ChannelAnalytics = {
+  metadata: AnalyticsMetadata;
+  channels: Array<{
+    channel: string;
+    lead_volume: number;
+    share_percent: number;
+    qualification_rate: number;
+    sql_conversion_rate: number;
+    closed_won_conversion_rate: number;
+    revenue: number;
+    average_score: number;
+    importance_index: number;
+  }>;
+};
+
+export type PipelineAnalytics = {
+  metadata: AnalyticsMetadata;
+  stages: Array<{
+    stage: string;
+    label: string;
+    count: number;
+    value: number;
+    leads: LeadCard[];
+  }>;
+  bands: Array<{ band: string; count: number }>;
+  manual_review: number;
+};
+
+export type RevenueAnalytics = {
+  metadata: AnalyticsMetadata;
+  data_status: "unavailable" | "demo" | "crm" | "mixed";
+  currency: string;
+  total_revenue: number;
+  pipeline_value: number;
+  by_channel: Array<{ label: string; value: number }>;
+  by_rep: Array<{ label: string; value: number }>;
+  by_service: Array<{ label: string; value: number }>;
+  over_time: Array<{ period: string; value: number }>;
+};
+
+export type RepAnalytics = {
+  metadata: AnalyticsMetadata;
+  reps: Array<{
+    rep_name: string;
+    assigned_leads: number;
+    qualified_leads: number;
+    closed_leads: number;
+    conversion_rate: number;
+    revenue: number;
+    average_response_minutes: number | null;
+  }>;
+};
+
+export type TimeSeriesAnalytics = {
+  metadata: AnalyticsMetadata;
+  points: Array<{
+    period: string;
+    leads: number;
+    sqls: number;
+    average_score: number;
+    revenue: number;
+  }>;
+};
+
+export type AgentActivity = {
+  metadata: AnalyticsMetadata;
+  capabilities: Array<{ name: string; status: "implemented" | "future" }>;
+  activity: Array<{
+    id: string;
+    lead_id: string | null;
+    agent: string;
+    stage: string;
+    status: string;
+    provider: string | null;
+    structured_result: Record<string, unknown>;
+    tool_name: string | null;
+    duration_ms: number | null;
+    error: string | null;
+    created_at: string;
+  }>;
+};
+
+export type ManualReviewAnalytics = {
+  metadata: AnalyticsMetadata;
+  items: Array<LeadCard & { review_reasons: string[] }>;
+  total: number;
+};

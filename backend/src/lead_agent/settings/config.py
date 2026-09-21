@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     app_name: str = "lead-qualification-routing-agent"
-    app_version: str = "0.5.5"
+    app_version: str = "0.6.0"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     log_level: str = "INFO"

@@ -1,9 +1,33 @@
-import type { CrmSync, IntegrationCard, Lead, LeadPayload, ProviderConnection } from "./types";
+import type {
+  AgentActivity,
+  ChannelAnalytics,
+  CrmSync,
+  DashboardAnalytics,
+  IntegrationCard,
+  Lead,
+  LeadPayload,
+  ManualReviewAnalytics,
+  PipelineAnalytics,
+  ProviderConnection,
+  RepAnalytics,
+  RevenueAnalytics,
+  TimeRange,
+  TimeSeriesAnalytics,
+} from "./types";
+
+export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
+export const ACTIVE_WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
+
+function withWorkspace(headers?: HeadersInit): Headers {
+  const result = new Headers(headers);
+  result.set("X-Workspace-ID", ACTIVE_WORKSPACE_ID);
+  return result;
+}
 
 export async function createLead(payload: LeadPayload): Promise<Lead> {
   const response = await fetch("/v1/leads", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: withWorkspace({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -14,20 +38,22 @@ export async function createLead(payload: LeadPayload): Promise<Lead> {
 }
 
 export async function listLeads(): Promise<Lead[]> {
-  const response = await fetch("/v1/leads");
+  const response = await fetch("/v1/leads", { headers: withWorkspace() });
   if (!response.ok) throw new Error("Unable to load leads");
   const body = (await response.json()) as { items: Lead[] };
   return body.items;
 }
 
 export async function getCrmSyncHistory(leadId: string): Promise<CrmSync[]> {
-  const response = await fetch(`/v1/leads/${leadId}/crm-sync/history`);
+  const response = await fetch(`/v1/leads/${leadId}/crm-sync/history`, {
+    headers: withWorkspace(),
+  });
   if (!response.ok) throw new Error("Unable to load CRM synchronization history");
   return response.json() as Promise<CrmSync[]>;
 }
 
 async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
+  const response = await fetch(url, { ...options, headers: withWorkspace(options?.headers) });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Integration request failed" }));
     throw new Error(body.detail ?? "Integration request failed");
@@ -70,3 +96,28 @@ export function reconnectIntegration(connectionId: string, credentials: Record<s
     body: JSON.stringify({ credentials }),
   });
 }
+
+export function getLead(leadId: string): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}`);
+}
+
+function analyticsRequest<T>(path: string, range: TimeRange): Promise<T> {
+  return jsonRequest<T>(`/v1/analytics/${path}?range=${range}`);
+}
+
+export const getDashboard = (range: TimeRange) =>
+  analyticsRequest<DashboardAnalytics>("dashboard", range);
+export const getChannelAnalytics = (range: TimeRange) =>
+  analyticsRequest<ChannelAnalytics>("channels", range);
+export const getPipelineAnalytics = (range: TimeRange) =>
+  analyticsRequest<PipelineAnalytics>("pipeline", range);
+export const getRevenueAnalytics = (range: TimeRange) =>
+  analyticsRequest<RevenueAnalytics>("revenue", range);
+export const getRepAnalytics = (range: TimeRange) =>
+  analyticsRequest<RepAnalytics>("reps", range);
+export const getTimeSeriesAnalytics = (range: TimeRange) =>
+  analyticsRequest<TimeSeriesAnalytics>("time-series", range);
+export const getAgentActivity = (range: TimeRange) =>
+  analyticsRequest<AgentActivity>("agent-activity", range);
+export const getManualReview = (range: TimeRange) =>
+  analyticsRequest<ManualReviewAnalytics>("manual-review", range);
