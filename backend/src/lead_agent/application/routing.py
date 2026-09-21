@@ -163,7 +163,7 @@ def _build_action_plan(
 ) -> ActionPlan:
     action = _action_for(routing, action_key)
     context = analysis.context if analysis else None
-    pain = analysis.summary.pain_point if analysis else "No structured pain point recorded"
+    pain = context.pain_point.value if context and context.pain_point.value else "Unknown"
     urgency = (
         context.explicit_timeline.value
         if context and context.explicit_timeline.value
@@ -177,7 +177,7 @@ def _build_action_plan(
         if field and field.evidence:
             evidence.extend(f"{item.source_field}: {item.excerpt}" for item in field.evidence[:1])
     talking_points = list(action.talking_points)
-    if pain != "No structured pain point recorded":
+    if pain != "Unknown":
         talking_points.insert(0, f"Address the stated pain: {pain[:180]}")
     return ActionPlan(
         immediate_action=action.immediate_action,
@@ -247,7 +247,7 @@ def _notification_text(
     )[:3000]
 
 
-def _event(
+def record_pipeline_event(
     session: Session, lead_id: UUID, stage: str, status: str, details: dict[str, Any]
 ) -> None:
     session.add(
@@ -291,6 +291,8 @@ def notify_routing_decision(
         )
         session.add(existing)
         session.flush()
+    elif existing.status == "sent":
+        return existing
 
     message = NotificationMessage(
         deduplication_key=f"routing:{decision.id}:{active_provider.provider_name}",
@@ -324,10 +326,10 @@ def notify_routing_decision(
     existing.sent_at = now if delivery.state == "sent" else None
     existing.updated_at = datetime.now(UTC)
     decision.notification_state = delivery.state
-    _event(
+    record_pipeline_event(
         session,
         lead.id,
-        "notify",
+        "notified",
         delivery.state,
         {"provider": active_provider.provider_name, "notification_id": str(existing.id)},
     )
@@ -362,6 +364,7 @@ def route_and_notify(
     selected_rule, matching_rules = _select_rule(routing.rules, lead, qualification, analysis)
     band = qualification.classification
     if manual_review:
+        selected_rule = None
         queue = routing.manual_review_queue
         priority: RoutePriority = "urgent"
         action_key = "manual_review"
@@ -370,6 +373,30 @@ def route_and_notify(
             "requires human review."
         )
         matched_rules = ["manual_review_precedence"]
+    elif qualification.hard_disqualified or band == "disqualify":
+        selected_rule = None
+        band_config = next(item for item in routing.score_bands if item.key == "disqualify")
+        queue = band_config.queue
+        priority = "none"
+        action_key = "disqualify"
+        reason = (
+            "Hard disqualifier takes precedence; lead is retained without sales assignment."
+            if qualification.hard_disqualified
+            else "Disqualify-band precedence retains the lead without sales assignment."
+        )
+        matched_rules = [
+            "hard_disqualifier_precedence"
+            if qualification.hard_disqualified
+            else "disqualify_band_precedence"
+        ]
+    elif band == "nurture":
+        selected_rule = None
+        band_config = next(item for item in routing.score_bands if item.key == "nurture")
+        queue = band_config.queue
+        action_key = "nurture"
+        priority = _priority(_action_for(routing, action_key).priority)
+        reason = "Nurture-band precedence retains the lead outside active sales assignment."
+        matched_rules = ["nurture_band_precedence"]
     elif selected_rule is not None:
         queue = selected_rule.queue
         priority = _priority(selected_rule.priority)
@@ -382,27 +409,19 @@ def route_and_notify(
                 f"{len(matching_rules) - 1} other match(es)."
             )
     else:
-        band_config = next((item for item in routing.score_bands if item.key == band), None)
-        queue = band_config.queue if band_config else routing.safe_default_queue
+        fallback_band = next((item for item in routing.score_bands if item.key == band), None)
+        queue = fallback_band.queue if fallback_band else routing.safe_default_queue
         action_key = band
         action = _action_for(routing, action_key)
         priority = _priority(action.priority)
         reason = f"Safe default route selected from qualification band '{band}'."
         matched_rules = [f"default_band:{band}"]
 
-    if qualification.hard_disqualified:
-        queue = next(
-            (item.queue for item in routing.score_bands if item.key == "disqualify"), queue
-        )
-        priority = "none"
-        action_key = "disqualify"
-        reason = "Hard disqualifier takes precedence; lead is retained without sales assignment."
-        matched_rules = ["hard_disqualifier_precedence"]
-
     assigned_rep, assignment_reason = (None, "No rep assignment is applicable.")
     if (
         not manual_review
         and not qualification.hard_disqualified
+        and band not in {"nurture", "disqualify"}
         and queue
         not in {
             routing.manual_review_queue,
@@ -444,10 +463,10 @@ def route_and_notify(
     )
     session.add(decision)
     session.flush()
-    _event(
+    record_pipeline_event(
         session,
         lead.id,
-        "route",
+        "routed",
         "manual_review" if manual_review else "completed",
         {"routing_decision_id": str(decision.id), "queue": queue, "band": band},
     )

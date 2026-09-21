@@ -21,7 +21,7 @@ function label(value: string): string {
 }
 
 function Lifecycle({ lead }: { lead: Lead | null }) {
-  const stages = ["Source", "Normalize", "AI analysis", "ICP + score", "Route", "Notify"];
+  const stages = ["Intake", "Normalize", "Analyze", "Qualify", "Route", "Notify"];
   const completed = lead ? (lead.routing ? 6 : lead.qualification ? 4 : 2) : 0;
   return <div className="lifecycle" aria-label="Lead lifecycle">
     {stages.map((stage, index) => <div className={`lifecycle-node ${index < completed ? "completed" : index === completed ? "active" : ""}`} key={stage}>
@@ -97,7 +97,7 @@ function App() {
 
   return <main className="shell">
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
-    <header className="topbar"><div className="brand"><span className="brand-mark"><i /><i /></span><div><b>INGENUITY SYSTEMS</b><small>LEAD INTELLIGENCE</small></div></div><div className="status-badge"><span /> PHASE 3 · REASONING ONLINE</div></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark"><i /><i /></span><div><b>INGENUITY SYSTEMS</b><small>LEAD INTELLIGENCE</small></div></div><div className="status-badge"><span /> PHASE 4 · ROUTING ONLINE</div></header>
     <section className="hero"><div><span className="eyebrow">Context → evidence → decision → action</span><h1>Every signal,<br /><em>made actionable.</em></h1><p>A grounded AI reasoning layer interprets the inquiry. Deterministic policy keeps every score bounded while routing and action plans make the next move clear.</p></div><Lifecycle lead={selected} /></section>
     <section className="workspace">
       <form className="lead-form panel" onSubmit={submit}><div className="panel-heading"><div><span className="eyebrow">01 / Intake console</span><h2>Submit a test lead</h2></div><span className="live-dot">Live</span></div><div className="form-grid">

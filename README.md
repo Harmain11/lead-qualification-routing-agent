@@ -85,7 +85,7 @@ If `uv` is unavailable, use `python -m venv .venv`, activate it, install with `p
 - `GET /v1/leads/{lead_id}/routing/action-plan` — retrieve the sales-facing action plan.
 - `GET /v1/leads/{lead_id}/routing/history` — inspect append-only routing history.
 - `GET /v1/leads/{lead_id}/notifications` — inspect notification attempts.
-- `GET /v1/leads/{lead_id}/pipeline-history` — inspect route/notify lifecycle events.
+- `GET /v1/leads/{lead_id}/pipeline-history` — inspect the ordered received-through-notified lifecycle.
 - `POST /v1/leads/{lead_id}/notifications/retry` — retry the current notification.
 - `POST /v1/leads/{lead_id}/routing/reroute` — intentionally create a new route with a reason.
 - `GET /health/live` and `GET /health/ready` — liveness/readiness checks.

@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from lead_agent.application.routing import route_and_notify
+from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
     ReasoningOutput,
@@ -24,9 +24,47 @@ from lead_agent.infrastructure.reasoning.deterministic import DeterministicReaso
 from lead_agent.infrastructure.repositories import (
     create_lead_with_result,
     create_source_event,
+    get_current_routing,
     get_source_event,
     update_source_event,
 )
+
+
+def _record_pre_routing_history(
+    session: Session,
+    row: LeadORM,
+    analysis: LeadContextAnalysis,
+    result: QualificationResult,
+) -> None:
+    source_event_id = str(row.source_event_id) if row.source_event_id else None
+    record_pipeline_event(
+        session,
+        row.id,
+        "received",
+        "completed",
+        {"source": row.source, "source_event_id": source_event_id},
+    )
+    record_pipeline_event(
+        session,
+        row.id,
+        "normalized",
+        "completed",
+        {"normalization_version": row.normalization_version},
+    )
+    record_pipeline_event(
+        session,
+        row.id,
+        "analyzed",
+        "manual_review" if analysis.requires_manual_review else "completed",
+        {"provider": analysis.provider, "confidence": analysis.overall_confidence},
+    )
+    record_pipeline_event(
+        session,
+        row.id,
+        "qualified",
+        "completed",
+        {"band": result.classification, "score": result.total_score},
+    )
 
 
 @dataclass(frozen=True)
@@ -125,6 +163,8 @@ def process_lead(
     lead = normalize_lead(payload, uuid4())
     analysis, result = _analyze_and_qualify(lead, icp, routing, provider)
     row = create_lead_with_result(session, lead, result, analysis=analysis)
+    if get_current_routing(session, row.id) is None:
+        _record_pre_routing_history(session, row, analysis, result)
     route_and_notify(session, row, routing, notification_provider=notification_provider)
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
@@ -171,6 +211,8 @@ def process_source_event(
         row = create_lead_with_result(
             session, lead, result, analysis=analysis, source_event=source_event
         )
+        if get_current_routing(session, row.id) is None:
+            _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
