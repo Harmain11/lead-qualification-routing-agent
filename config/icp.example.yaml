@@ -1,0 +1,34 @@
+# Safe example only. Replace with the approved demo ICP during discovery.
+schema_version: 1
+profile_name: "Example ICP"
+profile_version: "2026-09-21.example.1"
+target_industries:
+  - "replace_with_target_industry"
+target_geographies:
+  - "replace_with_target_market"
+company_size:
+  employees_min: 0
+  employees_max: 0
+  revenue_currency: "USD"
+  annual_revenue_min: 0
+  annual_revenue_max: 0
+buyer_roles:
+  decision_makers:
+    - "replace_with_decision_maker_title"
+  influencers:
+    - "replace_with_influencer_title"
+budget:
+  currency: "USD"
+  minimum: 0
+  typical: 0
+pain_points:
+  - "replace_with_core_pain_point"
+disqualifiers:
+  - code: "example_disqualifier"
+    description: "Replace with an explicit exclusion and its rationale."
+    severity: "hard"
+scoring:
+  weights:
+    icp_fit: 40
+    intent_urgency: 35
+    engagement_quality: 25

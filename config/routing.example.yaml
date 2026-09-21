@@ -1,0 +1,33 @@
+# Safe example only. Values are policy configuration, not secrets.
+schema_version: 1
+policy_version: "2026-09-21.example.1"
+score_bands:
+  - key: hot
+    minimum: 80
+    maximum: 100
+    queue: "senior_rep"
+    action: "prioritized_human_follow_up"
+  - key: warm
+    minimum: 60
+    maximum: 79
+    queue: "standard_rep"
+    action: "human_follow_up_with_action_plan"
+  - key: needs_qualifying
+    minimum: 40
+    maximum: 59
+    queue: "sdr"
+    action: "qualifying_call"
+  - key: nurture
+    minimum: 20
+    maximum: 39
+    queue: "nurture"
+    action: "add_to_nurture"
+  - key: disqualify
+    minimum: 0
+    maximum: 19
+    queue: "archive"
+    action: "archive_with_rationale"
+manual_review:
+  enabled: true
+  minimum_confidence: 0.75
+  retry_limit_before_review: 3
