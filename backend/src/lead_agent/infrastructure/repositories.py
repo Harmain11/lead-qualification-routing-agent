@@ -12,8 +12,11 @@ from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.infrastructure.db.models import (
     AnalysisRunORM,
     LeadORM,
+    NotificationORM,
     OutboxMessageORM,
+    PipelineEventORM,
     QualificationResultORM,
+    RoutingDecisionORM,
     SourceEventORM,
 )
 
@@ -202,4 +205,48 @@ def get_lead(session: Session, lead_id: UUID) -> LeadORM | None:
 def get_qualification(session: Session, lead_id: UUID) -> QualificationResultORM | None:
     return session.scalar(
         select(QualificationResultORM).where(QualificationResultORM.lead_id == lead_id)
+    )
+
+
+def get_current_routing(session: Session, lead_id: UUID) -> RoutingDecisionORM | None:
+    return session.scalar(
+        select(RoutingDecisionORM)
+        .options(joinedload(RoutingDecisionORM.notifications))
+        .where(
+            RoutingDecisionORM.lead_id == lead_id,
+            RoutingDecisionORM.is_current.is_(True),
+        )
+        .order_by(RoutingDecisionORM.created_at.desc())
+    )
+
+
+def list_routing_history(session: Session, lead_id: UUID) -> list[RoutingDecisionORM]:
+    return list(
+        session.scalars(
+            select(RoutingDecisionORM)
+            .options(joinedload(RoutingDecisionORM.notifications))
+            .where(RoutingDecisionORM.lead_id == lead_id)
+            .order_by(RoutingDecisionORM.created_at.desc())
+        ).unique()
+    )
+
+
+def list_notifications(session: Session, lead_id: UUID) -> list[NotificationORM]:
+    return list(
+        session.scalars(
+            select(NotificationORM)
+            .join(RoutingDecisionORM)
+            .where(RoutingDecisionORM.lead_id == lead_id)
+            .order_by(NotificationORM.created_at.desc())
+        )
+    )
+
+
+def list_pipeline_events(session: Session, lead_id: UUID) -> list[PipelineEventORM]:
+    return list(
+        session.scalars(
+            select(PipelineEventORM)
+            .where(PipelineEventORM.lead_id == lead_id)
+            .order_by(PipelineEventORM.created_at.asc())
+        )
     )

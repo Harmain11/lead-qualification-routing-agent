@@ -31,3 +31,115 @@ manual_review:
   enabled: true
   minimum_confidence: 0.75
   retry_limit_before_review: 3
+manual_review_queue: "manual_review"
+safe_default_queue: "manual_review"
+queues:
+  - key: "senior_rep"
+    display_name: "Senior Sales"
+    description: "Priority closer and discovery queue."
+  - key: "standard_rep"
+    display_name: "Standard Sales"
+    description: "Standard inbound sales queue."
+  - key: "sdr"
+    display_name: "SDR Qualification"
+    description: "Qualification and discovery preparation queue."
+  - key: "nurture"
+    display_name: "Nurture"
+    description: "Non-active nurture state."
+  - key: "archive"
+    display_name: "Disqualified Archive"
+    description: "Retained disqualification records."
+  - key: "manual_review"
+    display_name: "Manual Review"
+    description: "Human review for uncertain or failed analysis."
+reps:
+  - id: "rep-alex"
+    name: "Alex Morgan"
+    active: true
+    queue: "senior_rep"
+    geographies: ["United States", "Canada"]
+    industries: ["technology", "saas"]
+    services: ["lead routing automation", "lead management"]
+    priority: 10
+  - id: "rep-samira"
+    name: "Samira Patel"
+    active: true
+    queue: "standard_rep"
+    geographies: ["United Kingdom", "United Arab Emirates", "Singapore", "Australia"]
+    industries: ["professional services", "saas"]
+    services: ["inbound lead qualification", "lead routing automation"]
+    priority: 10
+  - id: "rep-jordan"
+    name: "Jordan Lee"
+    active: true
+    queue: "sdr"
+    geographies: []
+    industries: ["technology", "professional services"]
+    services: []
+    priority: 10
+  - id: "rep-inactive"
+    name: "Inactive Demo Rep"
+    active: false
+    queue: "standard_rep"
+    priority: 1
+rules:
+  - name: "hot-us-senior"
+    precedence: 20
+    qualification_bands: ["hot"]
+    geographies: ["United States"]
+    queue: "senior_rep"
+    priority: "urgent"
+    sla_hours: 2
+    action_key: "hot"
+    reason: "Hot United States leads receive priority senior-sales handling."
+  - name: "technical-discovery"
+    precedence: 40
+    technical_specializations: ["api", "integration", "webhook", "sso"]
+    qualification_bands: ["hot", "warm"]
+    queue: "senior_rep"
+    priority: "high"
+    sla_hours: 4
+    action_key: "technical"
+    reason: "Technical requirements receive senior discovery coverage."
+actions:
+  hot:
+    key: "hot"
+    immediate_action: "Contact the lead promptly and offer a discovery call."
+    priority: "high"
+    sla_hours: 2
+    talking_points: ["Confirm the stated timeline", "Connect the solution to the stated pain"]
+    next_step: "Offer a discovery call and confirm implementation scope."
+  warm:
+    key: "warm"
+    immediate_action: "Follow up with a focused response and proposed next step."
+    priority: "normal"
+    sla_hours: 8
+    talking_points: ["Clarify buying stage", "Confirm timeline and budget"]
+    next_step: "Propose a follow-up conversation."
+  needs_qualifying:
+    key: "needs_qualifying"
+    immediate_action: "Start a qualifying conversation before advancing the lead."
+    priority: "normal"
+    sla_hours: 24
+    talking_points: ["Understand the pain point", "Qualify authority, timeline, and budget"]
+    next_step: "Ask the unanswered qualification questions."
+  nurture:
+    key: "nurture"
+    immediate_action: "Place the lead in the nurture state with relevant education."
+    priority: "low"
+    sla_hours: 72
+    talking_points: ["Share relevant educational material"]
+    next_step: "Revisit when a stronger buying signal appears."
+  disqualify:
+    key: "disqualify"
+    immediate_action: "Retain the decision and archive without sales assignment."
+    priority: "none"
+    talking_points: []
+    next_step: "No active sales action."
+  technical:
+    key: "technical"
+    immediate_action: "Arrange a response that addresses the stated technical requirement."
+    priority: "high"
+    sla_hours: 4
+    talking_points: ["Confirm integration scope", "Identify technical stakeholders"]
+    next_step: "Route the conversation into technical discovery."

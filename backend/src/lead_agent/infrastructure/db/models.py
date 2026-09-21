@@ -79,6 +79,9 @@ class LeadORM(Base):
     analysis: Mapped[AnalysisRunORM | None] = relationship(
         back_populates="lead", uselist=False, cascade="all, delete-orphan"
     )
+    routing_decisions: Mapped[list[RoutingDecisionORM]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan"
+    )
 
 
 class AnalysisRunORM(Base):
@@ -131,6 +134,82 @@ class QualificationResultORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     lead: Mapped[LeadORM] = relationship(back_populates="qualification")
+
+
+class RoutingDecisionORM(Base):
+    __tablename__ = "routing_decisions"
+    __table_args__ = (
+        Index("ix_routing_lead_current", "lead_id", "is_current"),
+        Index("ix_routing_queue_created", "assigned_queue", "created_at"),
+        UniqueConstraint("idempotency_key", name="uq_routing_idempotency"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    qualification_id: Mapped[UUID] = mapped_column(
+        ForeignKey("qualification_results.id", ondelete="RESTRICT"), nullable=False
+    )
+    qualification_band: Mapped[str] = mapped_column(String(64), nullable=False)
+    assigned_queue: Mapped[str] = mapped_column(String(128), nullable=False)
+    assigned_rep_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    assigned_rep_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    routing_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    matched_rules: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    action_plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    priority: Mapped[str] = mapped_column(String(32), nullable=False)
+    sla_target_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notification_state: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    manual_review: Mapped[bool] = mapped_column(nullable=False, default=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_current: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    lead: Mapped[LeadORM] = relationship(back_populates="routing_decisions")
+    notifications: Mapped[list[NotificationORM]] = relationship(
+        back_populates="routing_decision", cascade="all, delete-orphan"
+    )
+
+
+class NotificationORM(Base):
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_status_updated", "status", "updated_at"),
+        UniqueConstraint(
+            "routing_decision_id", "provider", name="uq_notification_decision_provider"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    routing_decision_id: Mapped[UUID] = mapped_column(
+        ForeignKey("routing_decisions.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    external_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    routing_decision: Mapped[RoutingDecisionORM] = relationship(back_populates="notifications")
+
+
+class PipelineEventORM(Base):
+    __tablename__ = "pipeline_events"
+    __table_args__ = (Index("ix_pipeline_lead_created", "lead_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class OutboxMessageORM(Base):

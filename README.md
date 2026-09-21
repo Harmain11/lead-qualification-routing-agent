@@ -2,58 +2,45 @@
 
 Production-ready foundation for a channel-agnostic lead qualification, explainable routing, CRM synchronization, and sales analytics demo.
 
-This repository currently contains the architecture, configuration contracts, documentation, and implementation scaffold. External integrations and the full application are intentionally not implemented yet.
-
 ## Project status
 
-Phase 3 — grounded context/intent intelligence and explainable hybrid qualification on top of the durable multi-channel pipeline.
+Phases 1–4 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, deterministic rep assignment, sales action plans, and provider-neutral notifications. Salesforce, HubSpot, live channel credentials, and the final analytics dashboard remain deferred.
 
-The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are summarized in [`docs/requirements.md`](docs/requirements.md), and the production architecture is documented in [`docs/architecture.md`](docs/architecture.md).
+The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are in [`docs/requirements.md`](docs/requirements.md), and the production architecture is in [`docs/architecture.md`](docs/architecture.md).
 
 ## Recommended stack
 
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, `uv`
-- **Async processing:** Celery with Redis initially; keep the queue port replaceable with a managed broker later
-- **Database:** PostgreSQL 16 with UUID identifiers, JSONB for provider payloads, append-only decision/audit records, and materialized analytics views as needed
-- **Dashboard:** React, TypeScript, Vite, TanStack Query, React Router, and a charting library such as Recharts
-- **AI boundary:** an internal `ReasoningProvider` port with deterministic and OpenAI implementations. The OpenAI adapter uses the Responses API with schema-constrained Pydantic output; it is optional for local operation. See the [official structured outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs).
-- **Operations:** Docker Compose for local dependencies, OpenTelemetry-compatible tracing, structured JSON logs, health/readiness endpoints, and CI checks for formatting, typing, tests, migrations, and dependency auditing
+- Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, `uv`
+- Async boundary: Celery with Redis; the current slice runs synchronously and keeps the queue boundary replaceable
+- Database: PostgreSQL 16 with UUID identifiers and JSONB for raw/provider payloads and structured analysis
+- Dashboard: React, TypeScript, and Vite
+- AI boundary: `ReasoningProvider` with deterministic and OpenAI implementations; OpenAI is optional locally
+- Notification boundary: `NotificationProvider` with deterministic/mock and Slack implementations
 
-The system is intentionally a modular monolith for v1: one deployable API, one worker process, one dashboard, and one database. The domain and provider ports keep the system ready to split services later if throughput or tenant isolation requires it.
+The system is a modular monolith for v1: one API, one worker boundary, one dashboard, and one database. Domain and provider ports keep future service extraction possible.
 
 ## Repository layout
 
 ```text
 .
-├── backend/
-│   ├── src/lead_agent/
-│   │   ├── api/              # HTTP routes, webhook verification, API dependencies
-│   │   ├── application/      # use cases and orchestration of domain operations
-│   │   ├── domain/           # entities, value objects, events, policies, ports
-│   │   ├── infrastructure/  # database, queue, provider adapters, observability
-│   │   ├── worker/           # asynchronous task entry points and retry policies
-│   │   └── settings/         # typed runtime configuration
-│   └── tests/               # backend unit, integration, contract, and end-to-end tests
-├── frontend/
-│   ├── src/                 # dashboard application
-│   └── public/
-├── config/
-│   ├── icp.example.yaml     # editable, versioned ICP shape with safe example values
-│   └── routing.example.yaml # score bands, weights, and routing policy shape
-├── docs/
-│   ├── architecture.md
-│   ├── implementation-plan.md
-│   └── requirements.md
-├── infra/                   # local containers, deployment manifests, migrations, observability
-├── scripts/                 # safe developer and demo-data commands
-├── tests/                   # cross-component and contract test placeholders
+├── backend/src/lead_agent/
+│   ├── api/              # FastAPI routes and typed responses
+│   ├── application/      # pipeline, qualification, routing, and action use cases
+│   ├── domain/           # canonical models, policies, ports, and configuration
+│   ├── infrastructure/  # database, intake, reasoning, and notification adapters
+│   ├── worker/           # future asynchronous task entry points
+│   └── settings/         # typed runtime settings
+├── backend/tests/        # unit and contract tests
+├── frontend/src/         # React/TypeScript inspection experience
+├── config/               # editable ICP and routing examples
+├── docs/                 # requirements, architecture, and phased plan
+├── infra/                # Docker Compose and Alembic migrations
+├── scripts/              # seed and developer commands
 ├── .env.example
 └── .gitignore
 ```
 
 ## Local setup
-
-This phase includes durable intake plus persisted context analysis, ICP grounding, confidence handling, summaries, and explainable qualification. Live channel providers remain disabled; OpenAI is optional.
 
 Prerequisites: Python 3.12+, Node.js 22+, Docker Desktop, and `uv`.
 
@@ -67,13 +54,13 @@ uv run --project backend alembic -c backend/alembic.ini upgrade head
 uv run --project backend python -m lead_agent.seed
 ```
 
-Run the API in one terminal:
+Run the API:
 
 ```powershell
 uv run --project backend uvicorn lead_agent.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Install and run the dashboard in another terminal:
+Run the dashboard in another terminal:
 
 ```powershell
 Set-Location frontend
@@ -81,51 +68,48 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open <http://localhost:5173>. API documentation is available at <http://127.0.0.1:8000/docs>.
+Open <http://localhost:5173>. API documentation is available at <http://localhost:8000/docs>.
 
-If `uv` is unavailable, create a virtual environment with `python -m venv .venv`, activate it, install with `python -m pip install -e "backend[dev]"`, set `$env:PYTHONPATH = "$pwd\backend\src"`, and replace `uv run --project backend` with the relevant command from that environment.
+If `uv` is unavailable, use `python -m venv .venv`, activate it, install with `python -m pip install -e "backend[dev]"`, set `$env:PYTHONPATH = "$pwd\backend\src"`, and run the equivalent commands from that environment.
 
-See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the staged order of work and [`docs/architecture.md`](docs/architecture.md) for runtime boundaries, persistence, failure handling, and security requirements.
+## API surface
+
+- `POST /v1/leads` — create, normalize, analyze, qualify, route, and persist a manual lead.
+- `POST /v1/intake/web` — validated website webhook with optional HMAC-SHA256 verification.
+- `POST /v1/intake/email` — provider-neutral inbound email fixture/intake contract.
+- `POST /v1/intake/linkedin` — official LinkedIn lead-form/export fixture contract; no scraping.
+- `POST /v1/intake/fourth` — selected Clutch notification-email fixture contract.
+- `GET /v1/leads` and `GET /v1/leads/{lead_id}` — inspect canonical leads and current decisions.
+- `GET /v1/leads/{lead_id}/qualification` — inspect score components and rationale.
+- `GET /v1/leads/{lead_id}/routing` — inspect the current route, assignment, action plan, and notification state.
+- `GET /v1/leads/{lead_id}/routing/action-plan` — retrieve the sales-facing action plan.
+- `GET /v1/leads/{lead_id}/routing/history` — inspect append-only routing history.
+- `GET /v1/leads/{lead_id}/notifications` — inspect notification attempts.
+- `GET /v1/leads/{lead_id}/pipeline-history` — inspect route/notify lifecycle events.
+- `POST /v1/leads/{lead_id}/notifications/retry` — retry the current notification.
+- `POST /v1/leads/{lead_id}/routing/reroute` — intentionally create a new route with a reason.
+- `GET /health/live` and `GET /health/ready` — liveness/readiness checks.
 
 ## Configuration and secrets
 
-`.env.example` lists the configuration contract with placeholders only. Credentials should be supplied through a local ignored `.env` file or a deployment secret manager. Provider credentials are not needed for this architecture-only phase.
+Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml) and [`config/routing.example.yaml`](config/routing.example.yaml). Routing queues, reps, matching rules, action templates, and safe defaults are editable configuration rather than scattered code.
 
-The default v1 CRM mode is `none` until a Salesforce or HubSpot decision and credentials are available. No Salesforce, HubSpot, Slack, LinkedIn, Gmail/Outlook, social, Clutch, or OpenAI client has been added. Redis/Celery are only structured as the future asynchronous boundary; this first slice runs synchronously so its result is immediately visible.
+The default `LLM_PROVIDER=deterministic` and `NOTIFICATION_PROVIDER=mock` modes need no credentials. To use live providers, configure `OPENAI_API_KEY`/`OPENAI_MODEL` or `SLACK_BOT_TOKEN`/`SLACK_CHANNEL_ID` in the ignored local `.env`. Never commit those values. Salesforce and HubSpot are not implemented in this phase.
 
-## Intake and Phase 1 API
+Every intake adapter emits the same durable source-event contract. Raw payloads, source attribution, attempts, processing state, and errors are retained before normalization, analysis, qualification, routing, and notification. Replaying the same external event does not create duplicate leads or notifications; explicit rerouting creates a new historical decision.
 
-- `POST /v1/leads` — create, normalize, qualify, route, and persist a website/manual lead.
-- `POST /v1/intake/web` — validated website webhook with optional HMAC-SHA256 verification via `WEBHOOK_SIGNING_SECRET`.
-- `POST /v1/intake/email` — provider-neutral inbound email fixture/intake contract.
-- `POST /v1/intake/linkedin` — official LinkedIn lead-form/export fixture contract; no scraping.
-- `POST /v1/intake/fourth` — selected fourth-channel Clutch notification-email fixture contract.
-- `GET /v1/leads` — list persisted leads and current qualification results.
-- `GET /v1/leads/{lead_id}` — retrieve the canonical lead and decision.
-- `GET /v1/leads/{lead_id}/qualification` — retrieve the explainable qualification result.
-- `GET /health/live` and `GET /health/ready` — liveness/readiness checks.
+## Validation
 
-Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml) and [`config/routing.example.yaml`](config/routing.example.yaml). The seed command creates illustrative Hot, Warm, Needs Qualifying, Nurture, and Disqualified records.
-
-Every intake adapter emits the same durable source-event contract. Raw payloads, source attribution, processing attempts, status, and errors are retained before normalization, context analysis, and qualification run. Replaying a channel event with the same external identifier returns the existing lead; a different inquiry from the same person remains a separate event.
-
-## Phase 3 reasoning configuration
-
-The default `LLM_PROVIDER=deterministic` runs completely offline and is the supported mode for tests and credential-free development. To exercise the live adapter, set `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, and an approved `OPENAI_MODEL` in the ignored local `.env`. `OPENAI_STORE_RESPONSES=false` remains the safe default.
-
-Provider output is schema-validated and cannot set numeric scores or routing bands. Hard disqualifiers execute first. Timeout, missing credentials, unavailable providers, invalid output, low confidence, and contradictions preserve the lead and place its source event in manual review with inspectable error details.
-
-After pulling Phase 3, apply the analysis migration:
+Backend checks run in the supported container with:
 
 ```powershell
-uv run --project backend alembic -c backend/alembic.ini upgrade head
+docker exec lead-agent-api sh -lc "ruff check src tests && mypy src && pytest -q"
 ```
 
-## Design principles
+Frontend checks run with:
 
-- Normalize every source into one canonical lead and preserve the immutable raw event for replay and audit.
-- Run hard disqualifier checks before LLM reasoning; keep the weighted score deterministic and configurable.
-- Store every score component, evidence reference, rationale, confidence, and policy version so decisions are explainable.
-- Make every external side effect idempotent and retryable through an outbox; send failures to manual review rather than dropping leads.
-- Treat the dashboard as a read model over lead, lifecycle, routing, and revenue events rather than as a second source of truth.
-- Keep personally identifiable information out of logs and do not put secrets in Git.
+```powershell
+docker exec lead-agent-frontend sh -lc "npm run typecheck && npm run build"
+```
+
+See [`docs/implementation-plan.md`](docs/implementation-plan.md), [`docs/architecture.md`](docs/architecture.md), and [`docs/integrations.md`](docs/integrations.md) for design boundaries and deferred integration work.

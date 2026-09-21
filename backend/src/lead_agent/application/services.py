@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
+from lead_agent.application.routing import route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
     ReasoningOutput,
@@ -16,6 +17,7 @@ from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import find_hard_disqualifier, qualify_lead
 from lead_agent.infrastructure.db.models import LeadORM, SourceEventORM
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
@@ -118,10 +120,12 @@ def process_lead(
     icp: IcpConfig,
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
+    notification_provider: NotificationProvider | None = None,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     lead = normalize_lead(payload, uuid4())
     analysis, result = _analyze_and_qualify(lead, icp, routing, provider)
     row = create_lead_with_result(session, lead, result, analysis=analysis)
+    route_and_notify(session, row, routing, notification_provider=notification_provider)
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
             "manual_review" if analysis.requires_manual_review else "processed"
@@ -139,6 +143,7 @@ def process_source_event(
     icp: IcpConfig,
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
+    notification_provider: NotificationProvider | None = None,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
@@ -166,6 +171,7 @@ def process_source_event(
         row = create_lead_with_result(
             session, lead, result, analysis=analysis, source_event=source_event
         )
+        route_and_notify(session, row, routing, notification_provider=notification_provider)
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message

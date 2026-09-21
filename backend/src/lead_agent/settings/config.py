@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     mailbox_provider: str = "none"
     social_provider: str = "none"
     demo_data_enabled: bool = False
+    notification_provider: str = "mock"
+    slack_bot_token: str = ""
+    slack_channel_id: str = ""
 
     @property
     def repository_root(self) -> Path:

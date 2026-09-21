@@ -98,6 +98,49 @@ export type LeadAnalysis = {
   created_at: string;
 };
 
+export type ActionPlan = {
+  immediate_action: string;
+  response_priority: string;
+  talking_points: string[];
+  unanswered_questions: string[];
+  known_pain_point: string;
+  urgency_timeline: string;
+  potential_objections: string[];
+  next_step_recommendation: string;
+  supporting_evidence: string[];
+};
+
+export type Notification = {
+  id: string;
+  provider: string;
+  status: "pending" | "sent" | "failed" | "retryable";
+  attempts: number;
+  external_message_id: string | null;
+  error_message: string | null;
+  created_at: string;
+  sent_at: string | null;
+  updated_at: string;
+};
+
+export type RoutingDecision = {
+  id: string;
+  lead_id: string;
+  qualification_id: string;
+  qualification_band: string;
+  assigned_queue: string;
+  assigned_rep_id: string | null;
+  assigned_rep_name: string | null;
+  routing_reason: string;
+  matched_rules: string[];
+  action_plan: ActionPlan;
+  priority: "urgent" | "high" | "normal" | "low" | "none";
+  sla_target_at: string | null;
+  notification_state: "pending" | "sent" | "failed" | "retryable";
+  manual_review: boolean;
+  routing_timestamp: string;
+  notifications: Notification[];
+};
+
 export type Lead = {
   id: string;
   source: string;
@@ -120,11 +163,12 @@ export type Lead = {
   created_at: string;
   qualification: Qualification | null;
   analysis: LeadAnalysis | null;
+  routing: RoutingDecision | null;
 };
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "external_id" | "source_detail"
+  "id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "external_id" | "source_detail"
 > & {
   source: string;
   source_detail: string;

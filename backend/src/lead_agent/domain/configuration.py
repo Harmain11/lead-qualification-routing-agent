@@ -87,6 +87,52 @@ class ManualReviewConfig(BaseModel):
     retry_limit_before_review: int = Field(default=3, ge=0)
 
 
+class QueueConfig(BaseModel):
+    key: str
+    display_name: str
+    description: str = ""
+
+
+class RepConfig(BaseModel):
+    id: str
+    name: str
+    active: bool = True
+    queue: str
+    geographies: list[str] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=list)
+    priority: int = Field(default=100, ge=0)
+
+
+class RoutingRuleConfig(BaseModel):
+    name: str
+    precedence: int = Field(default=100, ge=0)
+    qualification_bands: list[str] = Field(default_factory=list)
+    geographies: list[str] = Field(default_factory=list)
+    industries: list[str] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=list)
+    buyer_roles: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    urgency: list[str] = Field(default_factory=list)
+    technical_specializations: list[str] = Field(default_factory=list)
+    company_size_min: int | None = Field(default=None, ge=0)
+    company_size_max: int | None = Field(default=None, ge=0)
+    queue: str
+    priority: str = "normal"
+    sla_hours: int | None = Field(default=None, ge=0)
+    action_key: str | None = None
+    reason: str
+
+
+class ActionConfig(BaseModel):
+    key: str
+    immediate_action: str
+    priority: str
+    sla_hours: int | None = Field(default=None, ge=0)
+    talking_points: list[str] = Field(default_factory=list)
+    next_step: str
+
+
 class RoutingConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -94,6 +140,12 @@ class RoutingConfig(BaseModel):
     policy_version: str
     score_bands: list[ScoreBand]
     manual_review: ManualReviewConfig = Field(default_factory=ManualReviewConfig)
+    queues: list[QueueConfig] = Field(default_factory=list)
+    reps: list[RepConfig] = Field(default_factory=list)
+    rules: list[RoutingRuleConfig] = Field(default_factory=list)
+    actions: dict[str, ActionConfig] = Field(default_factory=dict)
+    manual_review_queue: str = "manual_review"
+    safe_default_queue: str = "manual_review"
 
     @model_validator(mode="after")
     def bands_cover_score_range(self) -> RoutingConfig:

@@ -1,6 +1,6 @@
 # APIs, integrations, credentials, and data requirements
 
-Provider SDKs and OAuth clients remain deferred. Phase 2 implements provider-neutral adapter boundaries, fixture payloads, source-event persistence, and the website signature hook without requiring live credentials.
+Provider SDKs and OAuth clients remain deferred except for the Phase 4 Slack notification adapter. Phase 2 implements provider-neutral adapter boundaries, fixture payloads, source-event persistence, and the website signature hook without requiring live credentials.
 
 ## Required external boundaries
 
@@ -13,7 +13,7 @@ Provider SDKs and OAuth clients remain deferred. Phase 2 implements provider-neu
 | Optional social | Platform-owned webhook/API for DMs or comments | App credentials, webhook verification, approved scopes | `SOCIAL_*` |
 | Salesforce | OAuth plus Salesforce REST API for Lead/Contact and custom fields | Connected app, client ID/secret, refresh token, sandbox or production login URL | `SALESFORCE_*` |
 | HubSpot | OAuth or private-app CRM API for Contact/Deal properties | App credentials or private-app token, scopes for CRM objects and properties | `HUBSPOT_ACCESS_TOKEN` and future OAuth variables if needed |
-| Slack | Slack Web API for channel notification delivery; interactive review actions are optional | Bot token, channel ID, signing secret if receiving interactions | `SLACK_*` |
+| Slack | Slack Web API behind `NotificationProvider`; interactive review actions remain optional | Bot token and channel ID; signing secret only if receiving interactions | `NOTIFICATION_PROVIDER=slack`, `SLACK_*` |
 | Reasoning | OpenAI Responses API through an internal provider adapter | Project API key, approved model, data-retention decision | `OPENAI_*` |
 | Observability | OTLP collector and optional error tracking | Collector endpoint and optional DSN | `OTEL_EXPORTER_OTLP_ENDPOINT`, `SENTRY_DSN` |
 
@@ -72,4 +72,12 @@ The complete placeholder contract is in [`.env.example`](../.env.example). Varia
 - LinkedIn and optional social credentials;
 - webhook security, demo-data mode, and telemetry.
 
-The current safe defaults are `LLM_PROVIDER=deterministic`, `CRM_PROVIDER=none`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.
+The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVIDER=mock`, `CRM_PROVIDER=none`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.
+
+### Phase 4 routing and notification status
+
+- Routing rules, queues, reps, and action plans are loaded from `config/routing.example.yaml` (or the configured routing path), not spread through business logic.
+- Manual review has precedence over ordinary band routing; hard-disqualified leads are archived/disqualified with no rep assignment.
+- `NOTIFICATION_PROVIDER=mock` is the default and records deterministic test deliveries without credentials.
+- `NOTIFICATION_PROVIDER=slack` uses `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID`. Missing or failed Slack delivery leaves the persisted routing decision intact and records `failed` or `retryable` state for a later retry.
+- Duplicate processing reuses the current routing decision and notification record. A new notification/routing record requires an explicit reroute operation.

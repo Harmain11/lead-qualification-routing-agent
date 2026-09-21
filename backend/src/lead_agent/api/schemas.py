@@ -105,6 +105,57 @@ class QualificationResponse(BaseModel):
     created_at: datetime | None = None
 
 
+class ActionPlanResponse(BaseModel):
+    immediate_action: str
+    response_priority: str
+    talking_points: list[str]
+    unanswered_questions: list[str]
+    known_pain_point: str
+    urgency_timeline: str
+    potential_objections: list[str]
+    next_step_recommendation: str
+    supporting_evidence: list[str]
+
+
+class NotificationResponse(BaseModel):
+    id: UUID
+    provider: str
+    status: str
+    attempts: int
+    external_message_id: str | None
+    error_message: str | None
+    created_at: datetime
+    sent_at: datetime | None
+    updated_at: datetime
+
+
+class RoutingDecisionResponse(BaseModel):
+    id: UUID
+    lead_id: UUID
+    qualification_id: UUID
+    qualification_band: str
+    assigned_queue: str
+    assigned_rep_id: str | None
+    assigned_rep_name: str | None
+    routing_reason: str
+    matched_rules: list[str]
+    action_plan: ActionPlanResponse
+    priority: str
+    sla_target_at: datetime | None
+    notification_state: str
+    manual_review: bool
+    routing_timestamp: datetime
+    notifications: list[NotificationResponse] = Field(default_factory=list)
+
+
+class PipelineEventResponse(BaseModel):
+    id: UUID
+    stage: str
+    status: str
+    details: dict[str, Any]
+    created_at: datetime
+
+
 class AnalysisResponse(LeadContextAnalysis):
     id: UUID
     created_at: datetime
@@ -134,6 +185,7 @@ class LeadResponse(BaseModel):
     created_at: datetime
     qualification: QualificationResponse | None
     analysis: AnalysisResponse | None
+    routing: RoutingDecisionResponse | None = None
 
 
 class LeadListResponse(BaseModel):
@@ -177,7 +229,44 @@ def analysis_response(row: Any) -> AnalysisResponse | None:
     )
 
 
-def lead_response(row: Any) -> LeadResponse:
+def notification_response(row: Any) -> NotificationResponse:
+    return NotificationResponse(
+        id=row.id,
+        provider=row.provider,
+        status=row.status,
+        attempts=row.attempts,
+        external_message_id=row.external_message_id,
+        error_message=row.error_message,
+        created_at=row.created_at,
+        sent_at=row.sent_at,
+        updated_at=row.updated_at,
+    )
+
+
+def routing_response(row: Any) -> RoutingDecisionResponse | None:
+    if row is None:
+        return None
+    return RoutingDecisionResponse(
+        id=row.id,
+        lead_id=row.lead_id,
+        qualification_id=row.qualification_id,
+        qualification_band=row.qualification_band,
+        assigned_queue=row.assigned_queue,
+        assigned_rep_id=row.assigned_rep_id,
+        assigned_rep_name=row.assigned_rep_name,
+        routing_reason=row.routing_reason,
+        matched_rules=row.matched_rules,
+        action_plan=ActionPlanResponse.model_validate(row.action_plan),
+        priority=row.priority,
+        sla_target_at=row.sla_target_at,
+        notification_state=row.notification_state,
+        manual_review=row.manual_review,
+        routing_timestamp=row.created_at,
+        notifications=[notification_response(item) for item in row.notifications],
+    )
+
+
+def lead_response(row: Any, routing: Any = None) -> LeadResponse:
     return LeadResponse(
         id=row.id,
         source=row.source,
@@ -200,4 +289,5 @@ def lead_response(row: Any) -> LeadResponse:
         created_at=row.created_at,
         qualification=qualification_response(row.qualification),
         analysis=analysis_response(row.analysis),
+        routing=routing_response(routing),
     )

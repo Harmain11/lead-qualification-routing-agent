@@ -115,3 +115,6 @@ Live Gmail/Microsoft Graph, LinkedIn, Clutch mailbox access, queue execution, an
 - Prepare the short technical write-up and obtain product sign-off.
 
 **Definition of done:** all build-plan deliverables and success criteria are demonstrable, every external side effect is observable, and failures land in an actionable queue.
+## Current Phase 4 implementation note
+
+The current implementation treats routing, action plans, rep/queue assignment, and notifications as Phase 4 work, matching the active delivery sequence. It is complete locally with persisted `routing_decisions`, `notifications`, and `pipeline_events`, deterministic configuration precedence, manual-review routing, mock/Slack notification ports, retry state, and explicit reroute history. The CRM and dashboard work described in later phases remains intentionally untouched.

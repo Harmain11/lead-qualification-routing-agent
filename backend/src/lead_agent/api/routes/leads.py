@@ -17,9 +17,16 @@ from lead_agent.api.schemas import (
 from lead_agent.application.services import process_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.routing import NotificationProvider
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
-from lead_agent.infrastructure.repositories import get_lead, get_qualification, list_leads
+from lead_agent.infrastructure.repositories import (
+    get_current_routing,
+    get_lead,
+    get_qualification,
+    list_leads,
+)
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
 
@@ -33,14 +40,19 @@ def _process_create_request(
     session: Session,
     policies: tuple[IcpConfig, RoutingConfig],
     provider: ReasoningProvider,
+    notification_provider: NotificationProvider,
 ) -> LeadResponse:
     try:
         _, _, row = process_lead(
-            session, request.model_dump(mode="json"), *policies, provider=provider
+            session,
+            request.model_dump(mode="json"),
+            *policies,
+            provider=provider,
+            notification_provider=notification_provider,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return lead_response(row)
+    return lead_response(row, get_current_routing(session, row.id))
 
 
 @router.post("", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
@@ -49,14 +61,18 @@ def create_lead(
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
     provider: ReasoningProvider = Depends(get_reasoning_provider),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
 ) -> LeadResponse:
-    return _process_create_request(request, session, policies, provider)
+    return _process_create_request(request, session, policies, provider, notification_provider)
 
 
 @router.get("", response_model=LeadListResponse)
 def list_all_leads(session: Session = Depends(get_db)) -> LeadListResponse:
     rows = list_leads(session)
-    return LeadListResponse(items=[lead_response(row) for row in rows], total=len(rows))
+    return LeadListResponse(
+        items=[lead_response(row, get_current_routing(session, row.id)) for row in rows],
+        total=len(rows),
+    )
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)
@@ -64,7 +80,7 @@ def retrieve_lead(lead_id: UUID, session: Session = Depends(get_db)) -> LeadResp
     row = get_lead(session, lead_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
-    return lead_response(row)
+    return lead_response(row, get_current_routing(session, row.id))
 
 
 @router.get("/{lead_id}/qualification", response_model=QualificationResponse)

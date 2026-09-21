@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from lead_agent import __version__
 from lead_agent.api.dependencies import get_runtime_settings
-from lead_agent.api.routes import health, intake, leads
+from lead_agent.api.routes import health, intake, leads, routing
 
 settings = get_runtime_settings()
 app = FastAPI(
@@ -23,3 +23,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(leads.router)
 app.include_router(intake.router)
+app.include_router(routing.router)

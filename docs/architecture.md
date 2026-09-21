@@ -175,3 +175,8 @@ Each lead persists a Phase 3 `analysis_runs` record containing structured contex
 Every pipeline run should carry `correlation_id`, `lead_id`, `source_event_id`, `stage`, and `policy_version`. Measure intake success, per-stage latency, queue age, retries, manual-review rate, low-confidence rate, CRM sync success, Slack delivery, score-band distribution, and dashboard query latency.
 
 Expose liveness and readiness separately. Readiness checks PostgreSQL, Redis, migrations, and required configuration without leaking secret values.
+## Phase 4 routing implementation
+
+The routing application service consumes the persisted qualification and Phase 3 analysis; it never recalculates the score. `RoutingConfig` contains queues, active/inactive reps, ordered rules, and action templates. Matching is deterministic: manual-review precedence first, then the lowest numeric rule precedence, then greatest criterion specificity, then rule name; otherwise the qualification-band route is used. Hard-disqualified leads are archived without a sales rep. Active reps are selected by geography/industry/service skill score, then configured priority and stable rep ID.
+
+`routing_decisions` are append-only and mark only one record as current. Each decision stores the qualification link, matched rules, assignment reason, action plan, priority, SLA target, manual-review flag, and notification state. `notifications` stores provider attempts independently so Slack failure cannot remove a lead or routing decision. `pipeline_events` records route and notify transitions for the lifecycle view. The mock notification provider is the default; Slack is an adapter selected by configuration.
