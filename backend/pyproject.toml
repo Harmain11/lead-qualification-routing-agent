@@ -1,0 +1,45 @@
+[project]
+name = "lead-qualification-routing-agent"
+version = "0.1.0"
+description = "Explainable lead normalization, qualification, and routing vertical slice"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14,<2.0",
+  "celery>=5.4,<6.0",
+  "fastapi>=0.115,<1.0",
+  "psycopg[binary]>=3.2,<4.0",
+  "pydantic-settings>=2.6,<3.0",
+  "python-multipart>=0.0.20,<1.0",
+  "pyyaml>=6.0,<7.0",
+  "redis>=5.2,<6.0",
+  "sqlalchemy>=2.0,<3.0",
+  "uvicorn[standard]>=0.34,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1.0",
+  "mypy>=1.15,<2.0",
+  "pytest>=8.3,<9.0",
+  "pytest-cov>=6.0,<7.0",
+  "ruff>=0.9,<1.0",
+  "types-PyYAML>=6.0,<7.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = []

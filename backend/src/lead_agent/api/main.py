@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from lead_agent import __version__
+from lead_agent.api.dependencies import get_runtime_settings
+from lead_agent.api.routes import health, leads
+
+settings = get_runtime_settings()
+app = FastAPI(
+    title="Lead Qualification & Routing Agent",
+    version=__version__,
+    description="Explainable lead normalization, qualification, and routing vertical slice.",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(health.router)
+app.include_router(leads.router)
+app.include_router(leads.intake_router)

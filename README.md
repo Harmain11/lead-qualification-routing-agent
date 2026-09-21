@@ -6,7 +6,7 @@ This repository currently contains the architecture, configuration contracts, do
 
 ## Project status
 
-Phase 0 — architecture and foundation.
+Phase 1 — local application foundation and first working lead-processing vertical slice.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are summarized in [`docs/requirements.md`](docs/requirements.md), and the production architecture is documented in [`docs/architecture.md`](docs/architecture.md).
 
@@ -53,15 +53,37 @@ The system is intentionally a modular monolith for v1: one deployable API, one w
 
 ## Local setup
 
-The application runtime is not implemented yet, so this phase does not require installing dependencies or starting services.
+This phase includes a working local website/manual intake path. External providers remain disabled.
 
-When implementation begins:
+Prerequisites: Python 3.12+, Node.js 22+, Docker Desktop, and `uv`.
 
-1. Install Python 3.12, Node.js 22 LTS, Docker, and `uv`.
-2. Copy `.env.example` to `.env` and replace placeholders locally. Never commit `.env`.
-3. Start only local dependencies with the future Docker Compose definition in `infra/`.
-4. Apply Alembic migrations, load the versioned ICP configuration, and run the API, worker, and frontend separately.
-5. Use the health endpoint and seeded demo data to verify the environment before connecting any provider.
+PowerShell from the repository root:
+
+```powershell
+Copy-Item .env.example .env
+docker compose -f infra/compose/docker-compose.yml up -d
+uv sync --project backend --extra dev
+uv run --project backend alembic -c backend/alembic.ini upgrade head
+uv run --project backend python -m lead_agent.seed
+```
+
+Run the API in one terminal:
+
+```powershell
+uv run --project backend uvicorn lead_agent.api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Install and run the dashboard in another terminal:
+
+```powershell
+Set-Location frontend
+npm.cmd install
+npm.cmd run dev
+```
+
+Open <http://localhost:5173>. API documentation is available at <http://127.0.0.1:8000/docs>.
+
+If `uv` is unavailable, create a virtual environment with `python -m venv .venv`, activate it, install with `python -m pip install -e "backend[dev]"`, set `$env:PYTHONPATH = "$pwd\backend\src"`, and replace `uv run --project backend` with the relevant command from that environment.
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the staged order of work and [`docs/architecture.md`](docs/architecture.md) for runtime boundaries, persistence, failure handling, and security requirements.
 
@@ -69,7 +91,18 @@ See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the staged 
 
 `.env.example` lists the configuration contract with placeholders only. Credentials should be supplied through a local ignored `.env` file or a deployment secret manager. Provider credentials are not needed for this architecture-only phase.
 
-The default v1 CRM mode is `none` until a Salesforce or HubSpot decision and credentials are available. No Salesforce, HubSpot, Slack, LinkedIn, Gmail/Outlook, social, Clutch, or OpenAI client has been added.
+The default v1 CRM mode is `none` until a Salesforce or HubSpot decision and credentials are available. No Salesforce, HubSpot, Slack, LinkedIn, Gmail/Outlook, social, Clutch, or OpenAI client has been added. Redis/Celery are only structured as the future asynchronous boundary; this first slice runs synchronously so its result is immediately visible.
+
+## Phase 1 API
+
+- `POST /v1/leads` — create, normalize, qualify, route, and persist a website/manual lead.
+- `POST /v1/intake/web` — website intake alias using the same canonical processing path.
+- `GET /v1/leads` — list persisted leads and current qualification results.
+- `GET /v1/leads/{lead_id}` — retrieve the canonical lead and decision.
+- `GET /v1/leads/{lead_id}/qualification` — retrieve the explainable qualification result.
+- `GET /health/live` and `GET /health/ready` — liveness/readiness checks.
+
+Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml) and [`config/routing.example.yaml`](config/routing.example.yaml). The seed command creates illustrative Hot, Warm, Needs Qualifying, Nurture, and Disqualified records.
 
 ## Design principles
 

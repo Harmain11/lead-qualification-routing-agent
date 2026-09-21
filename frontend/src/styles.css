@@ -1,0 +1,69 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+:root { font-family: "Manrope", sans-serif; color: #11253f; background: #f4f6f5; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+.shell { max-width: 1440px; margin: 0 auto; padding: 44px 5vw 80px; }
+.hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 30px; margin-bottom: 42px; }
+.eyebrow { color: #6c817f; display: block; font: 500 11px/1.3 "DM Mono", monospace; letter-spacing: .12em; text-transform: uppercase; }
+h1, h2, p { margin-top: 0; }
+h1 { font-size: clamp(42px, 6vw, 82px); line-height: .98; letter-spacing: -.07em; margin: 15px 0 22px; }
+h1 em { color: #54a57d; font-style: normal; }
+.hero p { color: #5a6d70; max-width: 560px; font-size: 16px; line-height: 1.7; }
+.status-badge { border: 1px solid #d8e1df; border-radius: 100px; padding: 10px 15px; color: #617371; white-space: nowrap; font: 11px "DM Mono", monospace; }
+.status-badge span { background: #54a57d; border-radius: 50%; display: inline-block; width: 7px; height: 7px; margin-right: 8px; }
+.workspace { display: grid; grid-template-columns: minmax(340px, .8fr) minmax(440px, 1.2fr); gap: 22px; }
+.panel { background: #fff; border: 1px solid #e0e7e4; border-radius: 20px; padding: 28px; box-shadow: 0 18px 50px rgba(32, 61, 60, .04); }
+.panel-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+h2 { font-size: 21px; letter-spacing: -.04em; margin: 8px 0 0; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.field { display: grid; gap: 7px; color: #526865; font-size: 12px; font-weight: 700; }
+.field input, .field textarea { border: 1px solid #dbe4e1; border-radius: 10px; color: #11253f; outline: none; padding: 12px 13px; background: #fbfcfc; transition: .2s; }
+.field input:focus, .field textarea:focus { border-color: #54a57d; box-shadow: 0 0 0 3px rgba(84, 165, 125, .13); }
+.field textarea { resize: vertical; min-height: 120px; }
+.full-width { margin-top: 15px; }
+button[type="submit"] { background: #11253f; border: 0; border-radius: 10px; color: white; font-weight: 700; margin-top: 21px; padding: 14px 18px; width: 100%; }
+button[type="submit"]:hover { background: #1d3e60; }
+button:disabled { cursor: wait; opacity: .6; }
+.error { background: #fff0f0; border-radius: 8px; color: #b33d3d; font-size: 13px; margin: 15px 0 0; padding: 11px; }
+.normalized { background: #f5faf8; border: 1px solid #e0eee8; border-radius: 13px; padding: 18px; }
+.normalized-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 17px 12px; margin-top: 18px; }
+.normalized-grid div, .data div { display: grid; gap: 5px; }
+.normalized-grid span, .data span { color: #7b8d89; font: 10px "DM Mono", monospace; text-transform: uppercase; }
+.normalized-grid b { font-size: 12px; overflow-wrap: anywhere; }
+.message-preview { color: #57706b; font-size: 12px; line-height: 1.6; margin: 19px 0 0; }
+.decision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 13px; }
+.score-card, .route-card, .breakdown-card, .rationale-card { border: 1px solid #e5ebea; border-radius: 13px; padding: 17px; }
+.score-card strong { display: block; font-size: 51px; letter-spacing: -.08em; line-height: 1.05; margin: 5px 0 9px; }
+.route-card strong, .route-card span:last-child { display: block; margin-top: 9px; }
+.route-card span:last-child { color: #70837f; font-size: 12px; }
+.breakdown-card, .rationale-card { grid-column: span 2; }
+.component-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.component-totals div { background: #f5faf8; border-radius: 8px; padding: 10px; }
+.component-totals span, .component-totals b { display: block; }
+.component-totals span { color: #70837f; font: 10px "DM Mono", monospace; text-transform: uppercase; }
+.component-totals b { font-size: 15px; margin-top: 4px; }
+.score-line { align-items: center; border-bottom: 1px solid #edf1ef; display: flex; justify-content: space-between; gap: 10px; padding: 12px 0; }
+.score-line:last-child { border-bottom: 0; padding-bottom: 0; }
+.score-line b, .score-line small { display: block; }
+.score-line b { font-size: 12px; }
+.score-line small { color: #7b8d89; font-size: 11px; margin-top: 3px; }
+.score-line > strong { font: 500 12px "DM Mono", monospace; white-space: nowrap; }
+.rationale-card p { border-bottom: 1px solid #edf1ef; color: #637572; font-size: 12px; line-height: 1.55; margin: 0; padding: 10px 0; }
+.rationale-card p:last-child { border-bottom: 0; padding-bottom: 0; }
+.pill { border-radius: 100px; display: inline-block; font: 500 10px "DM Mono", monospace; padding: 6px 8px; text-transform: uppercase; }
+.hot { background: #e4f6ec; color: #18704d; } .warm { background: #edf5db; color: #6b7718; } .needs_qualifying { background: #fff1d7; color: #966119; } .nurture { background: #e8edf5; color: #42617d; } .disqualify { background: #fbe7e7; color: #a74343; }
+.empty-state { align-items: center; background: #f6f8f7; border-radius: 13px; color: #7b8d89; display: flex; justify-content: center; min-height: 420px; padding: 50px; text-align: center; }
+.lead-list { margin-top: 22px; }
+.count { color: #84938f; font: 11px "DM Mono", monospace; }
+.records { display: grid; gap: 7px; }
+.record { align-items: center; background: #fbfcfc; border: 1px solid transparent; border-radius: 11px; display: flex; justify-content: space-between; padding: 13px 15px; text-align: left; width: 100%; }
+.record:hover, .record.active { background: #f2f8f5; border-color: #b9ddca; }
+.record b, .record small { display: block; }
+.record b { font-size: 13px; }
+.record small { color: #84938f; font-size: 11px; margin-top: 4px; }
+.muted { color: #82908e; font-size: 13px; }
+@media (max-width: 960px) { .hero, .workspace { display: block; } .status-badge { display: inline-block; } .results { margin-top: 22px; } }
+@media (max-width: 560px) { .shell { padding: 28px 16px 50px; } .panel { padding: 19px; } .form-grid, .normalized-grid, .decision-grid { grid-template-columns: 1fr; } .breakdown-card, .rationale-card { grid-column: span 1; } h1 { font-size: 49px; } }

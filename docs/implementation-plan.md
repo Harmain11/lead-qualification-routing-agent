@@ -1,6 +1,16 @@
 # Phased implementation plan
 
-This plan follows the nine-week build plan while making dependencies and feasibility gates explicit. The current repository work is Phase 0 only.
+This plan follows the nine-week build plan while making dependencies and feasibility gates explicit. Phase 0 established the architecture; the current repository implements the local foundation and first vertical slice described below. External providers remain deferred.
+
+## Current implementation — local foundation and vertical slice
+
+- FastAPI application with typed lead endpoints and health checks.
+- PostgreSQL SQLAlchemy models plus Alembic migration and local Docker Compose dependencies.
+- Canonical lead normalization shared by the future channel adapters.
+- File-backed ICP and routing policies with deterministic 40/35/25 scoring.
+- Hard disqualifiers, explainable score lines, routing bands, seed records, and automated unit tests.
+- React/TypeScript manual intake and decision-trail view.
+- Redis/Celery boundary scaffolded without unnecessary background jobs.
 
 ## Phase 0 — foundation and architecture (complete in this change)
 

@@ -1,0 +1,21 @@
+{
+  "name": "lead-qualification-routing-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js --configLoader runner",
+    "build": "node ./node_modules/typescript/bin/tsc -p ./tsconfig.app.json --noEmit && node ./node_modules/vite/bin/vite.js build --configLoader runner",
+    "typecheck": "node ./node_modules/typescript/bin/tsc -p ./tsconfig.app.json --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "5.0.2",
+    "vite": "7.1.2",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "typescript": "5.9.2",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7"
+  },
+  "devDependencies": {}
+}
