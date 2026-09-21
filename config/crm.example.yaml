@@ -1,0 +1,83 @@
+# Provider object/property mappings only. Never place credentials in this file.
+schema_version: 1
+payload_version: "1.0"
+
+salesforce:
+  lead_object: "Lead"
+  lead_external_id_field: "Lead_Agent_ID__c"
+  lead_fields:
+    source_channel: "LeadSource"
+    requested_service: "Requested_Service__c"
+    summary: "Lead_Summary__c"
+    qualification_score: "Qualification_Score__c"
+    qualification_band: "Qualification_Band__c"
+    icp_score: "ICP_Score__c"
+    intent_urgency_score: "Intent_Urgency_Score__c"
+    engagement_score: "Engagement_Score__c"
+    rationale_text: "Qualification_Rationale__c"
+    recommended_action: "Recommended_Action__c"
+    action_plan_json: "Sales_Action_Plan__c"
+    assigned_queue: "Assigned_Queue__c"
+    assigned_rep_name: "Assigned_Rep_Name__c"
+    urgency_timeline: "Urgency_Timeline__c"
+  owner_mapping: {}
+  sync_opportunity: false
+  opportunity_object: "Opportunity"
+  opportunity_external_id_field: "Lead_Agent_ID__c"
+  opportunity_fields:
+    qualification_score: "Qualification_Score__c"
+    qualification_band: "Qualification_Band__c"
+    recommended_action: "Recommended_Action__c"
+    action_plan_json: "Sales_Action_Plan__c"
+  opportunity_stage_by_band:
+    hot: "Qualification"
+    warm: "Prospecting"
+    needs_qualifying: "Prospecting"
+    nurture: "Nurture"
+    disqualify: "Closed Lost"
+
+hubspot:
+  contact_object: "contacts"
+  contact_id_property: "email"
+  contact_fields:
+    source_channel: "lead_source_channel"
+    requested_service: "requested_service"
+    summary: "lead_summary"
+    qualification_score: "qualification_score"
+    qualification_band: "qualification_band"
+    icp_score: "icp_score"
+    intent_urgency_score: "intent_urgency_score"
+    engagement_score: "engagement_score"
+    rationale_text: "qualification_rationale"
+    recommended_action: "recommended_action"
+    action_plan_json: "sales_action_plan"
+    assigned_queue: "assigned_queue"
+    assigned_rep_name: "assigned_rep_name"
+    urgency_timeline: "urgency_timeline"
+  owner_mapping: {}
+  sync_company: true
+  company_object: "companies"
+  company_id_property: "lead_agent_company_key"
+  company_fields:
+    company: "name"
+    source_channel: "lead_source_channel"
+    qualification_band: "qualification_band"
+  sync_deal: true
+  deal_object: "deals"
+  deal_id_property: "lead_agent_lead_id"
+  deal_pipeline: "default"
+  deal_fields:
+    requested_service: "dealname"
+    qualification_score: "qualification_score"
+    qualification_band: "qualification_band"
+    summary: "lead_summary"
+    recommended_action: "recommended_action"
+    action_plan_json: "sales_action_plan"
+    assigned_queue: "assigned_queue"
+    assigned_rep_name: "assigned_rep_name"
+  deal_stage_by_band:
+    hot: "appointmentscheduled"
+    warm: "qualifiedtobuy"
+    needs_qualifying: "appointmentscheduled"
+    nurture: "appointmentscheduled"
+    disqualify: "closedlost"

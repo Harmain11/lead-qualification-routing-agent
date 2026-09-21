@@ -156,6 +156,30 @@ class PipelineEventResponse(BaseModel):
     created_at: datetime
 
 
+class CrmSyncResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    lead_id: UUID
+    routing_decision_id: UUID
+    provider_connection_id: UUID | None
+    provider: str
+    operation: str
+    status: str
+    attempts: int
+    attempt_history: list[dict[str, Any]]
+    provider_entity_ids: dict[str, str | None]
+    payload_version: str
+    payload_hash: str
+    error_category: str | None
+    error_code: str | None
+    last_error: str | None
+    retryable: bool
+    requested_at: datetime
+    completed_at: datetime | None
+    updated_at: datetime
+    is_current: bool
+
+
 class AnalysisResponse(LeadContextAnalysis):
     id: UUID
     created_at: datetime
@@ -165,6 +189,7 @@ class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    workspace_id: UUID
     source: str
     source_detail: str | None
     external_id: str | None
@@ -186,6 +211,7 @@ class LeadResponse(BaseModel):
     qualification: QualificationResponse | None
     analysis: AnalysisResponse | None
     routing: RoutingDecisionResponse | None = None
+    crm_sync: CrmSyncResponse | None = None
 
 
 class LeadListResponse(BaseModel):
@@ -196,6 +222,62 @@ class LeadListResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+
+
+class ProviderConnectionResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    provider_type: str
+    external_account_id: str | None
+    account_name: str
+    auth_type: str
+    status: str
+    scopes: list[str]
+    credential_state: str
+    last_validation_at: datetime | None
+    last_validation_result: dict[str, Any]
+    metadata: dict[str, Any]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class IntegrationCardResponse(BaseModel):
+    provider: str
+    display_name: str
+    category: str
+    availability: str
+    preferred_auth: str
+    supported_auth: list[str]
+    dashboard_path: str
+    credential_help: str
+    required_scopes: list[str]
+    permission_reason: str
+    documentation_url: str
+    manual_fields: list[str]
+    connection: ProviderConnectionResponse | None
+
+
+def provider_connection_response(row: Any) -> ProviderConnectionResponse:
+    return ProviderConnectionResponse(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        provider_type=row.provider_type,
+        external_account_id=row.external_account_id,
+        account_name=row.account_name,
+        auth_type=row.auth_type,
+        status=row.status,
+        scopes=row.scopes,
+        credential_state=row.credential_state,
+        last_validation_at=row.last_validation_at,
+        last_validation_result=row.last_validation_result,
+        metadata={
+            key: value for key, value in row.connection_metadata.items() if "oauth_state" not in key
+        },
+        is_active=row.is_active,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def qualification_response(row: Any) -> QualificationResponse | None:
@@ -266,9 +348,38 @@ def routing_response(row: Any) -> RoutingDecisionResponse | None:
     )
 
 
-def lead_response(row: Any, routing: Any = None) -> LeadResponse:
+def crm_sync_response(row: Any) -> CrmSyncResponse | None:
+    if row is None:
+        return None
+    return CrmSyncResponse(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        lead_id=row.lead_id,
+        routing_decision_id=row.routing_decision_id,
+        provider_connection_id=row.provider_connection_id,
+        provider=row.provider,
+        operation=row.operation,
+        status=row.status,
+        attempts=row.attempts,
+        attempt_history=row.attempt_history,
+        provider_entity_ids=row.provider_entity_ids,
+        payload_version=row.payload_version,
+        payload_hash=row.payload_hash,
+        error_category=row.error_category,
+        error_code=row.error_code,
+        last_error=row.last_error,
+        retryable=row.retryable,
+        requested_at=row.requested_at,
+        completed_at=row.completed_at,
+        updated_at=row.updated_at,
+        is_current=row.is_current,
+    )
+
+
+def lead_response(row: Any, routing: Any = None, crm_sync: Any = None) -> LeadResponse:
     return LeadResponse(
         id=row.id,
+        workspace_id=row.workspace_id,
         source=row.source,
         source_detail=row.source_detail,
         external_id=row.external_id,
@@ -290,4 +401,5 @@ def lead_response(row: Any, routing: Any = None) -> LeadResponse:
         qualification=qualification_response(row.qualification),
         analysis=analysis_response(row.analysis),
         routing=routing_response(routing),
+        crm_sync=crm_sync_response(crm_sync),
     )

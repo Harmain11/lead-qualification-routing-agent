@@ -4,7 +4,7 @@ Production-ready foundation for a channel-agnostic lead qualification, explainab
 
 ## Project status
 
-Phases 1–4 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, deterministic rep assignment, sales action plans, and provider-neutral notifications. Salesforce, HubSpot, live channel credentials, and the final analytics dashboard remain deferred.
+Phases 1–5.5 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, and a controlled agent-tool boundary. Live Salesforce/HubSpot validation and the Phase 6 analytics dashboard remain deferred.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are in [`docs/requirements.md`](docs/requirements.md), and the production architecture is in [`docs/architecture.md`](docs/architecture.md).
 
@@ -16,6 +16,9 @@ The source build plan is preserved in [`doc/Lead Qualification & Routing Agent �
 - Dashboard: React, TypeScript, and Vite
 - AI boundary: `ReasoningProvider` with deterministic and OpenAI implementations; OpenAI is optional locally
 - Notification boundary: `NotificationProvider` with deterministic/mock and Slack implementations
+- CRM boundary: `CrmProvider` with deterministic/mock, Salesforce, and HubSpot implementations
+- Connection boundary: workspace-owned `ProviderConnection` records containing secret references, never token values
+- Agent boundary: permissioned, schema-validated tools with workspace/actor context, audit records, and idempotency
 
 The system is a modular monolith for v1: one API, one worker boundary, one dashboard, and one database. Domain and provider ports keep future service extraction possible.
 
@@ -32,7 +35,7 @@ The system is a modular monolith for v1: one API, one worker boundary, one dashb
 │   └── settings/         # typed runtime settings
 ├── backend/tests/        # unit and contract tests
 ├── frontend/src/         # React/TypeScript inspection experience
-├── config/               # editable ICP and routing examples
+├── config/               # editable ICP, routing, and CRM mapping examples
 ├── docs/                 # requirements, architecture, and phased plan
 ├── infra/                # Docker Compose and Alembic migrations
 ├── scripts/              # seed and developer commands
@@ -85,18 +88,29 @@ If `uv` is unavailable, use `python -m venv .venv`, activate it, install with `p
 - `GET /v1/leads/{lead_id}/routing/action-plan` — retrieve the sales-facing action plan.
 - `GET /v1/leads/{lead_id}/routing/history` — inspect append-only routing history.
 - `GET /v1/leads/{lead_id}/notifications` — inspect notification attempts.
-- `GET /v1/leads/{lead_id}/pipeline-history` — inspect the ordered received-through-notified lifecycle.
+- `GET /v1/leads/{lead_id}/pipeline-history` — inspect the ordered received-through-CRM lifecycle.
 - `POST /v1/leads/{lead_id}/notifications/retry` — retry the current notification.
 - `POST /v1/leads/{lead_id}/routing/reroute` — intentionally create a new route with a reason.
+- `GET /v1/leads/{lead_id}/crm-sync` — inspect current CRM status and provider record IDs.
+- `GET /v1/leads/{lead_id}/crm-sync/history` — inspect append-only synchronization history.
+- `POST /v1/leads/{lead_id}/crm-sync` — perform an idempotent synchronization.
+- `POST /v1/leads/{lead_id}/crm-sync/retry` — manually retry a retryable synchronization.
+- `GET /v1/integrations` — list safe provider setup metadata and current-workspace connections.
+- `POST /v1/integrations/{provider}/connect` and `/{provider}/callback` — OAuth lifecycle boundary.
+- `POST /v1/integrations/{provider}/credentials` — store a manual credential through the secret port.
+- `POST /v1/integrations/connections/{id}/test` — validate connection state safely.
+- `POST /v1/integrations/connections/{id}/disconnect` or `/reconnect` — rotate connection state without returning secrets.
 - `GET /health/live` and `GET /health/ready` — liveness/readiness checks.
 
 ## Configuration and secrets
 
-Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml) and [`config/routing.example.yaml`](config/routing.example.yaml). Routing queues, reps, matching rules, action templates, and safe defaults are editable configuration rather than scattered code.
+Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml), [`config/routing.example.yaml`](config/routing.example.yaml), and [`config/crm.example.yaml`](config/crm.example.yaml). Routing policy and Salesforce/HubSpot field mappings remain editable configuration rather than scattered code.
 
-The default `LLM_PROVIDER=deterministic` and `NOTIFICATION_PROVIDER=mock` modes need no credentials. To use live providers, configure `OPENAI_API_KEY`/`OPENAI_MODEL` or `SLACK_BOT_TOKEN`/`SLACK_CHANNEL_ID` in the ignored local `.env`. Never commit those values. Salesforce and HubSpot are not implemented in this phase.
+The defaults `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVIDER=mock`, and `CRM_PROVIDER=mock` need no credentials. `CRM_PROVIDER` remains a development fallback; a workspace-owned active Salesforce or HubSpot connection takes precedence. Development connection secrets use the process-local `SecretStore` implementation and disappear on restart. Production must bind the same port to a managed secret service.
 
-Every intake adapter emits the same durable source-event contract. Raw payloads, source attribution, attempts, processing state, and errors are retained before normalization, analysis, qualification, routing, and notification. Replaying the same external event does not create duplicate leads or notifications; explicit rerouting creates a new historical decision.
+Local requests without authentication use the fixed development workspace. `X-Workspace-ID` and `X-Actor-ID` provide a test boundary only; production authentication must derive these values from verified identity/session claims rather than trusting browser-supplied headers.
+
+Every intake adapter emits the same durable source-event contract. Raw payloads and every decision remain inspectable through CRM delivery. Replaying the same lead reuses its route, notification, and CRM synchronization; changed canonical CRM payloads create a new historical sync attempt while preserving provider entity IDs.
 
 ## Validation
 

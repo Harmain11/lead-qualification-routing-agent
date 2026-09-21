@@ -250,9 +250,13 @@ def _notification_text(
 def record_pipeline_event(
     session: Session, lead_id: UUID, stage: str, status: str, details: dict[str, Any]
 ) -> None:
+    lead = session.get(LeadORM, lead_id)
+    if lead is None:
+        raise ValueError("cannot record pipeline event for an unknown lead")
     session.add(
         PipelineEventORM(
             id=uuid4(),
+            workspace_id=lead.workspace_id,
             lead_id=lead_id,
             stage=stage,
             status=status,
@@ -281,6 +285,7 @@ def notify_routing_decision(
     if existing is None:
         existing = NotificationORM(
             id=uuid4(),
+            workspace_id=lead.workspace_id,
             routing_decision_id=decision.id,
             provider=active_provider.provider_name,
             status="pending",
@@ -348,7 +353,7 @@ def route_and_notify(
 ) -> RoutingDecisionORM:
     qualification = _qualification(lead)
     analysis = _analysis(lead)
-    current = get_current_routing(session, lead.id)
+    current = get_current_routing(session, lead.id, lead.workspace_id)
     if current is not None and not force:
         return current
     if current is not None:
@@ -444,6 +449,7 @@ def route_and_notify(
         idempotency_key = f"{idempotency_key}:reroute:{uuid4()}"
     decision = RoutingDecisionORM(
         id=uuid4(),
+        workspace_id=lead.workspace_id,
         lead_id=lead.id,
         qualification_id=lead.qualification.id if lead.qualification else uuid4(),
         qualification_band=band,
@@ -489,7 +495,7 @@ def retry_current_notification(
     lead: LeadORM,
     provider: NotificationProvider | None = None,
 ) -> NotificationORM:
-    decision = get_current_routing(session, lead.id)
+    decision = get_current_routing(session, lead.id, lead.workspace_id)
     if decision is None:
         raise ValueError("lead has no routing decision")
     return notify_routing_decision(

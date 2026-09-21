@@ -180,3 +180,35 @@ Expose liveness and readiness separately. Readiness checks PostgreSQL, Redis, mi
 The routing application service consumes the persisted qualification and Phase 3 analysis; it never recalculates the score. `RoutingConfig` contains queues, active/inactive reps, ordered rules, and action templates. Matching is deterministic: manual-review precedence first, then the lowest numeric rule precedence, then greatest criterion specificity, then rule name; otherwise the qualification-band route is used. Hard-disqualified leads are archived without a sales rep. Active reps are selected by geography/industry/service skill score, then configured priority and stable rep ID.
 
 `routing_decisions` are append-only and mark only one record as current. Each decision stores the qualification link, matched rules, assignment reason, action plan, priority, SLA target, manual-review flag, and notification state. `notifications` stores provider attempts independently so Slack failure cannot remove a lead or routing decision. `pipeline_events` preserves the ordered received, normalized, analyzed, qualified, routed, and notified transitions for the lifecycle view. The mock notification provider is the default; Slack is an adapter selected by configuration.
+
+## Phase 5 CRM synchronization implementation
+
+`CrmProvider` accepts one `CanonicalCrmPayload` assembled from the persisted lead, analysis, qualification, and current routing decision. Salesforce and HubSpot types never cross this port. `config/crm.example.yaml` owns provider object/property names and owner mappings; `CRM_PROVIDER` selects exactly one active adapter.
+
+The application writes a `crm_syncs` record in `pending` state before provider I/O, commits `syncing` before each attempt, and stores `synced`, `retryable`, or `failed` independently from the lead and routing transaction. The payload hash and unique idempotency key prevent duplicate attempts for unchanged data. A changed payload creates a new current history record while carrying forward provider entity IDs. Pipeline history appends a `crm` event after `notified` for either success or inspectable failure.
+
+Salesforce uses REST sObject upsert by a configurable unique external-ID field. HubSpot uses CRM v3 batch upsert, contact identity by email, configurable unique company/deal properties, and v4 default associations. Both adapters classify authentication/configuration, rate-limit, transient transport, mapping, and permanent validation failures. The deterministic mock follows the same contract and is the local default.
+
+## Phase 5.5 workspace and connection architecture
+
+`Workspace` is the lightweight tenant root. Source events, leads, routing decisions, notifications, pipeline events, CRM synchronization records, outbox messages, provider connections, and agent-tool audit events carry `workspace_id`. Qualification and analysis ownership is inherited through their lead. Repository methods include workspace predicates; API authorization does not rely on filtering results after retrieval.
+
+`ProviderConnection` is provider-neutral and stores account identity, authentication type, status, scopes, safe metadata, validation state, and a `secret_reference`. Plaintext credentials are not database fields. The development `SecretStore` is process-local; production replaces that port with a managed secret backend. OAuth is represented as `begin → state-validated callback → secret reference → validation → connected`. The local OAuth broker proves the contract without pretending to perform live provider authorization.
+
+The long-term CRM selection is `workspace → active CRM connection → CrmProvider`. `CRM_PROVIDER` and environment credentials remain only a default-workspace/development fallback. Every CRM sync records the selected `provider_connection_id`, and provider entity IDs are looked up within workspace and connection scope so switching accounts cannot reuse another account's identifiers.
+
+Production identity middleware will derive `WorkspaceContext(workspace_id, actor_id)` from verified claims. Development headers are a test harness, not an authorization mechanism.
+
+## Agentic control plane
+
+External actions cross a controlled boundary:
+
+`Agent → ToolRegistry → workspace/actor permission check → structured input validation → provider tool → structured output → audit event`
+
+The first implemented capability is `crm.create_or_update_lead`. The catalog reserves `crm.lookup_customer`, `crm.update_deal`, `notification.send`, `email.read`, `email.send`, and `calendar.schedule` without granting them implementation or permission by implication. Tool idempotency and audit records are deterministic.
+
+The intended orchestration remains:
+
+`Orchestrator → Intake/Context Agent → Qualification Agent → Routing Agent → Action Planning Agent → CRM Tool → Notification Tool`
+
+Future agents may add follow-up, enrichment, and analytics/insight behavior. Authentication, authorization, tenant isolation, hard disqualifiers, score limits, routing thresholds, retries, validation, and idempotency remain deterministic application policy and cannot be overridden by an LLM.

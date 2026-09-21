@@ -1,12 +1,13 @@
 [project]
 name = "lead-qualification-routing-agent"
-version = "0.3.0"
+version = "0.5.5"
 description = "Grounded, explainable multi-channel lead qualification system"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14,<2.0",
   "celery>=5.4,<6.0",
   "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
   "openai>=1.68,<3.0",
   "psycopg[binary]>=3.2,<4.0",
   "pydantic-settings>=2.6,<3.0",
@@ -20,7 +21,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.28,<1.0",
   "mypy>=1.15,<2.0",
   "pytest>=8.3,<9.0",
   "pytest-cov>=6.0,<7.0",

@@ -17,16 +17,72 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.infrastructure.db.base import Base
+
+
+class WorkspaceORM(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProviderConnectionORM(Base):
+    __tablename__ = "provider_connections"
+    __table_args__ = (
+        Index("ix_provider_connections_workspace_provider", "workspace_id", "provider_type"),
+        Index("ix_provider_connections_workspace_active", "workspace_id", "is_active"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    account_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    secret_reference: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    credential_state: Mapped[str] = mapped_column(String(32), nullable=False, default="missing")
+    last_validation_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_validation_result: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    connection_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON, nullable=False, default=dict
+    )
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=False)
+    disconnected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SourceEventORM(Base):
     __tablename__ = "source_events"
     __table_args__ = (
-        UniqueConstraint("provider", "external_event_id", name="uq_source_provider_external"),
+        UniqueConstraint(
+            "workspace_id",
+            "provider",
+            "external_event_id",
+            name="uq_source_workspace_provider_external",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     external_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -45,9 +101,15 @@ class LeadORM(Base):
     __table_args__ = (
         Index("ix_leads_source_created", "source", "created_at"),
         Index("ix_leads_email", "email"),
+        Index("ix_leads_workspace_created", "workspace_id", "created_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
     source_event_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("source_events.id"), nullable=True
     )
@@ -80,6 +142,9 @@ class LeadORM(Base):
         back_populates="lead", uselist=False, cascade="all, delete-orphan"
     )
     routing_decisions: Mapped[list[RoutingDecisionORM]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan"
+    )
+    crm_syncs: Mapped[list[CrmSyncORM]] = relationship(
         back_populates="lead", cascade="all, delete-orphan"
     )
 
@@ -145,6 +210,11 @@ class RoutingDecisionORM(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
     lead_id: Mapped[UUID] = mapped_column(
         ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
     )
@@ -182,6 +252,11 @@ class NotificationORM(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
     routing_decision_id: Mapped[UUID] = mapped_column(
         ForeignKey("routing_decisions.id", ondelete="CASCADE"), nullable=False
     )
@@ -203,6 +278,11 @@ class PipelineEventORM(Base):
     __table_args__ = (Index("ix_pipeline_lead_created", "lead_id", "created_at"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
     lead_id: Mapped[UUID] = mapped_column(
         ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
     )
@@ -212,14 +292,91 @@ class PipelineEventORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CrmSyncORM(Base):
+    __tablename__ = "crm_syncs"
+    __table_args__ = (
+        Index("ix_crm_sync_lead_current", "lead_id", "provider", "is_current"),
+        Index("ix_crm_sync_status_updated", "status", "updated_at"),
+        UniqueConstraint("idempotency_key", name="uq_crm_sync_idempotency"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    routing_decision_id: Mapped[UUID] = mapped_column(
+        ForeignKey("routing_decisions.id", ondelete="RESTRICT"), nullable=False
+    )
+    provider_connection_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(32), nullable=False, default="upsert")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempt_history: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON, nullable=False, default=list
+    )
+    provider_entity_ids: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    payload_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    error_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retryable: Mapped[bool] = mapped_column(nullable=False, default=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_current: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    lead: Mapped[LeadORM] = relationship(back_populates="crm_syncs")
+
+
 class OutboxMessageORM(Base):
     __tablename__ = "outbox_messages"
     __table_args__ = (Index("ix_outbox_status_created", "status", "created_at"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        default=lambda: DEFAULT_WORKSPACE_ID,
+    )
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
     aggregate_id: Mapped[UUID] = mapped_column(nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AgentToolAuditORM(Base):
+    __tablename__ = "agent_tool_audit_events"
+    __table_args__ = (
+        Index("ix_agent_tool_audit_workspace_created", "workspace_id", "created_at"),
+        UniqueConstraint(
+            "workspace_id", "tool_name", "idempotency_key", name="uq_agent_tool_idempotency"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    required_permission: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_summary: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    output: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

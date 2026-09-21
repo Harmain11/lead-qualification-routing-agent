@@ -118,3 +118,13 @@ Live Gmail/Microsoft Graph, LinkedIn, Clutch mailbox access, queue execution, an
 ## Current Phase 4 implementation note
 
 The current implementation treats routing, action plans, rep/queue assignment, and notifications as Phase 4 work, matching the active delivery sequence. It is complete locally with persisted `routing_decisions`, `notifications`, and `pipeline_events`, deterministic configuration precedence, manual-review routing, mock/Slack notification ports, retry state, and explicit reroute history. The CRM and dashboard work described in later phases remains intentionally untouched.
+
+## Current Phase 5 implementation note
+
+The active delivery sequence treats CRM abstraction and the Salesforce/HubSpot adapters as Phase 5. One canonical `CrmProvider` use case builds a provider-neutral payload, persists synchronization intent before I/O, performs bounded retry, and appends CRM lifecycle events without changing successful lead, qualification, routing, or notification state. Mock, Salesforce, and HubSpot implementations share contract tests. Live tenant validation remains an integration checkpoint; Phase 6 analytics work has not started.
+
+## Current Phase 5.5 acceptance increment
+
+Phase 5.5 adds a lightweight workspace root, workspace-scoped repository queries, provider-neutral connection records, secret and OAuth ports, per-workspace active CRM resolution, safe connection APIs, and an initial Settings → Integrations experience. The existing canonical CRM payload, adapters, synchronization history, and environment fallback remain intact.
+
+The agentic direction is introduced through a registry of allow-listed tools with structured inputs/outputs, workspace and actor context, deterministic permission checks, idempotency, and durable audit records. It does not convert scoring, routing, authentication, authorization, or retry policy into free-form agent decisions. Phase 6 remains explicitly unstarted.

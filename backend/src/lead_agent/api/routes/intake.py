@@ -10,7 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_policies
+from lead_agent.api.dependencies import (
+    get_active_crm_provider,
+    get_policies,
+    get_workspace_context,
+)
 from lead_agent.api.schemas import (
     ClutchIntakeRequest,
     EmailIntakeRequest,
@@ -22,7 +26,9 @@ from lead_agent.api.schemas import (
 from lead_agent.application.services import process_source_event
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.routing import NotificationProvider
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.intake.adapters import (
     ClutchAdapter,
@@ -32,7 +38,7 @@ from lead_agent.infrastructure.intake.adapters import (
 )
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
-from lead_agent.infrastructure.repositories import get_current_routing
+from lead_agent.infrastructure.repositories import get_current_crm_sync, get_current_routing
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/intake", tags=["intake"])
@@ -65,6 +71,9 @@ def _intake(
     policies: tuple[IcpConfig, RoutingConfig],
     provider: ReasoningProvider,
     notification_provider: NotificationProvider,
+    crm_provider: CrmProvider,
+    settings: Settings,
+    workspace: WorkspaceContext,
 ) -> LeadResponse:
     try:
         event = adapter.adapt(payload)
@@ -74,10 +83,18 @@ def _intake(
             *policies,
             provider=provider,
             notification_provider=notification_provider,
+            crm_provider=crm_provider,
+            crm_max_attempts=settings.crm_max_attempts,
+            crm_payload_version=settings.load_crm_config().payload_version,
+            workspace_id=workspace.workspace_id,
         )
     except (ValueError, ValidationError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return lead_response(result.lead, get_current_routing(session, result.lead.id))
+    return lead_response(
+        result.lead,
+        get_current_routing(session, result.lead.id, workspace.workspace_id),
+        get_current_crm_sync(session, result.lead.id, workspace_id=workspace.workspace_id),
+    )
 
 
 @router.post("/web", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)
@@ -88,6 +105,8 @@ async def website_intake(
     settings: Settings = Depends(get_settings),
     provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
+    crm_provider: CrmProvider = Depends(get_active_crm_provider),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> LeadResponse:
     raw_body = await request.body()
     _verify_signature(
@@ -105,6 +124,9 @@ async def website_intake(
         policies,
         provider,
         notification_provider,
+        crm_provider,
+        settings,
+        workspace,
     )
 
 
@@ -115,6 +137,9 @@ def email_intake(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
+    crm_provider: CrmProvider = Depends(get_active_crm_provider),
+    settings: Settings = Depends(get_settings),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> LeadResponse:
     return _intake(
         EmailAdapter(),
@@ -123,6 +148,9 @@ def email_intake(
         policies,
         provider,
         notification_provider,
+        crm_provider,
+        settings,
+        workspace,
     )
 
 
@@ -133,6 +161,9 @@ def linkedin_intake(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
+    crm_provider: CrmProvider = Depends(get_active_crm_provider),
+    settings: Settings = Depends(get_settings),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> LeadResponse:
     return _intake(
         LinkedInAdapter(),
@@ -141,6 +172,9 @@ def linkedin_intake(
         policies,
         provider,
         notification_provider,
+        crm_provider,
+        settings,
+        workspace,
     )
 
 
@@ -151,6 +185,9 @@ def fourth_channel_intake(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
+    crm_provider: CrmProvider = Depends(get_active_crm_provider),
+    settings: Settings = Depends(get_settings),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> LeadResponse:
     return _intake(
         ClutchAdapter(),
@@ -159,4 +196,7 @@ def fourth_channel_intake(
         policies,
         provider,
         notification_provider,
+        crm_provider,
+        settings,
+        workspace,
     )

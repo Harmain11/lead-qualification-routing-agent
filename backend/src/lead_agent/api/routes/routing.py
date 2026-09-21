@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_policies
+from lead_agent.api.dependencies import get_policies, get_workspace_context
 from lead_agent.api.schemas import (
     NotificationResponse,
     PipelineEventResponse,
@@ -18,6 +18,7 @@ from lead_agent.api.schemas import (
 from lead_agent.application.routing import retry_current_notification, route_and_notify
 from lead_agent.domain.configuration import RoutingConfig
 from lead_agent.domain.routing import NotificationProvider
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.repositories import (
@@ -35,8 +36,8 @@ class RerouteRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
-def _lead_or_404(lead_id: UUID, session: Session) -> Any:
-    lead = get_lead(session, lead_id)
+def _lead_or_404(lead_id: UUID, session: Session, workspace_id: UUID) -> Any:
+    lead = get_lead(session, lead_id, workspace_id)
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead
@@ -50,18 +51,26 @@ def _required_routing_response(row: Any) -> RoutingDecisionResponse:
 
 
 @router.get("/{lead_id}/routing", response_model=RoutingDecisionResponse)
-def retrieve_routing(lead_id: UUID, session: Session = Depends(get_db)) -> RoutingDecisionResponse:
-    _lead_or_404(lead_id, session)
-    decision = get_current_routing(session, lead_id)
+def retrieve_routing(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
+) -> RoutingDecisionResponse:
+    _lead_or_404(lead_id, session, workspace.workspace_id)
+    decision = get_current_routing(session, lead_id, workspace.workspace_id)
     if decision is None:
         raise HTTPException(status_code=404, detail="Routing decision not found")
     return _required_routing_response(decision)
 
 
 @router.get("/{lead_id}/routing/action-plan")
-def retrieve_action_plan(lead_id: UUID, session: Session = Depends(get_db)) -> dict[str, object]:
-    _lead_or_404(lead_id, session)
-    decision = get_current_routing(session, lead_id)
+def retrieve_action_plan(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
+) -> dict[str, object]:
+    _lead_or_404(lead_id, session, workspace.workspace_id)
+    decision = get_current_routing(session, lead_id, workspace.workspace_id)
     if decision is None:
         raise HTTPException(status_code=404, detail="Routing decision not found")
     return decision.action_plan
@@ -69,25 +78,37 @@ def retrieve_action_plan(lead_id: UUID, session: Session = Depends(get_db)) -> d
 
 @router.get("/{lead_id}/routing/history", response_model=list[RoutingDecisionResponse])
 def retrieve_routing_history(
-    lead_id: UUID, session: Session = Depends(get_db)
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> list[RoutingDecisionResponse]:
-    _lead_or_404(lead_id, session)
-    return [_required_routing_response(row) for row in list_routing_history(session, lead_id)]
+    _lead_or_404(lead_id, session, workspace.workspace_id)
+    return [
+        _required_routing_response(row)
+        for row in list_routing_history(session, lead_id, workspace.workspace_id)
+    ]
 
 
 @router.get("/{lead_id}/notifications", response_model=list[NotificationResponse])
 def retrieve_notifications(
-    lead_id: UUID, session: Session = Depends(get_db)
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> list[NotificationResponse]:
-    _lead_or_404(lead_id, session)
-    return [notification_response(row) for row in list_notifications(session, lead_id)]
+    _lead_or_404(lead_id, session, workspace.workspace_id)
+    return [
+        notification_response(row)
+        for row in list_notifications(session, lead_id, workspace.workspace_id)
+    ]
 
 
 @router.get("/{lead_id}/pipeline-history", response_model=list[PipelineEventResponse])
 def retrieve_pipeline_history(
-    lead_id: UUID, session: Session = Depends(get_db)
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> list[PipelineEventResponse]:
-    _lead_or_404(lead_id, session)
+    _lead_or_404(lead_id, session, workspace.workspace_id)
     return [
         PipelineEventResponse(
             id=row.id,
@@ -96,7 +117,7 @@ def retrieve_pipeline_history(
             details=row.details,
             created_at=row.created_at,
         )
-        for row in list_pipeline_events(session, lead_id)
+        for row in list_pipeline_events(session, lead_id, workspace.workspace_id)
     ]
 
 
@@ -105,8 +126,9 @@ def retry_notification(
     lead_id: UUID,
     session: Session = Depends(get_db),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> NotificationResponse:
-    lead = _lead_or_404(lead_id, session)
+    lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     try:
         notification = retry_current_notification(session, lead, notification_provider)
     except ValueError as error:
@@ -121,8 +143,9 @@ def reroute_lead(
     session: Session = Depends(get_db),
     policies: tuple[object, RoutingConfig] = Depends(get_policies),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> RoutingDecisionResponse:
-    lead = _lead_or_404(lead_id, session)
+    lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     _, routing = policies
     decision = route_and_notify(
         session,

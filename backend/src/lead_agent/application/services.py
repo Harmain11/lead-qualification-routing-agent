@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
+from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
@@ -14,11 +15,13 @@ from lead_agent.domain.analysis import (
     ReasoningProviderError,
 )
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import find_hard_disqualifier, qualify_lead
+from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.infrastructure.db.models import LeadORM, SourceEventORM
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.repositories import (
@@ -159,13 +162,26 @@ def process_lead(
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
+    crm_provider: CrmProvider | None = None,
+    crm_max_attempts: int = 3,
+    crm_payload_version: str = "1.0",
+    workspace_id: UUID = DEFAULT_WORKSPACE_ID,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     lead = normalize_lead(payload, uuid4())
     analysis, result = _analyze_and_qualify(lead, icp, routing, provider)
-    row = create_lead_with_result(session, lead, result, analysis=analysis)
-    if get_current_routing(session, row.id) is None:
+    row = create_lead_with_result(
+        session, lead, result, analysis=analysis, workspace_id=workspace_id
+    )
+    if get_current_routing(session, row.id, workspace_id) is None:
         _record_pre_routing_history(session, row, analysis, result)
     route_and_notify(session, row, routing, notification_provider=notification_provider)
+    sync_lead_to_crm(
+        session,
+        row,
+        crm_provider,
+        max_attempts=crm_max_attempts,
+        payload_version=crm_payload_version,
+    )
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
             "manual_review" if analysis.requires_manual_review else "processed"
@@ -184,10 +200,14 @@ def process_source_event(
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
+    crm_provider: CrmProvider | None = None,
+    crm_max_attempts: int = 3,
+    crm_payload_version: str = "1.0",
+    workspace_id: UUID = DEFAULT_WORKSPACE_ID,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
-    source_event = get_source_event(session, event.channel, event.external_id)
+    source_event = get_source_event(session, event.channel, event.external_id, workspace_id)
     if source_event and source_event.status in {"processed", "manual_review"}:
         existing_lead = source_event.lead
         if existing_lead is not None:
@@ -202,6 +222,7 @@ def process_source_event(
             event.external_id,
             event.raw_payload,
             event.received_at,
+            workspace_id=workspace_id,
         )
 
     update_source_event(session, source_event, status="processing", increment_attempt=True)
@@ -209,11 +230,23 @@ def process_source_event(
         lead = normalize_lead(event.normalized_payload, uuid4())
         analysis, result = _analyze_and_qualify(lead, icp, routing, provider)
         row = create_lead_with_result(
-            session, lead, result, analysis=analysis, source_event=source_event
+            session,
+            lead,
+            result,
+            analysis=analysis,
+            source_event=source_event,
+            workspace_id=workspace_id,
         )
-        if get_current_routing(session, row.id) is None:
+        if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
+        sync_lead_to_crm(
+            session,
+            row,
+            crm_provider,
+            max_attempts=crm_max_attempts,
+            payload_version=crm_payload_version,
+        )
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message

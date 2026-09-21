@@ -1,0 +1,376 @@
+from __future__ import annotations
+
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
+
+from lead_agent.api.main import app
+from lead_agent.application.integrations import create_manual_connection
+from lead_agent.application.services import process_lead
+from lead_agent.application.tools import (
+    CrmCreateOrUpdateLeadTool,
+    ToolPermissionError,
+    ToolRegistry,
+)
+from lead_agent.domain.integrations import ManualConnectionInput
+from lead_agent.domain.tools import ToolContext
+from lead_agent.infrastructure.crm.factory import WorkspaceCrmProviderResolver
+from lead_agent.infrastructure.crm.mock import MockCrmProvider
+from lead_agent.infrastructure.db import models  # noqa: F401
+from lead_agent.infrastructure.db.base import Base
+from lead_agent.infrastructure.db.models import (
+    AgentToolAuditORM,
+    CrmSyncORM,
+    ProviderConnectionORM,
+    SourceEventORM,
+)
+from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.repositories import (
+    get_current_crm_sync,
+    get_lead,
+    get_provider_connection,
+    list_crm_sync_history,
+    list_provider_connections,
+)
+from lead_agent.infrastructure.secrets import DevelopmentSecretStore, get_secret_store
+from lead_agent.settings.config import Settings
+
+
+def session_for(tmp_path, *, threads: bool = False) -> Session:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'workspace.db'}",
+        connect_args={"check_same_thread": False} if threads else {},
+    )
+    Base.metadata.create_all(engine)
+    return Session(engine)
+
+
+def payload(external_id: str) -> dict[str, object]:
+    return {
+        "external_id": external_id,
+        "source": "website",
+        "source_detail": "workspace-test",
+        "full_name": "Workspace Buyer",
+        "email": f"{external_id}@example.test",
+        "job_title": "VP Operations",
+        "company_name": "Tenant Safe Systems",
+        "industry": "SaaS",
+        "employee_count": 150,
+        "geography": "United States",
+        "budget": 25000,
+        "product_or_service": "Lead routing",
+        "message": "We need a proposal this month for an API-connected routing workflow.",
+    }
+
+
+def manual_request(provider: str, credentials: dict[str, str]) -> ManualConnectionInput:
+    return ManualConnectionInput(
+        account_name=f"{provider.title()} test account",
+        external_account_id=f"{provider}-account",
+        auth_type="development" if provider == "mock" else "private_token",
+        scopes=["crm.write"],
+        credentials=credentials,
+    )
+
+
+def test_source_and_lead_identity_are_scoped_by_workspace(icp, routing, tmp_path) -> None:
+    workspace_a, workspace_b = uuid4(), uuid4()
+    with session_for(tmp_path) as session:
+        _, _, lead_a = process_lead(
+            session,
+            payload("shared-event"),
+            icp,
+            routing,
+            workspace_id=workspace_a,
+        )
+        _, _, lead_b = process_lead(
+            session,
+            payload("shared-event"),
+            icp,
+            routing,
+            workspace_id=workspace_b,
+        )
+        assert lead_a.id != lead_b.id
+        assert session.scalar(select(func.count()).select_from(SourceEventORM)) == 2
+        assert get_lead(session, lead_a.id, workspace_b) is None
+        assert get_current_crm_sync(session, lead_a.id, workspace_id=workspace_b) is None
+        assert list_crm_sync_history(session, lead_a.id, workspace_b) == []
+
+
+def test_provider_connection_repository_enforces_workspace_ownership(tmp_path) -> None:
+    workspace_a, workspace_b = uuid4(), uuid4()
+    store = DevelopmentSecretStore()
+    with session_for(tmp_path) as session:
+        connection = create_manual_connection(
+            session,
+            workspace_a,
+            "mock",
+            manual_request("mock", {"mode": "deterministic"}),
+            store,
+        )
+        assert get_provider_connection(session, workspace_a, connection.id) is not None
+        assert get_provider_connection(session, workspace_b, connection.id) is None
+        assert list_provider_connections(session, workspace_b) == []
+
+
+def test_workspace_resolver_selects_each_workspaces_active_crm(tmp_path, repository_root) -> None:
+    workspace_a, workspace_b = uuid4(), uuid4()
+    store = DevelopmentSecretStore()
+    settings = Settings(crm_config_path=str(repository_root / "config" / "crm.example.yaml"))
+    resolver = WorkspaceCrmProviderResolver(settings, store)
+    with session_for(tmp_path) as session:
+        hubspot = create_manual_connection(
+            session,
+            workspace_a,
+            "hubspot",
+            manual_request("hubspot", {"access_token": "test-hubspot-token"}),
+            store,
+        )
+        salesforce = create_manual_connection(
+            session,
+            workspace_b,
+            "salesforce",
+            manual_request(
+                "salesforce",
+                {
+                    "client_id": "test-client",
+                    "client_secret": "test-secret",
+                    "refresh_token": "test-refresh",
+                },
+            ),
+            store,
+        )
+        provider_a = resolver.resolve(session, workspace_a)
+        provider_b = resolver.resolve(session, workspace_b)
+        assert provider_a.provider_name == "hubspot"
+        assert provider_a.connection_id == hubspot.id
+        assert provider_b.provider_name == "salesforce"
+        assert provider_b.connection_id == salesforce.id
+
+
+def test_workspace_connection_drives_crm_sync_and_mapping_scope(
+    icp, routing, tmp_path, repository_root
+) -> None:
+    workspace_a, workspace_b = uuid4(), uuid4()
+    store = DevelopmentSecretStore()
+    settings = Settings(crm_config_path=str(repository_root / "config" / "crm.example.yaml"))
+    resolver = WorkspaceCrmProviderResolver(settings, store)
+    with session_for(tmp_path) as session:
+        connection_a = create_manual_connection(
+            session,
+            workspace_a,
+            "mock",
+            manual_request("mock", {"mode": "a"}),
+            store,
+        )
+        connection_b = create_manual_connection(
+            session,
+            workspace_b,
+            "mock",
+            manual_request("mock", {"mode": "b"}),
+            store,
+        )
+        _, _, lead_a = process_lead(
+            session,
+            payload("workspace-a-sync"),
+            icp,
+            routing,
+            crm_provider=resolver.resolve(session, workspace_a),
+            workspace_id=workspace_a,
+        )
+        _, _, lead_b = process_lead(
+            session,
+            payload("workspace-b-sync"),
+            icp,
+            routing,
+            crm_provider=resolver.resolve(session, workspace_b),
+            workspace_id=workspace_b,
+        )
+        sync_a = get_current_crm_sync(session, lead_a.id, workspace_id=workspace_a)
+        sync_b = get_current_crm_sync(session, lead_b.id, workspace_id=workspace_b)
+        assert sync_a is not None and sync_a.provider_connection_id == connection_a.id
+        assert sync_b is not None and sync_b.provider_connection_id == connection_b.id
+        assert sync_a.workspace_id != sync_b.workspace_id
+        assert get_current_crm_sync(session, lead_b.id, workspace_id=workspace_a) is None
+
+
+def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
+    tmp_path,
+) -> None:
+    workspace_a, workspace_b = uuid4(), uuid4()
+    store = DevelopmentSecretStore()
+    session = session_for(tmp_path, threads=True)
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_secret_store] = lambda: store
+    try:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/integrations/hubspot/credentials",
+                headers={"X-Workspace-ID": str(workspace_a)},
+                json={
+                    "account_name": "Workspace A HubSpot",
+                    "external_account_id": "portal-a",
+                    "auth_type": "private_token",
+                    "scopes": ["crm.objects.contacts.write"],
+                    "credentials": {"access_token": "test-private-token"},
+                    "metadata": {"region": "us"},
+                    "activate": True,
+                },
+            )
+            body = created.json()
+            foreign = client.get(
+                f"/v1/integrations/connections/{body['id']}",
+                headers={"X-Workspace-ID": str(workspace_b)},
+            )
+            tested = client.post(
+                f"/v1/integrations/connections/{body['id']}/test",
+                headers={"X-Workspace-ID": str(workspace_a)},
+            )
+            disconnected = client.post(
+                f"/v1/integrations/connections/{body['id']}/disconnect",
+                headers={"X-Workspace-ID": str(workspace_a)},
+            )
+            reconnected = client.post(
+                f"/v1/integrations/connections/{body['id']}/reconnect",
+                headers={"X-Workspace-ID": str(workspace_a)},
+                json={"credentials": {"access_token": "replacement-test-token"}},
+            )
+        assert created.status_code == 201
+        assert foreign.status_code == 404
+        assert tested.status_code == 200 and tested.json()["valid"] is True
+        assert disconnected.json()["credential_state"] == "missing"
+        assert reconnected.json()["credential_state"] == "configured"
+        serialized = str(body).lower()
+        assert "test-private-token" not in serialized
+        assert "secret_reference" not in body
+        assert "credentials" not in body
+        persisted = session.get(ProviderConnectionORM, UUID(body["id"]))
+        assert persisted is not None
+        assert persisted.secret_reference.startswith("devsecret://")
+        assert "replacement-test-token" not in persisted.secret_reference
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_oauth_contract_stores_reference_without_returning_authorization_code(tmp_path) -> None:
+    workspace = uuid4()
+    store = DevelopmentSecretStore()
+    session = session_for(tmp_path, threads=True)
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_secret_store] = lambda: store
+    try:
+        with TestClient(app) as client:
+            started = client.post(
+                "/v1/integrations/hubspot/connect",
+                headers={"X-Workspace-ID": str(workspace)},
+                json={"account_name": "OAuth HubSpot", "scopes": []},
+            )
+            started_body = started.json()
+            completed = client.post(
+                "/v1/integrations/hubspot/callback",
+                headers={"X-Workspace-ID": str(workspace)},
+                json={
+                    "connection_id": started_body["connection"]["id"],
+                    "state": started_body["state"],
+                    "authorization_code": "one-time-test-code",
+                },
+            )
+        assert started.status_code == 200
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "connected"
+        assert "one-time-test-code" not in str(completed.json())
+        assert "secret_reference" not in completed.json()
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_cross_workspace_lead_crm_and_retry_apis_return_not_found(icp, routing, tmp_path) -> None:
+    workspace_a, workspace_b = uuid4(), uuid4()
+    session = session_for(tmp_path, threads=True)
+    _, _, lead_b = process_lead(
+        session,
+        payload("workspace-b-private"),
+        icp,
+        routing,
+        workspace_id=workspace_b,
+    )
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        with TestClient(app) as client:
+            headers = {"X-Workspace-ID": str(workspace_a)}
+            assert client.get(f"/v1/leads/{lead_b.id}", headers=headers).status_code == 404
+            assert client.get(f"/v1/leads/{lead_b.id}/crm-sync", headers=headers).status_code == 404
+            assert (
+                client.post(f"/v1/leads/{lead_b.id}/crm-sync/retry", headers=headers).status_code
+                == 404
+            )
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_agent_tool_requires_permission_audits_and_is_idempotent(
+    icp, routing, tmp_path, repository_root
+) -> None:
+    workspace = uuid4()
+    store = DevelopmentSecretStore()
+    settings = Settings(crm_config_path=str(repository_root / "config" / "crm.example.yaml"))
+    resolver = WorkspaceCrmProviderResolver(settings, store)
+    fallback = MockCrmProvider()
+    with session_for(tmp_path) as session:
+        _, _, lead = process_lead(
+            session,
+            payload("agent-tool-lead"),
+            icp,
+            routing,
+            crm_provider=fallback,
+            workspace_id=workspace,
+        )
+        registry = ToolRegistry(session)
+        registry.register(CrmCreateOrUpdateLeadTool(session, resolver, fallback))
+        denied = ToolContext(workspace, "viewer", frozenset())
+        with pytest.raises(ToolPermissionError):
+            registry.invoke(
+                "crm.create_or_update_lead",
+                denied,
+                {"lead_id": str(lead.id)},
+                idempotency_key="denied-1",
+            )
+        allowed = ToolContext(workspace, "agent-1", frozenset({"crm:write"}))
+        first = registry.invoke(
+            "crm.create_or_update_lead",
+            allowed,
+            {"lead_id": str(lead.id)},
+            idempotency_key="sync-1",
+        )
+        replay = registry.invoke(
+            "crm.create_or_update_lead",
+            allowed,
+            {"lead_id": str(lead.id)},
+            idempotency_key="sync-1",
+        )
+        assert first.status == "completed"
+        assert replay.reused is True
+        assert replay.audit_event_id == first.audit_event_id
+        statuses = list(
+            session.scalars(select(AgentToolAuditORM.status).order_by(AgentToolAuditORM.created_at))
+        )
+        assert statuses == ["denied", "completed"]
+        assert session.scalar(select(func.count()).select_from(CrmSyncORM)) == 1

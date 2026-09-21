@@ -72,7 +72,7 @@ The complete placeholder contract is in [`.env.example`](../.env.example). Varia
 - LinkedIn and optional social credentials;
 - webhook security, demo-data mode, and telemetry.
 
-The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVIDER=mock`, `CRM_PROVIDER=none`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.
+The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVIDER=mock`, `CRM_PROVIDER=mock`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.
 
 ### Phase 4 routing and notification status
 
@@ -81,3 +81,44 @@ The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVID
 - `NOTIFICATION_PROVIDER=mock` is the default and records deterministic test deliveries without credentials.
 - `NOTIFICATION_PROVIDER=slack` uses `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID`. Missing or failed Slack delivery leaves the persisted routing decision intact and records `failed` or `retryable` state for a later retry.
 - Duplicate processing reuses the current routing decision and notification record. A new notification/routing record requires an explicit reroute operation.
+
+### Phase 5 CRM status
+
+- `CRM_PROVIDER=mock` is deterministic, credential-free, and used by automated tests.
+- `CRM_PROVIDER=salesforce` uses OAuth refresh-token authentication and REST sObject upsert through the external-ID field configured in `config/crm.example.yaml`.
+- `CRM_PROVIDER=hubspot` uses a private-app bearer token, CRM v3 batch upsert, and CRM v4 default associations.
+- A canonical payload carries lead identity, source, service, grounded summary, 40/35/25 components, total score, band, rationale, action plan, queue/rep, and urgency. Provider schemas remain inside adapters and mapping configuration.
+- `crm_syncs` preserves payload hashes, attempts, provider IDs, state, errors, retryability, and history. Provider failure does not change successful lead/routing state.
+
+### Salesforce setup
+
+1. Use a Salesforce sandbox or Developer Edition and create an External Client App (or an existing Connected App) with OAuth enabled. Grant the dedicated integration user `api` and refresh-token/offline access, plus least-privilege read/write access to Lead and any enabled Opportunity fields.
+2. Create a unique Text External ID on Lead named `Lead_Agent_ID__c`, or change `lead_external_id_field` in `config/crm.example.yaml`. Salesforce REST upsert requires the configured field to be an External ID; making it Unique provides database-level duplicate prevention.
+3. Create or map the configured Lead fields: requested service, summary, total/component scores, band, rationale, recommended action, assigned queue, and urgency/timeline. Long rationale/summary/action values should use Long Text Area fields. If Opportunity sync is enabled, create the configured unique Opportunity external ID and mapped fields and confirm valid stage names.
+4. If owner assignment is wanted, map internal rep IDs to Salesforce User IDs under `salesforce.owner_mapping`; otherwise ownership remains with Salesforce defaults.
+5. Set `CRM_PROVIDER=salesforce`, `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`, `SALESFORCE_REFRESH_TOKEN`, `SALESFORCE_LOGIN_BASE_URL`, and `SALESFORCE_API_VERSION` outside Git. Production secrets belong in a secret manager.
+
+Salesforce’s official REST documentation describes OAuth authorization and sObject upsert by external ID: <https://developer.salesforce.com/docs/platform/api-rest/guide/intro-oauth-and-connected-apps.html> and <https://developer.salesforce.com/docs/platform/api-rest/guide/resources-sobject-upsert-patch.html>.
+
+### HubSpot setup
+
+1. Create a HubSpot private app for the target account. Grant least-privilege read/write scopes for contacts, companies, deals, and their associations.
+2. Create the custom contact properties listed under `hubspot.contact_fields` in `config/crm.example.yaml`, or change those mappings to approved existing properties.
+3. Create `lead_agent_company_key` as a unique company property and `lead_agent_lead_id` as a unique deal property (or change the configured ID property names). These identities make company/deal replay upserts deterministic. Contact upsert uses email.
+4. Confirm the configured deal pipeline and stage values exist in the target portal. Map internal rep IDs to HubSpot owner IDs under `hubspot.owner_mapping` if owner assignment is wanted.
+5. Set `CRM_PROVIDER=hubspot` and `HUBSPOT_ACCESS_TOKEN` outside Git. Override `HUBSPOT_API_BASE_URL` only for an approved proxy/test environment.
+
+HubSpot documents bearer-token authentication and contact batch upsert by email; the adapter uses the corresponding CRM v3 object upsert and v4 association boundaries: <https://developers.hubspot.com/changelog/september-2024-rollup>.
+
+### Workspace connection model
+
+- Provider accounts belong to a workspace through one `provider_connections` table rather than provider-specific credential tables.
+- Safe records contain provider/account identity, auth type, scopes, connection state, credential state, validation timestamps/results, and non-sensitive metadata.
+- Credential material is submitted once to `SecretStore`; only an opaque reference is persisted. API responses deliberately omit both the reference and credential values.
+- Salesforce, HubSpot, Slack, Gmail, and Outlook prefer OAuth. HubSpot private-app tokens and other approved manual credentials remain supported through the same connection boundary.
+- One active CRM connection is selected per workspace. A connected workspace account takes precedence over `CRM_PROVIDER`; environment credentials remain a development fallback only.
+- CRM synchronization rows retain the exact provider connection ID so entity IDs cannot bleed across workspaces or external accounts.
+
+The development secret store and OAuth broker are intentionally process-local. Production must provide a managed encrypted secret implementation, durable OAuth state/PKCE storage, provider token exchange and refresh, revocation, and remote validation before enabling customer accounts.
+
+The frontend setup catalog describes where credentials originate, minimum scopes, why they are needed, and links to official documentation. It never embeds or displays a user's values.

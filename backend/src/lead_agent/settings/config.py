@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
+from lead_agent.domain.crm import CrmConfig, load_crm_config
 
 
 class Settings(BaseSettings):
@@ -13,7 +14,7 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     app_name: str = "lead-qualification-routing-agent"
-    app_version: str = "0.1.0"
+    app_version: str = "0.5.5"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     log_level: str = "INFO"
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     job_max_retries: int = 3
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"
+    crm_config_path: str = "config/crm.example.yaml"
     llm_provider: str = "none"
     openai_api_key: str = ""
     openai_model: str = ""
@@ -33,7 +35,19 @@ class Settings(BaseSettings):
     openai_timeout_seconds: float = 30.0
     openai_max_retries: int = 2
     openai_store_responses: bool = False
-    crm_provider: str = "none"
+    crm_provider: str = "mock"
+    crm_max_attempts: int = 3
+    crm_timeout_seconds: float = 20.0
+    secret_store_provider: str = "development"
+    oauth_broker: str = "development"
+    integration_public_base_url: str = "http://localhost:8000"
+    salesforce_client_id: str = ""
+    salesforce_client_secret: str = ""
+    salesforce_refresh_token: str = ""
+    salesforce_login_base_url: str = "https://login.salesforce.com"
+    salesforce_api_version: str = "v68.0"
+    hubspot_access_token: str = ""
+    hubspot_api_base_url: str = "https://api.hubapi.com"
     mailbox_provider: str = "none"
     social_provider: str = "none"
     demo_data_enabled: bool = False
@@ -68,6 +82,9 @@ class Settings(BaseSettings):
             load_icp(self.resolve_path(self.icp_config_path)),
             load_routing(self.resolve_path(self.routing_config_path)),
         )
+
+    def load_crm_config(self) -> CrmConfig:
+        return load_crm_config(self.resolve_path(self.crm_config_path))
 
 
 @lru_cache
