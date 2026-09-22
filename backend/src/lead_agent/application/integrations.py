@@ -87,6 +87,9 @@ def _validate_manual_credentials(
     missing = sorted(REQUIRED_MANUAL_CREDENTIALS.get(provider, set()) - credentials.keys())
     if missing:
         raise ValueError(f"missing credential fields: {', '.join(missing)}")
+    unexpected = sorted(credentials.keys() - REQUIRED_MANUAL_CREDENTIALS.get(provider, set()))
+    if unexpected:
+        raise ValueError(f"unsupported credential fields: {', '.join(unexpected)}")
 
 
 def _activate_connection(session: Session, connection: ProviderConnectionORM) -> None:

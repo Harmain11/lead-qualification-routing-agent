@@ -90,18 +90,18 @@ def build_connected_crm_provider(
         return MockCrmProvider()
     if provider_type == "salesforce":
         return SalesforceCrmProvider(
-            client_id=credentials.get("client_id", ""),
-            client_secret=credentials.get("client_secret", ""),
+            client_id=credentials.get("client_id", settings.salesforce_client_id),
+            client_secret=credentials.get("client_secret", settings.salesforce_client_secret),
             refresh_token=credentials.get("refresh_token", ""),
-            login_base_url=credentials.get("login_base_url", settings.salesforce_login_base_url),
-            api_version=credentials.get("api_version", settings.salesforce_api_version),
+            login_base_url=settings.salesforce_login_base_url,
+            api_version=settings.salesforce_api_version,
             config=config.salesforce,
             timeout_seconds=settings.crm_timeout_seconds,
         )
     if provider_type == "hubspot":
         return HubSpotCrmProvider(
             access_token=credentials.get("access_token", ""),
-            api_base_url=credentials.get("api_base_url", settings.hubspot_api_base_url),
+            api_base_url=settings.hubspot_api_base_url,
             config=config.hubspot,
             timeout_seconds=settings.crm_timeout_seconds,
         )
@@ -119,9 +119,12 @@ class WorkspaceCrmProviderResolver:
         workspace_id: UUID,
         fallback: CrmProvider | None = None,
     ) -> CrmProvider:
-        connection = get_active_provider_connection(
-            session, workspace_id, {"mock", "salesforce", "hubspot"}
+        provider_types = (
+            {"salesforce", "hubspot"}
+            if self.settings.app_env == "production"
+            else {"mock", "salesforce", "hubspot"}
         )
+        connection = get_active_provider_connection(session, workspace_id, provider_types)
         if connection is None:
             return fallback or build_crm_provider(self.settings)
         credentials = (

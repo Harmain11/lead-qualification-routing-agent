@@ -88,6 +88,8 @@ def test_valid_production_configuration_has_explicit_security_boundaries() -> No
         ({"cors_allowed_origins": "*"}, "wildcard production CORS"),
         ({"secret_store_provider": "development"}, "SECRET_STORE_PROVIDER"),
         ({"demo_data_enabled": True}, "DEMO_DATA_ENABLED"),
+        ({"salesforce_login_base_url": "http://login.salesforce.com"}, "SALESFORCE_LOGIN_BASE_URL"),
+        ({"hubspot_api_base_url": "https://127.0.0.1"}, "HUBSPOT_API_BASE_URL"),
     ],
 )
 def test_production_rejects_insecure_overrides(override: dict[str, object], expected: str) -> None:

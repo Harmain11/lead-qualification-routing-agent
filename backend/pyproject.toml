@@ -1,6 +1,6 @@
 [project]
 name = "lead-qualification-routing-agent"
-version = "0.6.0"
+version = "0.6.5"
 description = "Grounded, explainable multi-channel lead qualification system"
 requires-python = ">=3.12"
 dependencies = [

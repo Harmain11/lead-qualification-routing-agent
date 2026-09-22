@@ -17,7 +17,10 @@ from lead_agent.application.tools import (
 )
 from lead_agent.domain.integrations import ManualConnectionInput
 from lead_agent.domain.tools import ToolContext
-from lead_agent.infrastructure.crm.factory import WorkspaceCrmProviderResolver
+from lead_agent.infrastructure.crm.factory import (
+    WorkspaceCrmProviderResolver,
+    build_connected_crm_provider,
+)
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -182,6 +185,60 @@ def test_workspace_resolver_selects_each_workspaces_active_crm(tmp_path, reposit
         assert provider_b.connection_id == salesforce.id
 
 
+def test_production_resolver_never_selects_workspace_mock_connection(
+    tmp_path, repository_root
+) -> None:
+    workspace = uuid4()
+    store = DevelopmentSecretStore()
+    settings = Settings(
+        app_env="development",
+        crm_config_path=str(repository_root / "config" / "crm.example.yaml"),
+        _env_file=None,
+    )
+    with session_for(tmp_path) as session:
+        create_manual_connection(
+            session,
+            workspace,
+            "mock",
+            manual_request("mock", {"mode": "deterministic"}),
+            store,
+        )
+        fallback = MockCrmProvider()
+        settings.app_env = "production"
+        resolver = WorkspaceCrmProviderResolver(settings, store)
+        assert resolver.resolve(session, workspace, fallback) is fallback
+
+
+def test_connected_crm_endpoints_cannot_be_overridden_by_workspace_credentials(
+    repository_root,
+) -> None:
+    settings = Settings(
+        crm_config_path=str(repository_root / "config" / "crm.example.yaml"),
+        salesforce_client_id="operator-client",
+        salesforce_client_secret="operator-secret",
+        salesforce_login_base_url="https://login.salesforce.com",
+        hubspot_api_base_url="https://api.hubapi.com",
+        _env_file=None,
+    )
+    salesforce = build_connected_crm_provider(
+        settings,
+        "salesforce",
+        {
+            "refresh_token": "workspace-refresh",
+            "login_base_url": "http://127.0.0.1",
+        },
+    )
+    hubspot = build_connected_crm_provider(
+        settings,
+        "hubspot",
+        {"access_token": "workspace-token", "api_base_url": "http://127.0.0.1"},
+    )
+    assert salesforce.login_base_url == "https://login.salesforce.com"
+    assert salesforce.client_id == "operator-client"
+    assert salesforce.client_secret == "operator-secret"
+    assert hubspot.api_base_url == "https://api.hubapi.com"
+
+
 def test_workspace_connection_drives_crm_sync_and_mapping_scope(
     icp, routing, tmp_path, repository_root
 ) -> None:
@@ -276,6 +333,19 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
                     "metadata": {"profile": {"api_key": "must-not-be-returned"}},
                 },
             )
+            rejected_endpoint_override = client.post(
+                "/v1/integrations/hubspot/credentials",
+                headers={"X-Workspace-ID": str(workspace_a)},
+                json={
+                    "account_name": "Unsafe endpoint override",
+                    "auth_type": "private_token",
+                    "scopes": [],
+                    "credentials": {
+                        "access_token": "stored-safely",
+                        "api_base_url": "http://127.0.0.1",
+                    },
+                },
+            )
             body = created.json()
             foreign = client.get(
                 f"/v1/integrations/connections/{body['id']}",
@@ -297,6 +367,7 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
         assert created.status_code == 201
         assert rejected_manual_oauth_provider.status_code == 422
         assert rejected_nested_secret_metadata.status_code == 422
+        assert rejected_endpoint_override.status_code == 422
         assert foreign.status_code == 404
         assert tested.status_code == 200 and tested.json()["valid"] is True
         assert disconnected.json()["credential_state"] == "missing"

@@ -21,7 +21,6 @@ celery_app.conf.update(
     task_track_started=True,
     worker_prefetch_multiplier=1,
     task_default_retry_delay=5,
-    task_max_retries=settings.job_max_retries,
     task_soft_time_limit=240,
     task_time_limit=300,
     task_publish_retry=True,
@@ -37,6 +36,9 @@ celery_app.conf.update(
     broker_transport_options={"visibility_timeout": 3600},
     result_backend_transport_options={"visibility_timeout": 3600},
 )
+# Celery has no effective global ``task_max_retries`` configuration key. Set the
+# application task base so every future registered task inherits the configured bound.
+celery_app.Task.max_retries = settings.job_max_retries
 
 
 def _on_task_failure(

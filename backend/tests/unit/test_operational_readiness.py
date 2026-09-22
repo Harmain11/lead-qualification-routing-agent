@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -205,6 +208,31 @@ def test_production_rejects_local_database_redis_and_process_limiter() -> None:
     assert "production PostgreSQL requires" in messages
     assert "production Redis requires" in messages
     assert "RATE_LIMIT_BACKEND must be redis" in messages
+
+
+def test_job_retry_limit_must_be_non_negative() -> None:
+    with pytest.raises(ValidationError, match="JOB_MAX_RETRIES"):
+        Settings(job_max_retries=-1, _env_file=None)
+
+
+def test_configured_job_retry_limit_is_effective_for_celery_tasks() -> None:
+    environment = os.environ.copy()
+    environment["JOB_MAX_RETRIES"] = "1"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from lead_agent.worker.celery_app import celery_app; "
+                "print(celery_app.Task.max_retries)"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    assert completed.stdout.strip() == "1"
 
 
 def test_production_check_never_prints_secret_values(

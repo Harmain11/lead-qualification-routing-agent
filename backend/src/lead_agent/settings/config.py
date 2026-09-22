@@ -138,6 +138,8 @@ class Settings(BaseSettings):
         ):
             if value < 1:
                 raise ValueError("rate-limit policies must have positive limits and windows")
+        if self.job_max_retries < 0:
+            raise ValueError("JOB_MAX_RETRIES must be zero or greater")
         if self.app_env == "production":
             self._validate_production_security()
         return self
@@ -183,6 +185,16 @@ class Settings(BaseSettings):
         require(
             self.notification_provider != "mock",
             "NOTIFICATION_PROVIDER cannot be mock",
+        )
+        require(
+            _is_https_base_url(self.salesforce_login_base_url)
+            and _is_public_https_base_url(self.salesforce_login_base_url),
+            "SALESFORCE_LOGIN_BASE_URL must be an absolute public HTTPS URL",
+        )
+        require(
+            _is_https_base_url(self.hubspot_api_base_url)
+            and _is_public_https_base_url(self.hubspot_api_base_url),
+            "HUBSPOT_API_BASE_URL must be an absolute public HTTPS URL",
         )
         require(not self.demo_data_enabled, "DEMO_DATA_ENABLED must be false")
         require(
