@@ -16,9 +16,14 @@ ProviderType = Literal[
     "openai",
 ]
 ConnectionStatus = Literal[
-    "pending",
+    "connecting",
+    "awaiting_authorization",
+    "validating",
     "connected",
     "needs_attention",
+    "authorization_expired",
+    "connection_failed",
+    "reconnect_required",
     "disconnected",
 ]
 CredentialState = Literal["configured", "missing", "expired", "invalid"]
@@ -48,15 +53,15 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         availability="available",
         preferred_auth="oauth2",
         supported_auth=["oauth2", "private_token"],
-        dashboard_path="Setup → App Manager → External Client Apps",
-        credential_help="Create an OAuth app and authorize a least-privilege integration user.",
+        dashboard_path="Managed by Ingenuity Systems · Salesforce OAuth app",
+        credential_help="Sign in to Salesforce and approve access. No developer setup is required.",
         required_scopes=["api", "refresh_token/offline_access"],
         permission_reason="Create or update Lead records and the configured sales fields.",
         documentation_url=(
             "https://developer.salesforce.com/docs/platform/api-rest/guide/"
             "intro-oauth-and-connected-apps.html"
         ),
-        manual_fields=["client_id", "client_secret", "refresh_token"],
+        manual_fields=[],
     ),
     "hubspot": ProviderSetupMetadata(
         provider="hubspot",
@@ -65,8 +70,8 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         availability="available",
         preferred_auth="oauth2",
         supported_auth=["oauth2", "private_token"],
-        dashboard_path="Settings → Integrations → Private Apps → Create private app",
-        credential_help="Use OAuth for customer installs or a private-app token for one account.",
+        dashboard_path="Managed by Ingenuity Systems · HubSpot public app",
+        credential_help="Sign in to HubSpot, choose an account, and approve access.",
         required_scopes=[
             "crm.objects.contacts.read/write",
             "crm.objects.companies.read/write",
@@ -74,7 +79,7 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         ],
         permission_reason="Upsert contacts, companies, deals, and their associations.",
         documentation_url="https://developers.hubspot.com/docs/api/private-apps",
-        manual_fields=["access_token"],
+        manual_fields=[],
     ),
     "slack": ProviderSetupMetadata(
         provider="slack",
@@ -83,23 +88,23 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         availability="foundation",
         preferred_auth="oauth2",
         supported_auth=["oauth2", "private_token"],
-        dashboard_path="api.slack.com/apps → Create New App → OAuth & Permissions",
-        credential_help="Install a bot to the selected workspace and choose a lead-alert channel.",
+        dashboard_path="Managed by Ingenuity Systems · Slack application",
+        credential_help="Choose a Slack workspace and approve the lead-alert bot.",
         required_scopes=["chat:write"],
         permission_reason="Deliver routed lead summaries to an approved channel.",
         documentation_url="https://api.slack.com/authentication/oauth-v2",
-        manual_fields=["bot_token", "channel_id"],
+        manual_fields=[],
     ),
     "gmail": ProviderSetupMetadata(
         provider="gmail",
         display_name="Gmail",
         category="Email",
-        availability="future",
+        availability="foundation",
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
-        dashboard_path="Google Cloud Console → APIs & Services → Credentials",
-        credential_help="Configure OAuth consent and Gmail scopes for the intake mailbox.",
-        required_scopes=["gmail.readonly"],
+        dashboard_path="Managed by Ingenuity Systems · Google OAuth consent",
+        credential_help="Sign in with Google and approve read-only access to the intake mailbox.",
+        required_scopes=["https://www.googleapis.com/auth/gmail.readonly"],
         permission_reason="Read approved inbound lead messages without accessing unrelated mail.",
         documentation_url="https://developers.google.com/gmail/api/auth/web-server",
     ),
@@ -107,11 +112,11 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         provider="outlook",
         display_name="Outlook",
         category="Email",
-        availability="future",
+        availability="foundation",
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
-        dashboard_path="Microsoft Entra admin center → App registrations",
-        credential_help="Register an application and authorize the intake mailbox.",
+        dashboard_path="Managed by Ingenuity Systems · Microsoft Entra application",
+        credential_help="Sign in with Microsoft and approve access to the intake mailbox.",
         required_scopes=["Mail.Read", "offline_access"],
         permission_reason="Read approved inbound lead messages through Microsoft Graph.",
         documentation_url="https://learn.microsoft.com/graph/auth-v2-user",
@@ -167,9 +172,27 @@ class OAuthStart(BaseModel):
 
 
 class OAuthBroker(Protocol):
-    def begin(self, provider: str, connection_id: UUID, state: str) -> str: ...
+    def begin(
+        self,
+        provider: str,
+        connection_id: UUID,
+        state: str,
+        code_challenge: str,
+        redirect_uri: str,
+        scopes: list[str],
+    ) -> str: ...
 
-    def exchange(self, provider: str, authorization_code: str) -> dict[str, str]: ...
+    def exchange(
+        self,
+        provider: str,
+        authorization_code: str,
+        code_verifier: str,
+        redirect_uri: str,
+    ) -> dict[str, str]: ...
+
+    def refresh(self, provider: str, refresh_token: str) -> dict[str, str]: ...
+
+    def revoke(self, provider: str, values: dict[str, str]) -> None: ...
 
 
 class ManualConnectionInput(BaseModel):

@@ -111,7 +111,7 @@ Configuration is loaded from [`config/icp.example.yaml`](config/icp.example.yaml
 
 The defaults `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVIDER=mock`, and `CRM_PROVIDER=mock` need no credentials. `CRM_PROVIDER` remains a development fallback; a workspace-owned active Salesforce or HubSpot connection takes precedence. Development connection secrets use the process-local `SecretStore` implementation and disappear on restart. Production must bind the same port to a managed secret service.
 
-Local requests without authentication use the fixed development workspace. `X-Workspace-ID` and `X-Actor-ID` provide a test boundary only; production authentication must derive these values from verified identity/session claims rather than trusting browser-supplied headers.
+Production requests use opaque, server-side sessions in HttpOnly cookies. Every product request resolves the authenticated user, verifies an active workspace membership, and only then constructs `WorkspaceContext`; a browser-supplied workspace ID is a selection hint, never authority. Development headers remain available only when `APP_ENV` is development/test/local and `AUTH_DEVELOPMENT_FALLBACK=true`.
 
 Every intake adapter emits the same durable source-event contract. Raw payloads and every decision remain inspectable through CRM delivery. Replaying the same lead reuses its route, notification, and CRM synchronization; changed canonical CRM payloads create a new historical sync attempt while preserving provider entity IDs.
 
@@ -135,6 +135,16 @@ See [`docs/implementation-plan.md`](docs/implementation-plan.md), [`docs/archite
 
 Analytics is aggregated on the server and every response includes generated-at, workspace, time-window, and demo/live provenance metadata. Revenue facts remain separate from qualification evidence and are labeled `crm`, `demo`, `mixed`, or `unavailable`; seeded revenue is never represented as production data.
 
-The frontend reads `VITE_WORKSPACE_ID` at dev/build startup. Its development default targets the reserved demo workspace (`00000000-0000-0000-0000-000000000006`); set this to an owned live workspace for live-mode inspection. The demo seed command never inserts records into the default/live workspace.
+After sign-in, the frontend derives the active workspace from the authenticated session. `VITE_WORKSPACE_ID` is used only by the explicit local development-session path, whose default is the reserved demo workspace (`00000000-0000-0000-0000-000000000006`). The demo seed command never inserts records into the default/live workspace.
 
-The product shell provides Dashboard, Leads, Pipeline, Agents / AI Activity, Analytics, Integrations, Manual Review, and Settings. Its signature operating-flow visualization uses lightweight CSS/SVG effects, stable transform/opacity motion, responsive layouts, and `prefers-reduced-motion` fallbacks.
+The product shell provides Dashboard, Leads, Pipeline, Agents / AI Activity, Analytics, Integrations, Manual Review, and Settings. Its signature lead-intelligence network is one lazy-loaded React Three Fiber canvas backed by actual lead state. Mobile, reduced-motion, hidden-tab, and WebGL-unavailable paths use an accessible DOM/CSS topology.
+
+## Phase 6.5 authentication and account linking
+
+- `POST /v1/auth/signup`, `/signin`, `/signout`, and `/development-session` manage opaque sessions; `GET /v1/auth/session` returns safe identity and membership metadata.
+- `POST /v1/auth/workspace` changes the current workspace only after membership verification.
+- Cookie-authenticated mutations require CSRF validation. Passwords use salted `scrypt`; session and CSRF token digests, not raw tokens, are persisted.
+- Migration `0010_production_authentication` adds users, memberships, and revocable/expiring sessions.
+- `OAUTH_BROKER=provider` enables operator-owned OAuth applications. Customers only click Connect, sign in, and approve scopes.
+- OAuth state expires after ten minutes, is single-use, and is bound to a PKCE verifier stored through `SecretStore`. Provider tokens never enter frontend code or connection API responses.
+- `OAUTH_BROKER=development` remains a deterministic local callback loop for tests.

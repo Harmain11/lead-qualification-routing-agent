@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 
 import { createLead } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
@@ -18,6 +18,8 @@ import type {
   RevenueAnalytics,
   TimeSeriesAnalytics,
 } from "../types";
+
+const LeadIntelligenceNetwork = lazy(() => import("../components/LeadIntelligenceNetwork"));
 
 export type AnalyticsBundle = {
   dashboard: DashboardAnalytics;
@@ -58,9 +60,11 @@ export const money = (value: number) =>
 
 export function DashboardView({
   data,
+  latestLead,
   onInspect,
 }: {
   data: AnalyticsBundle | null;
+  latestLead: Lead | null;
   onInspect: (id: string) => void;
 }) {
   if (!data) return <Unavailable />;
@@ -93,7 +97,23 @@ export function DashboardView({
       <section className="metric-grid">
         {metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}
       </section>
-      <AgentFlow pipeline={data.pipeline} activity={data.agents} />
+      <Suspense fallback={<div className="network-loading panel"><span className="eyebrow">Loading intelligence topology</span><i /></div>}>
+        <LeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />
+      </Suspense>
+      <section className="dashboard-command-grid">
+        <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
+          <ActivityFeed data={data.agents} compact />
+        </Panel>
+        <Panel title="Attention queue" eyebrow="Human judgment required" action={`${data.review.total} open`}>
+          {data.review.items.length ? (
+            <div className="compact-leads">
+              {data.review.items.slice(0, 5).map((lead) => (
+                <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />
+              ))}
+            </div>
+          ) : <Empty title="No review debt" text="No leads need human review in this period." />}
+        </Panel>
+      </section>
       <section className="dashboard-grid">
         <Panel title="Signal velocity" eyebrow="Lead volume over time" action="Server aggregated">
           <TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} />
@@ -112,14 +132,8 @@ export function DashboardView({
             }))}
           />
         </Panel>
-        <Panel title="Attention queue" eyebrow="Human judgment required" action={`${data.review.total} open`}>
-          {data.review.items.length ? (
-            <div className="compact-leads">
-              {data.review.items.slice(0, 5).map((lead) => (
-                <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />
-              ))}
-            </div>
-          ) : <Empty title="No review debt" text="No leads need human review in this period." />}
+        <Panel title="Pipeline pulse" eyebrow="Active progression by stage">
+          <Bars rows={data.pipeline.stages.map((stage) => ({ label: stage.label, value: stage.count, note: stage.value ? money(stage.value) : undefined }))} />
         </Panel>
       </section>
     </div>
@@ -228,8 +242,8 @@ export function PipelineView({ data, onInspect }: { data: PipelineAnalytics | nu
   return (
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Commercial motion map</span><h1>Pipeline, without<br /><em>the blind spots.</em></h1><p>Inspect every stage and the qualification state that shaped progression.</p></div><div className="pipeline-total"><span>Active pipeline</span><strong>{money(data.stages.find((stage) => stage.stage === "opportunity")?.value ?? 0)}</strong></div></header>
-      <section className="pipeline-track panel">{data.stages.map((stage, index) => <button key={stage.stage} className={active === stage.stage ? "active" : ""} onClick={() => setActive(stage.stage)}><span>{String(index + 1).padStart(2, "0")}</span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.value ? money(stage.value) : "—"}</small>{index < data.stages.length - 1 && <i />}</button>)}</section>
-      <section className="pipeline-inspector">
+      <section className="pipeline-track panel">{data.stages.map((stage, index) => <button key={stage.stage} className={active === stage.stage ? "active" : ""} aria-pressed={active === stage.stage} onClick={() => setActive(stage.stage)}><span>{String(index + 1).padStart(2, "0")}</span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.value ? money(stage.value) : "—"}</small><span className="pipeline-lead-dots" aria-hidden="true">{stage.leads.slice(0, 4).map((lead) => <i key={lead.id} />)}</span>{index < data.stages.length - 1 && <i className="pipeline-link" />}</button>)}</section>
+      <section className="pipeline-inspector pipeline-detail-enter" key={selected.stage}>
         <Panel title={`${selected.label} leads`} eyebrow="Underlying workspace records" action={`${selected.count} total`}>{selected.leads.length ? <div className="compact-leads">{selected.leads.map((lead) => <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />)}</div> : <Empty title="Stage is clear" text="No leads occupy this stage in the selected period." />}</Panel>
         <Panel title="Qualification state" eyebrow="Decision distribution"><Bars rows={data.bands.map((row) => ({ label: row.band, value: row.count }))} /></Panel>
       </section>
@@ -245,7 +259,7 @@ export function AgentsView({ data, pipeline }: { data: AgentActivity | null; pip
       <AgentFlow pipeline={pipeline} activity={data} />
       <section className="agent-layout">
         <Panel title="Capability registry" eyebrow="Implemented vs reserved"><div className="capability-grid">{data.capabilities.map((item) => <div className={item.status} key={item.name}><i /> <b>{item.name}</b><span>{item.status}</span></div>)}</div></Panel>
-        <Panel title="Recent runs" eyebrow="Workspace audit stream" action={`${data.activity.length} events`}><div className="activity-list">{data.activity.slice(0, 25).map((item) => <details key={item.id}><summary><i className={`activity-status status-${item.status}`} /><span><b>{item.tool_name || item.agent}</b><small>{pretty(item.stage)} · {new Date(item.created_at).toLocaleString()}</small></span><em>{pretty(item.status)}</em></summary><pre>{JSON.stringify(item.structured_result, null, 2)}</pre>{item.error && <p>{item.error}</p>}</details>)}</div></Panel>
+        <Panel title="Recent runs" eyebrow="Workspace audit stream" action={`${data.activity.length} events`}><ActivityFeed data={data} /></Panel>
       </section>
     </div>
   );
@@ -261,7 +275,7 @@ export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
   return (
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
-      <section className="analytics-grid">
+      <section className="analytics-grid analytics-motion" key={data.dashboard.metadata.range}>
         <Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel>
         <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>
         <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>
@@ -298,12 +312,65 @@ export function SettingsView({ metadata, onIntegrations }: { metadata?: Analytic
 }
 
 function MetricCard({ metric }: { metric: DashboardAnalytics["metrics"][number] }) {
+  const animated = useCountUp(metric.value);
+  const featured = metric.key === "total_leads" || metric.key === "active_pipeline_value";
   const formatted = metric.key.includes("value") || metric.key.includes("revenue")
-    ? money(metric.value)
+    ? money(animated)
     : metric.key.includes("rate")
-      ? `${metric.value}%`
-      : metric.key.includes("minutes") ? `${metric.value}m` : String(metric.value);
-  return <article className={`metric-card metric-${metric.key}`}><span>{metric.label}</span><strong>{formatted}</strong><small className={metric.change_percent != null && metric.change_percent < 0 ? "negative" : ""}>{metric.change_percent == null ? "No valid prior comparison" : `${metric.change_percent > 0 ? "+" : ""}${metric.change_percent}% vs prior period`}</small><i /></article>;
+      ? `${animated}%`
+      : metric.key.includes("minutes") ? `${animated}m` : String(animated);
+  return <article className={`metric-card metric-${metric.key} ${featured ? "metric-featured" : ""}`}><span>{metric.label}</span><strong>{formatted}</strong><small className={metric.change_percent != null && metric.change_percent < 0 ? "negative" : ""}><i>{metric.change_percent == null ? "·" : metric.change_percent >= 0 ? "↗" : "↘"}</i>{metric.change_percent == null ? "No valid prior comparison" : `${metric.change_percent > 0 ? "+" : ""}${metric.change_percent}% vs prior period`}</small><span className="metric-baseline"><i style={{ transform: `scaleX(${Math.min(1, Math.max(.08, Math.abs(metric.change_percent ?? 8) / 35))})` }} /></span><i /></article>;
+}
+
+function activityTitle(stage: string, toolName: string | null) {
+  const value = stage.toLowerCase();
+  if (value.includes("intake") || value.includes("received")) return "Lead received";
+  if (value.includes("context") || value.includes("analysis")) return "Context analyzed";
+  if (value.includes("icp")) return "ICP evaluated";
+  if (value.includes("qualif")) return "Qualification completed";
+  if (value.includes("rout")) return "Route selected";
+  if (value.includes("notif") || toolName?.toLowerCase().includes("slack")) return "Slack notified";
+  if (value.includes("crm") || value.includes("sync")) return "CRM synchronized";
+  return pretty(toolName || stage);
+}
+
+function ActivityFeed({ data, compact = false }: { data: AgentActivity; compact?: boolean }) {
+  const rows = data.activity.slice(0, compact ? 7 : 25);
+  return <div className={`activity-list ${compact ? "activity-compact" : ""}`}>
+    {rows.map((item, index) => <details key={item.id} style={{ "--activity-order": index } as CSSProperties}>
+      <summary>
+        <span className="activity-sequence">{String(index + 1).padStart(2, "0")}</span>
+        <i className={`activity-status status-${item.status}`} />
+        <span><b>{activityTitle(item.stage, item.tool_name)}</b><small>{item.tool_name || item.agent} · {new Date(item.created_at).toLocaleString()}</small></span>
+        <span className="activity-runtime">{item.duration_ms != null ? `${item.duration_ms}ms` : item.provider || "internal"}</span>
+        <em>{pretty(item.status)}</em>
+      </summary>
+      {!compact && <><pre>{JSON.stringify(item.structured_result, null, 2)}</pre>{item.error && <p>{item.error}</p>}</>}
+    </details>)}
+    {rows.length === 0 && <Empty title="No agent events" text="Audited activity will appear here as leads move through the system." />}
+  </div>;
+}
+
+function useCountUp(value: number) {
+  const [display, setDisplay] = useState(value);
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplay(value);
+      return;
+    }
+    const started = performance.now();
+    const duration = 650;
+    let frame = 0;
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - started) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(value * eased * 10) / 10);
+      if (progress < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [value]);
+  return display;
 }
 
 export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow: string; action?: string; children: ReactNode }) {

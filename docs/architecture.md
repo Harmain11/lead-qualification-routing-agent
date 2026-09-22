@@ -175,6 +175,14 @@ Each lead persists a Phase 3 `analysis_runs` record containing structured contex
 Every pipeline run should carry `correlation_id`, `lead_id`, `source_event_id`, `stage`, and `policy_version`. Measure intake success, per-stage latency, queue age, retries, manual-review rate, low-confidence rate, CRM sync success, Slack delivery, score-band distribution, and dashboard query latency.
 
 Expose liveness and readiness separately. Readiness checks PostgreSQL, Redis, migrations, and required configuration without leaking secret values.
+
+## Phase 6.5 identity, OAuth, and interactive rendering
+
+`User → WorkspaceMembership → Workspace` is the authoritative request path. `AuthSession` stores a token hash, CSRF hash, current workspace, expiry, last-seen time, and revocation state. The frontend does not render protected product views until `/v1/auth/session` succeeds.
+
+OAuth is `authenticated workspace → state + PKCE transaction → provider authorization → validated callback → server-side token exchange → SecretStore reference → validation → connected`. Provider client credentials are application/operator configuration, not customer-entered values. The deterministic broker exercises the same contract locally. Managed secret storage, distributed callback locking, and provider-specific remote validation/revocation are deployment bindings rather than domain changes.
+
+The dashboard owns one lazy-loaded Three.js/React Three Fiber scene. Geometry is stable, animation mutates render refs rather than React state, and the loop pauses with page visibility. The scene reads persisted lead, analysis, qualification, routing, notification, and CRM state. An accessible DOM inspector and mobile/reduced-motion/WebGL fallback expose the same information.
 ## Phase 4 routing implementation
 
 The routing application service consumes the persisted qualification and Phase 3 analysis; it never recalculates the score. `RoutingConfig` contains queues, active/inactive reps, ordered rules, and action templates. Matching is deterministic: manual-review precedence first, then the lowest numeric rule precedence, then greatest criterion specificity, then rule name; otherwise the qualification-band route is used. Hard-disqualified leads are archived without a sales rep. Active reps are selected by geography/industry/service skill score, then configured priority and stable rep ID.
@@ -197,7 +205,7 @@ Salesforce uses REST sObject upsert by a configurable unique external-ID field. 
 
 The long-term CRM selection is `workspace → active CRM connection → CrmProvider`. `CRM_PROVIDER` and environment credentials remain only a default-workspace/development fallback. Every CRM sync records the selected `provider_connection_id`, and provider entity IDs are looked up within workspace and connection scope so switching accounts cannot reuse another account's identifiers.
 
-Production identity middleware will derive `WorkspaceContext(workspace_id, actor_id)` from verified claims. Development headers are a test harness, not an authorization mechanism.
+Production identity uses opaque, revocable server-side sessions. Passwords are salted with `scrypt`; only session/CSRF hashes are persisted. `get_workspace_context` authenticates the session, verifies active `WorkspaceMembership`, validates CSRF for cookie-authenticated mutations, and then derives `WorkspaceContext`. A requested workspace ID is never trusted without membership. Development headers are honored only behind the explicit local fallback setting.
 
 ## Agentic control plane
 

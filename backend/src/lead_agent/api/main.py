@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from lead_agent import __version__
 from lead_agent.api.dependencies import get_runtime_settings
-from lead_agent.api.routes import analytics, crm, health, intake, integrations, leads, routing
+from lead_agent.api.routes import analytics, auth, crm, health, intake, integrations, leads, routing
 
 settings = get_runtime_settings()
 app = FastAPI(
@@ -21,6 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(leads.router)
 app.include_router(intake.router)
 app.include_router(routing.router)

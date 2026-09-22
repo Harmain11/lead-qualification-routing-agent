@@ -14,11 +14,16 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     app_name: str = "lead-qualification-routing-agent"
-    app_version: str = "0.6.0"
+    app_version: str = "0.6.5"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     log_level: str = "INFO"
     secret_key: str = "local-development-only"
+    auth_development_fallback: bool = True
+    auth_session_cookie_name: str = "lead_agent_session"
+    auth_csrf_cookie_name: str = "lead_agent_csrf"
+    auth_session_hours: int = 336
+    auth_cookie_secure: bool = False
     webhook_signing_secret: str = ""
     cors_allowed_origins: str = "http://localhost:5173"
     database_url: str = "postgresql+psycopg://lead_agent:lead_agent@localhost:5432/lead_agent"
@@ -41,6 +46,18 @@ class Settings(BaseSettings):
     secret_store_provider: str = "development"
     oauth_broker: str = "development"
     integration_public_base_url: str = "http://localhost:8000"
+    frontend_public_base_url: str = "http://localhost:5173"
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    microsoft_tenant_id: str = "common"
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    slack_client_id: str = ""
+    slack_client_secret: str = ""
+    hubspot_client_id: str = ""
+    hubspot_client_secret: str = ""
+    linkedin_client_id: str = ""
+    linkedin_client_secret: str = ""
     salesforce_client_id: str = ""
     salesforce_client_secret: str = ""
     salesforce_refresh_token: str = ""

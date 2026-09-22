@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
 import {
-  ACTIVE_WORKSPACE_ID,
+  changeWorkspace,
+  getActiveWorkspace,
   getAgentActivity,
   getChannelAnalytics,
   getDashboard,
@@ -12,8 +13,12 @@ import {
   getRevenueAnalytics,
   getTimeSeriesAnalytics,
   listLeads,
+  getSession,
+  setActiveWorkspace,
+  signOut,
 } from "./api";
-import type { Lead, TimeRange } from "./types";
+import type { AuthSession, Lead, TimeRange } from "./types";
+import { AuthView } from "./views/AuthView";
 import { IntegrationsView } from "./views/IntegrationsView";
 import {
   AgentsView,
@@ -48,6 +53,8 @@ const navigation: Array<{ id: View; label: string; glyph: string; group?: string
 ];
 
 function App() {
+  const [auth, setAuth] = useState<AuthSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<TimeRange>("monthly");
   const [data, setData] = useState<AnalyticsBundle | null>(null);
@@ -83,8 +90,22 @@ function App() {
   }
 
   useEffect(() => {
-    void refresh(range);
-  }, [range]);
+    getSession()
+      .then((session) => {
+        if (session) {
+          setActiveWorkspace(session.current_workspace_id);
+          setAuth(session);
+        } else {
+          setAuth(null);
+        }
+      })
+      .catch(() => setAuth(null))
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (auth) void refresh(range);
+  }, [range, auth?.current_workspace_id]);
 
   async function inspectLead(id: string) {
     setError(null);
@@ -98,18 +119,26 @@ function App() {
   function navigate(next: View) {
     setView(next);
     setNavOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const metadata = data?.dashboard.metadata;
+  if (authLoading) return <LoadingState />;
+  if (!auth) {
+    return <AuthView onAuthenticated={(session) => {
+      setActiveWorkspace(session.current_workspace_id);
+      setAuth(session);
+    }} />;
+  }
   return (
     <div className="app-shell">
       <div className="app-ambient ambient-a" />
       <div className="app-ambient ambient-b" />
+      <img className="app-twinkle app-twinkle-a" src="/asset/brand/twinkle-cap.svg" alt="" aria-hidden="true" />
+      <img className="app-twinkle app-twinkle-b" src="/asset/brand/twinkle-role.svg" alt="" aria-hidden="true" />
       <aside className={`side-rail ${navOpen ? "open" : ""}`}>
         <button className="brand-lockup" onClick={() => navigate("dashboard")} aria-label="Ingenuity Revenue Intelligence home">
-          <span className="brand-symbol"><i /><i /></span>
-          <span><b>INGENUITY</b><small>REVENUE INTELLIGENCE</small></span>
+          <img src="/asset/brand/logo-light.png" alt="Ingenuity Systems" />
+          <span><small>REVENUE INTELLIGENCE</small></span>
         </button>
         <nav aria-label="Primary navigation">
           {navigation.map((item, index) => (
@@ -125,10 +154,24 @@ function App() {
         </nav>
         <div className="rail-foot">
           <div className="workspace-mark">
-            <i>{metadata?.workspace_name.slice(0, 2).toUpperCase() || "IS"}</i>
-            <span><b>{metadata?.workspace_name || "Workspace"}</b><small>{metadata?.data_mode === "demo" ? "Explicit demo workspace" : "Live workspace"}</small></span>
+            <img src="/asset/brand/logo-icon.png" alt="" />
+            <span>
+              <select
+                aria-label="Current workspace"
+                value={auth.current_workspace_id}
+                onChange={(event) => {
+                  void changeWorkspace(event.target.value).then((session) => {
+                    setData(null);
+                    setSelectedLead(null);
+                    setAuth(session);
+                  });
+                }}
+              >{auth.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}</select>
+              <small>{metadata?.data_mode === "demo" ? "Explicit demo workspace" : "Live workspace"}</small>
+            </span>
           </div>
           <span className="system-state"><i /> Systems nominal</span>
+          <button className="signout-button" onClick={() => void signOut().finally(() => { setAuth(null); setData(null); })}>Sign out</button>
         </div>
       </aside>
       <main className="product-main">
@@ -143,8 +186,8 @@ function App() {
         </header>
         {error && <div className="api-error" role="alert"><div><b>Control plane unavailable</b><span>{error}</span></div><button onClick={() => void refresh()}>Retry</button></div>}
         {loading && !data ? <LoadingState /> : (
-          <>
-            {view === "dashboard" && <DashboardView data={data} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
+          <div className="view-transition" key={view}>
+            {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
             {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={(id) => void inspectLead(id)} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
             {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
@@ -152,11 +195,11 @@ function App() {
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView />}
             {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} />}
-          </>
+          </div>
         )}
         <footer className="product-footer">
           <span>Ingenuity Systems · AI Revenue Operations</span>
-          <span>Generated {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"} · Workspace {ACTIVE_WORKSPACE_ID.slice(0, 8)}</span>
+          <span>Generated {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"} · Workspace {getActiveWorkspace().slice(0, 8)}</span>
         </footer>
       </main>
       {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}

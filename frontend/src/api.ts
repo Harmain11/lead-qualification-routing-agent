@@ -13,20 +13,100 @@ import type {
   RevenueAnalytics,
   TimeRange,
   TimeSeriesAnalytics,
+  AuthSession,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
-export const ACTIVE_WORKSPACE_ID = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
+const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_agent_csrf";
+let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
+
+export function setActiveWorkspace(workspaceId: string) {
+  activeWorkspaceId = workspaceId;
+}
+
+export function getActiveWorkspace() {
+  return activeWorkspaceId;
+}
+
+function csrfToken(): string | null {
+  const value = document.cookie
+    .split("; ")
+    .find((item) => item.startsWith(`${CSRF_COOKIE_NAME}=`))
+    ?.split("=", 2)[1];
+  return value ? decodeURIComponent(value) : null;
+}
 
 function withWorkspace(headers?: HeadersInit): Headers {
   const result = new Headers(headers);
-  result.set("X-Workspace-ID", ACTIVE_WORKSPACE_ID);
+  result.set("X-Workspace-ID", activeWorkspaceId);
+  const csrf = csrfToken();
+  if (csrf) result.set("X-CSRF-Token", csrf);
   return result;
+}
+
+async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    credentials: "include",
+    headers: withWorkspace(options?.headers),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: "Request failed" }));
+    throw new Error(typeof body.detail === "string" ? body.detail : "Request failed");
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export const getSession = () => request<AuthSession | null>("/v1/auth/status");
+
+export async function signIn(email: string, password: string): Promise<AuthSession> {
+  const session = await request<AuthSession>("/v1/auth/signin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  setActiveWorkspace(session.current_workspace_id);
+  return session;
+}
+
+export async function signUp(input: {
+  email: string;
+  password: string;
+  display_name: string;
+  workspace_name: string;
+}): Promise<AuthSession> {
+  const session = await request<AuthSession>("/v1/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  setActiveWorkspace(session.current_workspace_id);
+  return session;
+}
+
+export async function startDevelopmentSession(): Promise<AuthSession> {
+  const session = await request<AuthSession>("/v1/auth/development-session", { method: "POST" });
+  setActiveWorkspace(session.current_workspace_id);
+  return session;
+}
+
+export const signOut = () => request<void>("/v1/auth/signout", { method: "POST" });
+
+export async function changeWorkspace(workspaceId: string): Promise<AuthSession> {
+  const session = await request<AuthSession>("/v1/auth/workspace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+  setActiveWorkspace(session.current_workspace_id);
+  return session;
 }
 
 export async function createLead(payload: LeadPayload): Promise<Lead> {
   const response = await fetch("/v1/leads", {
     method: "POST",
+    credentials: "include",
     headers: withWorkspace({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
@@ -38,7 +118,7 @@ export async function createLead(payload: LeadPayload): Promise<Lead> {
 }
 
 export async function listLeads(): Promise<Lead[]> {
-  const response = await fetch("/v1/leads", { headers: withWorkspace() });
+  const response = await fetch("/v1/leads", { credentials: "include", headers: withWorkspace() });
   if (!response.ok) throw new Error("Unable to load leads");
   const body = (await response.json()) as { items: Lead[] };
   return body.items;
@@ -47,18 +127,14 @@ export async function listLeads(): Promise<Lead[]> {
 export async function getCrmSyncHistory(leadId: string): Promise<CrmSync[]> {
   const response = await fetch(`/v1/leads/${leadId}/crm-sync/history`, {
     headers: withWorkspace(),
+    credentials: "include",
   });
   if (!response.ok) throw new Error("Unable to load CRM synchronization history");
   return response.json() as Promise<CrmSync[]>;
 }
 
 async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...options, headers: withWorkspace(options?.headers) });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: "Integration request failed" }));
-    throw new Error(body.detail ?? "Integration request failed");
-  }
-  return response.json() as Promise<T>;
+  return request<T>(url, options);
 }
 
 export function listIntegrations(): Promise<IntegrationCard[]> {

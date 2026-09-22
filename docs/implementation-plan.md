@@ -134,3 +134,9 @@ The agentic direction is introduced through a registry of allow-listed tools wit
 Phase 6 adds a workspace-scoped analytics query service, weekly/monthly/annual windows, safe period comparisons, channel and pipeline aggregation, revenue provenance, representative metrics, agent/tool activity, and a manual-review read model. Migration `0008_analytics_read_model` adds the demo-workspace marker and indexed commercial outcome facts; `0009_analytics_query_indexes` indexes workspace/time access paths for leads and lifecycle events. A dedicated demo seed keeps illustrative data isolated from live workspaces.
 
 The frontend is now a coherent Ingenuity Systems revenue-operations product shell with Dashboard, Leads, Pipeline, Agents / AI Activity, Analytics, Integrations, Manual Review, and Settings. The dimensional operating-flow visualization is state-driven and uses transform/opacity animation with reduced-motion and responsive fallbacks. Phase 7 production hardening and broad E2E QA remain explicitly unstarted.
+
+## Current Phase 6.5 implementation note
+
+Phase 6.5 replaces development-only identity with users, workspace memberships, opaque sessions, CSRF validation, protected product routes, and membership-authorized workspace selection while retaining an explicit local fallback. OAuth account linking now includes expiring one-time state, PKCE, server-side code exchange, token-expiry/refresh architecture, managed-secret references, reconnect, and disconnect boundaries.
+
+The frontend uses the supplied Ingenuity Systems brand assets and centralized orange/coral/navy tokens. One lazy React Three Fiber lead-intelligence network visualizes real source-through-destination state; accessible DOM detail, mobile/CSS, reduced-motion, hidden-tab, and WebGL-unavailable behavior remain first-class. Phase 7 deployment hardening, live-provider certification, broad browser automation, and production performance/security verification remain unstarted.

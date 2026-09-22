@@ -119,6 +119,12 @@ HubSpot documents bearer-token authentication and contact batch upsert by email;
 - One active CRM connection is selected per workspace. A connected workspace account takes precedence over `CRM_PROVIDER`; environment credentials remain a development fallback only.
 - CRM synchronization rows retain the exact provider connection ID so entity IDs cannot bleed across workspaces or external accounts.
 
-The development secret store and OAuth broker are intentionally process-local. Production must provide a managed encrypted secret implementation, durable OAuth state/PKCE storage, provider token exchange and refresh, revocation, and remote validation before enabling customer accounts.
+The development secret store and OAuth broker are intentionally process-local. The provider broker implements authorization URL construction, code exchange, PKCE, access-token expiry metadata, and refresh-token exchange behind the common port. Production must bind `SecretStore` to a managed encrypted service and configure operator-owned OAuth applications. Distributed callback locking, provider-specific remote identity validation, and provider-specific revocation calls remain Phase 7 deployment work.
 
 The frontend setup catalog describes where credentials originate, minimum scopes, why they are needed, and links to official documentation. It never embeds or displays a user's values.
+
+### Phase 6.5 connection experience
+
+Salesforce, HubSpot, Slack, Gmail, and Outlook present OAuth-first Connect/Reconnect actions. The customer does not create an app or paste client secrets; application operators register one approved integration app per provider and inject its client credentials through the deployment secret system. LinkedIn remains gated to officially approved products/scopes. OpenAI retains guided one-time API-key entry because no equivalent customer-account authorization is assumed.
+
+Connection states support connecting, awaiting authorization, validating, connected, needs attention, authorization expired, connection failed, reconnect required, and disconnected. OAuth state travels through the browser as required by the authorization flow; PKCE verifiers, provider tokens, and secret references are omitted from frontend responses.

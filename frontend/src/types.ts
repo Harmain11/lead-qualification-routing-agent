@@ -220,7 +220,7 @@ export type ProviderConnection = {
   external_account_id: string | null;
   account_name: string;
   auth_type: string;
-  status: "pending" | "connected" | "needs_attention" | "disconnected";
+  status: "connecting" | "awaiting_authorization" | "validating" | "connected" | "needs_attention" | "authorization_expired" | "connection_failed" | "reconnect_required" | "disconnected";
   scopes: string[];
   credential_state: "configured" | "missing" | "expired" | "invalid";
   last_validation_at: string | null;
@@ -229,6 +229,13 @@ export type ProviderConnection = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type AuthSession = {
+  user: { id: string; email: string; display_name: string };
+  current_workspace_id: string;
+  workspaces: Array<{ id: string; name: string; role: string; is_demo: boolean }>;
+  expires_at: string | null;
 };
 
 export type IntegrationCard = {
