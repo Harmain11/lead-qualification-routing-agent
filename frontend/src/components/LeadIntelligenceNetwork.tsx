@@ -227,7 +227,10 @@ function LeadIntelligenceNetworkCanvas({ pipeline, activity, lead, onContextLost
   const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 1024px)").matches);
   const [tabVisible, setTabVisible] = useState(() => !document.hidden);
-  const [inViewport, setInViewport] = useState(false);
+  // Assume the mounted dashboard scene is visible until IntersectionObserver reports
+  // otherwise. This establishes the sequential state before first paint instead of
+  // briefly rendering every active stage and then resetting the sequence.
+  const [inViewport, setInViewport] = useState(true);
   const layout = useRef<HTMLDivElement>(null);
   const webgl = useMemo(hasWebGl, []);
   const { revealed, transition } = useLifecycleSequence(lead, reduced, tabVisible && inViewport);

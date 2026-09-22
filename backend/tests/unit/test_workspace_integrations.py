@@ -224,6 +224,27 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
                     "activate": True,
                 },
             )
+            rejected_manual_oauth_provider = client.post(
+                "/v1/integrations/gmail/credentials",
+                headers={"X-Workspace-ID": str(workspace_a)},
+                json={
+                    "account_name": "Mailbox",
+                    "auth_type": "private_token",
+                    "scopes": [],
+                    "credentials": {"access_token": "must-use-oauth"},
+                },
+            )
+            rejected_nested_secret_metadata = client.post(
+                "/v1/integrations/hubspot/credentials",
+                headers={"X-Workspace-ID": str(workspace_a)},
+                json={
+                    "account_name": "Unsafe metadata",
+                    "auth_type": "private_token",
+                    "scopes": [],
+                    "credentials": {"access_token": "stored-safely"},
+                    "metadata": {"profile": {"api_key": "must-not-be-returned"}},
+                },
+            )
             body = created.json()
             foreign = client.get(
                 f"/v1/integrations/connections/{body['id']}",
@@ -243,6 +264,8 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
                 json={"credentials": {"access_token": "replacement-test-token"}},
             )
         assert created.status_code == 201
+        assert rejected_manual_oauth_provider.status_code == 422
+        assert rejected_nested_secret_metadata.status_code == 422
         assert foreign.status_code == 404
         assert tested.status_code == 200 and tested.json()["valid"] is True
         assert disconnected.json()["credential_state"] == "missing"
@@ -366,6 +389,13 @@ def test_agent_tool_requires_permission_audits_and_is_idempotent(
             {"lead_id": str(lead.id)},
             idempotency_key="sync-1",
         )
+        with pytest.raises(ToolPermissionError):
+            registry.invoke(
+                "crm.create_or_update_lead",
+                denied,
+                {"lead_id": str(lead.id)},
+                idempotency_key="sync-1",
+            )
         assert first.status == "completed"
         assert replay.reused is True
         assert replay.audit_event_id == first.audit_event_id
@@ -374,3 +404,19 @@ def test_agent_tool_requires_permission_audits_and_is_idempotent(
         )
         assert statuses == ["denied", "completed"]
         assert session.scalar(select(func.count()).select_from(CrmSyncORM)) == 1
+
+        with pytest.raises(ValueError):
+            registry.invoke(
+                "crm.create_or_update_lead",
+                allowed,
+                {"lead_id": str(lead.id), "access_token": "must-not-be-audited"},
+                idempotency_key="invalid-extra-input",
+            )
+        failed = session.scalar(
+            select(AgentToolAuditORM).where(
+                AgentToolAuditORM.idempotency_key == "invalid-extra-input"
+            )
+        )
+        assert failed is not None
+        assert failed.status == "failed"
+        assert "access_token" not in failed.input_summary

@@ -10,6 +10,9 @@ export type Stage = {
   detail: string;
 };
 
+const humanize = (value: string) =>
+  value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 export const stages: Stage[] = [
   { id: "website", label: "Website", shortLabel: "Website", lane: "Inbound", position: [-5.5, 2.2, -.7], screen: [6, 20], detail: "Inbound web signal" },
   { id: "email", label: "Email", shortLabel: "Email", lane: "Inbound", position: [-5.7, .7, .35], screen: [5, 38], detail: "Mailbox inquiry" },
@@ -63,28 +66,28 @@ export function stageFacts(stage: Stage, lead: Lead | null): Array<[string, stri
     ["ICP score", `${lead.qualification?.component_scores.icp_fit ?? 0} / 40`],
     ["Intent score", `${lead.qualification?.component_scores.intent_urgency ?? 0} / 35`],
     ["Engagement score", `${lead.qualification?.component_scores.engagement_quality ?? 0} / 25`],
-    ["Total / band", `${lead.qualification?.total_score ?? 0} · ${lead.qualification?.classification ?? "Pending"}`],
+    ["Total / band", `${lead.qualification?.total_score ?? 0} · ${humanize(lead.qualification?.classification ?? "Pending")}`],
     ["Rationale", lead.qualification?.rationale.slice(0, 2).join(" ") || "Awaiting qualification evidence"],
   ];
   if (stage.id === "routing" || stage.id === "actions" || stage.id === "rep") return [
-    ["Queue", lead.routing?.assigned_queue ?? "Pending"],
+    ["Queue", humanize(lead.routing?.assigned_queue ?? "Pending")],
     ["Representative", lead.routing?.assigned_rep_name ?? "Unassigned"],
-    ["Priority", lead.routing?.priority ?? "Not assigned"],
+    ["Priority", humanize(lead.routing?.priority ?? "Not assigned")],
     ["Action plan", lead.routing?.action_plan.immediate_action ?? "Pending"],
     ["Routing basis", lead.routing?.routing_reason ?? "Awaiting route"],
   ];
   if (["salesforce", "hubspot"].includes(stage.id)) return [
     ["Provider", lead.crm_sync?.provider ?? "Not connected"],
-    ["Sync state", lead.crm_sync?.status ?? "Not synced"],
+    ["Sync state", humanize(lead.crm_sync?.status ?? "Not synced")],
     ["Provider record", lead.crm_sync?.provider_entity_ids.contact_id ?? "Not available"],
   ];
   if (stage.id === "slack") return [
-    ["Notification", lead.routing?.notification_state ?? "Pending"],
-    ["Priority", lead.routing?.priority ?? "Not assigned"],
+    ["Notification", humanize(lead.routing?.notification_state ?? "Pending")],
+    ["Priority", humanize(lead.routing?.priority ?? "Not assigned")],
     ["Attempts", String(lead.routing?.notifications[0]?.attempts ?? 0)],
   ];
   if (stage.id === "context" || stage.id === "icp") return [
-    ["Intent", lead.analysis?.intent_level ?? "Unknown"],
+    ["Intent", humanize(lead.analysis?.intent_level ?? "Unknown")],
     ["Confidence", `${Math.round((lead.analysis?.overall_confidence ?? 0) * 100)}%`],
     ["Need", lead.analysis?.summary.need ?? lead.product_or_service],
     ["Evidence", lead.analysis?.summary.buying_signal ?? "No explicit signal"],
@@ -94,10 +97,10 @@ export function stageFacts(stage: Stage, lead: Lead | null): Array<[string, stri
     ["Contract", lead.normalization_version],
     ["Received", new Date(lead.received_at).toLocaleString()],
   ];
-  return [["Lead", `${lead.full_name} · ${lead.company_name}`], ["Source", lead.source], ["Signal", lead.message]];
+  return [["Lead", `${lead.full_name} · ${lead.company_name}`], ["Source", humanize(lead.source)], ["Signal", lead.message]];
 }
 
 export function latestActivityLabel(activity: AgentActivity | null) {
   const event = activity?.activity[0];
-  return event ? `${event.stage.replaceAll("_", " ")} · ${event.status}` : "Awaiting audited activity";
+  return event ? `${humanize(event.stage)} · ${humanize(event.status)}` : "Awaiting audited activity";
 }

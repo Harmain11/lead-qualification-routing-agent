@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -54,6 +54,34 @@ class ToolRegistry:
                 AgentToolAuditORM.idempotency_key == idempotency_key,
             )
         )
+        input_summary = {
+            key: value
+            for key, value in raw_input.items()
+            if key in tool.input_model.model_fields
+        }
+        if tool.required_permission not in context.permissions:
+            if prior is None:
+                now = datetime.now(UTC)
+                self.session.add(
+                    AgentToolAuditORM(
+                        id=uuid4(),
+                        workspace_id=context.workspace_id,
+                        actor_id=context.actor_id,
+                        tool_name=tool_name,
+                        required_permission=tool.required_permission,
+                        idempotency_key=idempotency_key,
+                        status="denied",
+                        input_summary=input_summary,
+                        output={},
+                        error_message="actor lacks the required tool permission",
+                        created_at=now,
+                        completed_at=now,
+                    )
+                )
+                self.session.commit()
+            raise ToolPermissionError(
+                f"missing permission for {tool_name}: {tool.required_permission}"
+            )
         if prior is not None:
             if prior.status != "completed":
                 raise ValueError(f"tool invocation already recorded with status: {prior.status}")
@@ -73,7 +101,7 @@ class ToolRegistry:
             required_permission=tool.required_permission,
             idempotency_key=idempotency_key,
             status="pending",
-            input_summary=raw_input,
+            input_summary=input_summary,
             output={},
             error_message=None,
             created_at=now,
@@ -81,14 +109,6 @@ class ToolRegistry:
         )
         self.session.add(audit)
         self.session.commit()
-        if tool.required_permission not in context.permissions:
-            audit.status = "denied"
-            audit.error_message = "actor lacks the required tool permission"
-            audit.completed_at = datetime.now(UTC)
-            self.session.commit()
-            raise ToolPermissionError(
-                f"missing permission for {tool_name}: {tool.required_permission}"
-            )
         try:
             validated = tool.input_model.model_validate(raw_input)
             output = tool.execute(context, validated)
@@ -106,6 +126,8 @@ class ToolRegistry:
 
 
 class CrmSyncToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     lead_id: UUID
 
 

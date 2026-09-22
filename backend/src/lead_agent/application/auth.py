@@ -158,9 +158,11 @@ def sign_in(
         raise AuthenticationError("email or password is incorrect")
     membership = session.scalar(
         select(WorkspaceMembershipORM)
+        .join(WorkspaceORM, WorkspaceORM.id == WorkspaceMembershipORM.workspace_id)
         .where(
             WorkspaceMembershipORM.user_id == user.id,
             WorkspaceMembershipORM.status == "active",
+            WorkspaceORM.status == "active",
         )
         .order_by(WorkspaceMembershipORM.created_at)
     )
@@ -202,10 +204,13 @@ def require_membership(
     session: Session, user_id: UUID, workspace_id: UUID
 ) -> WorkspaceMembershipORM:
     membership = session.scalar(
-        select(WorkspaceMembershipORM).where(
+        select(WorkspaceMembershipORM)
+        .join(WorkspaceORM, WorkspaceORM.id == WorkspaceMembershipORM.workspace_id)
+        .where(
             WorkspaceMembershipORM.user_id == user_id,
             WorkspaceMembershipORM.workspace_id == workspace_id,
             WorkspaceMembershipORM.status == "active",
+            WorkspaceORM.status == "active",
         )
     )
     if membership is None:

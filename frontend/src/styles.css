@@ -745,7 +745,8 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 }
 
 @media (max-width: 760px) {
-  .app-twinkle, .app-shell::after { display: none; }
+  .app-twinkle, .network-twinkle, .app-shell::after { display: none; }
+  .app-shell::before { background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 52px 52px; }
   .view-transition { animation-duration: 160ms; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric-card { grid-column: span 1; }
@@ -781,6 +782,8 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 
 @media (prefers-reduced-motion: reduce) {
   .app-shell::after, .app-ambient, .app-twinkle, .trend-line, .trend-area, .trend-chart circle, .bar-row > i span, .donut, .connection-state-path .active b { animation: none !important; }
+  .app-twinkle, .network-twinkle, .auth-ambient > img { display: none !important; }
+  .app-shell::before { background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px); background-size: 52px 52px; }
   .trend-line { stroke-dashoffset: 0; }
   .trend-area, .trend-chart circle { opacity: 1; }
   .view-transition, .network-inspector-content, .pipeline-detail-enter, .analytics-motion > .data-panel { transform: none !important; }

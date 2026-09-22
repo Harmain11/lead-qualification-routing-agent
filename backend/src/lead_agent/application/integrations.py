@@ -25,17 +25,46 @@ from lead_agent.infrastructure.repositories import (
 
 CRM_PROVIDER_TYPES = {"mock", "salesforce", "hubspot"}
 SENSITIVE_METADATA_FRAGMENTS = ("secret", "token", "password", "credential", "api_key")
+REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
+    "salesforce": {"client_id", "client_secret", "refresh_token"},
+    "hubspot": {"access_token"},
+    "slack": {"bot_token", "channel_id"},
+    "openai": {"api_key"},
+}
 
 
 def _safe_metadata(metadata: dict[str, object]) -> dict[str, object]:
-    unsafe = [
-        key
-        for key in metadata
-        if any(fragment in key.lower() for fragment in SENSITIVE_METADATA_FRAGMENTS)
-    ]
-    if unsafe:
+    def contains_sensitive_key(value: object) -> bool:
+        if isinstance(value, dict):
+            return any(
+                any(fragment in str(key).lower() for fragment in SENSITIVE_METADATA_FRAGMENTS)
+                or contains_sensitive_key(nested)
+                for key, nested in value.items()
+            )
+        if isinstance(value, list):
+            return any(contains_sensitive_key(item) for item in value)
+        return False
+
+    if contains_sensitive_key(metadata):
         raise ValueError("connection metadata cannot contain credential values")
     return dict(metadata)
+
+
+def _validate_manual_credentials(
+    provider: str, auth_type: str, credentials: dict[str, str]
+) -> None:
+    if not credentials or any(not value.strip() for value in credentials.values()):
+        raise ValueError("credential values are required")
+    if provider == "mock":
+        return
+    setup = PROVIDER_SETUP.get(provider)
+    if setup is None:
+        raise ValueError(f"unsupported provider: {provider}")
+    if auth_type == "oauth2" or auth_type not in setup.supported_auth:
+        raise ValueError(f"manual {auth_type} authentication is not supported for {provider}")
+    missing = sorted(REQUIRED_MANUAL_CREDENTIALS.get(provider, set()) - credentials.keys())
+    if missing:
+        raise ValueError(f"missing credential fields: {', '.join(missing)}")
 
 
 def _activate_connection(session: Session, connection: ProviderConnectionORM) -> None:
@@ -61,10 +90,7 @@ def create_manual_connection(
     request: ManualConnectionInput,
     secret_store: SecretStore,
 ) -> ProviderConnectionORM:
-    if provider not in PROVIDER_SETUP and provider != "mock":
-        raise ValueError(f"unsupported provider: {provider}")
-    if not request.credentials or any(not value.strip() for value in request.credentials.values()):
-        raise ValueError("credential values are required")
+    _validate_manual_credentials(provider, request.auth_type, request.credentials)
     ensure_workspace(session, workspace_id)
     reference = secret_store.put(workspace_id, provider, request.credentials)
     now = datetime.now(UTC)
@@ -170,7 +196,16 @@ def complete_oauth_connection(
     secret_store: SecretStore,
     broker: OAuthBroker,
 ) -> ProviderConnectionORM:
-    row = get_provider_connection(session, workspace_id, connection_id)
+    # Serialize redemption in production databases so the same one-time state
+    # cannot be exchanged concurrently by two callback requests.
+    row = session.scalar(
+        select(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.id == connection_id,
+            ProviderConnectionORM.workspace_id == workspace_id,
+        )
+        .with_for_update()
+    )
     if row is None or row.status != "awaiting_authorization":
         raise ValueError("pending connection was not found")
     expected = row.connection_metadata.get("oauth_state_hash")
@@ -292,13 +327,7 @@ def validate_connection(
                 }
                 session.commit()
                 return row, validation
-    required: dict[str, set[str]] = {
-        "salesforce": {"client_id", "client_secret", "refresh_token"},
-        "hubspot": {"access_token"},
-        "slack": {"bot_token", "channel_id"},
-        "openai": {"api_key"},
-    }
-    expected = {"access_token"} if row.auth_type == "oauth2" else required.get(
+    expected = {"access_token"} if row.auth_type == "oauth2" else REQUIRED_MANUAL_CREDENTIALS.get(
         row.provider_type, set()
     )
     missing = sorted(expected - set(values or {}))
@@ -363,8 +392,7 @@ def reconnect_connection(
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
         raise LookupError("provider connection not found")
-    if not credentials or any(not value.strip() for value in credentials.values()):
-        raise ValueError("credential values are required")
+    _validate_manual_credentials(row.provider_type, row.auth_type, credentials)
     if row.secret_reference:
         secret_store.delete(row.secret_reference)
     row.secret_reference = secret_store.put(workspace_id, row.provider_type, credentials)

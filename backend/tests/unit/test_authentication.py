@@ -203,6 +203,27 @@ def test_inactive_membership_cannot_select_workspace(tmp_path) -> None:
         session.close()
 
 
+def test_inactive_workspace_rejects_access_with_active_membership(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            signup_body = signup(client).json()
+            workspace = session.get(WorkspaceORM, UUID(signup_body["current_workspace_id"]))
+            assert workspace is not None
+            workspace.status = "inactive"
+            session.commit()
+
+            denied = client.get(
+                "/v1/leads",
+                headers={"X-Workspace-ID": signup_body["current_workspace_id"]},
+            )
+            assert denied.status_code == 403
+            assert client.post("/v1/auth/signout", headers=csrf(client)).status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_revoked_current_membership_does_not_block_switch_or_signout(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:
