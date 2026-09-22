@@ -19,6 +19,7 @@ import type {
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
 const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_agent_csrf";
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
+const inFlightGets = new Map<string, Promise<unknown>>();
 
 export function setActiveWorkspace(workspaceId: string) {
   activeWorkspaceId = workspaceId;
@@ -45,6 +46,24 @@ function withWorkspace(headers?: HeadersInit): Headers {
 }
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+  const method = options?.method?.toUpperCase() ?? "GET";
+  const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
+  if (key) {
+    const existing = inFlightGets.get(key);
+    if (existing) return existing as Promise<T>;
+  }
+
+  const pending = performRequest<T>(url, options);
+  if (!key) return pending;
+  inFlightGets.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (inFlightGets.get(key) === pending) inFlightGets.delete(key);
+  }
+}
+
+async function performRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
     credentials: "include",
@@ -104,33 +123,20 @@ export async function changeWorkspace(workspaceId: string): Promise<AuthSession>
 }
 
 export async function createLead(payload: LeadPayload): Promise<Lead> {
-  const response = await fetch("/v1/leads", {
+  return request<Lead>("/v1/leads", {
     method: "POST",
-    credentials: "include",
-    headers: withWorkspace({ "Content-Type": "application/json" }),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Unable to create lead" }));
-    throw new Error(error.detail ?? "Unable to create lead");
-  }
-  return response.json() as Promise<Lead>;
 }
 
-export async function listLeads(): Promise<Lead[]> {
-  const response = await fetch("/v1/leads", { credentials: "include", headers: withWorkspace() });
-  if (!response.ok) throw new Error("Unable to load leads");
-  const body = (await response.json()) as { items: Lead[] };
+export async function listLeads(signal?: AbortSignal): Promise<Lead[]> {
+  const body = await request<{ items: Lead[] }>("/v1/leads", { signal });
   return body.items;
 }
 
-export async function getCrmSyncHistory(leadId: string): Promise<CrmSync[]> {
-  const response = await fetch(`/v1/leads/${leadId}/crm-sync/history`, {
-    headers: withWorkspace(),
-    credentials: "include",
-  });
-  if (!response.ok) throw new Error("Unable to load CRM synchronization history");
-  return response.json() as Promise<CrmSync[]>;
+export function getCrmSyncHistory(leadId: string, signal?: AbortSignal): Promise<CrmSync[]> {
+  return request(`/v1/leads/${leadId}/crm-sync/history`, { signal });
 }
 
 async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
@@ -173,27 +179,19 @@ export function reconnectIntegration(connectionId: string, credentials: Record<s
   });
 }
 
-export function getLead(leadId: string): Promise<Lead> {
-  return jsonRequest<Lead>(`/v1/leads/${leadId}`);
+export function getLead(leadId: string, signal?: AbortSignal): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}`, { signal });
 }
 
-function analyticsRequest<T>(path: string, range: TimeRange): Promise<T> {
-  return jsonRequest<T>(`/v1/analytics/${path}?range=${range}`);
+function analyticsRequest<T>(path: string, range: TimeRange, signal?: AbortSignal): Promise<T> {
+  return jsonRequest<T>(`/v1/analytics/${path}?range=${range}`, { signal });
 }
 
-export const getDashboard = (range: TimeRange) =>
-  analyticsRequest<DashboardAnalytics>("dashboard", range);
-export const getChannelAnalytics = (range: TimeRange) =>
-  analyticsRequest<ChannelAnalytics>("channels", range);
-export const getPipelineAnalytics = (range: TimeRange) =>
-  analyticsRequest<PipelineAnalytics>("pipeline", range);
-export const getRevenueAnalytics = (range: TimeRange) =>
-  analyticsRequest<RevenueAnalytics>("revenue", range);
-export const getRepAnalytics = (range: TimeRange) =>
-  analyticsRequest<RepAnalytics>("reps", range);
-export const getTimeSeriesAnalytics = (range: TimeRange) =>
-  analyticsRequest<TimeSeriesAnalytics>("time-series", range);
-export const getAgentActivity = (range: TimeRange) =>
-  analyticsRequest<AgentActivity>("agent-activity", range);
-export const getManualReview = (range: TimeRange) =>
-  analyticsRequest<ManualReviewAnalytics>("manual-review", range);
+export const getDashboard = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<DashboardAnalytics>("dashboard", range, signal);
+export const getChannelAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ChannelAnalytics>("channels", range, signal);
+export const getPipelineAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<PipelineAnalytics>("pipeline", range, signal);
+export const getRevenueAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<RevenueAnalytics>("revenue", range, signal);
+export const getRepAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<RepAnalytics>("reps", range, signal);
+export const getTimeSeriesAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<TimeSeriesAnalytics>("time-series", range, signal);
+export const getAgentActivity = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<AgentActivity>("agent-activity", range, signal);
+export const getManualReview = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ManualReviewAnalytics>("manual-review", range, signal);

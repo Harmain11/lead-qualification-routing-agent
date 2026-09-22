@@ -11,7 +11,7 @@ export function Bars({
   const maximum = Math.max(...rows.map((row) => row.value), 1);
   if (rows.length === 0) return <EmptyChart />;
   return <div className="bar-chart">{rows.map((row, index) => (
-    <div className="bar-row" key={`${row.label}-${row.value}`} title={`${row.label}: ${formatter(row.value)}`} style={{ "--bar-order": index } as CSSProperties}>
+    <div className="bar-row" key={row.label} title={`${row.label}: ${formatter(row.value)}`} style={{ "--bar-order": index } as CSSProperties}>
       <div><span>{row.label}</span><b>{formatter(row.value)}</b></div>
       <i><span style={{ "--bar-scale": row.value / maximum } as CSSProperties} /></i>
       {row.note && <small>{row.note}</small>}

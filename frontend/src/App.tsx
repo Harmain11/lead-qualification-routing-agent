@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   changeWorkspace,
@@ -63,31 +63,43 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const refreshVersion = useRef(0);
+  const refreshController = useRef<AbortController | null>(null);
+  const leadRequestVersion = useRef(0);
+  const leadController = useRef<AbortController | null>(null);
 
-  async function refresh(activeRange = range) {
+  const refresh = useCallback(async (activeRange = range) => {
+    refreshController.current?.abort();
+    const controller = new AbortController();
+    refreshController.current = controller;
+    const requestVersion = ++refreshVersion.current;
     setLoading(true);
     setError(null);
     try {
       const [dashboard, channels, pipeline, revenue, reps, series, agents, review, leadRows] =
         await Promise.all([
-          getDashboard(activeRange),
-          getChannelAnalytics(activeRange),
-          getPipelineAnalytics(activeRange),
-          getRevenueAnalytics(activeRange),
-          getRepAnalytics(activeRange),
-          getTimeSeriesAnalytics(activeRange),
-          getAgentActivity(activeRange),
-          getManualReview(activeRange),
-          listLeads(),
+          getDashboard(activeRange, controller.signal),
+          getChannelAnalytics(activeRange, controller.signal),
+          getPipelineAnalytics(activeRange, controller.signal),
+          getRevenueAnalytics(activeRange, controller.signal),
+          getRepAnalytics(activeRange, controller.signal),
+          getTimeSeriesAnalytics(activeRange, controller.signal),
+          getAgentActivity(activeRange, controller.signal),
+          getManualReview(activeRange, controller.signal),
+          listLeads(controller.signal),
         ]);
+      if (requestVersion !== refreshVersion.current) return;
       setData({ dashboard, channels, pipeline, revenue, reps, series, agents, review });
       setLeads(leadRows);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Analytics service unavailable");
+      if (requestVersion === refreshVersion.current && !controller.signal.aborted) {
+        controller.abort();
+        setError(requestError instanceof Error ? requestError.message : "Analytics service unavailable");
+      }
     } finally {
-      setLoading(false);
+      if (requestVersion === refreshVersion.current) setLoading(false);
     }
-  }
+  }, [range]);
 
   useEffect(() => {
     getSession()
@@ -104,17 +116,33 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (auth) void refresh(range);
-  }, [range, auth?.current_workspace_id]);
+    if (!auth) return;
+    void refresh(range);
+    return () => refreshController.current?.abort();
+  }, [auth?.current_workspace_id, range, refresh]);
 
-  async function inspectLead(id: string) {
+  useEffect(() => () => {
+    refreshController.current?.abort();
+    leadController.current?.abort();
+  }, []);
+
+  const inspectLead = useCallback(async (id: string) => {
+    leadController.current?.abort();
+    const controller = new AbortController();
+    leadController.current = controller;
+    const requestVersion = ++leadRequestVersion.current;
     setError(null);
     try {
-      setSelectedLead(await getLead(id));
+      const lead = await getLead(id, controller.signal);
+      if (requestVersion === leadRequestVersion.current) setSelectedLead(lead);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to load lead");
+      if (requestVersion === leadRequestVersion.current && !controller.signal.aborted) {
+        setError(requestError instanceof Error ? requestError.message : "Unable to load lead");
+      }
     }
-  }
+  }, []);
+
+  const handleInspectLead = useCallback((id: string) => { void inspectLead(id); }, [inspectLead]);
 
   function navigate(next: View) {
     setView(next);
@@ -160,6 +188,8 @@ function App() {
                 aria-label="Current workspace"
                 value={auth.current_workspace_id}
                 onChange={(event) => {
+                  refreshController.current?.abort();
+                  leadController.current?.abort();
                   void changeWorkspace(event.target.value).then((session) => {
                     setData(null);
                     setSelectedLead(null);
@@ -171,7 +201,11 @@ function App() {
             </span>
           </div>
           <span className="system-state"><i /> Systems nominal</span>
-          <button className="signout-button" onClick={() => void signOut().finally(() => { setAuth(null); setData(null); })}>Sign out</button>
+          <button className="signout-button" onClick={() => {
+            refreshController.current?.abort();
+            leadController.current?.abort();
+            void signOut().finally(() => { setAuth(null); setData(null); setSelectedLead(null); });
+          }}>Sign out</button>
         </div>
       </aside>
       <main className="product-main">
@@ -185,14 +219,14 @@ function App() {
           </div>
         </header>
         {error && <div className="api-error" role="alert"><div><b>Control plane unavailable</b><span>{error}</span></div><button onClick={() => void refresh()}>Retry</button></div>}
-        {loading && !data ? <LoadingState /> : (
+        {loading && !data ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
-            {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
-            {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={(id) => void inspectLead(id)} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
-            {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
+            {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
+            {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={handleInspectLead} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
+            {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
             {view === "analytics" && <AnalyticsView data={data} />}
-            {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { void inspectLead(id); setView("leads"); }} />}
+            {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView />}
             {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} />}
           </div>
@@ -205,6 +239,14 @@ function App() {
       {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}
     </div>
   );
+}
+
+function ContentLoadingState() {
+  return <div className="content-loading" aria-busy="true" aria-label="Loading workspace data">
+    <div className="skeleton-hero"><i /><i /><span /></div>
+    <div className="skeleton-metrics">{Array.from({ length: 4 }, (_, index) => <i key={index} />)}</div>
+    <div className="skeleton-content"><i /><i /></div>
+  </div>;
 }
 
 function RangePicker({ value, onChange }: { value: TimeRange; onChange: (value: TimeRange) => void }) {

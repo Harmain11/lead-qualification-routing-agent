@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
 import { createLead } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
+import { NetworkDomFallback } from "../components/NetworkDomFallback";
 import type {
   AgentActivity,
   AnalyticsMetadata,
@@ -97,9 +98,7 @@ export function DashboardView({
       <section className="metric-grid">
         {metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}
       </section>
-      <Suspense fallback={<div className="network-loading panel"><span className="eyebrow">Loading intelligence topology</span><i /></div>}>
-        <LeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />
-      </Suspense>
+      <ResponsiveLeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />
       <section className="dashboard-command-grid">
         <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
           <ActivityFeed data={data.agents} compact />
@@ -155,18 +154,19 @@ export function LeadsView({
   const [band, setBand] = useState("all");
   const [source, setSource] = useState("all");
   const [showForm, setShowForm] = useState(false);
+  const normalizedSearch = search.trim().toLowerCase();
   const filtered = useMemo(
     () => leads.filter((lead) => {
       const haystack = `${lead.full_name} ${lead.company_name} ${lead.email} ${lead.product_or_service}`.toLowerCase();
-      return haystack.includes(search.toLowerCase())
+      return haystack.includes(normalizedSearch)
         && (band === "all" || lead.qualification?.classification === band)
         && (source === "all" || lead.source === source);
     }),
-    [leads, search, band, source],
+    [leads, normalizedSearch, band, source],
   );
 
   return (
-    <div className="page-view">
+    <div className="page-view operational-page">
       <header className="page-hero compact-hero">
         <div><span className="eyebrow">Lead intelligence archive</span><h1>Every decision,<br /><em>traceable to evidence.</em></h1><p>Search, filter and inspect the complete journey from original signal to connected-system delivery.</p></div>
         <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>
@@ -175,24 +175,14 @@ export function LeadsView({
       <section className="lead-browser panel">
         <div className="lead-toolbar">
           <label><span className="sr-only">Search leads</span><input type="search" placeholder="Search company, contact, service…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-          <select aria-label="Qualification band" value={band} onChange={(event) => setBand(event.target.value)}><option value="all">All qualification bands</option>{["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => <option value={item} key={item}>{pretty(item)}</option>)}</select>
+          <select aria-label="Qualification band" value={band} onChange={(event) => setBand(event.target.value)}><option value="all">All qualification bands</option>{["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => <option value={item} key={item}>{qualificationLabel(item)}</option>)}</select>
           <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)}><option value="all">All channels</option>{Array.from(new Set(leads.map((lead) => lead.source))).map((item) => <option key={item}>{item}</option>)}</select>
           <span>{filtered.length} records</span>
         </div>
         <div className="lead-table-wrap">
           <table className="lead-table">
             <thead><tr><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
-            <tbody>{filtered.map((lead) => (
-              <tr className={selected?.id === lead.id ? "selected" : ""} key={lead.id} onClick={() => onInspect(lead.id)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter") onInspect(lead.id); }}>
-                <td><b>{lead.full_name}</b><span>{lead.company_name}</span></td>
-                <td><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span></td>
-                <td><b>{lead.qualification?.total_score ?? "—"}</b><span>{lead.qualification?.classification || "Pending"}</span></td>
-                <td>{pretty(lead.routing?.assigned_queue || "Pending")}</td>
-                <td>{lead.routing?.assigned_rep_name || "Unassigned"}</td>
-                <td><span className={`state-dot state-${lead.crm_sync?.status || "none"}`}>{pretty(lead.crm_sync?.status || "Not synced")}</span></td>
-                <td>{new Date(lead.received_at).toLocaleDateString()}</td>
-              </tr>
-            ))}</tbody>
+            <tbody>{filtered.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} onInspect={onInspect} />)}</tbody>
           </table>
           {filtered.length === 0 && <Empty title="No matching signals" text="Adjust filters or submit a lead." />}
         </div>
@@ -240,7 +230,7 @@ export function PipelineView({ data, onInspect }: { data: PipelineAnalytics | nu
   if (!data) return <Unavailable />;
   const selected = data.stages.find((stage) => stage.stage === active) ?? data.stages[0];
   return (
-    <div className="page-view">
+    <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Commercial motion map</span><h1>Pipeline, without<br /><em>the blind spots.</em></h1><p>Inspect every stage and the qualification state that shaped progression.</p></div><div className="pipeline-total"><span>Active pipeline</span><strong>{money(data.stages.find((stage) => stage.stage === "opportunity")?.value ?? 0)}</strong></div></header>
       <section className="pipeline-track panel">{data.stages.map((stage, index) => <button key={stage.stage} className={active === stage.stage ? "active" : ""} aria-pressed={active === stage.stage} onClick={() => setActive(stage.stage)}><span>{String(index + 1).padStart(2, "0")}</span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.value ? money(stage.value) : "—"}</small><span className="pipeline-lead-dots" aria-hidden="true">{stage.leads.slice(0, 4).map((lead) => <i key={lead.id} />)}</span>{index < data.stages.length - 1 && <i className="pipeline-link" />}</button>)}</section>
       <section className="pipeline-inspector pipeline-detail-enter" key={selected.stage}>
@@ -275,7 +265,7 @@ export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
   return (
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
-      <section className="analytics-grid analytics-motion" key={data.dashboard.metadata.range}>
+      <section className="analytics-grid analytics-motion">
         <Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel>
         <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>
         <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>
@@ -290,16 +280,16 @@ export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
 export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalytics | null; onInspect: (id: string) => void }) {
   if (!data) return <Unavailable />;
   return (
-    <div className="page-view">
+    <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Human judgment queue</span><h1>Uncertainty made<br /><em>safe and inspectable.</em></h1><p>Provider failures, low confidence and contradictory evidence pause here. The system does not invent a resolution.</p></div><div className="review-total"><strong>{data.total}</strong><span>open review{data.total === 1 ? "" : "s"}</span></div></header>
-      <section className="review-grid">{data.items.length ? data.items.map((lead) => <article className="review-card panel" key={lead.id}><div className="review-card-head"><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span><span>{lead.score} · {lead.band}</span></div><h2>{lead.company}</h2><p>{lead.name} · {lead.service}</p><div className="review-reasons">{lead.review_reasons.map((reason) => <span key={reason}>{reason}</span>)}</div><div><small>Current queue</small><b>{pretty(lead.routing_status)}</b></div><button onClick={() => onInspect(lead.id)}>Inspect evidence →</button></article>) : <Empty title="Manual review is clear" text="No leads need human judgment in this period." />}</section>
+      <section className="review-grid">{data.items.length ? data.items.map((lead) => <article className="review-card panel" key={lead.id}><div className="review-card-head"><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span><div className="review-qualification"><b>{lead.score}</b><QualificationBadge value={lead.band} manualReview /></div></div><h2>{lead.company}</h2><p>{lead.name} · {lead.service}</p><div className="review-reasons">{lead.review_reasons.map((reason) => <span key={reason}>{reason}</span>)}</div><div><small>Current queue</small><b>{pretty(lead.routing_status)}</b></div><button onClick={() => onInspect(lead.id)}>Inspect evidence →</button></article>) : <Empty title="Manual review is clear" text="No leads need human judgment in this period." />}</section>
     </div>
   );
 }
 
 export function SettingsView({ metadata, onIntegrations }: { metadata?: AnalyticsMetadata; onIntegrations: () => void }) {
   return (
-    <div className="page-view">
+    <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity and data provenance are visible here. Production identity and access hardening remains Phase 7.</p></div></header>
       <section className="settings-grid">
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
@@ -352,25 +342,59 @@ function ActivityFeed({ data, compact = false }: { data: AgentActivity; compact?
 }
 
 function useCountUp(value: number) {
-  const [display, setDisplay] = useState(value);
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setDisplay(value);
-      return;
+  const [display, setDisplay] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches ? value : 0);
+  const displayRef = useRef(display);
+  useLayoutEffect(() => {
+    const setCurrent = (next: number) => {
+      displayRef.current = next;
+      setDisplay(next);
+    };
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let frame = 0;
+    const applyReducedMotion = () => {
+      if (!motion.matches) return;
+      cancelAnimationFrame(frame);
+      setCurrent(value);
+    };
+    motion.addEventListener("change", applyReducedMotion);
+    if (motion.matches) {
+      setCurrent(value);
+      return () => motion.removeEventListener("change", applyReducedMotion);
+    }
+    const from = displayRef.current;
+    if (from === value) {
+      return () => motion.removeEventListener("change", applyReducedMotion);
     }
     const started = performance.now();
     const duration = 650;
-    let frame = 0;
     const tick = (now: number) => {
       const progress = Math.min(1, (now - started) / duration);
       const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplay(Math.round(value * eased * 10) / 10);
+      setCurrent(Math.round((from + (value - from) * eased) * 10) / 10);
       if (progress < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      motion.removeEventListener("change", applyReducedMotion);
+    };
   }, [value]);
   return display;
+}
+
+function ResponsiveLeadIntelligenceNetwork({ pipeline, activity, lead }: { pipeline: PipelineAnalytics; activity: AgentActivity; lead: Lead | null }) {
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 700px)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 700px)");
+    const sync = () => setMobile(query.matches);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  if (mobile) return <NetworkDomFallback pipeline={pipeline} activity={activity} lead={lead} />;
+  return <Suspense fallback={<div className="network-loading panel"><span className="eyebrow">Loading intelligence topology</span><i /></div>}>
+    <LeadIntelligenceNetwork pipeline={pipeline} activity={activity} lead={lead} />
+  </Suspense>;
 }
 
 export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow: string; action?: string; children: ReactNode }) {
@@ -378,8 +402,43 @@ export function Panel({ title, eyebrow, action, children }: { title: string; eye
 }
 
 function LeadRow({ lead, onClick }: { lead: DashboardAnalytics["recent_leads"][number]; onClick: () => void }) {
-  return <button className="compact-lead" onClick={onClick}><span className={`source-monogram source-${lead.source}`}>{lead.source.slice(0, 2).toUpperCase()}</span><span><b>{lead.company}</b><small>{lead.name} · {lead.service}</small></span><span><b>{lead.score}</b><small>{lead.band}</small></span><i>→</i></button>;
+  return <button className="compact-lead" onClick={onClick}><span className={`source-monogram source-${lead.source}`}>{lead.source.slice(0, 2).toUpperCase()}</span><span><b>{lead.company}</b><small>{lead.name} · {lead.service}</small></span><span className="compact-lead-qualification"><b>{lead.score}</b><QualificationBadge value={lead.band} manualReview={lead.manual_review} /></span><i>→</i></button>;
 }
+
+const QualificationBadge = memo(function QualificationBadge({ value, manualReview = false }: { value: string; manualReview?: boolean }) {
+  const label = manualReview ? "Manual Review" : qualificationLabel(value);
+  const tone = manualReview ? "manual-review" : value.toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-");
+  return <span className={`qualification-badge qualification-${tone}`}>{label}</span>;
+});
+
+function qualificationLabel(value: string) {
+  const normalized = value.toLowerCase().replaceAll("-", "_");
+  const labels: Record<string, string> = {
+    hot: "Hot",
+    warm: "Warm",
+    needs_qualifying: "Needs Qualifying",
+    nurture: "Nurture",
+    disqualify: "Disqualified",
+    disqualified: "Disqualified",
+    manual_review: "Manual Review",
+    pending: "Pending",
+  };
+  return labels[normalized] ?? pretty(value);
+}
+
+const LeadTableRow = memo(function LeadTableRow({ lead, selected, onInspect }: { lead: Lead; selected: boolean; onInspect: (id: string) => void }) {
+  return <tr className={selected ? "selected" : ""} onClick={() => onInspect(lead.id)} tabIndex={0} onKeyDown={(event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onInspect(lead.id); }
+  }}>
+    <td><b>{lead.full_name}</b><span>{lead.company_name}</span></td>
+    <td><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span></td>
+    <td><div className="qualification-cell" aria-label={`Score ${lead.qualification?.total_score ?? "unavailable"}; ${lead.analysis?.requires_manual_review ? "Manual Review" : qualificationLabel(lead.qualification?.classification || "pending")}`}><b>{lead.qualification?.total_score ?? "—"}</b><QualificationBadge value={lead.qualification?.classification || "pending"} manualReview={lead.analysis?.requires_manual_review} /></div></td>
+    <td>{pretty(lead.routing?.assigned_queue || "Pending")}</td>
+    <td>{lead.routing?.assigned_rep_name || "Unassigned"}</td>
+    <td><span className={`state-dot state-${lead.crm_sync?.status || "none"}`}>{pretty(lead.crm_sync?.status || "Not synced")}</span></td>
+    <td>{new Date(lead.received_at).toLocaleDateString()}</td>
+  </tr>;
+});
 
 function Field({ label, value, onChange, type = "text" }: { label: string; value: string | number; onChange: (value: string) => void; type?: string }) {
   return <label className="field"><span>{label}</span><input required={["Full name", "Email", "Company", "Service"].includes(label)} type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;

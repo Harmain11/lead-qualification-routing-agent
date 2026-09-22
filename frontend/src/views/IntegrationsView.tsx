@@ -61,7 +61,7 @@ export function IntegrationsView() {
     }
   }
 
-  return <div className="page-view">
+  return <div className="page-view operational-page">
     <header className="page-hero integrations-hero"><div><span className="eyebrow">Settings / integration fabric</span><h1>Connect the systems<br /><em>your agents can trust.</em></h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div><div className="connection-orbit" aria-hidden="true"><b>AI</b>{["CRM", "CHAT", "MAIL", "DATA"].map((node) => <i key={node}>{node}</i>)}</div></header>
     {notice && <div className="notice" role="status">{notice}</div>}
     <section className="integration-grid">{cards.map((card) => {
