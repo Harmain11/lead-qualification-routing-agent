@@ -572,10 +572,7 @@ class AnalyticsService:
             ("nurture", "Nurture"),
             ("disqualify", "Disqualify"),
         ]
-        return [
-            {"band": display_name, "count": counts.get(key, 0)}
-            for key, display_name in order
-        ]
+        return [{"band": display_name, "count": counts.get(key, 0)} for key, display_name in order]
 
     def _attention_leads(self, leads: list[LeadORM]) -> list[dict[str, Any]]:
         return [self._lead_card(lead) for lead in leads if self._is_manual_review(lead)]

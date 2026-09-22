@@ -141,7 +141,5 @@ def get_secret_store() -> SecretStore:
             raise RuntimeError("process-local secret storage is forbidden in production")
         return DevelopmentSecretStore()
     if settings.secret_store_provider == "managed":
-        return ManagedSecretStore(
-            _load_managed_backend(settings.managed_secret_store_backend)
-        )
+        return ManagedSecretStore(_load_managed_backend(settings.managed_secret_store_backend))
     raise RuntimeError(f"unsupported secret store provider: {settings.secret_store_provider}")

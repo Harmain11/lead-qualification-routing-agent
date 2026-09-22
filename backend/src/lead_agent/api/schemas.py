@@ -222,6 +222,7 @@ class LeadListResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str
+    components: dict[str, str] | None = None
 
 
 class ProviderConnectionResponse(BaseModel):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -29,7 +30,10 @@ from lead_agent.infrastructure.db.models import (
     RoutingDecisionORM,
 )
 from lead_agent.infrastructure.notifications.mock import MockNotificationProvider
+from lead_agent.infrastructure.observability import get_observability, provider_operation
 from lead_agent.infrastructure.repositories import get_current_routing
+
+_LOGGER = logging.getLogger("lead_agent.notifications")
 
 
 def _normalized(value: str | None) -> str:
@@ -320,10 +324,45 @@ def notify_routing_decision(
     decision.notification_state = "pending"
     session.commit()
     try:
-        delivery = active_provider.send(message)
+        connection_id = getattr(active_provider, "connection_id", None)
+        with provider_operation(
+            active_provider.provider_name,
+            str(connection_id) if connection_id else None,
+        ) as operation_context:
+            _LOGGER.info(
+                "provider.operation.started",
+                extra={"fields": {**operation_context, "operation": "notification_send"}},
+            )
+            delivery = active_provider.send(message)
+            _LOGGER.info(
+                "provider.operation.completed",
+                extra={
+                    "fields": {
+                        **operation_context,
+                        "operation": "notification_send",
+                        "status": delivery.state,
+                    }
+                },
+            )
     except Exception as error:
+        get_observability().provider_failure(
+            active_provider.provider_name,
+            "transient",
+            connection_id=str(getattr(active_provider, "connection_id", "") or "") or None,
+            operation="notification_send",
+            error_type=type(error).__name__,
+        )
         delivery = NotificationDelivery(
             state="retryable", error_message=str(error)[:2000], retryable=True
+        )
+    if delivery.state in {"failed", "retryable"}:
+        get_observability().provider_failure(
+            active_provider.provider_name,
+            "delivery",
+            connection_id=str(getattr(active_provider, "connection_id", "") or "") or None,
+            operation="notification_send",
+            status=delivery.state,
+            error_type="provider_delivery_error",
         )
     existing.status = delivery.state
     existing.external_message_id = delivery.external_id

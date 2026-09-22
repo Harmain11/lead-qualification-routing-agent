@@ -29,6 +29,7 @@ from lead_agent.settings.config import Settings
 def production_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "app_env": "production",
+        "log_format": "json",
         "auth_development_fallback": False,
         "auth_cookie_secure": True,
         "secret_key": "s" * 48,
@@ -49,7 +50,9 @@ def production_settings(**overrides: object) -> Settings:
         "slack_client_id": "production-slack-client",
         "slack_client_secret": "production-slack-client-secret",
         "database_url": "postgresql+psycopg://app@db.internal/lead_agent",
+        "database_ssl_mode": "require",
         "redis_url": "rediss://redis.internal:6380/0",
+        "rate_limit_backend": "redis",
         "cors_allowed_origins": "https://app.example.com",
         "integration_public_base_url": "https://api.example.com",
         "frontend_public_base_url": "https://app.example.com",
@@ -87,9 +90,7 @@ def test_valid_production_configuration_has_explicit_security_boundaries() -> No
         ({"demo_data_enabled": True}, "DEMO_DATA_ENABLED"),
     ],
 )
-def test_production_rejects_insecure_overrides(
-    override: dict[str, object], expected: str
-) -> None:
+def test_production_rejects_insecure_overrides(override: dict[str, object], expected: str) -> None:
     with pytest.raises(ValidationError, match=expected):
         production_settings(**override)
 
@@ -107,9 +108,7 @@ def test_production_session_cookie_is_secure_bounded_and_http_only() -> None:
     response = Response()
     _set_session_cookies(response, issued, production_settings(auth_session_hours=1))
     cookies = [
-        value.decode()
-        for key, value in response.raw_headers
-        if key.lower() == b"set-cookie"
+        value.decode() for key, value in response.raw_headers if key.lower() == b"set-cookie"
     ]
     session_cookie = next(value for value in cookies if value.startswith("lead_agent_session="))
     csrf_cookie = next(value for value in cookies if value.startswith("lead_agent_csrf="))
@@ -286,9 +285,7 @@ def test_concurrent_oauth_state_redemption_exchanges_code_once(tmp_path) -> None
                 self.exchange_calls += 1
             self.exchange_started.set()
             assert self.release_exchange.wait(timeout=5)
-            return super().exchange(
-                provider, authorization_code, code_verifier, redirect_uri
-            )
+            return super().exchange(provider, authorization_code, code_verifier, redirect_uri)
 
     broker = BlockingBroker()
     with Session(engine) as session:

@@ -30,6 +30,7 @@ from lead_agent.domain.auth import AuthenticatedIdentity, AuthenticationError, A
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID, DEMO_WORKSPACE_ID
 from lead_agent.infrastructure.db.models import AuthSessionORM, UserORM, WorkspaceMembershipORM
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import ensure_workspace
 from lead_agent.settings.config import Settings
 
@@ -78,9 +79,7 @@ class SessionResponse(BaseModel):
     expires_at: datetime | None
 
 
-def _set_session_cookies(
-    response: Response, issued: IssuedSession, settings: Settings
-) -> None:
+def _set_session_cookies(response: Response, issued: IssuedSession, settings: Settings) -> None:
     max_age = settings.auth_session_hours * 3600
     expires_at = issued.expires_at
     if expires_at.tzinfo is None:
@@ -154,7 +153,12 @@ def _session_response(
     )
 
 
-@router.post("/signup", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup",
+    response_model=SessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit_dependency("authentication"))],
+)
 def signup(
     request: SignUpRequest,
     http_request: Request,
@@ -173,14 +177,16 @@ def signup(
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    revoke_session_token(
-        session, http_request.cookies.get(settings.auth_session_cookie_name)
-    )
+    revoke_session_token(session, http_request.cookies.get(settings.auth_session_cookie_name))
     _set_session_cookies(response, issued, settings)
     return _session_response(session, issued.identity, expires_at=issued.expires_at)
 
 
-@router.post("/signin", response_model=SessionResponse)
+@router.post(
+    "/signin",
+    response_model=SessionResponse,
+    dependencies=[Depends(rate_limit_dependency("authentication"))],
+)
 def signin(
     request: SignInRequest,
     http_request: Request,
@@ -189,14 +195,10 @@ def signin(
     settings: Settings = Depends(get_runtime_settings),
 ) -> SessionResponse:
     try:
-        issued = sign_in(
-            session, request.email, request.password, settings.auth_session_hours
-        )
+        issued = sign_in(session, request.email, request.password, settings.auth_session_hours)
     except (AuthenticationError, AuthorizationError) as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
-    revoke_session_token(
-        session, http_request.cookies.get(settings.auth_session_cookie_name)
-    )
+    revoke_session_token(session, http_request.cookies.get(settings.auth_session_cookie_name))
     _set_session_cookies(response, issued, settings)
     return _session_response(session, issued.identity, expires_at=issued.expires_at)
 
@@ -269,7 +271,11 @@ def signout(
     return response
 
 
-@router.post("/development-session", response_model=SessionResponse)
+@router.post(
+    "/development-session",
+    response_model=SessionResponse,
+    dependencies=[Depends(rate_limit_dependency("authentication"))],
+)
 def development_session(
     response: Response,
     request: Request,

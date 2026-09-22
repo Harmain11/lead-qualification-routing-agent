@@ -104,6 +104,8 @@ def get_workspace_context(
             else:
                 code = status.HTTP_403_FORBIDDEN
             raise HTTPException(status_code=code, detail=str(error)) from error
+        request.state.workspace_id = str(workspace_id)
+        request.state.actor_id = str(identity.user_id)
         return WorkspaceContext(workspace_id=workspace_id, actor_id=str(identity.user_id))
 
     development_allowed = settings.auth_development_fallback and settings.app_env.lower() in {
@@ -120,6 +122,8 @@ def get_workspace_context(
         workspace_id = UUID(x_workspace_id) if x_workspace_id else DEFAULT_WORKSPACE_ID
     except ValueError as error:
         raise HTTPException(status_code=400, detail="X-Workspace-ID must be a UUID") from error
+    request.state.workspace_id = str(workspace_id)
+    request.state.actor_id = (x_actor_id or "development-user")[:255]
     return WorkspaceContext(
         workspace_id=workspace_id,
         actor_id=(x_actor_id or "development-user")[:255],

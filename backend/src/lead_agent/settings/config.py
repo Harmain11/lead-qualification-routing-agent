@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -21,6 +22,8 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     log_level: str = "INFO"
+    log_format: Literal["text", "json"] = "text"
+    observability_enabled: bool = True
     secret_key: str = "local-development-only"
     auth_development_fallback: bool = True
     auth_session_cookie_name: str = "lead_agent_session"
@@ -31,7 +34,30 @@ class Settings(BaseSettings):
     webhook_signing_secret: str = ""
     cors_allowed_origins: str = "http://localhost:5173"
     database_url: str = "postgresql+psycopg://lead_agent:lead_agent@localhost:5432/lead_agent"
+    database_ssl_mode: Literal[
+        "disable", "allow", "prefer", "require", "verify-ca", "verify-full"
+    ] = "prefer"
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+    database_pool_timeout_seconds: float = 30.0
+    database_pool_recycle_seconds: int = 1800
+    database_connect_timeout_seconds: int = 10
     redis_url: str = "redis://localhost:6379/0"
+    redis_required: bool = True
+    redis_connect_timeout_seconds: float = 2.0
+    redis_socket_timeout_seconds: float = 2.0
+    redis_retry_on_timeout: bool = True
+    rate_limit_backend: Literal["memory", "redis"] = "memory"
+    rate_limit_authentication_max: int = 10
+    rate_limit_authentication_window_seconds: int = 60
+    rate_limit_oauth_max: int = 12
+    rate_limit_oauth_window_seconds: int = 300
+    rate_limit_credentials_max: int = 5
+    rate_limit_credentials_window_seconds: int = 300
+    rate_limit_provider_actions_max: int = 20
+    rate_limit_provider_actions_window_seconds: int = 60
+    rate_limit_agent_max: int = 30
+    rate_limit_agent_window_seconds: int = 60
     queue_name: str = "lead-processing"
     job_max_retries: int = 3
     icp_config_path: str = "config/icp.example.yaml"
@@ -85,6 +111,33 @@ class Settings(BaseSettings):
             raise ValueError("session and CSRF cookie names must be different")
         if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
             raise ValueError("SameSite=None cookies require AUTH_COOKIE_SECURE=true")
+        if (
+            min(
+                self.database_pool_size,
+                self.database_pool_timeout_seconds,
+                self.database_pool_recycle_seconds,
+                self.database_connect_timeout_seconds,
+                self.redis_connect_timeout_seconds,
+                self.redis_socket_timeout_seconds,
+            )
+            <= 0
+            or self.database_max_overflow < 0
+        ):
+            raise ValueError("database and Redis pool/timeout settings must be positive")
+        for value in (
+            self.rate_limit_authentication_max,
+            self.rate_limit_authentication_window_seconds,
+            self.rate_limit_oauth_max,
+            self.rate_limit_oauth_window_seconds,
+            self.rate_limit_credentials_max,
+            self.rate_limit_credentials_window_seconds,
+            self.rate_limit_provider_actions_max,
+            self.rate_limit_provider_actions_window_seconds,
+            self.rate_limit_agent_max,
+            self.rate_limit_agent_window_seconds,
+        ):
+            if value < 1:
+                raise ValueError("rate-limit policies must have positive limits and windows")
         if self.app_env == "production":
             self._validate_production_security()
         return self
@@ -98,6 +151,7 @@ class Settings(BaseSettings):
 
         require(not self.auth_development_fallback, "AUTH_DEVELOPMENT_FALLBACK must be false")
         require(self.auth_cookie_secure, "AUTH_COOKIE_SECURE must be true")
+        require(self.log_format == "json", "LOG_FORMAT must be json in production")
         require(
             len(self.secret_key) >= 32 and not _is_placeholder(self.secret_key),
             "SECRET_KEY must be a non-placeholder value of at least 32 characters",
@@ -136,17 +190,48 @@ class Settings(BaseSettings):
             != "postgresql+psycopg://lead_agent:lead_agent@localhost:5432/lead_agent",
             "DATABASE_URL must be explicitly configured for production",
         )
+        database = urlsplit(self.database_url)
+        require(
+            database.scheme in {"postgresql", "postgresql+psycopg"}
+            and bool(database.hostname)
+            and database.hostname not in {"localhost", "127.0.0.1", "::1"}
+            and self.database_ssl_mode in {"require", "verify-ca", "verify-full"},
+            (
+                "production PostgreSQL requires a remote host and SSL mode "
+                "require/verify-ca/verify-full"
+            ),
+        )
         require(
             self.redis_url != "redis://localhost:6379/0",
             "REDIS_URL must be explicitly configured for production",
         )
+        redis = urlsplit(self.redis_url)
+        require(
+            redis.scheme == "rediss"
+            and bool(redis.hostname)
+            and redis.hostname not in {"localhost", "127.0.0.1", "::1"},
+            "production Redis requires a remote rediss:// endpoint",
+        )
+        require(
+            self.rate_limit_backend == "redis",
+            "RATE_LIMIT_BACKEND must be redis in production",
+        )
+        require(self.redis_required, "REDIS_REQUIRED must be true in production")
         require(
             _is_https_base_url(self.integration_public_base_url),
             "INTEGRATION_PUBLIC_BASE_URL must be an absolute HTTPS URL",
         )
         require(
+            _is_public_https_base_url(self.integration_public_base_url),
+            "INTEGRATION_PUBLIC_BASE_URL cannot use a localhost or private callback host",
+        )
+        require(
             _is_https_base_url(self.frontend_public_base_url),
             "FRONTEND_PUBLIC_BASE_URL must be an absolute HTTPS URL",
+        )
+        require(
+            _is_public_https_base_url(self.frontend_public_base_url),
+            "FRONTEND_PUBLIC_BASE_URL cannot use a localhost or private host",
         )
         origins = self.cors_origins
         require(bool(origins), "CORS_ALLOWED_ORIGINS must contain a trusted frontend origin")
@@ -154,6 +239,10 @@ class Settings(BaseSettings):
         require(
             all(_is_https_origin(origin) for origin in origins),
             "production CORS origins must be explicit HTTPS origins without paths",
+        )
+        require(
+            all(_is_public_https_base_url(origin) for origin in origins),
+            "production CORS origins cannot use localhost or private IP addresses",
         )
         frontend_origin = _origin(self.frontend_public_base_url)
         require(
@@ -267,3 +356,16 @@ def _is_https_origin(value: str) -> bool:
         and not parsed.query
         and not parsed.fragment
     )
+
+
+def _is_public_https_base_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.username or parsed.password or not host:
+        return False
+    if host == "localhost" or host.endswith((".localhost", ".local")):
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        return True

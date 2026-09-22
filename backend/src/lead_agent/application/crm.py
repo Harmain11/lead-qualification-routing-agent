@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -19,7 +20,10 @@ from lead_agent.domain.crm import (
 )
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.db.models import CrmSyncORM, LeadORM, RoutingDecisionORM
+from lead_agent.infrastructure.observability import get_observability, provider_operation
 from lead_agent.infrastructure.repositories import get_current_crm_sync, get_current_routing
+
+_LOGGER = logging.getLogger("lead_agent.crm")
 
 
 def _analysis(lead: LeadORM) -> LeadContextAnalysis | None:
@@ -208,8 +212,33 @@ def sync_lead_to_crm(
         sync_row.updated_at = datetime.now(UTC)
         session.commit()
         try:
-            result = active_provider.sync(payload, existing)
+            with provider_operation(
+                active_provider.provider_name,
+                str(provider_connection_id) if provider_connection_id else None,
+            ) as operation_context:
+                _LOGGER.info(
+                    "provider.operation.started",
+                    extra={"fields": {**operation_context, "operation": "crm_sync"}},
+                )
+                result = active_provider.sync(payload, existing)
+                _LOGGER.info(
+                    "provider.operation.completed",
+                    extra={
+                        "fields": {
+                            **operation_context,
+                            "operation": "crm_sync",
+                            "status": "success",
+                        }
+                    },
+                )
         except CrmProviderError as error:
+            get_observability().provider_failure(
+                active_provider.provider_name,
+                error.category,
+                connection_id=str(provider_connection_id) if provider_connection_id else None,
+                operation="crm_sync",
+                error_code=error.code,
+            )
             sync_row.error_category = error.category
             sync_row.error_code = error.code
             sync_row.last_error = str(error)[:2000]
@@ -230,6 +259,14 @@ def sync_lead_to_crm(
             session.commit()
             if error.retryable and attempts_this_run < max(1, max_attempts):
                 continue
+            if error.retryable:
+                get_observability().retry_exhausted(
+                    "crm_sync",
+                    provider=active_provider.provider_name,
+                    connection_id=str(provider_connection_id) if provider_connection_id else None,
+                    attempts=sync_row.attempts,
+                    error_category=error.category,
+                )
             record_pipeline_event(
                 session,
                 lead.id,
@@ -240,6 +277,13 @@ def sync_lead_to_crm(
             session.commit()
             return sync_row
         except Exception as error:
+            get_observability().provider_failure(
+                active_provider.provider_name,
+                "transient",
+                connection_id=str(provider_connection_id) if provider_connection_id else None,
+                operation="crm_sync",
+                error_type=type(error).__name__,
+            )
             sync_row.error_category = "transient"
             sync_row.error_code = "unexpected_provider_error"
             sync_row.last_error = str(error)[:2000] or error.__class__.__name__
@@ -260,6 +304,13 @@ def sync_lead_to_crm(
             session.commit()
             if attempts_this_run < max(1, max_attempts):
                 continue
+            get_observability().retry_exhausted(
+                "crm_sync",
+                provider=active_provider.provider_name,
+                connection_id=str(provider_connection_id) if provider_connection_id else None,
+                attempts=sync_row.attempts,
+                error_category="transient",
+            )
             record_pipeline_event(
                 session,
                 lead.id,

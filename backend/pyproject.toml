@@ -19,6 +19,9 @@ dependencies = [
   "uvicorn[standard]>=0.34,<1.0",
 ]
 
+[project.scripts]
+production-check = "lead_agent.production_check:main"
+
 [project.optional-dependencies]
 dev = [
   "mypy>=1.15,<2.0",

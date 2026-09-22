@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,9 +14,19 @@ from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.tools import AgentTool, ToolContext, ToolResult
 from lead_agent.infrastructure.crm.factory import WorkspaceCrmProviderResolver
 from lead_agent.infrastructure.db.models import AgentToolAuditORM
+from lead_agent.infrastructure.observability import get_observability, provider_operation
+from lead_agent.infrastructure.rate_limit import get_rate_limiter, policy_for
 from lead_agent.infrastructure.repositories import get_lead
+from lead_agent.settings.config import get_settings
 
 _SENSITIVE_AUDIT_KEYS = ("secret", "token", "password", "credential", "api_key")
+_LOGGER = logging.getLogger("lead_agent.agent_tools")
+
+
+class ToolRateLimitError(RuntimeError):
+    def __init__(self, retry_after: int) -> None:
+        super().__init__("agent operation rate limit exceeded")
+        self.retry_after = retry_after
 
 
 def _audit_safe(value: Any) -> Any:
@@ -61,6 +72,19 @@ class ToolRegistry:
         *,
         idempotency_key: str,
     ) -> ToolResult:
+        settings = get_settings()
+        policy = policy_for(settings, "agent")
+        try:
+            allowed, retry_after = get_rate_limiter(settings).hit(
+                f"{settings.app_name}:{settings.app_env}:agent:{context.workspace_id}:{context.actor_id}",
+                policy,
+            )
+        except Exception as error:
+            if settings.app_env == "production":
+                raise ToolRateLimitError(5) from error
+            allowed, retry_after = True, 0
+        if not allowed:
+            raise ToolRateLimitError(retry_after)
         tool = self._tools.get(tool_name)
         if tool is None:
             raise KeyError(f"unknown agent tool: {tool_name}")
@@ -72,11 +96,7 @@ class ToolRegistry:
             )
         )
         input_summary = _audit_safe(
-            {
-                key: value
-                for key, value in raw_input.items()
-                if key in tool.input_model.model_fields
-            }
+            {key: value for key, value in raw_input.items() if key in tool.input_model.model_fields}
         )
         if tool.required_permission not in context.permissions:
             if prior is None:
@@ -130,12 +150,31 @@ class ToolRegistry:
         self.session.commit()
         try:
             validated = tool.input_model.model_validate(raw_input)
-            output = tool.execute(context, validated)
+            with provider_operation("agent_tool") as operation_context:
+                _LOGGER.info(
+                    "agent_tool.started",
+                    extra={
+                        "fields": {
+                            **operation_context,
+                            "workspace_id": str(context.workspace_id),
+                            "actor_id": context.actor_id,
+                            "tool_name": tool_name,
+                        }
+                    },
+                )
+                output = tool.execute(context, validated)
         except Exception as error:
             audit.status = "failed"
             audit.error_message = f"{type(error).__name__}: tool execution failed"
             audit.completed_at = datetime.now(UTC)
             self.session.commit()
+            get_observability().record_error(
+                "agent_tool.failed",
+                workspace_id=str(context.workspace_id),
+                actor_id=context.actor_id,
+                tool_name=tool_name,
+                error_type=type(error).__name__,
+            )
             raise
         audit.status = "completed"
         audit.output = _audit_safe(output)

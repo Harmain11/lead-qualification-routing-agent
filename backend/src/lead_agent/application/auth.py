@@ -173,9 +173,7 @@ def sign_in(
     )
     if membership is None:
         raise AuthorizationError("account has no active workspace membership")
-    return issue_session(
-        session, user, membership.workspace_id, duration_hours=duration_hours
-    )
+    return issue_session(session, user, membership.workspace_id, duration_hours=duration_hours)
 
 
 def authenticate_session(session: Session, token: str) -> AuthenticatedIdentity:
@@ -199,8 +197,10 @@ def authenticate_session(session: Session, token: str) -> AuthenticatedIdentity:
 
 def verify_csrf(session: Session, session_id: UUID, csrf_token: str | None) -> None:
     row = session.get(AuthSessionORM, session_id)
-    if row is None or not csrf_token or not hmac.compare_digest(
-        row.csrf_token_hash, _digest(csrf_token)
+    if (
+        row is None
+        or not csrf_token
+        or not hmac.compare_digest(row.csrf_token_hash, _digest(csrf_token))
     ):
         raise AuthorizationError("CSRF validation failed")
 

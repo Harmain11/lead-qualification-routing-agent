@@ -21,6 +21,7 @@ from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
+from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import (
     get_current_routing,
     get_lead,
@@ -121,7 +122,11 @@ def retrieve_pipeline_history(
     ]
 
 
-@router.post("/{lead_id}/notifications/retry", response_model=NotificationResponse)
+@router.post(
+    "/{lead_id}/notifications/retry",
+    response_model=NotificationResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
 def retry_notification(
     lead_id: UUID,
     session: Session = Depends(get_db),
@@ -136,7 +141,11 @@ def retry_notification(
     return notification_response(notification)
 
 
-@router.post("/{lead_id}/routing/reroute", response_model=RoutingDecisionResponse)
+@router.post(
+    "/{lead_id}/routing/reroute",
+    response_model=RoutingDecisionResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
 def reroute_lead(
     lead_id: UUID,
     request: RerouteRequest,

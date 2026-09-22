@@ -42,9 +42,7 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
     return max(60, min(seconds, 31_536_000))
 
 
-def _discard_connection_secret(
-    connection: ProviderConnectionORM, secret_store: SecretStore
-) -> str:
+def _discard_connection_secret(connection: ProviderConnectionORM, secret_store: SecretStore) -> str:
     reference = connection.secret_reference
     connection.secret_reference = None
     if not reference:
@@ -225,8 +223,7 @@ def complete_oauth_connection(
     actor_id: str,
 ) -> ProviderConnectionORM:
     row = session.scalar(
-        select(ProviderConnectionORM)
-        .where(
+        select(ProviderConnectionORM).where(
             ProviderConnectionORM.id == connection_id,
             ProviderConnectionORM.workspace_id == workspace_id,
         )
@@ -270,9 +267,7 @@ def complete_oauth_connection(
     session.commit()
     session.refresh(row)
 
-    pending_values = (
-        secret_store.retrieve(row.secret_reference) if row.secret_reference else None
-    )
+    pending_values = secret_store.retrieve(row.secret_reference) if row.secret_reference else None
     verifier = (pending_values or {}).get("pkce_verifier")
     redirect_uri = (pending_values or {}).get("redirect_uri")
     if not verifier or not redirect_uri:
@@ -301,9 +296,7 @@ def complete_oauth_connection(
             "message": "OAuth provider authorization failed",
             "error_type": type(error).__name__,
         }
-        row.last_validation_result["local_secret"] = _discard_connection_secret(
-            row, secret_store
-        )
+        row.last_validation_result["local_secret"] = _discard_connection_secret(row, secret_store)
         row.updated_at = datetime.now(UTC)
         session.commit()
         raise ValueError("OAuth provider authorization failed") from error
@@ -376,9 +369,7 @@ def validate_connection(
                 refreshed.setdefault("refresh_token", refresh_token)
                 if row.secret_reference is None:
                     raise ValueError("OAuth secret reference is unavailable")
-                row.secret_reference = secret_store.replace(
-                    row.secret_reference, refreshed
-                )
+                row.secret_reference = secret_store.replace(row.secret_reference, refreshed)
                 values = refreshed
                 expires_in = _token_lifetime_seconds(refreshed)
                 row.connection_metadata = {
@@ -403,8 +394,10 @@ def validate_connection(
                 }
                 session.commit()
                 return row, validation
-    expected = {"access_token"} if row.auth_type == "oauth2" else REQUIRED_MANUAL_CREDENTIALS.get(
-        row.provider_type, set()
+    expected = (
+        {"access_token"}
+        if row.auth_type == "oauth2"
+        else REQUIRED_MANUAL_CREDENTIALS.get(row.provider_type, set())
     )
     missing = sorted(expected - set(values or {}))
     valid = values is not None and not missing
@@ -506,9 +499,7 @@ def reconnect_connection(
     if row.secret_reference:
         row.secret_reference = secret_store.replace(row.secret_reference, credentials)
     else:
-        row.secret_reference = secret_store.store(
-            workspace_id, row.provider_type, credentials
-        )
+        row.secret_reference = secret_store.store(workspace_id, row.provider_type, credentials)
     row.credential_state = "configured"
     row.status = "connected"
     row.disconnected_at = None

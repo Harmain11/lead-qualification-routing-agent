@@ -191,6 +191,18 @@ Production configuration is validated at startup and cannot select development a
 `SecretStore` exposes store, internal retrieve, replace/rotate, invalidate, and delete operations. `DevelopmentSecretStore` is process-local. `ManagedSecretStore` delegates to a deployment-supplied cloud-neutral backend, so AWS Secrets Manager, Azure Key Vault, Google Secret Manager, or Vault can be bound without changing application services or providers. Database records retain only opaque references and safe lifecycle metadata.
 
 OAuth authorization state is random and persisted only as a hash. Redemption is bound to workspace, provider, callback, and actor, expires after ten minutes, and uses an atomic status transition before code exchange. PKCE uses S256; the temporary verifier is replaced after exchange or discarded after terminal failure. Disconnect commits local deactivation before attempting provider revocation and records only safe revocation/cleanup outcomes.
+
+## Phase 7A2 operations boundary
+
+Production uses a Redis-backed fixed-window rate limiter shared across API instances; local/test execution may use the deterministic in-memory adapter. A small policy catalog groups authentication, OAuth, credential submission, provider actions, and agent tools. Redis failures fail closed in production with a safe 503 response.
+
+Every API request receives a validated `X-Request-ID` or a generated UUID and echoes it in the response. Provider operations add an internal operation ID, provider, and connection ID to safe logs and CRM HTTP request headers. Structured production logs pass through recursive redaction. Metrics/error reporting remains behind a vendor-neutral `Observability` protocol.
+
+The API sends anti-framing, content-type, referrer, permissions, and CSP headers. HSTS is emitted only in production, where TLS must terminate at a trusted edge. The frontend hosting layer must set its own CSP allowing the configured API, same-origin assets, required inline styles, WebGL-compatible resources, and OAuth top-level redirects.
+
+Liveness is process-only. Readiness checks PostgreSQL and required Redis, returns only component states, and ignores optional external providers. PostgreSQL pool/TLS and Redis timeout/retry settings are explicit. Celery is configured for bounded retries, late acknowledgements, time limits, and safe task-failure events, but no application task is registered; intake, CRM sync, and notifications currently execute synchronously.
+
+The outbox table records `lead.qualified` in the lead transaction, but there is no outbox dispatcher today. CRM sync and notification flows separately commit their durable pending/syncing records before external provider I/O. Their current retries are bounded/manual and idempotent; asynchronous dispatch and automated outbox delivery remain deployment/readiness work rather than silently claimed as active behavior.
 ## Phase 4 routing implementation
 
 The routing application service consumes the persisted qualification and Phase 3 analysis; it never recalculates the score. `RoutingConfig` contains queues, active/inactive reps, ordered rules, and action templates. Matching is deterministic: manual-review precedence first, then the lowest numeric rule precedence, then greatest criterion specificity, then rule name; otherwise the qualification-band route is used. Hard-disqualified leads are archived without a sales rep. Active reps are selected by geography/industry/service skill score, then configured priority and stable rep ID.

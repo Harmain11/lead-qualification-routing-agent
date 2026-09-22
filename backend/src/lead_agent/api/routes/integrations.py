@@ -35,6 +35,7 @@ from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.oauth import get_oauth_broker
+from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
     get_provider_connection,
@@ -123,6 +124,7 @@ def retrieve_connection(
     "/{provider}/credentials",
     response_model=ProviderConnectionResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit_dependency("credentials"))],
 )
 def add_manual_credential(
     provider: str,
@@ -140,7 +142,11 @@ def add_manual_credential(
     return provider_connection_response(row)
 
 
-@router.post("/{provider}/connect", response_model=OAuthBeginResponse)
+@router.post(
+    "/{provider}/connect",
+    response_model=OAuthBeginResponse,
+    dependencies=[Depends(rate_limit_dependency("oauth"))],
+)
 def begin_connection(
     provider: str,
     request: OAuthBeginRequest,
@@ -186,7 +192,11 @@ def development_authorize(
     return RedirectResponse(f"{callback}?state={state}&code=development-approved")
 
 
-@router.get("/{provider}/oauth/callback", include_in_schema=False)
+@router.get(
+    "/{provider}/oauth/callback",
+    include_in_schema=False,
+    dependencies=[Depends(rate_limit_dependency("oauth"))],
+)
 def browser_connection_callback(
     provider: str,
     state_value: str = Query(alias="state", min_length=16),
@@ -230,7 +240,11 @@ def browser_connection_callback(
     return RedirectResponse(target)
 
 
-@router.post("/{provider}/callback", response_model=ProviderConnectionResponse)
+@router.post(
+    "/{provider}/callback",
+    response_model=ProviderConnectionResponse,
+    dependencies=[Depends(rate_limit_dependency("oauth"))],
+)
 def connection_callback(
     provider: str,
     request: OAuthCallbackRequest,
@@ -258,7 +272,11 @@ def connection_callback(
     return provider_connection_response(row)
 
 
-@router.post("/connections/{connection_id}/test", response_model=ValidationResponse)
+@router.post(
+    "/connections/{connection_id}/test",
+    response_model=ValidationResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
 def test_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
@@ -296,7 +314,11 @@ def disconnect(
     return provider_connection_response(row)
 
 
-@router.post("/connections/{connection_id}/reconnect", response_model=ProviderConnectionResponse)
+@router.post(
+    "/connections/{connection_id}/reconnect",
+    response_model=ProviderConnectionResponse,
+    dependencies=[Depends(rate_limit_dependency("credentials"))],
+)
 def reconnect(
     connection_id: UUID,
     request: ReconnectRequest,

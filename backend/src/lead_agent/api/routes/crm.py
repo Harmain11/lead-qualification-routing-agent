@@ -12,6 +12,7 @@ from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import CrmSyncORM, LeadORM
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import (
     get_current_crm_sync,
     get_lead,
@@ -61,7 +62,11 @@ def retrieve_crm_sync_history(
     ]
 
 
-@router.post("/{lead_id}/crm-sync", response_model=CrmSyncResponse)
+@router.post(
+    "/{lead_id}/crm-sync",
+    response_model=CrmSyncResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
 def synchronize_crm(
     lead_id: UUID,
     session: Session = Depends(get_db),
@@ -80,7 +85,11 @@ def synchronize_crm(
     return _required_response(row)
 
 
-@router.post("/{lead_id}/crm-sync/retry", response_model=CrmSyncResponse)
+@router.post(
+    "/{lead_id}/crm-sync/retry",
+    response_model=CrmSyncResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
 def retry_crm(
     lead_id: UUID,
     session: Session = Depends(get_db),

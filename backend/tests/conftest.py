@@ -6,6 +6,15 @@ import pytest
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
 from lead_agent.domain.crm import CrmConfig, load_crm_config
+from lead_agent.infrastructure.rate_limit import _cached_rate_limiter
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit_memory_between_tests():
+    """Keep the development limiter deterministic and isolated across tests."""
+    _cached_rate_limiter.cache_clear()
+    yield
+    _cached_rate_limiter.cache_clear()
 
 
 @pytest.fixture

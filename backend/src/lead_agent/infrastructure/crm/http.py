@@ -4,6 +4,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from lead_agent.infrastructure.observability import current_operation_id, current_request_id
+
 
 class HttpResponse(Protocol):
     status_code: int
@@ -36,10 +38,15 @@ class HttpxTransport:
         data: dict[str, str] | None = None,
         timeout: float = 20.0,
     ) -> httpx.Response:
+        request_headers = dict(headers or {})
+        if current_request_id() != "-":
+            request_headers.setdefault("X-Request-ID", current_request_id())
+        if current_operation_id() != "-":
+            request_headers.setdefault("X-Operation-ID", current_operation_id())
         return httpx.request(
             method,
             url,
-            headers=headers,
+            headers=request_headers,
             json=json,
             data=data,
             timeout=timeout,

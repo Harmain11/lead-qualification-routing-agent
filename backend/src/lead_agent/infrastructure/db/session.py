@@ -13,8 +13,37 @@ from lead_agent.settings.config import Settings, get_settings
 
 def build_engine(settings: Settings | None = None) -> Engine:
     active = settings or get_settings()
-    connect_args = {"check_same_thread": False} if active.database_url.startswith("sqlite") else {}
-    return create_engine(active.database_url, pool_pre_ping=True, connect_args=connect_args)
+    if active.database_url.startswith("sqlite"):
+        return create_engine(
+            active.database_url,
+            pool_pre_ping=True,
+            connect_args={"check_same_thread": False},
+        )
+    is_postgres = active.database_url.startswith(("postgresql://", "postgresql+psycopg://"))
+    connect_args = (
+        {
+            "sslmode": active.database_ssl_mode,
+            "connect_timeout": active.database_connect_timeout_seconds,
+        }
+        if is_postgres
+        else {}
+    )
+    pool = (
+        {
+            "pool_size": active.database_pool_size,
+            "max_overflow": active.database_max_overflow,
+            "pool_timeout": active.database_pool_timeout_seconds,
+            "pool_recycle": active.database_pool_recycle_seconds,
+        }
+        if is_postgres
+        else {}
+    )
+    return create_engine(
+        active.database_url,
+        pool_pre_ping=True,
+        connect_args=connect_args,
+        **pool,
+    )
 
 
 def build_session_factory(settings: Settings | None = None) -> sessionmaker[Session]:

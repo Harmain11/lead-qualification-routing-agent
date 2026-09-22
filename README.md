@@ -4,7 +4,7 @@ Production-ready foundation for a channel-agnostic lead qualification, explainab
 
 ## Project status
 
-Phases 1–6.5 and Phase 7A1 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, analytics, production configuration validation, a managed-secret boundary, and hardened authentication/OAuth foundations. Live provider validation and later Phase 7 work remain deferred.
+Phases 1–6.5, Phase 7A1, and Phase 7A2 operations/deployment readiness are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, analytics, production configuration validation, managed secrets, authentication/OAuth hardening, shared rate limiting, request correlation, redacted structured logs, dependency readiness, and deployment guidance. Infrastructure provisioning, live-provider certification, browser E2E, and later Phase 7 work remain deferred.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are in [`docs/requirements.md`](docs/requirements.md), and the production architecture is in [`docs/architecture.md`](docs/architecture.md).
 
@@ -157,3 +157,11 @@ The product shell provides Dashboard, Leads, Pipeline, Agents / AI Activity, Ana
 - OAuth state is high entropy, hashed, expiring, single-use, atomically claimed, and bound to workspace, provider, callback, and actor. PKCE uses S256 and its verifier is replaced by provider credentials after exchange.
 - Provider disconnect deactivates the local connection before remote revocation. Failed or unsupported remote revocation is recorded as safe metadata and cannot leave the connection usable.
 - The frontend uses optional public `VITE_API_BASE_URL`; server credentials must never use the `VITE_*` namespace. Seed commands are disabled in production, and demo records remain isolated to the reserved demo workspace.
+
+## Phase 7A2 operations and deployment readiness
+
+- API rate limits use shared Redis in production and a deterministic in-memory adapter for development/tests. Named policy groups and limits are configured through environment variables.
+- Request IDs are validated/generated for every request and returned in `X-Request-ID`. Production logs use JSON and shared structured redaction; security headers include anti-framing policy and HSTS in production.
+- Readiness checks PostgreSQL and required Redis without exposing connection information or depending on optional providers. Database pool/TLS and Redis timeout/retry settings are explicit.
+- `uv run --project backend production-check` validates production settings without printing secret values. See [`docs/production-deployment.md`](docs/production-deployment.md) for topology and deployment checklist.
+- Celery has bounded reliability defaults, but application flows remain synchronous and no task or outbox dispatcher is currently registered. Durable CRM and notification state is committed before provider calls.

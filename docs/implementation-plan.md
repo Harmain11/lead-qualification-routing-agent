@@ -146,3 +146,7 @@ The frontend uses the supplied Ingenuity Systems brand assets and centralized or
 Phase 7A1 adds explicit development/test/production settings and fail-closed production validation; a cloud-neutral managed-secret adapter boundary with store, retrieve, replace, invalidate, and delete lifecycle operations; secure cookie and session rotation behavior; revoked-membership restoration protection; actor-bound, expiring, atomically single-use OAuth state; S256 PKCE cleanup; token refresh/reconnect/revocation foundations; explicit production CORS and frontend API-base configuration; and production-disabled seeding.
 
 Live provider testing, deployment bindings, browser E2E, broader operational hardening, and all later Phase 7 work remain explicitly unstarted.
+
+## Current Phase 7A2 implementation note
+
+Phase 7A2 adds shared production rate limiting, request correlation, structured/redacted logs, safe browser/API headers, vendor-neutral observability hooks, explicit dependency readiness, database/Redis production controls, bounded Celery reliability defaults, and production configuration checks. Deployment topology and checklist are documented separately. Provider certification, infrastructure provisioning, browser E2E, and Phase 7B remain unstarted.

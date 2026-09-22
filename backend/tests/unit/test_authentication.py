@@ -176,12 +176,14 @@ def test_workspace_header_is_verified_against_membership(tmp_path) -> None:
         with TestClient(app) as client_a, TestClient(app) as client_b:
             workspace_a = signup(client_a, "a@example.test").json()["current_workspace_id"]
             workspace_b = signup(client_b, "b@example.test").json()["current_workspace_id"]
-            assert client_a.get(
-                "/v1/leads", headers={"X-Workspace-ID": workspace_a}
-            ).status_code == 200
-            assert client_a.get(
-                "/v1/leads", headers={"X-Workspace-ID": workspace_b}
-            ).status_code == 403
+            assert (
+                client_a.get("/v1/leads", headers={"X-Workspace-ID": workspace_a}).status_code
+                == 200
+            )
+            assert (
+                client_a.get("/v1/leads", headers={"X-Workspace-ID": workspace_b}).status_code
+                == 403
+            )
     finally:
         app.dependency_overrides.clear()
         session.close()
@@ -366,9 +368,7 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
                     "authorization_code": "single-use-code",
                 },
             )
-            connection = session.get(
-                ProviderConnectionORM, UUID(payload["connection"]["id"])
-            )
+            connection = session.get(ProviderConnectionORM, UUID(payload["connection"]["id"]))
             assert connection is not None
             stored_values = store.retrieve(connection.secret_reference)
             assert stored_values is not None
@@ -462,13 +462,9 @@ def test_browser_oauth_callback_uses_connection_workspace_after_workspace_switch
                 params={"state": payload["state"], "code": "browser-code"},
                 follow_redirects=False,
             )
-            connection = session.get(
-                ProviderConnectionORM, UUID(payload["connection"]["id"])
-            )
+            connection = session.get(ProviderConnectionORM, UUID(payload["connection"]["id"]))
             assert callback.status_code == 307
-            assert callback.headers["location"].endswith(
-                "?integration=hubspot&status=connected"
-            )
+            assert callback.headers["location"].endswith("?integration=hubspot&status=connected")
             assert connection is not None
             assert connection.workspace_id == UUID(signup_body["current_workspace_id"])
             assert connection.status == "connected"

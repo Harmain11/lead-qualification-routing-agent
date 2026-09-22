@@ -119,7 +119,7 @@ HubSpot documents bearer-token authentication and contact batch upsert by email;
 - One active CRM connection is selected per workspace. A connected workspace account takes precedence over `CRM_PROVIDER`; environment credentials remain a development fallback only.
 - CRM synchronization rows retain the exact provider connection ID so entity IDs cannot bleed across workspaces or external accounts.
 
-The development secret store and OAuth broker are intentionally process-local and rejected by production configuration. Production resolves a deployment-owned, cloud-neutral managed-secret backend through the common `SecretStore` lifecycle and configures operator-owned OAuth applications. Authorization state is hashed, expiring, actor/workspace/provider bound, and atomically single-use; PKCE uses S256, and token expiry/refresh/reconnect/disconnect paths stay behind provider ports. Provider-specific remote identity validation and concrete remote revocation calls remain later Phase 7 provider/deployment work; local disconnect is authoritative even when remote revocation is unavailable.
+The development secret store and OAuth broker are intentionally process-local and rejected by production configuration. Production resolves a deployment-owned, cloud-neutral managed-secret backend through the common `SecretStore` lifecycle and configures operator-owned OAuth applications. Authorization state is hashed, expiring, actor/workspace/provider bound, and atomically single-use; PKCE uses S256, and token expiry/refresh/reconnect/disconnect paths stay behind provider ports.
 
 The frontend setup catalog describes where credentials originate, minimum scopes, why they are needed, and links to official documentation. It never embeds or displays a user's values.
 
