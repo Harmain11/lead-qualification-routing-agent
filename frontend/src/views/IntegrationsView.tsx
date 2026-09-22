@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   addIntegrationCredential,
+  apiUrl,
   beginIntegration,
   disconnectIntegration,
   listIntegrations,
@@ -54,7 +55,7 @@ export function IntegrationsView() {
     setBusy(provider); setNotice(null);
     try {
       const started = await beginIntegration(provider);
-      window.location.assign(started.authorization_url);
+      window.location.assign(apiUrl(started.authorization_url));
     } catch (actionError) {
       setNotice(actionError instanceof Error ? actionError.message : "Authorization could not begin");
       setBusy(null);

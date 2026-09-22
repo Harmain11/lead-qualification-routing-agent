@@ -73,8 +73,8 @@ class DevelopmentOAuthBroker:
             "provider": provider,
         }
 
-    def revoke(self, provider: str, values: dict[str, str]) -> None:
-        return None
+    def revoke(self, provider: str, values: dict[str, str]) -> bool:
+        return True
 
 
 class ProviderOAuthBroker:
@@ -216,9 +216,9 @@ class ProviderOAuthBroker:
         values.setdefault("refresh_token", refresh_token)
         return values
 
-    def revoke(self, provider: str, values: dict[str, str]) -> None:
+    def revoke(self, provider: str, values: dict[str, str]) -> bool:
         # Managed-secret deletion is authoritative; provider revocation is adapter-specific.
-        return None
+        return False
 
 
 def pkce_challenge(verifier: str) -> str:

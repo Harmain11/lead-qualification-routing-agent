@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
@@ -31,6 +32,29 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "slack": {"bot_token", "channel_id"},
     "openai": {"api_key"},
 }
+
+
+def _token_lifetime_seconds(values: dict[str, str]) -> int:
+    try:
+        seconds = int(values.get("expires_in", "3600"))
+    except (TypeError, ValueError):
+        return 3600
+    return max(60, min(seconds, 31_536_000))
+
+
+def _discard_connection_secret(
+    connection: ProviderConnectionORM, secret_store: SecretStore
+) -> str:
+    reference = connection.secret_reference
+    connection.secret_reference = None
+    if not reference:
+        return "not_present"
+    try:
+        secret_store.invalidate(reference)
+        secret_store.delete(reference)
+    except Exception:
+        return "cleanup_failed"
+    return "deleted"
 
 
 def _safe_metadata(metadata: dict[str, object]) -> dict[str, object]:
@@ -92,7 +116,7 @@ def create_manual_connection(
 ) -> ProviderConnectionORM:
     _validate_manual_credentials(provider, request.auth_type, request.credentials)
     ensure_workspace(session, workspace_id)
-    reference = secret_store.put(workspace_id, provider, request.credentials)
+    reference = secret_store.store(workspace_id, provider, request.credentials)
     now = datetime.now(UTC)
     row = ProviderConnectionORM(
         id=uuid4(),
@@ -131,6 +155,7 @@ def begin_oauth_connection(
     broker: OAuthBroker,
     secret_store: SecretStore,
     public_base_url: str,
+    actor_id: str,
 ) -> tuple[ProviderConnectionORM, OAuthStart]:
     setup = PROVIDER_SETUP.get(provider)
     if setup is None or "oauth2" not in setup.supported_auth:
@@ -149,7 +174,7 @@ def begin_oauth_connection(
         redirect_uri,
         active_scopes,
     )
-    temporary_reference = secret_store.put(
+    temporary_reference = secret_store.store(
         workspace_id,
         provider,
         {"pkce_verifier": verifier, "redirect_uri": redirect_uri},
@@ -172,6 +197,8 @@ def begin_oauth_connection(
             "oauth_state_hash": hashlib.sha256(state.encode()).hexdigest(),
             "oauth_state_expires_at": (now + timedelta(minutes=10)).isoformat(),
             "oauth_redirect_uri": redirect_uri,
+            "oauth_callback_provider": provider,
+            "oauth_actor_id": actor_id,
         },
         is_active=False,
         disconnected_at=None,
@@ -195,16 +222,14 @@ def complete_oauth_connection(
     authorization_code: str,
     secret_store: SecretStore,
     broker: OAuthBroker,
+    actor_id: str,
 ) -> ProviderConnectionORM:
-    # Serialize redemption in production databases so the same one-time state
-    # cannot be exchanged concurrently by two callback requests.
     row = session.scalar(
         select(ProviderConnectionORM)
         .where(
             ProviderConnectionORM.id == connection_id,
             ProviderConnectionORM.workspace_id == workspace_id,
         )
-        .with_for_update()
     )
     if row is None or row.status != "awaiting_authorization":
         raise ValueError("pending connection was not found")
@@ -212,22 +237,55 @@ def complete_oauth_connection(
     actual = hashlib.sha256(state.encode()).hexdigest()
     if not isinstance(expected, str) or not secrets.compare_digest(expected, actual):
         raise ValueError("OAuth state validation failed")
+    if row.connection_metadata.get("oauth_callback_provider") != row.provider_type:
+        raise ValueError("OAuth callback association is invalid")
+    if row.connection_metadata.get("oauth_actor_id") != actor_id:
+        raise ValueError("OAuth transaction belongs to a different actor")
     expires_raw = row.connection_metadata.get("oauth_state_expires_at")
     if not isinstance(expires_raw, str) or datetime.fromisoformat(expires_raw) <= datetime.now(UTC):
         row.status = "authorization_expired"
         row.credential_state = "expired"
+        cleanup = _discard_connection_secret(row, secret_store)
+        row.last_validation_result = {
+            "status": "authorization_expired",
+            "local_secret": cleanup,
+        }
         session.commit()
         raise ValueError("OAuth authorization request expired; reconnect and try again")
-    pending_values = secret_store.get(row.secret_reference) if row.secret_reference else None
+
+    # Claim the state before provider I/O. The compare-and-set is portable and
+    # prevents two concurrent callbacks from exchanging the same authorization code.
+    claimed: Any = session.execute(
+        update(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.id == connection_id,
+            ProviderConnectionORM.workspace_id == workspace_id,
+            ProviderConnectionORM.status == "awaiting_authorization",
+        )
+        .values(status="validating", updated_at=datetime.now(UTC))
+    )
+    if claimed.rowcount != 1:
+        session.rollback()
+        raise ValueError("OAuth state has already been redeemed")
+    session.commit()
+    session.refresh(row)
+
+    pending_values = (
+        secret_store.retrieve(row.secret_reference) if row.secret_reference else None
+    )
     verifier = (pending_values or {}).get("pkce_verifier")
     redirect_uri = (pending_values or {}).get("redirect_uri")
     if not verifier or not redirect_uri:
         row.status = "connection_failed"
         row.credential_state = "invalid"
+        cleanup = _discard_connection_secret(row, secret_store)
+        row.last_validation_result = {
+            "status": "failed",
+            "message": "OAuth PKCE transaction is unavailable",
+            "local_secret": cleanup,
+        }
         session.commit()
         raise ValueError("OAuth PKCE transaction is unavailable")
-    row.status = "validating"
-    session.flush()
     try:
         values = broker.exchange(
             row.provider_type,
@@ -238,20 +296,39 @@ def complete_oauth_connection(
     except Exception as error:
         row.status = "connection_failed"
         row.credential_state = "invalid"
-        row.last_validation_result = {"status": "failed", "message": str(error)[:500]}
+        row.last_validation_result = {
+            "status": "failed",
+            "message": "OAuth provider authorization failed",
+            "error_type": type(error).__name__,
+        }
+        row.last_validation_result["local_secret"] = _discard_connection_secret(
+            row, secret_store
+        )
         row.updated_at = datetime.now(UTC)
         session.commit()
         raise ValueError("OAuth provider authorization failed") from error
-    old_reference = row.secret_reference
-    row.secret_reference = secret_store.put(workspace_id, row.provider_type, values)
-    if old_reference:
-        secret_store.delete(old_reference)
+    if row.secret_reference is None:
+        raise ValueError("OAuth PKCE transaction is unavailable")
+    expires_in = _token_lifetime_seconds(values)
+    try:
+        row.secret_reference = secret_store.replace(row.secret_reference, values)
+    except Exception:
+        row.status = "connection_failed"
+        row.credential_state = "invalid"
+        cleanup = _discard_connection_secret(row, secret_store)
+        row.last_validation_result = {
+            "status": "failed",
+            "message": "OAuth credential storage failed",
+            "local_secret": cleanup,
+        }
+        row.updated_at = datetime.now(UTC)
+        session.commit()
+        raise ValueError("OAuth credential storage failed") from None
     row.credential_state = "configured"
     row.status = "connected"
     row.account_name = values.get("account_name", row.account_name)
     row.external_account_id = values.get("external_account_id", row.external_account_id)
     row.updated_at = datetime.now(UTC)
-    expires_in = int(values.get("expires_in", "3600"))
     row.last_validation_at = datetime.now(UTC)
     row.last_validation_result = {"status": "valid", "message": "OAuth account authorized"}
     row.connection_metadata = {
@@ -274,7 +351,7 @@ def validate_connection(
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
         raise LookupError("provider connection not found")
-    values = secret_store.get(row.secret_reference) if row.secret_reference else None
+    values = secret_store.retrieve(row.secret_reference) if row.secret_reference else None
     if row.auth_type == "oauth2" and values is not None:
         expires_raw = row.connection_metadata.get("token_expires_at")
         expired = isinstance(expires_raw, str) and datetime.fromisoformat(
@@ -297,14 +374,13 @@ def validate_connection(
             try:
                 refreshed = broker.refresh(row.provider_type, refresh_token)
                 refreshed.setdefault("refresh_token", refresh_token)
-                old_reference = row.secret_reference
-                row.secret_reference = secret_store.put(
-                    workspace_id, row.provider_type, refreshed
+                if row.secret_reference is None:
+                    raise ValueError("OAuth secret reference is unavailable")
+                row.secret_reference = secret_store.replace(
+                    row.secret_reference, refreshed
                 )
-                if old_reference:
-                    secret_store.delete(old_reference)
                 values = refreshed
-                expires_in = int(refreshed.get("expires_in", "3600"))
+                expires_in = _token_lifetime_seconds(refreshed)
                 row.connection_metadata = {
                     **row.connection_metadata,
                     "token_expires_at": (
@@ -323,7 +399,7 @@ def validate_connection(
                 row.last_validation_at = datetime.now(UTC)
                 row.last_validation_result = {
                     **validation.model_dump(mode="json"),
-                    "error": str(error)[:500],
+                    "error_type": type(error).__name__,
                 }
                 session.commit()
                 return row, validation
@@ -362,21 +438,55 @@ def disconnect_connection(
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
         raise LookupError("provider connection not found")
-    if row.secret_reference:
-        values = secret_store.get(row.secret_reference)
-        if broker is not None and values is not None:
-            try:
-                broker.revoke(row.provider_type, values)
-            except Exception:
-                pass
-        secret_store.delete(row.secret_reference)
     now = datetime.now(UTC)
+    reference = row.secret_reference
+    secret_retrieval = "not_present"
+    values: dict[str, str] | None = None
+    if reference:
+        try:
+            values = secret_store.retrieve(reference)
+            secret_retrieval = "available" if values is not None else "unavailable"
+        except Exception:
+            secret_retrieval = "failed"
     row.secret_reference = None
     row.credential_state = "missing"
     row.status = "disconnected"
     row.is_active = False
     row.disconnected_at = now
     row.updated_at = now
+    row.last_validation_at = now
+    row.last_validation_result = {
+        "status": "disconnected",
+        "remote_revocation": "pending" if broker is not None and values else "not_applicable",
+        "local_secret": "pending" if reference else "not_present",
+        "secret_retrieval": secret_retrieval,
+    }
+    session.commit()
+
+    remote_revocation = "not_applicable"
+    if broker is not None and values is not None:
+        try:
+            revoked = broker.revoke(row.provider_type, values)
+            remote_revocation = "confirmed" if revoked else "unsupported"
+        except Exception:
+            remote_revocation = "failed"
+    local_secret = "not_present"
+    if reference:
+        local_secret = "invalidated"
+        try:
+            secret_store.invalidate(reference)
+            secret_store.delete(reference)
+            local_secret = "deleted"
+        except Exception:
+            # The database reference was already removed and the connection deactivated,
+            # so application use remains impossible even if backend cleanup needs repair.
+            local_secret = "cleanup_failed"
+    row.last_validation_result = {
+        "status": "disconnected",
+        "remote_revocation": remote_revocation,
+        "local_secret": local_secret,
+        "secret_retrieval": secret_retrieval,
+    }
     session.commit()
     session.refresh(row)
     return row
@@ -394,8 +504,11 @@ def reconnect_connection(
         raise LookupError("provider connection not found")
     _validate_manual_credentials(row.provider_type, row.auth_type, credentials)
     if row.secret_reference:
-        secret_store.delete(row.secret_reference)
-    row.secret_reference = secret_store.put(workspace_id, row.provider_type, credentials)
+        row.secret_reference = secret_store.replace(row.secret_reference, credentials)
+    else:
+        row.secret_reference = secret_store.store(
+            workspace_id, row.provider_type, credentials
+        )
     row.credential_state = "configured"
     row.status = "connected"
     row.disconnected_at = None

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
@@ -12,7 +15,7 @@ from lead_agent.domain.crm import CrmConfig, load_crm_config
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_env: str = "development"
+    app_env: Literal["development", "test", "production"] = "development"
     app_name: str = "lead-qualification-routing-agent"
     app_version: str = "0.6.5"
     api_host: str = "127.0.0.1"
@@ -24,6 +27,7 @@ class Settings(BaseSettings):
     auth_csrf_cookie_name: str = "lead_agent_csrf"
     auth_session_hours: int = 336
     auth_cookie_secure: bool = False
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     webhook_signing_secret: str = ""
     cors_allowed_origins: str = "http://localhost:5173"
     database_url: str = "postgresql+psycopg://lead_agent:lead_agent@localhost:5432/lead_agent"
@@ -44,6 +48,7 @@ class Settings(BaseSettings):
     crm_max_attempts: int = 3
     crm_timeout_seconds: float = 20.0
     secret_store_provider: str = "development"
+    managed_secret_store_backend: str = ""
     oauth_broker: str = "development"
     integration_public_base_url: str = "http://localhost:8000"
     frontend_public_base_url: str = "http://localhost:5173"
@@ -71,6 +76,130 @@ class Settings(BaseSettings):
     notification_provider: str = "mock"
     slack_bot_token: str = ""
     slack_channel_id: str = ""
+
+    @model_validator(mode="after")
+    def validate_environment_security(self) -> Settings:
+        if self.auth_session_hours < 1 or self.auth_session_hours > 24 * 31:
+            raise ValueError("AUTH_SESSION_HOURS must be between 1 and 744")
+        if self.auth_session_cookie_name == self.auth_csrf_cookie_name:
+            raise ValueError("session and CSRF cookie names must be different")
+        if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
+            raise ValueError("SameSite=None cookies require AUTH_COOKIE_SECURE=true")
+        if self.app_env == "production":
+            self._validate_production_security()
+        return self
+
+    def _validate_production_security(self) -> None:
+        problems: list[str] = []
+
+        def require(condition: bool, message: str) -> None:
+            if not condition:
+                problems.append(message)
+
+        require(not self.auth_development_fallback, "AUTH_DEVELOPMENT_FALLBACK must be false")
+        require(self.auth_cookie_secure, "AUTH_COOKIE_SECURE must be true")
+        require(
+            len(self.secret_key) >= 32 and not _is_placeholder(self.secret_key),
+            "SECRET_KEY must be a non-placeholder value of at least 32 characters",
+        )
+        require(
+            len(self.webhook_signing_secret) >= 32
+            and not _is_placeholder(self.webhook_signing_secret),
+            "WEBHOOK_SIGNING_SECRET must be a non-placeholder value of at least 32 characters",
+        )
+        require(
+            self.secret_store_provider == "managed",
+            "SECRET_STORE_PROVIDER must be managed",
+        )
+        require(
+            bool(self.managed_secret_store_backend.strip())
+            and not _is_placeholder(self.managed_secret_store_backend),
+            "MANAGED_SECRET_STORE_BACKEND is required",
+        )
+        require(self.oauth_broker == "provider", "OAUTH_BROKER must be provider")
+        require(self.llm_provider == "openai", "LLM_PROVIDER must be openai")
+        require(
+            bool(self.openai_api_key)
+            and not _is_placeholder(self.openai_api_key)
+            and bool(self.openai_model)
+            and not _is_placeholder(self.openai_model),
+            "OpenAI provider credentials and model must be configured",
+        )
+        require(self.crm_provider != "mock", "CRM_PROVIDER cannot be mock")
+        require(
+            self.notification_provider != "mock",
+            "NOTIFICATION_PROVIDER cannot be mock",
+        )
+        require(not self.demo_data_enabled, "DEMO_DATA_ENABLED must be false")
+        require(
+            self.database_url
+            != "postgresql+psycopg://lead_agent:lead_agent@localhost:5432/lead_agent",
+            "DATABASE_URL must be explicitly configured for production",
+        )
+        require(
+            self.redis_url != "redis://localhost:6379/0",
+            "REDIS_URL must be explicitly configured for production",
+        )
+        require(
+            _is_https_base_url(self.integration_public_base_url),
+            "INTEGRATION_PUBLIC_BASE_URL must be an absolute HTTPS URL",
+        )
+        require(
+            _is_https_base_url(self.frontend_public_base_url),
+            "FRONTEND_PUBLIC_BASE_URL must be an absolute HTTPS URL",
+        )
+        origins = self.cors_origins
+        require(bool(origins), "CORS_ALLOWED_ORIGINS must contain a trusted frontend origin")
+        require("*" not in origins, "wildcard production CORS is forbidden")
+        require(
+            all(_is_https_origin(origin) for origin in origins),
+            "production CORS origins must be explicit HTTPS origins without paths",
+        )
+        frontend_origin = _origin(self.frontend_public_base_url)
+        require(
+            frontend_origin in origins,
+            "CORS_ALLOWED_ORIGINS must include FRONTEND_PUBLIC_BASE_URL origin",
+        )
+        if self.crm_provider == "salesforce":
+            require(
+                all(
+                    not _is_placeholder(value)
+                    for value in (
+                        self.salesforce_client_id,
+                        self.salesforce_client_secret,
+                        self.salesforce_refresh_token,
+                    )
+                ),
+                "Salesforce fallback credentials must be configured",
+            )
+        elif self.crm_provider == "hubspot":
+            require(
+                bool(self.hubspot_access_token)
+                and not _is_placeholder(self.hubspot_access_token)
+                and bool(self.hubspot_client_id)
+                and not _is_placeholder(self.hubspot_client_id)
+                and bool(self.hubspot_client_secret)
+                and not _is_placeholder(self.hubspot_client_secret),
+                "HubSpot fallback and OAuth application credentials must be configured",
+            )
+        else:
+            problems.append("CRM_PROVIDER must be salesforce or hubspot in production")
+        if self.notification_provider == "slack":
+            require(
+                bool(self.slack_bot_token)
+                and not _is_placeholder(self.slack_bot_token)
+                and bool(self.slack_channel_id)
+                and not _is_placeholder(self.slack_channel_id)
+                and bool(self.slack_client_id)
+                and not _is_placeholder(self.slack_client_id)
+                and bool(self.slack_client_secret)
+                and not _is_placeholder(self.slack_client_secret),
+                "Slack notification and OAuth application credentials must be configured",
+            )
+        else:
+            problems.append("NOTIFICATION_PROVIDER must be slack in production")
+        if problems:
+            raise ValueError("invalid production configuration: " + "; ".join(problems))
 
     @property
     def repository_root(self) -> Path:
@@ -107,3 +236,34 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def _is_placeholder(value: str) -> bool:
+    normalized = value.strip().lower()
+    return not normalized or normalized.startswith("replace_") or "development-only" in normalized
+
+
+def _origin(value: str) -> str:
+    parsed = urlsplit(value)
+    return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+
+
+def _is_https_base_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.netloc)
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def _is_https_origin(value: str) -> bool:
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.netloc)
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+    )

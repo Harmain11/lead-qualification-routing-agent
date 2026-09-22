@@ -183,6 +183,14 @@ Expose liveness and readiness separately. Readiness checks PostgreSQL, Redis, mi
 OAuth is `authenticated workspace → state + PKCE transaction → provider authorization → validated callback → server-side token exchange → SecretStore reference → validation → connected`. Provider client credentials are application/operator configuration, not customer-entered values. The deterministic broker exercises the same contract locally. Managed secret storage, distributed callback locking, and provider-specific remote validation/revocation are deployment bindings rather than domain changes.
 
 The dashboard owns one lazy-loaded Three.js/React Three Fiber scene. Geometry is stable, animation mutates render refs rather than React state, and the loop pauses with page visibility. The scene reads persisted lead, analysis, qualification, routing, notification, and CRM state. An accessible DOM inspector and mobile/reduced-motion/WebGL fallback expose the same information.
+
+## Phase 7A1 production security boundary
+
+Production configuration is validated at startup and cannot select development authentication, process-local secrets, development OAuth, deterministic/mock providers, insecure cookies, wildcard/non-HTTPS credentialed CORS, demo mode, or implicit local persistence endpoints. Development and test retain deterministic local adapters.
+
+`SecretStore` exposes store, internal retrieve, replace/rotate, invalidate, and delete operations. `DevelopmentSecretStore` is process-local. `ManagedSecretStore` delegates to a deployment-supplied cloud-neutral backend, so AWS Secrets Manager, Azure Key Vault, Google Secret Manager, or Vault can be bound without changing application services or providers. Database records retain only opaque references and safe lifecycle metadata.
+
+OAuth authorization state is random and persisted only as a hash. Redemption is bound to workspace, provider, callback, and actor, expires after ten minutes, and uses an atomic status transition before code exchange. PKCE uses S256; the temporary verifier is replaced after exchange or discarded after terminal failure. Disconnect commits local deactivation before attempting provider revocation and records only safe revocation/cleanup outcomes.
 ## Phase 4 routing implementation
 
 The routing application service consumes the persisted qualification and Phase 3 analysis; it never recalculates the score. `RoutingConfig` contains queues, active/inactive reps, ordered rules, and action templates. Matching is deterministic: manual-review precedence first, then the lowest numeric rule precedence, then greatest criterion specificity, then rule name; otherwise the qualification-band route is used. Hard-disqualified leads are archived without a sales rep. Active reps are selected by geography/industry/service skill score, then configured priority and stable rep ID.

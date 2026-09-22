@@ -139,4 +139,10 @@ The frontend is now a coherent Ingenuity Systems revenue-operations product shel
 
 Phase 6.5 replaces development-only identity with users, workspace memberships, opaque sessions, CSRF validation, protected product routes, and membership-authorized workspace selection while retaining an explicit local fallback. OAuth account linking now includes expiring one-time state, PKCE, server-side code exchange, token-expiry/refresh architecture, managed-secret references, reconnect, and disconnect boundaries.
 
-The frontend uses the supplied Ingenuity Systems brand assets and centralized orange/coral/navy tokens. One lazy React Three Fiber lead-intelligence network visualizes real source-through-destination state; accessible DOM detail, mobile/CSS, reduced-motion, hidden-tab, and WebGL-unavailable behavior remain first-class. Phase 7 deployment hardening, live-provider certification, broad browser automation, and production performance/security verification remain unstarted.
+The frontend uses the supplied Ingenuity Systems brand assets and centralized orange/coral/navy tokens. One lazy React Three Fiber lead-intelligence network visualizes real source-through-destination state; accessible DOM detail, mobile/CSS, reduced-motion, hidden-tab, and WebGL-unavailable behavior remain first-class. Phase 7A1 now begins the production-security increment documented below; live-provider certification, broad browser automation, deployment, and later hardening remain unstarted.
+
+## Current Phase 7A1 implementation note
+
+Phase 7A1 adds explicit development/test/production settings and fail-closed production validation; a cloud-neutral managed-secret adapter boundary with store, retrieve, replace, invalidate, and delete lifecycle operations; secure cookie and session rotation behavior; revoked-membership restoration protection; actor-bound, expiring, atomically single-use OAuth state; S256 PKCE cleanup; token refresh/reconnect/revocation foundations; explicit production CORS and frontend API-base configuration; and production-disabled seeding.
+
+Live provider testing, deployment bindings, browser E2E, broader operational hardening, and all later Phase 7 work remain explicitly unstarted.

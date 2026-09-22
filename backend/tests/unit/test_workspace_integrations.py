@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.main import app
-from lead_agent.application.integrations import create_manual_connection
+from lead_agent.application.integrations import create_manual_connection, disconnect_connection
 from lead_agent.application.services import process_lead
 from lead_agent.application.tools import (
     CrmCreateOrUpdateLeadTool,
@@ -114,6 +114,37 @@ def test_provider_connection_repository_enforces_workspace_ownership(tmp_path) -
         assert get_provider_connection(session, workspace_a, connection.id) is not None
         assert get_provider_connection(session, workspace_b, connection.id) is None
         assert list_provider_connections(session, workspace_b) == []
+
+
+def test_disconnect_stays_local_when_remote_revocation_fails(tmp_path) -> None:
+    workspace = uuid4()
+    store = DevelopmentSecretStore()
+
+    class FailingRevocationBroker:
+        def revoke(self, provider, values):
+            raise RuntimeError("remote provider unavailable")
+
+    with session_for(tmp_path) as session:
+        connection = create_manual_connection(
+            session,
+            workspace,
+            "hubspot",
+            manual_request("hubspot", {"access_token": "disconnect-me"}),
+            store,
+        )
+        reference = connection.secret_reference
+        disconnected = disconnect_connection(
+            session,
+            workspace,
+            connection.id,
+            store,
+            FailingRevocationBroker(),  # type: ignore[arg-type]
+        )
+        assert disconnected.status == "disconnected"
+        assert disconnected.is_active is False
+        assert disconnected.secret_reference is None
+        assert disconnected.last_validation_result["remote_revocation"] == "failed"
+        assert store.retrieve(reference) is None
 
 
 def test_workspace_resolver_selects_each_workspaces_active_crm(tmp_path, repository_root) -> None:
@@ -338,10 +369,32 @@ def test_cross_workspace_lead_crm_and_retry_apis_return_not_found(icp, routing, 
     try:
         with TestClient(app) as client:
             headers = {"X-Workspace-ID": str(workspace_a)}
-            assert client.get(f"/v1/leads/{lead_b.id}", headers=headers).status_code == 404
-            assert client.get(f"/v1/leads/{lead_b.id}/crm-sync", headers=headers).status_code == 404
+            read_paths = [
+                f"/v1/leads/{lead_b.id}",
+                f"/v1/leads/{lead_b.id}/qualification",
+                f"/v1/leads/{lead_b.id}/routing",
+                f"/v1/leads/{lead_b.id}/routing/action-plan",
+                f"/v1/leads/{lead_b.id}/routing/history",
+                f"/v1/leads/{lead_b.id}/notifications",
+                f"/v1/leads/{lead_b.id}/pipeline-history",
+                f"/v1/leads/{lead_b.id}/crm-sync",
+                f"/v1/leads/{lead_b.id}/crm-sync/history",
+            ]
+            for path in read_paths:
+                assert client.get(path, headers=headers).status_code == 404
+            mutation_paths = [
+                f"/v1/leads/{lead_b.id}/notifications/retry",
+                f"/v1/leads/{lead_b.id}/crm-sync",
+                f"/v1/leads/{lead_b.id}/crm-sync/retry",
+            ]
+            for path in mutation_paths:
+                assert client.post(path, headers=headers).status_code == 404
             assert (
-                client.post(f"/v1/leads/{lead_b.id}/crm-sync/retry", headers=headers).status_code
+                client.post(
+                    f"/v1/leads/{lead_b.id}/routing/reroute",
+                    headers=headers,
+                    json={"reason": "authorization boundary test"},
+                ).status_code
                 == 404
             )
     finally:

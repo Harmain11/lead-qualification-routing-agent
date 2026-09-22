@@ -18,6 +18,7 @@ import type {
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
 const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_agent_csrf";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
 const inFlightGets = new Map<string, Promise<unknown>>();
 
@@ -27,6 +28,10 @@ export function setActiveWorkspace(workspaceId: string) {
 
 export function getActiveWorkspace() {
   return activeWorkspaceId;
+}
+
+export function apiUrl(path: string) {
+  return path.startsWith("/") ? `${API_BASE_URL}${path}` : path;
 }
 
 function csrfToken(): string | null {
@@ -64,7 +69,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 async function performRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     ...options,
     credentials: "include",
     headers: withWorkspace(options?.headers),

@@ -4,7 +4,7 @@ Production-ready foundation for a channel-agnostic lead qualification, explainab
 
 ## Project status
 
-Phases 1–6 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, and a workspace-scoped analytics product experience. Live Salesforce/HubSpot validation and final Phase 7 hardening remain deferred.
+Phases 1–6.5 and Phase 7A1 are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, analytics, production configuration validation, a managed-secret boundary, and hardened authentication/OAuth foundations. Live provider validation and later Phase 7 work remain deferred.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are in [`docs/requirements.md`](docs/requirements.md), and the production architecture is in [`docs/architecture.md`](docs/architecture.md).
 
@@ -148,3 +148,12 @@ The product shell provides Dashboard, Leads, Pipeline, Agents / AI Activity, Ana
 - `OAUTH_BROKER=provider` enables operator-owned OAuth applications. Customers only click Connect, sign in, and approve scopes.
 - OAuth state expires after ten minutes, is single-use, and is bound to a PKCE verifier stored through `SecretStore`. Provider tokens never enter frontend code or connection API responses.
 - `OAUTH_BROKER=development` remains a deterministic local callback loop for tests.
+
+## Phase 7A1 production configuration and security
+
+- `APP_ENV` is explicitly `development`, `test`, or `production`. Production startup rejects development authentication, insecure cookies, wildcard/non-HTTPS CORS, deterministic/mock providers, demo mode, local secret storage, development OAuth, placeholder security secrets, and implicit local persistence endpoints.
+- `DevelopmentSecretStore` remains process-local for development/test. Production resolves a deployment-owned `ManagedSecretStore` backend through `MANAGED_SECRET_STORE_BACKEND=package.module:factory`; only opaque references and safe status metadata are persisted.
+- Session cookies have bounded expiry, configurable SameSite behavior, Secure/HttpOnly production enforcement, authentication-time rotation, revocation, and CSRF protection. Passwords use uniquely salted `scrypt` at the current OWASP-equivalent minimum, and revoked memberships cannot restore or access their workspace.
+- OAuth state is high entropy, hashed, expiring, single-use, atomically claimed, and bound to workspace, provider, callback, and actor. PKCE uses S256 and its verifier is replaced by provider credentials after exchange.
+- Provider disconnect deactivates the local connection before remote revocation. Failed or unsupported remote revocation is recorded as safe metadata and cannot leave the connection usable.
+- The frontend uses optional public `VITE_API_BASE_URL`; server credentials must never use the `VITE_*` namespace. Seed commands are disabled in production, and demo records remain isolated to the reserved demo workspace.

@@ -325,14 +325,20 @@ DEMO_PROFILES: list[dict[str, Any]] = [
 
 
 def seed_database(session: Session) -> None:
-    icp, routing = get_settings().load_policies()
+    settings = get_settings()
+    if settings.app_env == "production":
+        raise RuntimeError("seed commands are disabled in production")
+    icp, routing = settings.load_policies()
     for payload in SEED_LEADS:
         process_lead(session, payload, icp, routing)
 
 
 def seed_demo_database(session: Session) -> None:
     """Seed an explicit, isolated demo workspace for the Phase 6 product experience."""
-    icp, routing = get_settings().load_policies()
+    settings = get_settings()
+    if settings.app_env == "production":
+        raise RuntimeError("demo seed commands are disabled in production")
+    icp, routing = settings.load_policies()
     workspace = ensure_workspace(
         session,
         DEMO_WORKSPACE_ID,

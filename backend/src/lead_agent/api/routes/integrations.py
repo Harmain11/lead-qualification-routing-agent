@@ -160,6 +160,7 @@ def begin_connection(
             broker,
             secret_store,
             settings.integration_public_base_url,
+            workspace.actor_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -212,6 +213,7 @@ def browser_connection_callback(
             authorization_code,
             secret_store,
             broker,
+            str(identity.user_id),
         )
     except (ValueError, HTTPException) as error:
         query = urlencode(
@@ -249,6 +251,7 @@ def connection_callback(
             request.authorization_code,
             secret_store,
             broker,
+            workspace.actor_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

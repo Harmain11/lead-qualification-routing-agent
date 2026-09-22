@@ -20,7 +20,9 @@ from lead_agent.application.auth import (
     issue_session,
     list_memberships,
     register_user,
+    require_membership,
     revoke_session,
+    revoke_session_token,
     select_workspace,
     sign_in,
 )
@@ -80,29 +82,48 @@ def _set_session_cookies(
     response: Response, issued: IssuedSession, settings: Settings
 ) -> None:
     max_age = settings.auth_session_hours * 3600
+    expires_at = issued.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    else:
+        expires_at = expires_at.astimezone(UTC)
     response.set_cookie(
         settings.auth_session_cookie_name,
         issued.token,
         max_age=max_age,
+        expires=expires_at,
         secure=settings.auth_cookie_secure,
         httponly=True,
-        samesite="lax",
+        samesite=settings.auth_cookie_samesite,
         path="/",
     )
     response.set_cookie(
         settings.auth_csrf_cookie_name,
         issued.csrf_token,
         max_age=max_age,
+        expires=expires_at,
         secure=settings.auth_cookie_secure,
         httponly=False,
-        samesite="lax",
+        samesite=settings.auth_cookie_samesite,
         path="/",
     )
 
 
 def _clear_session_cookies(response: Response, settings: Settings) -> None:
-    response.delete_cookie(settings.auth_session_cookie_name, path="/")
-    response.delete_cookie(settings.auth_csrf_cookie_name, path="/")
+    response.delete_cookie(
+        settings.auth_session_cookie_name,
+        path="/",
+        secure=settings.auth_cookie_secure,
+        httponly=True,
+        samesite=settings.auth_cookie_samesite,
+    )
+    response.delete_cookie(
+        settings.auth_csrf_cookie_name,
+        path="/",
+        secure=settings.auth_cookie_secure,
+        httponly=False,
+        samesite=settings.auth_cookie_samesite,
+    )
 
 
 def _session_response(
@@ -136,6 +157,7 @@ def _session_response(
 @router.post("/signup", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 def signup(
     request: SignUpRequest,
+    http_request: Request,
     response: Response,
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_runtime_settings),
@@ -151,6 +173,9 @@ def signup(
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    revoke_session_token(
+        session, http_request.cookies.get(settings.auth_session_cookie_name)
+    )
     _set_session_cookies(response, issued, settings)
     return _session_response(session, issued.identity, expires_at=issued.expires_at)
 
@@ -158,6 +183,7 @@ def signup(
 @router.post("/signin", response_model=SessionResponse)
 def signin(
     request: SignInRequest,
+    http_request: Request,
     response: Response,
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_runtime_settings),
@@ -168,6 +194,9 @@ def signin(
         )
     except (AuthenticationError, AuthorizationError) as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    revoke_session_token(
+        session, http_request.cookies.get(settings.auth_session_cookie_name)
+    )
     _set_session_cookies(response, issued, settings)
     return _session_response(session, issued.identity, expires_at=issued.expires_at)
 
@@ -177,12 +206,17 @@ def current_session(
     identity: AuthenticatedIdentity = Depends(get_authenticated_identity),
     session: Session = Depends(get_db),
 ) -> SessionResponse:
+    try:
+        require_membership(session, identity.user_id, identity.current_workspace_id)
+    except AuthorizationError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     return _session_response(session, identity)
 
 
 @router.get("/status", response_model=SessionResponse | None)
 def session_status(
     request: Request,
+    response: Response,
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_runtime_settings),
 ) -> SessionResponse | None:
@@ -192,6 +226,12 @@ def session_status(
     try:
         identity = authenticate_session(session, token)
     except AuthenticationError:
+        _clear_session_cookies(response, settings)
+        return None
+    try:
+        require_membership(session, identity.user_id, identity.current_workspace_id)
+    except AuthorizationError:
+        _clear_session_cookies(response, settings)
         return None
     return _session_response(session, identity)
 

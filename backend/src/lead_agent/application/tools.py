@@ -15,6 +15,23 @@ from lead_agent.infrastructure.crm.factory import WorkspaceCrmProviderResolver
 from lead_agent.infrastructure.db.models import AgentToolAuditORM
 from lead_agent.infrastructure.repositories import get_lead
 
+_SENSITIVE_AUDIT_KEYS = ("secret", "token", "password", "credential", "api_key")
+
+
+def _audit_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: (
+                "[redacted]"
+                if any(fragment in str(key).lower() for fragment in _SENSITIVE_AUDIT_KEYS)
+                else _audit_safe(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_audit_safe(item) for item in value]
+    return value
+
 
 class ToolPermissionError(PermissionError):
     pass
@@ -54,11 +71,13 @@ class ToolRegistry:
                 AgentToolAuditORM.idempotency_key == idempotency_key,
             )
         )
-        input_summary = {
-            key: value
-            for key, value in raw_input.items()
-            if key in tool.input_model.model_fields
-        }
+        input_summary = _audit_safe(
+            {
+                key: value
+                for key, value in raw_input.items()
+                if key in tool.input_model.model_fields
+            }
+        )
         if tool.required_permission not in context.permissions:
             if prior is None:
                 now = datetime.now(UTC)
@@ -114,12 +133,12 @@ class ToolRegistry:
             output = tool.execute(context, validated)
         except Exception as error:
             audit.status = "failed"
-            audit.error_message = str(error)[:2000]
+            audit.error_message = f"{type(error).__name__}: tool execution failed"
             audit.completed_at = datetime.now(UTC)
             self.session.commit()
             raise
         audit.status = "completed"
-        audit.output = output
+        audit.output = _audit_safe(output)
         audit.completed_at = datetime.now(UTC)
         self.session.commit()
         return ToolResult(status="completed", output=output, audit_event_id=audit.id)

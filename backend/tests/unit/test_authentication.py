@@ -12,6 +12,7 @@ from lead_agent.api.main import app
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
+    AuthSessionORM,
     ProviderConnectionORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
@@ -29,7 +30,7 @@ def auth_harness(tmp_path):
     Base.metadata.create_all(engine)
     session = Session(engine)
     settings = Settings(
-        app_env="production",
+        app_env="test",
         auth_development_fallback=False,
         auth_cookie_secure=False,
         database_url=f"sqlite:///{tmp_path / 'auth.db'}",
@@ -123,6 +124,30 @@ def test_signin_rejects_bad_password_and_restores_session(tmp_path) -> None:
         session.close()
 
 
+def test_signin_rotates_and_revokes_existing_session(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 201
+            original_token = client.cookies.get("lead_agent_session")
+            accepted = client.post(
+                "/v1/auth/signin",
+                json={
+                    "email": "owner@example.test",
+                    "password": "correct-horse-battery-staple",
+                },
+            )
+            rotated_token = client.cookies.get("lead_agent_session")
+            rows = list(session.scalars(select(AuthSessionORM)))
+            assert accepted.status_code == 200
+            assert original_token and rotated_token and original_token != rotated_token
+            assert len(rows) == 2
+            assert sum(row.revoked_at is not None for row in rows) == 1
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_cookie_mutation_requires_csrf(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:
@@ -198,6 +223,25 @@ def test_inactive_membership_cannot_select_workspace(tmp_path) -> None:
                 json={"workspace_id": str(other.id)},
             )
             assert denied.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_revoked_current_membership_cannot_restore_or_access_workspace(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 201
+            membership = session.scalar(select(WorkspaceMembershipORM))
+            assert membership is not None
+            membership.status = "inactive"
+            session.commit()
+
+            assert client.get("/v1/auth/session").status_code == 403
+            assert client.get("/v1/leads").status_code == 403
+            assert client.get("/v1/auth/status").json() is None
+            assert client.cookies.get("lead_agent_session") is None
     finally:
         app.dependency_overrides.clear()
         session.close()
@@ -326,6 +370,10 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
                 ProviderConnectionORM, UUID(payload["connection"]["id"])
             )
             assert connection is not None
+            stored_values = store.retrieve(connection.secret_reference)
+            assert stored_values is not None
+            assert "pkce_verifier" not in stored_values
+            assert "redirect_uri" not in stored_values
             connection.connection_metadata = {
                 **connection.connection_metadata,
                 "token_expires_at": (datetime.now(UTC) - timedelta(seconds=1)).isoformat(),

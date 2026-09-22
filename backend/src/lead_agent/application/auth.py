@@ -20,6 +20,9 @@ from lead_agent.infrastructure.db.models import (
 )
 
 _EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+_SCRYPT_N = 2**14
+_SCRYPT_R = 8
+_SCRYPT_P = 5
 
 
 @dataclass(frozen=True)
@@ -38,8 +41,10 @@ def hash_password(password: str) -> str:
     if len(password) < 10:
         raise ValueError("password must be at least 10 characters")
     salt = secrets.token_bytes(16)
-    derived = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32)
-    return f"scrypt$16384$8$1${salt.hex()}${derived.hex()}"
+    derived = hashlib.scrypt(
+        password.encode(), salt=salt, n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=32
+    )
+    return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt.hex()}${derived.hex()}"
 
 
 def verify_password(password: str, encoded: str) -> bool:
@@ -246,6 +251,16 @@ def select_workspace(session: Session, identity: AuthenticatedIdentity, workspac
 
 def revoke_session(session: Session, identity: AuthenticatedIdentity) -> None:
     row = session.get(AuthSessionORM, identity.session_id)
+    if row is not None and row.revoked_at is None:
+        row.revoked_at = datetime.now(UTC)
+        session.commit()
+
+
+def revoke_session_token(session: Session, token: str | None) -> None:
+    """Revoke a previously presented opaque session during authentication rotation."""
+    if not token:
+        return
+    row = session.scalar(select(AuthSessionORM).where(AuthSessionORM.token_hash == _digest(token)))
     if row is not None and row.revoked_at is None:
         row.revoked_at = datetime.now(UTC)
         session.commit()

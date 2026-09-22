@@ -6,8 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from lead_agent import __version__
 from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.routes import analytics, auth, crm, health, intake, integrations, leads, routing
+from lead_agent.infrastructure.secrets import get_secret_store
 
 settings = get_runtime_settings()
+if settings.secret_store_provider == "managed":
+    # Resolve the deployment binding during startup, before accepting requests.
+    get_secret_store()
 app = FastAPI(
     title="Lead Qualification & Routing Agent",
     version=__version__,
