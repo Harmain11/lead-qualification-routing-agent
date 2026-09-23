@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import (
     get_active_crm_provider,
     get_policies,
-    get_workspace_context,
+    require_permission,
+    require_permissions,
 )
 from lead_agent.api.schemas import (
     LeadCreateRequest,
@@ -83,7 +84,7 @@ def create_lead(
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     crm_provider: CrmProvider = Depends(get_active_crm_provider),
     settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "crm.sync")),
 ) -> LeadResponse:
     return _process_create_request(
         request,
@@ -100,7 +101,7 @@ def create_lead(
 @router.get("", response_model=LeadListResponse)
 def list_all_leads(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> LeadListResponse:
     rows = list_leads(session, workspace.workspace_id)
     return LeadListResponse(
@@ -120,7 +121,7 @@ def list_all_leads(
 def retrieve_lead(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> LeadResponse:
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
@@ -136,7 +137,7 @@ def retrieve_lead(
 def retrieve_qualification(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> QualificationResponse:
     if get_lead(session, lead_id, workspace.workspace_id) is None:
         raise HTTPException(status_code=404, detail="Lead not found")

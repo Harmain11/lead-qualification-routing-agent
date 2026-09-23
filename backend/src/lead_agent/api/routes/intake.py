@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import (
     get_active_crm_provider,
     get_policies,
-    get_workspace_context,
+    require_permissions,
 )
 from lead_agent.api.schemas import (
     ClutchIntakeRequest,
@@ -106,7 +106,7 @@ async def website_intake(
     provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     crm_provider: CrmProvider = Depends(get_active_crm_provider),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "crm.sync")),
 ) -> LeadResponse:
     raw_body = await request.body()
     _verify_signature(
@@ -139,7 +139,7 @@ def email_intake(
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     crm_provider: CrmProvider = Depends(get_active_crm_provider),
     settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "crm.sync")),
 ) -> LeadResponse:
     return _intake(
         EmailAdapter(),
@@ -163,7 +163,7 @@ def linkedin_intake(
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     crm_provider: CrmProvider = Depends(get_active_crm_provider),
     settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "crm.sync")),
 ) -> LeadResponse:
     return _intake(
         LinkedInAdapter(),
@@ -187,7 +187,7 @@ def fourth_channel_intake(
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     crm_provider: CrmProvider = Depends(get_active_crm_provider),
     settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "crm.sync")),
 ) -> LeadResponse:
     return _intake(
         ClutchAdapter(),

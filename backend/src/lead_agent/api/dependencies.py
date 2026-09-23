@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import lru_cache
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from lead_agent.application.auth import authenticate_session, require_membership, verify_csrf
+from lead_agent.application.auth import (
+    authenticate_session,
+    membership_permissions,
+    require_membership,
+    verify_csrf,
+)
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthenticationError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.crm import CrmProvider
+from lead_agent.domain.rbac import role_permissions
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID, WorkspaceContext
 from lead_agent.infrastructure.crm.factory import (
     WorkspaceCrmProviderResolver,
@@ -89,7 +96,7 @@ def get_workspace_context(
         try:
             identity = authenticate_session(session, token)
             workspace_id = UUID(x_workspace_id) if x_workspace_id else identity.current_workspace_id
-            require_membership(session, identity.user_id, workspace_id)
+            membership = require_membership(session, identity.user_id, workspace_id)
             if request.method not in {"GET", "HEAD", "OPTIONS"} and not request.headers.get(
                 "Authorization"
             ):
@@ -106,7 +113,14 @@ def get_workspace_context(
             raise HTTPException(status_code=code, detail=str(error)) from error
         request.state.workspace_id = str(workspace_id)
         request.state.actor_id = str(identity.user_id)
-        return WorkspaceContext(workspace_id=workspace_id, actor_id=str(identity.user_id))
+        return WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id=str(identity.user_id),
+            user_id=identity.user_id,
+            membership_id=membership.id,
+            role=membership.role,
+            permissions=membership_permissions(membership),
+        )
 
     development_allowed = settings.auth_development_fallback and settings.app_env.lower() in {
         "development",
@@ -127,6 +141,8 @@ def get_workspace_context(
     return WorkspaceContext(
         workspace_id=workspace_id,
         actor_id=(x_actor_id or "development-user")[:255],
+        role="owner",
+        permissions=role_permissions("owner"),
     )
 
 
@@ -137,3 +153,27 @@ def get_active_crm_provider(
     resolver: WorkspaceCrmProviderResolver = Depends(get_workspace_crm_resolver),
 ) -> CrmProvider:
     return resolver.resolve(session, workspace.workspace_id, fallback)
+
+
+def require_permissions(*permissions: str) -> Callable[..., WorkspaceContext]:
+    if not permissions or any(not permission for permission in permissions):
+        raise ValueError("permissions must not be empty")
+
+    def dependency(
+        workspace: WorkspaceContext = Depends(get_workspace_context),
+    ) -> WorkspaceContext:
+        missing = [
+            permission for permission in permissions if permission not in workspace.permissions
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"permission required: {missing[0]}",
+            )
+        return workspace
+
+    return dependency
+
+
+def require_permission(permission: str) -> Callable[..., WorkspaceContext]:
+    return require_permissions(permission)

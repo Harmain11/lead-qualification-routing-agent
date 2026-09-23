@@ -5,7 +5,7 @@ from typing import Any, Literal, cast
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_workspace_context
+from lead_agent.api.dependencies import require_permission
 from lead_agent.application.analytics import AnalyticsService
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.session import get_db
@@ -26,7 +26,7 @@ def _run(service: AnalyticsService, method: str, range_key: RangeParam) -> dict[
 def dashboard(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "dashboard", range)
 
@@ -35,7 +35,7 @@ def dashboard(
 def channels(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "channels", range)
 
@@ -44,7 +44,7 @@ def channels(
 def pipeline(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "pipeline", range)
 
@@ -53,7 +53,7 @@ def pipeline(
 def revenue(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "revenue", range)
 
@@ -62,7 +62,7 @@ def revenue(
 def reps(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "reps", range)
 
@@ -71,7 +71,7 @@ def reps(
 def time_series(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "time_series", range)
 
@@ -80,7 +80,7 @@ def time_series(
 def agent_activity(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("agents.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "agent_activity", range)
 
@@ -89,6 +89,6 @@ def agent_activity(
 def manual_review(
     range: RangeParam = "monthly",
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("manual_review.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "manual_review", range)

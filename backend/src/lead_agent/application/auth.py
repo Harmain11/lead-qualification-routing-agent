@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthenticationError, AuthorizationError
+from lead_agent.domain.rbac import effective_permissions, normalize_overrides
 from lead_agent.infrastructure.db.models import (
     AuthSessionORM,
     UserORM,
@@ -221,6 +222,15 @@ def require_membership(
     if membership is None:
         raise AuthorizationError("workspace membership is required")
     return membership
+
+
+def membership_permissions(membership: WorkspaceMembershipORM) -> frozenset[str]:
+    """Resolve a membership's effective permissions without caching revocable state."""
+    try:
+        overrides = normalize_overrides(membership.permission_overrides)
+    except (AttributeError, TypeError, ValueError):
+        overrides = {"grants": [], "denies": []}
+    return effective_permissions(membership.role, overrides)
 
 
 def list_memberships(

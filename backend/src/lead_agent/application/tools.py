@@ -21,6 +21,7 @@ from lead_agent.settings.config import get_settings
 
 _SENSITIVE_AUDIT_KEYS = ("secret", "token", "password", "credential", "api_key")
 _LOGGER = logging.getLogger("lead_agent.agent_tools")
+_LEGACY_PERMISSION_ALIASES = {"crm.sync": frozenset({"crm.sync", "crm:write"})}
 
 
 class ToolRateLimitError(RuntimeError):
@@ -98,7 +99,10 @@ class ToolRegistry:
         input_summary = _audit_safe(
             {key: value for key, value in raw_input.items() if key in tool.input_model.model_fields}
         )
-        if tool.required_permission not in context.permissions:
+        accepted_permissions = _LEGACY_PERMISSION_ALIASES.get(
+            tool.required_permission, frozenset({tool.required_permission})
+        )
+        if not accepted_permissions.intersection(context.permissions):
             if prior is None:
                 now = datetime.now(UTC)
                 self.session.add(
@@ -191,7 +195,7 @@ class CrmSyncToolInput(BaseModel):
 
 class CrmCreateOrUpdateLeadTool:
     name = "crm.create_or_update_lead"
-    required_permission = "crm:write"
+    required_permission = "crm.sync"
     input_model = CrmSyncToolInput
 
     def __init__(

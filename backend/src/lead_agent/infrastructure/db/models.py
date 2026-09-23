@@ -59,10 +59,73 @@ class WorkspaceMembershipORM(Base):
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="member")
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="viewer")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    invited_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    permission_overrides: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WorkspaceInvitationORM(Base):
+    __tablename__ = "workspace_invitations"
+    __table_args__ = (
+        Index("ix_workspace_invitations_workspace_status", "workspace_id", "status"),
+        Index("ix_workspace_invitations_email_status", "email", "status"),
+        Index("ix_workspace_invitations_token_hash", "token_hash", unique=True),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    permission_overrides: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    invited_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    accepted_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WorkspaceAdminAuditEventORM(Base):
+    __tablename__ = "workspace_admin_audit_events"
+    __table_args__ = (
+        Index("ix_workspace_admin_audit_workspace_created", "workspace_id", "created_at"),
+        Index("ix_workspace_admin_audit_operation", "operation", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    target_membership_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_memberships.id", ondelete="SET NULL"), nullable=True
+    )
+    operation: Mapped[str] = mapped_column(String(64), nullable=False)
+    before: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    after: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class AuthSessionORM(Base):

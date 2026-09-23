@@ -9,13 +9,13 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_authenticated_identity, get_workspace_context
+from lead_agent.api.dependencies import get_authenticated_identity, require_permission
 from lead_agent.api.schemas import (
     IntegrationCardResponse,
     ProviderConnectionResponse,
     provider_connection_response,
 )
-from lead_agent.application.auth import require_membership
+from lead_agent.application.auth import membership_permissions, require_membership
 from lead_agent.application.integrations import (
     begin_oauth_connection,
     complete_oauth_connection,
@@ -24,7 +24,7 @@ from lead_agent.application.integrations import (
     reconnect_connection,
     validate_connection,
 )
-from lead_agent.domain.auth import AuthenticatedIdentity
+from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
 from lead_agent.domain.integrations import (
     PROVIDER_SETUP,
     ManualConnectionInput,
@@ -90,7 +90,7 @@ def _connection_or_404(session: Session, workspace_id: UUID, connection_id: UUID
 @router.get("", response_model=list[IntegrationCardResponse])
 def list_integrations(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
 ) -> list[IntegrationCardResponse]:
     ensure_workspace(session, workspace.workspace_id)
     session.commit()
@@ -113,7 +113,7 @@ def list_integrations(
 def retrieve_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
 ) -> ProviderConnectionResponse:
     return provider_connection_response(
         _connection_or_404(session, workspace.workspace_id, connection_id)
@@ -130,7 +130,7 @@ def add_manual_credential(
     provider: str,
     request: ManualConnectionInput,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
     secret_store: SecretStore = Depends(get_secret_store),
 ) -> ProviderConnectionResponse:
     try:
@@ -151,7 +151,7 @@ def begin_connection(
     provider: str,
     request: OAuthBeginRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.connect")),
     broker: OAuthBroker = Depends(get_oauth_broker),
     secret_store: SecretStore = Depends(get_secret_store),
     settings: Settings = Depends(get_settings),
@@ -212,7 +212,9 @@ def browser_connection_callback(
         connection = session.get(ProviderConnectionORM, connection_id)
         if connection is None:
             raise HTTPException(status_code=404, detail="Provider connection not found")
-        require_membership(session, identity.user_id, connection.workspace_id)
+        membership = require_membership(session, identity.user_id, connection.workspace_id)
+        if "integrations.connect" not in membership_permissions(membership):
+            raise AuthorizationError("permission required: integrations.connect")
         if connection.provider_type != provider:
             raise ValueError("provider does not match OAuth transaction")
         complete_oauth_connection(
@@ -249,7 +251,7 @@ def connection_callback(
     provider: str,
     request: OAuthCallbackRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.connect")),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
 ) -> ProviderConnectionResponse:
@@ -280,7 +282,7 @@ def connection_callback(
 def test_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
 ) -> ValidationResponse:
@@ -301,7 +303,7 @@ def test_connection(
 def disconnect(
     connection_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.disconnect")),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
 ) -> ProviderConnectionResponse:
@@ -323,7 +325,7 @@ def reconnect(
     connection_id: UUID,
     request: ReconnectRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
     secret_store: SecretStore = Depends(get_secret_store),
 ) -> ProviderConnectionResponse:
     try:

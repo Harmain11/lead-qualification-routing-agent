@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_active_crm_provider, get_workspace_context
+from lead_agent.api.dependencies import get_active_crm_provider, require_permission
 from lead_agent.api.schemas import CrmSyncResponse, crm_sync_response
 from lead_agent.application.crm import retry_crm_sync, sync_lead_to_crm
 from lead_agent.domain.crm import CrmProvider
@@ -41,7 +41,7 @@ def _required_response(row: CrmSyncORM | None) -> CrmSyncResponse:
 def retrieve_crm_sync(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> CrmSyncResponse:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     return _required_response(
@@ -53,7 +53,7 @@ def retrieve_crm_sync(
 def retrieve_crm_sync_history(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> list[CrmSyncResponse]:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     return [
@@ -72,7 +72,7 @@ def synchronize_crm(
     session: Session = Depends(get_db),
     provider: CrmProvider = Depends(get_active_crm_provider),
     settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmSyncResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     row = sync_lead_to_crm(
@@ -95,7 +95,7 @@ def retry_crm(
     session: Session = Depends(get_db),
     provider: CrmProvider = Depends(get_active_crm_provider),
     settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmSyncResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     try:

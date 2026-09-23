@@ -6,7 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from lead_agent import __version__
 from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.middleware import install_request_middleware
-from lead_agent.api.routes import analytics, auth, crm, health, intake, integrations, leads, routing
+from lead_agent.api.routes import (
+    analytics,
+    auth,
+    crm,
+    health,
+    intake,
+    integrations,
+    leads,
+    routing,
+    team,
+)
 from lead_agent.infrastructure.observability import configure_logging
 from lead_agent.infrastructure.secrets import get_secret_store
 
@@ -36,3 +46,4 @@ app.include_router(routing.router)
 app.include_router(crm.router)
 app.include_router(integrations.router)
 app.include_router(analytics.router)
+app.include_router(team.router)

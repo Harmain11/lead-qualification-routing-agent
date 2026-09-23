@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_policies, get_workspace_context
+from lead_agent.api.dependencies import get_policies, require_permission
 from lead_agent.api.schemas import (
     NotificationResponse,
     PipelineEventResponse,
@@ -55,7 +55,7 @@ def _required_routing_response(row: Any) -> RoutingDecisionResponse:
 def retrieve_routing(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.view")),
 ) -> RoutingDecisionResponse:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     decision = get_current_routing(session, lead_id, workspace.workspace_id)
@@ -68,7 +68,7 @@ def retrieve_routing(
 def retrieve_action_plan(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.view")),
 ) -> dict[str, object]:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     decision = get_current_routing(session, lead_id, workspace.workspace_id)
@@ -81,7 +81,7 @@ def retrieve_action_plan(
 def retrieve_routing_history(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.view")),
 ) -> list[RoutingDecisionResponse]:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     return [
@@ -94,7 +94,7 @@ def retrieve_routing_history(
 def retrieve_notifications(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.view")),
 ) -> list[NotificationResponse]:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     return [
@@ -107,7 +107,7 @@ def retrieve_notifications(
 def retrieve_pipeline_history(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.view")),
 ) -> list[PipelineEventResponse]:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     return [
@@ -131,7 +131,7 @@ def retry_notification(
     lead_id: UUID,
     session: Session = Depends(get_db),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
 ) -> NotificationResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     try:
@@ -152,7 +152,7 @@ def reroute_lead(
     session: Session = Depends(get_db),
     policies: tuple[object, RoutingConfig] = Depends(get_policies),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
-    workspace: WorkspaceContext = Depends(get_workspace_context),
+    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
 ) -> RoutingDecisionResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     _, routing = policies
