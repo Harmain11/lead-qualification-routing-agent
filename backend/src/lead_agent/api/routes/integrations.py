@@ -29,12 +29,18 @@ from lead_agent.domain.integrations import (
     PROVIDER_SETUP,
     ManualConnectionInput,
     OAuthBroker,
+    ProviderConnectionValidator,
+    ProviderRevoker,
     SecretStore,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.oauth import get_oauth_broker
+from lead_agent.infrastructure.provider_lifecycle import (
+    get_provider_connection_validator,
+    get_provider_revoker,
+)
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
@@ -77,7 +83,11 @@ class ReconnectRequest(BaseModel):
 class ValidationResponse(BaseModel):
     connection: ProviderConnectionResponse
     valid: bool
+    verified: bool
+    status: str
     message: str
+    retryable: bool
+    error_code: str | None
 
 
 def _connection_or_404(session: Session, workspace_id: UUID, connection_id: UUID) -> Any:
@@ -200,7 +210,8 @@ def development_authorize(
 def browser_connection_callback(
     provider: str,
     state_value: str = Query(alias="state", min_length=16),
-    authorization_code: str = Query(alias="code", min_length=1),
+    authorization_code: str | None = Query(default=None, alias="code", min_length=1),
+    provider_error: str | None = Query(default=None, alias="error"),
     session: Session = Depends(get_db),
     identity: AuthenticatedIdentity = Depends(get_authenticated_identity),
     secret_store: SecretStore = Depends(get_secret_store),
@@ -217,6 +228,8 @@ def browser_connection_callback(
             raise AuthorizationError("permission required: integrations.connect")
         if connection.provider_type != provider:
             raise ValueError("provider does not match OAuth transaction")
+        if provider_error or not authorization_code:
+            raise ValueError("OAuth authorization was not completed")
         complete_oauth_connection(
             session,
             connection.workspace_id,
@@ -285,17 +298,28 @@ def test_connection(
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
+    validator: ProviderConnectionValidator = Depends(get_provider_connection_validator),
 ) -> ValidationResponse:
     try:
         row, validation = validate_connection(
-            session, workspace.workspace_id, connection_id, secret_store, broker
+            session,
+            workspace.workspace_id,
+            connection_id,
+            secret_store,
+            broker,
+            validator,
+            workspace.actor_id,
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return ValidationResponse(
         connection=provider_connection_response(row),
         valid=validation.valid,
+        verified=validation.verified,
+        status=validation.status,
         message=validation.message,
+        retryable=validation.retryable,
+        error_code=validation.error_code,
     )
 
 
@@ -305,11 +329,16 @@ def disconnect(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.disconnect")),
     secret_store: SecretStore = Depends(get_secret_store),
-    broker: OAuthBroker = Depends(get_oauth_broker),
+    revoker: ProviderRevoker = Depends(get_provider_revoker),
 ) -> ProviderConnectionResponse:
     try:
         row = disconnect_connection(
-            session, workspace.workspace_id, connection_id, secret_store, broker
+            session,
+            workspace.workspace_id,
+            connection_id,
+            secret_store,
+            revoker,
+            workspace.actor_id,
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

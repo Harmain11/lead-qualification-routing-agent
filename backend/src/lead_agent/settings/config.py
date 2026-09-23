@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     crm_timeout_seconds: float = 20.0
     secret_store_provider: str = "development"
     managed_secret_store_backend: str = ""
+    secret_store_encryption_key: str = ""
+    secret_store_key_version: str = "v1"
+    secret_store_previous_keys: str = "{}"
     oauth_broker: str = "development"
     integration_public_base_url: str = "http://localhost:8000"
     frontend_public_base_url: str = "http://localhost:5173"
@@ -175,6 +178,18 @@ class Settings(BaseSettings):
             and not _is_placeholder(self.managed_secret_store_backend),
             "MANAGED_SECRET_STORE_BACKEND is required",
         )
+        if self.managed_secret_store_backend == (
+            "lead_agent.infrastructure.encrypted_secrets:create_backend"
+        ):
+            require(
+                bool(self.secret_store_encryption_key)
+                and not _is_placeholder(self.secret_store_encryption_key),
+                "SECRET_STORE_ENCRYPTION_KEY is required for the encrypted database backend",
+            )
+            require(
+                bool(self.secret_store_key_version.strip()),
+                "SECRET_STORE_KEY_VERSION is required for the encrypted database backend",
+            )
         require(self.oauth_broker == "provider", "OAUTH_BROKER must be provider")
         require(self.llm_provider == "openai", "LLM_PROVIDER must be openai")
         require(

@@ -49,6 +49,14 @@ Set `APP_ENV=production`, `LOG_FORMAT=json`, `AUTH_DEVELOPMENT_FALLBACK=false`, 
 
 Before deployment, run `uv run --project backend production-check`. It validates configuration and never prints values. It does not connect to infrastructure; readiness checks dependency connectivity after startup. Run Alembic migrations as a separately controlled release step. The managed secret backend must be resolvable by the API and any worker before requests are accepted.
 
+For cloud-neutral staging or provider certification, set
+`MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend`, inject
+a base64url-encoded 32-byte `SECRET_STORE_ENCRYPTION_KEY`, and set a non-empty
+`SECRET_STORE_KEY_VERSION`. Keep the key outside PostgreSQL. During rotation, provide old
+version-to-key mappings through `SECRET_STORE_PREVIOUS_KEYS` until all secret records have been
+rewritten under the active version. A deployment may instead supply an AWS, Azure, GCP, or Vault
+adapter implementing the same scoped lifecycle.
+
 ## Deployment checklist
 
 - [ ] DNS records point frontend and API domains to the intended HTTPS edges.

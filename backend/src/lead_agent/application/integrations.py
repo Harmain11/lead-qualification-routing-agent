@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
@@ -12,13 +12,23 @@ from sqlalchemy.orm import Session
 from lead_agent.domain.integrations import (
     PROVIDER_SETUP,
     ConnectionValidation,
+    CredentialState,
     ManualConnectionInput,
     OAuthBroker,
     OAuthStart,
+    ProviderConnectionValidator,
+    ProviderRevoker,
+    ProviderValidationStatus,
+    RevocationResult,
     SecretStore,
 )
+from lead_agent.domain.provider_errors import ProviderErrorCategory, ProviderOperationError
 from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.oauth import pkce_challenge
+from lead_agent.infrastructure.provider_lifecycle import (
+    WorkspaceAuthorizedConnectionResolver,
+    record_provider_lifecycle_audit,
+)
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
     get_provider_connection,
@@ -32,6 +42,12 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "slack": {"bot_token", "channel_id"},
     "openai": {"api_key"},
 }
+
+
+def _credential_state(value: str) -> CredentialState:
+    if value in {"configured", "missing", "expired", "invalid"}:
+        return cast(CredentialState, value)
+    return "invalid"
 
 
 def _token_lifetime_seconds(values: dict[str, str]) -> int:
@@ -117,6 +133,7 @@ def create_manual_connection(
 ) -> ProviderConnectionORM:
     _validate_manual_credentials(provider, request.auth_type, request.credentials)
     ensure_workspace(session, workspace_id)
+    session.commit()
     reference = secret_store.store(workspace_id, provider, request.credentials)
     now = datetime.now(UTC)
     row = ProviderConnectionORM(
@@ -162,6 +179,7 @@ def begin_oauth_connection(
     if setup is None or "oauth2" not in setup.supported_auth:
         raise ValueError(f"OAuth is not supported for {provider}")
     ensure_workspace(session, workspace_id)
+    session.commit()
     connection_id = uuid4()
     state = f"{connection_id}.{secrets.token_urlsafe(32)}"
     verifier = secrets.token_urlsafe(64)
@@ -270,7 +288,13 @@ def complete_oauth_connection(
     session.commit()
     session.refresh(row)
 
-    pending_values = secret_store.retrieve(row.secret_reference) if row.secret_reference else None
+    pending_values = (
+        secret_store.retrieve_for_workspace(
+            workspace_id, row.provider_type, row.secret_reference
+        )
+        if row.secret_reference
+        else None
+    )
     verifier = (pending_values or {}).get("pkce_verifier")
     redirect_uri = (pending_values or {}).get("redirect_uri")
     if not verifier or not redirect_uri:
@@ -305,9 +329,10 @@ def complete_oauth_connection(
         raise ValueError("OAuth provider authorization failed") from error
     if row.secret_reference is None:
         raise ValueError("OAuth PKCE transaction is unavailable")
-    expires_in = _token_lifetime_seconds(values)
     try:
-        row.secret_reference = secret_store.replace(row.secret_reference, values)
+        row.secret_reference = secret_store.replace_for_workspace(
+            workspace_id, row.provider_type, row.secret_reference, values
+        )
     except Exception:
         row.status = "connection_failed"
         row.credential_state = "invalid"
@@ -326,11 +351,18 @@ def complete_oauth_connection(
     row.external_account_id = values.get("external_account_id", row.external_account_id)
     row.updated_at = datetime.now(UTC)
     row.last_validation_at = datetime.now(UTC)
-    row.last_validation_result = {"status": "valid", "message": "OAuth account authorized"}
-    row.connection_metadata = {
-        "token_expires_at": (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat(),
+    row.last_validation_result = {
+        "status": "not_verified",
+        "message": "OAuth credentials stored; provider verification is still required",
+    }
+    token_metadata: dict[str, object] = {
         "refresh_available": bool(values.get("refresh_token")),
     }
+    if "expires_in" in values:
+        token_metadata["token_expires_at"] = (
+            datetime.now(UTC) + timedelta(seconds=_token_lifetime_seconds(values))
+        ).isoformat()
+    row.connection_metadata = token_metadata
     _activate_connection(session, row)
     session.commit()
     session.refresh(row)
@@ -343,82 +375,152 @@ def validate_connection(
     connection_id: UUID,
     secret_store: SecretStore,
     broker: OAuthBroker | None = None,
+    validator: ProviderConnectionValidator | None = None,
+    actor_id: str = "system",
 ) -> tuple[ProviderConnectionORM, ConnectionValidation]:
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
         raise LookupError("provider connection not found")
-    values = secret_store.retrieve(row.secret_reference) if row.secret_reference else None
-    if row.auth_type == "oauth2" and values is not None:
-        expires_raw = row.connection_metadata.get("token_expires_at")
-        expired = isinstance(expires_raw, str) and datetime.fromisoformat(
-            expires_raw
-        ) <= datetime.now(UTC)
-        if expired:
-            refresh_token = values.get("refresh_token")
-            if broker is None or not refresh_token:
-                validation = ConnectionValidation(
-                    valid=False,
-                    credential_state="expired",
-                    message="Authorization expired; reconnect the provider account.",
-                )
-                row.status = "authorization_expired"
-                row.credential_state = "expired"
-                row.last_validation_at = datetime.now(UTC)
-                row.last_validation_result = validation.model_dump(mode="json")
-                session.commit()
-                return row, validation
-            try:
-                refreshed = broker.refresh(row.provider_type, refresh_token)
-                refreshed.setdefault("refresh_token", refresh_token)
-                if row.secret_reference is None:
-                    raise ValueError("OAuth secret reference is unavailable")
-                row.secret_reference = secret_store.replace(row.secret_reference, refreshed)
-                values = refreshed
-                expires_in = _token_lifetime_seconds(refreshed)
-                row.connection_metadata = {
-                    **row.connection_metadata,
-                    "token_expires_at": (
-                        datetime.now(UTC) + timedelta(seconds=expires_in)
-                    ).isoformat(),
-                    "refresh_available": True,
-                }
-            except Exception as error:
-                validation = ConnectionValidation(
-                    valid=False,
-                    credential_state="invalid",
-                    message="Authorization refresh failed; reconnect the provider account.",
-                )
-                row.status = "reconnect_required"
-                row.credential_state = "invalid"
-                row.last_validation_at = datetime.now(UTC)
-                row.last_validation_result = {
-                    **validation.model_dump(mode="json"),
-                    "error_type": type(error).__name__,
-                }
-                session.commit()
-                return row, validation
+    resolver = WorkspaceAuthorizedConnectionResolver(secret_store, broker)
+    try:
+        resolved = resolver.resolve_connection(
+            session,
+            workspace_id,
+            connection_id,
+            actor_id=actor_id,
+            allow_unverified=True,
+        )
+    except ProviderOperationError as error:
+        status: ProviderValidationStatus = (
+            "expired"
+            if error.category == "revoked"
+            else "invalid_credentials"
+            if error.category == "invalid_credentials"
+            else "temporarily_unavailable"
+            if error.retryable
+            else "configuration_error"
+        )
+        validation = ConnectionValidation(
+            valid=False,
+            verified=False,
+            status=status,
+            credential_state=(
+                "expired"
+                if status == "expired"
+                else "invalid"
+                if status == "invalid_credentials"
+                else _credential_state(row.credential_state)
+            ),
+            message=str(error),
+            retryable=error.retryable,
+            error_code=error.code,
+            metadata={"category": error.category},
+        )
+        return _persist_validation(session, row, validation, actor_id)
+    if resolved is None:
+        validation = ConnectionValidation(
+            valid=False,
+            verified=False,
+            status="configuration_error",
+            credential_state=_credential_state(row.credential_state),
+            message="Provider connection is inactive or unavailable.",
+            error_code="provider_connection_unavailable",
+        )
+        return _persist_validation(session, row, validation, actor_id)
     expected = (
         {"access_token"}
         if row.auth_type == "oauth2"
         else REQUIRED_MANUAL_CREDENTIALS.get(row.provider_type, set())
     )
-    missing = sorted(expected - set(values or {}))
-    valid = values is not None and not missing
+    missing = sorted(expected - set(resolved.credentials))
+    if missing:
+        validation = ConnectionValidation(
+            valid=False,
+            verified=False,
+            status="configuration_error",
+            credential_state="invalid",
+            message=f"Missing required credential fields: {', '.join(missing)}",
+            error_code="credential_fields_missing",
+        )
+        return _persist_validation(session, row, validation, actor_id)
+    if validator is None:
+        validation = ConnectionValidation(
+            valid=False,
+            verified=False,
+            status="configuration_error",
+            credential_state="configured",
+            message="Live provider validation is not configured.",
+            error_code="provider_validation_not_configured",
+        )
+        return _persist_validation(session, row, validation, actor_id)
+    try:
+        validation = validator.validate(
+            row.provider_type, resolved.credentials, list(resolved.scopes)
+        )
+    except ProviderOperationError as error:
+        status_by_category: dict[ProviderErrorCategory, ProviderValidationStatus] = {
+            "invalid_credentials": "invalid_credentials",
+            "insufficient_permissions": "insufficient_permissions",
+            "rate_limited": "rate_limited",
+            "temporarily_unavailable": "temporarily_unavailable",
+            "timeout": "temporarily_unavailable",
+            "malformed_response": "malformed_response",
+            "revoked": "revoked",
+            "configuration": "configuration_error",
+        }
+        status = status_by_category.get(error.category, "configuration_error")
+        credential_state: CredentialState = (
+            "expired"
+            if status in {"expired", "revoked"}
+            else "invalid"
+            if status == "invalid_credentials"
+            else "configured"
+        )
+        validation = ConnectionValidation(
+            valid=False,
+            verified=False,
+            status=status,
+            credential_state=credential_state,
+            message=str(error),
+            retryable=error.retryable,
+            error_code=error.code,
+            metadata={"category": error.category, **error.metadata},
+        )
+    return _persist_validation(session, row, validation, actor_id)
+
+
+def _persist_validation(
+    session: Session,
+    row: ProviderConnectionORM,
+    validation: ConnectionValidation,
+    actor_id: str,
+) -> tuple[ProviderConnectionORM, ConnectionValidation]:
     now = datetime.now(UTC)
-    validation = ConnectionValidation(
-        valid=valid,
-        credential_state="configured" if valid else "invalid",
-        message=(
-            "Credential structure validated; live provider validation remains adapter-specific."
-            if valid
-            else f"Missing credential fields: {', '.join(missing) or 'secret reference'}"
-        ),
-    )
+    if validation.verified and validation.status == "connected":
+        row.status = "verified"
+    elif validation.status == "expired":
+        row.status = "expired"
+    elif validation.status in {"invalid_credentials", "revoked"}:
+        row.status = "needs_reauthorization"
+    else:
+        row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
     row.credential_state = validation.credential_state
-    row.status = "connected" if valid else "needs_attention"
     row.updated_at = now
+    record_provider_lifecycle_audit(
+        session,
+        row,
+        action="connection_validation",
+        outcome="verified" if validation.verified else validation.status,
+        actor_id=actor_id,
+        error_code=validation.error_code,
+        details={
+            "verified": validation.verified,
+            "retryable": validation.retryable,
+            "validation_status": validation.status,
+        },
+    )
     session.commit()
     session.refresh(row)
     return row, validation
@@ -429,7 +531,8 @@ def disconnect_connection(
     workspace_id: UUID,
     connection_id: UUID,
     secret_store: SecretStore,
-    broker: OAuthBroker | None = None,
+    revoker: ProviderRevoker | None = None,
+    actor_id: str = "system",
 ) -> ProviderConnectionORM:
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
@@ -440,7 +543,9 @@ def disconnect_connection(
     values: dict[str, str] | None = None
     if reference:
         try:
-            values = secret_store.retrieve(reference)
+            values = secret_store.retrieve_for_workspace(
+                workspace_id, row.provider_type, reference
+            )
             secret_retrieval = "available" if values is not None else "unavailable"
         except Exception:
             secret_retrieval = "failed"
@@ -453,21 +558,24 @@ def disconnect_connection(
     row.last_validation_at = now
     row.last_validation_result = {
         "status": "disconnected",
-        "remote_revocation": "pending" if broker is not None and values else "not_applicable",
+        "remote_revocation": "pending" if revoker is not None and values else "not_applicable",
         "local_secret": "pending" if reference else "not_present",
         "secret_retrieval": secret_retrieval,
     }
     session.commit()
 
     remote_revocation = "not_applicable"
-    if broker is not None and values is not None:
+    revocation = RevocationResult(status="unsupported")
+    if revoker is not None and values is not None:
         try:
-            revoked = broker.revoke(row.provider_type, values)
-            remote_revocation = "confirmed" if revoked else "unsupported"
+            revocation = revoker.revoke(row.provider_type, values)
         except Exception:
-            remote_revocation = "failed"
+            revocation = RevocationResult(
+                status="failed", error_code="provider_revocation_failed"
+            )
+        remote_revocation = revocation.status
     local_secret = "not_present"
-    if reference:
+    if reference and values is not None:
         local_secret = "invalidated"
         try:
             secret_store.invalidate(reference)
@@ -483,6 +591,19 @@ def disconnect_connection(
         "local_secret": local_secret,
         "secret_retrieval": secret_retrieval,
     }
+    record_provider_lifecycle_audit(
+        session,
+        row,
+        action="disconnect",
+        outcome="disconnected",
+        actor_id=actor_id,
+        error_code=revocation.error_code,
+        details={
+            "remote_revocation": remote_revocation,
+            "local_secret": local_secret,
+            "secret_retrieval": secret_retrieval,
+        },
+    )
     session.commit()
     session.refresh(row)
     return row
@@ -500,11 +621,14 @@ def reconnect_connection(
         raise LookupError("provider connection not found")
     _validate_manual_credentials(row.provider_type, row.auth_type, credentials)
     if row.secret_reference:
-        row.secret_reference = secret_store.replace(row.secret_reference, credentials)
+        row.secret_reference = secret_store.replace_for_workspace(
+            workspace_id, row.provider_type, row.secret_reference, credentials
+        )
     else:
         row.secret_reference = secret_store.store(workspace_id, row.provider_type, credentials)
     row.credential_state = "configured"
     row.status = "connected"
+    row.last_validation_result = {"status": "not_verified"}
     row.disconnected_at = None
     row.updated_at = datetime.now(UTC)
     _activate_connection(session, row)

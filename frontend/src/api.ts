@@ -205,7 +205,7 @@ export function addIntegrationCredential(provider: string, accountName: string, 
   });
 }
 
-export function testIntegration(connectionId: string): Promise<{ connection: ProviderConnection; valid: boolean; message: string }> {
+export function testIntegration(connectionId: string): Promise<{ connection: ProviderConnection; valid: boolean; verified: boolean; status: string; message: string; retryable: boolean; error_code: string | null }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/test`, { method: "POST" });
 }
 

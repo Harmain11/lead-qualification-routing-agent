@@ -36,8 +36,18 @@ Phase 2 fixture status:
 - Generate credentials in each provider’s developer/admin console; never paste them into source, fixtures, documentation, screenshots, or seed data.
 - Use OAuth authorization-code flow with state and PKCE where supported. Store refresh/access tokens encrypted at rest and never return them through API responses.
 - Request only the scopes required for the selected CRM, mailbox, and intake mode. Record the consented scope set and provider account identifier for support.
-- Use a managed secret manager in deployed environments. `.env` is for local development only and is ignored by Git.
+- Use the managed secret-store port in deployed environments. The repository includes a
+  cloud-neutral AES-256-GCM database backend for staging/certification; its master key remains a
+  deployment secret outside the database. Cloud secret-manager adapters remain supported.
 - Rotate secrets without a code release. Keep a provider connection status and last successful health check, but do not expose credential material.
+- OAuth application client credentials are operator-owned configuration. Access and refresh
+  tokens are workspace-owned secrets and are resolved only through a workspace/provider-scoped
+  reference.
+- OpenAI is operator managed in the current release. Its workspace Integration card is
+  informational and does not control the reasoning runtime.
+
+The shared lifecycle and remaining per-provider certification gates are documented in
+[`phase-7c-provider-certification.md`](phase-7c-provider-certification.md).
 
 ## Database requirements
 

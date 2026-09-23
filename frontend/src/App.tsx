@@ -60,7 +60,11 @@ const navigation: Array<{ id: View; label: string; glyph: string; group?: string
 function App() {
   const [auth, setAuth] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<AppView>("dashboard");
+  const [view, setView] = useState<AppView>(() =>
+    new URLSearchParams(window.location.search).has("integration")
+      ? "integrations"
+      : "dashboard",
+  );
   const [range, setRange] = useState<TimeRange>("monthly");
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);

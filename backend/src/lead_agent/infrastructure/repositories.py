@@ -394,7 +394,7 @@ def get_active_provider_connection(
             ProviderConnectionORM.workspace_id == workspace_id,
             ProviderConnectionORM.provider_type.in_(provider_types),
             ProviderConnectionORM.is_active.is_(True),
-            ProviderConnectionORM.status == "connected",
+            ProviderConnectionORM.status.in_({"connected", "verified"}),
         )
         .order_by(ProviderConnectionORM.updated_at.desc())
     )

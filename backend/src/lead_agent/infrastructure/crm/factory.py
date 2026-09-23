@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.crm import (
@@ -13,10 +14,15 @@ from lead_agent.domain.crm import (
     CrmSyncResult,
 )
 from lead_agent.domain.integrations import SecretStore
+from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.crm.hubspot import HubSpotCrmProvider
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceCrmProvider
-from lead_agent.infrastructure.repositories import get_active_provider_connection
+from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.provider_lifecycle import (
+    WorkspaceAuthorizedConnectionResolver,
+    get_workspace_connection_resolver,
+)
 from lead_agent.infrastructure.secrets import get_secret_store
 from lead_agent.settings.config import Settings, get_settings
 
@@ -109,39 +115,63 @@ def build_connected_crm_provider(
 
 
 class WorkspaceCrmProviderResolver:
-    def __init__(self, settings: Settings, secret_store: SecretStore) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        secret_store: SecretStore,
+        connection_resolver: WorkspaceAuthorizedConnectionResolver | None = None,
+    ) -> None:
         self.settings = settings
         self.secret_store = secret_store
+        self.connection_resolver = connection_resolver or WorkspaceAuthorizedConnectionResolver(
+            secret_store
+        )
 
     def resolve(
         self,
         session: Session,
         workspace_id: UUID,
         fallback: CrmProvider | None = None,
+        *,
+        actor_id: str = "system",
     ) -> CrmProvider:
         provider_types = (
             {"salesforce", "hubspot"}
             if self.settings.app_env == "production"
             else {"mock", "salesforce", "hubspot"}
         )
-        connection = get_active_provider_connection(session, workspace_id, provider_types)
-        if connection is None:
-            return fallback or build_crm_provider(self.settings)
-        credentials = (
-            self.secret_store.get(connection.secret_reference)
-            if connection.secret_reference
-            else None
+        try:
+            resolved = self.connection_resolver.resolve(
+                session, workspace_id, provider_types, actor_id=actor_id
+            )
+        except ProviderOperationError:
+            resolved = None
+        if resolved is not None:
+            provider = build_connected_crm_provider(
+                self.settings, resolved.provider, resolved.credentials
+            )
+            return ConnectedCrmProvider(provider, resolved.connection_id)
+
+        connection = session.scalar(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type.in_(provider_types),
+                ProviderConnectionORM.is_active.is_(True),
+            )
         )
-        if credentials is None:
+        if connection is not None:
             return UnavailableConnectedCrmProvider(
                 connection.provider_type,
                 connection.id,
-                "The workspace CRM connection has no available secret reference.",
+                "The workspace CRM connection is unavailable and requires attention.",
             )
-        provider = build_connected_crm_provider(
-            self.settings, connection.provider_type, credentials
-        )
-        return ConnectedCrmProvider(provider, connection.id)
+        if self.settings.app_env == "production":
+            return UnavailableConnectedCrmProvider(
+                self.settings.crm_provider,
+                UUID(int=0),
+                "No usable CRM connection is configured for this workspace.",
+            )
+        return fallback or build_crm_provider(self.settings)
 
 
 @lru_cache
@@ -151,4 +181,6 @@ def get_crm_provider() -> CrmProvider:
 
 @lru_cache
 def get_workspace_crm_resolver() -> WorkspaceCrmProviderResolver:
-    return WorkspaceCrmProviderResolver(get_settings(), get_secret_store())
+    return WorkspaceCrmProviderResolver(
+        get_settings(), get_secret_store(), get_workspace_connection_resolver()
+    )

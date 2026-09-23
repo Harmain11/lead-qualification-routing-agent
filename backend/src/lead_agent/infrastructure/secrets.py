@@ -17,7 +17,15 @@ class ManagedSecretBackend(Protocol):
 
     def retrieve(self, reference: str) -> dict[str, str] | None: ...
 
+    def retrieve_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str
+    ) -> dict[str, str] | None: ...
+
     def replace(self, reference: str, values: dict[str, str]) -> str: ...
+
+    def replace_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str, values: dict[str, str]
+    ) -> str: ...
 
     def invalidate(self, reference: str) -> None: ...
 
@@ -33,6 +41,7 @@ class DevelopmentSecretStore:
 
     def __init__(self) -> None:
         self._values: dict[str, dict[str, str]] = {}
+        self._owners: dict[str, tuple[UUID, str]] = {}
         self._invalidated: set[str] = set()
         self._lock = RLock()
 
@@ -40,6 +49,7 @@ class DevelopmentSecretStore:
         reference = f"devsecret://{workspace_id}/{provider}/{uuid4()}"
         with self._lock:
             self._values[reference] = dict(values)
+            self._owners[reference] = (workspace_id, provider)
             self._invalidated.discard(reference)
         return reference
 
@@ -50,12 +60,28 @@ class DevelopmentSecretStore:
             value = self._values.get(reference)
             return dict(value) if value is not None else None
 
+    def retrieve_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str
+    ) -> dict[str, str] | None:
+        with self._lock:
+            if self._owners.get(reference) != (workspace_id, provider):
+                return None
+        return self.retrieve(reference)
+
     def replace(self, reference: str, values: dict[str, str]) -> str:
         with self._lock:
             if reference not in self._values or reference in self._invalidated:
                 raise KeyError("secret reference is unavailable")
             self._values[reference] = dict(values)
         return reference
+
+    def replace_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str, values: dict[str, str]
+    ) -> str:
+        with self._lock:
+            if self._owners.get(reference) != (workspace_id, provider):
+                raise KeyError("secret reference does not belong to this workspace provider")
+        return self.replace(reference, values)
 
     def invalidate(self, reference: str) -> None:
         with self._lock:
@@ -65,6 +91,7 @@ class DevelopmentSecretStore:
     def delete(self, reference: str) -> None:
         with self._lock:
             self._values.pop(reference, None)
+            self._owners.pop(reference, None)
             self._invalidated.discard(reference)
 
     # Compatibility aliases for existing provider adapters. New lifecycle code uses
@@ -97,8 +124,24 @@ class ManagedSecretStore:
         values = self._backend.retrieve(reference)
         return dict(values) if values is not None else None
 
+    def retrieve_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str
+    ) -> dict[str, str] | None:
+        values = self._backend.retrieve_for_workspace(workspace_id, provider, reference)
+        return dict(values) if values is not None else None
+
     def replace(self, reference: str, values: dict[str, str]) -> str:
         updated_reference = self._backend.replace(reference, dict(values))
+        if not updated_reference or updated_reference.startswith("devsecret://"):
+            raise RuntimeError("managed secret backend returned an invalid reference")
+        return updated_reference
+
+    def replace_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str, values: dict[str, str]
+    ) -> str:
+        updated_reference = self._backend.replace_for_workspace(
+            workspace_id, provider, reference, dict(values)
+        )
         if not updated_reference or updated_reference.startswith("devsecret://"):
             raise RuntimeError("managed secret backend returned an invalid reference")
         return updated_reference
@@ -127,7 +170,15 @@ def _load_managed_backend(path: str) -> ManagedSecretBackend:
         backend = factory()
     except Exception:
         raise RuntimeError("managed secret backend could not be initialized") from None
-    required = {"store", "retrieve", "replace", "invalidate", "delete"}
+    required = {
+        "store",
+        "retrieve",
+        "retrieve_for_workspace",
+        "replace",
+        "replace_for_workspace",
+        "invalidate",
+        "delete",
+    }
     if any(not callable(getattr(backend, name, None)) for name in required):
         raise RuntimeError("managed secret backend does not implement the required lifecycle")
     return cast(ManagedSecretBackend, backend)

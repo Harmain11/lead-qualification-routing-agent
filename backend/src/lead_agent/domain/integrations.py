@@ -16,10 +16,15 @@ ProviderType = Literal[
     "openai",
 ]
 ConnectionStatus = Literal[
+    "configured",
     "connecting",
     "awaiting_authorization",
     "validating",
     "connected",
+    "verified",
+    "expired",
+    "needs_reauthorization",
+    "error",
     "needs_attention",
     "authorization_expired",
     "connection_failed",
@@ -28,6 +33,23 @@ ConnectionStatus = Literal[
 ]
 CredentialState = Literal["configured", "missing", "expired", "invalid"]
 AuthenticationType = Literal["oauth2", "private_token", "api_key", "development"]
+ProviderValidationStatus = Literal[
+    "connected",
+    "invalid_credentials",
+    "expired",
+    "insufficient_permissions",
+    "temporarily_unavailable",
+    "rate_limited",
+    "configuration_error",
+    "malformed_response",
+    "revoked",
+]
+VerificationStatus = Literal[
+    "not_verified",
+    "verified",
+    "verification_failed",
+    "reauthorization_required",
+]
 
 
 class ProviderSetupMetadata(BaseModel):
@@ -43,6 +65,7 @@ class ProviderSetupMetadata(BaseModel):
     permission_reason: str
     documentation_url: str
     manual_fields: list[str] = Field(default_factory=list)
+    connection_mode: Literal["workspace", "operator"] = "workspace"
 
 
 PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
@@ -145,11 +168,15 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="OpenAI Platform → Project → API keys",
-        credential_help="Create a project-scoped key with the minimum required project access.",
+        credential_help=(
+            "OpenAI is operator-managed in this release. An administrator configures one "
+            "project-scoped key outside the browser for the application runtime."
+        ),
         required_scopes=["Responses API access"],
         permission_reason="Run schema-constrained context and intent analysis.",
         documentation_url="https://platform.openai.com/docs/quickstart",
-        manual_fields=["api_key"],
+        manual_fields=[],
+        connection_mode="operator",
     ),
 }
 
@@ -159,7 +186,15 @@ class SecretStore(Protocol):
 
     def retrieve(self, reference: str) -> dict[str, str] | None: ...
 
+    def retrieve_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str
+    ) -> dict[str, str] | None: ...
+
     def replace(self, reference: str, values: dict[str, str]) -> str: ...
+
+    def replace_for_workspace(
+        self, workspace_id: UUID, provider: str, reference: str, values: dict[str, str]
+    ) -> str: ...
 
     def invalidate(self, reference: str) -> None: ...
 
@@ -172,8 +207,31 @@ class SecretStore(Protocol):
 
 class ConnectionValidation(BaseModel):
     valid: bool
+    verified: bool = False
+    status: ProviderValidationStatus
     credential_state: CredentialState
     message: str
+    retryable: bool = False
+    error_code: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class RevocationResult(BaseModel):
+    status: Literal["confirmed", "unsupported", "failed"]
+    error_code: str | None = None
+
+
+class ProviderConnectionValidator(Protocol):
+    def validate(
+        self,
+        provider: str,
+        credentials: dict[str, str],
+        scopes: list[str],
+    ) -> ConnectionValidation: ...
+
+
+class ProviderRevoker(Protocol):
+    def revoke(self, provider: str, values: dict[str, str]) -> RevocationResult: ...
 
 
 class OAuthStart(BaseModel):

@@ -233,6 +233,49 @@ class ProviderConnectionORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class EncryptedProviderSecretORM(Base):
+    __tablename__ = "encrypted_provider_secrets"
+    __table_args__ = (
+        Index("ix_encrypted_provider_secrets_workspace_provider", "workspace_id", "provider"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    key_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProviderLifecycleAuditORM(Base):
+    __tablename__ = "provider_lifecycle_audit_events"
+    __table_args__ = (
+        Index("ix_provider_lifecycle_audit_workspace_created", "workspace_id", "created_at"),
+        Index("ix_provider_lifecycle_audit_connection_created", "connection_id", "created_at"),
+        Index("ix_provider_lifecycle_audit_correlation", "correlation_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SourceEventORM(Base):
     __tablename__ = "source_events"
     __table_args__ = (

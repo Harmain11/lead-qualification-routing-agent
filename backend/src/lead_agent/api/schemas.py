@@ -238,6 +238,7 @@ class ProviderConnectionResponse(BaseModel):
     account_name: str
     auth_type: str
     status: str
+    verification_status: str
     scopes: list[str]
     credential_state: str
     last_validation_at: datetime | None
@@ -261,10 +262,23 @@ class IntegrationCardResponse(BaseModel):
     permission_reason: str
     documentation_url: str
     manual_fields: list[str]
+    connection_mode: str
     connection: ProviderConnectionResponse | None
 
 
 def provider_connection_response(row: Any) -> ProviderConnectionResponse:
+    validation_status = row.last_validation_result.get("status")
+    verification_status = (
+        "verified"
+        if row.status == "verified"
+        else "reauthorization_required"
+        if row.status in {"expired", "needs_reauthorization"}
+        else "failed"
+        if row.status in {"error", "connection_failed"}
+        else "not_verified"
+    )
+    if validation_status == "connected" and row.last_validation_result.get("verified"):
+        verification_status = "verified"
     return ProviderConnectionResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -273,6 +287,7 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         account_name=row.account_name,
         auth_type=row.auth_type,
         status=row.status,
+        verification_status=verification_status,
         scopes=row.scopes,
         credential_state=row.credential_state,
         last_validation_at=row.last_validation_at,

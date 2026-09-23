@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from lead_agent.domain.crm import CanonicalCrmPayload, CrmProviderError
+from lead_agent.domain.crm import CanonicalCrmPayload, CrmErrorCategory, CrmProviderError
+from lead_agent.domain.provider_errors import provider_http_error
 
 
 def canonical_values(payload: CanonicalCrmPayload) -> dict[str, Any]:
@@ -34,37 +35,21 @@ def mapped_properties(
 
 
 def provider_error(provider: str, status_code: int) -> CrmProviderError:
-    if status_code in {401, 403}:
-        return CrmProviderError(
-            f"{provider} authentication was rejected",
-            code=f"{provider}_authentication_failed",
-            category="authentication",
-            retryable=False,
-        )
-    if status_code == 429:
-        return CrmProviderError(
-            f"{provider} rate limit reached",
-            code=f"{provider}_rate_limited",
-            category="rate_limit",
-            retryable=True,
-        )
-    if status_code in {408, 425} or status_code >= 500:
-        return CrmProviderError(
-            f"{provider} is temporarily unavailable (HTTP {status_code})",
-            code=f"{provider}_temporary_failure",
-            category="transient",
-            retryable=True,
-        )
-    if status_code in {400, 404, 409, 422}:
-        return CrmProviderError(
-            f"{provider} rejected the mapped CRM payload (HTTP {status_code})",
-            code=f"{provider}_validation_failed",
-            category="validation",
-            retryable=False,
-        )
+    translated = provider_http_error(provider, status_code)
+    category_by_provider_error: dict[str, CrmErrorCategory] = {
+        "invalid_credentials": "authentication",
+        "insufficient_permissions": "authentication",
+        "rate_limited": "rate_limit",
+        "temporarily_unavailable": "transient",
+        "timeout": "transient",
+        "invalid_request": "validation",
+        "not_found": "validation",
+        "conflict": "validation",
+    }
+    category = category_by_provider_error.get(translated.category, "unknown")
     return CrmProviderError(
-        f"{provider} request failed (HTTP {status_code})",
-        code=f"{provider}_request_failed",
-        category="unknown",
-        retryable=False,
+        str(translated),
+        code=translated.code,
+        category=category,
+        retryable=translated.retryable,
     )

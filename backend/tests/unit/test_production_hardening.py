@@ -158,24 +158,37 @@ def test_managed_secret_store_persists_only_opaque_reference() -> None:
     class Backend:
         def __init__(self) -> None:
             self.values: dict[str, dict[str, str]] = {}
+            self.owners = {}
 
         def store(self, workspace_id, provider, values):
             reference = f"managed://secret/{uuid4()}"
             self.values[reference] = dict(values)
+            self.owners[reference] = (workspace_id, provider)
             return reference
 
         def retrieve(self, reference):
             return self.values.get(reference)
 
+        def retrieve_for_workspace(self, workspace_id, provider, reference):
+            if self.owners.get(reference) != (workspace_id, provider):
+                return None
+            return self.retrieve(reference)
+
         def replace(self, reference, values):
             self.values[reference] = dict(values)
             return reference
+
+        def replace_for_workspace(self, workspace_id, provider, reference, values):
+            if self.owners.get(reference) != (workspace_id, provider):
+                raise KeyError(reference)
+            return self.replace(reference, values)
 
         def invalidate(self, reference):
             self.values.pop(reference, None)
 
         def delete(self, reference):
             self.values.pop(reference, None)
+            self.owners.pop(reference, None)
 
     backend = Backend()
     store = ManagedSecretStore(backend)

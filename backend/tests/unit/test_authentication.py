@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.main import app
+from lead_agent.application.integrations import create_manual_connection
+from lead_agent.domain.integrations import ManualConnectionInput
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
@@ -95,6 +97,45 @@ def test_signup_session_and_signout_lifecycle(tmp_path) -> None:
             signed_out = client.post("/v1/auth/signout", headers=csrf(client))
             assert signed_out.status_code == 204
             assert client.get("/v1/auth/session").status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_suspended_member_cannot_use_provider_actions(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    store = DevelopmentSecretStore()
+    app.dependency_overrides[get_secret_store] = lambda: store
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 201
+            membership = session.scalar(select(WorkspaceMembershipORM))
+            assert membership is not None
+            connection = create_manual_connection(
+                session,
+                membership.workspace_id,
+                "hubspot",
+                ManualConnectionInput(
+                    account_name="Suspended member test",
+                    auth_type="private_token",
+                    scopes=[],
+                    credentials={"access_token": "stored-provider-token"},
+                ),
+                store,
+            )
+            membership.status = "suspended"
+            session.commit()
+            tested = client.post(
+                f"/v1/integrations/connections/{connection.id}/test",
+                headers=csrf(client),
+            )
+            disconnected = client.post(
+                f"/v1/integrations/connections/{connection.id}/disconnect",
+                headers=csrf(client),
+            )
+            assert tested.status_code == 403
+            assert disconnected.status_code == 403
+            assert store.retrieve(connection.secret_reference) is not None
     finally:
         app.dependency_overrides.clear()
         session.close()
@@ -420,8 +461,13 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
             serialized = str(completed.json()).lower()
             assert completed.status_code == 200
             assert refreshed.status_code == 200
-            assert refreshed.json()["valid"] is True
-            assert refreshed.json()["connection"]["status"] == "connected"
+            assert refreshed.json()["valid"] is False
+            assert refreshed.json()["verified"] is False
+            assert refreshed.json()["error_code"] == "provider_validation_not_implemented"
+            assert refreshed.json()["connection"]["status"] == "error"
+            rotated_values = store.retrieve(connection.secret_reference)
+            assert rotated_values is not None
+            assert rotated_values["access_token"].startswith("development-refreshed-")
             assert completed.json()["status"] == "connected"
             assert replay.status_code == 422
             assert "access_token" not in serialized

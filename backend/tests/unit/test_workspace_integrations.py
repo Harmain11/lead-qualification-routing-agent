@@ -15,7 +15,7 @@ from lead_agent.application.tools import (
     ToolPermissionError,
     ToolRegistry,
 )
-from lead_agent.domain.integrations import ManualConnectionInput
+from lead_agent.domain.integrations import ConnectionValidation, ManualConnectionInput
 from lead_agent.domain.tools import ToolContext
 from lead_agent.infrastructure.crm.factory import (
     WorkspaceCrmProviderResolver,
@@ -31,6 +31,7 @@ from lead_agent.infrastructure.db.models import (
     SourceEventORM,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.provider_lifecycle import get_provider_connection_validator
 from lead_agent.infrastructure.repositories import (
     get_current_crm_sync,
     get_lead,
@@ -206,7 +207,7 @@ def test_production_resolver_never_selects_workspace_mock_connection(
         fallback = MockCrmProvider()
         settings.app_env = "production"
         resolver = WorkspaceCrmProviderResolver(settings, store)
-        assert resolver.resolve(session, workspace, fallback) is fallback
+        assert resolver.resolve(session, workspace, fallback) is not fallback
 
 
 def test_connected_crm_endpoints_cannot_be_overridden_by_workspace_credentials(
@@ -297,6 +298,19 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_secret_store] = lambda: store
+    app.dependency_overrides[get_provider_connection_validator] = lambda: type(
+        "Validator",
+        (),
+        {
+            "validate": lambda self, provider, credentials, scopes: ConnectionValidation(
+                valid=True,
+                verified=True,
+                status="connected",
+                credential_state="configured",
+                message="Provider accepted the credentials.",
+            )
+        },
+    )()
     try:
         with TestClient(app) as client:
             created = client.post(
@@ -351,6 +365,14 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
                 f"/v1/integrations/connections/{body['id']}",
                 headers={"X-Workspace-ID": str(workspace_b)},
             )
+            foreign_test = client.post(
+                f"/v1/integrations/connections/{body['id']}/test",
+                headers={"X-Workspace-ID": str(workspace_b)},
+            )
+            foreign_disconnect = client.post(
+                f"/v1/integrations/connections/{body['id']}/disconnect",
+                headers={"X-Workspace-ID": str(workspace_b)},
+            )
             tested = client.post(
                 f"/v1/integrations/connections/{body['id']}/test",
                 headers={"X-Workspace-ID": str(workspace_a)},
@@ -369,6 +391,8 @@ def test_connection_api_never_exposes_secret_and_blocks_cross_workspace_access(
         assert rejected_nested_secret_metadata.status_code == 422
         assert rejected_endpoint_override.status_code == 422
         assert foreign.status_code == 404
+        assert foreign_test.status_code == 404
+        assert foreign_disconnect.status_code == 404
         assert tested.status_code == 200 and tested.json()["valid"] is True
         assert disconnected.json()["credential_state"] == "missing"
         assert reconnected.json()["credential_state"] == "configured"

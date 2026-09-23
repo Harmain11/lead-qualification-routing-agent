@@ -316,7 +316,8 @@ export type ProviderConnection = {
   external_account_id: string | null;
   account_name: string;
   auth_type: string;
-  status: "connecting" | "awaiting_authorization" | "validating" | "connected" | "needs_attention" | "authorization_expired" | "connection_failed" | "reconnect_required" | "disconnected";
+  status: "configured" | "connecting" | "awaiting_authorization" | "validating" | "connected" | "verified" | "expired" | "needs_reauthorization" | "error" | "needs_attention" | "authorization_expired" | "connection_failed" | "reconnect_required" | "disconnected";
+  verification_status: "not_verified" | "verified" | "failed" | "reauthorization_required";
   scopes: string[];
   credential_state: "configured" | "missing" | "expired" | "invalid";
   last_validation_at: string | null;
@@ -403,6 +404,7 @@ export type IntegrationCard = {
   permission_reason: string;
   documentation_url: string;
   manual_fields: string[];
+  connection_mode: "workspace" | "operator";
   connection: ProviderConnection | null;
 };
 

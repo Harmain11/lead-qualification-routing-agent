@@ -152,7 +152,17 @@ def get_active_crm_provider(
     fallback: CrmProvider = Depends(get_crm_provider),
     resolver: WorkspaceCrmProviderResolver = Depends(get_workspace_crm_resolver),
 ) -> CrmProvider:
-    return resolver.resolve(session, workspace.workspace_id, fallback)
+    if "crm.sync" not in workspace.permissions:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="permission required: crm.sync",
+        )
+    return resolver.resolve(
+        session,
+        workspace.workspace_id,
+        fallback,
+        actor_id=workspace.actor_id,
+    )
 
 
 def require_permissions(*permissions: str) -> Callable[..., WorkspaceContext]:

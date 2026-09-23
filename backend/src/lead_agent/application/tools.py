@@ -213,7 +213,12 @@ class CrmCreateOrUpdateLeadTool:
         lead = get_lead(self.session, request.lead_id, context.workspace_id)
         if lead is None:
             raise LookupError("lead not found in the tool workspace")
-        provider = self.resolver.resolve(self.session, context.workspace_id, self.fallback)
+        provider = self.resolver.resolve(
+            self.session,
+            context.workspace_id,
+            self.fallback,
+            actor_id=context.actor_id,
+        )
         row = sync_lead_to_crm(self.session, lead, provider)
         return {
             "crm_sync_id": str(row.id),
