@@ -12,6 +12,7 @@ salesforce:
     qualification_score: "Qualification_Score__c"
     qualification_band: "Qualification_Band__c"
     icp_score: "ICP_Score__c"
+    icp_profile_version: "ICP_Profile_Version__c"
     intent_urgency_score: "Intent_Urgency_Score__c"
     engagement_score: "Engagement_Score__c"
     rationale_text: "Qualification_Rationale__c"

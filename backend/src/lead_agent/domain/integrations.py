@@ -78,7 +78,7 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         supported_auth=["oauth2", "private_token"],
         dashboard_path="Managed by Ingenuity Systems · Salesforce OAuth app",
         credential_help="Sign in to Salesforce and approve access. No developer setup is required.",
-        required_scopes=["api", "refresh_token/offline_access"],
+        required_scopes=["api", "refresh_token"],
         permission_reason="Create or update Lead records and the configured sales fields.",
         documentation_url=(
             "https://developer.salesforce.com/docs/platform/api-rest/guide/"

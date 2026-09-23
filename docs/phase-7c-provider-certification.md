@@ -18,7 +18,8 @@ Workspace-owned connections move through a deliberately small lifecycle:
 The UI and API never equate “credentials stored” with “verified.” A provider without a
 real validator returns `provider_validation_not_implemented` and fails closed. Provider
 certification must add a low-risk probe and controlled mocked fixtures before the state can
-become `verified`.
+become `verified`. Salesforce now supplies this probe through its read-only
+`/services/data/{version}/limits` request; remaining providers must add their own.
 
 ## Secret ownership and storage
 
@@ -104,5 +105,6 @@ of provider-specific error payloads and retry metadata, exact scopes, account id
 expiry/rotation semantics, and PostgreSQL concurrency behavior. Salesforce and HubSpot must also
 complete the schema and real read-after-write checks from the 7C0 audit. No provider account,
 application, credential, mailbox acquisition adapter, real CRM write, or Slack message was
-created in Phase 7C1.
-
+created in Phase 7C1. Salesforce's shared-gate implementation is prepared in
+[`phase-7c2a-salesforce-preparation.md`](phase-7c2a-salesforce-preparation.md), but real
+Salesforce certification remains a separate controlled operation.

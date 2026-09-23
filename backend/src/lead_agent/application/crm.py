@@ -19,8 +19,14 @@ from lead_agent.domain.crm import (
     CrmProviderError,
 )
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
-from lead_agent.infrastructure.db.models import CrmSyncORM, LeadORM, RoutingDecisionORM
+from lead_agent.infrastructure.db.models import (
+    CrmSyncORM,
+    LeadORM,
+    ProviderConnectionORM,
+    RoutingDecisionORM,
+)
 from lead_agent.infrastructure.observability import get_observability, provider_operation
+from lead_agent.infrastructure.provider_lifecycle import record_provider_lifecycle_audit
 from lead_agent.infrastructure.repositories import get_current_crm_sync, get_current_routing
 
 _LOGGER = logging.getLogger("lead_agent.crm")
@@ -260,6 +266,26 @@ def sync_lead_to_crm(
                     "completed_at": sync_row.updated_at.isoformat(),
                 },
             ]
+            if error.code.endswith("_invalid_credentials") and provider_connection_id:
+                connection = session.get(ProviderConnectionORM, provider_connection_id)
+                if connection is not None and connection.workspace_id == lead.workspace_id:
+                    connection.status = "needs_reauthorization"
+                    connection.credential_state = "invalid"
+                    connection.last_validation_at = datetime.now(UTC)
+                    connection.last_validation_result = {
+                        "status": "invalid_credentials",
+                        "verified": False,
+                        "error_code": error.code,
+                        "message": "Salesforce credentials were rejected; reconnect is required.",
+                    }
+                    record_provider_lifecycle_audit(
+                        session,
+                        connection,
+                        action="provider_operation",
+                        outcome="needs_reauthorization",
+                        error_code=error.code,
+                        details={"operation": "crm_sync"},
+                    )
             session.commit()
             if error.retryable and attempts_this_run < max(1, max_attempts):
                 continue

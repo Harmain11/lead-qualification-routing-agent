@@ -286,10 +286,9 @@ class Settings(BaseSettings):
                     for value in (
                         self.salesforce_client_id,
                         self.salesforce_client_secret,
-                        self.salesforce_refresh_token,
                     )
                 ),
-                "Salesforce fallback credentials must be configured",
+                "Salesforce OAuth application credentials must be configured",
             )
         elif self.crm_provider == "hubspot":
             require(

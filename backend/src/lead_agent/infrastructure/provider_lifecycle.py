@@ -26,6 +26,10 @@ from lead_agent.domain.provider_errors import (
     provider_timeout_error,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.crm.salesforce import (
+    SalesforceConnectionValidator,
+    SalesforceProviderRevoker,
+)
 from lead_agent.infrastructure.db.models import (
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
@@ -33,6 +37,7 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.observability import current_request_id
 from lead_agent.infrastructure.secrets import get_secret_store
+from lead_agent.settings.config import get_settings
 
 _REFRESH_SKEW = timedelta(seconds=60)
 _CONNECTION_LOCKS: dict[UUID, RLock] = {}
@@ -92,6 +97,26 @@ class DeferredProviderValidator:
         )
 
 
+class ProviderConnectionValidatorRegistry:
+    def __init__(
+        self,
+        validators: dict[str, ProviderConnectionValidator],
+        fallback: ProviderConnectionValidator,
+    ) -> None:
+        self._validators = validators
+        self._fallback = fallback
+
+    def validate(
+        self,
+        provider: str,
+        credentials: dict[str, str],
+        scopes: list[str],
+    ) -> ConnectionValidation:
+        return self._validators.get(provider, self._fallback).validate(
+            provider, credentials, scopes
+        )
+
+
 class OAuthBrokerRevoker:
     def __init__(self, broker: OAuthBroker) -> None:
         self._broker = broker
@@ -102,6 +127,19 @@ class OAuthBrokerRevoker:
         except Exception:
             return RevocationResult(status="failed", error_code="provider_revocation_failed")
         return RevocationResult(status="confirmed" if confirmed else "unsupported")
+
+
+class ProviderRevokerRegistry:
+    def __init__(
+        self,
+        revokers: dict[str, ProviderRevoker],
+        fallback: ProviderRevoker,
+    ) -> None:
+        self._revokers = revokers
+        self._fallback = fallback
+
+    def revoke(self, provider: str, values: dict[str, str]) -> RevocationResult:
+        return self._revokers.get(provider, self._fallback).revoke(provider, values)
 
 
 @dataclass(frozen=True)
@@ -405,12 +443,30 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
 
 @lru_cache
 def get_provider_connection_validator() -> ProviderConnectionValidator:
-    return DeferredProviderValidator()
+    settings = get_settings()
+    return ProviderConnectionValidatorRegistry(
+        {
+            "salesforce": SalesforceConnectionValidator(
+                api_version=settings.salesforce_api_version,
+                timeout_seconds=settings.crm_timeout_seconds,
+            )
+        },
+        DeferredProviderValidator(),
+    )
 
 
 @lru_cache
 def get_provider_revoker() -> ProviderRevoker:
-    return OAuthBrokerRevoker(get_oauth_broker())
+    settings = get_settings()
+    return ProviderRevokerRegistry(
+        {
+            "salesforce": SalesforceProviderRevoker(
+                login_base_url=settings.salesforce_login_base_url,
+                timeout_seconds=settings.crm_timeout_seconds,
+            )
+        },
+        OAuthBrokerRevoker(get_oauth_broker()),
+    )
 
 
 @lru_cache

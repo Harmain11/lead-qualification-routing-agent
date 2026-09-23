@@ -11,7 +11,7 @@ Provider SDKs and OAuth clients remain deferred except for the Phase 4 Slack not
 | Clutch v1 recommendation | Parse Clutch inquiry notification emails through the mailbox boundary | Mailbox access and a provider-specific parser fixture | Mailbox variables; no Clutch API key assumed |
 | LinkedIn | Official permitted API path, preferably lead forms or approved inbound message access | LinkedIn app, approved products/scopes, access token, webhook verification if applicable | `LINKEDIN_*` |
 | Optional social | Platform-owned webhook/API for DMs or comments | App credentials, webhook verification, approved scopes | `SOCIAL_*` |
-| Salesforce | OAuth plus Salesforce REST API for Lead/Contact and custom fields | Connected app, client ID/secret, refresh token, sandbox or production login URL | `SALESFORCE_*` |
+| Salesforce | OAuth plus Salesforce REST API for Lead/Contact and custom fields | External Client App, client ID/secret, refresh token, sandbox or production login URL | `SALESFORCE_*` |
 | HubSpot | OAuth or private-app CRM API for Contact/Deal properties | App credentials or private-app token, scopes for CRM objects and properties | `HUBSPOT_ACCESS_TOKEN` and future OAuth variables if needed |
 | Slack | Slack Web API behind `NotificationProvider`; interactive review actions remain optional | Bot token and channel ID; signing secret only if receiving interactions | `NOTIFICATION_PROVIDER=slack`, `SLACK_*` |
 | Reasoning | OpenAI Responses API through an internal provider adapter | Project API key, approved model, data-retention decision | `OPENAI_*` |
@@ -95,20 +95,24 @@ The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVID
 ### Phase 5 CRM status
 
 - `CRM_PROVIDER=mock` is deterministic, credential-free, and used by automated tests.
-- `CRM_PROVIDER=salesforce` uses OAuth refresh-token authentication and REST sObject upsert through the external-ID field configured in `config/crm.example.yaml`.
+- `CRM_PROVIDER=salesforce` selects the Salesforce adapter. Production requests resolve an active
+  workspace OAuth connection; its access/refresh tokens and instance URL are stored in the
+  workspace secret store. The adapter uses the shared lifecycle's access token and does not run a
+  second refresh exchange inside a CRM operation. The configured external-ID field drives REST
+  sObject upsert.
 - `CRM_PROVIDER=hubspot` uses a private-app bearer token, CRM v3 batch upsert, and CRM v4 default associations.
 - A canonical payload carries lead identity, source, service, grounded summary, 40/35/25 components, total score, band, rationale, action plan, queue/rep, and urgency. Provider schemas remain inside adapters and mapping configuration.
 - `crm_syncs` preserves payload hashes, attempts, provider IDs, state, errors, retryability, and history. Provider failure does not change successful lead/routing state.
 
 ### Salesforce setup
 
-1. Use a Salesforce sandbox or Developer Edition and create an External Client App (or an existing Connected App) with OAuth enabled. Grant the dedicated integration user `api` and refresh-token/offline access, plus least-privilege read/write access to Lead and any enabled Opportunity fields.
+1. Use a Salesforce sandbox or Developer Edition and create an External Client App with OAuth enabled. Request the OAuth scope parameters `api` and `refresh_token` (the Salesforce UI labels the latter “Perform requests at any time”), plus least-privilege read/write access to Lead. Opportunity sync is disabled by default.
 2. Create a unique Text External ID on Lead named `Lead_Agent_ID__c`, or change `lead_external_id_field` in `config/crm.example.yaml`. Salesforce REST upsert requires the configured field to be an External ID; making it Unique provides database-level duplicate prevention.
-3. Create or map the configured Lead fields: requested service, summary, total/component scores, band, rationale, recommended action, assigned queue, and urgency/timeline. Long rationale/summary/action values should use Long Text Area fields. If Opportunity sync is enabled, create the configured unique Opportunity external ID and mapped fields and confirm valid stage names.
+3. Create or map the configured Lead fields: requested service, summary, total/component scores, ICP profile version, band, rationale, recommended action, assigned queue, and urgency/timeline. Long rationale/summary/action values should use Long Text Area fields.
 4. If owner assignment is wanted, map internal rep IDs to Salesforce User IDs under `salesforce.owner_mapping`; otherwise ownership remains with Salesforce defaults.
-5. Set `CRM_PROVIDER=salesforce`, `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`, `SALESFORCE_REFRESH_TOKEN`, `SALESFORCE_LOGIN_BASE_URL`, and `SALESFORCE_API_VERSION` outside Git. Production secrets belong in a secret manager.
+5. Set `CRM_PROVIDER=salesforce`, `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`, `SALESFORCE_LOGIN_BASE_URL`, and `SALESFORCE_API_VERSION` outside Git. `SALESFORCE_REFRESH_TOKEN` is only an optional development fallback; production workspace tokens belong in a secret manager.
 
-Salesforce’s official REST documentation describes OAuth authorization and sObject upsert by external ID: <https://developer.salesforce.com/docs/platform/api-rest/guide/intro-oauth-and-connected-apps.html> and <https://developer.salesforce.com/docs/platform/api-rest/guide/resources-sobject-upsert-patch.html>.
+Salesforce’s current External Client App PKCE guidance and REST sObject upsert documentation are <https://developer.salesforce.com/docs/platform/data-loader-impl/guide/loader-eca-oauth-pkce.html> and <https://developer.salesforce.com/docs/platform/api-rest/guide/resources-sobject-upsert-patch.html>.
 
 ### HubSpot setup
 
@@ -135,6 +139,6 @@ The frontend setup catalog describes where credentials originate, minimum scopes
 
 ### Phase 6.5 connection experience
 
-Salesforce, HubSpot, Slack, Gmail, and Outlook present OAuth-first Connect/Reconnect actions. The customer does not create an app or paste client secrets; application operators register one approved integration app per provider and inject its client credentials through the deployment secret system. LinkedIn remains gated to officially approved products/scopes. OpenAI retains guided one-time API-key entry because no equivalent customer-account authorization is assumed.
+Salesforce, HubSpot, Slack, Gmail, and Outlook present OAuth-first Connect/Reconnect actions. The customer does not create an app or paste client secrets; application operators register one approved integration app per provider and inject its client credentials through the deployment secret system. LinkedIn remains gated to officially approved products/scopes. OpenAI is operator-managed in this release; the workspace Integrations card does not accept an API key and does not control the global reasoning runtime.
 
 Connection states support connecting, awaiting authorization, validating, connected, needs attention, authorization expired, connection failed, reconnect required, and disconnected. OAuth state travels through the browser as required by the authorization flow; PKCE verifiers, provider tokens, and secret references are omitted from frontend responses.

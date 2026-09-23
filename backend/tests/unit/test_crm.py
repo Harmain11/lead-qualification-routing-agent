@@ -16,10 +16,15 @@ from lead_agent.domain.crm import (
     CrmProviderError,
     HubSpotCrmConfig,
 )
+from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.crm.factory import get_crm_provider
 from lead_agent.infrastructure.crm.hubspot import HubSpotCrmProvider
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
-from lead_agent.infrastructure.crm.salesforce import SalesforceCrmProvider
+from lead_agent.infrastructure.crm.salesforce import (
+    SalesforceConnectionValidator,
+    SalesforceCrmProvider,
+    SalesforceProviderRevoker,
+)
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import CrmSyncORM, PipelineEventORM
@@ -262,7 +267,7 @@ def test_lifecycle_appends_crm_after_notification(icp, routing, tmp_path) -> Non
 def test_salesforce_mapping_owner_and_external_id_upsert(crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.test"}),
+            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
             FakeResponse(201, {"id": "00Q-contact", "created": True}),
         ]
     )
@@ -292,9 +297,9 @@ def test_salesforce_mapping_owner_and_external_id_upsert(crm_config) -> None:
 def test_salesforce_existing_record_uses_same_external_identity(crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.test"}),
+            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
             FakeResponse(201, {"id": "00Q-contact"}),
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.test"}),
+            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
             FakeResponse(200, {"id": "00Q-contact", "created": False}),
         ]
     )
@@ -321,7 +326,7 @@ def test_salesforce_existing_record_uses_same_external_identity(crm_config) -> N
 def test_salesforce_error_classification(status, category, retryable, crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.test"}),
+            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
             FakeResponse(status),
         ]
     )
@@ -355,6 +360,89 @@ def test_salesforce_missing_credentials_fails_without_http(crm_config) -> None:
         provider.sync(canonical_payload())
     assert caught.value.category == "configuration"
     assert transport.requests == []
+
+
+def test_salesforce_workspace_access_token_skips_duplicate_refresh(crm_config) -> None:
+    transport = FakeTransport([FakeResponse(201, {"id": "00Q-workspace"})])
+    provider = SalesforceCrmProvider(
+        client_id="operator-client",
+        client_secret="operator-secret",
+        refresh_token="workspace-refresh",
+        access_token="workspace-access",
+        instance_url="https://org.salesforce.com",
+        login_base_url="https://login.salesforce.com",
+        api_version="v68.0",
+        config=crm_config.salesforce,
+        transport=transport,
+    )
+    result = provider.sync(canonical_payload())
+    assert result.entities.contact_id == "00Q-workspace"
+    assert len(transport.requests) == 1
+    assert transport.requests[0]["method"] == "PATCH"
+    assert transport.requests[0]["headers"]["Authorization"] == "Bearer workspace-access"
+
+
+def test_salesforce_validator_probes_limits_with_scoped_token() -> None:
+    transport = FakeTransport([FakeResponse(200, {"DailyApiRequests": {"Max": 15000}})])
+    validator = SalesforceConnectionValidator(
+        api_version="v68.0", transport=transport
+    )
+    result = validator.validate(
+        "salesforce",
+        {"access_token": "workspace-access", "instance_url": "https://org.salesforce.com"},
+        ["api", "refresh_token"],
+    )
+    assert result.valid is True
+    assert result.verified is True
+    assert result.status == "connected"
+    assert transport.requests[0]["method"] == "GET"
+    assert transport.requests[0]["url"].endswith("/services/data/v68.0/limits")
+    assert transport.requests[0]["headers"]["Authorization"] == "Bearer workspace-access"
+    assert result.metadata["instance_host"] == "org.salesforce.com"
+
+
+def test_salesforce_validator_translates_auth_and_malformed_failures() -> None:
+    auth_validator = SalesforceConnectionValidator(
+        api_version="v68.0", transport=FakeTransport([FakeResponse(401)])
+    )
+    with pytest.raises(ProviderOperationError) as auth_error:
+        auth_validator.validate(
+            "salesforce",
+            {"access_token": "workspace-access", "instance_url": "https://org.salesforce.com"},
+            ["api"],
+        )
+    assert auth_error.value.category == "invalid_credentials"
+    assert "workspace-access" not in str(auth_error.value)
+
+    malformed_validator = SalesforceConnectionValidator(
+        api_version="v68.0", transport=FakeTransport([FakeResponse(200, ["not-a-map"])] )
+    )
+    with pytest.raises(ProviderOperationError) as malformed_error:
+        malformed_validator.validate(
+            "salesforce",
+            {"access_token": "workspace-access", "instance_url": "https://org.salesforce.com"},
+            ["api"],
+        )
+    assert malformed_error.value.category == "malformed_response"
+
+
+def test_salesforce_revoker_uses_oauth_revoke_endpoint_without_exposing_token() -> None:
+    transport = FakeTransport([FakeResponse(200)])
+    revoker = SalesforceProviderRevoker(
+        login_base_url="https://login.salesforce.com", transport=transport
+    )
+    result = revoker.revoke(
+        "salesforce", {"access_token": "workspace-access", "refresh_token": "workspace-refresh"}
+    )
+    assert result.status == "confirmed"
+    assert transport.requests[0]["url"].endswith("/services/oauth2/revoke")
+    assert transport.requests[0]["data"] == {"token": "workspace-refresh"}
+
+    failed = SalesforceProviderRevoker(
+        login_base_url="https://login.salesforce.com", transport=FakeTransport([FakeResponse(503)])
+    ).revoke("salesforce", {"access_token": "workspace-access"})
+    assert failed.status == "failed"
+    assert failed.error_code == "salesforce_revocation_rejected"
 
 
 def test_hubspot_contact_company_deal_mapping_and_associations(crm_config) -> None:
@@ -452,7 +540,7 @@ def test_hubspot_missing_credentials_fails_without_http(crm_config) -> None:
 def test_cross_provider_contract_returns_canonical_entity_references(crm_config) -> None:
     salesforce_transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.test"}),
+            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
             FakeResponse(201, {"id": "sf-lead"}),
         ]
     )

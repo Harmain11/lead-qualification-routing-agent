@@ -99,6 +99,8 @@ def build_connected_crm_provider(
             client_id=credentials.get("client_id", settings.salesforce_client_id),
             client_secret=credentials.get("client_secret", settings.salesforce_client_secret),
             refresh_token=credentials.get("refresh_token", ""),
+            access_token=credentials.get("access_token", ""),
+            instance_url=credentials.get("instance_url", ""),
             login_base_url=settings.salesforce_login_base_url,
             api_version=settings.salesforce_api_version,
             config=config.salesforce,
