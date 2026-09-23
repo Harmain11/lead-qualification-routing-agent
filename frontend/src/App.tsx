@@ -22,6 +22,7 @@ import type { AuthSession, Lead, TimeRange } from "./types";
 import { can, defaultPermissionsForRole } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { IntegrationsView } from "./views/IntegrationsView";
+import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
 import {
   AgentsView,
@@ -44,7 +45,7 @@ type View =
   | "review"
   | "settings";
   // Team administration is opened from Settings and keeps the primary rail calm.
-type AppView = View | "team";
+type AppView = View | "team" | "icp";
 
 const navigation: Array<{ id: View; label: string; glyph: string; group?: string }> = [
   { id: "dashboard", label: "Dashboard", glyph: "⌁" },
@@ -195,7 +196,7 @@ function App() {
           {navigation.map((item, index) => (
             <div key={item.id}>
               {item.group && <span className="nav-group">{item.group}</span>}
-              <button className={view === item.id || (item.id === "settings" && view === "team") ? "active" : ""} onClick={() => navigate(item.id)}>
+              <button className={view === item.id || (item.id === "settings" && (view === "team" || view === "icp")) ? "active" : ""} onClick={() => navigate(item.id)}>
                 <i>{item.glyph}</i><span>{item.label}</span>
                 {item.id === "review" && (data?.review.total ?? 0) > 0 && <b>{data?.review.total}</b>}
               </button>
@@ -234,7 +235,7 @@ function App() {
       <main className="product-main">
         <header className="product-bar">
           <button className="menu-button" onClick={() => setNavOpen((current) => !current)} aria-expanded={navOpen} aria-label="Toggle navigation">☰</button>
-          <div className="breadcrumb"><span>Revenue Operations</span><i>/</i><b>{view === "team" ? "Team & Permissions" : navigation.find((item) => item.id === view)?.label}</b></div>
+          <div className="breadcrumb"><span>Revenue Operations</span><i>/</i><b>{view === "team" ? "Team & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
           <div className="bar-actions">
             <RangePicker value={range} onChange={setRange} />
             <span className={`mode-badge ${metadata?.data_mode || "demo"}`}>{metadata?.data_mode === "live" ? "LIVE DATA" : "DEMO DATA"}</span>
@@ -242,7 +243,7 @@ function App() {
           </div>
         </header>
         {error && <div className="api-error" role="alert"><div><b>Control plane unavailable</b><span>{error}</span></div><button onClick={() => void refresh()}>Retry</button></div>}
-        {loading && !data && view !== "settings" && view !== "team" ? <ContentLoadingState /> : (
+        {loading && !data && view !== "settings" && view !== "team" && view !== "icp" ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
             {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={handleInspectLead} canEdit={can(workspacePermissions, "leads.edit")} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
@@ -251,8 +252,9 @@ function App() {
             {view === "analytics" && <AnalyticsView data={data} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView permissions={workspacePermissions} />}
-            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} />}
+            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewIcp={can(workspacePermissions, "icp.view")} />}
             {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
+            {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
           </div>
         )}
         <footer className="product-footer">

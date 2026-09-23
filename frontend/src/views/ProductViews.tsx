@@ -289,7 +289,7 @@ export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalyt
   );
 }
 
-export function SettingsView({ metadata, onIntegrations, onTeam }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void }) {
+export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewIcp }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewIcp: boolean }) {
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
@@ -297,8 +297,9 @@ export function SettingsView({ metadata, onIntegrations, onTeam }: { metadata?: 
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
         <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned CRM, notification and future mail connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
         <Panel title="Team & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite staff, review roles and make deliberate permission exceptions. Backend authorization remains the source of truth for every action.</p><button className="primary-button" onClick={onTeam}>Open Team & Permissions →</button></Panel>
+        <Panel title="Ideal Customer Profile" eyebrow="Qualification policy"><p className="panel-copy">Build, validate and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p><button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>{canViewIcp ? "Open ICP Builder →" : "ICP view permission required"}</button></Panel>
         <Panel title="Data range" eyebrow="Analytics contract"><p className="panel-copy">Weekly, monthly and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p></Panel>
-        <Panel title="Product state" eyebrow="Phase 7B2"><p className="panel-copy">Analytics, cinematic operations and workspace team controls are active. Custom ICP, exports and provider validation remain intentionally deferred.</p></Panel>
+        <Panel title="Product state" eyebrow="Phase 7B3"><p className="panel-copy">Analytics, team controls and workspace-specific versioned ICP qualification are active. Exports and live provider validation remain intentionally deferred.</p></Panel>
       </section>
     </div>
   );

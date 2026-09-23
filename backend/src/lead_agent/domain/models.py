@@ -57,6 +57,11 @@ class QualificationResult:
     score_breakdown: tuple[ScoreLine, ...]
     policy_version: str
     confidence: float = 1.0
+    disqualifier_evidence: tuple[str, ...] = ()
+    icp_version_id: UUID | None = None
+    icp_source: str = "system_default"
+    icp_profile_version: str = "legacy"
+    icp_configuration_hash: str = "legacy"
 
     @property
     def component_scores(self) -> dict[str, int]:
@@ -73,9 +78,14 @@ class QualificationResult:
             "routing_action": self.routing_action,
             "hard_disqualified": self.hard_disqualified,
             "disqualifier_code": self.disqualifier_code,
+            "disqualifier_evidence": list(self.disqualifier_evidence),
             "rationale": list(self.rationale),
             "score_breakdown": [line.as_dict() for line in self.score_breakdown],
             "component_scores": self.component_scores,
             "policy_version": self.policy_version,
+            "icp_version_id": str(self.icp_version_id) if self.icp_version_id else None,
+            "icp_source": self.icp_source,
+            "icp_profile_version": self.icp_profile_version,
+            "icp_configuration_hash": self.icp_configuration_hash,
             "confidence": self.confidence,
         }

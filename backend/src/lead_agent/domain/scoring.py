@@ -22,6 +22,8 @@ def _contains_any(text: str, signals: Iterable[str]) -> str | None:
 
 def _matches_list(value: str | None, options: Iterable[str]) -> str | None:
     normalized = _norm(value)
+    if not normalized:
+        return None
     for option in options:
         candidate = _norm(option)
         if candidate and (candidate in normalized or normalized in candidate):
@@ -45,6 +47,13 @@ def _line(
 def find_hard_disqualifier(lead: NormalizedLead, icp: IcpConfig) -> tuple[str, str] | None:
     """Return the first configured hard exclusion before provider reasoning."""
 
+    excluded_industry = _matches_list(lead.industry, icp.excluded_industries)
+    if excluded_industry:
+        return (
+            "excluded_industry",
+            f"Hard disqualifier 'excluded_industry' matched industry '{excluded_industry}'.",
+        )
+
     searchable = " ".join(
         value
         for value in (
@@ -59,11 +68,19 @@ def find_hard_disqualifier(lead: NormalizedLead, icp: IcpConfig) -> tuple[str, s
         if value
     ).lower()
     for rule in icp.disqualifiers:
-        if rule.severity.lower() != "hard":
-            continue
-        for keyword in rule.keywords:
-            if re.search(rf"\b{re.escape(keyword.lower())}\b", searchable):
-                return rule.code, f"Hard disqualifier '{rule.code}' matched keyword '{keyword}'."
+        field_value = searchable if rule.field == "searchable" else _norm(getattr(lead, rule.field))
+        for keyword in [*rule.keywords, *rule.values]:
+            normalized = keyword.strip().lower()
+            matched = (
+                bool(normalized and re.search(rf"\b{re.escape(normalized)}\b", field_value))
+                if rule.operator == "contains_any"
+                else field_value == normalized
+            )
+            if matched:
+                return (
+                    rule.code,
+                    f"Hard disqualifier '{rule.code}' matched {rule.field} value '{keyword}'.",
+                )
     return None
 
 
@@ -140,6 +157,7 @@ def qualify_lead(
             score_breakdown=skipped,
             policy_version=routing.policy_version,
             confidence=analysis.overall_confidence if analysis else 1.0,
+            disqualifier_evidence=(reason,),
         )
 
     points = icp.scoring.component_points
@@ -157,6 +175,94 @@ def qualify_lead(
             industry or "no industry match",
         )
     )
+
+    # Workspace builders can allocate ICP points to additional structured criteria. These
+    # evaluations only award points for observed or grounded values; missing data stays unknown.
+    existing_icp_keys = {
+        "industry_match",
+        "company_size_fit",
+        "geography_match",
+        "buyer_role_match",
+        "budget_fit",
+    }
+    searchable = _norm(
+        " ".join(
+            filter(
+                None,
+                [
+                    lead.company_name,
+                    lead.job_title,
+                    lead.product_or_service,
+                    lead.message,
+                ],
+            )
+        )
+    )
+    for key, maximum in icp_points.items():
+        if key in existing_icp_keys:
+            continue
+        matched: str | None = None
+        reason = "Configured criterion does not match or required information is unknown."
+        if key == "decision_maker":
+            indicators = [
+                *icp.buyer.decision_maker_indicators,
+                *icp.buyer_roles.get("decision_makers", []),
+            ]
+            matched = _matches_list(lead.job_title, indicators)
+            reason = "Buyer is a configured decision maker." if matched else reason
+        elif key == "revenue_fit" and lead.annual_revenue is not None:
+            revenue = float(lead.annual_revenue)
+            minimum = icp.company_size.annual_revenue_min
+            maximum_revenue = icp.company_size.annual_revenue_max
+            if revenue >= minimum and (not maximum_revenue or revenue <= maximum_revenue):
+                matched = str(lead.annual_revenue)
+                reason = "Annual revenue is inside the configured range."
+        elif key == "business_type_match":
+            matched = _contains_any(searchable, icp.target_business_types)
+            reason = "Business type matches the configured profile." if matched else reason
+        elif key == "strategic_account":
+            matched = _matches_list(lead.company_name, icp.strategic_accounts)
+            reason = "Company is on the strategic account list." if matched else reason
+        elif key == "technology_fit":
+            matched = _contains_any(
+                searchable,
+                [*icp.technology.technology_stack, *icp.technology.platform_requirements],
+            )
+            reason = (
+                "A configured technology or platform requirement is present."
+                if matched
+                else reason
+            )
+        elif key == "product_interest":
+            matched = _matches_list(lead.product_or_service, icp.commercial.service_interests)
+            reason = "Product or service interest matches." if matched else reason
+        elif key == "purchasing_timeline":
+            matched = _contains_any(searchable, icp.commercial.purchasing_timelines)
+            reason = "Purchasing timeline matches a configured signal." if matched else reason
+        elif key == "department_match":
+            matched = _contains_any(_norm(lead.job_title), icp.buyer.departments)
+            reason = "Buyer department matches." if matched else reason
+        elif key == "seniority_match":
+            matched = _contains_any(_norm(lead.job_title), icp.buyer.seniorities)
+            reason = "Buyer seniority matches." if matched else reason
+        elif key == "required_signals":
+            required = [signal for signal in icp.fit_signals.required if signal.strip()]
+            if required and all(_norm(signal) in searchable for signal in required):
+                matched = ", ".join(required)
+                reason = "All configured required signals are present."
+        elif key == "preferred_signals":
+            matched = _contains_any(searchable, icp.fit_signals.preferred)
+            reason = "A configured preferred signal is present." if matched else reason
+        lines.append(
+            _line(
+                "icp_fit",
+                key,
+                maximum if matched else 0,
+                maximum,
+                reason,
+                matched or "unknown or no match",
+            )
+        )
 
     size = icp.company_size
     size_fit = (

@@ -11,6 +11,7 @@ from lead_agent.api.routes import (
     auth,
     crm,
     health,
+    icp,
     intake,
     integrations,
     leads,
@@ -47,3 +48,4 @@ app.include_router(crm.router)
 app.include_router(integrations.router)
 app.include_router(analytics.router)
 app.include_router(team.router)
+app.include_router(icp.router)

@@ -128,6 +128,32 @@ class WorkspaceAdminAuditEventORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceIcpVersionORM(Base):
+    __tablename__ = "workspace_icp_versions"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "version_number", name="uq_workspace_icp_version"),
+        Index("ix_workspace_icp_workspace_status", "workspace_id", "status"),
+        Index("ix_workspace_icp_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AuthSessionORM(Base):
     __tablename__ = "auth_sessions"
     __table_args__ = (
@@ -313,10 +339,21 @@ class QualificationResultORM(Base):
     routing_action: Mapped[str] = mapped_column(String(128), nullable=False)
     hard_disqualified: Mapped[bool] = mapped_column(nullable=False, default=False)
     disqualifier_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    disqualifier_evidence: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     rationale: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     score_breakdown: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
     component_scores: Mapped[dict[str, int]] = mapped_column(JSON, nullable=False)
     policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    icp_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_icp_versions.id", ondelete="RESTRICT"), nullable=True
+    )
+    icp_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="system_default"
+    )
+    icp_profile_version: Mapped[str] = mapped_column(String(64), nullable=False, default="legacy")
+    icp_configuration_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="legacy"
+    )
     confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False, default=1.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

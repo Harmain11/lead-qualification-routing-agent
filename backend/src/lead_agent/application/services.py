@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from lead_agent.application.crm import sync_lead_to_crm
+from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
@@ -66,7 +67,13 @@ def _record_pre_routing_history(
         row.id,
         "qualified",
         "completed",
-        {"band": result.classification, "score": result.total_score},
+        {
+            "band": result.classification,
+            "score": result.total_score,
+            "icp_source": result.icp_source,
+            "icp_version_id": str(result.icp_version_id) if result.icp_version_id else None,
+            "icp_profile_version": result.icp_profile_version,
+        },
     )
 
 
@@ -167,8 +174,10 @@ def process_lead(
     crm_payload_version: str = "1.0",
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
+    resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
-    analysis, result = _analyze_and_qualify(lead, icp, routing, provider)
+    analysis, result = _analyze_and_qualify(lead, resolved_icp.configuration, routing, provider)
+    result = resolved_icp.trace_result(result)
     row = create_lead_with_result(
         session, lead, result, analysis=analysis, workspace_id=workspace_id
     )
@@ -227,8 +236,12 @@ def process_source_event(
 
     update_source_event(session, source_event, status="processing", increment_attempt=True)
     try:
+        resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
         lead = normalize_lead(event.normalized_payload, uuid4())
-        analysis, result = _analyze_and_qualify(lead, icp, routing, provider)
+        analysis, result = _analyze_and_qualify(
+            lead, resolved_icp.configuration, routing, provider
+        )
+        result = resolved_icp.trace_result(result)
         row = create_lead_with_result(
             session,
             lead,

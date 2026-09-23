@@ -18,6 +18,10 @@ import type {
   WorkspaceAuditEvent,
   WorkspaceInvitation,
   WorkspaceMember,
+  IcpConfiguration,
+  IcpPreview,
+  IcpValidation,
+  IcpVersion,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -257,6 +261,60 @@ export function updateMemberPermissions(memberId: string, overrides: PermissionO
     body: JSON.stringify(overrides),
   });
 }
+
+export const getCurrentIcp = (signal?: AbortSignal) =>
+  jsonRequest<IcpVersion>("/v1/icp/current", { signal });
+
+export const listIcpVersions = (signal?: AbortSignal) =>
+  jsonRequest<IcpVersion[]>("/v1/icp/versions", { signal });
+
+export function createIcpDraft(input: {
+  name?: string;
+  description?: string;
+  based_on_version_id?: string;
+} = {}): Promise<IcpVersion> {
+  return jsonRequest<IcpVersion>("/v1/icp/drafts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateIcpDraft(id: string, input: {
+  name?: string;
+  description?: string;
+  configuration?: IcpConfiguration;
+}): Promise<IcpVersion> {
+  return jsonRequest<IcpVersion>(`/v1/icp/versions/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export const validateIcpDraft = (id: string) =>
+  jsonRequest<IcpValidation>(`/v1/icp/versions/${id}/validate`, { method: "POST" });
+
+export const previewIcpDraft = (id: string, limit = 100) =>
+  jsonRequest<IcpPreview>(`/v1/icp/versions/${id}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit }),
+  });
+
+export const publishIcpDraft = (id: string, confirmExclusions: boolean) =>
+  jsonRequest<IcpVersion>(`/v1/icp/versions/${id}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      confirm_new_leads_use_version: true,
+      confirm_historical_results_preserved: true,
+      confirm_exclusion_changes: confirmExclusions,
+    }),
+  });
+
+export const archiveIcpVersion = (id: string) =>
+  jsonRequest<IcpVersion>(`/v1/icp/versions/${id}/archive`, { method: "POST" });
 
 export function suspendMember(memberId: string): Promise<WorkspaceMember> {
   return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/suspend`, { method: "POST" });

@@ -15,12 +15,108 @@ export type Qualification = {
   routing_action: string;
   hard_disqualified: boolean;
   disqualifier_code: string | null;
+  disqualifier_evidence: string[];
   rationale: string[];
   score_breakdown: ScoreLine[];
   component_scores: Record<string, number>;
   policy_version: string;
+  icp_version_id: string | null;
+  icp_source: "system_default" | "workspace" | string;
+  icp_profile_version: string;
+  icp_configuration_hash: string;
   confidence: number;
   created_at: string | null;
+};
+
+export type IcpConfiguration = {
+  schema_version: number;
+  profile_name: string;
+  profile_version: string;
+  target_industries: string[];
+  excluded_industries: string[];
+  target_geographies: string[];
+  target_business_types: string[];
+  strategic_accounts: string[];
+  company_size: {
+    employees_min: number;
+    employees_max: number;
+    revenue_currency: string;
+    annual_revenue_min: number;
+    annual_revenue_max: number;
+  };
+  buyer_roles: Record<string, string[]>;
+  buyer: {
+    job_titles: string[];
+    seniorities: string[];
+    departments: string[];
+    decision_maker_indicators: string[];
+    excluded_personas: string[];
+  };
+  budget: { currency: string; minimum: number; typical: number };
+  commercial: { service_interests: string[]; purchasing_timelines: string[] };
+  technology: { technology_stack: string[]; platform_requirements: string[] };
+  fit_signals: { required: string[]; preferred: string[]; exclusions: string[] };
+  pain_points: string[];
+  disqualifiers: Array<{
+    code: string;
+    description: string;
+    severity: "hard";
+    field: "searchable" | "industry" | "geography" | "job_title" | "email" | "company_name" | "product_or_service";
+    operator: "contains_any" | "matches_any";
+    keywords: string[];
+    values: string[];
+  }>;
+  scoring: {
+    weights: Record<string, number>;
+    component_points: Record<string, Record<string, number>>;
+    signals: Record<string, string[]>;
+    message_detail_chars: number;
+  };
+};
+
+export type IcpVersion = {
+  id: string | null;
+  workspace_id: string;
+  source: "system_default" | "workspace";
+  version_number: number | null;
+  status: "draft" | "published" | "archived";
+  name: string;
+  description: string;
+  configuration: IcpConfiguration;
+  weight_total: number;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  published_by: string | null;
+  published_at: string | null;
+  effective_at: string | null;
+  archived_at: string | null;
+  editable: boolean;
+};
+
+export type IcpValidation = {
+  valid: boolean;
+  weight_total: number;
+  required_weight_total: number;
+  problems: string[];
+};
+
+export type IcpPreview = {
+  version_id: string;
+  leads_evaluated: number;
+  changed_count: number;
+  transitions: Record<string, number>;
+  representative_changes: Array<{
+    lead_id: string;
+    lead_name: string;
+    company_name: string;
+    current_score: number;
+    proposed_score: number;
+    score_delta: number;
+    current_classification: string;
+    proposed_classification: string;
+    important_changed_matches: string[];
+  }>;
 };
 
 export type EvidenceReference = {

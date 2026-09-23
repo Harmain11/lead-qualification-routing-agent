@@ -97,10 +97,15 @@ class QualificationResponse(BaseModel):
     routing_action: str
     hard_disqualified: bool
     disqualifier_code: str | None
+    disqualifier_evidence: list[str]
     rationale: list[str]
     score_breakdown: list[ScoreBreakdownResponse]
     component_scores: dict[str, int]
     policy_version: str
+    icp_version_id: UUID | None
+    icp_source: str
+    icp_profile_version: str
+    icp_configuration_hash: str
     confidence: float
     created_at: datetime | None = None
 
@@ -292,10 +297,15 @@ def qualification_response(row: Any) -> QualificationResponse | None:
         routing_action=row.routing_action,
         hard_disqualified=row.hard_disqualified,
         disqualifier_code=row.disqualifier_code,
+        disqualifier_evidence=row.disqualifier_evidence,
         rationale=row.rationale,
         score_breakdown=row.score_breakdown,
         component_scores=row.component_scores,
         policy_version=row.policy_version,
+        icp_version_id=row.icp_version_id,
+        icp_source=row.icp_source,
+        icp_profile_version=row.icp_profile_version,
+        icp_configuration_hash=row.icp_configuration_hash,
         confidence=float(row.confidence),
         created_at=row.created_at,
     )
