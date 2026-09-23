@@ -14,6 +14,10 @@ import type {
   TimeRange,
   TimeSeriesAnalytics,
   AuthSession,
+  PermissionOverrides,
+  WorkspaceAuditEvent,
+  WorkspaceInvitation,
+  WorkspaceMember,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -200,3 +204,68 @@ export const getRepAnalytics = (range: TimeRange, signal?: AbortSignal) => analy
 export const getTimeSeriesAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<TimeSeriesAnalytics>("time-series", range, signal);
 export const getAgentActivity = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<AgentActivity>("agent-activity", range, signal);
 export const getManualReview = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ManualReviewAnalytics>("manual-review", range, signal);
+
+export function listMembers(signal?: AbortSignal): Promise<WorkspaceMember[]> {
+  return jsonRequest<WorkspaceMember[]>("/v1/members", { signal });
+}
+
+export function listInvitations(signal?: AbortSignal): Promise<WorkspaceInvitation[]> {
+  return jsonRequest<WorkspaceInvitation[]>("/v1/invitations", { signal });
+}
+
+export function listMemberAuditEvents(signal?: AbortSignal): Promise<WorkspaceAuditEvent[]> {
+  return jsonRequest<WorkspaceAuditEvent[]>("/v1/members/audit-events", { signal });
+}
+
+export function inviteMember(input: {
+  email: string;
+  role: string;
+  permission_overrides?: PermissionOverrides;
+}): Promise<WorkspaceInvitation> {
+  return jsonRequest<WorkspaceInvitation>("/v1/members/invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: input.email,
+      role: input.role,
+      grants: input.permission_overrides?.grants ?? [],
+      denies: input.permission_overrides?.denies ?? [],
+    }),
+  });
+}
+
+export function resendInvitation(invitationId: string): Promise<WorkspaceInvitation> {
+  return jsonRequest<WorkspaceInvitation>(`/v1/invitations/${invitationId}/resend`, { method: "POST" });
+}
+
+export function revokeInvitation(invitationId: string): Promise<WorkspaceInvitation> {
+  return jsonRequest<WorkspaceInvitation>(`/v1/invitations/${invitationId}/revoke`, { method: "POST" });
+}
+
+export function updateMemberRole(memberId: string, role: string): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/role`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function updateMemberPermissions(memberId: string, overrides: PermissionOverrides): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/permissions`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(overrides),
+  });
+}
+
+export function suspendMember(memberId: string): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/suspend`, { method: "POST" });
+}
+
+export function reactivateMember(memberId: string): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/reactivate`, { method: "POST" });
+}
+
+export function removeMember(memberId: string): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}`, { method: "DELETE" });
+}

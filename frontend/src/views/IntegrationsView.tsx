@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import {
   addIntegrationCredential,
   apiUrl,
@@ -8,26 +9,32 @@ import {
   reconnectIntegration,
   testIntegration,
 } from "../api";
+import { can } from "../permissions";
 import type { IntegrationCard } from "../types";
 
 const connectionStages = ["Disconnected", "Authorizing", "Validating", "Connected"];
 
 function connectionStage(status?: string) {
   if (status === "connected") return 3;
-  if (status === "validating" || status === "needs_attention" || status === "connection_failed" || status === "authorization_expired" || status === "reconnect_required") return 2;
-  if (status === "connecting" || status === "awaiting_authorization") return 1;
+  if (["validating", "needs_attention", "connection_failed", "authorization_expired", "reconnect_required"].includes(status ?? "")) return 2;
+  if (["connecting", "awaiting_authorization"].includes(status ?? "")) return 1;
   return 0;
 }
 
-export function IntegrationsView() {
+export function IntegrationsView({ permissions }: { permissions: ReadonlySet<string> }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const canView = can(permissions, "integrations.view");
+  const canManage = can(permissions, "integrations.manage");
+  const canConnect = can(permissions, "integrations.connect");
+  const canDisconnect = can(permissions, "integrations.disconnect");
+
   const refresh = () => listIntegrations().then(setCards).catch((error: Error) => setNotice(error.message));
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { if (canView) void refresh(); }, [canView]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const provider = params.get("integration");
@@ -65,7 +72,7 @@ export function IntegrationsView() {
   return <div className="page-view operational-page">
     <header className="page-hero integrations-hero"><div><span className="eyebrow">Settings / integration fabric</span><h1>Connect the systems<br /><em>your agents can trust.</em></h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div><div className="connection-orbit" aria-hidden="true"><b>AI</b>{["CRM", "CHAT", "MAIL", "DATA"].map((node) => <i key={node}>{node}</i>)}</div></header>
     {notice && <div className="notice" role="status">{notice}</div>}
-    <section className="integration-grid">{cards.map((card) => {
+    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <section className="integration-grid">{cards.map((card) => {
       const connection = card.connection;
       const status = connection?.status ?? "not_connected";
       const providerCredentials = credentials[card.provider] ?? {};
@@ -78,9 +85,12 @@ export function IntegrationsView() {
         <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>
-        <div className="card-actions">{!connection || connection.status === "disconnected" ? <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={card.availability === "future" || busy === card.provider}>{busy === card.provider ? "Connecting…" : "Connect"}</button> : <><button onClick={() => void act(card.provider, () => testIntegration(connection.id), `${card.display_name} configuration checked.`)} disabled={busy === card.provider}>Test connection</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>Reconnect</button><button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button></>}<button className="button-quiet" onClick={() => setExpanded(open ? null : card.provider)}>Setup guide</button></div>
-        {open && <div className="integration-guide"><span className="eyebrow">Connection briefing</span><strong>{card.dashboard_path}</strong><p>{card.credential_help}</p><p>{card.permission_reason}</p><div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div><a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation ↗</a>{card.supported_auth.includes("oauth2") && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}{card.manual_fields.length > 0 && <div className="manual-credential"><span>Secure credential setup</span><input aria-label={`${card.display_name} account name`} placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} />{card.manual_fields.map((field) => <input key={field} type="password" autoComplete="new-password" aria-label={field.replaceAll("_", " ")} placeholder={field.replaceAll("_", " ")} value={providerCredentials[field] ?? ""} onChange={(event) => setCredentials((current) => ({ ...current, [card.provider]: { ...(current[card.provider] ?? {}), [field]: event.target.value } }))} />)}<button onClick={() => void act(card.provider, () => connection ? reconnectIntegration(connection.id, providerCredentials) : addIntegrationCredential(card.provider, accountNames[card.provider] || `${card.display_name} account`, card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials), `${card.display_name} credentials stored by reference.`)}>Store once and test</button><small>The secret is encrypted by the configured secret service and is never returned to this interface.</small></div>}</div>}
+        <div className="card-actions">
+          {!connection || connection.status === "disconnected" ? canConnect && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={card.availability === "future" || busy === card.provider}>{busy === card.provider ? "Connecting…" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, () => testIntegration(connection.id), `${card.display_name} configuration checked.`)} disabled={busy === card.provider}>Test connection</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>Reconnect</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>}
+          <button className="button-quiet" onClick={() => setExpanded(open ? null : card.provider)}>Setup guide</button>
+        </div>
+        {open && <div className="integration-guide"><span className="eyebrow">Connection briefing</span><strong>{card.dashboard_path}</strong><p>{card.credential_help}</p><p>{card.permission_reason}</p><div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div><a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation →</a>{card.supported_auth.includes("oauth2") && canConnect && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}{card.manual_fields.length > 0 && canManage && <div className="manual-credential"><span>Secure credential setup</span><input aria-label={`${card.display_name} account name`} placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} />{card.manual_fields.map((field) => <input key={field} type="password" autoComplete="new-password" aria-label={field.replaceAll("_", " ")} placeholder={field.replaceAll("_", " ")} value={providerCredentials[field] ?? ""} onChange={(event) => setCredentials((current) => ({ ...current, [card.provider]: { ...(current[card.provider] ?? {}), [field]: event.target.value } }))} />)}<button onClick={() => void act(card.provider, () => connection ? reconnectIntegration(connection.id, providerCredentials) : addIntegrationCredential(card.provider, accountNames[card.provider] || `${card.display_name} account`, card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials), `${card.display_name} credentials stored by reference.`)}>Store once and test</button><small>The secret is encrypted by the configured secret service and is never returned to this interface.</small></div>}</div>}
       </article>;
-    })}</section>
+    })}</section>}
   </div>;
 }

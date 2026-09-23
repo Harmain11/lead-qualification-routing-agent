@@ -144,11 +144,13 @@ export function LeadsView({
   selected,
   onInspect,
   onCreated,
+  canEdit = true,
 }: {
   leads: Lead[];
   selected: Lead | null;
   onInspect: (id: string) => void;
   onCreated: (lead: Lead) => void;
+  canEdit?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [band, setBand] = useState("all");
@@ -169,7 +171,7 @@ export function LeadsView({
     <div className="page-view operational-page">
       <header className="page-hero compact-hero">
         <div><span className="eyebrow">Lead intelligence archive</span><h1>Every decision,<br /><em>traceable to evidence.</em></h1><p>Search, filter and inspect the complete journey from original signal to connected-system delivery.</p></div>
-        <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>
+        {canEdit && <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>}
       </header>
       {showForm && <LeadForm onCreated={onCreated} />}
       <section className="lead-browser panel">
@@ -287,15 +289,16 @@ export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalyt
   );
 }
 
-export function SettingsView({ metadata, onIntegrations }: { metadata?: AnalyticsMetadata; onIntegrations: () => void }) {
+export function SettingsView({ metadata, onIntegrations, onTeam }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void }) {
   return (
     <div className="page-view operational-page">
-      <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity and data provenance are visible here. Production identity and access hardening remains Phase 7.</p></div></header>
+      <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
       <section className="settings-grid">
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
         <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned CRM, notification and future mail connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
+        <Panel title="Team & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite staff, review roles and make deliberate permission exceptions. Backend authorization remains the source of truth for every action.</p><button className="primary-button" onClick={onTeam}>Open Team & Permissions →</button></Panel>
         <Panel title="Data range" eyebrow="Analytics contract"><p className="panel-copy">Weekly, monthly and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p></Panel>
-        <Panel title="Product state" eyebrow="Phase 6"><p className="panel-copy">Analytics and cinematic product experience are active. Final production hardening and broad E2E acceptance remain intentionally deferred to Phase 7.</p></Panel>
+        <Panel title="Product state" eyebrow="Phase 7B2"><p className="panel-copy">Analytics, cinematic operations and workspace team controls are active. Custom ICP, exports and provider validation remain intentionally deferred.</p></Panel>
       </section>
     </div>
   );

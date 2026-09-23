@@ -238,6 +238,56 @@ export type AuthSession = {
   expires_at: string | null;
 };
 
+export type PermissionOverrides = {
+  grants: string[];
+  denies: string[];
+};
+
+export type WorkspaceMember = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  role_label: string;
+  status: "invited" | "active" | "suspended" | "revoked" | string;
+  permission_overrides: PermissionOverrides;
+  effective_permissions: string[];
+  invited_by: string | null;
+  invited_at: string | null;
+  accepted_at: string | null;
+  updated_at: string;
+};
+
+export type WorkspaceInvitation = {
+  id: string;
+  workspace_id: string;
+  email: string;
+  role: string;
+  role_label: string;
+  permission_overrides: PermissionOverrides;
+  status: "pending" | "accepted" | "expired" | "revoked" | string;
+  invited_by: string;
+  accepted_user_id: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceAuditEvent = {
+  id: string;
+  workspace_id: string;
+  actor_id: string | null;
+  target_membership_id: string | null;
+  operation: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  created_at: string;
+};
+
 export type IntegrationCard = {
   provider: string;
   display_name: string;
