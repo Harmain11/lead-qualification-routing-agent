@@ -330,7 +330,13 @@ export type ProviderConnection = {
 export type AuthSession = {
   user: { id: string; email: string; display_name: string };
   current_workspace_id: string;
-  workspaces: Array<{ id: string; name: string; role: string; is_demo: boolean }>;
+  workspaces: Array<{
+    id: string;
+    name: string;
+    role: string;
+    is_demo: boolean;
+    effective_permissions: string[];
+  }>;
   expires_at: string | null;
 };
 

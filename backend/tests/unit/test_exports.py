@@ -102,11 +102,11 @@ def _lead(workspace_id, *, name: str, received_at: datetime, band: str = "warm")
 
 
 def test_csv_is_utf8_escaped_and_formula_safe() -> None:
-    record = _record("=HYPERLINK(\"https://bad.test\")")
+    record = _record("\t=HYPERLINK(\"https://bad.test\")")
     record = record.__class__(**{**record.__dict__, "summary": "line one, \"quoted\"\nline two"})
     rows = list(csv.reader(StringIO(render_csv([record]).decode("utf-8-sig"))))
     assert rows[0][0] == "Lead / Contact Name"
-    assert rows[1][0].startswith("'=")
+    assert rows[1][0].startswith("'\t=")
     assert rows[1][-2] == 'line one, "quoted"\nline two'
     assert "credentials" not in "\n".join(rows[0]).lower()
 
@@ -147,6 +147,41 @@ def test_export_query_is_workspace_isolated_and_preserves_filters(tmp_path) -> N
         assert [row.full_name for row in rows] == ["A Lead"]
         assert all(row.workspace_id == workspace_a for row in rows)
         assert canonical_records(rows, workspace_a)[0].qualification_band == "Warm"
+
+
+def test_export_scope_semantics_do_not_apply_stale_filters_to_selected_or_all(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'export-scopes.db'}")
+    Base.metadata.create_all(engine)
+    workspace_id = uuid4()
+    with Session(engine) as session:
+        selected = _lead(
+            workspace_id, name="Selected Lead", received_at=datetime(2026, 9, 23, tzinfo=UTC)
+        )
+        other = _lead(
+            workspace_id, name="Other Lead", received_at=datetime(2026, 9, 22, tzinfo=UTC)
+        )
+        session.add_all([selected, other])
+        session.commit()
+        stale_filters = {"search": "no-match", "qualification_bands": ["hot"]}
+
+        selected_rows = list_export_leads(
+            session,
+            workspace_id,
+            LeadExportRequest(
+                format="csv",
+                scope="selected",
+                selected_lead_ids=[selected.id],
+                filters=stale_filters,
+            ),
+        )
+        all_rows = list_export_leads(
+            session,
+            workspace_id,
+            LeadExportRequest(format="csv", scope="all", filters=stale_filters),
+        )
+
+        assert [row.id for row in selected_rows] == [selected.id]
+        assert {row.id for row in all_rows} == {selected.id, other.id}
 
 
 def test_export_endpoint_requires_permission_and_audits_denial(tmp_path) -> None:
@@ -270,6 +305,53 @@ def test_export_permission_matrix_includes_roles_and_overrides(tmp_path) -> None
                     "/v1/leads/export", json={"format": "csv", "scope": "all", "filters": {}}
                 )
                 assert response.status_code == expected_status
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_export_sync_limit_fails_predictably_and_audits_rejection(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'api-limit.db'}")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    workspace_id = uuid4()
+    session.add_all(
+        [
+            _lead(workspace_id, name="First", received_at=datetime.now(UTC)),
+            _lead(workspace_id, name="Second", received_at=datetime.now(UTC)),
+        ]
+    )
+    session.commit()
+    settings = Settings(
+        app_env="test",
+        database_url=f"sqlite:///{tmp_path / 'api-limit.db'}",
+        export_sync_limit=1,
+    )
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id="owner",
+        permissions=frozenset({"leads.export"}),
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/leads/export", json={"format": "csv", "scope": "all", "filters": {}}
+            )
+        assert response.status_code == 413
+        assert "synchronous export limit" in response.json()["detail"]
+        event = session.scalar(
+            select(LeadExportAuditEventORM).order_by(LeadExportAuditEventORM.created_at.desc())
+        )
+        assert event is not None
+        assert event.outcome == "rejected"
+        assert event.error_code == "export_limit_exceeded"
+        assert "lead" not in event.filter_summary
     finally:
         app.dependency_overrides.clear()
         session.close()

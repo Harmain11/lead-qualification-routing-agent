@@ -500,6 +500,16 @@ def test_agent_tool_requires_permission_audits_and_is_idempotent(
                 {"lead_id": str(lead.id)},
                 idempotency_key="denied-1",
             )
+        agents_execute_only = ToolContext(
+            workspace, "agent-without-crm", frozenset({"agents.execute"})
+        )
+        with pytest.raises(ToolPermissionError):
+            registry.invoke(
+                "crm.create_or_update_lead",
+                agents_execute_only,
+                {"lead_id": str(lead.id)},
+                idempotency_key="agents-execute-only",
+            )
         allowed = ToolContext(workspace, "agent-1", frozenset({"crm:write"}))
         first = registry.invoke(
             "crm.create_or_update_lead",
@@ -526,7 +536,7 @@ def test_agent_tool_requires_permission_audits_and_is_idempotent(
         statuses = list(
             session.scalars(select(AgentToolAuditORM.status).order_by(AgentToolAuditORM.created_at))
         )
-        assert statuses == ["denied", "completed"]
+        assert statuses == ["denied", "denied", "completed"]
         assert session.scalar(select(func.count()).select_from(CrmSyncORM)) == 1
 
         with pytest.raises(ValueError):

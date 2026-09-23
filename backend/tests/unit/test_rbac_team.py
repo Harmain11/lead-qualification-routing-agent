@@ -12,6 +12,7 @@ from lead_agent.application.team import (
     accept_invitation,
     change_member_permissions,
     change_member_role,
+    get_membership_for_user,
     invite_member,
     list_admin_audit_events,
     resend_invitation,
@@ -141,18 +142,32 @@ def test_invitation_acceptance_is_scoped_single_use_and_audited(session: Session
 
 def test_invitation_expiry_and_revoke_are_enforced(session: Session) -> None:
     workspace, owner, _ = _workspace_with_owner(session)
-    invitation, token = invite_member(
-        session, workspace.id, owner.id, "expired@example.test", "viewer"
-    )
+    expired_user = _user("expired@example.test")
+    session.add(expired_user)
+    session.commit()
+    invitation, token = invite_member(session, workspace.id, owner.id, expired_user.email, "viewer")
     invitation.expires_at = datetime.now(UTC) - timedelta(minutes=1)
     session.commit()
     with pytest.raises(ValueError, match="expired"):
-        accept_invitation(session, token, uuid4(), "expired@example.test", workspace.id)
+        accept_invitation(session, token, expired_user.id, expired_user.email, workspace.id)
     assert invitation.status == "expired"
+    expired_membership = get_membership_for_user(session, workspace.id, expired_user.id)
+    assert expired_membership is not None and expired_membership.status == "revoked"
 
-    fresh, _ = invite_member(session, workspace.id, owner.id, "pending@example.test", "viewer")
+    pending_user = _user("pending@example.test")
+    session.add(pending_user)
+    session.commit()
+    fresh, fresh_token = invite_member(
+        session, workspace.id, owner.id, pending_user.email, "viewer"
+    )
     revoked = revoke_invitation(session, workspace.id, fresh.id, owner.id)
     assert revoked.status == "revoked"
+    revoked_membership = get_membership_for_user(session, workspace.id, pending_user.id)
+    assert revoked_membership is not None and revoked_membership.status == "revoked"
+    with pytest.raises(ValueError, match="used or revoked"):
+        accept_invitation(
+            session, fresh_token, pending_user.id, pending_user.email, workspace.id
+        )
     with pytest.raises(ValueError, match="revoked"):
         resend_invitation(session, workspace.id, fresh.id, owner.id)
 

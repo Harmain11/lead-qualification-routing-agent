@@ -269,7 +269,7 @@ def revoke_invitation(
         select(WorkspaceInvitationORM).where(
             WorkspaceInvitationORM.id == invitation_id,
             WorkspaceInvitationORM.workspace_id == workspace_id,
-        )
+        ).with_for_update()
     )
     if invitation is None:
         raise LookupError("invitation not found")
@@ -278,11 +278,24 @@ def revoke_invitation(
     invitation.status = "revoked"
     invitation.revoked_at = datetime.now(UTC)
     invitation.updated_at = invitation.revoked_at
+    membership = session.scalar(
+        select(WorkspaceMembershipORM)
+        .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+        .where(
+            WorkspaceMembershipORM.workspace_id == workspace_id,
+            UserORM.email == invitation.email,
+        )
+        .with_for_update()
+    )
+    if membership is not None and membership.status == "invited":
+        membership.status = "revoked"
+        membership.updated_at = invitation.revoked_at
     _audit(
         session,
         workspace_id,
         actor_id,
         "invitation_revoked",
+        target_membership_id=membership.id if membership is not None else None,
         after={"email": invitation.email, "role": invitation.role},
     )
     session.commit()
@@ -303,7 +316,7 @@ def accept_invitation(
     )
     if workspace_id is not None:
         statement = statement.where(WorkspaceInvitationORM.workspace_id == workspace_id)
-    invitation = session.scalar(statement)
+    invitation = session.scalar(statement.with_for_update())
     if invitation is None:
         raise ValueError("invitation is invalid or belongs to another workspace")
     now = datetime.now(UTC)
@@ -315,6 +328,10 @@ def accept_invitation(
     if expires_at <= now:
         invitation.status = "expired"
         invitation.updated_at = now
+        expired_membership = get_membership_for_user(session, invitation.workspace_id, user_id)
+        if expired_membership is not None and expired_membership.status == "invited":
+            expired_membership.status = "revoked"
+            expired_membership.updated_at = now
         session.commit()
         raise ValueError("invitation has expired")
     if invitation.email != normalized_email:

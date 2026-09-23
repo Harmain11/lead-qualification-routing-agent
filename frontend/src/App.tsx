@@ -13,13 +13,12 @@ import {
   getRevenueAnalytics,
   getTimeSeriesAnalytics,
   listLeads,
-  listMembers,
   getSession,
   setActiveWorkspace,
   signOut,
 } from "./api";
 import type { AuthSession, Lead, TimeRange } from "./types";
-import { can, defaultPermissionsForRole } from "./permissions";
+import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
@@ -133,16 +132,10 @@ function App() {
       setWorkspacePermissions(new Set());
       return;
     }
-    const controller = new AbortController();
-    const role = auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.role ?? "viewer";
-    setWorkspacePermissions(defaultPermissionsForRole(role));
-    listMembers(controller.signal)
-      .then((members) => {
-        const current = members.find((member) => member.user_id === auth.user.id);
-        if (current) setWorkspacePermissions(new Set(current.effective_permissions));
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
+    const workspace = auth.workspaces.find(
+      (item) => item.id === auth.current_workspace_id,
+    );
+    setWorkspacePermissions(new Set(workspace?.effective_permissions ?? []));
   }, [auth?.current_workspace_id, auth?.user.id, auth?.workspaces]);
 
   useEffect(() => () => {
@@ -252,7 +245,7 @@ function App() {
             {view === "analytics" && <AnalyticsView data={data} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView permissions={workspacePermissions} />}
-            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewIcp={can(workspacePermissions, "icp.view")} />}
+            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} />}
             {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
             {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
           </div>

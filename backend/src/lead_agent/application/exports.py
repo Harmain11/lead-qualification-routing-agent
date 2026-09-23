@@ -158,6 +158,10 @@ class ExportLimitError(ValueError):
     pass
 
 
+def _effective_filters(request: LeadExportRequest) -> LeadExportFilters:
+    return request.filters if request.scope == "current_filters" else LeadExportFilters()
+
+
 def _label(value: str | None, empty: str = "Not available") -> str:
     if not value:
         return empty
@@ -206,7 +210,8 @@ def list_export_leads(
     )
     if request.scope == "selected":
         statement = statement.where(LeadORM.id.in_(request.selected_lead_ids))
-    if filters.search.strip():
+    apply_filters = request.scope == "current_filters"
+    if apply_filters and filters.search.strip():
         term = f"%{filters.search.strip()}%"
         statement = statement.where(
             or_(
@@ -216,15 +221,15 @@ def list_export_leads(
                 LeadORM.product_or_service.ilike(term),
             )
         )
-    if filters.source:
+    if apply_filters and filters.source:
         statement = statement.where(LeadORM.source == filters.source)
-    if filters.qualification_bands:
+    if apply_filters and filters.qualification_bands:
         statement = statement.where(
             LeadORM.qualification.has(
                 QualificationResultORM.classification.in_(filters.qualification_bands)
             )
         )
-    if filters.assigned_representative:
+    if apply_filters and filters.assigned_representative:
         statement = statement.where(
             LeadORM.routing_decisions.any(
                 (RoutingDecisionORM.workspace_id == workspace_id)
@@ -232,7 +237,7 @@ def list_export_leads(
                 & RoutingDecisionORM.assigned_rep_name.ilike(filters.assigned_representative)
             )
         )
-    if filters.routing_queue:
+    if apply_filters and filters.routing_queue:
         statement = statement.where(
             LeadORM.routing_decisions.any(
                 (RoutingDecisionORM.workspace_id == workspace_id)
@@ -240,7 +245,7 @@ def list_export_leads(
                 & (RoutingDecisionORM.assigned_queue == filters.routing_queue)
             )
         )
-    if filters.crm_state:
+    if apply_filters and filters.crm_state:
         statement = statement.where(
             LeadORM.crm_syncs.any(
                 (CrmSyncORM.workspace_id == workspace_id)
@@ -248,11 +253,11 @@ def list_export_leads(
                 & (CrmSyncORM.status == filters.crm_state)
             )
         )
-    if filters.date_from:
+    if apply_filters and filters.date_from:
         statement = statement.where(
             LeadORM.received_at >= datetime.combine(filters.date_from, time.min, tzinfo=UTC)
         )
-    if filters.date_to:
+    if apply_filters and filters.date_to:
         end = datetime.combine(filters.date_to, time.max, tzinfo=UTC)
         statement = statement.where(LeadORM.received_at <= end)
     if limit is not None:
@@ -314,7 +319,7 @@ def canonical_records(rows: list[LeadORM], workspace_id: UUID) -> list[ExportLea
 
 
 def _csv_safe(value: Any) -> Any:
-    if isinstance(value, str) and value[:1] in {"=", "+", "-", "@"}:
+    if isinstance(value, str) and value.lstrip(" \t\r\n\ufeff")[:1] in {"=", "+", "-", "@"}:
         return "'" + value
     return value
 
@@ -593,7 +598,7 @@ def render_export(
             "xlsx",
         )
     return (
-        render_pdf(records, workspace_name, actor_name, request.filters),
+        render_pdf(records, workspace_name, actor_name, _effective_filters(request)),
         "application/pdf",
         "pdf",
     )
@@ -618,7 +623,7 @@ def write_export_audit(
             selection_mode=request.scope,
             outcome=outcome,
             filter_summary={
-                "description": filter_description(request.filters),
+                "description": filter_description(_effective_filters(request)),
                 "selected_count": len(request.selected_lead_ids),
             },
             error_code=error_code,

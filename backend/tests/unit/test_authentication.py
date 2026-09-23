@@ -84,6 +84,7 @@ def test_signup_session_and_signout_lifecycle(tmp_path) -> None:
             body = created.json()
             assert body["user"]["email"] == "owner@example.test"
             assert len(body["workspaces"]) == 1
+            assert "workspace.manage" in body["workspaces"][0]["effective_permissions"]
             assert body["expires_at"] is not None
             assert client.cookies.get("lead_agent_session")
             assert client.cookies.get("lead_agent_csrf")
@@ -94,6 +95,30 @@ def test_signup_session_and_signout_lifecycle(tmp_path) -> None:
             signed_out = client.post("/v1/auth/signout", headers=csrf(client))
             assert signed_out.status_code == 204
             assert client.get("/v1/auth/session").status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_session_reports_current_workspace_permission_overrides(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 201
+            membership = session.scalar(select(WorkspaceMembershipORM))
+            assert membership is not None
+            membership.permission_overrides = {
+                "grants": [],
+                "denies": ["leads.export", "icp.manage"],
+            }
+            session.commit()
+
+            restored = client.get("/v1/auth/session")
+            assert restored.status_code == 200
+            permissions = restored.json()["workspaces"][0]["effective_permissions"]
+            assert "leads.export" not in permissions
+            assert "icp.manage" not in permissions
+            assert "workspace.manage" in permissions
     finally:
         app.dependency_overrides.clear()
         session.close()

@@ -19,6 +19,7 @@ from lead_agent.application.auth import (
     hash_password,
     issue_session,
     list_memberships,
+    membership_permissions,
     register_user,
     require_membership,
     revoke_session,
@@ -70,6 +71,7 @@ class WorkspaceMembershipResponse(BaseModel):
     name: str
     role: str
     is_demo: bool
+    effective_permissions: list[str]
 
 
 class SessionResponse(BaseModel):
@@ -146,6 +148,7 @@ def _session_response(
                 name=workspace.name,
                 role=membership.role,
                 is_demo=workspace.is_demo,
+                effective_permissions=sorted(membership_permissions(membership)),
             )
             for membership, workspace in memberships
         ],
