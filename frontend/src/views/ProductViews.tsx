@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-import { createLead } from "../api";
+import { createLead, exportLeads } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
@@ -145,16 +145,22 @@ export function LeadsView({
   onInspect,
   onCreated,
   canEdit = true,
+  canExport = false,
 }: {
   leads: Lead[];
   selected: Lead | null;
   onInspect: (id: string) => void;
   onCreated: (lead: Lead) => void;
   canEdit?: boolean;
+  canExport?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [band, setBand] = useState("all");
   const [source, setSource] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showExport, setShowExport] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const normalizedSearch = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -162,16 +168,33 @@ export function LeadsView({
       const haystack = `${lead.full_name} ${lead.company_name} ${lead.email} ${lead.product_or_service}`.toLowerCase();
       return haystack.includes(normalizedSearch)
         && (band === "all" || lead.qualification?.classification === band)
-        && (source === "all" || lead.source === source);
+        && (source === "all" || lead.source === source)
+        && (!dateFrom || lead.received_at.slice(0, 10) >= dateFrom)
+        && (!dateTo || lead.received_at.slice(0, 10) <= dateTo);
     }),
-    [leads, normalizedSearch, band, source],
+    [leads, normalizedSearch, band, source, dateFrom, dateTo],
   );
+  const visibleSelected = filtered.filter((lead) => selectedIds.has(lead.id)).length;
+  const toggleSelected = (id: string) => setSelectedIds((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const selectVisible = () => setSelectedIds((current) => {
+    const next = new Set(current);
+    if (visibleSelected === filtered.length) filtered.forEach((lead) => next.delete(lead.id));
+    else filtered.forEach((lead) => next.add(lead.id));
+    return next;
+  });
 
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero">
         <div><span className="eyebrow">Lead intelligence archive</span><h1>Every decision,<br /><em>traceable to evidence.</em></h1><p>Search, filter and inspect the complete journey from original signal to connected-system delivery.</p></div>
-        {canEdit && <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>}
+        <div className="lead-hero-actions">
+          {canExport && <button className="secondary-button" onClick={() => setShowExport(true)}>Export</button>}
+          {canEdit && <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>}
+        </div>
       </header>
       {showForm && <LeadForm onCreated={onCreated} />}
       <section className="lead-browser panel">
@@ -179,19 +202,45 @@ export function LeadsView({
           <label><span className="sr-only">Search leads</span><input type="search" placeholder="Search company, contact, service…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <select aria-label="Qualification band" value={band} onChange={(event) => setBand(event.target.value)}><option value="all">All qualification bands</option>{["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => <option value={item} key={item}>{qualificationLabel(item)}</option>)}</select>
           <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)}><option value="all">All channels</option>{Array.from(new Set(leads.map((lead) => lead.source))).map((item) => <option key={item}>{item}</option>)}</select>
+          <label className="date-filter"><span className="sr-only">Received from</span><input aria-label="Received from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
+          <label className="date-filter"><span className="sr-only">Received to</span><input aria-label="Received to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
           <span>{filtered.length} records</span>
         </div>
+        {filtered.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={filtered.length > 0 && visibleSelected === filtered.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span><button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
         <div className="lead-table-wrap">
           <table className="lead-table">
-            <thead><tr><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
-            <tbody>{filtered.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} onInspect={onInspect} />)}</tbody>
+            <thead><tr><th aria-label="Select leads">Select</th><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
+            <tbody>{filtered.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} checked={selectedIds.has(lead.id)} onToggle={toggleSelected} onInspect={onInspect} />)}</tbody>
           </table>
           {filtered.length === 0 && <Empty title="No matching signals" text="Adjust filters or submit a lead." />}
         </div>
       </section>
+      {showExport && <ExportDialog count={filtered.length} selectedCount={selectedIds.size} filters={{ search, band, source, dateFrom, dateTo }} onClose={() => setShowExport(false)} selectedIds={[...selectedIds]} />}
       {selected && <LeadDetail lead={selected} />}
     </div>
   );
+}
+
+function ExportDialog({ count, selectedCount, selectedIds, filters, onClose }: { count: number; selectedCount: number; selectedIds: string[]; filters: { search: string; band: string; source: string; dateFrom: string; dateTo: string }; onClose: () => void }) {
+  const [format, setFormat] = useState<"csv" | "xlsx" | "pdf">("xlsx");
+  const [scope, setScope] = useState<"current_filters" | "selected" | "all">("current_filters");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit() {
+    setBusy(true); setError(null);
+    try {
+      const result = await exportLeads({
+        format, scope,
+        filters: scope === "all" ? {} : { search: filters.search, source: filters.source === "all" ? null : filters.source, qualification_bands: filters.band === "all" ? [] : [filters.band], date_from: filters.dateFrom || null, date_to: filters.dateTo || null },
+        selected_lead_ids: scope === "selected" ? selectedIds : [],
+      });
+      const url = URL.createObjectURL(result.blob);
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = result.filename; anchor.click(); URL.revokeObjectURL(url); onClose();
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Unable to generate export"); }
+    finally { setBusy(false); }
+  }
+  const summary = scope === "all" ? "All permitted workspace leads" : `${scope === "selected" ? selectedCount : count} leads${filters.band !== "all" ? ` · ${qualificationLabel(filters.band)}` : ""}${filters.source !== "all" ? ` · ${pretty(filters.source)}` : ""}${filters.dateFrom || filters.dateTo ? ` · ${filters.dateFrom || "Any"} – ${filters.dateTo || "Any"}` : ""}`;
+  return <div className="team-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="team-modal export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title"><div className="team-modal-head"><div><span className="eyebrow">Secure workspace export</span><h2 id="export-title">Take leads with you</h2><p>{summary}</p></div><button className="modal-close" onClick={onClose} aria-label="Close export dialog">×</button></div><fieldset><legend>Format</legend><label><input type="radio" name="export-format" checked={format === "csv"} onChange={() => setFormat("csv")} /> CSV</label><label><input type="radio" name="export-format" checked={format === "xlsx"} onChange={() => setFormat("xlsx")} /> Excel workbook</label><label><input type="radio" name="export-format" checked={format === "pdf"} onChange={() => setFormat("pdf")} /> PDF report</label></fieldset><fieldset><legend>Scope</legend><label><input type="radio" name="export-scope" checked={scope === "current_filters"} onChange={() => setScope("current_filters")} /> Current filtered results ({count})</label><label><input type="radio" name="export-scope" disabled={!selectedCount} checked={scope === "selected"} onChange={() => setScope("selected")} /> Selected leads ({selectedCount})</label><label><input type="radio" name="export-scope" checked={scope === "all"} onChange={() => setScope("all")} /> All permitted workspace leads</label></fieldset>{error && <p className="team-alert" role="alert">{error}</p>}<div className="team-modal-actions"><button className="button-quiet" onClick={onClose} disabled={busy}>Cancel</button><button className="primary-button" onClick={() => void submit()} disabled={busy || (scope === "selected" && !selectedCount)}>{busy ? "Preparing…" : "Download export"}</button></div></section></div>;
 }
 
 function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
@@ -430,10 +479,11 @@ function qualificationLabel(value: string) {
   return labels[normalized] ?? pretty(value);
 }
 
-const LeadTableRow = memo(function LeadTableRow({ lead, selected, onInspect }: { lead: Lead; selected: boolean; onInspect: (id: string) => void }) {
+const LeadTableRow = memo(function LeadTableRow({ lead, selected, checked, onToggle, onInspect }: { lead: Lead; selected: boolean; checked: boolean; onToggle: (id: string) => void; onInspect: (id: string) => void }) {
   return <tr className={selected ? "selected" : ""} onClick={() => onInspect(lead.id)} tabIndex={0} onKeyDown={(event) => {
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onInspect(lead.id); }
   }}>
+    <td className="lead-select-cell"><input type="checkbox" aria-label={`Select ${lead.full_name}`} checked={checked} onChange={() => onToggle(lead.id)} onClick={(event) => event.stopPropagation()} /></td>
     <td><b>{lead.full_name}</b><span>{lead.company_name}</span></td>
     <td><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span></td>
     <td><div className="qualification-cell" aria-label={`Score ${lead.qualification?.total_score ?? "unavailable"}; ${lead.analysis?.requires_manual_review ? "Manual Review" : qualificationLabel(lead.qualification?.classification || "pending")}`}><b>{lead.qualification?.total_score ?? "—"}</b><QualificationBadge value={lead.qualification?.classification || "pending"} manualReview={lead.analysis?.requires_manual_review} /></div></td>

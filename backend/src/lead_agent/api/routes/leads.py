@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
     get_active_crm_provider,
     get_policies,
+    get_workspace_context,
     require_permission,
     require_permissions,
 )
@@ -19,12 +21,22 @@ from lead_agent.api.schemas import (
     lead_response,
     qualification_response,
 )
+from lead_agent.application.exports import (
+    ExportEmptyError,
+    ExportLimitError,
+    LeadExportRequest,
+    canonical_records,
+    list_export_leads,
+    render_export,
+    write_export_audit,
+)
 from lead_agent.application.services import process_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.db.models import UserORM, WorkspaceORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
@@ -114,6 +126,84 @@ def list_all_leads(
             for row in rows
         ],
         total=len(rows),
+    )
+
+
+@router.post("/export")
+def export_leads(
+    request: LeadExportRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """Generate a bounded, workspace-scoped business export."""
+    if "leads.export" not in workspace.permissions:
+        write_export_audit(
+            session, workspace, request, outcome="denied", error_code="permission_required"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="permission required: leads.export"
+        )
+    try:
+        rows = list_export_leads(
+            session,
+            workspace.workspace_id,
+            request,
+            limit=settings.export_sync_limit + 1,
+        )
+        if len(rows) > settings.export_sync_limit:
+            write_export_audit(
+                session, workspace, request, outcome="rejected", error_code="export_limit_exceeded"
+            )
+            raise ExportLimitError(
+                "This export exceeds the synchronous export limit; "
+                "narrow the filters and try again."
+            )
+        if not rows:
+            write_export_audit(
+                session,
+                workspace,
+                request,
+                outcome="empty",
+                record_count=0,
+                error_code="no_matching_leads",
+            )
+            raise ExportEmptyError("No leads match the selected export criteria.")
+        records = canonical_records(rows, workspace.workspace_id)
+        workspace_row = session.get(WorkspaceORM, workspace.workspace_id)
+        actor = session.get(UserORM, workspace.user_id) if workspace.user_id else None
+        payload, media_type, extension = render_export(
+            request,
+            records,
+            workspace_row.name if workspace_row else "Current workspace",
+            actor.display_name if actor else workspace.actor_id,
+        )
+        write_export_audit(
+            session, workspace, request, outcome="success", record_count=len(records)
+        )
+    except ExportEmptyError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
+        ) from error
+    except ExportLimitError as error:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)
+        ) from error
+    except HTTPException:
+        raise
+    except Exception as error:
+        session.rollback()
+        write_export_audit(
+            session, workspace, request, outcome="failed", error_code="generation_failed"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to generate export"
+        ) from error
+    filename = f"ingenuity-leads-{datetime.now(UTC).date().isoformat()}.{extension}"
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

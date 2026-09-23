@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     openai_store_responses: bool = False
     crm_provider: str = "mock"
     crm_max_attempts: int = 3
+    export_sync_limit: int = 5000
     crm_timeout_seconds: float = 20.0
     secret_store_provider: str = "development"
     managed_secret_store_backend: str = ""
@@ -140,6 +141,8 @@ class Settings(BaseSettings):
                 raise ValueError("rate-limit policies must have positive limits and windows")
         if self.job_max_retries < 0:
             raise ValueError("JOB_MAX_RETRIES must be zero or greater")
+        if self.export_sync_limit < 1 or self.export_sync_limit > 100_000:
+            raise ValueError("EXPORT_SYNC_LIMIT must be between 1 and 100000")
         if self.app_env == "production":
             self._validate_production_security()
         return self

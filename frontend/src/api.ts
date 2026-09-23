@@ -148,6 +148,35 @@ export async function listLeads(signal?: AbortSignal): Promise<Lead[]> {
   return body.items;
 }
 
+export type LeadExportInput = {
+  format: "csv" | "xlsx" | "pdf";
+  scope: "current_filters" | "selected" | "all";
+  filters: {
+    search?: string;
+    source?: string | null;
+    qualification_bands?: string[];
+    date_from?: string | null;
+    date_to?: string | null;
+  };
+  selected_lead_ids?: string[];
+};
+
+export async function exportLeads(input: LeadExportInput): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(apiUrl("/v1/leads/export"), {
+    method: "POST",
+    credentials: "include",
+    headers: withWorkspace({ "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ detail: "Export failed" }));
+    throw new Error(typeof body.detail === "string" ? body.detail : "Export failed");
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `ingenuity-leads-${new Date().toISOString().slice(0, 10)}.${input.format}`;
+  return { blob: await response.blob(), filename };
+}
+
 export function getCrmSyncHistory(leadId: string, signal?: AbortSignal): Promise<CrmSync[]> {
   return request(`/v1/leads/${leadId}/crm-sync/history`, { signal });
 }

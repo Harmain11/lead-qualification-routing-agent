@@ -246,7 +246,7 @@ function App() {
         {loading && !data && view !== "settings" && view !== "team" && view !== "icp" ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
             {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={handleInspectLead} canEdit={can(workspacePermissions, "leads.edit")} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
+            {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={handleInspectLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
             {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
             {view === "analytics" && <AnalyticsView data={data} />}

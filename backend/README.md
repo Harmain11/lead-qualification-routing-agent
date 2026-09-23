@@ -14,3 +14,5 @@ uv run --project backend uvicorn lead_agent.api.main:app --reload --host 127.0.0
 ```
 
 Use `uv run --project backend python -m lead_agent.seed` to load the five illustrative records. Intake fixture adapters live under `src/lead_agent/infrastructure/intake`; provider SDKs are intentionally absent. Run `uv run --project backend pytest backend/tests` for backend tests, `uv run --project backend ruff check backend/src backend/tests` for linting, and `uv run --project backend mypy backend/src` for type checking.
+
+Lead exports are synchronous and bounded by `EXPORT_SYNC_LIMIT` (default 5,000 records). Requests above the limit are rejected with a safe message and an audit event; the export service keeps the query/render boundary suitable for a future asynchronous job without introducing a queue in this phase.

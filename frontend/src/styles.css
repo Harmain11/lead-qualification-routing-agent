@@ -202,10 +202,17 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .source-monogram { display: grid !important; place-items: center; width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-high); color: var(--orange-hot); font-family: var(--font-mono); font-size: 8px; }
 
 .lead-browser { margin-bottom: 24px; }
-.lead-toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) 190px 150px auto; align-items: center; gap: 9px; padding: 13px; border-bottom: 1px solid var(--line); }
+.lead-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 140px 145px 145px auto; align-items: center; gap: 9px; padding: 13px; border-bottom: 1px solid var(--line); }
 .lead-toolbar input, .lead-toolbar select, .field input, .field textarea, .manual-credential input { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: rgba(7,9,9,.65); color: var(--text); }
 .lead-toolbar input, .lead-toolbar select { height: 38px; padding: 0 12px; font-size: 10px; }
 .lead-toolbar > span { color: var(--muted); font-size: 9px; text-align: right; }
+.date-filter input { color-scheme: dark; }
+.lead-selection-bar { display: flex; align-items: center; gap: 15px; padding: 9px 13px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+.lead-selection-bar label { display: flex; align-items: center; gap: 7px; color: var(--text); }
+.lead-selection-bar input, .lead-select-cell input { accent-color: var(--brand-orange); }
+.lead-selection-bar span { margin-left: auto; }
+.lead-select-cell { width: 55px; text-align: center; }
+.lead-hero-actions { display: flex; align-items: center; gap: 9px; }
 .lead-table-wrap { overflow-x: auto; }
 .lead-table { width: 100%; min-width: 950px; border-collapse: collapse; }
 .lead-table th { padding: 13px 15px; color: var(--subtle); font-family: var(--font-mono); font-size: 8px; font-weight: 400; text-align: left; text-transform: uppercase; letter-spacing: .1em; }
@@ -232,6 +239,11 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .state-failed::before, .state-retryable::before { background: var(--red); }
 .primary-button { min-height: 40px; padding: 0 17px; border: 1px solid var(--brand-coral); border-radius: 9px; background: linear-gradient(135deg, var(--brand-orange), #B7290D); color: #fff; font-size: 10px; font-weight: 700; box-shadow: 0 8px 22px rgba(225,53,17,.16); transition: transform var(--fast), box-shadow var(--fast); }
 .primary-button:hover { transform: translateY(-2px); box-shadow: 0 11px 28px rgba(225,53,17,.24); }
+.export-dialog { width: min(560px, 100%); }
+.export-dialog fieldset { display: grid; gap: 10px; margin: 17px 0 0; padding: 14px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 10px; }
+.export-dialog legend { padding: 0 5px; color: var(--subtle); font-family: var(--font-mono); font-size: 8px; text-transform: uppercase; letter-spacing: .12em; }
+.export-dialog fieldset label { display: flex; align-items: center; gap: 8px; }
+.export-dialog fieldset input { accent-color: var(--brand-orange); }
 .intake-form { padding: 24px; margin-bottom: 20px; }
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
@@ -565,6 +577,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
   .mode-badge { display: none; }
   .page-view { padding: 22px 14px 50px; }
   .page-hero { min-height: 240px; align-items: flex-start; flex-direction: column; justify-content: center; gap: 22px; padding: 25px 3px; }
+  .lead-hero-actions { width: 100%; }
+  .lead-hero-actions .primary-button, .lead-hero-actions .secondary-button { flex: 1; }
   .page-hero h1 { font-size: 42px; }
   .compact-hero h1 { font-size: 38px; }
   .hero-pulse { width: 100%; transform: none; }
@@ -578,6 +592,7 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
   .lead-toolbar { grid-template-columns: 1fr 1fr; }
   .lead-toolbar label { grid-column: 1 / -1; }
   .lead-toolbar > span { text-align: left; }
+  .lead-selection-bar { flex-wrap: wrap; }
   .form-grid { grid-template-columns: 1fr; }
   .story-head { padding: 23px; }
   .story-head h2 { font-size: 27px; }

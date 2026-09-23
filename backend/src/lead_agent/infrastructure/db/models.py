@@ -128,6 +128,29 @@ class WorkspaceAdminAuditEventORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class LeadExportAuditEventORM(Base):
+    __tablename__ = "lead_export_audit_events"
+    __table_args__ = (
+        Index("ix_lead_export_audit_workspace_created", "workspace_id", "created_at"),
+        Index("ix_lead_export_audit_outcome_created", "outcome", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    format: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    record_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    selection_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    filter_summary: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkspaceIcpVersionORM(Base):
     __tablename__ = "workspace_icp_versions"
     __table_args__ = (
