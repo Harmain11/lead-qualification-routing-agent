@@ -231,7 +231,7 @@ def test_hubspot_oauth_uses_shared_s256_and_versioned_exchange_refresh() -> None
         "state-value",
         "s256-challenge",
         "https://app.test/callback",
-        ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"],
+        ["crm.objects.contacts.read", "crm.objects.contacts.write"],
     )
     tokens = broker.exchange(
         "hubspot", "temporary-code", "pkce-verifier", "https://app.test/callback"
@@ -240,6 +240,8 @@ def test_hubspot_oauth_uses_shared_s256_and_versioned_exchange_refresh() -> None
 
     assert "code_challenge=s256-challenge" in authorization_url
     assert "code_challenge_method=S256" in authorization_url
+    assert "scope=crm.objects.contacts.read+crm.objects.contacts.write" in authorization_url
+    assert "scope=oauth" not in authorization_url
     assert captured[0].url.path == "/oauth/2026-09/token"
     assert b"code_verifier=pkce-verifier" in captured[0].content
     assert captured[1].url.path == "/oauth/2026-09/token"

@@ -96,7 +96,6 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         dashboard_path="Managed by Ingenuity Systems · HubSpot public app",
         credential_help="Sign in to HubSpot, choose an account, and approve access.",
         required_scopes=[
-            "oauth",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
         ],
