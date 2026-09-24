@@ -29,6 +29,7 @@ from lead_agent.domain.crm_inbound import (
 )
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
 from lead_agent.infrastructure.crm.inbound_factory import (
     get_workspace_inbound_crm_resolver,
 )
@@ -193,9 +194,7 @@ class FakeInboundProvider:
             provider_version=record.provider_version,
             provider_source="Web",
             provider_metadata={"owner_id": "005-test", "original_source": "Web"},
-            synchronization_origin=(
-                str(values.get("origin")) if values.get("origin") else None
-            ),
+            synchronization_origin=(str(values.get("origin")) if values.get("origin") else None),
             deleted=record.deleted,
         )
 
@@ -208,18 +207,28 @@ def _session(tmp_path, name: str = "inbound.db") -> Session:
     return Session(engine)
 
 
-def _connection(session: Session, workspace_id: UUID, *, account: str = "test"):
+def _connection(
+    session: Session,
+    workspace_id: UUID,
+    *,
+    account: str = "test",
+    provider_type: str = "salesforce",
+):
     ensure_workspace(session, workspace_id, name=f"Workspace {workspace_id}")
     now = datetime.now(UTC)
     row = ProviderConnectionORM(
         id=uuid4(),
         workspace_id=workspace_id,
-        provider_type="salesforce",
+        provider_type=provider_type,
         external_account_id=account,
         account_name=account,
         auth_type="oauth2",
         status="verified",
-        scopes=["api", "refresh_token"],
+        scopes=(
+            ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"]
+            if provider_type == "hubspot"
+            else ["api", "refresh_token"]
+        ),
         secret_reference="secret-reference",
         credential_state="configured",
         last_validation_result={"verified": True},
@@ -238,6 +247,7 @@ def _run(session, connection, provider, icp, routing, **kwargs):
         session,
         connection,
         enabled=True,
+        object_type=kwargs.get("object_type", "Lead"),
         actor_id="test-user",
     )
     return run_inbound_sync(
@@ -245,7 +255,7 @@ def _run(session, connection, provider, icp, routing, **kwargs):
         connection,
         provider,
         mode=kwargs.pop("mode", "initial"),
-        object_type="Lead",
+        object_type=kwargs.pop("object_type", "Lead"),
         limit=kwargs.pop("limit", 100),
         page_size=kwargs.pop("page_size", 2),
         actor_id="test-user",
@@ -398,9 +408,7 @@ def test_first_import_uses_exact_email_but_ambiguous_email_creates_separate_lead
         matched = _run(
             session,
             connection,
-            FakeInboundProvider(
-                connection.id, [_record("00Q-match", "match@example.test")]
-            ),
+            FakeInboundProvider(connection.id, [_record("00Q-match", "match@example.test")]),
             icp,
             routing,
         )
@@ -487,9 +495,7 @@ def test_own_writeback_and_provider_delete_do_not_reprocess_or_delete_local_lead
         assert session.get(LeadORM, lead.id) is not None
 
 
-def test_provider_record_identity_and_cursors_are_workspace_scoped(
-    tmp_path, icp, routing
-) -> None:
+def test_provider_record_identity_and_cursors_are_workspace_scoped(tmp_path, icp, routing) -> None:
     with _session(tmp_path) as session:
         first_connection = _connection(session, uuid4(), account="first")
         second_connection = _connection(session, uuid4(), account="second")
@@ -590,6 +596,69 @@ def test_salesforce_inbound_adapter_uses_configured_version_and_standard_fields(
     assert canonical.normalized_payload["source_detail"] == "crm-import:salesforce:Web"
 
 
+def test_hubspot_contact_import_uses_shared_canonical_qualification_pipeline(
+    tmp_path, icp, routing
+) -> None:
+    modified = "2026-09-24T12:00:00Z"
+    transport = FakeTransport(
+        [
+            FakeResponse(
+                200,
+                {
+                    "results": [
+                        {
+                            "id": "hubspot-contact-44",
+                            "updatedAt": modified,
+                            "archived": False,
+                            "properties": {
+                                "email": "mira@example.test",
+                                "firstname": "Mira",
+                                "lastname": "Example",
+                                "company": "Example Corp",
+                                "jobtitle": "VP Operations",
+                                "phone": "+1-555-0188",
+                                "hs_analytics_source": "OFFLINE",
+                                "description": "Need routing automation this month.",
+                                "createdate": modified,
+                                "hs_lastmodifieddate": modified,
+                                "hubspot_owner_id": "owner-7",
+                            },
+                        }
+                    ]
+                },
+            ),
+            FakeResponse(200, {"results": []}),
+        ]
+    )
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="hubspot")
+        provider = HubSpotInboundCrmProvider(
+            connection_id=connection.id,
+            access_token="mock-hubspot-token",
+            transport=transport,
+        )
+        run = _run(
+            session,
+            connection,
+            provider,
+            icp,
+            routing,
+            object_type="contacts",
+            page_size=10,
+        )
+        lead = session.scalar(select(LeadORM))
+        link = session.scalar(select(CrmProviderRecordLinkORM))
+        assert run.records_created == 1
+        assert run.status == "completed"
+        assert lead is not None
+        assert lead.email == "mira@example.test"
+        assert lead.source == "offline"
+        assert lead.source_detail == "crm-import:hubspot:OFFLINE"
+        assert link is not None
+        assert link.provider_record_id == "hubspot-contact-44"
+        assert link.object_type == "contacts"
+
+
 def test_imported_salesforce_link_is_directly_updated_before_external_id_upserts(
     tmp_path, icp, routing, crm_config
 ) -> None:
@@ -600,9 +669,7 @@ def test_imported_salesforce_link_is_directly_updated_before_external_id_upserts
         _run(
             session,
             connection,
-            FakeInboundProvider(
-                connection.id, [_record("00Q-imported", "imported@example.test")]
-            ),
+            FakeInboundProvider(connection.id, [_record("00Q-imported", "imported@example.test")]),
             icp,
             routing,
         )
@@ -640,17 +707,13 @@ class ResolverStub:
 def test_inbound_api_requires_crm_sync_permission(tmp_path, icp, routing) -> None:
     session = _session(tmp_path)
     connection = _connection(session, uuid4())
-    provider = FakeInboundProvider(
-        connection.id, [_record("00Q-1", "one@example.test")]
-    )
+    provider = FakeInboundProvider(connection.id, [_record("00Q-1", "one@example.test")])
 
     def override_db():
         yield session
 
     app.dependency_overrides[get_db] = override_db
-    app.dependency_overrides[get_workspace_inbound_crm_resolver] = lambda: ResolverStub(
-        provider
-    )
+    app.dependency_overrides[get_workspace_inbound_crm_resolver] = lambda: ResolverStub(provider)
     app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
         workspace_id=connection.workspace_id,
         actor_id="viewer",
@@ -673,17 +736,13 @@ def test_inbound_api_requires_crm_sync_permission(tmp_path, icp, routing) -> Non
 def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_path) -> None:
     session = _session(tmp_path)
     connection = _connection(session, uuid4())
-    provider = FakeInboundProvider(
-        connection.id, [_record("00Q-1", "one@example.test")]
-    )
+    provider = FakeInboundProvider(connection.id, [_record("00Q-1", "one@example.test")])
 
     def override_db():
         yield session
 
     app.dependency_overrides[get_db] = override_db
-    app.dependency_overrides[get_workspace_inbound_crm_resolver] = lambda: ResolverStub(
-        provider
-    )
+    app.dependency_overrides[get_workspace_inbound_crm_resolver] = lambda: ResolverStub(provider)
     app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
         workspace_id=connection.workspace_id,
         actor_id="manager",
@@ -702,21 +761,15 @@ def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_pa
                 f"/v1/integrations/connections/{connection.id}/inbound-sync",
                 json={"mode": "manual", "limit": 10, "page_size": 2},
             )
-            state = client.get(
-                f"/v1/integrations/connections/{connection.id}/inbound-sync/state"
-            )
-            runs = client.get(
-                f"/v1/integrations/connections/{connection.id}/inbound-sync/runs"
-            )
+            state = client.get(f"/v1/integrations/connections/{connection.id}/inbound-sync/state")
+            runs = client.get(f"/v1/integrations/connections/{connection.id}/inbound-sync/runs")
         assert configured.status_code == 200
         assert started.status_code == 200
         assert started.json()["records_created"] == 1
         assert state.status_code == 200
         assert state.json()["status"] == "ready"
         assert runs.status_code == 200 and len(runs.json()) == 1
-        serialized = json.dumps(
-            {"run": started.json(), "state": state.json(), "runs": runs.json()}
-        )
+        serialized = json.dumps({"run": started.json(), "state": state.json(), "runs": runs.json()})
         assert "one@example.test" not in serialized
         assert "provider_record_id" not in serialized
     finally:

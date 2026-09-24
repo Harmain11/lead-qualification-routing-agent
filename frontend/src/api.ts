@@ -191,30 +191,33 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
 }
 
-export function getInboundSyncState(connectionId: string): Promise<CrmInboundSyncState> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state`);
+export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {
+  const objectType = provider === "hubspot" ? "contacts" : "Lead";
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state?object_type=${objectType}`);
 }
 
 export function configureInboundSync(
   connectionId: string,
   enabled: boolean,
+  provider: string = "salesforce",
   intervalSeconds = 300,
 ): Promise<CrmInboundSyncState> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, object_type: "Lead", interval_seconds: intervalSeconds }),
+    body: JSON.stringify({ enabled, object_type: provider === "hubspot" ? "contacts" : "Lead", interval_seconds: intervalSeconds }),
   });
 }
 
 export function runInboundSync(
   connectionId: string,
   mode: "initial" | "incremental" | "manual",
+  provider: string = "salesforce",
 ): Promise<CrmInboundSyncRun> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: "Lead", limit: 500, page_size: 100 }),
+    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : "Lead", limit: 500, page_size: 100 }),
   });
 }
 

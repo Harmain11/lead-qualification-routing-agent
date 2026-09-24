@@ -41,7 +41,6 @@ hubspot:
   contact_object: "contacts"
   contact_id_property: "email"
   contact_fields:
-    source_channel: "lead_source_channel"
     requested_service: "requested_service"
     summary: "lead_summary"
     qualification_score: "qualification_score"
@@ -49,21 +48,18 @@ hubspot:
     icp_score: "icp_score"
     intent_urgency_score: "intent_urgency_score"
     engagement_score: "engagement_score"
-    rationale_text: "qualification_rationale"
+    icp_profile_version: "icp_version"
     recommended_action: "recommended_action"
-    action_plan_json: "sales_action_plan"
-    assigned_queue: "assigned_queue"
-    assigned_rep_name: "assigned_rep_name"
-    urgency_timeline: "urgency_timeline"
+    internal_lead_id: "lead_agent_id"
   owner_mapping: {}
-  sync_company: true
+  sync_company: false
   company_object: "companies"
   company_id_property: "lead_agent_company_key"
   company_fields:
     company: "name"
     source_channel: "lead_source_channel"
     qualification_band: "qualification_band"
-  sync_deal: true
+  sync_deal: false
   deal_object: "deals"
   deal_id_property: "lead_agent_lead_id"
   deal_pipeline: "default"

@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     slack_client_secret: str = ""
     hubspot_client_id: str = ""
     hubspot_client_secret: str = ""
+    hubspot_oauth_api_version: str = "2026-09"
     linkedin_client_id: str = ""
     linkedin_client_secret: str = ""
     salesforce_client_id: str = ""
@@ -304,13 +305,11 @@ class Settings(BaseSettings):
             )
         elif self.crm_provider == "hubspot":
             require(
-                bool(self.hubspot_access_token)
-                and not _is_placeholder(self.hubspot_access_token)
-                and bool(self.hubspot_client_id)
+                bool(self.hubspot_client_id)
                 and not _is_placeholder(self.hubspot_client_id)
                 and bool(self.hubspot_client_secret)
                 and not _is_placeholder(self.hubspot_client_secret),
-                "HubSpot fallback and OAuth application credentials must be configured",
+                "HubSpot OAuth application credentials must be configured",
             )
         else:
             problems.append("CRM_PROVIDER must be salesforce or hubspot in production")

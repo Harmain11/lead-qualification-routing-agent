@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from lead_agent.domain.crm_inbound import CrmInboundProvider
 from lead_agent.domain.integrations import SecretStore
 from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceInboundCrmProvider
 from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
@@ -52,6 +53,13 @@ class WorkspaceInboundCrmProviderResolver:
                 category="configuration",
                 retryable=False,
             )
+        if resolved.provider == "hubspot":
+            return HubSpotInboundCrmProvider(
+                connection_id=resolved.connection_id,
+                access_token=resolved.credentials.get("access_token", ""),
+                api_base_url=self.settings.hubspot_api_base_url,
+                timeout_seconds=self.settings.crm_timeout_seconds,
+            )
         if resolved.provider != "salesforce":
             raise ProviderOperationError(
                 "Inbound synchronization is not implemented for this provider",
@@ -63,9 +71,7 @@ class WorkspaceInboundCrmProviderResolver:
         config = self.settings.load_crm_config().salesforce
         return SalesforceInboundCrmProvider(
             connection_id=resolved.connection_id,
-            client_id=resolved.credentials.get(
-                "client_id", self.settings.salesforce_client_id
-            ),
+            client_id=resolved.credentials.get("client_id", self.settings.salesforce_client_id),
             client_secret=resolved.credentials.get(
                 "client_secret", self.settings.salesforce_client_secret
             ),

@@ -185,6 +185,10 @@ def begin_oauth_connection(
     verifier = secrets.token_urlsafe(64)
     redirect_uri = f"{public_base_url.rstrip('/')}/v1/integrations/{provider}/oauth/callback"
     active_scopes = scopes or setup.required_scopes
+    if provider == "hubspot" and set(active_scopes) != set(setup.required_scopes):
+        raise ValueError(
+            "HubSpot OAuth scopes must be exactly the minimum supported Contacts scopes"
+        )
     authorization_url = broker.begin(
         provider,
         connection_id,
@@ -289,9 +293,7 @@ def complete_oauth_connection(
     session.refresh(row)
 
     pending_values = (
-        secret_store.retrieve_for_workspace(
-            workspace_id, row.provider_type, row.secret_reference
-        )
+        secret_store.retrieve_for_workspace(workspace_id, row.provider_type, row.secret_reference)
         if row.secret_reference
         else None
     )
@@ -543,9 +545,7 @@ def disconnect_connection(
     values: dict[str, str] | None = None
     if reference:
         try:
-            values = secret_store.retrieve_for_workspace(
-                workspace_id, row.provider_type, reference
-            )
+            values = secret_store.retrieve_for_workspace(workspace_id, row.provider_type, reference)
             secret_retrieval = "available" if values is not None else "unavailable"
         except Exception:
             secret_retrieval = "failed"
@@ -570,9 +570,7 @@ def disconnect_connection(
         try:
             revocation = revoker.revoke(row.provider_type, values)
         except Exception:
-            revocation = RevocationResult(
-                status="failed", error_code="provider_revocation_failed"
-            )
+            revocation = RevocationResult(status="failed", error_code="provider_revocation_failed")
         remote_revocation = revocation.status
     local_secret = "not_present"
     if reference and values is not None:

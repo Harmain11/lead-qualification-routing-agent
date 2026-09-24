@@ -96,14 +96,13 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         dashboard_path="Managed by Ingenuity Systems · HubSpot public app",
         credential_help="Sign in to HubSpot, choose an account, and approve access.",
         required_scopes=[
+            "oauth",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
-            "crm.objects.companies.read",
-            "crm.objects.companies.write",
-            "crm.objects.deals.read",
-            "crm.objects.deals.write",
         ],
-        permission_reason="Upsert contacts, companies, deals, and their associations.",
+        permission_reason=(
+            "Import HubSpot Contacts and allow explicitly initiated Contact create/update actions."
+        ),
         documentation_url="https://developers.hubspot.com/docs/api/private-apps",
         manual_fields=[],
     ),

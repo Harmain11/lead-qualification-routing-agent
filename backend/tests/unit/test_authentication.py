@@ -463,7 +463,7 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
             assert refreshed.status_code == 200
             assert refreshed.json()["valid"] is False
             assert refreshed.json()["verified"] is False
-            assert refreshed.json()["error_code"] == "provider_validation_not_implemented"
+            assert refreshed.json()["error_code"] == "hubspot_credentials_missing"
             assert refreshed.json()["connection"]["status"] == "error"
             rotated_values = store.retrieve(connection.secret_reference)
             assert rotated_values is not None

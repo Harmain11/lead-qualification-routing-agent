@@ -100,7 +100,7 @@ The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVID
   workspace secret store. The adapter uses the shared lifecycle's access token and does not run a
   second refresh exchange inside a CRM operation. The configured external-ID field drives REST
   sObject upsert.
-- `CRM_PROVIDER=hubspot` uses a private-app bearer token, CRM v3 batch upsert, and CRM v4 default associations.
+- `CRM_PROVIDER=hubspot` keeps the optional private-app fallback, while workspace setup uses OAuth and encrypted per-workspace tokens. HubSpot Contacts use the provider-neutral inbound CRM service; writes remain explicit manual actions.
 - A canonical payload carries lead identity, source, service, grounded summary, 40/35/25 components, total score, band, rationale, action plan, queue/rep, and urgency. Provider schemas remain inside adapters and mapping configuration.
 - `crm_syncs` preserves payload hashes, attempts, provider IDs, state, errors, retryability, and history. Provider failure does not change successful lead/routing state.
 
@@ -108,8 +108,8 @@ The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVID
 
 The provider-neutral inbound/bidirectional foundation is documented in
 [`phase-7c2c-inbound-sync-foundation.md`](phase-7c2c-inbound-sync-foundation.md). It adds durable
-provider-record links, resumable checkpoints, bounded sync runs, source-field fingerprints, and a
-Salesforce Lead acquisition adapter while preserving the existing outbound provider contract.
+provider-record links, resumable checkpoints, bounded sync runs, source-field fingerprints, and
+provider-specific adapters without adding another scoring pipeline.
 
 ### Salesforce setup
 
@@ -123,13 +123,10 @@ Salesforce’s current External Client App PKCE guidance and REST sObject upsert
 
 ### HubSpot setup
 
-1. Create a HubSpot private app for the target account. Grant least-privilege read/write scopes for contacts, companies, deals, and their associations.
-2. Create the custom contact properties listed under `hubspot.contact_fields` in `config/crm.example.yaml`, or change those mappings to approved existing properties.
-3. Create `lead_agent_company_key` as a unique company property and `lead_agent_lead_id` as a unique deal property (or change the configured ID property names). These identities make company/deal replay upserts deterministic. Contact upsert uses email.
-4. Confirm the configured deal pipeline and stage values exist in the target portal. Map internal rep IDs to HubSpot owner IDs under `hubspot.owner_mapping` if owner assignment is wanted.
-5. Set `CRM_PROVIDER=hubspot` and `HUBSPOT_ACCESS_TOKEN` outside Git. Override `HUBSPOT_API_BASE_URL` only for an approved proxy/test environment.
-
-HubSpot documents bearer-token authentication and contact batch upsert by email; the adapter uses the corresponding CRM v3 object upsert and v4 association boundaries: <https://developers.hubspot.com/changelog/september-2024-rollup>.
+HubSpot OAuth setup, Contacts-only object mapping, minimum scopes, actual callback, and the later
+test-account certification checklist are documented in
+[`phase-7c3a-hubspot-preparation.md`](phase-7c3a-hubspot-preparation.md). The default example creates
+or upserts Contacts only; legacy optional Company/Deal outbound mappings remain opt-in.
 
 ### Workspace connection model
 

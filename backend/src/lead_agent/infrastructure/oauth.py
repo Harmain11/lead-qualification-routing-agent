@@ -115,7 +115,7 @@ class ProviderOAuthBroker:
                 self.settings.hubspot_client_id,
                 self.settings.hubspot_client_secret,
                 "https://app.hubspot.com/oauth/authorize",
-                "https://api.hubapi.com/oauth/v1/token",
+                f"https://api.hubspot.com/oauth/{self.settings.hubspot_oauth_api_version}/token",
             ),
             "linkedin": OAuthProviderConfig(
                 self.settings.linkedin_client_id,

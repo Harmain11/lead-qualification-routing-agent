@@ -112,11 +112,11 @@ class HubSpotCrmConfig(BaseModel):
     contact_id_property: str = "email"
     contact_fields: dict[str, str] = Field(default_factory=dict)
     owner_mapping: dict[str, str] = Field(default_factory=dict)
-    sync_company: bool = True
+    sync_company: bool = False
     company_object: str = "companies"
     company_id_property: str = "lead_agent_company_key"
     company_fields: dict[str, str] = Field(default_factory=dict)
-    sync_deal: bool = True
+    sync_deal: bool = False
     deal_object: str = "deals"
     deal_id_property: str = "lead_agent_lead_id"
     deal_pipeline: str = "default"

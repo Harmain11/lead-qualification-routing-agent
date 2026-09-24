@@ -245,9 +245,7 @@ def test_manual_update_recovers_same_payload_after_connection_configuration_fail
         assert failed.retryable is False
 
         # Background work must keep respecting the permanent failure marker.
-        unchanged = sync_lead_to_crm(
-            session, lead, MockCrmProvider(), request_origin="scheduled"
-        )
+        unchanged = sync_lead_to_crm(session, lead, MockCrmProvider(), request_origin="scheduled")
         assert unchanged.id == failed.id
         assert unchanged.attempts == 1
 
@@ -309,7 +307,9 @@ def test_qualification_lifecycle_does_not_append_automatic_crm_write(
 def test_salesforce_mapping_owner_and_external_id_upsert(crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
+            FakeResponse(
+                200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}
+            ),
             FakeResponse(201, {"id": "00Q-contact", "created": True}),
         ]
     )
@@ -339,9 +339,13 @@ def test_salesforce_mapping_owner_and_external_id_upsert(crm_config) -> None:
 def test_salesforce_existing_record_uses_same_external_identity(crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
+            FakeResponse(
+                200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}
+            ),
             FakeResponse(201, {"id": "00Q-contact"}),
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
+            FakeResponse(
+                200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}
+            ),
             FakeResponse(200, {"id": "00Q-contact", "created": False}),
         ]
     )
@@ -368,7 +372,9 @@ def test_salesforce_existing_record_uses_same_external_identity(crm_config) -> N
 def test_salesforce_error_classification(status, category, retryable, crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
+            FakeResponse(
+                200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}
+            ),
             FakeResponse(status),
         ]
     )
@@ -426,9 +432,7 @@ def test_salesforce_workspace_access_token_skips_duplicate_refresh(crm_config) -
 
 def test_salesforce_validator_probes_limits_with_scoped_token() -> None:
     transport = FakeTransport([FakeResponse(200, {"DailyApiRequests": {"Max": 15000}})])
-    validator = SalesforceConnectionValidator(
-        api_version="v68.0", transport=transport
-    )
+    validator = SalesforceConnectionValidator(api_version="v68.0", transport=transport)
     result = validator.validate(
         "salesforce",
         {"access_token": "workspace-access", "instance_url": "https://org.salesforce.com"},
@@ -457,7 +461,7 @@ def test_salesforce_validator_translates_auth_and_malformed_failures() -> None:
     assert "workspace-access" not in str(auth_error.value)
 
     malformed_validator = SalesforceConnectionValidator(
-        api_version="v68.0", transport=FakeTransport([FakeResponse(200, ["not-a-map"])] )
+        api_version="v68.0", transport=FakeTransport([FakeResponse(200, ["not-a-map"])])
     )
     with pytest.raises(ProviderOperationError) as malformed_error:
         malformed_validator.validate(
@@ -498,7 +502,17 @@ def test_hubspot_contact_company_deal_mapping_and_associations(crm_config) -> No
             FakeResponse(204),
         ]
     )
-    config = crm_config.hubspot.model_copy(update={"owner_mapping": {"rep-alex": "hubspot-owner"}})
+    config = crm_config.hubspot.model_copy(
+        update={
+            "owner_mapping": {"rep-alex": "hubspot-owner"},
+            "sync_company": True,
+            "sync_deal": True,
+            "contact_fields": {
+                "qualification_score": "qualification_score",
+                "internal_lead_id": "lead_agent_id",
+            },
+        }
+    )
     provider = HubSpotCrmProvider(
         access_token="private-app-token",
         api_base_url="https://api.hubapi.test",
@@ -514,10 +528,7 @@ def test_hubspot_contact_company_deal_mapping_and_associations(crm_config) -> No
     assert contact_body["idProperty"] == "email"
     assert contact_body["properties"]["hubspot_owner_id"] == "hubspot-owner"
     assert contact_body["properties"]["qualification_score"] == "91"
-    assert contact_body["properties"]["sales_action_plan"] == (
-        '{"immediate_action":"Schedule a discovery call."}'
-    )
-    assert contact_body["properties"]["assigned_rep_name"] == "Alex Morgan"
+    assert contact_body["properties"]["lead_agent_id"] == str(canonical_payload().internal_lead_id)
     assert deal_body["idProperty"] == "lead_agent_lead_id"
     assert deal_body["properties"]["dealstage"] == "appointmentscheduled"
     assert sum("associations/default" in item["url"] for item in transport.requests) == 3
@@ -541,8 +552,11 @@ def test_hubspot_duplicate_prevention_uses_stable_upsert_identities(crm_config) 
     )
     first = provider.sync(canonical_payload())
     second = provider.sync(canonical_payload(), first.entities)
-    identities = [request["json"]["inputs"][0]["id"] for request in transport.requests]
-    assert identities == ["maya@example.test", "maya@example.test"]
+    assert transport.requests[0]["method"] == "POST"
+    assert transport.requests[0]["json"]["inputs"][0]["id"] == "maya@example.test"
+    assert transport.requests[1]["method"] == "PATCH"
+    assert transport.requests[1]["url"].endswith("/contacts/contact-1")
+    assert len(transport.requests) == 2
     assert second.operation == "update"
     assert second.entities.contact_id == "contact-1"
 
@@ -582,7 +596,9 @@ def test_hubspot_missing_credentials_fails_without_http(crm_config) -> None:
 def test_cross_provider_contract_returns_canonical_entity_references(crm_config) -> None:
     salesforce_transport = FakeTransport(
         [
-            FakeResponse(200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}),
+            FakeResponse(
+                200, {"access_token": "token", "instance_url": "https://org.salesforce.com"}
+            ),
             FakeResponse(201, {"id": "sf-lead"}),
         ]
     )

@@ -43,7 +43,7 @@ class InboundSyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["initial", "incremental", "manual"] = "manual"
-    object_type: Literal["Lead"] = "Lead"
+    object_type: Literal["Lead", "contacts"] = "Lead"
     limit: int = Field(default=500, ge=1, le=5000)
     page_size: int = Field(default=100, ge=1, le=200)
 
@@ -52,13 +52,11 @@ class InboundSyncConfigurationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
-    object_type: Literal["Lead"] = "Lead"
+    object_type: Literal["Lead", "contacts"] = "Lead"
     interval_seconds: int = Field(default=300, ge=60, le=86_400)
 
 
-def _connection(
-    session: Session, workspace_id: UUID, connection_id: UUID
-) -> ProviderConnectionORM:
+def _connection(session: Session, workspace_id: UUID, connection_id: UUID) -> ProviderConnectionORM:
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Provider connection not found")
@@ -74,9 +72,7 @@ def update_inbound_sync_configuration(
     connection_id: UUID,
     request: InboundSyncConfigurationRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(
-        require_permissions("integrations.manage", "crm.sync")
-    ),
+    workspace: WorkspaceContext = Depends(require_permissions("integrations.manage", "crm.sync")),
 ) -> CrmInboundSyncStateResponse:
     connection = _connection(session, workspace.workspace_id, connection_id)
     try:
@@ -105,9 +101,7 @@ def synchronize_inbound_crm(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     reasoning_provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
-    resolver: WorkspaceInboundCrmProviderResolver = Depends(
-        get_workspace_inbound_crm_resolver
-    ),
+    resolver: WorkspaceInboundCrmProviderResolver = Depends(get_workspace_inbound_crm_resolver),
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmInboundSyncRunResponse:
     connection = _connection(session, workspace.workspace_id, connection_id)
@@ -146,14 +140,12 @@ def synchronize_inbound_crm(
 )
 def retrieve_inbound_sync_state(
     connection_id: UUID,
-    object_type: Literal["Lead"] = "Lead",
+    object_type: Literal["Lead", "contacts"] = "Lead",
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
 ) -> CrmInboundSyncStateResponse:
     _connection(session, workspace.workspace_id, connection_id)
-    row = get_inbound_sync_state(
-        session, workspace.workspace_id, connection_id, object_type
-    )
+    row = get_inbound_sync_state(session, workspace.workspace_id, connection_id, object_type)
     if row is None:
         raise HTTPException(status_code=404, detail="Inbound synchronization state not found")
     return crm_inbound_state_response(row)

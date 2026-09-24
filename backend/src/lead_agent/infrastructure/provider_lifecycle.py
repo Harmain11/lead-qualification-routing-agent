@@ -26,6 +26,10 @@ from lead_agent.domain.provider_errors import (
     provider_timeout_error,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.crm.hubspot import (
+    HubSpotConnectionValidator,
+    HubSpotProviderRevoker,
+)
 from lead_agent.infrastructure.crm.salesforce import (
     SalesforceConnectionValidator,
     SalesforceProviderRevoker,
@@ -194,9 +198,7 @@ class WorkspaceAuthorizedConnectionResolver:
         )
         if connection is None:
             return None
-        return self.resolve_connection(
-            session, workspace_id, connection.id, actor_id=actor_id
-        )
+        return self.resolve_connection(session, workspace_id, connection.id, actor_id=actor_id)
 
     def resolve_connection(
         self,
@@ -224,9 +226,7 @@ class WorkspaceAuthorizedConnectionResolver:
             if locked is None or not locked.is_active or locked.status not in usable_statuses:
                 return None
             credentials = self._load_credentials(locked)
-            credentials = self._refresh_if_needed(
-                session, locked, credentials, actor_id=actor_id
-            )
+            credentials = self._refresh_if_needed(session, locked, credentials, actor_id=actor_id)
             return ResolvedProviderConnection(
                 connection_id=locked.id,
                 workspace_id=locked.workspace_id,
@@ -314,12 +314,8 @@ class WorkspaceAuthorizedConnectionResolver:
                 session, connection, actor_id, provider_timeout_error(connection.provider_type)
             ) from None
         except httpx.HTTPStatusError as error:
-            translated = provider_http_error(
-                connection.provider_type, error.response.status_code
-            )
-            raise self._record_refresh_error(
-                session, connection, actor_id, translated
-            ) from error
+            translated = provider_http_error(connection.provider_type, error.response.status_code)
+            raise self._record_refresh_error(session, connection, actor_id, translated) from error
         except Exception:
             translated = ProviderOperationError(
                 "Provider token refresh failed",
@@ -328,9 +324,7 @@ class WorkspaceAuthorizedConnectionResolver:
                 category="temporarily_unavailable",
                 retryable=True,
             )
-            raise self._record_refresh_error(
-                session, connection, actor_id, translated
-            ) from None
+            raise self._record_refresh_error(session, connection, actor_id, translated) from None
         access_token = refreshed.get("access_token")
         if not access_token:
             translated = ProviderOperationError(
@@ -354,9 +348,7 @@ class WorkspaceAuthorizedConnectionResolver:
         expires_in = _token_lifetime_seconds(refreshed)
         connection.connection_metadata = {
             **connection.connection_metadata,
-            "token_expires_at": (
-                datetime.now(UTC) + timedelta(seconds=expires_in)
-            ).isoformat(),
+            "token_expires_at": (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat(),
             "refresh_available": True,
         }
         connection.credential_state = "configured"
@@ -368,8 +360,7 @@ class WorkspaceAuthorizedConnectionResolver:
             outcome="succeeded",
             actor_id=actor_id,
             details={
-                "refresh_token_rotated": refreshed.get("refresh_token")
-                not in {None, refresh_token}
+                "refresh_token_rotated": refreshed.get("refresh_token") not in {None, refresh_token}
             },
         )
         session.commit()
@@ -450,7 +441,11 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             "salesforce": SalesforceConnectionValidator(
                 api_version=settings.salesforce_api_version,
                 timeout_seconds=settings.crm_timeout_seconds,
-            )
+            ),
+            "hubspot": HubSpotConnectionValidator(
+                oauth_api_version=settings.hubspot_oauth_api_version,
+                timeout_seconds=settings.crm_timeout_seconds,
+            ),
         },
         DeferredProviderValidator(),
     )
@@ -464,7 +459,11 @@ def get_provider_revoker() -> ProviderRevoker:
             "salesforce": SalesforceProviderRevoker(
                 login_base_url=settings.salesforce_login_base_url,
                 timeout_seconds=settings.crm_timeout_seconds,
-            )
+            ),
+            "hubspot": HubSpotProviderRevoker(
+                oauth_api_version=settings.hubspot_oauth_api_version,
+                timeout_seconds=settings.crm_timeout_seconds,
+            ),
         },
         OAuthBrokerRevoker(get_oauth_broker()),
     )
