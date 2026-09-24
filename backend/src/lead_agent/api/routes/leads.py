@@ -7,11 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
-    get_active_crm_provider,
     get_policies,
     get_workspace_context,
     require_permission,
-    require_permissions,
 )
 from lead_agent.api.schemas import (
     LeadCreateRequest,
@@ -33,7 +31,6 @@ from lead_agent.application.exports import (
 from lead_agent.application.services import process_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
-from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import UserORM, WorkspaceORM
@@ -62,8 +59,6 @@ def _process_create_request(
     policies: tuple[IcpConfig, RoutingConfig],
     provider: ReasoningProvider,
     notification_provider: NotificationProvider,
-    crm_provider: CrmProvider,
-    settings: Settings,
     workspace: WorkspaceContext,
 ) -> LeadResponse:
     try:
@@ -73,9 +68,6 @@ def _process_create_request(
             *policies,
             provider=provider,
             notification_provider=notification_provider,
-            crm_provider=crm_provider,
-            crm_max_attempts=settings.crm_max_attempts,
-            crm_payload_version=settings.load_crm_config().payload_version,
             workspace_id=workspace.workspace_id,
         )
     except ValueError as error:
@@ -94,9 +86,7 @@ def create_lead(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
     provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
-    crm_provider: CrmProvider = Depends(get_active_crm_provider),
-    settings: Settings = Depends(get_settings),
-    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "crm.sync")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> LeadResponse:
     return _process_create_request(
         request,
@@ -104,8 +94,6 @@ def create_lead(
         policies,
         provider,
         notification_provider,
-        crm_provider,
-        settings,
         workspace,
     )
 

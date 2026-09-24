@@ -63,8 +63,11 @@ def _state(
         connection_id=connection.id,
         provider=connection.provider_type,
         object_type=object_type,
-        enabled=True,
-        status="idle",
+        enabled=False,
+        initial_import_completed=False,
+        sync_interval_seconds=300,
+        next_sync_at=None,
+        status="disabled",
         records_processed=0,
         created_at=now,
         updated_at=now,
@@ -86,6 +89,105 @@ def _state(
             raise
         return existing
     return row
+
+
+def configure_inbound_sync(
+    session: Session,
+    connection: ProviderConnectionORM,
+    *,
+    enabled: bool,
+    object_type: str = "Lead",
+    interval_seconds: int = 300,
+    actor_id: str,
+) -> CrmInboundSyncStateORM:
+    """Deliberately enable or disable scheduled inbound acquisition."""
+
+    if connection.provider_type not in {"salesforce", "hubspot", "mock"}:
+        raise ValueError("provider does not support CRM inbound synchronization")
+    if not connection.is_active or connection.status not in {"connected", "verified"}:
+        raise ValueError("provider connection is inactive or unavailable")
+    interval = max(60, min(interval_seconds, 86_400))
+    state = _state(session, connection, object_type)
+    now = datetime.now(UTC)
+    state.enabled = enabled
+    state.sync_interval_seconds = interval
+    state.next_sync_at = now if enabled else None
+    state.status = "ready" if enabled else "disabled"
+    state.updated_at = now
+    record_provider_lifecycle_audit(
+        session,
+        connection,
+        action="inbound_sync_configuration",
+        outcome="enabled" if enabled else "disabled",
+        actor_id=actor_id,
+        details={"object_type": object_type, "interval_seconds": interval},
+    )
+    session.commit()
+    return state
+
+
+def list_due_inbound_sync_states(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    limit: int = 100,
+) -> list[CrmInboundSyncStateORM]:
+    due = now or datetime.now(UTC)
+    return list(
+        session.scalars(
+            select(CrmInboundSyncStateORM)
+            .join(
+                ProviderConnectionORM,
+                ProviderConnectionORM.id == CrmInboundSyncStateORM.connection_id,
+            )
+            .where(
+                CrmInboundSyncStateORM.enabled.is_(True),
+                CrmInboundSyncStateORM.next_sync_at.is_not(None),
+                CrmInboundSyncStateORM.next_sync_at <= due,
+                CrmInboundSyncStateORM.status != "running",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status.in_({"connected", "verified"}),
+            )
+            .order_by(CrmInboundSyncStateORM.next_sync_at.asc())
+            .limit(max(1, min(limit, 500)))
+        )
+    )
+
+
+def claim_due_inbound_sync_states(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    limit: int = 100,
+) -> list[CrmInboundSyncStateORM]:
+    """Claim bounded due work by advancing its next-dispatch time atomically."""
+
+    claimed_at = now or datetime.now(UTC)
+    rows = list(
+        session.scalars(
+            select(CrmInboundSyncStateORM)
+            .join(
+                ProviderConnectionORM,
+                ProviderConnectionORM.id == CrmInboundSyncStateORM.connection_id,
+            )
+            .where(
+                CrmInboundSyncStateORM.enabled.is_(True),
+                CrmInboundSyncStateORM.next_sync_at.is_not(None),
+                CrmInboundSyncStateORM.next_sync_at <= claimed_at,
+                CrmInboundSyncStateORM.status != "running",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status.in_({"connected", "verified"}),
+            )
+            .order_by(CrmInboundSyncStateORM.next_sync_at.asc())
+            .limit(max(1, min(limit, 500)))
+            .with_for_update(skip_locked=True)
+        )
+    )
+    for row in rows:
+        row.next_sync_at = claimed_at + timedelta(seconds=row.sync_interval_seconds)
+        row.updated_at = claimed_at
+    session.commit()
+    return rows
 
 
 def get_inbound_sync_state(
@@ -350,7 +452,6 @@ def _process_record(
             provider=reasoning_provider,
             notification_provider=notification_provider,
             workspace_id=connection.workspace_id,
-            sync_crm=False,
         )
         lead = result.lead
         strategy = "new_provider_record" if not matches else "ambiguous_email_created_separate"
@@ -394,6 +495,7 @@ def _fail_run(
     state.error_category = error.category
     state.error_code = error.code
     state.last_error = str(error)[:2000]
+    state.next_sync_at = now + timedelta(seconds=max(60, state.sync_interval_seconds))
     state.updated_at = now
     record_provider_lifecycle_audit(
         session,
@@ -450,6 +552,11 @@ def run_inbound_sync(
 
     with _sync_lock(connection.workspace_id, connection.id, object_type):
         state = _state(session, connection, object_type)
+        state = session.scalar(
+            select(CrmInboundSyncStateORM)
+            .where(CrmInboundSyncStateORM.id == state.id)
+            .with_for_update()
+        ) or state
         if not state.enabled:
             raise ValueError("inbound synchronization is disabled")
         active = session.scalar(
@@ -615,6 +722,9 @@ def run_inbound_sync(
         state.last_successful_cursor = final_checkpoint
         state.resume_cursor = cursor if bounded else None
         state.last_successful_sync_at = now
+        if mode == "initial" and not bounded:
+            state.initial_import_completed = True
+        state.next_sync_at = now + timedelta(seconds=state.sync_interval_seconds)
         state.error_category = None
         state.error_code = None
         state.last_error = None

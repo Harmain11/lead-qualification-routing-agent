@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-import { createLead, exportLeads } from "../api";
+import { bulkSendLeadsToCrm, createLead, exportLeads } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
@@ -146,6 +146,7 @@ export function LeadsView({
   onCreated,
   canEdit = true,
   canExport = false,
+  canCrmSync = false,
 }: {
   leads: Lead[];
   selected: Lead | null;
@@ -153,6 +154,7 @@ export function LeadsView({
   onCreated: (lead: Lead) => void;
   canEdit?: boolean;
   canExport?: boolean;
+  canCrmSync?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [band, setBand] = useState("all");
@@ -162,6 +164,7 @@ export function LeadsView({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [crmNotice, setCrmNotice] = useState<string | null>(null);
   const normalizedSearch = search.trim().toLowerCase();
   const filtered = useMemo(
     () => leads.filter((lead) => {
@@ -206,7 +209,8 @@ export function LeadsView({
           <label className="date-filter"><span className="sr-only">Received to</span><input aria-label="Received to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
           <span>{filtered.length} records</span>
         </div>
-        {filtered.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={filtered.length > 0 && visibleSelected === filtered.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span><button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
+        {filtered.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={filtered.length > 0 && visibleSelected === filtered.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <button className="button-quiet" disabled={!selectedIds.size} onClick={async () => { if (!window.confirm(`Send or update ${selectedIds.size} selected leads in the connected CRM?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds]); setCrmNotice(`${result.succeeded} CRM writes completed; ${result.failed} failed.`); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM write failed"); } }}>Send selected to CRM</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
+        {crmNotice && <div className="notice" role="status">{crmNotice}</div>}
         <div className="lead-table-wrap">
           <table className="lead-table">
             <thead><tr><th aria-label="Select leads">Select</th><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
@@ -216,7 +220,7 @@ export function LeadsView({
         </div>
       </section>
       {showExport && <ExportDialog count={filtered.length} selectedCount={selectedIds.size} filters={{ search, band, source, dateFrom, dateTo }} onClose={() => setShowExport(false)} selectedIds={[...selectedIds]} />}
-      {selected && <LeadDetail lead={selected} />}
+      {selected && <LeadDetail lead={selected} canCrmSync={canCrmSync} />}
     </div>
   );
 }

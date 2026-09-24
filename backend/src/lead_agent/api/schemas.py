@@ -168,6 +168,8 @@ class CrmSyncResponse(BaseModel):
     routing_decision_id: UUID
     provider_connection_id: UUID | None
     provider: str
+    requested_by: str
+    request_origin: str
     operation: str
     status: str
     attempts: int
@@ -263,6 +265,7 @@ class IntegrationCardResponse(BaseModel):
     documentation_url: str
     manual_fields: list[str]
     connection_mode: str
+    directionality: dict[str, Any]
     connection: ProviderConnectionResponse | None
 
 
@@ -273,6 +276,9 @@ class CrmInboundSyncStateResponse(BaseModel):
     provider: str
     object_type: str
     enabled: bool
+    initial_import_completed: bool
+    sync_interval_seconds: int
+    next_sync_at: datetime | None
     status: str
     last_successful_cursor: dict[str, Any] | None
     resume_cursor: dict[str, Any] | None
@@ -319,6 +325,9 @@ def crm_inbound_state_response(row: Any) -> CrmInboundSyncStateResponse:
         provider=row.provider,
         object_type=row.object_type,
         enabled=row.enabled,
+        initial_import_completed=row.initial_import_completed,
+        sync_interval_seconds=row.sync_interval_seconds,
+        next_sync_at=row.next_sync_at,
         status=row.status,
         last_successful_cursor=row.last_successful_cursor,
         resume_cursor=row.resume_cursor,
@@ -478,6 +487,8 @@ def crm_sync_response(row: Any) -> CrmSyncResponse | None:
         routing_decision_id=row.routing_decision_id,
         provider_connection_id=row.provider_connection_id,
         provider=row.provider,
+        requested_by=row.requested_by,
+        request_origin=row.request_origin,
         operation=row.operation,
         status=row.status,
         attempts=row.attempts,

@@ -70,6 +70,12 @@ def session_for(tmp_path, *, threads: bool = False) -> Session:
     return Session(engine)
 
 
+def process_and_sync(session, payload, icp, routing, provider):
+    _, _, lead = process_lead(session, payload, icp, routing)
+    sync_lead_to_crm(session, lead, provider)
+    return lead
+
+
 def canonical_payload() -> CanonicalCrmPayload:
     from uuid import UUID
 
@@ -146,7 +152,7 @@ def test_canonical_crm_payload_contains_phase_1_to_4_decision_data(icp, routing,
 def test_mock_initial_sync_and_idempotent_resync(icp, routing, tmp_path) -> None:
     provider = MockCrmProvider()
     with session_for(tmp_path) as session:
-        _, _, lead = process_lead(session, lead_payload(), icp, routing, crm_provider=provider)
+        lead = process_and_sync(session, lead_payload(), icp, routing, provider)
         first = get_current_crm_sync(session, lead.id)
         assert first is not None
         assert first.status == "synced"
@@ -161,7 +167,7 @@ def test_mock_initial_sync_and_idempotent_resync(icp, routing, tmp_path) -> None
 def test_changed_lead_creates_history_and_updates_existing_entities(icp, routing, tmp_path) -> None:
     provider = MockCrmProvider()
     with session_for(tmp_path) as session:
-        _, _, lead = process_lead(session, lead_payload(), icp, routing, crm_provider=provider)
+        lead = process_and_sync(session, lead_payload(), icp, routing, provider)
         first = get_current_crm_sync(session, lead.id)
         assert first is not None
         first_contact = first.provider_entity_ids["contact_id"]
@@ -181,7 +187,7 @@ def test_transient_failure_retries_then_succeeds(icp, routing, tmp_path) -> None
     )
     provider = MockCrmProvider(failures=[transient, transient])
     with session_for(tmp_path) as session:
-        _, _, lead = process_lead(session, lead_payload(), icp, routing, crm_provider=provider)
+        lead = process_and_sync(session, lead_payload(), icp, routing, provider)
         row = get_current_crm_sync(session, lead.id)
         assert row is not None
         assert row.status == "synced"
@@ -208,7 +214,7 @@ def test_permanent_failure_does_not_rollback_lead_or_route(
         ]
     )
     with session_for(tmp_path) as session:
-        _, _, lead = process_lead(session, lead_payload(), icp, routing, crm_provider=provider)
+        lead = process_and_sync(session, lead_payload(), icp, routing, provider)
         row = get_current_crm_sync(session, lead.id)
         assert lead.id is not None
         assert get_current_routing(session, lead.id) is not None
@@ -225,7 +231,7 @@ def test_retryable_failure_manual_retry_reuses_sync_record(icp, routing, tmp_pat
     ]
     provider = MockCrmProvider(failures=failures)
     with session_for(tmp_path) as session:
-        _, _, lead = process_lead(session, lead_payload(), icp, routing, crm_provider=provider)
+        lead = process_and_sync(session, lead_payload(), icp, routing, provider)
         failed = get_current_crm_sync(session, lead.id)
         assert failed is not None
         assert failed.status == "retryable"
@@ -243,7 +249,9 @@ def test_retryable_failure_manual_retry_reuses_sync_record(icp, routing, tmp_pat
         assert session.scalar(select(func.count()).select_from(CrmSyncORM)) == 1
 
 
-def test_lifecycle_appends_crm_after_notification(icp, routing, tmp_path) -> None:
+def test_qualification_lifecycle_does_not_append_automatic_crm_write(
+    icp, routing, tmp_path
+) -> None:
     with session_for(tmp_path) as session:
         _, _, lead = process_lead(session, lead_payload(), icp, routing)
         stages = list(
@@ -260,7 +268,6 @@ def test_lifecycle_appends_crm_after_notification(icp, routing, tmp_path) -> Non
             "qualified",
             "routed",
             "notified",
-            "crm",
         ]
 
 
@@ -575,7 +582,7 @@ def test_crm_api_inspection_history_and_manual_retry(icp, routing, tmp_path) -> 
     provider = MockCrmProvider(failures=failures)
     session = session_for(tmp_path, threads=True)
     try:
-        _, _, lead = process_lead(session, lead_payload(), icp, routing, crm_provider=provider)
+        lead = process_and_sync(session, lead_payload(), icp, routing, provider)
 
         def override_db():
             yield session

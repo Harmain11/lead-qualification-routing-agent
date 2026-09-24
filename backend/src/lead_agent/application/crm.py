@@ -159,6 +159,8 @@ def sync_lead_to_crm(
     payload_version: str = "1.0",
     max_attempts: int = 3,
     force: bool = False,
+    requested_by: str = "system",
+    request_origin: str = "manual",
 ) -> CrmSyncORM:
     active_provider = provider or MockCrmProvider()
     provider_connection_id = getattr(active_provider, "connection_id", None)
@@ -191,6 +193,8 @@ def sync_lead_to_crm(
             routing_decision_id=routing.id,
             provider_connection_id=provider_connection_id,
             provider=active_provider.provider_name,
+            requested_by=requested_by[:255],
+            request_origin=request_origin[:64],
             operation="upsert",
             status="pending",
             attempts=0,
@@ -432,6 +436,65 @@ def sync_lead_to_crm(
     raise RuntimeError("CRM synchronization loop ended unexpectedly")
 
 
+def manually_sync_lead_to_crm(
+    session: Session,
+    lead: LeadORM,
+    provider: CrmProvider,
+    *,
+    actor_id: str,
+    payload_version: str = "1.0",
+    max_attempts: int = 3,
+    force: bool = False,
+    requested_action: str | None = None,
+) -> CrmSyncORM:
+    """Audited command boundary for every application-to-CRM write."""
+
+    connection_id = getattr(provider, "connection_id", None)
+    existing = _existing_entities(
+        session, lead.id, provider.provider_name, connection_id
+    )
+    action = requested_action or ("manual_crm_update" if existing.contact_id else "manual_crm_send")
+    connection = session.get(ProviderConnectionORM, connection_id) if connection_id else None
+    if connection is not None and connection.workspace_id != lead.workspace_id:
+        raise ValueError("CRM connection does not belong to the lead workspace")
+    if connection is not None:
+        record_provider_lifecycle_audit(
+            session,
+            connection,
+            action=action,
+            outcome="started",
+            actor_id=actor_id,
+            details={"lead_id": str(lead.id)},
+        )
+        session.commit()
+    row = sync_lead_to_crm(
+        session,
+        lead,
+        provider,
+        payload_version=payload_version,
+        max_attempts=max_attempts,
+        force=force,
+        requested_by=actor_id,
+        request_origin=requested_action or action,
+    )
+    if connection is not None:
+        record_provider_lifecycle_audit(
+            session,
+            connection,
+            action=action,
+            outcome="completed" if row.status == "synced" else row.status,
+            actor_id=actor_id,
+            error_code=row.error_code,
+            details={
+                "lead_id": str(lead.id),
+                "crm_sync_id": str(row.id),
+                "operation": row.operation,
+            },
+        )
+        session.commit()
+    return row
+
+
 def retry_crm_sync(
     session: Session,
     lead: LeadORM,
@@ -458,4 +521,32 @@ def retry_crm_sync(
         provider,
         max_attempts=max_attempts,
         force=True,
+    )
+
+
+def manually_retry_crm_sync(
+    session: Session,
+    lead: LeadORM,
+    provider: CrmProvider,
+    *,
+    actor_id: str,
+    max_attempts: int = 3,
+) -> CrmSyncORM:
+    current = get_current_crm_sync(
+        session,
+        lead.id,
+        provider.provider_name,
+        workspace_id=lead.workspace_id,
+        provider_connection_id=getattr(provider, "connection_id", None),
+    )
+    if current is not None and current.status == "failed" and not current.retryable:
+        raise ValueError("CRM synchronization failed permanently and cannot be retried")
+    return manually_sync_lead_to_crm(
+        session,
+        lead,
+        provider,
+        actor_id=actor_id,
+        max_attempts=max_attempts,
+        force=current is not None and current.status != "synced",
+        requested_action="manual_crm_retry",
     )

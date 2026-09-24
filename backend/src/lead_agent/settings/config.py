@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     rate_limit_agent_window_seconds: int = 60
     queue_name: str = "lead-processing"
     job_max_retries: int = 3
+    crm_inbound_scheduler_interval_seconds: int = 60
+    crm_inbound_default_interval_seconds: int = 300
+    crm_inbound_batch_limit: int = 500
+    crm_inbound_page_size: int = 100
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"
     crm_config_path: str = "config/crm.example.yaml"
@@ -144,6 +148,14 @@ class Settings(BaseSettings):
                 raise ValueError("rate-limit policies must have positive limits and windows")
         if self.job_max_retries < 0:
             raise ValueError("JOB_MAX_RETRIES must be zero or greater")
+        if not 15 <= self.crm_inbound_scheduler_interval_seconds <= 3600:
+            raise ValueError("CRM_INBOUND_SCHEDULER_INTERVAL_SECONDS must be between 15 and 3600")
+        if not 60 <= self.crm_inbound_default_interval_seconds <= 86_400:
+            raise ValueError("CRM_INBOUND_DEFAULT_INTERVAL_SECONDS must be between 60 and 86400")
+        if not 1 <= self.crm_inbound_batch_limit <= 5000:
+            raise ValueError("CRM_INBOUND_BATCH_LIMIT must be between 1 and 5000")
+        if not 1 <= self.crm_inbound_page_size <= 200:
+            raise ValueError("CRM_INBOUND_PAGE_SIZE must be between 1 and 200")
         if self.export_sync_limit < 1 or self.export_sync_limit > 100_000:
             raise ValueError("EXPORT_SYNC_LIMIT must be between 1 and 100000")
         if self.app_env == "production":

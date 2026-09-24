@@ -6,7 +6,6 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
@@ -16,7 +15,6 @@ from lead_agent.domain.analysis import (
     ReasoningProviderError,
 )
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
-from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.domain.normalization import normalize_lead
@@ -170,11 +168,7 @@ def process_lead(
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
-    crm_provider: CrmProvider | None = None,
-    crm_max_attempts: int = 3,
-    crm_payload_version: str = "1.0",
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
-    sync_crm: bool = True,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
@@ -186,14 +180,6 @@ def process_lead(
     if get_current_routing(session, row.id, workspace_id) is None:
         _record_pre_routing_history(session, row, analysis, result)
     route_and_notify(session, row, routing, notification_provider=notification_provider)
-    if sync_crm:
-        sync_lead_to_crm(
-            session,
-            row,
-            crm_provider,
-            max_attempts=crm_max_attempts,
-            payload_version=crm_payload_version,
-        )
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
             "manual_review" if analysis.requires_manual_review else "processed"
@@ -212,11 +198,7 @@ def process_source_event(
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
-    crm_provider: CrmProvider | None = None,
-    crm_max_attempts: int = 3,
-    crm_payload_version: str = "1.0",
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
-    sync_crm: bool = True,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
@@ -257,14 +239,6 @@ def process_source_event(
         if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
-        if sync_crm:
-            sync_lead_to_crm(
-                session,
-                row,
-                crm_provider,
-                max_attempts=crm_max_attempts,
-                payload_version=crm_payload_version,
-            )
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message

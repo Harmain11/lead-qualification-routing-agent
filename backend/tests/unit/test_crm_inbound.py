@@ -16,6 +16,7 @@ from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.crm_inbound import (
+    configure_inbound_sync,
     get_inbound_sync_state,
     run_inbound_sync,
 )
@@ -232,6 +233,12 @@ def _connection(session: Session, workspace_id: UUID, *, account: str = "test"):
 
 
 def _run(session, connection, provider, icp, routing, **kwargs):
+    configure_inbound_sync(
+        session,
+        connection,
+        enabled=True,
+        actor_id="test-user",
+    )
     return run_inbound_sync(
         session,
         connection,
@@ -376,7 +383,6 @@ def test_first_import_uses_exact_email_but_ambiguous_email_creates_separate_lead
             icp,
             routing,
             workspace_id=connection.workspace_id,
-            sync_crm=False,
         )
         matched = _run(
             session,
@@ -402,7 +408,6 @@ def test_first_import_uses_exact_email_but_ambiguous_email_creates_separate_lead
             icp,
             routing,
             workspace_id=connection.workspace_id,
-            sync_crm=False,
         )
         process_lead(
             session,
@@ -410,7 +415,6 @@ def test_first_import_uses_exact_email_but_ambiguous_email_creates_separate_lead
             icp,
             routing,
             workspace_id=connection.workspace_id,
-            sync_crm=False,
         )
         ambiguous = _run(
             session,
@@ -673,10 +677,16 @@ def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_pa
         workspace_id=connection.workspace_id,
         actor_id="manager",
         role="sales_manager",
-        permissions=frozenset({"crm.sync", "integrations.view", "leads.view"}),
+        permissions=frozenset(
+            {"crm.sync", "integrations.manage", "integrations.view", "leads.view"}
+        ),
     )
     try:
         with TestClient(app) as client:
+            configured = client.put(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/configuration",
+                json={"enabled": True, "interval_seconds": 300},
+            )
             started = client.post(
                 f"/v1/integrations/connections/{connection.id}/inbound-sync",
                 json={"mode": "manual", "limit": 10, "page_size": 2},
@@ -687,6 +697,7 @@ def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_pa
             runs = client.get(
                 f"/v1/integrations/connections/{connection.id}/inbound-sync/runs"
             )
+        assert configured.status_code == 200
         assert started.status_code == 200
         assert started.json()["records_created"] == 1
         assert state.status_code == 200

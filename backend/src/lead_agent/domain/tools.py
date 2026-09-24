@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 TOOL_CAPABILITY_CATALOG: dict[str, dict[str, str]] = {
     "crm.lookup_customer": {"permission": "crm:read", "status": "planned"},
-    "crm.create_or_update_lead": {"permission": "crm:write", "status": "implemented"},
-    "crm.update_deal": {"permission": "crm:write", "status": "planned"},
+    "crm.create_or_update_lead": {"permission": "crm.sync", "status": "implemented"},
+    "crm.update_deal": {"permission": "crm.sync", "status": "planned"},
     "notification.send": {"permission": "notification:send", "status": "planned"},
     "email.read": {"permission": "email:read", "status": "future"},
     "email.send": {"permission": "email:send", "status": "future"},

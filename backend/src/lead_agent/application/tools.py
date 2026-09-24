@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from lead_agent.application.crm import sync_lead_to_crm
+from lead_agent.application.crm import manually_sync_lead_to_crm
 from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.tools import AgentTool, ToolContext, ToolResult
 from lead_agent.infrastructure.crm.factory import WorkspaceCrmProviderResolver
@@ -21,7 +21,6 @@ from lead_agent.settings.config import get_settings
 
 _SENSITIVE_AUDIT_KEYS = ("secret", "token", "password", "credential", "api_key")
 _LOGGER = logging.getLogger("lead_agent.agent_tools")
-_LEGACY_PERMISSION_ALIASES = {"crm.sync": frozenset({"crm.sync", "crm:write"})}
 
 
 class ToolRateLimitError(RuntimeError):
@@ -99,9 +98,7 @@ class ToolRegistry:
         input_summary = _audit_safe(
             {key: value for key, value in raw_input.items() if key in tool.input_model.model_fields}
         )
-        accepted_permissions = _LEGACY_PERMISSION_ALIASES.get(
-            tool.required_permission, frozenset({tool.required_permission})
-        )
+        accepted_permissions = frozenset({tool.required_permission})
         if not accepted_permissions.intersection(context.permissions):
             if prior is None:
                 now = datetime.now(UTC)
@@ -219,7 +216,13 @@ class CrmCreateOrUpdateLeadTool:
             self.fallback,
             actor_id=context.actor_id,
         )
-        row = sync_lead_to_crm(self.session, lead, provider)
+        row = manually_sync_lead_to_crm(
+            self.session,
+            lead,
+            provider,
+            actor_id=context.actor_id,
+            requested_action="agent_manual_crm_send_or_update",
+        )
         return {
             "crm_sync_id": str(row.id),
             "provider": row.provider,

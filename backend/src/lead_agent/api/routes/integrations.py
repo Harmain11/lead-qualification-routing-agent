@@ -25,6 +25,7 @@ from lead_agent.application.integrations import (
     validate_connection,
 )
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
+from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import (
     PROVIDER_SETUP,
     ManualConnectionInput,
@@ -111,6 +112,7 @@ def list_integrations(
     return [
         IntegrationCardResponse(
             **setup.model_dump(),
+            directionality=directionality_for(provider).model_dump(),
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
             ),

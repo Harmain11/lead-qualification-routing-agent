@@ -244,6 +244,8 @@ export type CrmSync = {
   routing_decision_id: string;
   provider_connection_id: string | null;
   provider: "mock" | "salesforce" | "hubspot" | string;
+  requested_by: string;
+  request_origin: string;
   operation: "create" | "update" | "upsert" | string;
   status: "pending" | "syncing" | "synced" | "failed" | "retryable";
   attempts: number;
@@ -405,7 +407,47 @@ export type IntegrationCard = {
   documentation_url: string;
   manual_fields: string[];
   connection_mode: "workspace" | "operator";
+  directionality: {
+    automatic_inbound: boolean;
+    manual_outbound: boolean;
+    automatic_outbound: boolean;
+    outbound_action: boolean;
+    request_response: boolean;
+    description: string;
+  };
   connection: ProviderConnection | null;
+};
+
+export type CrmInboundSyncState = {
+  id: string;
+  workspace_id: string;
+  connection_id: string;
+  provider: string;
+  object_type: string;
+  enabled: boolean;
+  initial_import_completed: boolean;
+  sync_interval_seconds: number;
+  next_sync_at: string | null;
+  status: string;
+  last_successful_sync_at: string | null;
+  records_processed: number;
+  error_category: string | null;
+  error_code: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CrmInboundSyncRun = {
+  id: string;
+  status: string;
+  mode: "initial" | "incremental" | "manual";
+  records_fetched: number;
+  records_created: number;
+  records_updated: number;
+  records_unchanged: number;
+  records_skipped: number;
+  records_failed: number;
 };
 
 export type TimeRange = "weekly" | "monthly" | "annual";

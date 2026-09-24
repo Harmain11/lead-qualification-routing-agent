@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { sendLeadToCrm } from "../api";
 import type { Lead } from "../types";
 
 const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -15,7 +18,9 @@ export function LeadLifecycle({ lead }: { lead: Lead }) {
   return <div className="detail-lifecycle" aria-label="Lead lifecycle">{stages.map(([stage, complete], index) => <div className={complete ? "complete" : "waiting"} key={stage}><i>{complete ? "✓" : index + 1}</i><span>{stage}</span></div>)}</div>;
 }
 
-export function LeadDetail({ lead }: { lead: Lead }) {
+export function LeadDetail({ lead, canCrmSync = false }: { lead: Lead; canCrmSync?: boolean }) {
+  const [sending, setSending] = useState(false);
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const analysis = lead.analysis;
   const qualification = lead.qualification;
   const route = lead.routing;
@@ -38,7 +43,7 @@ export function LeadDetail({ lead }: { lead: Lead }) {
     <section className="story-section"><div className="story-index">04</div><div><span className="eyebrow">ICP evaluation</span><h3>{analysis?.icp_evaluation.profile_name || "Profile unavailable"}</h3><div className="icp-matrix">{icpRows.map(([name, criterion]) => <div key={name}><i className={criterion.status} /><span>{name}</span><b>{title(criterion.status)}</b><small>{criterion.rationale}</small></div>)}</div></div></section>
     <section className="story-section"><div className="story-index">05</div><div><span className="eyebrow">Qualification</span><h3>{qualification ? `${title(qualification.classification)} · ${qualification.total_score}/100` : "Not qualified"}</h3>{qualification && <><div className="score-contract">{Object.entries(qualification.component_scores).map(([component, score]) => { const maximum = component === "icp_fit" ? 40 : component === "intent_urgency" ? 35 : 25; return <div key={component}><span>{title(component)}</span><b>{score}<small>/{maximum}</small></b><i><span style={{ transform: `scaleX(${score / maximum})` }} /></i></div>; })}</div><ul className="evidence-list">{qualification.rationale.map((reason) => <li key={reason}>{reason}</li>)}</ul></>}</div></section>
     <section className="story-section"><div className="story-index">06</div><div><span className="eyebrow">Routing / action plan</span><h3>{route ? `${title(route.assigned_queue)}${route.assigned_rep_name ? ` · ${route.assigned_rep_name}` : ""}` : "Routing pending"}</h3>{route && <><p className="story-summary">{route.routing_reason}</p><div className="action-command"><span>Recommended immediate action</span><b>{route.action_plan.immediate_action}</b><p>{route.action_plan.next_step_recommendation}</p></div><div className="split-list"><div><span className="eyebrow">Talking points</span>{route.action_plan.talking_points.map((item) => <p key={item}>→ {item}</p>)}</div><div><span className="eyebrow">Open questions</span>{route.action_plan.unanswered_questions.length ? route.action_plan.unanswered_questions.map((item) => <p key={item}>→ {item}</p>) : <p>No open qualification questions.</p>}</div></div></>}</div></section>
-    <section className="story-section story-delivery"><div className="story-index">07</div><div><span className="eyebrow">Notification / CRM delivery</span><h3>External system state</h3><div className="delivery-grid"><div><span>Notification</span><b>{route ? title(route.notification_state) : "Pending"}</b><small>{route?.notifications[0]?.provider || "No provider event"}</small></div><div><span>CRM</span><b>{crm ? `${title(crm.provider)} · ${title(crm.status)}` : "Not synchronized"}</b><small>{crm?.provider_entity_ids.contact_id || "No provider record ID"}</small></div></div>{crm?.last_error && <div className="attention-callout"><b>{crm.error_category || "CRM delivery issue"}</b>{crm.last_error}</div>}</div></section>
+    <section className="story-section story-delivery"><div className="story-index">07</div><div><span className="eyebrow">Notification / CRM delivery</span><h3>External system state</h3><div className="delivery-grid"><div><span>Notification</span><b>{route ? title(route.notification_state) : "Pending"}</b><small>{route?.notifications[0]?.provider || "No provider event"}</small></div><div><span>CRM</span><b>{crm ? `${title(crm.provider)} · ${title(crm.status)}` : "Not synchronized"}</b><small>{crm?.provider_entity_ids.contact_id || "No provider record ID"}</small></div></div>{canCrmSync && <button className="primary-button" disabled={sending} onClick={async () => { setSending(true); setSendNotice(null); try { const result = await sendLeadToCrm(lead.id); setSendNotice(result.status === "synced" ? "CRM updated by your explicit request." : `CRM write ${title(result.status)}.`); } catch (error) { setSendNotice(error instanceof Error ? error.message : "CRM write failed"); } finally { setSending(false); } }}>{sending ? "Sending…" : crm ? "Update CRM" : "Send to CRM"}</button>}{sendNotice && <div className="notice" role="status">{sendNotice}</div>}{crm?.last_error && <div className="attention-callout"><b>{crm.error_category || "CRM delivery issue"}</b>{crm.last_error}</div>}</div></section>
   </article>;
 }
 

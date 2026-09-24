@@ -2,6 +2,8 @@ import type {
   AgentActivity,
   ChannelAnalytics,
   CrmSync,
+  CrmInboundSyncRun,
+  CrmInboundSyncState,
   DashboardAnalytics,
   IntegrationCard,
   Lead,
@@ -187,6 +189,49 @@ async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
 
 export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
+}
+
+export function getInboundSyncState(connectionId: string): Promise<CrmInboundSyncState> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state`);
+}
+
+export function configureInboundSync(
+  connectionId: string,
+  enabled: boolean,
+  intervalSeconds = 300,
+): Promise<CrmInboundSyncState> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled, object_type: "Lead", interval_seconds: intervalSeconds }),
+  });
+}
+
+export function runInboundSync(
+  connectionId: string,
+  mode: "initial" | "incremental" | "manual",
+): Promise<CrmInboundSyncRun> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, object_type: "Lead", limit: 500, page_size: 100 }),
+  });
+}
+
+export function sendLeadToCrm(leadId: string): Promise<CrmSync> {
+  return jsonRequest(`/v1/leads/${leadId}/crm-sync`, { method: "POST" });
+}
+
+export function bulkSendLeadsToCrm(leadIds: string[]): Promise<{
+  requested: number;
+  succeeded: number;
+  failed: number;
+}> {
+  return jsonRequest("/v1/leads/bulk-crm-sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lead_ids: leadIds, confirmed: true }),
+  });
 }
 
 export function beginIntegration(provider: string): Promise<{ connection: ProviderConnection; authorization_url: string; state: string }> {

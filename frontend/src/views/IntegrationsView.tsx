@@ -4,13 +4,16 @@ import {
   addIntegrationCredential,
   apiUrl,
   beginIntegration,
+  configureInboundSync,
   disconnectIntegration,
+  getInboundSyncState,
   listIntegrations,
   reconnectIntegration,
+  runInboundSync,
   testIntegration,
 } from "../api";
 import { can } from "../permissions";
-import type { IntegrationCard } from "../types";
+import type { CrmInboundSyncState, IntegrationCard } from "../types";
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
 
@@ -28,12 +31,27 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
   const canView = can(permissions, "integrations.view");
   const canManage = can(permissions, "integrations.manage");
   const canConnect = can(permissions, "integrations.connect");
   const canDisconnect = can(permissions, "integrations.disconnect");
+  const canSync = can(permissions, "crm.sync");
 
-  const refresh = () => listIntegrations().then(setCards).catch((error: Error) => setNotice(error.message));
+  const refresh = async () => {
+    try {
+      const nextCards = await listIntegrations();
+      setCards(nextCards);
+      const crmConnections = nextCards.filter((card) => card.category === "CRM" && card.connection);
+      const entries = await Promise.all(crmConnections.map(async (card) => {
+        try { return [card.connection!.id, await getInboundSyncState(card.connection!.id)] as const; }
+        catch { return [card.connection!.id, null] as const; }
+      }));
+      setSyncStates(Object.fromEntries(entries));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Integrations could not be loaded");
+    }
+  };
   useEffect(() => { if (canView) void refresh(); }, [canView]);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -79,9 +97,12 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
       const open = expanded === card.provider;
       const activeConnectionStage = connectionStage(connection?.status);
       const operatorManaged = card.connection_mode === "operator";
+      const syncState = connection ? syncStates[connection.id] : null;
+      const crmDirection = card.category === "CRM";
       return <article className={`integration-card state-${status}`} key={card.provider}>
         <div className="provider-head"><div className="provider-glyph">{card.display_name.slice(0, 2).toUpperCase()}</div><div><span>{card.category}</span><h2>{card.display_name}</h2></div><b><i />{status.replaceAll("_", " ")}</b></div>
         <p>{connection?.account_name ?? card.credential_help}</p>
+        <p className="integration-direction"><strong>{crmDirection ? "Automatic inbound · Manual outbound" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending qualification back always requires an explicit action."}</p>
         <div className="connection-facts"><span>Credential <b>{operatorManaged ? "operator managed" : connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{operatorManaged ? "runtime health" : connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>
         <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
@@ -91,6 +112,16 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
           {operatorManaged && <span className="eyebrow">Configured by operator</span>}
           <button className="button-quiet" onClick={() => setExpanded(open ? null : card.provider)}>Setup guide</button>
         </div>
+        {crmDirection && connection?.status === "verified" && <div className="integration-guide">
+          <span className="eyebrow">Inbound CRM synchronization</span>
+          <strong>{syncState?.enabled ? "Enabled · automatic inbound" : "Disabled"}</strong>
+          <p>{syncState?.last_successful_sync_at ? `Last synced ${new Date(syncState.last_successful_sync_at).toLocaleString()} · ${syncState.records_processed.toLocaleString()} records processed.` : "No provider records have been imported yet."}</p>
+          {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
+          {canManage && canSync && <div className="card-actions">
+            <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled), `Inbound sync ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? "Disable inbound sync" : "Enable inbound sync"}</button>
+            {syncState?.enabled && <button className="button-quiet" onClick={() => void act(card.provider, () => runInboundSync(connection.id, syncState.initial_import_completed ? "manual" : "initial"), "Bounded inbound sync completed.")} disabled={busy === card.provider}>Sync now</button>}
+          </div>}
+        </div>}
         {open && <div className="integration-guide"><span className="eyebrow">Connection briefing</span><strong>{card.dashboard_path}</strong><p>{card.credential_help}</p><p>{card.permission_reason}</p><div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div><a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation →</a>{!operatorManaged && card.supported_auth.includes("oauth2") && canConnect && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}{!operatorManaged && card.manual_fields.length > 0 && canManage && <div className="manual-credential"><span>Secure credential setup</span><input aria-label={`${card.display_name} account name`} placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} />{card.manual_fields.map((field) => <input key={field} type="password" autoComplete="new-password" aria-label={field.replaceAll("_", " ")} placeholder={field.replaceAll("_", " ")} value={providerCredentials[field] ?? ""} onChange={(event) => setCredentials((current) => ({ ...current, [card.provider]: { ...(current[card.provider] ?? {}), [field]: event.target.value } }))} />)}<button onClick={() => void act(card.provider, () => connection ? reconnectIntegration(connection.id, providerCredentials) : addIntegrationCredential(card.provider, accountNames[card.provider] || `${card.display_name} account`, card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials), `${card.display_name} credentials stored by reference; verify it before use.`)}>Store credentials</button><small>The secret is encrypted by the configured secret service and is never returned to this interface.</small></div>}</div>}
       </article>;
     })}</section>}

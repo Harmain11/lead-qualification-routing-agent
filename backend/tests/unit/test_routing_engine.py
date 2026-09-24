@@ -250,7 +250,7 @@ def test_duplicate_lead_replay_does_not_duplicate_route_or_notification(
         assert first.id == second.id
         assert session.scalar(select(func.count()).select_from(RoutingDecisionORM)) == 1
         assert session.scalar(select(func.count()).select_from(NotificationORM)) == 1
-        assert session.scalar(select(func.count()).select_from(PipelineEventORM)) == 7
+        assert session.scalar(select(func.count()).select_from(PipelineEventORM)) == 6
         assert len(provider.sent) == 1
 
 
@@ -292,7 +292,6 @@ def test_pipeline_history_records_complete_ordered_lifecycle(icp, routing, tmp_p
             "qualified",
             "routed",
             "notified",
-            "crm",
         ]
 
 

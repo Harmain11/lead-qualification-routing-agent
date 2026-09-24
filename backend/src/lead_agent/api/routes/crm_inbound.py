@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_policies, require_permission
+from lead_agent.api.dependencies import get_policies, require_permission, require_permissions
 from lead_agent.api.schemas import (
     CrmInboundSyncRunResponse,
     CrmInboundSyncStateResponse,
@@ -15,6 +15,7 @@ from lead_agent.api.schemas import (
     crm_inbound_state_response,
 )
 from lead_agent.application.crm_inbound import (
+    configure_inbound_sync,
     get_inbound_sync_state,
     list_inbound_sync_runs,
     run_inbound_sync,
@@ -47,6 +48,14 @@ class InboundSyncRequest(BaseModel):
     page_size: int = Field(default=100, ge=1, le=200)
 
 
+class InboundSyncConfigurationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    object_type: Literal["Lead"] = "Lead"
+    interval_seconds: int = Field(default=300, ge=60, le=86_400)
+
+
 def _connection(
     session: Session, workspace_id: UUID, connection_id: UUID
 ) -> ProviderConnectionORM:
@@ -54,6 +63,34 @@ def _connection(
     if row is None:
         raise HTTPException(status_code=404, detail="Provider connection not found")
     return row
+
+
+@router.put(
+    "/{connection_id}/inbound-sync/configuration",
+    response_model=CrmInboundSyncStateResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def update_inbound_sync_configuration(
+    connection_id: UUID,
+    request: InboundSyncConfigurationRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("integrations.manage", "crm.sync")
+    ),
+) -> CrmInboundSyncStateResponse:
+    connection = _connection(session, workspace.workspace_id, connection_id)
+    try:
+        state = configure_inbound_sync(
+            session,
+            connection,
+            enabled=request.enabled,
+            object_type=request.object_type,
+            interval_seconds=request.interval_seconds,
+            actor_id=workspace.actor_id,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return crm_inbound_state_response(state)
 
 
 @router.post(

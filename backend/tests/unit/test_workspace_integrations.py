@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.main import app
+from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.integrations import create_manual_connection, disconnect_connection
 from lead_agent.application.services import process_lead
 from lead_agent.application.tools import (
@@ -267,7 +268,6 @@ def test_workspace_connection_drives_crm_sync_and_mapping_scope(
             payload("workspace-a-sync"),
             icp,
             routing,
-            crm_provider=resolver.resolve(session, workspace_a),
             workspace_id=workspace_a,
         )
         _, _, lead_b = process_lead(
@@ -275,9 +275,10 @@ def test_workspace_connection_drives_crm_sync_and_mapping_scope(
             payload("workspace-b-sync"),
             icp,
             routing,
-            crm_provider=resolver.resolve(session, workspace_b),
             workspace_id=workspace_b,
         )
+        sync_lead_to_crm(session, lead_a, resolver.resolve(session, workspace_a))
+        sync_lead_to_crm(session, lead_b, resolver.resolve(session, workspace_b))
         sync_a = get_current_crm_sync(session, lead_a.id, workspace_id=workspace_a)
         sync_b = get_current_crm_sync(session, lead_b.id, workspace_id=workspace_b)
         assert sync_a is not None and sync_a.provider_connection_id == connection_a.id
@@ -511,7 +512,6 @@ def test_agent_tool_requires_permission_audits_and_is_idempotent(
             payload("agent-tool-lead"),
             icp,
             routing,
-            crm_provider=fallback,
             workspace_id=workspace,
         )
         registry = ToolRegistry(session)
@@ -534,7 +534,7 @@ def test_agent_tool_requires_permission_audits_and_is_idempotent(
                 {"lead_id": str(lead.id)},
                 idempotency_key="agents-execute-only",
             )
-        allowed = ToolContext(workspace, "agent-1", frozenset({"crm:write"}))
+        allowed = ToolContext(workspace, "agent-1", frozenset({"crm.sync"}))
         first = registry.invoke(
             "crm.create_or_update_lead",
             allowed,
