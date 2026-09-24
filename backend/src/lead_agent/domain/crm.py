@@ -24,6 +24,7 @@ class CrmEntityReferences(BaseModel):
     contact_id: str | None = None
     company_id: str | None = None
     opportunity_id: str | None = None
+    contact_id_is_direct: bool = Field(default=False, exclude=True)
 
 
 class CanonicalCrmPayload(BaseModel):

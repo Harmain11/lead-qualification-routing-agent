@@ -169,6 +169,94 @@ def create_lead_with_result(
     return get_lead(session, lead.id, workspace_id)  # type: ignore[return-value]
 
 
+def update_lead_with_result(
+    session: Session,
+    row: LeadORM,
+    lead: NormalizedLead,
+    result: QualificationResult,
+    analysis: LeadContextAnalysis,
+) -> LeadORM:
+    """Replace the current canonical projection after a meaningful source update."""
+
+    if row.id != lead.id:
+        raise ValueError("normalized lead identity does not match the persisted lead")
+    now = datetime.now(UTC)
+    row.source = lead.source
+    row.source_detail = lead.source_detail
+    row.external_id = lead.external_id
+    row.full_name = lead.full_name
+    row.email = lead.email
+    row.phone = lead.phone
+    row.job_title = lead.job_title
+    row.company_name = lead.company_name
+    row.industry = lead.industry
+    row.employee_count = lead.employee_count
+    row.annual_revenue = (
+        float(lead.annual_revenue) if lead.annual_revenue is not None else None
+    )
+    row.geography = lead.geography
+    row.budget = float(lead.budget) if lead.budget is not None else None
+    row.product_or_service = lead.product_or_service
+    row.message = lead.message
+    row.received_at = lead.received_at
+    row.raw_payload = lead.raw_payload
+    row.normalization_version = lead.normalization_version
+    row.updated_at = now
+
+    qualification = row.qualification
+    if qualification is None:
+        qualification = _qualification_row(row.id, result, now)
+        row.qualification = qualification
+    else:
+        data = result.as_dict()
+        qualification.total_score = result.total_score
+        qualification.classification = result.classification
+        qualification.routing_queue = result.routing_queue
+        qualification.routing_action = result.routing_action
+        qualification.hard_disqualified = result.hard_disqualified
+        qualification.disqualifier_code = result.disqualifier_code
+        qualification.disqualifier_evidence = data["disqualifier_evidence"]
+        qualification.rationale = data["rationale"]
+        qualification.score_breakdown = data["score_breakdown"]
+        qualification.component_scores = data["component_scores"]
+        qualification.policy_version = result.policy_version
+        qualification.icp_version_id = result.icp_version_id
+        qualification.icp_source = result.icp_source
+        qualification.icp_profile_version = result.icp_profile_version
+        qualification.icp_configuration_hash = result.icp_configuration_hash
+        qualification.confidence = result.confidence
+        qualification.created_at = now
+
+    analysis_row = row.analysis
+    if analysis_row is None:
+        analysis_row = AnalysisRunORM(id=uuid4(), lead_id=row.id, created_at=now)
+        row.analysis = analysis_row
+    analysis_row.status = analysis.status
+    analysis_row.provider = analysis.provider
+    analysis_row.model = analysis.model
+    analysis_row.prompt_version = analysis.prompt_version
+    analysis_row.confidence = analysis.overall_confidence
+    analysis_row.requires_manual_review = analysis.requires_manual_review
+    analysis_row.error_code = analysis.error_code
+    analysis_row.error_message = analysis.error_message
+    analysis_row.structured_output = analysis.model_dump(mode="json")
+    analysis_row.created_at = now
+
+    session.add(
+        OutboxMessageORM(
+            id=uuid4(),
+            workspace_id=row.workspace_id,
+            event_type="lead.requalified",
+            aggregate_id=row.id,
+            payload={"lead_id": str(row.id), "classification": result.classification},
+            status="pending",
+            created_at=now,
+        )
+    )
+    session.commit()
+    return get_lead(session, row.id, row.workspace_id)  # type: ignore[return-value]
+
+
 def get_source_event(
     session: Session,
     provider: str,

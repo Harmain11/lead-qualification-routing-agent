@@ -20,6 +20,7 @@ from lead_agent.domain.crm import (
 )
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.db.models import (
+    CrmProviderRecordLinkORM,
     CrmSyncORM,
     LeadORM,
     ProviderConnectionORM,
@@ -130,7 +131,24 @@ def _existing_entities(
     if provider_connection_id is not None:
         statement = statement.where(CrmSyncORM.provider_connection_id == provider_connection_id)
     prior = session.scalar(statement.order_by(CrmSyncORM.requested_at.desc()))
-    return CrmEntityReferences.model_validate(prior.provider_entity_ids if prior else {})
+    if prior is not None:
+        return CrmEntityReferences.model_validate(prior.provider_entity_ids)
+    if provider_connection_id is not None:
+        link = session.scalar(
+            select(CrmProviderRecordLinkORM).where(
+                CrmProviderRecordLinkORM.workspace_id == lead.workspace_id,
+                CrmProviderRecordLinkORM.connection_id == provider_connection_id,
+                CrmProviderRecordLinkORM.provider == provider,
+                CrmProviderRecordLinkORM.lead_id == lead_id,
+                CrmProviderRecordLinkORM.status == "active",
+            )
+        )
+        if link is not None:
+            return CrmEntityReferences(
+                contact_id=link.provider_record_id,
+                contact_id_is_direct=True,
+            )
+    return CrmEntityReferences()
 
 
 def sync_lead_to_crm(
@@ -214,6 +232,19 @@ def sync_lead_to_crm(
             sync_row = concurrent
 
     existing = CrmEntityReferences.model_validate(sync_row.provider_entity_ids)
+    if provider_connection_id is not None and existing.contact_id:
+        imported_link = session.scalar(
+            select(CrmProviderRecordLinkORM).where(
+                CrmProviderRecordLinkORM.workspace_id == lead.workspace_id,
+                CrmProviderRecordLinkORM.connection_id == provider_connection_id,
+                CrmProviderRecordLinkORM.provider == active_provider.provider_name,
+                CrmProviderRecordLinkORM.lead_id == lead.id,
+                CrmProviderRecordLinkORM.provider_record_id == existing.contact_id,
+                CrmProviderRecordLinkORM.status == "active",
+            )
+        )
+        if imported_link is not None:
+            existing = existing.model_copy(update={"contact_id_is_direct": True})
     attempts_this_run = 0
     while attempts_this_run < max(1, max_attempts):
         attempts_this_run += 1
@@ -368,6 +399,22 @@ def sync_lead_to_crm(
                 "completed_at": sync_row.completed_at.isoformat(),
             },
         ]
+        if provider_connection_id is not None:
+            link = session.scalar(
+                select(CrmProviderRecordLinkORM).where(
+                    CrmProviderRecordLinkORM.workspace_id == lead.workspace_id,
+                    CrmProviderRecordLinkORM.connection_id == provider_connection_id,
+                    CrmProviderRecordLinkORM.provider == active_provider.provider_name,
+                    CrmProviderRecordLinkORM.lead_id == lead.id,
+                    CrmProviderRecordLinkORM.status == "active",
+                )
+            )
+            if link is not None:
+                link.last_writeback_fingerprint = payload_hash
+                link.synchronization_origin = "local_writeback"
+                link.last_change_kind = "local_enrichment_written"
+                link.last_writeback_at = sync_row.completed_at
+                link.updated_at = sync_row.completed_at
         session.commit()
         record_pipeline_event(
             session,

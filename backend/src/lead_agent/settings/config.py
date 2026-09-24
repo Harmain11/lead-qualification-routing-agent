@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     salesforce_client_secret: str = ""
     salesforce_refresh_token: str = ""
     salesforce_login_base_url: str = "https://login.salesforce.com"
-    salesforce_api_version: str = "v68.0"
+    salesforce_api_version: str = "v67.0"
     hubspot_access_token: str = ""
     hubspot_api_base_url: str = "https://api.hubapi.com"
     mailbox_provider: str = "none"

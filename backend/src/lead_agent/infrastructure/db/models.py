@@ -276,6 +276,147 @@ class ProviderLifecycleAuditORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CrmInboundSyncStateORM(Base):
+    __tablename__ = "crm_inbound_sync_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "connection_id",
+            "provider",
+            "object_type",
+            name="uq_crm_inbound_state_scope",
+        ),
+        Index("ix_crm_inbound_state_workspace_provider", "workspace_id", "provider"),
+        Index("ix_crm_inbound_state_status_updated", "status", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
+    last_successful_cursor: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    resume_cursor: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    last_successful_sync_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    records_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CrmInboundSyncRunORM(Base):
+    __tablename__ = "crm_inbound_sync_runs"
+    __table_args__ = (
+        Index("ix_crm_inbound_run_workspace_started", "workspace_id", "started_at"),
+        Index("ix_crm_inbound_run_state_status", "state_id", "status"),
+        Index("ix_crm_inbound_run_correlation", "correlation_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    state_id: Mapped[UUID] = mapped_column(
+        ForeignKey("crm_inbound_sync_states.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    cursor_start: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    cursor_current: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    checkpoint: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    records_fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_unchanged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CrmProviderRecordLinkORM(Base):
+    __tablename__ = "crm_provider_record_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "connection_id",
+            "provider",
+            "object_type",
+            "provider_record_id",
+            name="uq_crm_provider_record_scope",
+        ),
+        Index("ix_crm_provider_link_workspace_lead", "workspace_id", "lead_id"),
+        Index(
+            "ix_crm_provider_link_workspace_provider",
+            "workspace_id",
+            "provider",
+            "object_type",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_record_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    matching_strategy: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    provider_modified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    provider_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    enrichment_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_writeback_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    synchronization_origin: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="provider"
+    )
+    last_change_kind: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="source_changed"
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_writeback_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SourceEventORM(Base):
     __tablename__ = "source_events"
     __table_args__ = (

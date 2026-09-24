@@ -111,7 +111,7 @@ CRM_PROVIDER=salesforce
 SALESFORCE_CLIENT_ID=<operator-managed External Client App client ID>
 SALESFORCE_CLIENT_SECRET=<operator-managed External Client App client secret>
 SALESFORCE_LOGIN_BASE_URL=https://login.salesforce.com
-SALESFORCE_API_VERSION=v68.0
+SALESFORCE_API_VERSION=v67.0
 ```
 
 `SALESFORCE_REFRESH_TOKEN` remains only an optional development fallback. A real workspace OAuth

@@ -266,6 +266,100 @@ class IntegrationCardResponse(BaseModel):
     connection: ProviderConnectionResponse | None
 
 
+class CrmInboundSyncStateResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    connection_id: UUID
+    provider: str
+    object_type: str
+    enabled: bool
+    status: str
+    last_successful_cursor: dict[str, Any] | None
+    resume_cursor: dict[str, Any] | None
+    last_successful_sync_at: datetime | None
+    records_processed: int
+    error_category: str | None
+    error_code: str | None
+    last_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CrmInboundSyncRunResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    connection_id: UUID
+    state_id: UUID
+    provider: str
+    object_type: str
+    mode: str
+    status: str
+    requested_by: str
+    correlation_id: str
+    records_fetched: int
+    records_created: int
+    records_updated: int
+    records_unchanged: int
+    records_skipped: int
+    records_failed: int
+    error_category: str | None
+    error_code: str | None
+    last_error: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+def crm_inbound_state_response(row: Any) -> CrmInboundSyncStateResponse:
+    return CrmInboundSyncStateResponse(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        connection_id=row.connection_id,
+        provider=row.provider,
+        object_type=row.object_type,
+        enabled=row.enabled,
+        status=row.status,
+        last_successful_cursor=row.last_successful_cursor,
+        resume_cursor=row.resume_cursor,
+        last_successful_sync_at=row.last_successful_sync_at,
+        records_processed=row.records_processed,
+        error_category=row.error_category,
+        error_code=row.error_code,
+        last_error=row.last_error,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
+    return CrmInboundSyncRunResponse(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        connection_id=row.connection_id,
+        state_id=row.state_id,
+        provider=row.provider,
+        object_type=row.object_type,
+        mode=row.mode,
+        status=row.status,
+        requested_by=row.requested_by,
+        correlation_id=row.correlation_id,
+        records_fetched=row.records_fetched,
+        records_created=row.records_created,
+        records_updated=row.records_updated,
+        records_unchanged=row.records_unchanged,
+        records_skipped=row.records_skipped,
+        records_failed=row.records_failed,
+        error_category=row.error_category,
+        error_code=row.error_code,
+        last_error=row.last_error,
+        started_at=row.started_at,
+        completed_at=row.completed_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
 def provider_connection_response(row: Any) -> ProviderConnectionResponse:
     validation_status = row.last_validation_result.get("status")
     verification_status = (

@@ -30,6 +30,7 @@ from lead_agent.infrastructure.repositories import (
     create_source_event,
     get_current_routing,
     get_source_event,
+    update_lead_with_result,
     update_source_event,
 )
 
@@ -173,6 +174,7 @@ def process_lead(
     crm_max_attempts: int = 3,
     crm_payload_version: str = "1.0",
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
+    sync_crm: bool = True,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
@@ -184,13 +186,14 @@ def process_lead(
     if get_current_routing(session, row.id, workspace_id) is None:
         _record_pre_routing_history(session, row, analysis, result)
     route_and_notify(session, row, routing, notification_provider=notification_provider)
-    sync_lead_to_crm(
-        session,
-        row,
-        crm_provider,
-        max_attempts=crm_max_attempts,
-        payload_version=crm_payload_version,
-    )
+    if sync_crm:
+        sync_lead_to_crm(
+            session,
+            row,
+            crm_provider,
+            max_attempts=crm_max_attempts,
+            payload_version=crm_payload_version,
+        )
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
             "manual_review" if analysis.requires_manual_review else "processed"
@@ -213,6 +216,7 @@ def process_source_event(
     crm_max_attempts: int = 3,
     crm_payload_version: str = "1.0",
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
+    sync_crm: bool = True,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
@@ -253,13 +257,14 @@ def process_source_event(
         if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
-        sync_lead_to_crm(
-            session,
-            row,
-            crm_provider,
-            max_attempts=crm_max_attempts,
-            payload_version=crm_payload_version,
-        )
+        if sync_crm:
+            sync_lead_to_crm(
+                session,
+                row,
+                crm_provider,
+                max_attempts=crm_max_attempts,
+                payload_version=crm_payload_version,
+            )
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message
@@ -278,6 +283,56 @@ def process_source_event(
                 error_message=str(error)[:2000],
             )
         raise
+
+
+def reprocess_lead(
+    session: Session,
+    row: LeadORM,
+    payload: dict[str, object],
+    icp: IcpConfig,
+    routing: RoutingConfig,
+    provider: ReasoningProvider | None = None,
+    notification_provider: NotificationProvider | None = None,
+) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
+    """Run a meaningful source update through the canonical qualification pipeline."""
+
+    resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
+    normalized = normalize_lead(payload, row.id)
+    analysis, result = _analyze_and_qualify(
+        normalized, resolved_icp.configuration, routing, provider
+    )
+    result = resolved_icp.trace_result(result)
+    previous = (
+        {
+            "score": row.qualification.total_score,
+            "band": row.qualification.classification,
+        }
+        if row.qualification is not None
+        else None
+    )
+    row = update_lead_with_result(session, row, normalized, result, analysis)
+    record_pipeline_event(
+        session,
+        row.id,
+        "source_updated",
+        "completed",
+        {
+            "previous_qualification": previous,
+            "source": row.source,
+            "normalization_version": row.normalization_version,
+        },
+    )
+    _record_pre_routing_history(session, row, analysis, result)
+    session.commit()
+    route_and_notify(
+        session,
+        row,
+        routing,
+        notification_provider=notification_provider,
+        force=True,
+        reroute_reason="Meaningful CRM source fields changed.",
+    )
+    return normalized, result, row
 
 
 def mark_source_event_manual_review(session: Session, event_id: str, reason: str) -> None:

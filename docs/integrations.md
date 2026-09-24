@@ -104,6 +104,13 @@ The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVID
 - A canonical payload carries lead identity, source, service, grounded summary, 40/35/25 components, total score, band, rationale, action plan, queue/rep, and urgency. Provider schemas remain inside adapters and mapping configuration.
 - `crm_syncs` preserves payload hashes, attempts, provider IDs, state, errors, retryability, and history. Provider failure does not change successful lead/routing state.
 
+### Inbound CRM synchronization
+
+The provider-neutral inbound/bidirectional foundation is documented in
+[`phase-7c2c-inbound-sync-foundation.md`](phase-7c2c-inbound-sync-foundation.md). It adds durable
+provider-record links, resumable checkpoints, bounded sync runs, source-field fingerprints, and a
+Salesforce Lead acquisition adapter while preserving the existing outbound provider contract.
+
 ### Salesforce setup
 
 1. Use a Salesforce sandbox or Developer Edition and create an External Client App with OAuth enabled. Request the OAuth scope parameters `api` and `refresh_token` (the Salesforce UI labels the latter “Perform requests at any time”), plus least-privilege read/write access to Lead. Opportunity sync is disabled by default.
