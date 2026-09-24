@@ -144,6 +144,7 @@ export function LeadsView({
   selected,
   onInspect,
   onCreated,
+  onUpdated,
   canEdit = true,
   canExport = false,
   canCrmSync = false,
@@ -152,6 +153,7 @@ export function LeadsView({
   selected: Lead | null;
   onInspect: (id: string) => void;
   onCreated: (lead: Lead) => void;
+  onUpdated: (lead: Lead) => void;
   canEdit?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
@@ -220,7 +222,7 @@ export function LeadsView({
         </div>
       </section>
       {showExport && <ExportDialog count={filtered.length} selectedCount={selectedIds.size} filters={{ search, band, source, dateFrom, dateTo }} onClose={() => setShowExport(false)} selectedIds={[...selectedIds]} />}
-      {selected && <LeadDetail lead={selected} canCrmSync={canCrmSync} />}
+      {selected && <LeadDetail lead={selected} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={onUpdated} />}
     </div>
   );
 }

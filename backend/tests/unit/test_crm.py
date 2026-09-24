@@ -224,6 +224,41 @@ def test_permanent_failure_does_not_rollback_lead_or_route(
         assert row.attempts == 1
 
 
+def test_manual_update_recovers_same_payload_after_connection_configuration_failure(
+    icp, routing, tmp_path
+) -> None:
+    unavailable = CrmProviderError(
+        "workspace CRM connection is unavailable",
+        code="workspace_connection_unavailable",
+        category="configuration",
+        retryable=False,
+    )
+    with session_for(tmp_path) as session:
+        lead = process_lead(session, lead_payload(), icp, routing)[2]
+        failed = sync_lead_to_crm(
+            session,
+            lead,
+            MockCrmProvider(failures=[unavailable]),
+            request_origin="manual_crm_update",
+        )
+        assert failed.status == "failed"
+        assert failed.retryable is False
+
+        # Background work must keep respecting the permanent failure marker.
+        unchanged = sync_lead_to_crm(
+            session, lead, MockCrmProvider(), request_origin="scheduled"
+        )
+        assert unchanged.id == failed.id
+        assert unchanged.attempts == 1
+
+        recovered = sync_lead_to_crm(
+            session, lead, MockCrmProvider(), request_origin="manual_crm_update"
+        )
+        assert recovered.id == failed.id
+        assert recovered.status == "synced"
+        assert recovered.attempts == 2
+
+
 def test_retryable_failure_manual_retry_reuses_sync_record(icp, routing, tmp_path) -> None:
     failures = [
         CrmProviderError("rate limited", code="rate_limit", category="rate_limit", retryable=True)

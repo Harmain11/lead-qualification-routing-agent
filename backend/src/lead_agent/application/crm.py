@@ -179,7 +179,16 @@ def sync_lead_to_crm(
     if current is not None and current.payload_hash == payload_hash:
         if current.status == "synced" or (not force and current.status in {"pending", "syncing"}):
             return current
-        if not force and current.status == "failed" and not current.retryable:
+        manual_connection_recovery = (
+            request_origin in {"manual_crm_update", "manual_crm_send", "manual_crm_retry"}
+            and current.error_code == "workspace_connection_unavailable"
+        )
+        if (
+            not force
+            and current.status == "failed"
+            and not current.retryable
+            and not manual_connection_recovery
+        ):
             return current
         sync_row = current
     else:

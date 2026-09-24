@@ -222,6 +222,14 @@ export function sendLeadToCrm(leadId: string): Promise<CrmSync> {
   return jsonRequest(`/v1/leads/${leadId}/crm-sync`, { method: "POST" });
 }
 
+export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead> {
+  return jsonRequest(`/v1/leads/${leadId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_title: jobTitle }),
+  });
+}
+
 export function bulkSendLeadsToCrm(leadIds: string[]): Promise<{
   requested: number;
   succeeded: number;

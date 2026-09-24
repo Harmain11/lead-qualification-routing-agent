@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
@@ -47,6 +48,19 @@ from lead_agent.infrastructure.repositories import (
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
+
+
+class LeadTitleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    job_title: str = Field(min_length=1, max_length=255)
+
+    @field_validator("job_title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        if not value:
+            raise ValueError("Job title cannot be blank")
+        return value
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:
@@ -204,6 +218,27 @@ def retrieve_lead(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    return lead_response(
+        row,
+        get_current_routing(session, row.id, workspace.workspace_id),
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+    )
+
+
+@router.patch("/{lead_id}", response_model=LeadResponse)
+def update_lead_title(
+    lead_id: UUID,
+    request: LeadTitleUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    """Edit a source field locally; CRM delivery remains an explicit separate action."""
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    row.job_title = request.job_title
+    row.updated_at = datetime.now(UTC)
+    session.commit()
     return lead_response(
         row,
         get_current_routing(session, row.id, workspace.workspace_id),

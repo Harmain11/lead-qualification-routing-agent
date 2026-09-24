@@ -503,6 +503,7 @@ def _fail_run(
         action="inbound_sync",
         outcome="failed",
         actor_id=run.requested_by,
+        correlation_id=run.correlation_id,
         error_code=error.code,
         details={
             "mode": run.mode,
@@ -606,6 +607,7 @@ def run_inbound_sync(
             action="inbound_sync",
             outcome="started",
             actor_id=actor_id,
+            correlation_id=correlation_id,
             details={"mode": mode, "object_type": object_type, "limit": bounded_limit},
         )
         session.commit()
@@ -695,6 +697,7 @@ def run_inbound_sync(
                 action="inbound_sync_batch",
                 outcome="completed",
                 actor_id=actor_id,
+                correlation_id=run.correlation_id,
                 details={
                     "run_id": str(run.id),
                     "records_fetched": len(page.records),
@@ -735,6 +738,7 @@ def run_inbound_sync(
             action="inbound_sync",
             outcome=run.status,
             actor_id=actor_id,
+            correlation_id=run.correlation_id,
             details={
                 "run_id": str(run.id),
                 "mode": mode,

@@ -40,6 +40,7 @@ from lead_agent.infrastructure.db.models import (
     CrmProviderRecordLinkORM,
     LeadORM,
     ProviderConnectionORM,
+    ProviderLifecycleAuditORM,
 )
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
@@ -287,6 +288,16 @@ def test_initial_import_is_paginated_bounded_and_uses_canonical_pipeline(
         assert len(provider.calls) == 2
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 3
         assert session.scalar(select(func.count()).select_from(CrmProviderRecordLinkORM)) == 3
+        lifecycle = list(
+            session.scalars(
+                select(ProviderLifecycleAuditORM).where(
+                    ProviderLifecycleAuditORM.connection_id == connection.id,
+                    ProviderLifecycleAuditORM.action.in_({"inbound_sync", "inbound_sync_batch"}),
+                )
+            )
+        )
+        assert lifecycle
+        assert all(event.correlation_id == run.correlation_id for event in lifecycle)
         leads = list(session.scalars(select(LeadORM)))
         assert all(item.qualification is not None for item in leads)
         assert all(item.source == "web" for item in leads)

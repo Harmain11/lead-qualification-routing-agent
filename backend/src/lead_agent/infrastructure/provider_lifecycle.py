@@ -56,6 +56,7 @@ def record_provider_lifecycle_audit(
     action: str,
     outcome: str,
     actor_id: str = "system",
+    correlation_id: str | None = None,
     error_code: str | None = None,
     details: dict[str, object] | None = None,
 ) -> None:
@@ -68,7 +69,7 @@ def record_provider_lifecycle_audit(
             actor_id=actor_id[:255],
             action=action,
             outcome=outcome,
-            correlation_id=current_request_id()[:255],
+            correlation_id=(correlation_id or current_request_id())[:255],
             error_code=error_code,
             details=dict(details or {}),
             created_at=datetime.now(UTC),
