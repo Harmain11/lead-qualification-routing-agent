@@ -32,6 +32,7 @@ from lead_agent.infrastructure.db.models import (
     SourceEventORM,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.oauth import DevelopmentOAuthBroker, get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import get_provider_connection_validator
 from lead_agent.infrastructure.repositories import (
     get_current_crm_sync,
@@ -185,6 +186,52 @@ def test_workspace_resolver_selects_each_workspaces_active_crm(tmp_path, reposit
         assert provider_a.connection_id == hubspot.id
         assert provider_b.provider_name == "salesforce"
         assert provider_b.connection_id == salesforce.id
+
+
+def test_crm_connections_remain_active_across_providers(tmp_path, repository_root) -> None:
+    workspace = uuid4()
+    store = DevelopmentSecretStore()
+    resolver = WorkspaceCrmProviderResolver(
+        Settings(crm_config_path=str(repository_root / "config" / "crm.example.yaml")),
+        store,
+    )
+    with session_for(tmp_path) as session:
+        salesforce = create_manual_connection(
+            session,
+            workspace,
+            "salesforce",
+            manual_request(
+                "salesforce",
+                {
+                    "client_id": "test-client",
+                    "client_secret": "test-secret",
+                    "refresh_token": "test-refresh",
+                },
+            ),
+            store,
+        )
+        hubspot = create_manual_connection(
+            session,
+            workspace,
+            "hubspot",
+            manual_request("hubspot", {"access_token": "test-hubspot-token"}),
+            store,
+        )
+
+        session.refresh(salesforce)
+        assert salesforce.is_active is True
+        assert hubspot.is_active is True
+        assert (
+            resolver.resolve(session, workspace, provider_type="salesforce").connection_id
+            == salesforce.id
+        )
+        assert (
+            resolver.resolve(session, workspace, provider_type="hubspot").connection_id
+            == hubspot.id
+        )
+        unavailable = resolver.resolve(session, uuid4(), provider_type="hubspot")
+        assert unavailable.provider_name == "hubspot"
+        assert unavailable.connection_id == UUID(int=0)
 
 
 def test_production_resolver_never_selects_workspace_mock_connection(
@@ -420,6 +467,7 @@ def test_oauth_contract_stores_reference_without_returning_authorization_code(tm
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_secret_store] = lambda: store
+    app.dependency_overrides[get_oauth_broker] = DevelopmentOAuthBroker
     try:
         with TestClient(app) as client:
             started = client.post(

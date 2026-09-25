@@ -11,6 +11,7 @@ from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.main import app
 from lead_agent.application.integrations import create_manual_connection
 from lead_agent.domain.integrations import ManualConnectionInput
+from lead_agent.infrastructure.crm.hubspot import HubSpotConnectionValidator
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
@@ -20,6 +21,8 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceORM,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.oauth import DevelopmentOAuthBroker, get_oauth_broker
+from lead_agent.infrastructure.provider_lifecycle import get_provider_connection_validator
 from lead_agent.infrastructure.secrets import DevelopmentSecretStore, get_secret_store
 from lead_agent.settings.config import Settings
 
@@ -44,6 +47,7 @@ def auth_harness(tmp_path):
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_runtime_settings] = lambda: settings
     app.dependency_overrides[get_secret_store] = lambda: DevelopmentSecretStore()
+    app.dependency_overrides[get_oauth_broker] = lambda: DevelopmentOAuthBroker()
     return session
 
 
@@ -415,6 +419,9 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
     session = auth_harness(tmp_path)
     store = DevelopmentSecretStore()
     app.dependency_overrides[get_secret_store] = lambda: store
+    app.dependency_overrides[get_provider_connection_validator] = lambda: (
+        HubSpotConnectionValidator(client_id="", client_secret="")
+    )
     try:
         with TestClient(app) as client:
             assert signup(client).status_code == 201

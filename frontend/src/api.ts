@@ -221,8 +221,9 @@ export function runInboundSync(
   });
 }
 
-export function sendLeadToCrm(leadId: string): Promise<CrmSync> {
-  return jsonRequest(`/v1/leads/${leadId}/crm-sync`, { method: "POST" });
+export function sendLeadToCrm(leadId: string, provider?: string): Promise<CrmSync> {
+  const query = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+  return jsonRequest(`/v1/leads/${leadId}/crm-sync${query}`, { method: "POST" });
 }
 
 export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead> {

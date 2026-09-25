@@ -104,6 +104,7 @@ def synchronize_crm(
         actor_id=workspace.actor_id,
         payload_version=settings.load_crm_config().payload_version,
         max_attempts=settings.crm_max_attempts,
+        force=True,
     )
     return _required_response(row)
 

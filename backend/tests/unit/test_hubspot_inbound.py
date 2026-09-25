@@ -107,8 +107,9 @@ def test_hubspot_incremental_uses_checkpoint_overlap_and_preserves_cursor() -> N
     request = transport.requests[0]
     assert request["method"] == "POST"
     assert request["url"].endswith("/crm/v3/objects/contacts/search")
+    assert request["json"]["sorts"] == ["lastmodifieddate"]
     filters = request["json"]["filterGroups"][0]["filters"]
-    assert filters[0]["propertyName"] == "hs_lastmodifieddate"
+    assert filters[0]["propertyName"] == "lastmodifieddate"
     assert int(filters[0]["value"]) == int(checkpoint["modified_after_ms"]) - 60_000
     assert page.next_cursor == {
         "mode": "incremental",

@@ -267,7 +267,7 @@ class HubSpotCrmProvider:
 
 _HUBSPOT_CONTACT_PROPERTIES = (
     "email,firstname,lastname,company,jobtitle,phone,hs_analytics_source,"
-    "createdate,hs_lastmodifieddate,hubspot_owner_id,description"
+    "createdate,lastmodifieddate,hubspot_owner_id,description"
 )
 
 
@@ -370,7 +370,7 @@ class HubSpotInboundCrmProvider:
                         {
                             "filters": [
                                 {
-                                    "propertyName": "hs_lastmodifieddate",
+                                    "propertyName": "lastmodifieddate",
                                     "operator": "GTE",
                                     # Re-read overlap to avoid skipping equal-time records;
                                     # source fingerprints make this overlap idempotent.
@@ -381,7 +381,7 @@ class HubSpotInboundCrmProvider:
                             ]
                         }
                     ],
-                    "sorts": ["hs_lastmodifieddate", "hs_object_id"],
+                    "sorts": ["lastmodifieddate"],
                     "properties": _HUBSPOT_CONTACT_PROPERTIES.split(","),
                     "limit": page_size,
                     **({"after": str(current["after"])} if current.get("after") else {}),
@@ -402,7 +402,7 @@ class HubSpotInboundCrmProvider:
             props = value.get("properties")
             if not isinstance(props, dict):
                 raise provider_malformed_response_error(self.provider_name)
-            modified = _hubspot_datetime(value.get("updatedAt") or props.get("hs_lastmodifieddate"))
+            modified = _hubspot_datetime(value.get("updatedAt") or props.get("lastmodifieddate"))
             records.append(
                 ExternalCrmRecord(
                     provider=self.provider_name,
@@ -495,6 +495,7 @@ class HubSpotInboundCrmProvider:
             provider_metadata={
                 "owner_id": str(values.get("hubspot_owner_id") or "") or None,
                 "original_source": source,
+                "description_hash": _fingerprint({"description": description}),
             },
             enrichment_fingerprint=_fingerprint({}),
             archived=record.archived,

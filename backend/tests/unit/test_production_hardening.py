@@ -238,6 +238,48 @@ def test_oauth_state_is_actor_bound(tmp_path) -> None:
         assert started.state not in str(connection.connection_metadata)
 
 
+def test_oauth_without_expiry_uses_shared_refresh_lifetime(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'oauth-expiry.db'}")
+    Base.metadata.create_all(engine)
+    store = DevelopmentSecretStore()
+    workspace_id = uuid4()
+
+    class NoExpiryBroker(DevelopmentOAuthBroker):
+        def exchange(self, provider, authorization_code, code_verifier, redirect_uri):
+            del authorization_code, code_verifier, redirect_uri
+            return {"access_token": "access-token", "refresh_token": "refresh-token"}
+
+    broker = NoExpiryBroker()
+    with Session(engine) as session:
+        connection, started = begin_oauth_connection(
+            session,
+            workspace_id,
+            "salesforce",
+            "Salesforce account",
+            ["api", "refresh_token"],
+            broker,
+            store,
+            "http://localhost:8000",
+            "actor-one",
+        )
+        completed = complete_oauth_connection(
+            session,
+            workspace_id,
+            connection.id,
+            started.state,
+            "authorization-code",
+            store,
+            broker,
+            "actor-one",
+        )
+        expires_at = datetime.fromisoformat(
+            str(completed.connection_metadata["token_expires_at"])
+        )
+        remaining = (expires_at - datetime.now(UTC)).total_seconds()
+        assert 3590 <= remaining <= 3600
+        assert completed.connection_metadata["refresh_available"] is True
+
+
 def test_expired_oauth_state_is_rejected_and_pkce_secret_is_discarded(tmp_path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'expired-state.db'}")
     Base.metadata.create_all(engine)

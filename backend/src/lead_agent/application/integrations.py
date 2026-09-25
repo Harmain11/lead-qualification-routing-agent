@@ -116,7 +116,7 @@ def _activate_connection(session: Session, connection: ProviderConnectionORM) ->
         update(ProviderConnectionORM)
         .where(
             ProviderConnectionORM.workspace_id == connection.workspace_id,
-            ProviderConnectionORM.provider_type.in_(CRM_PROVIDER_TYPES),
+            ProviderConnectionORM.provider_type == connection.provider_type,
             ProviderConnectionORM.id != connection.id,
         )
         .values(is_active=False)
@@ -360,10 +360,12 @@ def complete_oauth_connection(
     token_metadata: dict[str, object] = {
         "refresh_available": bool(values.get("refresh_token")),
     }
-    if "expires_in" in values:
-        token_metadata["token_expires_at"] = (
-            datetime.now(UTC) + timedelta(seconds=_token_lifetime_seconds(values))
-        ).isoformat()
+    # Some OAuth providers (including Salesforce) omit expires_in even though
+    # access tokens are short lived. Use the shared conservative lifetime
+    # fallback so scheduled workers refresh before the provider rejects a token.
+    token_metadata["token_expires_at"] = (
+        datetime.now(UTC) + timedelta(seconds=_token_lifetime_seconds(values))
+    ).isoformat()
     row.connection_metadata = token_metadata
     _activate_connection(session, row)
     session.commit()

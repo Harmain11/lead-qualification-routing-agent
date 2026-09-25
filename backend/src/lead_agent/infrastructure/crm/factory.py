@@ -136,12 +136,17 @@ class WorkspaceCrmProviderResolver:
         fallback: CrmProvider | None = None,
         *,
         actor_id: str = "system",
+        provider_type: str | None = None,
     ) -> CrmProvider:
         provider_types = (
             {"salesforce", "hubspot"}
             if self.settings.app_env == "production"
             else {"mock", "salesforce", "hubspot"}
         )
+        if provider_type is not None:
+            if provider_type not in provider_types:
+                raise ValueError("Unsupported workspace CRM provider")
+            provider_types = {provider_type}
         try:
             resolved = self.connection_resolver.resolve(
                 session, workspace_id, provider_types, actor_id=actor_id
@@ -153,6 +158,13 @@ class WorkspaceCrmProviderResolver:
                 self.settings, resolved.provider, resolved.credentials
             )
             return ConnectedCrmProvider(provider, resolved.connection_id)
+
+        if provider_type is not None:
+            return UnavailableConnectedCrmProvider(
+                provider_type,
+                UUID(int=0),
+                "The requested workspace CRM connection is unavailable.",
+            )
 
         connection = session.scalar(
             select(ProviderConnectionORM).where(

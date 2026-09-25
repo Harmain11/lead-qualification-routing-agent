@@ -25,6 +25,7 @@ from lead_agent.infrastructure.db.models import (
     CrmInboundSyncRunORM,
     CrmInboundSyncStateORM,
     CrmProviderRecordLinkORM,
+    CrmSyncORM,
     LeadORM,
     ProviderConnectionORM,
 )
@@ -256,7 +257,7 @@ def _email_matches(session: Session, workspace_id: UUID, email: str) -> list[Lea
 
 
 def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object]:
-    allowed = {"owner_id", "original_source"}
+    allowed = {"owner_id", "original_source", "description_hash"}
     return {
         key: value
         for key, value in canonical.provider_metadata.items()
@@ -279,6 +280,53 @@ def _json_safe_payload(values: Mapping[str, object]) -> dict[str, object]:
         return str(value)
 
     return {str(key): safe(value) for key, value in values.items()}
+
+
+def _hubspot_own_writeback_matches(
+    link: CrmProviderRecordLinkORM,
+    canonical: CanonicalInboundLead,
+    outbound: CrmSyncORM | None,
+) -> bool:
+    if (
+        link.provider != "hubspot"
+        or link.synchronization_origin != "local_writeback"
+        or link.last_writeback_at is None
+        or canonical.provider_modified_at is None
+        or outbound is None
+        or outbound.status != "synced"
+        or outbound.payload_hash != link.last_writeback_fingerprint
+    ):
+        return False
+    modified = canonical.provider_modified_at
+    written = link.last_writeback_at
+    if modified.tzinfo is None:
+        modified = modified.replace(tzinfo=UTC)
+    if written.tzinfo is None:
+        written = written.replace(tzinfo=UTC)
+    if not written - timedelta(minutes=5) <= modified <= written + timedelta(minutes=5):
+        return False
+    previous_description = link.provider_metadata.get("description_hash")
+    if not previous_description or previous_description != canonical.provider_metadata.get(
+        "description_hash"
+    ):
+        return False
+    if link.provider_source != canonical.provider_source or link.provider_metadata.get(
+        "owner_id"
+    ) != canonical.provider_metadata.get("owner_id"):
+        return False
+    source = canonical.normalized_payload
+    sent = outbound.payload
+    field_pairs = (
+        ("full_name", "full_name"),
+        ("email", "email"),
+        ("phone", "phone"),
+        ("company_name", "company"),
+        ("job_title", "title"),
+    )
+    return all(
+        str(source.get(source_field) or "").strip() == str(sent.get(outbound_field) or "").strip()
+        for source_field, outbound_field in field_pairs
+    )
 
 
 def _new_link(
@@ -353,6 +401,33 @@ def _process_record(
         )
         if lead is None:
             raise ValueError("provider record mapping references an unavailable lead")
+        if link.source_fingerprint != canonical.source_fingerprint:
+            outbound = (
+                session.scalar(
+                    select(CrmSyncORM)
+                    .where(
+                        CrmSyncORM.workspace_id == connection.workspace_id,
+                        CrmSyncORM.lead_id == lead.id,
+                        CrmSyncORM.provider == "hubspot",
+                        CrmSyncORM.provider_connection_id == connection.id,
+                        CrmSyncORM.is_current.is_(True),
+                    )
+                    .order_by(CrmSyncORM.requested_at.desc())
+                )
+                if link.provider == "hubspot"
+                else None
+            )
+            if _hubspot_own_writeback_matches(link, canonical, outbound):
+                link.source_fingerprint = canonical.source_fingerprint
+                link.provider_modified_at = canonical.provider_modified_at
+                link.provider_version = canonical.provider_version
+                link.provider_metadata = _safe_provider_metadata(canonical)
+                link.enrichment_fingerprint = canonical.enrichment_fingerprint
+                link.last_change_kind = "own_writeback"
+                link.last_seen_at = now
+                link.updated_at = now
+                session.commit()
+                return "unchanged"
         if link.source_fingerprint == canonical.source_fingerprint:
             provider_modified_at = canonical.provider_modified_at
             last_writeback_at = link.last_writeback_at
@@ -372,10 +447,7 @@ def _process_record(
                     and canonical.enrichment_fingerprint == link.enrichment_fingerprint
                     and link.synchronization_origin == "local_writeback"
                 )
-                or (
-                    link.synchronization_origin == "local_writeback"
-                    and observed_after_writeback
-                )
+                or (link.synchronization_origin == "local_writeback" and observed_after_writeback)
             )
             link.status = "active"
             link.provider_modified_at = canonical.provider_modified_at
@@ -553,11 +625,14 @@ def run_inbound_sync(
 
     with _sync_lock(connection.workspace_id, connection.id, object_type):
         state = _state(session, connection, object_type)
-        state = session.scalar(
-            select(CrmInboundSyncStateORM)
-            .where(CrmInboundSyncStateORM.id == state.id)
-            .with_for_update()
-        ) or state
+        state = (
+            session.scalar(
+                select(CrmInboundSyncStateORM)
+                .where(CrmInboundSyncStateORM.id == state.id)
+                .with_for_update()
+            )
+            or state
+        )
         if not state.enabled:
             raise ValueError("inbound synchronization is disabled")
         active = session.scalar(

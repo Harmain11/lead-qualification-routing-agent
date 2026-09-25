@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -16,6 +17,7 @@ from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.crm_inbound import (
+    _hubspot_own_writeback_matches,
     configure_inbound_sync,
     get_inbound_sync_state,
     run_inbound_sync,
@@ -493,6 +495,73 @@ def test_own_writeback_and_provider_delete_do_not_reprocess_or_delete_local_lead
         assert deletion.records_skipped == 1
         assert link.status == "provider_deleted"
         assert session.get(LeadORM, lead.id) is not None
+
+
+def test_hubspot_writeback_echo_matches_only_the_sent_fields() -> None:
+    written_at = datetime(2026, 9, 25, 10, 0, tzinfo=UTC)
+    sent = {
+        "full_name": "Taylor LocalOutboundTest",
+        "email": "taylor@example.test",
+        "phone": None,
+        "company": "Phase7 Manual Outbound Corp",
+        "title": "Senior Director of Revenue Operations",
+    }
+    link = SimpleNamespace(
+        provider="hubspot",
+        synchronization_origin="local_writeback",
+        last_writeback_at=written_at,
+        last_writeback_fingerprint="sent-payload-hash",
+        provider_source="Unknown",
+        provider_metadata={"owner_id": None, "description_hash": "stable-description"},
+    )
+    outbound = SimpleNamespace(status="synced", payload_hash="sent-payload-hash", payload=sent)
+    canonical = CanonicalInboundLead(
+        provider="hubspot",
+        object_type="contacts",
+        provider_record_id="123",
+        normalized_payload={
+            "full_name": sent["full_name"],
+            "email": sent["email"],
+            "phone": sent["phone"],
+            "company_name": sent["company"],
+            "job_title": sent["title"],
+        },
+        source_fingerprint="a" * 64,
+        provider_modified_at=written_at + timedelta(seconds=2),
+        provider_source="Unknown",
+        provider_metadata={"owner_id": None, "description_hash": "stable-description"},
+    )
+
+    assert _hubspot_own_writeback_matches(link, canonical, outbound)
+    assert not _hubspot_own_writeback_matches(
+        link,
+        canonical.model_copy(
+            update={
+                "normalized_payload": {
+                    **canonical.normalized_payload,
+                    "company_name": "Externally Changed Company",
+                }
+            }
+        ),
+        outbound,
+    )
+    assert not _hubspot_own_writeback_matches(
+        link,
+        canonical.model_copy(
+            update={"provider_metadata": {"description_hash": "changed-description"}}
+        ),
+        outbound,
+    )
+    assert not _hubspot_own_writeback_matches(
+        link,
+        canonical.model_copy(update={"provider_modified_at": written_at + timedelta(minutes=6)}),
+        outbound,
+    )
+    assert not _hubspot_own_writeback_matches(
+        link,
+        canonical,
+        SimpleNamespace(status="synced", payload_hash="other-hash", payload=sent),
+    )
 
 
 def test_provider_record_identity_and_cursors_are_workspace_scoped(tmp_path, icp, routing) -> None:

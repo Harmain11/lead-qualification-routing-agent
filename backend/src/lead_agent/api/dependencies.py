@@ -4,7 +4,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from lead_agent.application.auth import (
@@ -147,6 +147,7 @@ def get_workspace_context(
 
 
 def get_active_crm_provider(
+    provider_type: str | None = Query(default=None, alias="provider"),
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(get_workspace_context),
     fallback: CrmProvider = Depends(get_crm_provider),
@@ -162,6 +163,7 @@ def get_active_crm_provider(
         workspace.workspace_id,
         fallback,
         actor_id=workspace.actor_id,
+        provider_type=provider_type,
     )
 
 
