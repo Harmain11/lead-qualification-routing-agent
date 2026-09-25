@@ -445,6 +445,8 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             "hubspot": HubSpotConnectionValidator(
                 oauth_api_version=settings.hubspot_oauth_api_version,
                 timeout_seconds=settings.crm_timeout_seconds,
+                client_id=settings.hubspot_client_id,
+                client_secret=settings.hubspot_client_secret,
             ),
         },
         DeferredProviderValidator(),
@@ -463,6 +465,8 @@ def get_provider_revoker() -> ProviderRevoker:
             "hubspot": HubSpotProviderRevoker(
                 oauth_api_version=settings.hubspot_oauth_api_version,
                 timeout_seconds=settings.crm_timeout_seconds,
+                client_id=settings.hubspot_client_id,
+                client_secret=settings.hubspot_client_secret,
             ),
         },
         OAuthBrokerRevoker(get_oauth_broker()),

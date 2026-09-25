@@ -76,17 +76,16 @@ never emitted by inbound processing, scoring, qualification, or routing.
   remote refresh-token revocation at `POST https://api.hubspot.com/oauth/{version}/token/revoke`.
   Local disconnect remains authoritative if remote revoke is unavailable.
 
-### Minimum OAuth scopes
+### Required OAuth scopes
 
-Request exactly:
+Request exactly the HubSpot OAuth group plus the minimum Contacts permissions:
 
+- `oauth` — required by the deployed HubSpot Projects OAuth configuration as its OAuth scope group.
 - `crm.objects.contacts.read` — initial and incremental inbound Contacts plus the read-only probe.
 - `crm.objects.contacts.write` — explicit manual Contact create/update.
 
-Do not explicitly request `oauth` in the app scopes. HubSpot’s current Projects OAuth example
-configures the two Contacts scopes as `requiredScopes`; `oauth` appears in the returned token scope
-metadata as a platform authorization scope. The validator accepts that platform scope when present
-but requires only the two Contacts scopes for app functionality.
+The `oauth` scope is a platform authorization requirement, not an additional CRM object permission.
+The connection validator still requires the two Contacts scopes for app functionality.
 
 Do not request Company or Deal scopes for the Contacts-only default. They are only needed if a
 workspace deliberately enables the existing optional Company/Deal outbound behavior. No webhook
@@ -109,7 +108,7 @@ and [legacy public app support/creation status](https://developers.hubspot.com/d
 3. Create one isolated developer test account in that developer portal.
 4. Create a current Developer Platform app configured for OAuth; allowlist the test account.
 5. Register `{INTEGRATION_PUBLIC_BASE_URL}/v1/integrations/hubspot/oauth/callback` exactly.
-6. Configure `crm.objects.contacts.read` and `crm.objects.contacts.write`, with no Company/Deal scopes. Do not explicitly add `oauth` as an app scope.
+6. Configure `oauth`, `crm.objects.contacts.read`, and `crm.objects.contacts.write`, with no Company/Deal scopes.
 7. Put the app Client ID in `HUBSPOT_CLIENT_ID` and Client Secret in `HUBSPOT_CLIENT_SECRET` in the
    deployment secret manager; never paste either into chat, source, or browser-visible config.
 8. Set `HUBSPOT_OAUTH_API_VERSION=2026-09` and `HUBSPOT_API_BASE_URL=https://api.hubapi.com`.

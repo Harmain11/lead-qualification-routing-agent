@@ -187,7 +187,7 @@ def begin_oauth_connection(
     active_scopes = scopes or setup.required_scopes
     if provider == "hubspot" and set(active_scopes) != set(setup.required_scopes):
         raise ValueError(
-            "HubSpot OAuth scopes must be exactly the minimum supported Contacts scopes"
+            "HubSpot OAuth scopes must exactly match the configured OAuth and Contacts scopes"
         )
     authorization_url = broker.begin(
         provider,

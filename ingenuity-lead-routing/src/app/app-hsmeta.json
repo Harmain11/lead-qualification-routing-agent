@@ -1,0 +1,27 @@
+{
+  "uid": "ingenuity_lead_qualification_integration",
+  "type": "app",
+  "config": {
+    "description": "Secure OAuth integration for synchronizing HubSpot Contacts with the Ingenuity Lead Qualification & Routing Agent. Contact access supports inbound lead synchronization and explicit, user-initiated CRM updates.",
+    "name": "Ingenuity Lead Qualification Integration",
+    "distribution": "marketplace",
+    "auth": {
+      "type": "oauth",
+      "redirectUrls": [
+        "http://localhost:8000/v1/integrations/hubspot/oauth/callback"
+      ],
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [],
+      "iframe": [],
+      "img": []
+    }
+  }
+}

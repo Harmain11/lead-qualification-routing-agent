@@ -428,6 +428,16 @@ def test_oauth_contract_stores_reference_without_returning_authorization_code(tm
                 json={"account_name": "OAuth HubSpot", "scopes": []},
             )
             started_body = started.json()
+            assert started.status_code == 200
+            assert started_body["connection"]["scopes"] == [
+                "oauth",
+                "crm.objects.contacts.read",
+                "crm.objects.contacts.write",
+            ]
+            assert (
+                "scope=oauth+crm.objects.contacts.read+crm.objects.contacts.write"
+                in started_body["authorization_url"]
+            )
             completed = client.post(
                 "/v1/integrations/hubspot/callback",
                 headers={"X-Workspace-ID": str(workspace)},
