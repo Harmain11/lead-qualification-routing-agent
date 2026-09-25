@@ -266,6 +266,19 @@ export function testIntegration(connectionId: string): Promise<{ connection: Pro
   return jsonRequest(`/v1/integrations/connections/${connectionId}/test`, { method: "POST" });
 }
 
+export type SlackChannel = { id: string; name: string };
+export function listSlackChannels(connectionId: string): Promise<SlackChannel[]> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels`);
+}
+export function selectSlackChannel(connectionId: string, channelId: string): Promise<SlackChannel> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channel`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel_id: channelId }),
+  });
+}
+export function sendSlackTestNotification(connectionId: string): Promise<{ sent: boolean; message: string }> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-test-notification`, { method: "POST" });
+}
+
 export function disconnectIntegration(connectionId: string): Promise<ProviderConnection> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/disconnect`, { method: "POST" });
 }

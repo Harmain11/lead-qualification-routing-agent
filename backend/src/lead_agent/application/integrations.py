@@ -39,7 +39,6 @@ SENSITIVE_METADATA_FRAGMENTS = ("secret", "token", "password", "credential", "ap
 REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "salesforce": {"client_id", "client_secret", "refresh_token"},
     "hubspot": {"access_token"},
-    "slack": {"bot_token", "channel_id"},
     "openai": {"api_key"},
 }
 
@@ -189,6 +188,8 @@ def begin_oauth_connection(
         raise ValueError(
             "HubSpot OAuth scopes must exactly match the configured OAuth and Contacts scopes"
         )
+    if provider == "slack" and set(active_scopes) != set(setup.required_scopes):
+        raise ValueError("Slack OAuth scopes must exactly match the configured notification scopes")
     authorization_url = broker.begin(
         provider,
         connection_id,
@@ -363,9 +364,10 @@ def complete_oauth_connection(
     # Some OAuth providers (including Salesforce) omit expires_in even though
     # access tokens are short lived. Use the shared conservative lifetime
     # fallback so scheduled workers refresh before the provider rejects a token.
-    token_metadata["token_expires_at"] = (
-        datetime.now(UTC) + timedelta(seconds=_token_lifetime_seconds(values))
-    ).isoformat()
+    if row.provider_type != "slack" or values.get("expires_in"):
+        token_metadata["token_expires_at"] = (
+            datetime.now(UTC) + timedelta(seconds=_token_lifetime_seconds(values))
+        ).isoformat()
     row.connection_metadata = token_metadata
     _activate_connection(session, row)
     session.commit()
@@ -510,6 +512,12 @@ def _persist_validation(
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
+    if row.provider_type == "slack" and validation.metadata:
+        row.connection_metadata = {**row.connection_metadata, **validation.metadata}
+        if isinstance(validation.metadata.get("slack_team_id"), str):
+            row.external_account_id = str(validation.metadata["slack_team_id"])
+        if isinstance(validation.metadata.get("slack_team_name"), str):
+            row.account_name = str(validation.metadata["slack_team_name"])
     row.credential_state = validation.credential_state
     row.updated_at = now
     record_provider_lifecycle_audit(

@@ -109,8 +109,6 @@ class Settings(BaseSettings):
     social_provider: str = "none"
     demo_data_enabled: bool = False
     notification_provider: str = "mock"
-    slack_bot_token: str = ""
-    slack_channel_id: str = ""
 
     @model_validator(mode="after")
     def validate_environment_security(self) -> Settings:
@@ -315,15 +313,11 @@ class Settings(BaseSettings):
             problems.append("CRM_PROVIDER must be salesforce or hubspot in production")
         if self.notification_provider == "slack":
             require(
-                bool(self.slack_bot_token)
-                and not _is_placeholder(self.slack_bot_token)
-                and bool(self.slack_channel_id)
-                and not _is_placeholder(self.slack_channel_id)
-                and bool(self.slack_client_id)
+                bool(self.slack_client_id)
                 and not _is_placeholder(self.slack_client_id)
                 and bool(self.slack_client_secret)
                 and not _is_placeholder(self.slack_client_secret),
-                "Slack notification and OAuth application credentials must be configured",
+                "Slack OAuth application credentials must be configured",
             )
         else:
             problems.append("NOTIFICATION_PROVIDER must be slack in production")

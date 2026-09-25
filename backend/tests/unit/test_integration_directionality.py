@@ -83,6 +83,10 @@ def test_provider_directionality_policy_is_explicit() -> None:
     assert directionality_for("gmail").automatic_inbound is True
     assert directionality_for("gmail").manual_outbound is False
     assert directionality_for("slack").outbound_action is True
+    assert directionality_for("slack").automatic_inbound is False
+    assert directionality_for("slack").description == (
+        "Notifications are outbound delivery actions produced by routing policy."
+    )
     assert directionality_for("openai").request_response is True
 
 

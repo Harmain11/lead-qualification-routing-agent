@@ -1,0 +1,476 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from functools import lru_cache
+from typing import Any, cast
+from uuid import UUID
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from lead_agent.domain.integrations import (
+    ConnectionValidation,
+    ProviderRevoker,
+    ProviderValidationStatus,
+    RevocationResult,
+    SecretStore,
+)
+from lead_agent.domain.provider_errors import ProviderErrorCategory, ProviderOperationError
+from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.provider_lifecycle import (
+    ResolvedProviderConnection,
+    WorkspaceAuthorizedConnectionResolver,
+)
+
+SLACK_REQUIRED_SCOPES = ("chat:write", "channels:read")
+_API = "https://slack.com/api/"
+
+
+def _safe_error(
+    code: str,
+    *,
+    status_code: int | None = None,
+    retry_after_seconds: int | None = None,
+) -> ProviderOperationError:
+    if code == "invalid_auth":
+        category, message, retryable = (
+            "invalid_credentials",
+            "Slack rejected the connection token.",
+            False,
+        )
+    elif code == "token_revoked":
+        category, message, retryable = (
+            "revoked",
+            "Slack connection was revoked; reconnect it.",
+            False,
+        )
+    elif code == "missing_scope":
+        category, message, retryable = (
+            "insufficient_permissions",
+            "Slack connection is missing a required permission.",
+            False,
+        )
+    elif code in {"channel_not_found", "not_in_channel"}:
+        category, message, retryable = (
+            "configuration",
+            "Slack channel is unavailable or the bot is not a member.",
+            False,
+        )
+    elif code in {"ratelimited", "rate_limited"} or status_code == 429:
+        category, message, retryable = (
+            "rate_limited",
+            "Slack rate limit reached; retry later.",
+            True,
+        )
+    elif status_code is not None and status_code >= 500:
+        category, message, retryable = (
+            "temporarily_unavailable",
+            "Slack is temporarily unavailable.",
+            True,
+        )
+    else:
+        category, message, retryable = "unknown", "Slack request failed.", False
+    category = cast(ProviderErrorCategory, category)
+    return ProviderOperationError(
+        message,
+        provider="slack",
+        code=f"slack_{code}",
+        category=category,
+        retryable=retryable,
+        status_code=status_code,
+        metadata=(
+            {"retry_after_seconds": retry_after_seconds}
+            if retry_after_seconds is not None
+            else None
+        ),
+    )
+
+
+class SlackWebApi:
+    """Secret-safe Slack Web API boundary; injectable httpx client supports offline tests."""
+
+    def __init__(
+        self, token: str, client: httpx.Client | None = None, timeout_seconds: float = 10.0
+    ) -> None:
+        self.token = token
+        self.client = client or httpx.Client(timeout=timeout_seconds)
+
+    def call(self, method: str, **data: Any) -> tuple[dict[str, Any], httpx.Headers]:
+        try:
+            response = self.client.post(
+                _API + method,
+                data=data,
+                headers={"Authorization": f"Bearer {self.token}"},
+            )
+        except httpx.TimeoutException:
+            raise ProviderOperationError(
+                "Slack request timed out.",
+                provider="slack",
+                code="slack_timeout",
+                category="timeout",
+                retryable=True,
+            ) from None
+        except httpx.HTTPError:
+            raise ProviderOperationError(
+                "Slack is temporarily unavailable.",
+                provider="slack",
+                code="slack_transport_error",
+                category="temporarily_unavailable",
+                retryable=True,
+            ) from None
+        retry_after = response.headers.get("retry-after")
+        try:
+            retry_after_seconds = max(0, int(retry_after)) if retry_after else None
+        except ValueError:
+            retry_after_seconds = None
+        if response.status_code == 429 or response.status_code >= 500:
+            raise _safe_error(
+                "ratelimited" if response.status_code == 429 else "server_error",
+                status_code=response.status_code,
+                retry_after_seconds=retry_after_seconds,
+            )
+        if response.status_code >= 400:
+            code = {
+                401: "invalid_auth",
+                403: "missing_scope",
+                404: "channel_not_found",
+            }.get(response.status_code, "http_error")
+            raise _safe_error(code, status_code=response.status_code)
+        try:
+            payload = response.json()
+        except ValueError:
+            raise ProviderOperationError(
+                "Slack returned an unreadable response.",
+                provider="slack",
+                code="slack_malformed_response",
+                category="malformed_response",
+                retryable=False,
+            ) from None
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            code = (
+                str(payload.get("error", "unknown_error"))
+                if isinstance(payload, dict)
+                else "malformed_response"
+            )
+            raise _safe_error(code, retry_after_seconds=retry_after_seconds)
+        return payload, response.headers
+
+
+class SlackConnectionValidator:
+    def __init__(
+        self, *, timeout_seconds: float = 10.0, client: httpx.Client | None = None
+    ) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.client = client
+
+    def validate(
+        self, provider: str, credentials: dict[str, str], scopes: list[str]
+    ) -> ConnectionValidation:
+        del provider, scopes
+        token = credentials.get("access_token") or credentials.get("bot_token", "")
+        if not token:
+            return ConnectionValidation(
+                valid=False,
+                status="configuration_error",
+                credential_state="invalid",
+                message="Slack access token is missing.",
+                error_code="credential_fields_missing",
+            )
+        try:
+            payload, headers = SlackWebApi(token, self.client, self.timeout_seconds).call(
+                "auth.test"
+            )
+        except ProviderOperationError as error:
+            status = (
+                "revoked"
+                if error.category == "revoked"
+                else "invalid_credentials"
+                if error.category == "invalid_credentials"
+                else "insufficient_permissions"
+                if error.category == "insufficient_permissions"
+                else "rate_limited"
+                if error.category == "rate_limited"
+                else "temporarily_unavailable"
+                if error.retryable
+                else "configuration_error"
+            )
+            status = cast(ProviderValidationStatus, status)
+            return ConnectionValidation(
+                valid=False,
+                verified=False,
+                status=status,
+                credential_state="expired"
+                if status == "revoked"
+                else "invalid"
+                if status == "invalid_credentials"
+                else "configured",
+                message=str(error),
+                retryable=error.retryable,
+                error_code=error.code,
+            )
+        granted = {
+            scope.strip() for scope in headers.get("x-oauth-scopes", "").split(",") if scope.strip()
+        }
+        if not granted:
+            granted = {
+                scope.strip() for scope in credentials.get("scope", "").split(",") if scope.strip()
+            }
+        missing = sorted(set(SLACK_REQUIRED_SCOPES) - granted)
+        if missing:
+            return ConnectionValidation(
+                valid=False,
+                verified=False,
+                status="insufficient_permissions",
+                credential_state="configured",
+                message=f"Slack connection is missing required permissions: {', '.join(missing)}.",
+                error_code="slack_missing_scope",
+                metadata={"granted_scopes": sorted(granted)},
+            )
+        team_id = payload.get("team_id")
+        if not isinstance(team_id, str) or not team_id:
+            return ConnectionValidation(
+                valid=False,
+                verified=False,
+                status="malformed_response",
+                credential_state="configured",
+                message="Slack did not identify the connected workspace.",
+                error_code="slack_team_id_missing",
+            )
+        expected_team = credentials.get("external_account_id")
+        if expected_team and expected_team != team_id:
+            return ConnectionValidation(
+                valid=False,
+                verified=False,
+                status="invalid_credentials",
+                credential_state="invalid",
+                message="Slack token belongs to a different workspace than the OAuth connection.",
+                error_code="slack_workspace_mismatch",
+            )
+        metadata: dict[str, object] = {
+            "slack_team_id": team_id,
+            "slack_user_id": payload.get("user_id"),
+            "slack_user_name": payload.get("user"),
+            "slack_bot_id": payload.get("bot_id"),
+            "slack_bot_user_id": credentials.get("bot_user_id"),
+            "slack_team_name": payload.get("team"),
+            "granted_scopes": sorted(granted),
+        }
+        return ConnectionValidation(
+            valid=True,
+            verified=True,
+            status="connected",
+            credential_state="configured",
+            message="Slack token verified for the connected workspace.",
+            metadata={key: value for key, value in metadata.items() if value is not None},
+        )
+
+
+class SlackProviderRevoker(ProviderRevoker):
+    def __init__(self, client: httpx.Client | None = None) -> None:
+        self.client = client
+
+    def revoke(self, provider: str, values: dict[str, str]) -> RevocationResult:
+        if provider != "slack" or not (values.get("access_token") or values.get("bot_token")):
+            return RevocationResult(status="unsupported")
+        try:
+            payload, _ = SlackWebApi(
+                values.get("access_token") or values.get("bot_token", ""), self.client
+            ).call("auth.revoke")
+            revoked = payload.get("revoked") is True
+            return RevocationResult(
+                status="confirmed" if revoked else "failed",
+                error_code=None if revoked else "slack_revocation_unconfirmed",
+            )
+        except ProviderOperationError as error:
+            if error.category in {"invalid_credentials", "revoked"}:
+                return RevocationResult(status="confirmed")
+            return RevocationResult(status="failed", error_code="slack_remote_revocation_failed")
+
+
+class SlackNotificationProvider:
+    provider_name = "slack"
+
+    def __init__(
+        self,
+        *,
+        connection: ResolvedProviderConnection,
+        channel_id: str,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.connection_id = connection.connection_id
+        self.workspace_id = connection.workspace_id
+        self.channel_id = channel_id
+        self._api = SlackWebApi(
+            connection.credentials.get("access_token")
+            or connection.credentials.get("bot_token", ""),
+            client,
+        )
+
+    def send(self, message: Any) -> Any:
+        from lead_agent.domain.routing import NotificationDelivery
+
+        try:
+            payload, _ = self._api.call(
+                "chat.postMessage",
+                channel=self.channel_id,
+                text=message.text,
+                unfurl_links="false",
+                unfurl_media="false",
+            )
+            return NotificationDelivery(
+                state="sent", external_id=str(payload.get("ts")) if payload.get("ts") else None
+            )
+        except ProviderOperationError as error:
+            retry_after = error.metadata.get("retry_after_seconds")
+            return NotificationDelivery(
+                state="retryable" if error.retryable else "failed",
+                error_message=str(error),
+                retryable=error.retryable,
+                retry_after_seconds=(
+                    retry_after
+                    if isinstance(retry_after, int) and not isinstance(retry_after, bool)
+                    else None
+                ),
+            )
+
+
+class WorkspaceSlackNotificationResolver:
+    def __init__(
+        self,
+        secret_store: SecretStore,
+        connection_resolver: WorkspaceAuthorizedConnectionResolver,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.secret_store = secret_store
+        self.connection_resolver = connection_resolver
+        self.client = client
+
+    def resolve_for_workspace(
+        self, session: Session, workspace_id: UUID, actor_id: str = "system"
+    ) -> SlackNotificationProvider | None:
+        connection = session.scalar(
+            select(ProviderConnectionORM)
+            .where(
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type == "slack",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+            .order_by(ProviderConnectionORM.updated_at.desc())
+        )
+        if connection is None:
+            return None
+        resolved = self.connection_resolver.resolve_connection(
+            session, workspace_id, connection.id, actor_id=actor_id
+        )
+        if resolved is None:
+            return None
+        channel_id = connection.connection_metadata.get("slack_channel_id")
+        if not isinstance(channel_id, str) or not channel_id:
+            return None
+        return SlackNotificationProvider(
+            connection=resolved, channel_id=channel_id, client=self.client
+        )
+
+    def resolve_connection(
+        self, session: Session, workspace_id: UUID, connection_id: UUID, actor_id: str = "system"
+    ) -> tuple[ProviderConnectionORM, ResolvedProviderConnection]:
+        row = session.scalar(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.id == connection_id,
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type == "slack",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+        )
+        if row is None:
+            raise LookupError("verified Slack connection not found")
+        resolved = self.connection_resolver.resolve_connection(
+            session, workspace_id, connection_id, actor_id=actor_id
+        )
+        if resolved is None:
+            raise LookupError("verified Slack connection not available")
+        return row, resolved
+
+    def select_channel(
+        self,
+        session: Session,
+        workspace_id: UUID,
+        connection_id: UUID,
+        channel_id: str,
+        actor_id: str,
+    ) -> dict[str, str]:
+        row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+        try:
+            payload, _ = SlackWebApi(
+                resolved.credentials.get("access_token")
+                or resolved.credentials.get("bot_token", ""),
+                self.client,
+            ).call("conversations.info", channel=channel_id)
+        except ProviderOperationError as error:
+            raise ValueError(str(error)) from None
+        channel = payload.get("channel", {})
+        if not isinstance(channel, dict) or channel.get("is_member") is not True:
+            raise ValueError("Invite the Slack bot to the selected channel before choosing it.")
+        metadata = dict(row.connection_metadata)
+        metadata["slack_channel_id"] = channel_id
+        metadata["slack_channel_name"] = str(channel.get("name") or channel_id)
+        row.connection_metadata = metadata
+        row.updated_at = datetime.now(UTC)
+        session.commit()
+        return {"id": channel_id, "name": str(channel.get("name") or channel_id)}
+
+    def list_channels(
+        self, session: Session, workspace_id: UUID, connection_id: UUID, actor_id: str
+    ) -> list[dict[str, str]]:
+        _, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+        try:
+            api = SlackWebApi(
+                resolved.credentials.get("access_token")
+                or resolved.credentials.get("bot_token", ""),
+                self.client,
+            )
+            channels: list[dict[str, str]] = []
+            cursor: str | None = None
+            for _ in range(10):
+                params: dict[str, str | int] = {
+                    "types": "public_channel",
+                    "exclude_archived": "true",
+                    "limit": 200,
+                }
+                if cursor:
+                    params["cursor"] = cursor
+                payload, _ = api.call("conversations.list", **params)
+                page = payload.get("channels", [])
+                channels.extend(
+                    {"id": str(item["id"]), "name": str(item["name"])}
+                    for item in page
+                    if isinstance(item, dict)
+                    and item.get("is_member") is True
+                    and item.get("id")
+                    and item.get("name")
+                )
+                response_metadata = payload.get("response_metadata", {})
+                next_cursor = (
+                    response_metadata.get("next_cursor")
+                    if isinstance(response_metadata, dict)
+                    else None
+                )
+                cursor = next_cursor if isinstance(next_cursor, str) and next_cursor else None
+                if cursor is None:
+                    break
+        except ProviderOperationError as error:
+            raise ValueError(str(error)) from None
+        return channels
+
+
+@lru_cache
+def get_workspace_slack_notification_resolver() -> WorkspaceSlackNotificationResolver:
+    from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
+    from lead_agent.infrastructure.secrets import get_secret_store
+
+    return WorkspaceSlackNotificationResolver(
+        get_secret_store(), get_workspace_connection_resolver()
+    )

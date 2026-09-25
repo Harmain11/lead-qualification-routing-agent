@@ -435,6 +435,8 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
 
 @lru_cache
 def get_provider_connection_validator() -> ProviderConnectionValidator:
+    from lead_agent.infrastructure.slack import SlackConnectionValidator
+
     settings = get_settings()
     return ProviderConnectionValidatorRegistry(
         {
@@ -448,6 +450,7 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
                 client_id=settings.hubspot_client_id,
                 client_secret=settings.hubspot_client_secret,
             ),
+            "slack": SlackConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
         },
         DeferredProviderValidator(),
     )
@@ -455,6 +458,8 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
 
 @lru_cache
 def get_provider_revoker() -> ProviderRevoker:
+    from lead_agent.infrastructure.slack import SlackProviderRevoker
+
     settings = get_settings()
     return ProviderRevokerRegistry(
         {
@@ -468,6 +473,7 @@ def get_provider_revoker() -> ProviderRevoker:
                 client_id=settings.hubspot_client_id,
                 client_secret=settings.hubspot_client_secret,
             ),
+            "slack": SlackProviderRevoker(),
         },
         OAuthBrokerRevoker(get_oauth_broker()),
     )

@@ -34,6 +34,7 @@ from lead_agent.domain.integrations import (
     ProviderRevoker,
     SecretStore,
 )
+from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.db.session import get_db
@@ -41,6 +42,7 @@ from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import (
     get_provider_connection_validator,
     get_provider_revoker,
+    record_provider_lifecycle_audit,
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import (
@@ -49,6 +51,10 @@ from lead_agent.infrastructure.repositories import (
     list_provider_connections,
 )
 from lead_agent.infrastructure.secrets import get_secret_store
+from lead_agent.infrastructure.slack import (
+    WorkspaceSlackNotificationResolver,
+    get_workspace_slack_notification_resolver,
+)
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/integrations", tags=["integrations"])
@@ -79,6 +85,21 @@ class ReconnectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     credentials: dict[str, str]
+
+
+class SlackChannelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel_id: str = Field(min_length=3, max_length=255)
+
+
+class SlackChannelResponse(BaseModel):
+    id: str
+    name: str
+
+
+class SlackTestNotificationResponse(BaseModel):
+    sent: bool
+    message: str
 
 
 class ValidationResponse(BaseModel):
@@ -168,6 +189,10 @@ def begin_connection(
     secret_store: SecretStore = Depends(get_secret_store),
     settings: Settings = Depends(get_settings),
 ) -> OAuthBeginResponse:
+    if provider == "slack" and "integrations.manage" not in workspace.permissions:
+        raise HTTPException(
+            status_code=403, detail="permission required: integrations.manage"
+        )
     try:
         row, started = begin_oauth_connection(
             session,
@@ -228,6 +253,8 @@ def browser_connection_callback(
         membership = require_membership(session, identity.user_id, connection.workspace_id)
         if "integrations.connect" not in membership_permissions(membership):
             raise AuthorizationError("permission required: integrations.connect")
+        if provider == "slack" and "integrations.manage" not in membership_permissions(membership):
+            raise AuthorizationError("permission required: integrations.manage")
         if connection.provider_type != provider:
             raise ValueError("provider does not match OAuth transaction")
         if provider_error or not authorization_code:
@@ -322,6 +349,103 @@ def test_connection(
         message=validation.message,
         retryable=validation.retryable,
         error_code=validation.error_code,
+    )
+
+
+@router.get(
+    "/connections/{connection_id}/slack-channels", response_model=list[SlackChannelResponse]
+)
+def list_slack_channels(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    notification_resolver: WorkspaceSlackNotificationResolver = Depends(
+        get_workspace_slack_notification_resolver
+    ),
+) -> list[SlackChannelResponse]:
+    try:
+        channels = notification_resolver.list_channels(
+            session, workspace.workspace_id, connection_id, workspace.actor_id
+        )
+    except (LookupError, ValueError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return [SlackChannelResponse(**channel) for channel in channels]
+
+
+@router.put("/connections/{connection_id}/slack-channel", response_model=SlackChannelResponse)
+def select_slack_channel(
+    connection_id: UUID,
+    request: SlackChannelRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    notification_resolver: WorkspaceSlackNotificationResolver = Depends(
+        get_workspace_slack_notification_resolver
+    ),
+) -> SlackChannelResponse:
+    try:
+        channel = notification_resolver.select_channel(
+            session, workspace.workspace_id, connection_id, request.channel_id, workspace.actor_id
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return SlackChannelResponse(**channel)
+
+
+@router.post(
+    "/connections/{connection_id}/slack-test-notification",
+    response_model=SlackTestNotificationResponse,
+)
+def send_slack_test_notification(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    notification_resolver: WorkspaceSlackNotificationResolver = Depends(
+        get_workspace_slack_notification_resolver
+    ),
+) -> SlackTestNotificationResponse:
+    try:
+        row, _ = notification_resolver.resolve_connection(
+            session, workspace.workspace_id, connection_id, workspace.actor_id
+        )
+        channel_id = row.connection_metadata.get("slack_channel_id")
+        if not isinstance(channel_id, str) or not channel_id:
+            raise ValueError("Choose a Slack notification channel first.")
+        provider = notification_resolver.resolve_for_workspace(
+            session, workspace.workspace_id, workspace.actor_id
+        )
+        if provider is None or provider.connection_id != connection_id:
+            raise ValueError("Verified Slack connection and notification channel are required.")
+        delivery = provider.send(
+            NotificationMessage(
+                deduplication_key=f"slack-test:{connection_id}:{UUID(int=0)}",
+                priority="normal",
+                text=(
+                    "[TEST] Lead Qualification & Routing Agent notification test. "
+                    "This confirms the selected workspace channel is connected."
+                ),
+                metadata={"connection_id": str(connection_id)},
+            )
+        )
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="test_notification",
+            outcome="sent" if delivery.state == "sent" else "failed",
+            actor_id=workspace.actor_id,
+            error_code=None if delivery.state == "sent" else "slack_test_notification_failed",
+            details={"channel_id": channel_id, "delivery_state": delivery.state},
+        )
+        session.commit()
+        if delivery.state != "sent":
+            raise ValueError(delivery.error_message or "Slack test notification could not be sent.")
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return SlackTestNotificationResponse(
+        sent=True, message="Test notification sent to the selected channel."
     )
 
 

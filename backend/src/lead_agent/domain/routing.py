@@ -38,6 +38,7 @@ class NotificationDelivery(BaseModel):
     external_id: str | None = None
     error_message: str | None = None
     retryable: bool = False
+    retry_after_seconds: int | None = None
 
 
 class NotificationProvider(Protocol):

@@ -32,6 +32,7 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.notifications.mock import MockNotificationProvider
 from lead_agent.infrastructure.observability import get_observability, provider_operation
 from lead_agent.infrastructure.repositories import get_current_routing
+from lead_agent.settings.config import get_settings
 
 _LOGGER = logging.getLogger("lead_agent.notifications")
 
@@ -237,17 +238,15 @@ def _notification_text(
     priority: RoutePriority,
 ) -> str:
     marker = "[HIGH PRIORITY] " if priority in {"urgent", "high"} else ""
-    intent = analysis.intent_level if analysis else "unknown"
-    rationale = (
-        qualification.rationale[0][:220] if qualification.rationale else "No rationale recorded."
-    )
+    del analysis
+    frontend_url = get_settings().frontend_public_base_url.strip().rstrip("/")
+    app_link = f"\nOpen Lead Agent: {frontend_url}" if frontend_url else ""
     return (
         f"{marker}{lead.company_name} — {lead.full_name}\n"
         f"Source: {lead.source} | Score: {qualification.total_score}/100 | "
         f"Band: {qualification.classification}\n"
-        f"Intent: {intent} | Queue: {queue} | Rep: {rep_name or 'Unassigned'}\n"
-        f"Action: {action_plan.immediate_action}\n"
-        f"Why: {rationale}"
+        f"Queue: {queue} | Rep: {rep_name or 'Unassigned'}\n"
+        f"Next action: {action_plan.next_step_recommendation}{app_link}"
     )[:3000]
 
 
@@ -270,6 +269,17 @@ def record_pipeline_event(
     )
 
 
+class _UnavailableNotificationProvider:
+    provider_name = "slack"
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def send(self, message: NotificationMessage) -> NotificationDelivery:
+        del message
+        return NotificationDelivery(state="failed", error_message=self.message, retryable=False)
+
+
 def notify_routing_decision(
     session: Session,
     decision: RoutingDecisionORM,
@@ -278,7 +288,18 @@ def notify_routing_decision(
     analysis: LeadContextAnalysis | None,
     provider: NotificationProvider | None = None,
 ) -> NotificationORM:
-    active_provider = provider or MockNotificationProvider()
+    selected_provider = provider or MockNotificationProvider()
+    resolver = getattr(selected_provider, "resolve_for_workspace", None)
+    active_provider = (
+        resolver(session, lead.workspace_id, actor_id="system")
+        if callable(resolver)
+        else selected_provider
+    )
+    if active_provider is None:
+        active_provider = _UnavailableNotificationProvider(
+            "No verified Slack connection and notification channel are configured "
+            "for this workspace."
+        )
     existing = session.scalar(
         select(NotificationORM).where(
             NotificationORM.routing_decision_id == decision.id,
@@ -301,6 +322,26 @@ def notify_routing_decision(
         session.add(existing)
         session.flush()
     elif existing.status == "sent":
+        return existing
+    elif existing.status == "retryable":
+        retry_after_until = existing.payload.get("retry_after_until")
+        if isinstance(retry_after_until, str):
+            try:
+                retry_at = datetime.fromisoformat(retry_after_until)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                if retry_at > now:
+                    return existing
+            except ValueError:
+                pass
+    if existing is not None and existing.status != "sent" and existing.attempts >= 5:
+        existing.status = "failed"
+        existing.error_message = (
+            "Notification retry limit reached; review the connection and channel."
+        )
+        existing.updated_at = now
+        decision.notification_state = "failed"
+        session.commit()
         return existing
 
     message = NotificationMessage(
@@ -367,6 +408,13 @@ def notify_routing_decision(
     existing.status = delivery.state
     existing.external_message_id = delivery.external_id
     existing.error_message = delivery.error_message
+    if delivery.retry_after_seconds is not None and delivery.retryable:
+        existing.payload = {
+            **existing.payload,
+            "retry_after_until": (
+                datetime.now(UTC) + timedelta(seconds=delivery.retry_after_seconds)
+            ).isoformat(),
+        }
     existing.sent_at = now if delivery.state == "sent" else None
     existing.updated_at = datetime.now(UTC)
     decision.notification_state = delivery.state
