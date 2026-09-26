@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.application.icp import resolve_workspace_icp
@@ -219,6 +220,9 @@ def process_source_event(
             event.received_at,
             workspace_id=workspace_id,
         )
+    if source_event is None:
+        raise RuntimeError("source event could not be created")
+    source_event_id = source_event.id
 
     update_source_event(session, source_event, status="processing", increment_attempt=True)
     try:
@@ -228,14 +232,26 @@ def process_source_event(
             lead, resolved_icp.configuration, routing, provider
         )
         result = resolved_icp.trace_result(result)
-        row = create_lead_with_result(
-            session,
-            lead,
-            result,
-            analysis=analysis,
-            source_event=source_event,
-            workspace_id=workspace_id,
-        )
+        try:
+            row = create_lead_with_result(
+                session,
+                lead,
+                result,
+                analysis=analysis,
+                source_event=source_event,
+                workspace_id=workspace_id,
+            )
+        except IntegrityError:
+            # A second worker may have completed the same source event after
+            # the initial read. The unique source-event boundary makes that
+            # race safe; continue with the committed canonical lead.
+            session.rollback()
+            source_event = get_source_event(
+                session, event.channel, event.external_id, workspace_id
+            )
+            if source_event is None or source_event.lead is None:
+                raise
+            row = source_event.lead
         if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
@@ -248,7 +264,7 @@ def process_source_event(
         return IntakeResult(str(source_event.id), source_event.status, row)
     except Exception as error:
         session.rollback()
-        failed = session.get(type(source_event), source_event.id)
+        failed = session.get(SourceEventORM, source_event_id)
         if failed is not None:
             update_source_event(
                 session,

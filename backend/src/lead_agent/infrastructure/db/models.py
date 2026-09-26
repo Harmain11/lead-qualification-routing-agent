@@ -316,6 +316,10 @@ class CrmInboundSyncStateORM(Base):
     initial_import_completed: Mapped[bool] = mapped_column(nullable=False, default=False)
     sync_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300)
     next_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="idle")
     last_successful_cursor: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     resume_cursor: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
@@ -466,6 +470,13 @@ class SourceEventORM(Base):
 class LeadORM(Base):
     __tablename__ = "leads"
     __table_args__ = (
+        Index(
+            "uq_leads_source_event",
+            "source_event_id",
+            unique=True,
+            sqlite_where=text("source_event_id IS NOT NULL"),
+            postgresql_where=text("source_event_id IS NOT NULL"),
+        ),
         Index("ix_leads_source_created", "source", "created_at"),
         Index("ix_leads_email", "email"),
         Index("ix_leads_workspace_created", "workspace_id", "created_at"),

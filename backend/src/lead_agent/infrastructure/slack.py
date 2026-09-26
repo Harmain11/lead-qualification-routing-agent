@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any, cast
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
 from sqlalchemy import select
@@ -316,6 +316,9 @@ class SlackNotificationProvider:
                 "chat.postMessage",
                 channel=self.channel_id,
                 text=message.text,
+                # Slack uses this stable client id to make a retry after a
+                # worker crash safe when the first request was accepted.
+                client_msg_id=str(uuid5(NAMESPACE_URL, f"lead-agent:{message.deduplication_key}")),
                 unfurl_links="false",
                 unfurl_media="false",
             )

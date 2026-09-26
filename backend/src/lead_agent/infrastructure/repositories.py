@@ -89,6 +89,8 @@ def create_lead_with_result(
     ensure_workspace(session, workspace_id)
     if source_event is not None and source_event.workspace_id != workspace_id:
         raise ValueError("source event does not belong to the requested workspace")
+    if source_event is not None and source_event.lead is not None:
+        return source_event.lead
     if source_event is None and lead.external_id:
         source_event = session.scalar(
             select(SourceEventORM).where(

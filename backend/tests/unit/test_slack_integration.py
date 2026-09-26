@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import httpx
 import pytest
@@ -425,6 +425,11 @@ def test_successful_slack_notification_and_revoke_use_mocked_boundaries(tmp_path
         def handler(request: httpx.Request) -> httpx.Response:
             calls.append(request.url.path)
             assert request.headers["Authorization"] == f"Bearer workspace-{workspace}"
+            if request.url.path.endswith("chat.postMessage"):
+                form = parse_qs(request.content.decode())
+                assert form["client_msg_id"] == [
+                    str(uuid5(NAMESPACE_URL, "lead-agent:route-1"))
+                ]
             return httpx.Response(200, json={"ok": True, "ts": "123.456", "revoked": True})
 
         resolver = WorkspaceSlackNotificationResolver(

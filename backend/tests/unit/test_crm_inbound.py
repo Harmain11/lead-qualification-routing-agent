@@ -353,6 +353,88 @@ def test_interrupted_batch_resumes_after_last_committed_page(tmp_path, icp, rout
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 3
 
 
+def test_active_inbound_lease_blocks_overlap_across_workers(tmp_path, icp, routing) -> None:
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4())
+        configure_inbound_sync(session, connection, enabled=True, actor_id="test-user")
+        state = get_inbound_sync_state(session, connection.workspace_id, connection.id)
+        assert state is not None
+        state.status = "running"
+        state.lease_owner = "worker-a"
+        state.lease_expires_at = datetime.now(UTC) + timedelta(minutes=5)
+        session.commit()
+
+        provider = FakeInboundProvider(
+            connection.id, [_record("00Q-overlap", "overlap@example.test")]
+        )
+        with pytest.raises(ValueError, match="already active"):
+            run_inbound_sync(
+                session,
+                connection,
+                provider,
+                mode="manual",
+                object_type="Lead",
+                limit=10,
+                page_size=1,
+                actor_id="worker-b",
+                icp=icp,
+                routing=routing,
+            )
+        assert provider.calls == []
+
+
+def test_expired_inbound_lease_abandons_lost_worker_and_resumes(tmp_path, icp, routing) -> None:
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4())
+        configure_inbound_sync(session, connection, enabled=True, actor_id="test-user")
+        state = get_inbound_sync_state(session, connection.workspace_id, connection.id)
+        assert state is not None
+        now = datetime.now(UTC)
+        state.status = "running"
+        state.lease_owner = "dead-worker"
+        state.lease_expires_at = now - timedelta(seconds=1)
+        stale = CrmInboundSyncRunORM(
+            id=uuid4(),
+            workspace_id=connection.workspace_id,
+            connection_id=connection.id,
+            state_id=state.id,
+            provider="salesforce",
+            object_type="Lead",
+            mode="manual",
+            status="running",
+            requested_by="dead-worker",
+            correlation_id="stale-run",
+            cursor_start=None,
+            cursor_current=None,
+            records_fetched=0,
+            records_created=0,
+            records_updated=0,
+            records_unchanged=0,
+            records_skipped=0,
+            records_failed=0,
+            started_at=now - timedelta(minutes=10),
+            created_at=now - timedelta(minutes=10),
+            updated_at=now - timedelta(minutes=10),
+        )
+        session.add(stale)
+        session.commit()
+
+        resumed = _run(
+            session,
+            connection,
+            FakeInboundProvider(connection.id, [_record("00Q-recover", "recover@example.test")]),
+            icp,
+            routing,
+        )
+        session.refresh(stale)
+        session.refresh(state)
+        assert resumed.status == "completed"
+        assert stale.status == "abandoned"
+        assert stale.error_code == "worker_lost"
+        assert state.lease_owner is None
+        assert state.lease_expires_at is None
+
+
 def test_idempotent_reimport_skips_unchanged_pipeline_work(tmp_path, icp, routing) -> None:
     with _session(tmp_path) as session:
         connection = _connection(session, uuid4())

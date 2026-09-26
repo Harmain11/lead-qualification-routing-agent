@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.analysis import LeadContextAnalysis
@@ -578,7 +579,15 @@ def route_and_notify(
         created_at=now,
     )
     session.add(decision)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError:
+        if not force:
+            session.rollback()
+            existing = get_current_routing(session, lead.id, lead.workspace_id)
+            if existing is not None:
+                return existing
+        raise
     record_pipeline_event(
         session,
         lead.id,

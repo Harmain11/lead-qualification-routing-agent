@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from threading import Lock, RLock
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,7 @@ from lead_agent.infrastructure.provider_lifecycle import record_provider_lifecyc
 
 _SYNC_LOCKS: dict[tuple[UUID, UUID, str], RLock] = {}
 _SYNC_LOCKS_GUARD = Lock()
+_SYNC_LEASE_SECONDS = 300
 
 
 @contextmanager
@@ -54,6 +55,8 @@ def _inbound_request_context() -> Iterator[None]:
 
 
 def _sync_lock(workspace_id: UUID, connection_id: UUID, object_type: str) -> RLock:
+    # This only reduces same-process contention. The PostgreSQL lease below is
+    # the authoritative guard for multi-worker and multi-process deployments.
     key = (workspace_id, connection_id, object_type)
     with _SYNC_LOCKS_GUARD:
         return _SYNC_LOCKS.setdefault(key, RLock())
@@ -166,7 +169,11 @@ def list_due_inbound_sync_states(
                 CrmInboundSyncStateORM.enabled.is_(True),
                 CrmInboundSyncStateORM.next_sync_at.is_not(None),
                 CrmInboundSyncStateORM.next_sync_at <= due,
-                CrmInboundSyncStateORM.status != "running",
+                or_(
+                    CrmInboundSyncStateORM.status != "running",
+                    CrmInboundSyncStateORM.lease_expires_at.is_(None),
+                    CrmInboundSyncStateORM.lease_expires_at <= due,
+                ),
                 ProviderConnectionORM.is_active.is_(True),
                 ProviderConnectionORM.status.in_({"connected", "verified"}),
             )
@@ -196,7 +203,11 @@ def claim_due_inbound_sync_states(
                 CrmInboundSyncStateORM.enabled.is_(True),
                 CrmInboundSyncStateORM.next_sync_at.is_not(None),
                 CrmInboundSyncStateORM.next_sync_at <= claimed_at,
-                CrmInboundSyncStateORM.status != "running",
+                or_(
+                    CrmInboundSyncStateORM.status != "running",
+                    CrmInboundSyncStateORM.lease_expires_at.is_(None),
+                    CrmInboundSyncStateORM.lease_expires_at <= claimed_at,
+                ),
                 ProviderConnectionORM.is_active.is_(True),
                 ProviderConnectionORM.status.in_({"connected", "verified"}),
             )
@@ -210,6 +221,61 @@ def claim_due_inbound_sync_states(
         row.updated_at = claimed_at
     session.commit()
     return rows
+
+
+def _acquire_sync_lease(
+    session: Session,
+    state: CrmInboundSyncStateORM,
+    owner: str,
+    now: datetime,
+) -> bool:
+    """Acquire ownership atomically so separate workers cannot overlap a sync."""
+
+    result = session.execute(
+        update(CrmInboundSyncStateORM)
+        .where(
+            and_(
+                CrmInboundSyncStateORM.id == state.id,
+                CrmInboundSyncStateORM.enabled.is_(True),
+                or_(
+                    CrmInboundSyncStateORM.status != "running",
+                    CrmInboundSyncStateORM.lease_expires_at.is_(None),
+                    CrmInboundSyncStateORM.lease_expires_at <= now,
+                ),
+            )
+        )
+        .values(
+            lease_owner=owner,
+            lease_expires_at=now + timedelta(seconds=_SYNC_LEASE_SECONDS),
+            status="running",
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    return bool(getattr(result, "rowcount", 0) == 1)
+
+
+def _renew_sync_lease(
+    session: Session,
+    state_id: UUID,
+    owner: str,
+    now: datetime,
+) -> None:
+    result = session.execute(
+        update(CrmInboundSyncStateORM)
+        .where(
+            CrmInboundSyncStateORM.id == state_id,
+            CrmInboundSyncStateORM.lease_owner == owner,
+            CrmInboundSyncStateORM.status == "running",
+        )
+        .values(
+            lease_expires_at=now + timedelta(seconds=_SYNC_LEASE_SECONDS),
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if int(getattr(result, "rowcount", 0)) != 1:
+        raise RuntimeError("inbound synchronization lease was lost")
 
 
 def get_inbound_sync_state(
@@ -618,6 +684,8 @@ def _fail_run(
     run.completed_at = now
     run.updated_at = now
     state.status = "failed"
+    state.lease_owner = None
+    state.lease_expires_at = None
     state.resume_cursor = run.cursor_current
     state.error_category = error.category
     state.error_code = error.code
@@ -683,30 +751,34 @@ def run_inbound_sync(
         _sync_lock(connection.workspace_id, connection.id, object_type),
     ):
         state = _state(session, connection, object_type)
-        state = (
-            session.scalar(
-                select(CrmInboundSyncStateORM)
-                .where(CrmInboundSyncStateORM.id == state.id)
-                .with_for_update()
-            )
-            or state
-        )
         if not state.enabled:
             raise ValueError("inbound synchronization is disabled")
+        run_id = uuid4()
+        if not _acquire_sync_lease(session, state, str(run_id), datetime.now(UTC)):
+            raise ValueError("an inbound synchronization run is already active")
+        session.refresh(state)
         active = session.scalar(
-            select(CrmInboundSyncRunORM).where(
+            select(CrmInboundSyncRunORM)
+            .where(
                 CrmInboundSyncRunORM.state_id == state.id,
                 CrmInboundSyncRunORM.status == "running",
+                CrmInboundSyncRunORM.id != run_id,
             )
+            .order_by(CrmInboundSyncRunORM.started_at.desc())
         )
         if active is not None:
-            raise ValueError("an inbound synchronization run is already active")
+            active.status = "abandoned"
+            active.error_category = "temporarily_unavailable"
+            active.error_code = "worker_lost"
+            active.last_error = "Previous worker lease expired before completion."
+            active.completed_at = datetime.now(UTC)
+            active.updated_at = datetime.now(UTC)
         cursor = _start_cursor(state, mode)
         now = datetime.now(UTC)
         request_id = current_request_id()
         correlation_id = request_id if request_id != "-" else str(uuid4())
         run = CrmInboundSyncRunORM(
-            id=uuid4(),
+            id=run_id,
             workspace_id=connection.workspace_id,
             connection_id=connection.id,
             state_id=state.id,
@@ -728,7 +800,6 @@ def run_inbound_sync(
             created_at=now,
             updated_at=now,
         )
-        state.status = "running"
         state.error_category = None
         state.error_code = None
         state.last_error = None
@@ -838,6 +909,7 @@ def run_inbound_sync(
             run.cursor_current = cursor
             run.checkpoint = final_checkpoint
             state = session.get(CrmInboundSyncStateORM, state.id) or state
+            _renew_sync_lease(session, state.id, str(run.id), datetime.now(UTC))
             state.resume_cursor = cursor
             state.records_processed += len(page.records)
             state.updated_at = datetime.now(UTC)
@@ -872,6 +944,8 @@ def run_inbound_sync(
         run.completed_at = now
         run.updated_at = now
         state.status = "ready"
+        state.lease_owner = None
+        state.lease_expires_at = None
         state.last_successful_cursor = final_checkpoint
         state.resume_cursor = cursor if bounded else None
         state.last_successful_sync_at = now
