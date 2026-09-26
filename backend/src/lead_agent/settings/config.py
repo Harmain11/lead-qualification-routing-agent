@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     app_version: str = "0.6.5"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    frontend_dist_path: str = "frontend/dist"
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"
     observability_enabled: bool = True
@@ -202,14 +203,18 @@ class Settings(BaseSettings):
                 "SECRET_STORE_KEY_VERSION is required for the encrypted database backend",
             )
         require(self.oauth_broker == "provider", "OAUTH_BROKER must be provider")
-        require(self.llm_provider == "openai", "LLM_PROVIDER must be openai")
         require(
-            bool(self.openai_api_key)
-            and not _is_placeholder(self.openai_api_key)
-            and bool(self.openai_model)
-            and not _is_placeholder(self.openai_model),
-            "OpenAI provider credentials and model must be configured",
+            self.llm_provider in {"deterministic", "openai"},
+            "LLM_PROVIDER must be openai or deterministic",
         )
+        if self.llm_provider == "openai":
+            require(
+                bool(self.openai_api_key)
+                and not _is_placeholder(self.openai_api_key)
+                and bool(self.openai_model)
+                and not _is_placeholder(self.openai_model),
+                "OpenAI provider credentials and model must be configured",
+            )
         require(self.crm_provider != "mock", "CRM_PROVIDER cannot be mock")
         require(
             self.notification_provider != "mock",

@@ -40,6 +40,9 @@ redis-data/
 coverage/
 *.sqlite3
 *.log
+celerybeat-schedule*
+backend/celerybeat-schedule*
+.pytest-tmp/
 .DS_Store
 Thumbs.db
 

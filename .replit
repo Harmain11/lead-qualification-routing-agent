@@ -1,0 +1,6 @@
+entrypoint = "scripts/replit_start.sh"
+run = "bash scripts/replit_start.sh"
+
+[deployment]
+build = "bash scripts/replit_build.sh"
+run = "bash scripts/replit_start.sh"
