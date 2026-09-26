@@ -2,6 +2,20 @@
 
 Slack is configured as an outbound notification destination. It is not an inbound lead source and it has no CRM synchronization controls or schedule.
 
+## Implementation status and deferred acceptance
+
+The Slack provider implementation is operational. Final live end-to-end acceptance is
+deferred to Phase 7C8. Exactly two live acceptance checks remain:
+
+1. A meaningful Salesforce or HubSpot inbound source change invokes the existing
+   `reprocess_lead()` path, creates the appropriate new routing decision, and produces
+   exactly one legitimate new Slack notification.
+2. That real Slack notification generates the new post-fix correlated
+   `lead_notification` lifecycle audit event, with no secret leakage.
+
+Do not add a manual reprocess UI solely for certification. The existing ingestion and
+reprocessing behavior is the path under acceptance; Slack behavior remains unchanged.
+
 ## Slack app setup for the next live phase
 
 1. Create a Slack app **from scratch** for a dedicated test workspace. Keep it a workspace-installed app for this certification; do not enable organization-wide distribution.
@@ -47,4 +61,6 @@ Slack is configured as an outbound notification destination. It is not an inboun
 5. Process one controlled test lead. Confirm one concise notification is delivered, reprocessing the unchanged lead does not send another, and Slack cannot import users/messages or enter CRM synchronization.
 6. Disconnect from the Integration card. Confirm the local workspace connection is disabled even if Slack's token revoke call is unavailable, and repeat the same checks in a second workspace to confirm isolation.
 
-No Slack workspace was opened or contacted during preparation. Certification still requires operator credentials, a test workspace, and the above real OAuth and delivery checks.
+No Slack workspace was opened or contacted during the Phase 7C4A preparation. The
+provider implementation is operational; only the two live end-to-end acceptance checks
+listed above are deferred to Phase 7C8.

@@ -21,7 +21,7 @@ from lead_agent.application.services import process_lead
 from lead_agent.domain.integrations import PROVIDER_SETUP
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import role_permissions
-from lead_agent.domain.routing import NotificationMessage
+from lead_agent.domain.routing import NotificationDelivery, NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -167,6 +167,16 @@ def test_non_expiring_slack_oauth_token_does_not_get_a_fake_refresh_deadline(tmp
         assert completed.connection_metadata["refresh_available"] is False
         assert "token_expires_at" not in completed.connection_metadata
         assert completed.external_account_id == "T-expected"
+        audit = session.scalar(
+            select(ProviderLifecycleAuditORM).where(
+                ProviderLifecycleAuditORM.connection_id == completed.id,
+                ProviderLifecycleAuditORM.action == "oauth_connect",
+            )
+        )
+        assert audit is not None
+        assert audit.actor_id == "operator"
+        assert audit.details == {"scopes": ["chat:write", "channels:read"]}
+        assert "workspace-token" not in str(audit.details)
 
 
 def test_validator_checks_token_team_and_required_scopes() -> None:
@@ -331,6 +341,16 @@ def test_resolver_and_channel_configuration_are_workspace_scoped(tmp_path) -> No
         session.refresh(connection_b)
         assert connection_a.connection_metadata["slack_channel_id"] == "C-new"
         assert connection_b.connection_metadata["slack_channel_id"] == "C123"
+        audit = session.scalar(
+            select(ProviderLifecycleAuditORM).where(
+                ProviderLifecycleAuditORM.connection_id == connection_a.id,
+                ProviderLifecycleAuditORM.action == "channel_selection",
+            )
+        )
+        assert audit is not None
+        assert audit.actor_id == "actor-a"
+        assert audit.details["channel_id"] == "C-new"
+        assert "access_token" not in str(audit.details)
 
 
 def test_missing_channel_and_bot_membership_are_permanent_configuration_errors(tmp_path) -> None:
@@ -600,3 +620,56 @@ def test_test_notification_endpoint_sends_a_labelled_message_and_audits_it(tmp_p
     finally:
         app.dependency_overrides.clear()
         session.close()
+
+
+def test_system_lead_notification_has_safe_correlated_lifecycle_audit(
+    tmp_path, icp, routing
+) -> None:
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace = uuid4()
+        connection = make_connection(session, store, workspace)
+
+        class SlackProvider:
+            provider_name = "slack"
+            connection_id = connection.id
+
+            def send(self, message: NotificationMessage) -> NotificationDelivery:
+                assert "Slack Audit Test Lead" in message.text
+                assert "secret-token" not in message.text
+                return NotificationDelivery(state="sent", external_id="123.456")
+
+        _, _, lead = process_lead(
+            session,
+            {
+                "source": "website",
+                "full_name": "Slack Audit Test Lead",
+                "email": "slack-audit@example.invalid",
+                "company_name": "Slack Audit Demo",
+                "industry": "technology",
+                "job_title": "VP of Operations",
+                "employee_count": 125,
+                "geography": "United States",
+                "budget": 50000,
+                "product_or_service": "lead routing automation",
+                "message": "Synthetic audit event test.",
+            },
+            icp,
+            routing,
+            notification_provider=SlackProvider(),
+            workspace_id=workspace,
+        )
+        audit = session.scalar(
+            select(ProviderLifecycleAuditORM).where(
+                ProviderLifecycleAuditORM.connection_id == connection.id,
+                ProviderLifecycleAuditORM.action == "lead_notification",
+            )
+        )
+        assert audit is not None
+        assert audit.outcome == "sent"
+        assert audit.actor_id == "system"
+        assert audit.correlation_id
+        assert audit.details["lead_id"] == str(lead.id)
+        assert audit.details["channel_id"] == "C123"
+        assert "slack-audit@example.invalid" not in str(audit.details)
+        assert "secret-token" not in str(audit.details)

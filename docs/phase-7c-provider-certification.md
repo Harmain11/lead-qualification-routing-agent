@@ -108,3 +108,14 @@ application, credential, mailbox acquisition adapter, real CRM write, or Slack m
 created in Phase 7C1. Salesforce's shared-gate implementation is prepared in
 [`phase-7c2a-salesforce-preparation.md`](phase-7c2a-salesforce-preparation.md), but real
 Salesforce certification remains a separate controlled operation.
+
+### Slack status
+
+The Slack provider implementation is operational. Final live end-to-end acceptance is
+deferred to Phase 7C8, with exactly two checks: a meaningful Salesforce/HubSpot inbound
+source change must invoke the existing `reprocess_lead()` path, create the appropriate new
+routing decision, and produce exactly one legitimate new Slack notification; that real
+notification must generate the new post-fix correlated `lead_notification` lifecycle audit
+event with no secret leakage. Do not add a manual reprocess UI solely for certification, and
+do not change Slack behavior. See
+[`phase-7c4a-slack-preparation.md`](phase-7c4a-slack-preparation.md).

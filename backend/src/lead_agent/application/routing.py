@@ -27,10 +27,12 @@ from lead_agent.infrastructure.db.models import (
     LeadORM,
     NotificationORM,
     PipelineEventORM,
+    ProviderConnectionORM,
     RoutingDecisionORM,
 )
 from lead_agent.infrastructure.notifications.mock import MockNotificationProvider
 from lead_agent.infrastructure.observability import get_observability, provider_operation
+from lead_agent.infrastructure.provider_lifecycle import record_provider_lifecycle_audit
 from lead_agent.infrastructure.repositories import get_current_routing
 from lead_agent.settings.config import get_settings
 
@@ -425,6 +427,27 @@ def notify_routing_decision(
         delivery.state,
         {"provider": active_provider.provider_name, "notification_id": str(existing.id)},
     )
+    if active_provider.provider_name == "slack":
+        raw_connection_id = getattr(active_provider, "connection_id", None)
+        try:
+            connection_id = UUID(str(raw_connection_id)) if raw_connection_id else None
+        except ValueError:
+            connection_id = None
+        connection = session.get(ProviderConnectionORM, connection_id) if connection_id else None
+        if connection is not None and connection.workspace_id == lead.workspace_id:
+            record_provider_lifecycle_audit(
+                session,
+                connection,
+                action="lead_notification",
+                outcome=delivery.state,
+                actor_id="system",
+                details={
+                    "lead_id": str(lead.id),
+                    "routing_decision_id": str(decision.id),
+                    "notification_id": str(existing.id),
+                    "channel_id": connection.connection_metadata.get("slack_channel_id"),
+                },
+            )
     session.commit()
     return existing
 

@@ -370,6 +370,15 @@ def complete_oauth_connection(
         ).isoformat()
     row.connection_metadata = token_metadata
     _activate_connection(session, row)
+    if row.provider_type == "slack":
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="oauth_connect",
+            outcome="connected",
+            actor_id=actor_id,
+            details={"scopes": list(row.scopes)},
+        )
     session.commit()
     session.refresh(row)
     return row

@@ -21,6 +21,7 @@ from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.provider_lifecycle import (
     ResolvedProviderConnection,
     WorkspaceAuthorizedConnectionResolver,
+    record_provider_lifecycle_audit,
 )
 
 SLACK_REQUIRED_SCOPES = ("chat:write", "channels:read")
@@ -415,10 +416,25 @@ class WorkspaceSlackNotificationResolver:
         if not isinstance(channel, dict) or channel.get("is_member") is not True:
             raise ValueError("Invite the Slack bot to the selected channel before choosing it.")
         metadata = dict(row.connection_metadata)
+        previous_channel_id = metadata.get("slack_channel_id")
+        previous_channel_name = metadata.get("slack_channel_name")
         metadata["slack_channel_id"] = channel_id
         metadata["slack_channel_name"] = str(channel.get("name") or channel_id)
         row.connection_metadata = metadata
         row.updated_at = datetime.now(UTC)
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="channel_selection",
+            outcome="selected",
+            actor_id=actor_id,
+            details={
+                "channel_id": channel_id,
+                "channel_name": str(channel.get("name") or channel_id),
+                "previous_channel_id": previous_channel_id,
+                "previous_channel_name": previous_channel_name,
+            },
+        )
         session.commit()
         return {"id": channel_id, "name": str(channel.get("name") or channel_id)}
 
