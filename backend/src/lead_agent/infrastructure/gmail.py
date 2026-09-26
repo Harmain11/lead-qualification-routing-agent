@@ -79,7 +79,7 @@ class GmailTransport:
                 retryable=True,
             ) from None
         if response.status_code >= 400:
-            raise _gmail_http_error(response)
+            raise _gmail_http_error(response, path=path)
         if len(response.content) > _MAX_MESSAGE_BYTES:
             raise ProviderOperationError(
                 "Gmail message exceeds the permitted size.",
@@ -109,7 +109,7 @@ class GmailTransport:
         return cast(dict[str, Any], payload)
 
 
-def _gmail_http_error(response: httpx.Response) -> ProviderOperationError:
+def _gmail_http_error(response: httpx.Response, *, path: str) -> ProviderOperationError:
     status_code = response.status_code
     try:
         error_data = response.json().get("error", {})
@@ -150,11 +150,18 @@ def _gmail_http_error(response: httpx.Response) -> ProviderOperationError:
             "Google rejected the Gmail authorization; reconnect the mailbox.",
             False,
         )
-    elif status_code == 404:
+    elif status_code == 404 and path.lstrip("/") == "history":
         code, category, reason, retryable = (
             "gmail_history_expired",
             "not_found",
             "Gmail history checkpoint expired.",
+            False,
+        )
+    elif status_code == 404:
+        code, category, reason, retryable = (
+            "gmail_resource_not_found",
+            "not_found",
+            "The requested Gmail resource is no longer available.",
             False,
         )
     elif status_code == 429 or status_code >= 500:
@@ -518,8 +525,16 @@ class GmailInboundProvider:
         if values.get("skip_reason"):
             raise ValueError(str(values["skip_reason"]))
         if not values.get("headers"):
-            record = self.fetch_record(object_type="message", record_id=record.record_id)
+            try:
+                record = self.fetch_record(object_type="message", record_id=record.record_id)
+            except ProviderOperationError as error:
+                # History can include drafts or messages deleted before acquisition.
+                if error.code == "gmail_resource_not_found":
+                    raise ValueError("message_no_longer_available") from None
+                raise
             values = record.values
+            if values.get("skip_reason"):
+                raise ValueError(str(values["skip_reason"]))
         headers = values.get("headers", {})
         if not isinstance(headers, dict):
             raise ValueError("Gmail message headers are unavailable")

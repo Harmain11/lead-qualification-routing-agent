@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from threading import Lock, RLock
 from uuid import UUID, uuid4
@@ -29,11 +30,27 @@ from lead_agent.infrastructure.db.models import (
     LeadORM,
     ProviderConnectionORM,
 )
-from lead_agent.infrastructure.observability import current_request_id, get_observability
+from lead_agent.infrastructure.observability import (
+    current_request_id,
+    get_observability,
+    reset_request_id,
+    set_request_id,
+)
 from lead_agent.infrastructure.provider_lifecycle import record_provider_lifecycle_audit
 
 _SYNC_LOCKS: dict[tuple[UUID, UUID, str], RLock] = {}
 _SYNC_LOCKS_GUARD = Lock()
+
+
+@contextmanager
+def _inbound_request_context() -> Iterator[None]:
+    """Carry a scheduled run's correlation through analysis, routing, and delivery."""
+    token = set_request_id(str(uuid4())) if current_request_id() == "-" else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            reset_request_id(token)
 
 
 def _sync_lock(workspace_id: UUID, connection_id: UUID, object_type: str) -> RLock:
@@ -661,7 +678,10 @@ def run_inbound_sync(
     bounded_limit = max(1, min(limit, 5000))
     bounded_page = max(1, min(page_size, 200, bounded_limit))
 
-    with _sync_lock(connection.workspace_id, connection.id, object_type):
+    with (
+        _inbound_request_context(),
+        _sync_lock(connection.workspace_id, connection.id, object_type),
+    ):
         state = _state(session, connection, object_type)
         state = (
             session.scalar(

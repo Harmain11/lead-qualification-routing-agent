@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
@@ -23,6 +24,8 @@ from lead_agent.domain.crm_inbound import (
     InboundCursor,
     InboundSyncMode,
 )
+from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.domain.routing import NotificationDelivery, NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -40,6 +43,7 @@ from lead_agent.infrastructure.gmail import (
     candidate_reason,
     parse_mime_body,
 )
+from lead_agent.infrastructure.observability import current_request_id
 from lead_agent.infrastructure.repositories import ensure_workspace
 
 
@@ -257,6 +261,48 @@ def test_gmail_incremental_history_and_expired_history_reconciliation() -> None:
     assert calls[-1].endswith("messages")
 
 
+@pytest.mark.parametrize("missing_format", ["metadata", "full"])
+def test_gmail_deleted_history_message_is_skipped(missing_format: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("format") == missing_format:
+            return httpx.Response(404, json={"error": {"message": "not found"}})
+        return httpx.Response(
+            200,
+            json={
+                "payload": {"headers": [
+                    {"name": "From", "value": "buyer@example.test"},
+                    {"name": "Subject", "value": "Pricing for our project"},
+                ]},
+                "snippet": "Please call our team",
+            },
+        )
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test", client=_client(handler)
+    )
+    record = ExternalCrmRecord(
+        provider="gmail", object_type="message", record_id="deleted", values={}
+    )
+    with pytest.raises(ValueError, match="message_no_longer_available"):
+        provider.normalize_record(record)
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_gmail_transient_message_failure_is_not_skipped(status: int) -> None:
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test",
+        client=_client(lambda _request: httpx.Response(status, text="private provider body")),
+    )
+    record = ExternalCrmRecord(
+        provider="gmail", object_type="message", record_id="retry", values={}
+    )
+    with pytest.raises(ProviderOperationError) as caught:
+        provider.normalize_record(record)
+    assert caught.value.code == "gmail_provider_unavailable"
+    assert caught.value.retryable
+    assert "private provider body" not in str(caught.value)
+
+
 def test_gmail_normalization_preserves_provider_and_message_thread_provenance() -> None:
     provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
     record = ExternalCrmRecord(
@@ -367,6 +413,31 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         session.add(connection)
         session.commit()
 
+        slack_connection = ProviderConnectionORM(
+            id=uuid4(),
+            workspace_id=workspace_id,
+            provider_type="slack",
+            account_name="Synthetic Slack workspace",
+            auth_type="oauth2",
+            status="verified",
+            credential_state="configured",
+            connection_metadata={"slack_channel_id": "C-SYNTHETIC"},
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(slack_connection)
+        session.commit()
+        delivery_correlations: list[str] = []
+
+        class SlackProvider:
+            provider_name = "slack"
+            connection_id = slack_connection.id
+
+            def send(self, message: NotificationMessage) -> NotificationDelivery:
+                delivery_correlations.append(current_request_id())
+                return NotificationDelivery(state="sent", external_id="synthetic-slack-id")
+
         def message(message_id: str, body: str) -> ExternalCrmRecord:
             return ExternalCrmRecord(
                 provider="gmail",
@@ -391,6 +462,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
                 actor_id="scheduler",
                 icp=icp,
                 routing=routing,
+                notification_provider=SlackProvider(),
             )
 
         first = run(
@@ -418,6 +490,18 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         )
         assert first.records_created == 1
         assert second.records_updated == 1
+        assert delivery_correlations == [first.correlation_id, second.correlation_id]
+        assert all(value != "-" for value in delivery_correlations)
+        assert current_request_id() == "-"
+        notification_audits = list(
+            session.scalars(
+                select(models.ProviderLifecycleAuditORM)
+                .where(models.ProviderLifecycleAuditORM.action == "lead_notification")
+                .order_by(models.ProviderLifecycleAuditORM.created_at)
+            )
+        )
+        assert [audit.correlation_id for audit in notification_audits] == delivery_correlations
+        assert all(audit.provider == "slack" for audit in notification_audits)
         assert len(links) == 2
         assert {link.provider_record_id for link in links} == {"m1", "m2"}
         assert all(link.provider == "gmail" and link.object_type == "message" for link in links)
@@ -430,6 +514,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
             "manual",
         )
         assert repeated.records_unchanged == 1
+        assert len(delivery_correlations) == 2
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
         assert (
             session.scalar(select(func.count()).select_from(models.RoutingDecisionORM))

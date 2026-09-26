@@ -120,13 +120,101 @@ Resume certification after the project credit/quota issue is resolved; this gate
 the next provider phase. The OpenAI runtime adapter remains implemented, with deterministic
 qualification and fallback behavior kept authoritative.
 
-### Slack status
+### Phase 7C8 cross-provider certification status
 
-The Slack provider implementation is operational. Final live end-to-end acceptance is
-deferred to Phase 7C8, with exactly two checks: a meaningful Salesforce/HubSpot inbound
-source change must invoke the existing `reprocess_lead()` path, create the appropriate new
-routing decision, and produce exactly one legitimate new Slack notification; that real
-notification must generate the new post-fix correlated `lead_notification` lifecycle audit
-event with no secret leakage. Do not add a manual reprocess UI solely for certification, and
-do not change Slack behavior. See
-[`phase-7c4a-slack-preparation.md`](phase-7c4a-slack-preparation.md).
+**PASS — 2026-09-26.** The final evidence below supersedes the initial readiness notes.
+All times below are UTC. Only automatic scheduled inbound was used; no Sync Now,
+manual live import or agent-created Gmail reply was used. The user sent both inputs.
+
+#### Real Gmail → pipeline → Slack results
+
+Both messages belong to thread `1a0ddf8bea46f702` and existing local lead
+`f214e0ef-0b65-46fc-ad1d-f102dd24477e`. One same-email person remained.
+Workspace ICP resolution selected `system_default`; no published custom workspace ICP
+was present. Email prose is not promoted to structured ICP fields by this adapter.
+
+| Evidence | Inquiry | Meaningful inbound reply |
+| --- | --- | --- |
+| Gmail message | `1a0ddf8bea46f702` | `1a0de083eb5c0b0e` |
+| Scheduled run | `0994c274-3ffd-4cec-8e20-04ac868440d5` | `9b8903d3-6def-480d-b550-37e484aad280` |
+| ICP / intent / engagement score | 0 / 10 / 18 = **28** | 0 / 15 / 18 = **33** |
+| Band / queue | nurture / nurture | nurture / nurture |
+| Routing decision | `defe9e4d-057e-4e35-9233-0703ecf5ca1e` | `5afd40f6-9e2d-4063-9513-c96334973468` |
+| Slack notification | `1473fd0b-08bf-475b-b56a-97416185be69` | `2c1826f1-dee8-4c7f-a103-669d0404e8b2` |
+| Slack timestamp | `1790430798.667079` | `1790431543.650069` |
+| Sent time | 13:53:18 | 14:05:43 |
+| Shared Gmail / Slack correlation | `3545b133-d261-45bc-8ffc-29d89934e359` | `5485d383-cc31-4212-b87c-b1d0635484c6` |
+| Durable `lead_notification` audit | `f979321d-cf9d-4492-9dee-3adf123be484` | `7c2ed49d-acb9-44e7-9f5c-64b80d39c8e6` |
+
+The actor was `system:crm-inbound-scheduler`. Deterministic analysis completed for both.
+The reply invoked `reprocess_lead()` and increased intent scoring. Existing source-change
+policy forces a fresh routing decision even when nurture precedence retains the queue.
+Exactly one second Slack notification was sent, with one attempt and provider success.
+Acquisition/candidate audits share the run correlation with Slack; lead ID, ordered
+normalized/analyzed/qualified/routed/notified events and routing references reconstruct
+the intervening stages. Historical audit rows were not rewritten.
+
+Unchanged scheduled run `f549d39f-138b-467b-92b4-522b403a36d7` completed at
+14:11:40 with zero fetched messages and zero updates. The lead timestamp and six total
+historical Gmail links, routing decisions and notifications stayed unchanged. Four
+decisions/notifications predated this phase; the controlled flow added exactly two.
+No third notification, duplicate person, routing decision or Gmail record appeared.
+The Gmail lead had zero CRM writes throughout. Checkpoint/reconnect continuity remained intact.
+
+#### Cross-provider live coexistence
+
+An authorized external Description update to existing Salesforce example lead
+`2b1407a3-edd0-4b11-8fd6-e88724cabada` (record `00Qaj00000y2zw5EAA`) was acquired
+by scheduled run `86bac1a5-8e12-46bb-b7b4-95eb7a686996` at 14:10:39.
+It reprocessed the same lead with one unique link; routing count rose three to four,
+while its existing CRM write count stayed three: no new writeback.
+
+An authorized external job-title update to existing HubSpot example contact
+`555f8892-a3b0-4ca1-8b2e-16a84fdedc9c` (record `558036091640`) was acquired
+by scheduled run `238f01cc-740e-4198-a12b-4aef04987ec8` at 14:11:50.
+The same lead and one unique link were retained with zero CRM writes. An initial
+Description update was rejected; a read-only schema check confirmed this account lacks
+that Contacts property, so the existing `jobtitle` field was used.
+
+All three inbound states remain verified/enabled and ready, with separate checkpoints,
+next-sync times and error state. Gmail's real failed run at 13:58:38 retained checkpoint
+`31297` while Salesforce/HubSpot continued. Scheduled recovery at 14:05:44 skipped a
+deleted message and an outgoing own-message, imported the actual inbound reply and
+advanced the checkpoint. No live tokens were revoked for testing.
+
+#### Defects fixed, safety and regression
+
+- Scheduled run correlations were not propagated into Slack delivery. A scoped request
+  context now carries the correlation and restores the previous context afterward.
+  Regression coverage checks both delivery/audit correlations and unchanged deduplication.
+- A deleted message referenced by history blocked the batch and every Gmail 404 was
+  misclassified as history expiry. History expiry is now endpoint-specific; disappearance
+  during metadata/full-body acquisition is skipped as `message_no_longer_available`.
+  Regression checks cover both fetch stages; 429/503 remain retryable failures.
+- A worker restart from the backend directory missed the root `.env`; it was corrected
+  to repository-root cwd. The worker has a process-only deterministic override. Provider
+  configuration and secrets are unchanged; no migration was added.
+
+Real acquisition/delivery audits contain safe references, counters and reasons only.
+Seven resolved credential values were checked in memory against those audits and current
+worker logs: none appeared. The raw meaningful Gmail body was also absent. Automated
+provider-boundary tests cover transient errors/recovery, checkpoint retention, overlap,
+own-writeback suppression, directionality, RBAC, secret redaction and workspace isolation.
+
+Final focused regression: **132 passed** (two dependency deprecation warnings). Final full backend regression: **282 passed** (four dependency deprecation warnings).
+Ruff passed; strict mypy passed (86 source files). Final `git diff --check`: passed.
+No frontend files changed. Migration head remains `0017_gmail_mailbox_reconnect`.
+One intended worker node and one beat scheduler remain active; working connections stay
+verified. The pre-existing `celerybeat-schedule-wal` change was preserved.
+
+OpenAI: **Deferred — live API blocked by unavailable API credits; deterministic fallback
+certified operational.** No live OpenAI call was made or key/model/project/billing changed.
+LinkedIn is deferred/removed from current scope; Outlook is deferred. Neither is certified.
+Deployment/Replit configuration was not modified; no subsequent phase was started.
+
+### Slack final status
+
+**Both previously deferred Slack acceptance checks are COMPLETE:** the meaningful
+scheduled Gmail update produced exactly one legitimate second notification, and its
+real post-fix `lead_notification` lifecycle audit shares the acquisition correlation
+without secret leakage. The following unchanged scheduled cycle produced no duplicates.

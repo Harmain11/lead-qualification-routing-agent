@@ -4,14 +4,16 @@ Slack is configured as an outbound notification destination. It is not an inboun
 
 ## Implementation status and deferred acceptance
 
-The Slack provider implementation is operational. Final live end-to-end acceptance is
-deferred to Phase 7C8. Exactly two live acceptance checks remain:
+The Slack provider implementation is operational. Both deferred live acceptance checks
+were completed in Phase 7C8 on 2026-09-26 using automatic scheduled Gmail inbound:
 
-1. A meaningful Salesforce or HubSpot inbound source change invokes the existing
+1. A meaningful Gmail thread update invoked the existing
    `reprocess_lead()` path, creates the appropriate new routing decision, and produces
-   exactly one legitimate new Slack notification.
-2. That real Slack notification generates the new post-fix correlated
-   `lead_notification` lifecycle audit event, with no secret leakage.
+   exactly one legitimate second Slack notification. The next unchanged scheduled cycle
+   produced no duplicate lead processing, routing decision or notification.
+2. That real Slack notification generated the post-fix correlated
+   `lead_notification` lifecycle audit event, with no secret leakage. Safe evidence IDs
+   and timestamps are recorded in `phase-7c-provider-certification.md`.
 
 Do not add a manual reprocess UI solely for certification. The existing ingestion and
 reprocessing behavior is the path under acceptance; Slack behavior remains unchanged.
@@ -62,5 +64,5 @@ reprocessing behavior is the path under acceptance; Slack behavior remains uncha
 6. Disconnect from the Integration card. Confirm the local workspace connection is disabled even if Slack's token revoke call is unavailable, and repeat the same checks in a second workspace to confirm isolation.
 
 No Slack workspace was opened or contacted during the Phase 7C4A preparation. The
-provider implementation is operational; only the two live end-to-end acceptance checks
-listed above are deferred to Phase 7C8.
+provider implementation is operational; the two live end-to-end acceptance checks
+listed above are now complete. Historical setup instructions remain for reference.
