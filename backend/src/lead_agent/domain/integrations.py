@@ -139,11 +139,13 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         provider="outlook",
         display_name="Outlook",
         category="Email",
-        availability="foundation",
+        availability="future",
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Microsoft Entra application",
-        credential_help="Sign in with Microsoft and approve access to the intake mailbox.",
+        credential_help=(
+            "Outlook intake is deferred in this release and is not currently certified."
+        ),
         required_scopes=["Mail.Read", "offline_access"],
         permission_reason="Read approved inbound lead messages through Microsoft Graph.",
         documentation_url="https://learn.microsoft.com/graph/auth-v2-user",

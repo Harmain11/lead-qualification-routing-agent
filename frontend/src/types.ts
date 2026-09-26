@@ -311,6 +311,14 @@ export type LeadPayload = Omit<
   external_id?: string;
 };
 
+export type LeadListResponse = {
+  items: Lead[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+};
+
 export type ProviderConnection = {
   id: string;
   workspace_id: string;

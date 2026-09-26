@@ -7,6 +7,7 @@ import type {
   DashboardAnalytics,
   IntegrationCard,
   Lead,
+  LeadListResponse,
   LeadPayload,
   ManualReviewAnalytics,
   PipelineAnalytics,
@@ -31,6 +32,13 @@ const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_age
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
 const inFlightGets = new Map<string, Promise<unknown>>();
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 export function setActiveWorkspace(workspaceId: string) {
   activeWorkspaceId = workspaceId;
@@ -86,7 +94,12 @@ async function performRequest<T>(url: string, options?: RequestInit): Promise<T>
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(typeof body.detail === "string" ? body.detail : "Request failed");
+    const message = response.status === 401
+      ? "Your session expired. Sign in again."
+      : response.status === 403
+        ? "You do not have permission to perform this action."
+        : typeof body.detail === "string" ? body.detail : "Request failed";
+    throw new ApiError(message, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -145,9 +158,23 @@ export async function createLead(payload: LeadPayload): Promise<Lead> {
   });
 }
 
-export async function listLeads(signal?: AbortSignal): Promise<Lead[]> {
-  const body = await request<{ items: Lead[] }>("/v1/leads", { signal });
-  return body.items;
+export type LeadListQuery = {
+  limit?: number;
+  offset?: number;
+  search?: string;
+  source?: string;
+  qualification_band?: string;
+  date_from?: string;
+  date_to?: string;
+};
+
+export async function listLeads(query: LeadListQuery = {}, signal?: AbortSignal): Promise<LeadListResponse> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<LeadListResponse>(`/v1/leads${suffix}`, { signal });
 }
 
 export type LeadExportInput = {

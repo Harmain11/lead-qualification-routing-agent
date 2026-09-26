@@ -16,6 +16,7 @@ import {
   getSession,
   setActiveWorkspace,
   signOut,
+  ApiError,
 } from "./api";
 import type { AuthSession, Lead, TimeRange } from "./types";
 import { can } from "./permissions";
@@ -96,15 +97,19 @@ function App() {
           getTimeSeriesAnalytics(activeRange, controller.signal),
           getAgentActivity(activeRange, controller.signal),
           getManualReview(activeRange, controller.signal),
-          listLeads(controller.signal),
+          listLeads({ limit: 1 }, controller.signal),
         ]);
       if (requestVersion !== refreshVersion.current) return;
       setData({ dashboard, channels, pipeline, revenue, reps, series, agents, review });
-      setLeads(leadRows);
+      setLeads(leadRows.items);
     } catch (requestError) {
       if (requestVersion === refreshVersion.current && !controller.signal.aborted) {
         controller.abort();
-        setError(requestError instanceof Error ? requestError.message : "Analytics service unavailable");
+        if (requestError instanceof ApiError && requestError.status === 401) {
+          setAuth(null);
+        } else {
+          setError(requestError instanceof Error ? requestError.message : "Analytics service unavailable");
+        }
       }
     } finally {
       if (requestVersion === refreshVersion.current) setLoading(false);
@@ -158,7 +163,8 @@ function App() {
       if (requestVersion === leadRequestVersion.current) setSelectedLead(lead);
     } catch (requestError) {
       if (requestVersion === leadRequestVersion.current && !controller.signal.aborted) {
-        setError(requestError instanceof Error ? requestError.message : "Unable to load lead");
+        if (requestError instanceof ApiError && requestError.status === 401) setAuth(null);
+        else setError(requestError instanceof Error ? requestError.message : "Unable to load lead");
       }
     }
   }, []);
@@ -243,7 +249,7 @@ function App() {
         {loading && !data && view !== "settings" && view !== "team" && view !== "icp" ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
             {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "leads" && <LeadsView leads={leads} selected={selectedLead} onInspect={handleInspectLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
+            {view === "leads" && <LeadsView selected={selectedLead} onInspect={handleInspectLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
             {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
             {view === "analytics" && <AnalyticsView data={data} />}

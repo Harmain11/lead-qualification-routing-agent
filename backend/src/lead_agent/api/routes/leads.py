@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from lead_agent.api.dependencies import (
     get_policies,
@@ -34,7 +35,14 @@ from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import UserORM, WorkspaceORM
+from lead_agent.infrastructure.db.models import (
+    CrmSyncORM,
+    LeadORM,
+    QualificationResultORM,
+    RoutingDecisionORM,
+    UserORM,
+    WorkspaceORM,
+)
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
@@ -43,7 +51,6 @@ from lead_agent.infrastructure.repositories import (
     get_current_routing,
     get_lead,
     get_qualification,
-    list_leads,
 )
 from lead_agent.settings.config import Settings, get_settings
 
@@ -114,20 +121,88 @@ def create_lead(
 
 @router.get("", response_model=LeadListResponse)
 def list_all_leads(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None, max_length=200),
+    source: str | None = Query(default=None, max_length=64),
+    qualification_band: str | None = Query(default=None, max_length=64),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> LeadListResponse:
-    rows = list_leads(session, workspace.workspace_id)
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="date_from must be on or before date_to")
+
+    conditions = [LeadORM.workspace_id == workspace.workspace_id]
+    if search:
+        pattern = f"%{search.strip()}%"
+        conditions.append(
+            or_(
+                LeadORM.full_name.ilike(pattern),
+                LeadORM.email.ilike(pattern),
+                LeadORM.company_name.ilike(pattern),
+                LeadORM.product_or_service.ilike(pattern),
+            )
+        )
+    if source:
+        conditions.append(LeadORM.source == source)
+    if qualification_band:
+        conditions.append(QualificationResultORM.classification == qualification_band)
+    if date_from:
+        conditions.append(
+            LeadORM.received_at >= datetime.combine(date_from, time.min, tzinfo=UTC)
+        )
+    if date_to:
+        end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=UTC)
+        conditions.append(LeadORM.received_at < end)
+
+    count_statement = select(func.count(LeadORM.id)).where(*conditions)
+    if qualification_band:
+        count_statement = count_statement.join(QualificationResultORM)
+    total = int(session.scalar(count_statement) or 0)
+    lead_statement = select(LeadORM)
+    if qualification_band:
+        lead_statement = lead_statement.join(QualificationResultORM)
+    rows = list(
+        session.scalars(
+            lead_statement
+            .options(
+                joinedload(LeadORM.qualification),
+                joinedload(LeadORM.analysis),
+                selectinload(LeadORM.routing_decisions).selectinload(
+                    RoutingDecisionORM.notifications
+                ),
+                selectinload(LeadORM.crm_syncs),
+            )
+            .where(*conditions)
+            .order_by(LeadORM.received_at.desc(), LeadORM.id.desc())
+            .offset(offset)
+            .limit(limit)
+        ).unique()
+    )
+
+    def current_routing(row: LeadORM) -> RoutingDecisionORM | None:
+        current = [item for item in row.routing_decisions if item.is_current]
+        return max(current, key=lambda item: item.created_at, default=None)
+
+    def current_crm_sync(row: LeadORM) -> CrmSyncORM | None:
+        current = [item for item in row.crm_syncs if item.is_current]
+        return max(current, key=lambda item: item.requested_at, default=None)
+
     return LeadListResponse(
         items=[
             lead_response(
                 row,
-                get_current_routing(session, row.id, workspace.workspace_id),
-                get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+                current_routing(row),
+                current_crm_sync(row),
             )
             for row in rows
         ],
-        total=len(rows),
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(rows) < total,
     )
 
 

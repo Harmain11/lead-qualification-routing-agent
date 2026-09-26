@@ -224,6 +224,9 @@ class LeadResponse(BaseModel):
 class LeadListResponse(BaseModel):
     items: list[LeadResponse]
     total: int
+    limit: int = 50
+    offset: int = 0
+    has_more: bool = False
 
 
 class HealthResponse(BaseModel):

@@ -1,7 +1,7 @@
-import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-import { bulkSendLeadsToCrm, createLead, exportLeads } from "../api";
+import { bulkSendLeadsToCrm, createLead, exportLeads, listLeads } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
@@ -19,8 +19,6 @@ import type {
   RevenueAnalytics,
   TimeSeriesAnalytics,
 } from "../types";
-
-const LeadIntelligenceNetwork = lazy(() => import("../components/LeadIntelligenceNetwork"));
 
 export type AnalyticsBundle = {
   dashboard: DashboardAnalytics;
@@ -49,6 +47,20 @@ const emptyLead: LeadPayload = {
   product_or_service: "",
   message: "",
 };
+
+const LEAD_PAGE_SIZE = 50;
+const LEAD_SOURCE_OPTIONS = [
+  "email",
+  "website",
+  "offline",
+  "unknown",
+  "purchased_list",
+  "web",
+  "phone_inquiry",
+  "partner_referral",
+  "clutch",
+  "linkedin",
+];
 
 export const pretty = (value: string) =>
   value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -140,7 +152,6 @@ export function DashboardView({
 }
 
 export function LeadsView({
-  leads,
   selected,
   onInspect,
   onCreated,
@@ -149,7 +160,6 @@ export function LeadsView({
   canExport = false,
   canCrmSync = false,
 }: {
-  leads: Lead[];
   selected: Lead | null;
   onInspect: (id: string) => void;
   onCreated: (lead: Lead) => void;
@@ -163,23 +173,57 @@ export function LeadsView({
   const [source, setSource] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [rows, setRows] = useState<Lead[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [crmNotice, setCrmNotice] = useState<string | null>(null);
-  const normalizedSearch = search.trim().toLowerCase();
-  const filtered = useMemo(
-    () => leads.filter((lead) => {
-      const haystack = `${lead.full_name} ${lead.company_name} ${lead.email} ${lead.product_or_service}`.toLowerCase();
-      return haystack.includes(normalizedSearch)
-        && (band === "all" || lead.qualification?.classification === band)
-        && (source === "all" || lead.source === source)
-        && (!dateFrom || lead.received_at.slice(0, 10) >= dateFrom)
-        && (!dateTo || lead.received_at.slice(0, 10) <= dateTo);
-    }),
-    [leads, normalizedSearch, band, source, dateFrom, dateTo],
-  );
-  const visibleSelected = filtered.filter((lead) => selectedIds.has(lead.id)).length;
+  useEffect(() => {
+    setPage(0);
+    setSelectedIds(new Set());
+  }, [search, band, source, dateFrom, dateTo]);
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setLoadError(null);
+      void listLeads({
+        limit: LEAD_PAGE_SIZE,
+        offset: page * LEAD_PAGE_SIZE,
+        search: search.trim() || undefined,
+        source: source === "all" ? undefined : source,
+        qualification_band: band === "all" ? undefined : band,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      }, controller.signal)
+        .then((result) => {
+          if (!active) return;
+          setRows(result.items);
+          setTotal(result.total);
+        })
+        .catch((reason) => {
+          if (active && !controller.signal.aborted) {
+            setLoadError(reason instanceof Error ? reason.message : "Unable to load leads");
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 180);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [search, band, source, dateFrom, dateTo, page, refreshKey]);
+
+  const visibleSelected = rows.filter((lead) => selectedIds.has(lead.id)).length;
   const toggleSelected = (id: string) => setSelectedIds((current) => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -187,10 +231,13 @@ export function LeadsView({
   });
   const selectVisible = () => setSelectedIds((current) => {
     const next = new Set(current);
-    if (visibleSelected === filtered.length) filtered.forEach((lead) => next.delete(lead.id));
-    else filtered.forEach((lead) => next.add(lead.id));
+    if (visibleSelected === rows.length) rows.forEach((lead) => next.delete(lead.id));
+    else rows.forEach((lead) => next.add(lead.id));
     return next;
   });
+  const pageCount = Math.max(1, Math.ceil(total / LEAD_PAGE_SIZE));
+  const firstRecord = total === 0 ? 0 : page * LEAD_PAGE_SIZE + 1;
+  const lastRecord = Math.min((page + 1) * LEAD_PAGE_SIZE, total);
 
   return (
     <div className="page-view operational-page">
@@ -201,27 +248,30 @@ export function LeadsView({
           {canEdit && <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>}
         </div>
       </header>
-      {showForm && <LeadForm onCreated={onCreated} />}
+      {showForm && <LeadForm onCreated={(lead) => { onCreated(lead); setRefreshKey((value) => value + 1); }} />}
       <section className="lead-browser panel">
         <div className="lead-toolbar">
           <label><span className="sr-only">Search leads</span><input type="search" placeholder="Search company, contact, service…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <select aria-label="Qualification band" value={band} onChange={(event) => setBand(event.target.value)}><option value="all">All qualification bands</option>{["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => <option value={item} key={item}>{qualificationLabel(item)}</option>)}</select>
-          <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)}><option value="all">All channels</option>{Array.from(new Set(leads.map((lead) => lead.source))).map((item) => <option key={item}>{item}</option>)}</select>
+           <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)}><option value="all">All channels</option>{LEAD_SOURCE_OPTIONS.map((item) => <option key={item}>{item}</option>)}</select>
           <label className="date-filter"><span className="sr-only">Received from</span><input aria-label="Received from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
           <label className="date-filter"><span className="sr-only">Received to</span><input aria-label="Received to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
-          <span>{filtered.length} records</span>
-        </div>
-        {filtered.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={filtered.length > 0 && visibleSelected === filtered.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <button className="button-quiet" disabled={!selectedIds.size} onClick={async () => { if (!window.confirm(`Send or update ${selectedIds.size} selected leads in the connected CRM?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds]); setCrmNotice(`${result.succeeded} CRM writes completed; ${result.failed} failed.`); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM write failed"); } }}>Send selected to CRM</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
-        {crmNotice && <div className="notice" role="status">{crmNotice}</div>}
-        <div className="lead-table-wrap">
-          <table className="lead-table">
-            <thead><tr><th aria-label="Select leads">Select</th><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
-            <tbody>{filtered.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} checked={selectedIds.has(lead.id)} onToggle={toggleSelected} onInspect={onInspect} />)}</tbody>
-          </table>
-          {filtered.length === 0 && <Empty title="No matching signals" text="Adjust filters or submit a lead." />}
-        </div>
-      </section>
-      {showExport && <ExportDialog count={filtered.length} selectedCount={selectedIds.size} filters={{ search, band, source, dateFrom, dateTo }} onClose={() => setShowExport(false)} selectedIds={[...selectedIds]} />}
+           <span>{total.toLocaleString()} records</span>
+         </div>
+         {rows.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={rows.length > 0 && visibleSelected === rows.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <button className="button-quiet" disabled={!selectedIds.size} onClick={async () => { if (!window.confirm(`Send or update ${selectedIds.size} selected leads in the connected CRM?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds]); setCrmNotice(`${result.succeeded} CRM writes completed; ${result.failed} failed.`); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM write failed"); } }}>Send selected to CRM</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
+         {crmNotice && <div className="notice" role="status">{crmNotice}</div>}
+         {loadError && <div className="notice" role="alert"><span>{loadError}</span><button className="button-quiet" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div>}
+         <div className="lead-table-wrap" aria-busy={loading}>
+           <table className="lead-table">
+             <thead><tr><th aria-label="Select leads">Select</th><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
+             <tbody>{rows.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} checked={selectedIds.has(lead.id)} onToggle={toggleSelected} onInspect={onInspect} />)}</tbody>
+           </table>
+           {loading && <div className="table-state" role="status">Loading workspace leads…</div>}
+           {!loading && rows.length === 0 && <Empty title="No matching signals" text="Adjust filters or submit a lead." />}
+         </div>
+         {total > LEAD_PAGE_SIZE && <nav className="lead-pagination" aria-label="Lead list pages"><span>Showing {firstRecord.toLocaleString()}–{lastRecord.toLocaleString()} of {total.toLocaleString()}</span><div><button className="button-quiet" disabled={page === 0 || loading} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1} of {pageCount}</span><button className="button-quiet" disabled={page >= pageCount - 1 || loading} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}>Next</button></div></nav>}
+       </section>
+       {showExport && <ExportDialog count={total} selectedCount={selectedIds.size} filters={{ search, band, source, dateFrom, dateTo }} onClose={() => setShowExport(false)} selectedIds={[...selectedIds]} />}
       {selected && <LeadDetail lead={selected} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={onUpdated} />}
     </div>
   );
@@ -442,18 +492,7 @@ function useCountUp(value: number) {
 }
 
 function ResponsiveLeadIntelligenceNetwork({ pipeline, activity, lead }: { pipeline: PipelineAnalytics; activity: AgentActivity; lead: Lead | null }) {
-  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 700px)").matches);
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 700px)");
-    const sync = () => setMobile(query.matches);
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
-  }, []);
-
-  if (mobile) return <NetworkDomFallback pipeline={pipeline} activity={activity} lead={lead} />;
-  return <Suspense fallback={<div className="network-loading panel"><span className="eyebrow">Loading intelligence topology</span><i /></div>}>
-    <LeadIntelligenceNetwork pipeline={pipeline} activity={activity} lead={lead} />
-  </Suspense>;
+  return <NetworkDomFallback pipeline={pipeline} activity={activity} lead={lead} />;
 }
 
 export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow: string; action?: string; children: ReactNode }) {
