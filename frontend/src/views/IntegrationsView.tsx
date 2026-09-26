@@ -41,13 +41,14 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
   const canConnect = can(permissions, "integrations.connect");
   const canDisconnect = can(permissions, "integrations.disconnect");
   const canSync = can(permissions, "crm.sync");
+  const canInboundSync = canSync;
 
   const refresh = async () => {
     try {
       const nextCards = await listIntegrations();
       setCards(nextCards);
-      const crmConnections = nextCards.filter((card) => card.category === "CRM" && card.connection);
-      const entries = await Promise.all(crmConnections.map(async (card) => {
+      const inboundConnections = nextCards.filter((card) => (card.category === "CRM" || card.provider === "gmail") && card.connection);
+      const entries = await Promise.all(inboundConnections.map(async (card) => {
         try { return [card.connection!.id, await getInboundSyncState(card.connection!.id, card.provider)] as const; }
         catch { return [card.connection!.id, null] as const; }
       }));
@@ -107,30 +108,32 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
       const operatorManaged = card.connection_mode === "operator";
       const syncState = connection ? syncStates[connection.id] : null;
       const crmDirection = card.category === "CRM";
+      const gmailDirection = card.provider === "gmail";
       const canConnectProvider = canConnect && (card.provider !== "slack" || canManage);
       const selectedSlackChannel = typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : "";
       const selectedSlackChannelName = typeof connection?.metadata.slack_channel_name === "string" ? connection.metadata.slack_channel_name : "";
       return <article className={`integration-card state-${status}`} key={card.provider}>
         <div className="provider-head"><div className="provider-glyph">{card.display_name.slice(0, 2).toUpperCase()}</div><div><span>{card.category}</span><h2>{card.display_name}</h2></div><b><i />{status.replaceAll("_", " ")}</b></div>
         <p>{connection?.account_name ?? card.credential_help}</p>
-        <p className="integration-direction"><strong>{crmDirection ? "Automatic inbound · Manual outbound" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending qualification back always requires an explicit action."}</p>
+        <p className="integration-direction"><strong>{gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic inbound · Manual outbound" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending qualification back always requires an explicit action."}</p>
         {card.provider === "slack" && connection?.status === "verified" && <div className="integration-guide slack-destination"><strong>Connected — Verified</strong><span>Workspace: {connection.account_name}</span><span>Notification channel: {selectedSlackChannel ? `#${selectedSlackChannelName || selectedSlackChannel}` : "Choose a channel"}</span>{canManage && <><div className="card-actions"><button className="button-quiet" onClick={() => void act(card.provider, async () => { const channels = await listSlackChannels(connection.id); setSlackChannels((current) => ({ ...current, [connection.id]: channels })); }, "Slack channels loaded.")}>Change channel</button>{selectedSlackChannel && <button className="button-quiet" onClick={() => void act(card.provider, () => sendSlackTestNotification(connection.id), "Test notification sent to Slack.")}>Send test notification</button>}</div>{(slackChannels[connection.id] ?? []).length > 0 && <label>Notification channel <select value={selectedSlackChannel} onChange={(event) => { const channelId = event.target.value; if (channelId) void act(card.provider, () => selectSlackChannel(connection.id, channelId), "Slack notification channel updated."); }}><option value="">Select a public channel</option>{slackChannels[connection.id].map((channel) => <option value={channel.id} key={channel.id}>#{channel.name} · {channel.id}</option>)}</select></label>}</>}</div>}
         <div className="connection-facts"><span>Credential <b>{operatorManaged ? "operator managed" : connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{operatorManaged ? "runtime health" : connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>
         <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>
         <div className="card-actions">
-          {!operatorManaged && (!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={card.availability === "future" || busy === card.provider}>{busy === card.provider ? "Connecting…" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={busy === card.provider}>Verify connection</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>Reconnect</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>)}
+          {!operatorManaged && (!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={card.availability === "future" || busy === card.provider}>{busy === card.provider ? "Connecting…" : gmailDirection ? "Connect Gmail" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={busy === card.provider}>Verify connection</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>Reconnect</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>)}
           {operatorManaged && <span className="eyebrow">Configured by operator</span>}
           <button className="button-quiet" onClick={() => setExpanded(open ? null : card.provider)}>Setup guide</button>
         </div>
-        {crmDirection && connection?.status === "verified" && <div className="integration-guide">
-          <span className="eyebrow">Inbound CRM synchronization</span>
+        {(crmDirection || gmailDirection) && connection?.status === "verified" && <div className="integration-guide">
+          <span className="eyebrow">{gmailDirection ? "Automatic inbound email acquisition" : "Inbound CRM synchronization"}</span>
           <strong>{syncState?.enabled ? "Enabled · automatic inbound" : "Disabled"}</strong>
           <p>{syncState?.last_successful_sync_at ? `Last synced ${new Date(syncState.last_successful_sync_at).toLocaleString()} · ${syncState.records_processed.toLocaleString()} records processed.` : "No provider records have been imported yet."}</p>
+          {gmailDirection && <p>{syncState?.next_sync_at ? `Next sync ${new Date(syncState.next_sync_at).toLocaleString()}.` : `Status: ${syncState?.status ?? "not configured"}.`}{syncState?.status && ` Latest result: ${syncState.status.replaceAll("_", " ")}.`}</p>}
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
-          {canManage && canSync && <div className="card-actions">
-            <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `Inbound sync ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? "Disable inbound sync" : "Enable inbound sync"}</button>
+          {(canInboundSync || canManage) && <div className="card-actions">
+            {canManage && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${gmailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (gmailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (gmailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
             {syncState?.enabled && <button className="button-quiet" onClick={() => void act(card.provider, () => runInboundSync(connection.id, syncState.initial_import_completed ? "manual" : "initial", card.provider), "Bounded inbound sync completed.")} disabled={busy === card.provider}>Sync now</button>}
           </div>}
         </div>}

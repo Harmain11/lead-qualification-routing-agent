@@ -192,7 +192,7 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
 }
 
 export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {
-  const objectType = provider === "hubspot" ? "contacts" : "Lead";
+  const objectType = provider === "hubspot" ? "contacts" : provider === "gmail" ? "message" : "Lead";
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state?object_type=${objectType}`);
 }
 
@@ -205,7 +205,7 @@ export function configureInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, object_type: provider === "hubspot" ? "contacts" : "Lead", interval_seconds: intervalSeconds }),
+    body: JSON.stringify({ enabled, object_type: provider === "hubspot" ? "contacts" : provider === "gmail" ? "message" : "Lead", interval_seconds: intervalSeconds }),
   });
 }
 
@@ -217,7 +217,7 @@ export function runInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : "Lead", limit: 500, page_size: 100 }),
+    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : provider === "gmail" ? "message" : "Lead", limit: provider === "gmail" ? 100 : 500, page_size: 100 }),
   });
 }
 

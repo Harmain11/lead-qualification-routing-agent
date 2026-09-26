@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -204,6 +205,18 @@ class ProviderConnectionORM(Base):
     __table_args__ = (
         Index("ix_provider_connections_workspace_provider", "workspace_id", "provider_type"),
         Index("ix_provider_connections_workspace_active", "workspace_id", "is_active"),
+        Index(
+            "uq_gmail_active_workspace_mailbox",
+            "workspace_id",
+            "external_account_id",
+            unique=True,
+            sqlite_where=text(
+                "provider_type = 'gmail' AND is_active = 1 AND external_account_id IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "provider_type = 'gmail' AND is_active IS TRUE AND external_account_id IS NOT NULL"
+            ),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

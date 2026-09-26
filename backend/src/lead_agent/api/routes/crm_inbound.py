@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_policies, require_permission, require_permissions
+from lead_agent.api.dependencies import get_policies, require_permission
 from lead_agent.api.schemas import (
     CrmInboundSyncRunResponse,
     CrmInboundSyncStateResponse,
@@ -43,7 +43,7 @@ class InboundSyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["initial", "incremental", "manual"] = "manual"
-    object_type: Literal["Lead", "contacts"] = "Lead"
+    object_type: Literal["Lead", "contacts", "message"] = "Lead"
     limit: int = Field(default=500, ge=1, le=5000)
     page_size: int = Field(default=100, ge=1, le=200)
 
@@ -52,7 +52,7 @@ class InboundSyncConfigurationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool
-    object_type: Literal["Lead", "contacts"] = "Lead"
+    object_type: Literal["Lead", "contacts", "message"] = "Lead"
     interval_seconds: int = Field(default=300, ge=60, le=86_400)
 
 
@@ -72,9 +72,11 @@ def update_inbound_sync_configuration(
     connection_id: UUID,
     request: InboundSyncConfigurationRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permissions("integrations.manage", "crm.sync")),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
 ) -> CrmInboundSyncStateResponse:
     connection = _connection(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "gmail" and "crm.sync" not in workspace.permissions:
+        raise HTTPException(status_code=403, detail="permission required: crm.sync")
     try:
         state = configure_inbound_sync(
             session,
@@ -140,7 +142,7 @@ def synchronize_inbound_crm(
 )
 def retrieve_inbound_sync_state(
     connection_id: UUID,
-    object_type: Literal["Lead", "contacts"] = "Lead",
+    object_type: Literal["Lead", "contacts", "message"] = "Lead",
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
 ) -> CrmInboundSyncStateResponse:

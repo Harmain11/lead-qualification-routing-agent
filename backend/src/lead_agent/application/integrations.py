@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.integrations import (
@@ -23,7 +23,12 @@ from lead_agent.domain.integrations import (
     SecretStore,
 )
 from lead_agent.domain.provider_errors import ProviderErrorCategory, ProviderOperationError
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    CrmInboundSyncRunORM,
+    CrmInboundSyncStateORM,
+    CrmProviderRecordLinkORM,
+    ProviderConnectionORM,
+)
 from lead_agent.infrastructure.oauth import pkce_challenge
 from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
@@ -108,6 +113,11 @@ def _validate_manual_credentials(
 
 
 def _activate_connection(session: Session, connection: ProviderConnectionORM) -> None:
+    # Gmail's mailbox identity is unknown until the read-only profile validation
+    # succeeds. Keep OAuth-completed but unverified Gmail rows unschedulable.
+    if connection.provider_type == "gmail":
+        connection.is_active = False
+        return
     if connection.provider_type not in CRM_PROVIDER_TYPES:
         connection.is_active = True
         return
@@ -120,6 +130,172 @@ def _activate_connection(session: Session, connection: ProviderConnectionORM) ->
         )
         .values(is_active=False)
     )
+    connection.is_active = True
+
+
+def _rebind_gmail_mailbox_state(
+    session: Session,
+    connection: ProviderConnectionORM,
+    mailbox_email: str,
+    now: datetime,
+) -> None:
+    """Move prior same-mailbox inbound state and message identity onto a verified connection."""
+
+    mailbox = mailbox_email.strip().casefold()
+    if not mailbox:
+        return
+    prior_connections = list(
+        session.scalars(
+            select(ProviderConnectionORM)
+            .where(
+                ProviderConnectionORM.workspace_id == connection.workspace_id,
+                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.id != connection.id,
+                func.lower(func.trim(ProviderConnectionORM.external_account_id)) == mailbox,
+            )
+            .with_for_update()
+        )
+    )
+    if not prior_connections:
+        connection.is_active = True
+        return
+
+    prior_ids = [prior.id for prior in prior_connections]
+    states = list(
+        session.scalars(
+            select(CrmInboundSyncStateORM)
+            .where(
+                CrmInboundSyncStateORM.workspace_id == connection.workspace_id,
+                CrmInboundSyncStateORM.provider == "gmail",
+                CrmInboundSyncStateORM.object_type == "message",
+                CrmInboundSyncStateORM.connection_id.in_([*prior_ids, connection.id]),
+            )
+            .order_by(CrmInboundSyncStateORM.updated_at.desc())
+            .with_for_update()
+        )
+    )
+    active_runs = list(
+        session.scalars(
+            select(CrmInboundSyncRunORM).where(
+                CrmInboundSyncRunORM.workspace_id == connection.workspace_id,
+                CrmInboundSyncRunORM.provider == "gmail",
+                CrmInboundSyncRunORM.connection_id.in_([*prior_ids, connection.id]),
+                CrmInboundSyncRunORM.status == "running",
+            )
+        )
+    )
+    # A claimed scheduler run must finish against the connection it already
+    # resolved. Do not move its state underneath it.
+    if active_runs:
+        connection.is_active = False
+        return
+
+    target_state = next((state for state in states if state.connection_id == connection.id), None)
+    prior_states = [state for state in states if state.connection_id != connection.id]
+    selected_state = prior_states[0] if prior_states else target_state
+    all_states = ([target_state] if target_state is not None else []) + prior_states
+
+    if (
+        selected_state is not None
+        and target_state is not None
+        and target_state.id != selected_state.id
+    ):
+        for run in session.scalars(
+            select(CrmInboundSyncRunORM).where(
+                CrmInboundSyncRunORM.state_id == target_state.id,
+            )
+        ):
+            run.state_id = selected_state.id
+            run.connection_id = connection.id
+        session.delete(target_state)
+        session.flush()
+
+    if selected_state is not None:
+        # Gmail history IDs are monotonically increasing decimal values. Keep
+        # the furthest durable checkpoint if older duplicate logical states exist.
+        cursors = [
+            state.last_successful_cursor
+            for state in all_states
+            if state.last_successful_cursor
+        ]
+        if cursors:
+            numeric_cursors = [
+                (int(cursor["history_id"]), cursor)
+                for cursor in cursors
+                if isinstance(cursor.get("history_id"), str)
+                and cursor["history_id"].isdigit()
+            ]
+            if numeric_cursors:
+                selected_state.last_successful_cursor = max(
+                    numeric_cursors, key=lambda pair: pair[0]
+                )[1]
+        selected_state.initial_import_completed = any(
+            state.initial_import_completed for state in all_states
+        )
+        selected_state.last_successful_sync_at = max(
+            (
+                state.last_successful_sync_at
+                for state in all_states
+                if state.last_successful_sync_at
+            ),
+            default=selected_state.last_successful_sync_at,
+        )
+        selected_state.records_processed = max(
+            (state.records_processed for state in all_states),
+            default=selected_state.records_processed,
+        )
+        selected_state.connection_id = connection.id
+        selected_state.next_sync_at = now if selected_state.enabled else None
+        selected_state.status = "ready" if selected_state.enabled else "disabled"
+        selected_state.error_category = None
+        selected_state.error_code = None
+        selected_state.last_error = None
+        selected_state.updated_at = now
+
+        for run in session.scalars(
+            select(CrmInboundSyncRunORM).where(
+                CrmInboundSyncRunORM.workspace_id == connection.workspace_id,
+                CrmInboundSyncRunORM.provider == "gmail",
+                CrmInboundSyncRunORM.connection_id.in_([*prior_ids, connection.id]),
+            )
+        ):
+            run.connection_id = connection.id
+            if run.state_id != selected_state.id:
+                run.state_id = selected_state.id
+        for redundant in prior_states:
+            if redundant.id != selected_state.id:
+                session.delete(redundant)
+
+    links = list(
+        session.scalars(
+            select(CrmProviderRecordLinkORM)
+            .where(
+                CrmProviderRecordLinkORM.workspace_id == connection.workspace_id,
+                CrmProviderRecordLinkORM.provider == "gmail",
+                CrmProviderRecordLinkORM.object_type == "message",
+                CrmProviderRecordLinkORM.connection_id.in_([*prior_ids, connection.id]),
+            )
+            .order_by(CrmProviderRecordLinkORM.last_seen_at.desc())
+            .with_for_update()
+        )
+    )
+    preferred: dict[str, CrmProviderRecordLinkORM] = {}
+    for link in links:
+        current = preferred.get(link.provider_record_id)
+        if current is None or link.connection_id == connection.id:
+            if current is not None:
+                session.delete(current)
+            preferred[link.provider_record_id] = link
+        else:
+            session.delete(link)
+    for link in preferred.values():
+        link.connection_id = connection.id
+
+    for prior in prior_connections:
+        prior.is_active = False
+        prior.updated_at = now
+    connection.is_active = False
+    session.flush()
     connection.is_active = True
 
 
@@ -190,6 +366,8 @@ def begin_oauth_connection(
         )
     if provider == "slack" and set(active_scopes) != set(setup.required_scopes):
         raise ValueError("Slack OAuth scopes must exactly match the configured notification scopes")
+    if provider == "gmail" and set(active_scopes) != set(setup.required_scopes):
+        raise ValueError("Gmail OAuth scope must exactly match the read-only mailbox scope")
     authorization_url = broker.begin(
         provider,
         connection_id,
@@ -231,6 +409,16 @@ def begin_oauth_connection(
     )
     session.add(row)
     session.commit()
+    if provider == "gmail":
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="oauth_initiated",
+            outcome="started",
+            actor_id=actor_id,
+            details={"scopes": list(active_scopes)},
+        )
+        session.commit()
     return row, OAuthStart(
         connection_id=row.id,
         state=state,
@@ -371,6 +559,15 @@ def complete_oauth_connection(
     row.connection_metadata = token_metadata
     _activate_connection(session, row)
     if row.provider_type == "slack":
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="oauth_connect",
+            outcome="connected",
+            actor_id=actor_id,
+            details={"scopes": list(row.scopes)},
+        )
+    if row.provider_type == "gmail":
         record_provider_lifecycle_audit(
             session,
             row,
@@ -521,18 +718,39 @@ def _persist_validation(
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
-    if row.provider_type == "slack" and validation.metadata:
+    if row.provider_type in {"slack", "gmail"} and validation.metadata:
         row.connection_metadata = {**row.connection_metadata, **validation.metadata}
         if isinstance(validation.metadata.get("slack_team_id"), str):
             row.external_account_id = str(validation.metadata["slack_team_id"])
         if isinstance(validation.metadata.get("slack_team_name"), str):
             row.account_name = str(validation.metadata["slack_team_name"])
+        if isinstance(validation.metadata.get("gmail_email"), str):
+            mailbox_identity = str(validation.metadata["gmail_email"]).strip().casefold()
+            row.connection_metadata = {
+                **row.connection_metadata,
+                "gmail_email": mailbox_identity,
+            }
+            row.account_name = mailbox_identity
+            row.external_account_id = mailbox_identity
     row.credential_state = validation.credential_state
     row.updated_at = now
+    if row.provider_type == "gmail":
+        if validation.verified and validation.status == "connected":
+            verified_mailbox = validation.metadata.get("gmail_email")
+            if isinstance(verified_mailbox, str) and verified_mailbox.strip():
+                _rebind_gmail_mailbox_state(session, row, verified_mailbox, now)
+            else:
+                row.is_active = False
+        else:
+            row.is_active = False
     record_provider_lifecycle_audit(
         session,
         row,
-        action="connection_validation",
+        action=(
+            ("gmail_verified" if validation.verified else "gmail_validation")
+            if row.provider_type == "gmail"
+            else "connection_validation"
+        ),
         outcome="verified" if validation.verified else validation.status,
         actor_id=actor_id,
         error_code=validation.error_code,
@@ -611,7 +829,7 @@ def disconnect_connection(
     record_provider_lifecycle_audit(
         session,
         row,
-        action="disconnect",
+        action="gmail_disconnect" if row.provider_type == "gmail" else "disconnect",
         outcome="disconnected",
         actor_id=actor_id,
         error_code=revocation.error_code,

@@ -109,6 +109,17 @@ created in Phase 7C1. Salesforce's shared-gate implementation is prepared in
 [`phase-7c2a-salesforce-preparation.md`](phase-7c2a-salesforce-preparation.md), but real
 Salesforce certification remains a separate controlled operation.
 
+### OpenAI status
+
+Phase 7C7 real-runtime certification is **PARTIAL and deferred** (2026-09-26). After
+removing a stale placeholder `OPENAI_ORG_ID` override, the single zero-retry request reached
+OpenAI and returned HTTP 429 with code `credit_balance_exhausted` and type
+`insufficient_quota`. No successful Responses result or structured parse was obtained, so no
+synthetic `process_lead()` was run. The key, model, billing, and permissions were unchanged.
+Resume certification after the project credit/quota issue is resolved; this gate does not block
+the next provider phase. The OpenAI runtime adapter remains implemented, with deterministic
+qualification and fallback behavior kept authoritative.
+
 ### Slack status
 
 The Slack provider implementation is operational. Final live end-to-end acceptance is

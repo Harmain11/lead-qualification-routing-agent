@@ -223,7 +223,17 @@ class WorkspaceAuthorizedConnectionResolver:
                 if allow_unverified
                 else {"connected", "verified"}
             )
-            if locked is None or not locked.is_active or locked.status not in usable_statuses:
+            unverified_gmail_probe = (
+                allow_unverified
+                and locked is not None
+                and locked.provider_type == "gmail"
+                and locked.status == "connected"
+            )
+            if (
+                locked is None
+                or (not locked.is_active and not unverified_gmail_probe)
+                or locked.status not in usable_statuses
+            ):
                 return None
             credentials = self._load_credentials(locked)
             credentials = self._refresh_if_needed(session, locked, credentials, actor_id=actor_id)
@@ -435,6 +445,7 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
 
 @lru_cache
 def get_provider_connection_validator() -> ProviderConnectionValidator:
+    from lead_agent.infrastructure.gmail import GmailConnectionValidator
     from lead_agent.infrastructure.slack import SlackConnectionValidator
 
     settings = get_settings()
@@ -451,6 +462,7 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
                 client_secret=settings.hubspot_client_secret,
             ),
             "slack": SlackConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
+            "gmail": GmailConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
         },
         DeferredProviderValidator(),
     )

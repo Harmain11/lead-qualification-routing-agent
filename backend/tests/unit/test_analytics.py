@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,8 +16,9 @@ from lead_agent.application.analytics import AnalyticsService
 from lead_agent.application.services import process_lead
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.infrastructure.db.base import Base
-from lead_agent.infrastructure.db.models import LeadOutcomeORM, WorkspaceORM
+from lead_agent.infrastructure.db.models import LeadORM, LeadOutcomeORM, WorkspaceORM
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 
 
 def _factory() -> sessionmaker[Session]:
@@ -182,6 +185,65 @@ def test_workspace_isolation_and_demo_live_separation(
     assert demo_result["metadata"]["data_mode"] == "demo"
     assert live_result["recent_leads"][0]["name"] == "Lead live"
     assert demo_result["recent_leads"][0]["name"] == "Lead demo"
+
+
+def test_concurrent_workspace_analyses_remain_attached_to_their_own_leads(
+    icp: IcpConfig, routing: RoutingConfig, tmp_path
+) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'concurrent-analysis.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+    analysis_barrier = Barrier(2)
+
+    class ConcurrentProvider:
+        provider_name = "test-concurrent"
+        model_name = "workspace-isolation-fixture"
+        prompt_version = "test-v1"
+
+        def analyze(self, lead, configuration):
+            analysis_barrier.wait(timeout=5)
+            output = DeterministicReasoningProvider().analyze(lead, configuration)
+            return output.model_copy(
+                update={
+                    "summary": output.summary.model_copy(
+                        update={"who": lead.full_name}
+                    )
+                }
+            )
+
+    provider = ConcurrentProvider()
+    workspaces = (uuid4(), uuid4())
+    identifiers = ("concurrent-one", "concurrent-two")
+
+    def run_analysis(index: int):
+        with factory() as session:
+            return process_lead(
+                session,
+                _payload(identifiers[index]),
+                icp,
+                routing,
+                provider=provider,
+                workspace_id=workspaces[index],
+            )[2].id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        lead_ids = list(executor.map(run_analysis, range(2)))
+
+    with factory() as session:
+        records = session.scalars(select(LeadORM).where(LeadORM.id.in_(lead_ids))).all()
+        observed = {
+            lead.workspace_id: (lead.full_name, lead.analysis.structured_output["summary"]["who"])
+            for lead in records
+            if lead.analysis is not None
+        }
+
+    assert observed == {
+        workspaces[0]: ("Lead concurrent-one", "Lead concurrent-one"),
+        workspaces[1]: ("Lead concurrent-two", "Lead concurrent-two"),
+    }
 
 
 def test_agent_activity_and_manual_review_are_workspace_scoped(
