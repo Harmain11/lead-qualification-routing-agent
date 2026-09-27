@@ -1,7 +1,7 @@
 import type { AgentActivity, PipelineAnalytics } from "../types";
 
 const nodes = [
-  ["Sources", "website · email · linkedin · clutch"],
+  ["Sources", "website · Gmail · CRM inbound"],
   ["Normalize", "canonical lead"],
   ["AI Context", "intent + evidence"],
   ["ICP", "grounded fit"],

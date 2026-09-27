@@ -387,6 +387,11 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .connection-orbit i:nth-child(5) { top: 80px; left: 0; }
 .connection-orbit::before, .connection-orbit::after { content: ""; position: absolute; inset: 35px 45px; border: 1px solid rgba(225,53,17,.12); border-radius: 50%; }
 .connection-orbit::after { inset: 13px 21px; border-color: var(--line); }
+.integration-sections { display: grid; gap: 32px; }
+.integration-section { display: grid; gap: 15px; }
+.integration-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+.integration-section-heading h2 { margin: 5px 0 0; font: 22px var(--font-display); }
+.integration-section-heading > p { max-width: 470px; margin: 0; color: var(--muted); font-size: 9px; line-height: 1.6; text-align: right; }
 .integration-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .integration-card { position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(28,31,30,.9), rgba(13,15,15,.96)); transition: border-color var(--fast), transform var(--fast); }
 .integration-card:hover { transform: translateY(-3px); border-color: var(--line-bright); }
@@ -423,6 +428,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .empty-state > i { width: 34px; height: 34px; border: 1px dashed var(--subtle); border-radius: 50%; }
 .empty-state b { color: var(--text); font-size: 11px; }
 .empty-state span { max-width: 330px; font-size: 9px; line-height: 1.5; }
+.workspace-empty { margin-bottom: 18px; }
+.workspace-empty .empty-state { min-height: 125px; }
 .loading-state { min-height: calc(100vh - 140px); display: grid; place-items: center; align-content: center; gap: 10px; }
 .loading-state b { font-size: 12px; }
 .loading-state > span { color: var(--muted); font-size: 9px; }
@@ -606,6 +613,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
   .fact-grid, .icp-matrix, .score-contract, .signal-strip, .delivery-grid, .split-list { grid-template-columns: 1fr; }
   .pipeline-track { grid-template-columns: repeat(5, 145px); }
   .integration-grid, .settings-grid, .review-grid { grid-template-columns: 1fr; }
+  .integration-section-heading { display: grid; gap: 8px; }
+  .integration-section-heading > p { text-align: left; }
   .intelligence-network { min-height: auto; padding: 18px; }
   .network-layout { grid-template-columns: 1fr; min-height: auto; }
   .network-stage { height: 330px; min-height: 330px; }
@@ -1004,9 +1013,13 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .connection-state-path .complete, .connection-state-path .active { color: #acb2bd; }
 .connection-state-path .complete i, .connection-state-path .complete b { border-color: var(--brand-orange); background: var(--brand-orange); }
 .connection-state-path .active i { border-color: var(--brand-coral); background: #30140e; box-shadow: 0 0 10px rgba(244,128,103,.55); }
-.state-deferred .provider-head > b { color: var(--amber); }
-.deferred-provider { display: grid; gap: 5px; margin: 18px 0 4px; padding: 12px 13px; border: 1px solid rgba(233,174,99,.22); border-radius: 9px; background: rgba(233,174,99,.06); color: var(--amber); font-size: 9px; }
-.deferred-provider span { color: var(--muted); line-height: 1.5; }
+.state-coming-soon { opacity: .76; filter: saturate(.68); }
+.state-coming-soon:hover { transform: none; border-color: var(--line); }
+.state-coming-soon .provider-head > b { color: var(--amber); }
+.state-managed .provider-head > b { color: var(--green); }
+.coming-soon-provider, .managed-provider { display: grid; gap: 5px; margin: 18px 0 4px; padding: 12px 13px; border: 1px solid rgba(233,174,99,.22); border-radius: 9px; background: rgba(233,174,99,.06); color: var(--amber); font-size: 9px; }
+.managed-provider { border-color: rgba(112,199,156,.22); background: rgba(112,199,156,.06); color: var(--green); }
+.coming-soon-provider span, .managed-provider span { color: var(--muted); line-height: 1.5; }
 .state-step-1 .active b, .state-step-2 .active b { background: linear-gradient(90deg, var(--brand-orange), transparent); background-size: 200% 100%; animation: connection-progress 1.1s ease-out 1 both; }
 @keyframes connection-progress { to { background-position: -200% 0; } }
 .integration-card.state-connected::after { content: ""; position: absolute; top: 0; right: 0; width: 90px; height: 90px; pointer-events: none; background: radial-gradient(circle at 100% 0, rgba(112,199,156,.12), transparent 68%); }

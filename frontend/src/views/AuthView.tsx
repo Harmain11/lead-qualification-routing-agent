@@ -38,13 +38,13 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
     }
   }
 
-  async function localDemo() {
+  async function localWorkspace() {
     setBusy(true);
     setError(null);
     try {
       onAuthenticated(await startDevelopmentSession());
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Local demo is unavailable");
+      setError(requestError instanceof Error ? requestError.message : "Local workspace is unavailable");
     } finally {
       setBusy(false);
     }
@@ -100,8 +100,10 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
           <button className="auth-submit" disabled={busy}>{busy ? "Securing session…" : mode === "signin" ? "Sign in securely" : step === 1 ? "Continue to workspace" : "Create workspace"}</button>
           {mode === "signup" && step === 2 && <button type="button" className="auth-back" onClick={() => setStep(1)}>← Back to account details</button>}
         </form>
-        <div className="auth-divider"><span>local development</span></div>
-        <button className="demo-session" onClick={() => void localDemo()} disabled={busy}>Continue to seeded demo workspace</button>
+        {import.meta.env.DEV && <>
+          <div className="auth-divider"><span>development tools</span></div>
+          <button className="demo-session" onClick={() => void localWorkspace()} disabled={busy}>Continue to local workspace</button>
+        </>}
         <small className="auth-security">Opaque session · HttpOnly cookie · Workspace membership verified server-side</small>
       </section>
     </main>

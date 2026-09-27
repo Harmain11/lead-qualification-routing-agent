@@ -224,7 +224,7 @@ function App() {
                   });
                 }}
               >{auth.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}</select>
-              <small>{metadata?.data_mode === "demo" ? "Explicit demo workspace" : "Live workspace"}</small>
+              <small>{metadata?.data_mode === "demo" ? "Illustrative workspace" : "Live workspace"}</small>
             </span>
           </div>
           <span className="system-state"><i /> Systems nominal</span>
@@ -241,7 +241,7 @@ function App() {
           <div className="breadcrumb"><span>Revenue Operations</span><i>/</i><b>{view === "team" ? "Team & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
           <div className="bar-actions">
             <RangePicker value={range} onChange={setRange} />
-            <span className={`mode-badge ${metadata?.data_mode || "demo"}`}>{metadata?.data_mode === "live" ? "LIVE DATA" : "DEMO DATA"}</span>
+            <span className={`mode-badge ${metadata?.data_mode || "live"}`}>{metadata?.data_mode === "demo" ? "ILLUSTRATIVE DATA" : "LIVE DATA"}</span>
             <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh data">↻</button>
           </div>
         </header>

@@ -59,7 +59,6 @@ const LEAD_SOURCE_OPTIONS = [
   "phone_inquiry",
   "partner_referral",
   "clutch",
-  "linkedin",
 ];
 
 export const pretty = (value: string) =>
@@ -91,6 +90,7 @@ export function DashboardView({
   ];
   const metrics = data.dashboard.metrics.filter((metric) => highlighted.includes(metric.key));
   const qualificationRate = metricValue(data.dashboard, "qualification_rate");
+  const totalLeads = metricValue(data.dashboard, "total_leads");
 
   return (
     <div className="page-view dashboard-view">
@@ -98,7 +98,7 @@ export function DashboardView({
         <div>
           <span className="eyebrow">Executive signal field / {data.dashboard.metadata.range}</span>
           <h1>Revenue intelligence,<br /><em>in operational motion.</em></h1>
-          <p>Every metric resolves to workspace-owned lead, decision and delivery evidence. No cross-workspace aggregation. No synthetic revenue presented as live.</p>
+          <p>Every metric resolves to workspace-owned lead, decision and delivery evidence. No cross-workspace aggregation. No unverified revenue is presented as live.</p>
         </div>
         <div className="hero-pulse">
           <span>Qualification pulse</span>
@@ -107,6 +107,7 @@ export function DashboardView({
           <small>{metricValue(data.dashboard, "sqls")} sales-qualified leads</small>
         </div>
       </header>
+      {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No leads yet" text="Connect a source or add your first lead to get started." /></section>}
       <section className="metric-grid">
         {metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}
       </section>
@@ -238,6 +239,7 @@ export function LeadsView({
   const pageCount = Math.max(1, Math.ceil(total / LEAD_PAGE_SIZE));
   const firstRecord = total === 0 ? 0 : page * LEAD_PAGE_SIZE + 1;
   const lastRecord = Math.min((page + 1) * LEAD_PAGE_SIZE, total);
+  const hasFilters = Boolean(search.trim() || band !== "all" || source !== "all" || dateFrom || dateTo);
 
   return (
     <div className="page-view operational-page">
@@ -267,7 +269,7 @@ export function LeadsView({
              <tbody>{rows.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} checked={selectedIds.has(lead.id)} onToggle={toggleSelected} onInspect={onInspect} />)}</tbody>
            </table>
            {loading && <div className="table-state" role="status">Loading workspace leads…</div>}
-           {!loading && rows.length === 0 && <Empty title="No matching signals" text="Adjust filters or submit a lead." />}
+           {!loading && rows.length === 0 && <Empty title={hasFilters ? "No matching leads" : "No leads yet"} text={hasFilters ? "Adjust the filters to widen your search." : "Connect a source or add your first lead to get started."} />}
          </div>
          {total > LEAD_PAGE_SIZE && <nav className="lead-pagination" aria-label="Lead list pages"><span>Showing {firstRecord.toLocaleString()}–{lastRecord.toLocaleString()} of {total.toLocaleString()}</span><div><button className="button-quiet" disabled={page === 0 || loading} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1} of {pageCount}</span><button className="button-quiet" disabled={page >= pageCount - 1 || loading} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}>Next</button></div></nav>}
        </section>
@@ -336,9 +338,11 @@ export function PipelineView({ data, onInspect }: { data: PipelineAnalytics | nu
   const [active, setActive] = useState("received");
   if (!data) return <Unavailable />;
   const selected = data.stages.find((stage) => stage.stage === active) ?? data.stages[0];
+  const totalLeads = data.stages.find((stage) => stage.stage === "received")?.count ?? 0;
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Commercial motion map</span><h1>Pipeline, without<br /><em>the blind spots.</em></h1><p>Inspect every stage and the qualification state that shaped progression.</p></div><div className="pipeline-total"><span>Active pipeline</span><strong>{money(data.stages.find((stage) => stage.stage === "opportunity")?.value ?? 0)}</strong></div></header>
+      {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="Pipeline is ready" text="Qualified leads will appear here as connected sources begin sending records." /></section>}
       <section className="pipeline-track panel">{data.stages.map((stage, index) => <button key={stage.stage} className={active === stage.stage ? "active" : ""} aria-pressed={active === stage.stage} onClick={() => setActive(stage.stage)}><span>{String(index + 1).padStart(2, "0")}</span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.value ? money(stage.value) : "—"}</small><span className="pipeline-lead-dots" aria-hidden="true">{stage.leads.slice(0, 4).map((lead) => <i key={lead.id} />)}</span>{index < data.stages.length - 1 && <i className="pipeline-link" />}</button>)}</section>
       <section className="pipeline-inspector pipeline-detail-enter" key={selected.stage}>
         <Panel title={`${selected.label} leads`} eyebrow="Underlying workspace records" action={`${selected.count} total`}>{selected.leads.length ? <div className="compact-leads">{selected.leads.map((lead) => <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />)}</div> : <Empty title="Stage is clear" text="No leads occupy this stage in the selected period." />}</Panel>
@@ -365,13 +369,15 @@ export function AgentsView({ data, pipeline }: { data: AgentActivity | null; pip
 export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
   if (!data) return <Unavailable />;
   const provenance = data.revenue.data_status === "demo"
-    ? "Seeded values—not production revenue"
+    ? "Illustrative values—not production revenue"
     : data.revenue.data_status === "crm"
       ? "CRM-derived outcomes"
       : "No revenue facts available";
+  const totalLeads = metricValue(data.dashboard, "total_leads");
   return (
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
+      {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No analytics yet" text="Metrics remain at zero until real lead activity is recorded." /></section>}
       <section className="analytics-grid analytics-motion">
         <Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel>
         <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>
@@ -400,11 +406,11 @@ export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewT
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
       <section className="settings-grid">
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
-        <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned CRM, notification and future mail connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
+        <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned email, CRM and notification connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
         <Panel title="Team & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite staff, review roles and make deliberate permission exceptions. Backend authorization remains the source of truth for every action.</p><button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>{canViewTeam ? "Open Team & Permissions →" : "Members view permission required"}</button></Panel>
         <Panel title="Ideal Customer Profile" eyebrow="Qualification policy"><p className="panel-copy">Build, validate and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p><button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>{canViewIcp ? "Open ICP Builder →" : "ICP view permission required"}</button></Panel>
         <Panel title="Data range" eyebrow="Analytics contract"><p className="panel-copy">Weekly, monthly and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p></Panel>
-        <Panel title="Product state" eyebrow="Phase 7B"><p className="panel-copy">Analytics, team controls, workspace-specific versioned ICP qualification and secure exports are active. Live provider validation remains intentionally deferred.</p></Panel>
+        <Panel title="Product state" eyebrow="Release readiness"><p className="panel-copy">Analytics, team controls, workspace-specific ICP qualification, secure exports and certified provider workflows are active.</p></Panel>
       </section>
     </div>
   );

@@ -15,6 +15,7 @@ from lead_agent.application.crm_inbound import (
 )
 from lead_agent.application.services import process_lead, reprocess_lead
 from lead_agent.domain.integration_directionality import directionality_for
+from lead_agent.domain.integrations import PROVIDER_SETUP
 from lead_agent.infrastructure.crm.factory import ConnectedCrmProvider
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.db import models  # noqa: F401
@@ -88,6 +89,20 @@ def test_provider_directionality_policy_is_explicit() -> None:
         "Notifications are outbound delivery actions produced by routing policy."
     )
     assert directionality_for("openai").request_response is True
+
+
+def test_release_provider_catalog_separates_available_managed_and_coming_soon() -> None:
+    assert {
+        provider
+        for provider, setup in PROVIDER_SETUP.items()
+        if setup.availability == "available" and setup.connection_mode == "workspace"
+    } == {"gmail", "salesforce", "hubspot", "slack"}
+    assert PROVIDER_SETUP["openai"].display_name == "AI Analysis"
+    assert PROVIDER_SETUP["openai"].connection_mode == "operator"
+    assert PROVIDER_SETUP["openai"].manual_fields == []
+    assert PROVIDER_SETUP["outlook"].display_name == "Microsoft Outlook"
+    assert PROVIDER_SETUP["outlook"].availability == "future"
+    assert PROVIDER_SETUP["linkedin"].availability == "future"
 
 
 def test_local_creation_and_requalification_never_write_to_crm(

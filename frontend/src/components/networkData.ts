@@ -16,7 +16,7 @@ const humanize = (value: string) =>
 export const stages: Stage[] = [
   { id: "website", label: "Website", shortLabel: "Website", lane: "Inbound", position: [-5.5, 2.2, -.7], screen: [6, 20], detail: "Inbound web signal" },
   { id: "email", label: "Email", shortLabel: "Email", lane: "Inbound", position: [-5.7, .7, .35], screen: [5, 38], detail: "Mailbox inquiry" },
-  { id: "linkedin", label: "LinkedIn", shortLabel: "LinkedIn", lane: "Inbound", position: [-5.4, -.8, -.2], screen: [6, 57], detail: "Official lead input" },
+  { id: "crm-inbound", label: "CRM Inbound", shortLabel: "CRM", lane: "Inbound", position: [-5.4, -.8, -.2], screen: [6, 57], detail: "Salesforce and HubSpot acquisition" },
   { id: "clutch", label: "Clutch", shortLabel: "Clutch", lane: "Inbound", position: [-5.1, -2.15, .7], screen: [8, 74], detail: "Marketplace inquiry" },
   { id: "normalize", label: "Normalize", shortLabel: "Normalize", lane: "AI Processing", position: [-3.25, 0, 0], screen: [22, 48], detail: "Canonical lead contract" },
   { id: "context", label: "Context", shortLabel: "Context", lane: "AI Processing", position: [-1.35, 1.15, .4], screen: [36, 34], detail: "Intent, evidence and uncertainty" },
@@ -35,7 +35,7 @@ export const stageById = new Map(stages.map((stage) => [stage.id, stage]));
 export const sourceStage = (source?: string) => {
   const normalized = source?.toLowerCase() ?? "website";
   if (normalized.includes("mail")) return "email";
-  if (normalized.includes("linkedin")) return "linkedin";
+  if (normalized.includes("salesforce") || normalized.includes("hubspot")) return "crm-inbound";
   if (normalized.includes("clutch") || normalized.includes("fourth")) return "clutch";
   return "website";
 };

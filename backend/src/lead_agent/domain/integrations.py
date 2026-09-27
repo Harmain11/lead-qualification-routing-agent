@@ -126,7 +126,7 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         provider="gmail",
         display_name="Gmail",
         category="Email",
-        availability="foundation",
+        availability="available",
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Google OAuth consent",
@@ -137,14 +137,14 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
     ),
     "outlook": ProviderSetupMetadata(
         provider="outlook",
-        display_name="Outlook",
+        display_name="Microsoft Outlook",
         category="Email",
         availability="future",
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Microsoft Entra application",
         credential_help=(
-            "Outlook intake is deferred in this release and is not currently certified."
+            "Automatic inbound email acquisition"
         ),
         required_scopes=["Mail.Read", "offline_access"],
         permission_reason="Read approved inbound lead messages through Microsoft Graph.",
@@ -158,22 +158,22 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="LinkedIn Developer Portal → My Apps → Products",
-        credential_help="Request an officially supported lead-form or approved API product.",
+        credential_help="Lead-source integration",
         required_scopes=["Provider-approved lead access"],
         permission_reason="Receive lead data only through officially approved LinkedIn access.",
         documentation_url="https://learn.microsoft.com/linkedin/",
     ),
     "openai": ProviderSetupMetadata(
         provider="openai",
-        display_name="OpenAI",
-        category="Reasoning",
-        availability="foundation",
+        display_name="AI Analysis",
+        category="Platform service",
+        availability="available",
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="OpenAI Platform → Project → API keys",
         credential_help=(
-            "OpenAI is operator-managed in this release. An administrator configures one "
-            "project-scoped key outside the browser for the application runtime."
+            "Managed by platform. Runtime credentials are configured outside customer "
+            "workspaces and are never exposed in this interface."
         ),
         required_scopes=["Responses API access"],
         permission_reason="Run schema-constrained context and intent analysis.",
