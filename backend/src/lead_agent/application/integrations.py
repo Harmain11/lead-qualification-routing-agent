@@ -34,6 +34,7 @@ from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
     record_provider_lifecycle_audit,
 )
+from lead_agent.infrastructure.reasoning.configuration import validate_openai_model
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
     get_provider_connection,
@@ -118,7 +119,7 @@ def _activate_connection(session: Session, connection: ProviderConnectionORM) ->
     if connection.provider_type == "gmail":
         connection.is_active = False
         return
-    if connection.provider_type not in CRM_PROVIDER_TYPES:
+    if connection.provider_type not in CRM_PROVIDER_TYPES | {"openai"}:
         connection.is_active = True
         return
     session.execute(
@@ -305,8 +306,12 @@ def create_manual_connection(
     provider: str,
     request: ManualConnectionInput,
     secret_store: SecretStore,
+    actor_id: str = "system",
 ) -> ProviderConnectionORM:
     _validate_manual_credentials(provider, request.auth_type, request.credentials)
+    metadata = _safe_metadata(request.metadata)
+    if provider == "openai":
+        metadata = {"selected_model": validate_openai_model(metadata.get("selected_model"))}
     ensure_workspace(session, workspace_id)
     session.commit()
     reference = secret_store.store(workspace_id, provider, request.credentials)
@@ -324,7 +329,7 @@ def create_manual_connection(
         credential_state="configured",
         last_validation_at=None,
         last_validation_result={"status": "not_tested"},
-        connection_metadata=_safe_metadata(request.metadata),
+        connection_metadata=metadata,
         is_active=False,
         disconnected_at=None,
         created_at=now,
@@ -334,6 +339,15 @@ def create_manual_connection(
     session.flush()
     if request.activate:
         _activate_connection(session, row)
+    if provider == "openai":
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="openai_credential_configured",
+            outcome="configured",
+            actor_id=actor_id,
+            details={"selected_model": metadata["selected_model"]},
+        )
     session.commit()
     session.refresh(row)
     return row
@@ -665,9 +679,26 @@ def validate_connection(
             error_code="provider_validation_not_configured",
         )
         return _persist_validation(session, row, validation, actor_id)
+    validation_credentials = dict(resolved.credentials)
+    if row.provider_type == "openai":
+        try:
+            validation_credentials["model"] = validate_openai_model(
+                row.connection_metadata.get("selected_model")
+            )
+        except ValueError:
+            validation = ConnectionValidation(
+                valid=False,
+                verified=False,
+                status="model_unavailable",
+                credential_state="configured",
+                message="The selected OpenAI model is not supported by this application.",
+                retryable=False,
+                error_code="openai_model_not_supported",
+            )
+            return _persist_validation(session, row, validation, actor_id)
     try:
         validation = validator.validate(
-            row.provider_type, resolved.credentials, list(resolved.scopes)
+            row.provider_type, validation_credentials, list(resolved.scopes)
         )
     except ProviderOperationError as error:
         status_by_category: dict[ProviderErrorCategory, ProviderValidationStatus] = {
@@ -714,11 +745,20 @@ def _persist_validation(
         row.status = "expired"
     elif validation.status in {"invalid_credentials", "revoked"}:
         row.status = "needs_reauthorization"
+    elif row.provider_type == "openai" and validation.status in {
+        "quota_exhausted",
+        "model_unavailable",
+        "temporarily_unavailable",
+        "provider_outage",
+        "transport_failure",
+        "rate_limited",
+    }:
+        row.status = "needs_attention"
     else:
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
-    if row.provider_type in {"slack", "gmail"} and validation.metadata:
+    if row.provider_type in {"slack", "gmail", "openai"} and validation.metadata:
         row.connection_metadata = {**row.connection_metadata, **validation.metadata}
         if isinstance(validation.metadata.get("slack_team_id"), str):
             row.external_account_id = str(validation.metadata["slack_team_id"])
@@ -747,6 +787,9 @@ def _persist_validation(
         session,
         row,
         action=(
+            "openai_test_connection"
+            if row.provider_type == "openai"
+            else
             ("gmail_verified" if validation.verified else "gmail_validation")
             if row.provider_type == "gmail"
             else "connection_validation"
@@ -760,6 +803,15 @@ def _persist_validation(
             "validation_status": validation.status,
         },
     )
+    if row.provider_type == "openai" and validation.verified:
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="openai_connection_verified",
+            outcome="verified",
+            actor_id=actor_id,
+            details={"selected_model": row.connection_metadata.get("selected_model")},
+        )
     session.commit()
     session.refresh(row)
     return row, validation
@@ -829,7 +881,13 @@ def disconnect_connection(
     record_provider_lifecycle_audit(
         session,
         row,
-        action="gmail_disconnect" if row.provider_type == "gmail" else "disconnect",
+        action=(
+            "gmail_disconnect"
+            if row.provider_type == "gmail"
+            else "openai_disconnected"
+            if row.provider_type == "openai"
+            else "disconnect"
+        ),
         outcome="disconnected",
         actor_id=actor_id,
         error_code=revocation.error_code,
@@ -850,6 +908,7 @@ def reconnect_connection(
     connection_id: UUID,
     credentials: dict[str, str],
     secret_store: SecretStore,
+    actor_id: str = "system",
 ) -> ProviderConnectionORM:
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
@@ -867,8 +926,51 @@ def reconnect_connection(
     row.disconnected_at = None
     row.updated_at = datetime.now(UTC)
     _activate_connection(session, row)
+    if row.provider_type == "openai":
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="openai_credential_replaced",
+            outcome="configured",
+            actor_id=actor_id,
+            details={"selected_model": row.connection_metadata.get("selected_model")},
+        )
     session.commit()
     session.refresh(row)
+    return row
+
+
+def update_openai_model(
+    session: Session,
+    workspace_id: UUID,
+    connection_id: UUID,
+    model: str,
+    *,
+    actor_id: str = "system",
+) -> ProviderConnectionORM:
+    row = get_provider_connection(session, workspace_id, connection_id)
+    if row is None or row.provider_type != "openai":
+        raise LookupError("OpenAI connection not found")
+    selected_model = validate_openai_model(model)
+    previous_model = row.connection_metadata.get("selected_model")
+    row.connection_metadata = {**row.connection_metadata, "selected_model": selected_model}
+    if previous_model != selected_model:
+        row.status = "connected"
+        row.last_validation_result = {
+            "status": "not_verified",
+            "message": "Model changed; test the OpenAI connection before workspace use.",
+        }
+        row.updated_at = datetime.now(UTC)
+        record_provider_lifecycle_audit(
+            session,
+            row,
+            action="openai_model_changed",
+            outcome="configured",
+            actor_id=actor_id,
+            details={"previous_model": previous_model, "selected_model": selected_model},
+        )
+        session.commit()
+        session.refresh(row)
     return row
 
 

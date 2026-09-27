@@ -24,6 +24,7 @@ from lead_agent.domain.scoring import find_hard_disqualifier, qualify_lead
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.infrastructure.db.models import LeadORM, SourceEventORM
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import (
     create_lead_with_result,
     create_source_event,
@@ -173,7 +174,10 @@ def process_lead(
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
-    analysis, result = _analyze_and_qualify(lead, resolved_icp.configuration, routing, provider)
+    active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
+    analysis, result = _analyze_and_qualify(
+        lead, resolved_icp.configuration, routing, active_provider
+    )
     result = resolved_icp.trace_result(result)
     row = create_lead_with_result(
         session, lead, result, analysis=analysis, workspace_id=workspace_id
@@ -228,8 +232,11 @@ def process_source_event(
     try:
         resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
         lead = normalize_lead(event.normalized_payload, uuid4())
+        active_provider = provider or resolve_workspace_reasoning_provider(
+            session, workspace_id
+        )
         analysis, result = _analyze_and_qualify(
-            lead, resolved_icp.configuration, routing, provider
+            lead, resolved_icp.configuration, routing, active_provider
         )
         result = resolved_icp.trace_result(result)
         try:
@@ -288,8 +295,11 @@ def reprocess_lead(
 
     resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
     normalized = normalize_lead(payload, row.id)
+    active_provider = provider or resolve_workspace_reasoning_provider(
+        session, row.workspace_id
+    )
     analysis, result = _analyze_and_qualify(
-        normalized, resolved_icp.configuration, routing, provider
+        normalized, resolved_icp.configuration, routing, active_provider
     )
     result = resolved_icp.trace_result(result)
     previous = (

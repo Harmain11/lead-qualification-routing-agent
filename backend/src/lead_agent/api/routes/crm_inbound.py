@@ -20,7 +20,6 @@ from lead_agent.application.crm_inbound import (
     list_inbound_sync_runs,
     run_inbound_sync,
 )
-from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationProvider
@@ -33,7 +32,6 @@ from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
-from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
 from lead_agent.infrastructure.repositories import get_provider_connection
 
 router = APIRouter(prefix="/v1/integrations/connections", tags=["crm-inbound"])
@@ -101,7 +99,6 @@ def synchronize_inbound_crm(
     request: InboundSyncRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
-    reasoning_provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     resolver: WorkspaceInboundCrmProviderResolver = Depends(get_workspace_inbound_crm_resolver),
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
@@ -125,7 +122,7 @@ def synchronize_inbound_crm(
             actor_id=workspace.actor_id,
             icp=policies[0],
             routing=policies[1],
-            reasoning_provider=reasoning_provider,
+            reasoning_provider=None,
             notification_provider=notification_provider,
         )
     except ProviderOperationError as error:

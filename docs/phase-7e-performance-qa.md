@@ -48,7 +48,8 @@ The large chunk was the optional Three.js/React Three Fiber network effect.
 - Salesforce and HubSpot retain “Automatic inbound · Manual outbound”.
 - Slack remains an outbound notification destination.
 - Gmail remains automatic inbound email acquisition.
-- OpenAI remains operator-managed and does not invite customer API-key entry.
+- OpenAI is workspace-managed BYOK. The masked setup form submits a dedicated project key
+  directly to encrypted server-side storage and never persists or returns it.
 
 ### Bundle and interaction stability
 

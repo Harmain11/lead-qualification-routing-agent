@@ -22,6 +22,7 @@ from lead_agent.application.integrations import (
     create_manual_connection,
     disconnect_connection,
     reconnect_connection,
+    update_openai_model,
     validate_connection,
 )
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
@@ -45,6 +46,10 @@ from lead_agent.infrastructure.provider_lifecycle import (
     record_provider_lifecycle_audit,
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
+from lead_agent.infrastructure.reasoning.configuration import (
+    default_openai_model,
+    supported_openai_models,
+)
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
     get_provider_connection,
@@ -87,6 +92,12 @@ class ReconnectRequest(BaseModel):
     credentials: dict[str, str]
 
 
+class OpenAIModelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1, max_length=128)
+
+
 class SlackChannelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel_id: str = Field(min_length=3, max_length=255)
@@ -123,6 +134,7 @@ def _connection_or_404(session: Session, workspace_id: UUID, connection_id: UUID
 def list_integrations(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    settings: Settings = Depends(get_settings),
 ) -> list[IntegrationCardResponse]:
     ensure_workspace(session, workspace.workspace_id)
     session.commit()
@@ -134,6 +146,10 @@ def list_integrations(
         IntegrationCardResponse(
             **setup.model_dump(),
             directionality=directionality_for(provider).model_dump(),
+            supported_models=(
+                list(supported_openai_models(settings)) if provider == "openai" else []
+            ),
+            default_model=(default_openai_model(settings) if provider == "openai" else None),
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
             ),
@@ -168,7 +184,12 @@ def add_manual_credential(
 ) -> ProviderConnectionResponse:
     try:
         row = create_manual_connection(
-            session, workspace.workspace_id, provider, request, secret_store
+            session,
+            workspace.workspace_id,
+            provider,
+            request,
+            secret_store,
+            workspace.actor_id,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -490,6 +511,32 @@ def reconnect(
             connection_id,
             request.credentials,
             secret_store,
+            workspace.actor_id,
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return provider_connection_response(row)
+
+
+@router.put(
+    "/connections/{connection_id}/openai-model",
+    response_model=ProviderConnectionResponse,
+)
+def configure_openai_model(
+    connection_id: UUID,
+    request: OpenAIModelRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> ProviderConnectionResponse:
+    try:
+        row = update_openai_model(
+            session,
+            workspace.workspace_id,
+            connection_id,
+            request.model,
+            actor_id=workspace.actor_id,
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

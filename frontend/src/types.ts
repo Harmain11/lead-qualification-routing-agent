@@ -330,6 +330,8 @@ export type ProviderConnection = {
   verification_status: "not_verified" | "verified" | "failed" | "reauthorization_required";
   scopes: string[];
   credential_state: "configured" | "missing" | "expired" | "invalid";
+  configured: boolean;
+  selected_model: string | null;
   last_validation_at: string | null;
   last_validation_result: Record<string, unknown>;
   metadata: Record<string, unknown>;
@@ -415,6 +417,8 @@ export type IntegrationCard = {
   documentation_url: string;
   manual_fields: string[];
   connection_mode: "workspace" | "operator";
+  supported_models: string[];
+  default_model: string | null;
   directionality: {
     automatic_inbound: boolean;
     manual_outbound: boolean;

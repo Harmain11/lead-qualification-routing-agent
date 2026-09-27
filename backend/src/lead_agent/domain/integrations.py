@@ -38,7 +38,11 @@ ProviderValidationStatus = Literal[
     "invalid_credentials",
     "expired",
     "insufficient_permissions",
+    "quota_exhausted",
+    "model_unavailable",
     "temporarily_unavailable",
+    "provider_outage",
+    "transport_failure",
     "rate_limited",
     "configuration_error",
     "malformed_response",
@@ -165,21 +169,21 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
     ),
     "openai": ProviderSetupMetadata(
         provider="openai",
-        display_name="AI Analysis",
-        category="Platform service",
+        display_name="OpenAI",
+        category="AI analysis",
         availability="available",
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="OpenAI Platform → Project → API keys",
         credential_help=(
-            "Managed by platform. Runtime credentials are configured outside customer "
-            "workspaces and are never exposed in this interface."
+            "Connect a dedicated OpenAI Project API key for this workspace. OpenAI API "
+            "usage is billed directly to your OpenAI account."
         ),
         required_scopes=["Responses API access"],
         permission_reason="Run schema-constrained context and intent analysis.",
-        documentation_url="https://platform.openai.com/docs/quickstart",
-        manual_fields=[],
-        connection_mode="operator",
+        documentation_url="https://developers.openai.com/api/docs/quickstart",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
     ),
 }
 

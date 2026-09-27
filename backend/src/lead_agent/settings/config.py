@@ -68,10 +68,14 @@ class Settings(BaseSettings):
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"
     crm_config_path: str = "config/crm.example.yaml"
-    llm_provider: str = "none"
+    # Customer production analysis always resolves credentials from the workspace
+    # connection store. The global OpenAI fields below are development/test only.
+    llm_provider: str = "workspace"
     openai_api_key: str = ""
     openai_model: str = ""
     openai_org_id: str = ""
+    openai_supported_models: str = "gpt-4.1-mini,gpt-4.1"
+    openai_default_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: float = 30.0
     openai_max_retries: int = 2
     openai_store_responses: bool = False
@@ -204,17 +208,9 @@ class Settings(BaseSettings):
             )
         require(self.oauth_broker == "provider", "OAUTH_BROKER must be provider")
         require(
-            self.llm_provider in {"deterministic", "openai"},
-            "LLM_PROVIDER must be openai or deterministic",
+            self.llm_provider in {"workspace", "deterministic"},
+            "LLM_PROVIDER must be workspace or deterministic in production",
         )
-        if self.llm_provider == "openai":
-            require(
-                bool(self.openai_api_key)
-                and not _is_placeholder(self.openai_api_key)
-                and bool(self.openai_model)
-                and not _is_placeholder(self.openai_model),
-                "OpenAI provider credentials and model must be configured",
-            )
         require(self.crm_provider != "mock", "CRM_PROVIDER cannot be mock")
         require(
             self.notification_provider != "mock",

@@ -446,6 +446,7 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
 @lru_cache
 def get_provider_connection_validator() -> ProviderConnectionValidator:
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
+    from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
     from lead_agent.infrastructure.slack import SlackConnectionValidator
 
     settings = get_settings()
@@ -463,6 +464,9 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             ),
             "slack": SlackConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             "gmail": GmailConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
+            "openai": OpenAIConnectionValidator(
+                timeout_seconds=settings.openai_timeout_seconds
+            ),
         },
         DeferredProviderValidator(),
     )

@@ -246,6 +246,8 @@ class ProviderConnectionResponse(BaseModel):
     verification_status: str
     scopes: list[str]
     credential_state: str
+    configured: bool
+    selected_model: str | None = None
     last_validation_at: datetime | None
     last_validation_result: dict[str, Any]
     metadata: dict[str, Any]
@@ -268,6 +270,8 @@ class IntegrationCardResponse(BaseModel):
     documentation_url: str
     manual_fields: list[str]
     connection_mode: str
+    supported_models: list[str] = Field(default_factory=list)
+    default_model: str | None = None
     directionality: dict[str, Any]
     connection: ProviderConnectionResponse | None
 
@@ -373,6 +377,27 @@ def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
 
 
 def provider_connection_response(row: Any) -> ProviderConnectionResponse:
+    forbidden_keys = {
+        "api_key",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "authorization",
+        "ciphertext",
+        "secret_reference",
+    }
+
+    def public_mapping(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: public_mapping(item)
+                for key, item in value.items()
+                if str(key).lower() not in forbidden_keys
+            }
+        if isinstance(value, list):
+            return [public_mapping(item) for item in value]
+        return value
+
     validation_status = row.last_validation_result.get("status")
     verification_status = (
         "verified"
@@ -396,10 +421,19 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         verification_status=verification_status,
         scopes=row.scopes,
         credential_state=row.credential_state,
+        configured=row.credential_state == "configured" and row.secret_reference is not None,
+        selected_model=(
+            str(row.connection_metadata["selected_model"])
+            if row.provider_type == "openai"
+            and isinstance(row.connection_metadata.get("selected_model"), str)
+            else None
+        ),
         last_validation_at=row.last_validation_at,
-        last_validation_result=row.last_validation_result,
+        last_validation_result=public_mapping(row.last_validation_result),
         metadata={
-            key: value for key, value in row.connection_metadata.items() if "oauth_state" not in key
+            key: public_mapping(value)
+            for key, value in row.connection_metadata.items()
+            if "oauth_state" not in key and key.lower() not in forbidden_keys
         },
         is_active=row.is_active,
         created_at=row.created_at,

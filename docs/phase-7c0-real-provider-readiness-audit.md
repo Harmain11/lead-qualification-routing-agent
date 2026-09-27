@@ -149,15 +149,15 @@ Use the staging API domain for staging registrations and the production API doma
 
 | Variable | Classification |
 |---|---|
-| `LLM_PROVIDER` | set to `openai`; production-required |
-| `OPENAI_API_KEY` | runtime and production-required |
-| `OPENAI_MODEL` | runtime and production-required; model name is configurable |
-| `OPENAI_ORG_ID` | optional |
+| `LLM_PROVIDER` | `workspace` in production; `openai` is development/test-only |
+| `OPENAI_SUPPORTED_MODELS` | non-secret server allowlist |
+| `OPENAI_DEFAULT_MODEL` | non-secret default workspace selection |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_ORG_ID` | optional development/test adapter settings; forbidden as the production customer credential path |
 | `OPENAI_TIMEOUT_SECONDS` | optional, default `30` |
 | `OPENAI_MAX_RETRIES` | optional, default `2` |
 | `OPENAI_STORE_RESPONSES` | optional, default `false`; retain false unless retention is approved |
 
-`.env.example` and `Settings` names agree for the above variables. Material mismatches are architectural: `MAILBOX_PROVIDER` is unused; workspace Slack and OpenAI secrets are accepted but unused; production validation requires environment fallback secrets even though the intended architecture is workspace-owned connections. Operator OAuth client secrets and the global OpenAI key are loaded from process settings, not through the `SecretStore` port.
+This original readiness finding has been superseded for OpenAI: production now resolves verified workspace connections through the encrypted `SecretStore`. OAuth application client secrets for OAuth providers remain deployment-owned.
 
 ## 5. Secret-handling review
 
@@ -236,13 +236,13 @@ End users should not enter developer client secrets. The intended experience is 
 
 ## 11. OpenAI readiness
 
-- Environment: `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL`; optional organization, timeout, retry and storage settings listed above.
-- Factory: global `build_reasoning_provider(Settings)`; no workspace secret resolution.
-- API: Python SDK `client.responses.parse`, model from `OPENAI_MODEL`, Pydantic `ReasoningOutput`, `store=OPENAI_STORE_RESPONSES`.
+- Environment: `LLM_PROVIDER=workspace`; supported/default model controls are non-secret. Customer keys are runtime workspace secrets.
+- Factory: production lead analysis resolves workspace → verified OpenAI connection → workspace-bound encrypted secret → allowlisted selected model.
+- API: Python SDK `client.responses.parse`, model from the workspace connection, Pydantic `ReasoningOutput`, `store=OPENAI_STORE_RESPONSES`.
 - Structured behavior: strict Pydantic models forbid extra properties, validate enums/ranges/lengths, and output only context/ICP evidence—not the deterministic final score.
 - Failure behavior: SDK timeout/unavailable/invalid output becomes deterministic fallback, `provider_error`, and manual review. SDK retry count is `OPENAI_MAX_RETRIES`; timeout is `OPENAI_TIMEOUT_SECONDS`.
-- For Phase 7C7 disable the deterministic selection by setting `LLM_PROVIDER=openai`; keep fallback enabled because it is a safety path, then assert persisted analysis provider/model/status proves the live model actually ran.
-- Blocker if workspace-owned OpenAI is a requirement: the Integrations card stores an inert key. Either remove/label that card as operator-managed or add a workspace reasoning resolver.
+- Live certification uses a controlled workspace key when available and asserts persisted analysis provider/model/status. Deterministic fallback remains enabled as a safety path.
+- Workspace BYOK control-plane and runtime resolution are implemented; live certification remains dependent on a funded customer test key.
 
 ## 12. Controlled real test data
 

@@ -13,7 +13,6 @@ from lead_agent.infrastructure.db.models import CrmInboundSyncStateORM, Provider
 from lead_agent.infrastructure.db.session import get_session_factory
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.observability import configure_logging
-from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
 from lead_agent.settings.config import get_settings
 
 settings = get_settings()
@@ -149,7 +148,7 @@ def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
             actor_id="system:crm-inbound-scheduler",
             icp=icp,
             routing=routing,
-            reasoning_provider=get_reasoning_provider(),
+            reasoning_provider=None,
             notification_provider=get_notification_provider(),
         )
         return run.status

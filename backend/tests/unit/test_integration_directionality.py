@@ -96,10 +96,10 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
         provider
         for provider, setup in PROVIDER_SETUP.items()
         if setup.availability == "available" and setup.connection_mode == "workspace"
-    } == {"gmail", "salesforce", "hubspot", "slack"}
-    assert PROVIDER_SETUP["openai"].display_name == "AI Analysis"
-    assert PROVIDER_SETUP["openai"].connection_mode == "operator"
-    assert PROVIDER_SETUP["openai"].manual_fields == []
+    } == {"gmail", "salesforce", "hubspot", "slack", "openai"}
+    assert PROVIDER_SETUP["openai"].display_name == "OpenAI"
+    assert PROVIDER_SETUP["openai"].connection_mode == "workspace"
+    assert PROVIDER_SETUP["openai"].manual_fields == ["api_key"]
     assert PROVIDER_SETUP["outlook"].display_name == "Microsoft Outlook"
     assert PROVIDER_SETUP["outlook"].availability == "future"
     assert PROVIDER_SETUP["linkedin"].availability == "future"

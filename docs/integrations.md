@@ -27,7 +27,7 @@ Phase 2 fixture status:
 ### Phase 3 reasoning status
 
 - `LLM_PROVIDER=deterministic` (and legacy `none`) uses the offline provider and needs no credentials.
-- `LLM_PROVIDER=openai` selects the schema-constrained OpenAI Responses API adapter. `OPENAI_API_KEY` and `OPENAI_MODEL` must then be supplied outside Git.
+- `LLM_PROVIDER=workspace` resolves each lead's verified workspace OpenAI connection and allowlisted model. Customer keys are encrypted in the provider secret store and are not deployment environment variables. `LLM_PROVIDER=openai` remains development/test-only adapter mode and is rejected in production.
 - `OPENAI_STORE_RESPONSES=false` is the safe local default; any change requires an approved retention/privacy decision.
 - Missing credentials, timeout, provider unavailability, or invalid structured output creates a persisted fallback analysis and manual-review state.
 
@@ -143,6 +143,6 @@ The frontend setup catalog describes where credentials originate, minimum scopes
 
 ### Phase 6.5 connection experience
 
-Salesforce, HubSpot, Slack, Gmail, and Outlook present OAuth-first Connect/Reconnect actions. The customer does not create an app or paste client secrets; application operators register one approved integration app per provider and inject its client credentials through the deployment secret system. LinkedIn remains gated to officially approved products/scopes. OpenAI is operator-managed in this release; the workspace Integrations card does not accept an API key and does not control the global reasoning runtime.
+Salesforce, HubSpot, Slack, and Gmail present OAuth-first Connect/Reconnect actions. The customer does not create an app or paste OAuth application client secrets; application operators register one approved integration app per provider and inject those client credentials through the deployment secret system. LinkedIn and Outlook remain Coming Soon. OpenAI is workspace-managed BYOK: authorized workspace users submit a dedicated project key, choose from the server allowlist, test the Responses API connection, replace the key, or disconnect it without ever retrieving the current credential.
 
 Connection states support connecting, awaiting authorization, validating, connected, needs attention, authorization expired, connection failed, reconnect required, and disconnected. OAuth state travels through the browser as required by the authorization flow; PKCE verifiers, provider tokens, and secret references are omitted from frontend responses.

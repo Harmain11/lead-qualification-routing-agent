@@ -45,7 +45,6 @@ from lead_agent.infrastructure.db.models import (
 )
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
-from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
 from lead_agent.infrastructure.repositories import (
     get_current_crm_sync,
     get_current_routing,
@@ -78,7 +77,7 @@ def _process_create_request(
     request: LeadCreateRequest,
     session: Session,
     policies: tuple[IcpConfig, RoutingConfig],
-    provider: ReasoningProvider,
+    provider: ReasoningProvider | None,
     notification_provider: NotificationProvider,
     workspace: WorkspaceContext,
 ) -> LeadResponse:
@@ -105,7 +104,6 @@ def create_lead(
     request: LeadCreateRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
-    provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> LeadResponse:
@@ -113,7 +111,7 @@ def create_lead(
         request,
         session,
         policies,
-        provider,
+        None,
         notification_provider,
         workspace,
     )

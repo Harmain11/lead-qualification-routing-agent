@@ -63,11 +63,11 @@ HUBSPOT_CLIENT_SECRET
 CRM_PROVIDER
 NOTIFICATION_PROVIDER
 LLM_PROVIDER
-OPENAI_API_KEY
-OPENAI_MODEL
+OPENAI_SUPPORTED_MODELS
+OPENAI_DEFAULT_MODEL
 ```
 
-`OPENAI_API_KEY` and `OPENAI_MODEL` are only needed when `LLM_PROVIDER=openai`. The certified production fallback is `LLM_PROVIDER=deterministic` while OpenAI credits are unavailable. Provider workspace access tokens and refresh tokens are stored in the encrypted database backend, not in Replit Secrets or API responses.
+Set `LLM_PROVIDER=workspace` in production. Customer OpenAI API keys are submitted through the authenticated workspace integration flow and stored in the encrypted database backend; they are not Replit Secrets and are never returned through the API. `OPENAI_SUPPORTED_MODELS` and `OPENAI_DEFAULT_MODEL` are non-secret server controls. A global `OPENAI_API_KEY` is development/test-only, and `LLM_PROVIDER=openai` is rejected by production startup validation. Missing or unavailable workspace OpenAI connections use the deterministic fallback.
 
 Set `MANAGED_SECRET_STORE_BACKEND` to the existing encrypted database backend:
 

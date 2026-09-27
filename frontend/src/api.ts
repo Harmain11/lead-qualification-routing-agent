@@ -281,11 +281,11 @@ export function beginIntegration(provider: string): Promise<{ connection: Provid
   });
 }
 
-export function addIntegrationCredential(provider: string, accountName: string, authType: string, scopes: string[], credentials: Record<string, string>): Promise<ProviderConnection> {
+export function addIntegrationCredential(provider: string, accountName: string, authType: string, scopes: string[], credentials: Record<string, string>, metadata: Record<string, unknown> = {}): Promise<ProviderConnection> {
   return jsonRequest(`/v1/integrations/${provider}/credentials`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ account_name: accountName, auth_type: authType, scopes, credentials, metadata: {}, activate: true }),
+    body: JSON.stringify({ account_name: accountName, auth_type: authType, scopes, credentials, metadata, activate: true }),
   });
 }
 
@@ -315,6 +315,14 @@ export function reconnectIntegration(connectionId: string, credentials: Record<s
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ credentials }),
+  });
+}
+
+export function updateOpenAIModel(connectionId: string, model: string): Promise<ProviderConnection> {
+  return jsonRequest<ProviderConnection>(`/v1/integrations/connections/${connectionId}/openai-model`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
   });
 }
 

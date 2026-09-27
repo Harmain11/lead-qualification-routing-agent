@@ -37,9 +37,7 @@ def production_settings(**overrides: object) -> Settings:
         "secret_store_provider": "managed",
         "managed_secret_store_backend": "deployment.secrets:create_backend",
         "oauth_broker": "provider",
-        "llm_provider": "openai",
-        "openai_api_key": "production-openai-key",
-        "openai_model": "approved-production-model",
+        "llm_provider": "workspace",
         "crm_provider": "hubspot",
         "hubspot_access_token": "production-hubspot-token",
         "hubspot_client_id": "production-hubspot-client",
@@ -69,7 +67,7 @@ def test_production_configuration_fails_closed_on_development_defaults() -> None
     assert "AUTH_DEVELOPMENT_FALLBACK must be false" in message
     assert "AUTH_COOKIE_SECURE must be true" in message
     assert "SECRET_STORE_PROVIDER must be managed" in message
-    assert "LLM_PROVIDER must be openai" in message
+    assert "LLM_PROVIDER must be workspace or deterministic" not in message
     assert "CRM_PROVIDER cannot be mock" in message
     assert "NOTIFICATION_PROVIDER cannot be mock" in message
 
@@ -87,6 +85,7 @@ def test_valid_production_configuration_has_explicit_security_boundaries() -> No
         ({"auth_development_fallback": True}, "AUTH_DEVELOPMENT_FALLBACK"),
         ({"cors_allowed_origins": "*"}, "wildcard production CORS"),
         ({"secret_store_provider": "development"}, "SECRET_STORE_PROVIDER"),
+        ({"llm_provider": "openai"}, "LLM_PROVIDER"),
         ({"demo_data_enabled": True}, "DEMO_DATA_ENABLED"),
         ({"salesforce_login_base_url": "http://login.salesforce.com"}, "SALESFORCE_LOGIN_BASE_URL"),
         ({"hubspot_api_base_url": "https://127.0.0.1"}, "HUBSPOT_API_BASE_URL"),

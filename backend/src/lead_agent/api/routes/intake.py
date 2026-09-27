@@ -35,7 +35,6 @@ from lead_agent.infrastructure.intake.adapters import (
     WebsiteAdapter,
 )
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
-from lead_agent.infrastructure.reasoning.factory import get_reasoning_provider
 from lead_agent.infrastructure.repositories import get_current_crm_sync, get_current_routing
 from lead_agent.settings.config import Settings, get_settings
 
@@ -67,7 +66,7 @@ def _intake(
     payload: Mapping[str, Any],
     session: Session,
     policies: tuple[IcpConfig, RoutingConfig],
-    provider: ReasoningProvider,
+    provider: ReasoningProvider | None,
     notification_provider: NotificationProvider,
     workspace: WorkspaceContext,
 ) -> LeadResponse:
@@ -96,7 +95,6 @@ async def website_intake(
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     settings: Settings = Depends(get_settings),
-    provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> LeadResponse:
@@ -114,7 +112,7 @@ async def website_intake(
         validated.model_dump(mode="json"),
         session,
         policies,
-        provider,
+        None,
         notification_provider,
         workspace,
     )
@@ -125,7 +123,6 @@ def email_intake(
     request: EmailIntakeRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
-    provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> LeadResponse:
@@ -134,7 +131,7 @@ def email_intake(
         request.model_dump(mode="json"),
         session,
         policies,
-        provider,
+        None,
         notification_provider,
         workspace,
     )
@@ -145,7 +142,6 @@ def linkedin_intake(
     request: LinkedInIntakeRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
-    provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> LeadResponse:
@@ -154,7 +150,7 @@ def linkedin_intake(
         request.model_dump(mode="json"),
         session,
         policies,
-        provider,
+        None,
         notification_provider,
         workspace,
     )
@@ -165,7 +161,6 @@ def fourth_channel_intake(
     request: ClutchIntakeRequest,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
-    provider: ReasoningProvider = Depends(get_reasoning_provider),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> LeadResponse:
@@ -174,7 +169,7 @@ def fourth_channel_intake(
         request.model_dump(mode="json"),
         session,
         policies,
-        provider,
+        None,
         notification_provider,
         workspace,
     )
