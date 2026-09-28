@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from lead_agent.application.crm_inbound import (
     list_due_inbound_sync_states,
 )
 from lead_agent.application.services import process_lead, reprocess_lead
+from lead_agent.domain.analysis import ReasoningProviderError
 from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import PROVIDER_SETUP
 from lead_agent.infrastructure.crm.factory import ConnectedCrmProvider
@@ -23,10 +25,11 @@ from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     CrmProviderRecordLinkORM,
     CrmSyncORM,
+    NotificationORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
 )
-from lead_agent.infrastructure.repositories import ensure_workspace
+from lead_agent.infrastructure.repositories import ensure_workspace, get_current_routing
 
 
 def _session(tmp_path) -> Session:
@@ -96,12 +99,12 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
         provider
         for provider, setup in PROVIDER_SETUP.items()
         if setup.availability == "available" and setup.connection_mode == "workspace"
-    } == {"gmail", "salesforce", "hubspot", "slack", "openai"}
+    } == {"gmail", "outlook", "salesforce", "hubspot", "slack", "openai"}
     assert PROVIDER_SETUP["openai"].display_name == "OpenAI"
     assert PROVIDER_SETUP["openai"].connection_mode == "workspace"
     assert PROVIDER_SETUP["openai"].manual_fields == ["api_key"]
     assert PROVIDER_SETUP["outlook"].display_name == "Microsoft Outlook"
-    assert PROVIDER_SETUP["outlook"].availability == "future"
+    assert PROVIDER_SETUP["outlook"].availability == "available"
     assert PROVIDER_SETUP["linkedin"].availability == "future"
 
 
@@ -114,6 +117,57 @@ def test_local_creation_and_requalification_never_write_to_crm(
         reprocess_lead(session, lead, _payload(), icp, routing)
         assert provider.calls == 0
         assert session.scalar(select(func.count()).select_from(CrmSyncORM)) == 0
+
+
+def test_analysis_backfill_reroutes_without_sending_new_notifications(
+    tmp_path, icp, routing
+) -> None:
+    with _session(tmp_path) as session:
+        _, _, lead = process_lead(session, _payload(), icp, routing)
+        before = session.scalar(select(func.count()).select_from(NotificationORM))
+        reprocess_lead(
+            session,
+            lead,
+            _payload(),
+            icp,
+            routing,
+            send_notification=False,
+            reroute_reason="Lead reanalyzed with the verified workspace model.",
+        )
+        current = get_current_routing(session, lead.id)
+        assert current is not None
+        assert current.notification_state == "suppressed"
+        assert session.scalar(select(func.count()).select_from(NotificationORM)) == before
+
+
+def test_analysis_backfill_keeps_existing_result_when_provider_fails(
+    tmp_path, icp, routing
+) -> None:
+    class FailingProvider:
+        provider_name = "failing"
+        model_name = "none"
+        prompt_version = "test"
+
+        def analyze(self, lead, configuration):
+            del lead, configuration
+            raise RuntimeError("provider unavailable")
+
+    with _session(tmp_path) as session:
+        _, _, lead = process_lead(session, _payload(), icp, routing)
+        previous_status = lead.analysis.status
+        with pytest.raises(ReasoningProviderError):
+            reprocess_lead(
+                session,
+                lead,
+                _payload(),
+                icp,
+                routing,
+                provider=FailingProvider(),
+                send_notification=False,
+                require_provider_success=True,
+            )
+        session.refresh(lead.analysis)
+        assert lead.analysis.status == previous_status
 
 
 def test_new_connection_is_disabled_until_deliberately_enabled(tmp_path) -> None:

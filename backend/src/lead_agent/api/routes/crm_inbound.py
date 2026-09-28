@@ -73,7 +73,10 @@ def update_inbound_sync_configuration(
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
 ) -> CrmInboundSyncStateResponse:
     connection = _connection(session, workspace.workspace_id, connection_id)
-    if connection.provider_type != "gmail" and "crm.sync" not in workspace.permissions:
+    if (
+        connection.provider_type not in {"gmail", "outlook"}
+        and "crm.sync" not in workspace.permissions
+    ):
         raise HTTPException(status_code=403, detail="permission required: crm.sync")
     try:
         state = configure_inbound_sync(

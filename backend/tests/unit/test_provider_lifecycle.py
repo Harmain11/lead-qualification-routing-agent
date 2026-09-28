@@ -20,6 +20,7 @@ from lead_agent.domain.provider_errors import (
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
+    CrmInboundSyncStateORM,
     EncryptedProviderSecretORM,
     ProviderLifecycleAuditORM,
 )
@@ -152,6 +153,11 @@ def test_real_validation_marks_connection_verified_and_audits(tmp_path) -> None:
         assert event.actor_id == "operator-1"
         assert event.action == "connection_validation"
         assert "access-in-secret-store" not in str(event.details)
+        inbound = session.scalar(select(CrmInboundSyncStateORM))
+        assert inbound is not None
+        assert inbound.connection_id == connection.id
+        assert inbound.enabled is True
+        assert inbound.object_type == "contacts"
 
 
 @pytest.mark.parametrize(

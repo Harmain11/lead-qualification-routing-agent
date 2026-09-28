@@ -12,6 +12,7 @@ from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceInboundCrmProvider
 from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.gmail import GmailInboundProvider
+from lead_agent.infrastructure.outlook import OutlookInboundProvider
 from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
     get_workspace_connection_resolver,
@@ -78,6 +79,25 @@ class WorkspaceInboundCrmProviderResolver:
                 connection_id=resolved.connection_id,
                 access_token=resolved.credentials.get("access_token", ""),
                 mailbox_email=mailbox,
+                timeout_seconds=self.settings.crm_timeout_seconds,
+            )
+        if resolved.provider == "outlook":
+            connection = session.get(ProviderConnectionORM, resolved.connection_id)
+            metadata = connection.connection_metadata if connection is not None else {}
+            mailbox = metadata.get("outlook_email") if isinstance(metadata, dict) else None
+            if not isinstance(mailbox, str) or "@" not in mailbox:
+                raise ProviderOperationError(
+                    "The connected Outlook account identity is unavailable",
+                    provider="outlook",
+                    code="outlook_mailbox_identity_unavailable",
+                    category="configuration",
+                    retryable=False,
+                )
+            return OutlookInboundProvider(
+                connection_id=resolved.connection_id,
+                access_token=resolved.credentials.get("access_token", ""),
+                mailbox_email=mailbox,
+                initial_sync_days=self.settings.outlook_initial_sync_days,
                 timeout_seconds=self.settings.crm_timeout_seconds,
             )
         if resolved.provider != "salesforce":

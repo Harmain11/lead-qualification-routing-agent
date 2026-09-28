@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import get_active_crm_provider, require_permission
 from lead_agent.api.schemas import CrmSyncResponse, crm_sync_response
 from lead_agent.application.crm import manually_retry_crm_sync, manually_sync_lead_to_crm
-from lead_agent.domain.crm import CrmProvider
+from lead_agent.domain.crm import CrmProvider, CrmProviderError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import CrmSyncORM, LeadORM
 from lead_agent.infrastructure.db.session import get_db
@@ -97,15 +97,20 @@ def synchronize_crm(
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmSyncResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
-    row = manually_sync_lead_to_crm(
-        session,
-        lead,
-        provider,
-        actor_id=workspace.actor_id,
-        payload_version=settings.load_crm_config().payload_version,
-        max_attempts=settings.crm_max_attempts,
-        force=True,
-    )
+    try:
+        row = manually_sync_lead_to_crm(
+            session,
+            lead,
+            provider,
+            actor_id=workspace.actor_id,
+            payload_version=settings.load_crm_config().payload_version,
+            max_attempts=settings.crm_max_attempts,
+            force=True,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except CrmProviderError as error:
+        raise HTTPException(status_code=502, detail=f"{error.code}: {error}") from error
     return _required_response(row)
 
 
@@ -132,6 +137,8 @@ def retry_crm(
         )
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except CrmProviderError as error:
+        raise HTTPException(status_code=502, detail=f"{error.code}: {error}") from error
     return _required_response(row)
 
 
@@ -173,11 +180,16 @@ def bulk_synchronize_crm(
             )
         except Exception as error:
             session.rollback()
+            detail = (
+                f"{error.code}: {error}"
+                if isinstance(error, CrmProviderError)
+                else f"{type(error).__name__}: CRM write failed"
+            )
             results.append(
                 BulkCrmSyncItemResponse(
                     lead_id=lead_id,
                     status="failed",
-                    error=f"{type(error).__name__}: CRM write failed",
+                    error=detail,
                 )
             )
             continue

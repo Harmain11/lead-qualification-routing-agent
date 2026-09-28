@@ -120,6 +120,8 @@ class ActionPlanResponse(BaseModel):
     potential_objections: list[str]
     next_step_recommendation: str
     supporting_evidence: list[str]
+    follow_up_strategy: list[str] = Field(default_factory=list)
+    conversion_goal: str = ""
 
 
 class NotificationResponse(BaseModel):
@@ -274,6 +276,7 @@ class IntegrationCardResponse(BaseModel):
     default_model: str | None = None
     directionality: dict[str, Any]
     connection: ProviderConnectionResponse | None
+    connections: list[ProviderConnectionResponse] = Field(default_factory=list)
 
 
 class CrmInboundSyncStateResponse(BaseModel):

@@ -99,6 +99,7 @@ class InvitationResponse(BaseModel):
     revoked_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    access_code: str | None = None
 
 
 class AuditEventResponse(BaseModel):
@@ -136,7 +137,9 @@ def _member_response(row: Any, user: Any | None = None) -> MemberResponse:
     )
 
 
-def _invitation_response(row: WorkspaceInvitationORM) -> InvitationResponse:
+def _invitation_response(
+    row: WorkspaceInvitationORM, access_code: str | None = None
+) -> InvitationResponse:
     return InvitationResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -152,6 +155,7 @@ def _invitation_response(row: WorkspaceInvitationORM) -> InvitationResponse:
         revoked_at=row.revoked_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        access_code=access_code,
     )
 
 
@@ -213,7 +217,7 @@ def invite(
     workspace: WorkspaceContext = Depends(require_permission("members.invite")),
 ) -> InvitationResponse:
     try:
-        invitation, _token = invite_member(
+        invitation, token = invite_member(
             session,
             workspace.workspace_id,
             _actor(workspace),
@@ -223,7 +227,7 @@ def invite(
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return _invitation_response(invitation)
+    return _invitation_response(invitation, token)
 
 
 @router.get(
@@ -250,14 +254,14 @@ def resend(
     workspace: WorkspaceContext = Depends(require_permission("members.manage")),
 ) -> InvitationResponse:
     try:
-        invitation, _token = resend_invitation(
+        invitation, token = resend_invitation(
             session, workspace.workspace_id, invitation_id, _actor(workspace)
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    return _invitation_response(invitation)
+    return _invitation_response(invitation, token)
 
 
 @router.post(

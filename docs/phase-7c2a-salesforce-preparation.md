@@ -81,9 +81,14 @@ therefore update the same Lead rather than fuzzy-matching names or creating a du
 Recommended External Client App name: `Lead Qualification Routing Agent - Test`.
 
 For a Developer Edition test org, use the `login.salesforce.com` authorization host. For a sandbox,
-set `SALESFORCE_LOGIN_BASE_URL=https://test.salesforce.com`. The local callback is exactly:
+set `SALESFORCE_LOGIN_BASE_URL=https://test.salesforce.com`. Register the callback that exactly
+matches `INTEGRATION_PUBLIC_BASE_URL`. The default local callback is:
 
 `http://localhost:8000/v1/integrations/salesforce/oauth/callback`
+
+The current local API runs on port 8001, so its External Client App also registers
+`http://localhost:8001/v1/integrations/salesforce/oauth/callback`. Salesforce accepts multiple
+callback URLs separated by newlines.
 
 If staging is used and its API domain has not yet been selected, the callback is:
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,7 +23,14 @@ from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import find_hard_disqualifier, qualify_lead
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
-from lead_agent.infrastructure.db.models import LeadORM, SourceEventORM
+from lead_agent.infrastructure.db.models import (
+    LeadFollowUpEmailORM,
+    LeadORM,
+    ProviderConnectionORM,
+    SourceEventORM,
+)
+from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE, GmailOutboundProvider
+from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import (
@@ -76,6 +84,106 @@ def _record_pre_routing_history(
             "icp_profile_version": result.icp_profile_version,
         },
     )
+
+
+def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
+    """Send one idempotent confirmation using the active admin-connected Gmail."""
+
+    recipient = (row.email or "").strip().lower()
+    if "@" not in recipient:
+        return
+    connection = session.scalar(
+        select(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.workspace_id == row.workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+        .order_by(ProviderConnectionORM.updated_at.desc())
+    )
+    if connection is None:
+        return
+    existing = session.scalar(
+        select(LeadFollowUpEmailORM).where(
+            LeadFollowUpEmailORM.lead_id == row.id,
+            LeadFollowUpEmailORM.kind == "lead_confirmation",
+        )
+    )
+    if existing is not None and existing.status == "sent":
+        return
+    now = datetime.now(UTC)
+    subject = "We received your inquiry"
+    if existing is None:
+        existing = LeadFollowUpEmailORM(
+            id=uuid4(),
+            workspace_id=row.workspace_id,
+            lead_id=row.id,
+            provider_connection_id=connection.id,
+            kind="lead_confirmation",
+            recipient=recipient,
+            subject=subject,
+            status="pending",
+            attempts=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(existing)
+        session.flush()
+    elif existing.provider_connection_id != connection.id:
+        existing.provider_connection_id = connection.id
+        existing.recipient = recipient
+        existing.error_message = None
+        existing.status = "pending"
+        existing.updated_at = now
+    elif existing.attempts >= 3 and existing.status in {"failed", "retryable"}:
+        return
+
+    if GMAIL_SEND_SCOPE not in set(connection.scopes):
+        existing.status = "failed"
+        existing.error_message = (
+            "Reconnect the admin Gmail connection and approve Gmail send permission "
+            "to enable automatic lead confirmations."
+        )
+        existing.updated_at = now
+        session.commit()
+        return
+    resolved = get_workspace_connection_resolver().resolve_connection(
+        session, row.workspace_id, connection.id, actor_id="system"
+    )
+    access_token = resolved.credentials.get("access_token") if resolved else None
+    mailbox = str(connection.connection_metadata.get("gmail_email") or connection.account_name)
+    if resolved is None or not access_token or "@" not in mailbox:
+        existing.status = "failed"
+        existing.error_message = "The connected Gmail mailbox is not available for sending."
+        existing.updated_at = now
+        session.commit()
+        return
+    existing.attempts += 1
+    existing.status = "pending"
+    existing.updated_at = now
+    session.commit()
+    try:
+        message_id = GmailOutboundProvider(
+            connection.id, access_token, mailbox
+        ).send_confirmation(
+            recipient=recipient,
+            lead_name=row.full_name,
+            company_name=row.company_name,
+            product_or_service=row.product_or_service,
+        )
+    except Exception as error:  # Do not fail lead ingestion because confirmation mail failed.
+        existing.status = "retryable" if getattr(error, "retryable", False) else "failed"
+        existing.error_message = str(error)[:1000]
+        existing.updated_at = datetime.now(UTC)
+        session.commit()
+        return
+    existing.status = "sent"
+    existing.external_message_id = message_id
+    existing.error_message = None
+    existing.sent_at = datetime.now(UTC)
+    existing.updated_at = datetime.now(UTC)
+    session.commit()
 
 
 @dataclass(frozen=True)
@@ -185,6 +293,7 @@ def process_lead(
     if get_current_routing(session, row.id, workspace_id) is None:
         _record_pre_routing_history(session, row, analysis, result)
     route_and_notify(session, row, routing, notification_provider=notification_provider)
+    _send_lead_confirmation_email(session, row)
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
             "manual_review" if analysis.requires_manual_review else "processed"
@@ -262,6 +371,7 @@ def process_source_event(
         if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
+        _send_lead_confirmation_email(session, row)
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message
@@ -290,6 +400,9 @@ def reprocess_lead(
     routing: RoutingConfig,
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
+    send_notification: bool = True,
+    reroute_reason: str = "Meaningful CRM source fields changed.",
+    require_provider_success: bool = False,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     """Run a meaningful source update through the canonical qualification pipeline."""
 
@@ -301,6 +414,10 @@ def reprocess_lead(
     analysis, result = _analyze_and_qualify(
         normalized, resolved_icp.configuration, routing, active_provider
     )
+    if require_provider_success and analysis.status == "provider_error":
+        raise ReasoningProviderError(
+            analysis.error_message or "Workspace reasoning provider failed"
+        )
     result = resolved_icp.trace_result(result)
     previous = (
         {
@@ -330,8 +447,10 @@ def reprocess_lead(
         routing,
         notification_provider=notification_provider,
         force=True,
-        reroute_reason="Meaningful CRM source fields changed.",
+        reroute_reason=reroute_reason,
+        send_notification=send_notification,
     )
+    _send_lead_confirmation_email(session, row)
     return normalized, result, row
 
 

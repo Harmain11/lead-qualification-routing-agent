@@ -54,9 +54,10 @@ never emitted by inbound processing, scoring, qualification, or routing.
 - Begin route: `POST /v1/integrations/hubspot/connect`.
 - Callback route: `GET /v1/integrations/hubspot/oauth/callback`.
 - Exact registered redirect URI: `{INTEGRATION_PUBLIC_BASE_URL}/v1/integrations/hubspot/oauth/callback`.
-  For the current local configuration this resolves to
-  `http://localhost:8000/v1/integrations/hubspot/oauth/callback`; production must use its actual
-  externally reachable HTTPS base URL. Register the exact deployment URL, including path.
+  The HubSpot project registers localhost callbacks on ports 8000 and 8001; the currently running
+  local API uses `http://localhost:8001/v1/integrations/hubspot/oauth/callback`. Production must
+  use its actual externally reachable HTTPS base URL. Register the exact deployment URL,
+  including path.
 - Authorization URL: `https://app.hubspot.com/oauth/authorize`.
 - Code exchange and refresh: `POST https://api.hubspot.com/oauth/{HUBSPOT_OAUTH_API_VERSION}/token`
   using form-encoded parameters. The current configured version is `2026-09`.

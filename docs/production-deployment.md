@@ -63,6 +63,30 @@ adapter implementing the same scoped lifecycle.
 - [ ] TLS certificates are valid; HTTP redirects to HTTPS; the edge forwards only trusted proxy metadata.
 - [ ] Frontend build sets public `VITE_API_BASE_URL` to the API HTTPS origin; no server credential uses a `VITE_*` variable.
 - [ ] API environment has exact CORS origins, frontend/API base URLs, secure cookie settings, and registered OAuth callback URLs.
+
+## Public authentication and Google login
+
+The public auth surface supports email/password and Google OpenID Connect only. Register the
+following production callback in the Google OAuth client:
+
+`https://<production-origin>/v1/auth/google/callback`
+
+The Google login request is intentionally limited to `openid email profile`. It creates or finds a
+local user by the stable Google `sub`, provisions one private owner workspace for a genuinely new
+user, and then issues the same opaque CRM session used by password login. Google tokens are never
+used as CRM sessions and are never stored in the workspace provider-connection tables.
+
+Gmail remains a separate workspace integration with its own callback:
+
+`https://<production-origin>/v1/integrations/gmail/oauth/callback`
+
+Only that Gmail connection requests `https://www.googleapis.com/auth/gmail.readonly`. The two flows
+have separate database state, PKCE verifiers, rate limits, and callback paths.
+
+Password signup records submitted email addresses as unverified. Before production launch, enable
+`AUTH_REQUIRE_EMAIL_VERIFICATION=true` together with the operator's transactional verification-mail
+delivery and verification endpoint implementation; Google signup may rely on Google's verified email
+claim. The default development/test setting remains false so local test accounts are usable.
 - [ ] PostgreSQL is reachable over private networking with TLS, bounded pools, and production credentials from the deployment system.
 - [ ] Apply Alembic migrations and verify the migration head before enabling traffic.
 - [ ] Redis is shared, private, TLS-enabled, sized for rate-limit and queue workloads, and configured with connection timeout/retry settings.

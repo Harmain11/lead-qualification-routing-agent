@@ -13,7 +13,11 @@ from lead_agent.application.auth import (
     require_membership,
     verify_csrf,
 )
-from lead_agent.domain.auth import AuthenticatedIdentity, AuthenticationError
+from lead_agent.domain.auth import (
+    AuthenticatedIdentity,
+    AuthenticationError,
+    AuthorizationError,
+)
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.crm import CrmProvider
 from lead_agent.domain.rbac import role_permissions
@@ -105,12 +109,14 @@ def get_workspace_context(
                     identity.session_id,
                     request.headers.get("X-CSRF-Token"),
                 )
+        except AuthenticationError as error:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)
+            ) from error
+        except AuthorizationError as error:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
         except ValueError as error:
-            if isinstance(error, AuthenticationError):
-                code = status.HTTP_401_UNAUTHORIZED
-            else:
-                code = status.HTTP_403_FORBIDDEN
-            raise HTTPException(status_code=code, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
         request.state.workspace_id = str(workspace_id)
         request.state.actor_id = str(identity.user_id)
         return WorkspaceContext(

@@ -35,8 +35,9 @@ _CRM = IntegrationDirectionality(
 )
 _EMAIL = IntegrationDirectionality(
     automatic_inbound=True,
+    automatic_outbound=True,
     description=(
-        "Approved mailbox messages are inbound lead sources; the application does not send mail."
+        "Approved mailbox messages are inbound lead sources; the admin-connected Gmail sends one confirmation for stored leads with an email address."
     ),
 )
 _NOTIFICATION = IntegrationDirectionality(

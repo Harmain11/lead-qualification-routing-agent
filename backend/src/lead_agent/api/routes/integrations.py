@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_authenticated_identity, require_permission
@@ -37,7 +40,12 @@ from lead_agent.domain.integrations import (
 )
 from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    AnalysisRunORM,
+    LeadORM,
+    ProviderConnectionORM,
+    WorkspaceNotificationConfigORM,
+)
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import (
@@ -63,6 +71,7 @@ from lead_agent.infrastructure.slack import (
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/integrations", tags=["integrations"])
+_LOGGER = logging.getLogger(__name__)
 
 
 class OAuthBeginRequest(BaseModel):
@@ -106,6 +115,41 @@ class SlackChannelRequest(BaseModel):
 class SlackChannelResponse(BaseModel):
     id: str
     name: str
+
+
+class SlackMemberResponse(BaseModel):
+    id: str
+    name: str
+
+
+class SlackNotificationRuleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID | None = None
+    name: str = Field(min_length=1, max_length=120)
+    connection_id: UUID
+    queues: list[str] = Field(default_factory=list, max_length=10)
+    qualification_bands: list[str] = Field(default_factory=list, max_length=10)
+    sources: list[str] = Field(default_factory=list, max_length=10)
+    weight: float = Field(default=1, gt=0, le=100)
+
+
+class SlackNotificationConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_connection_id: UUID | None = None
+    rules: list[SlackNotificationRuleRequest] = Field(default_factory=list, max_length=50)
+
+
+class SlackNotificationRuleResponse(SlackNotificationRuleRequest):
+    id: UUID
+
+
+class SlackNotificationConfigResponse(BaseModel):
+    workspace_id: UUID
+    default_connection_id: UUID | None
+    rules: list[SlackNotificationRuleResponse]
+    updated_at: Any | None
 
 
 class SlackTestNotificationResponse(BaseModel):
@@ -153,9 +197,119 @@ def list_integrations(
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
             ),
+            connections=[
+                provider_connection_response(row)
+                for row in connections
+                if row.provider_type == provider
+            ],
         )
         for provider, setup in PROVIDER_SETUP.items()
     ]
+
+
+def _slack_notification_config_response(
+    session: Session, workspace_id: UUID
+) -> SlackNotificationConfigResponse:
+    config = session.get(WorkspaceNotificationConfigORM, workspace_id)
+    rules: list[SlackNotificationRuleResponse] = []
+    for raw in (config.slack_rules if config is not None else []):
+        if not isinstance(raw, dict):
+            continue
+        try:
+            rules.append(SlackNotificationRuleResponse.model_validate(raw))
+        except ValueError:
+            continue
+    return SlackNotificationConfigResponse(
+        workspace_id=workspace_id,
+        default_connection_id=(
+            config.default_slack_connection_id if config is not None else None
+        ),
+        rules=rules,
+        updated_at=config.updated_at if config is not None else None,
+    )
+
+
+@router.get("/slack/notification-config", response_model=SlackNotificationConfigResponse)
+def get_slack_notification_config(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> SlackNotificationConfigResponse:
+    return _slack_notification_config_response(session, workspace.workspace_id)
+
+
+@router.put("/slack/notification-config", response_model=SlackNotificationConfigResponse)
+def update_slack_notification_config(
+    request: SlackNotificationConfigRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> SlackNotificationConfigResponse:
+    slack_connections = list(
+        session.scalars(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.workspace_id == workspace.workspace_id,
+                ProviderConnectionORM.provider_type == "slack",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+        )
+    )
+    available = {row.id: row for row in slack_connections}
+    if request.default_connection_id is not None and request.default_connection_id not in available:
+        raise HTTPException(
+            status_code=422,
+            detail="The default Slack workspace must be an active verified connection.",
+        )
+    seen_rule_ids: set[UUID] = set()
+    normalized_rules: list[dict[str, Any]] = []
+    allowed_bands = {"hot", "warm", "nurture", "disqualify", "manual_review"}
+    for rule in request.rules:
+        if rule.connection_id not in available:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Slack rule '{rule.name}' targets an unavailable connection.",
+            )
+        rule_id = rule.id or uuid4()
+        if rule_id in seen_rule_ids:
+            raise HTTPException(
+                status_code=422, detail="Slack notification rule IDs must be unique."
+            )
+        seen_rule_ids.add(rule_id)
+        bands = [value.strip().lower() for value in rule.qualification_bands if value.strip()]
+        unknown_bands = set(bands) - allowed_bands
+        if unknown_bands:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported qualification band(s): {', '.join(sorted(unknown_bands))}",
+            )
+        normalized_rules.append(
+            {
+                "id": str(rule_id),
+                "name": rule.name.strip(),
+                "connection_id": str(rule.connection_id),
+                "queues": sorted({value.strip() for value in rule.queues if value.strip()}),
+                "qualification_bands": sorted(set(bands)),
+                "sources": sorted({value.strip() for value in rule.sources if value.strip()}),
+                "weight": rule.weight,
+            }
+        )
+    now = datetime.now(UTC)
+    config = session.get(WorkspaceNotificationConfigORM, workspace.workspace_id)
+    if config is None:
+        config = WorkspaceNotificationConfigORM(
+            workspace_id=workspace.workspace_id,
+            default_slack_connection_id=request.default_connection_id,
+            slack_rules=normalized_rules,
+            updated_by=workspace.user_id,
+            updated_at=now,
+        )
+        session.add(config)
+    else:
+        config.default_slack_connection_id = request.default_connection_id
+        config.slack_rules = normalized_rules
+        config.updated_by = workspace.user_id
+        config.updated_at = now
+    session.commit()
+    return _slack_notification_config_response(session, workspace.workspace_id)
 
 
 @router.get("/connections/{connection_id}", response_model=ProviderConnectionResponse)
@@ -264,6 +418,7 @@ def browser_connection_callback(
     identity: AuthenticatedIdentity = Depends(get_authenticated_identity),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
+    validator: ProviderConnectionValidator = Depends(get_provider_connection_validator),
     settings: Settings = Depends(get_settings),
 ) -> RedirectResponse:
     try:
@@ -290,12 +445,36 @@ def browser_connection_callback(
             broker,
             str(identity.user_id),
         )
+        if provider in {"gmail", "outlook", "salesforce", "hubspot"}:
+            _, validation = validate_connection(
+                session,
+                connection.workspace_id,
+                connection_id,
+                secret_store,
+                broker,
+                validator,
+                str(identity.user_id),
+            )
+            if not validation.verified:
+                raise ValueError(validation.message)
     except (ValueError, HTTPException) as error:
         query = urlencode(
             {
                 "integration": provider,
                 "status": "failed",
                 "message": str(getattr(error, "detail", error)),
+            }
+        )
+        target = f"{settings.frontend_public_base_url.rstrip('/')}?{query}"
+        return RedirectResponse(target)
+    except Exception:
+        session.rollback()
+        _LOGGER.exception("OAuth callback failed for provider=%s", provider)
+        query = urlencode(
+            {
+                "integration": provider,
+                "status": "failed",
+                "message": "The provider connection failed. Reconnect and try again.",
             }
         )
         target = f"{settings.frontend_public_base_url.rstrip('/')}?{query}"
@@ -373,6 +552,50 @@ def test_connection(
     )
 
 
+@router.post("/connections/{connection_id}/backfill-openai")
+def backfill_openai_connection(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> dict[str, object]:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    if (
+        connection.provider_type != "openai"
+        or connection.status != "verified"
+        or not connection.is_active
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Verify and activate the OpenAI connection before backfill",
+        )
+    count = session.scalar(
+        select(func.count(LeadORM.id))
+        .where(
+            LeadORM.workspace_id == workspace.workspace_id,
+            ~select(AnalysisRunORM.id)
+            .where(
+                AnalysisRunORM.lead_id == LeadORM.id,
+                AnalysisRunORM.provider == "openai",
+                AnalysisRunORM.status == "completed",
+            )
+            .exists(),
+        )
+    ) or 0
+    from lead_agent.worker.celery_app import reanalyze_workspace_leads
+
+    try:
+        reanalyze_workspace_leads.delay(str(workspace.workspace_id))
+    except Exception as error:
+        raise HTTPException(
+            status_code=503, detail="The lead analysis worker is unavailable"
+        ) from error
+    return {
+        "status": "queued",
+        "queued_count": int(count),
+        "message": "Existing leads will be reanalyzed with OpenAI in the background.",
+    }
+
+
 @router.get(
     "/connections/{connection_id}/slack-channels", response_model=list[SlackChannelResponse]
 )
@@ -391,6 +614,28 @@ def list_slack_channels(
     except (LookupError, ValueError) as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return [SlackChannelResponse(**channel) for channel in channels]
+
+
+@router.get(
+    "/connections/{connection_id}/slack-channels/{channel_id}/members",
+    response_model=list[SlackMemberResponse],
+)
+def list_slack_channel_members(
+    connection_id: UUID,
+    channel_id: str,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    notification_resolver: WorkspaceSlackNotificationResolver = Depends(
+        get_workspace_slack_notification_resolver
+    ),
+) -> list[SlackMemberResponse]:
+    try:
+        members = notification_resolver.list_channel_members(
+            session, workspace.workspace_id, connection_id, channel_id, workspace.actor_id
+        )
+    except (LookupError, ValueError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return [SlackMemberResponse(**member) for member in members]
 
 
 @router.put("/connections/{connection_id}/slack-channel", response_model=SlackChannelResponse)
@@ -433,10 +678,10 @@ def send_slack_test_notification(
         channel_id = row.connection_metadata.get("slack_channel_id")
         if not isinstance(channel_id, str) or not channel_id:
             raise ValueError("Choose a Slack notification channel first.")
-        provider = notification_resolver.resolve_for_workspace(
-            session, workspace.workspace_id, workspace.actor_id
+        provider = notification_resolver.provider_for_connection(
+            session, workspace.workspace_id, connection_id, workspace.actor_id
         )
-        if provider is None or provider.connection_id != connection_id:
+        if provider is None:
             raise ValueError("Verified Slack connection and notification channel are required.")
         delivery = provider.send(
             NotificationMessage(

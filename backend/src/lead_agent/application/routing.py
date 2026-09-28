@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from lead_agent.domain.configuration import (
     RoutingRuleConfig,
 )
 from lead_agent.domain.models import QualificationResult
+from lead_agent.domain.rbac import effective_permissions, normalize_role
 from lead_agent.domain.routing import (
     ActionPlan,
     NotificationDelivery,
@@ -24,12 +25,18 @@ from lead_agent.domain.routing import (
     NotificationProvider,
     RoutePriority,
 )
+from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.infrastructure.db.models import (
     LeadORM,
+    LeadOutcomeORM,
     NotificationORM,
     PipelineEventORM,
     ProviderConnectionORM,
     RoutingDecisionORM,
+    UserORM,
+    WorkspaceMembershipORM,
+    WorkspaceORM,
+    WorkspaceRoutingConfigORM,
 )
 from lead_agent.infrastructure.notifications.mock import MockNotificationProvider
 from lead_agent.infrastructure.observability import get_observability, provider_operation
@@ -187,11 +194,53 @@ def _build_action_plan(
     talking_points = list(action.talking_points)
     if pain != "Unknown":
         talking_points.insert(0, f"Address the stated pain: {pain[:180]}")
+    questions = _unknown_questions(analysis)[:5]
+    if qualification.hard_disqualified or qualification.classification == "disqualify":
+        strategy = [
+            "Verify the disqualifying evidence before any outreach.",
+            "If confirmed, close the lead with a clear reason; do not pursue a sales conversion.",
+        ]
+        goal = "Confirm fit and close appropriately."
+    elif analysis and analysis.requires_manual_review:
+        strategy = [
+            "Validate the original inquiry and uncertain analysis with a human reviewer.",
+            "Confirm missing facts before choosing an outreach cadence or making a promise.",
+        ]
+        goal = "Resolve uncertainty and decide whether to qualify."
+    elif qualification.classification == "hot":
+        strategy = [
+            "Contact promptly, acknowledge the stated need, and offer a discovery call.",
+            "On the call, confirm the buying owner, budget, timeline, and success criteria.",
+            "Send a tailored recap and agreed next step; follow up after one business day.",
+        ]
+        goal = "Book a discovery call and agree the path to a proposal."
+    elif qualification.classification == "warm":
+        strategy = [
+            "Reach out within one business day with a relevant question about the stated need.",
+            "Share a concise, relevant example only after confirming fit and timing.",
+            "Offer a discovery call; follow up in two to three business days if no reply.",
+        ]
+        goal = "Confirm fit and schedule a discovery call."
+    elif qualification.classification == "needs_qualifying":
+        strategy = [
+            "Ask the highest-priority missing qualification questions before pitching.",
+            "Use the answers to establish fit, timeline, and decision ownership.",
+            "If qualified, propose a discovery call; otherwise provide a relevant resource.",
+        ]
+        goal = "Establish enough evidence to qualify or nurture the lead."
+    else:
+        strategy = [
+            "Send one useful, relevant resource without a hard sales pitch.",
+            "Ask permission to reconnect when timing or need is clearer.",
+        ]
+        goal = "Maintain a useful relationship until buying intent is confirmed."
+    if questions and qualification.classification not in {"disqualify", "nurture"}:
+        strategy[1 if len(strategy) > 1 else 0] += f" First clarify: {questions[0]}"
     return ActionPlan(
         immediate_action=action.immediate_action,
         response_priority=action.priority,
         talking_points=talking_points[:4],
-        unanswered_questions=_unknown_questions(analysis)[:5],
+        unanswered_questions=questions,
         known_pain_point=pain,
         urgency_timeline=urgency,
         potential_objections=(
@@ -201,6 +250,8 @@ def _build_action_plan(
         ),
         next_step_recommendation=action.next_step,
         supporting_evidence=evidence[:5],
+        follow_up_strategy=strategy,
+        conversion_goal=goal,
     )
 
 
@@ -226,6 +277,84 @@ def _choose_rep(routing: RoutingConfig, queue: str, lead: LeadORM) -> tuple[RepC
     )
 
 
+def _choose_workspace_rep(
+    session: Session, routing: RoutingConfig, queue: str, lead: LeadORM
+) -> tuple[RepConfig | None, str]:
+    # Lock the workspace until this routing decision is committed, so concurrent
+    # workers do not read the same workload and repeatedly pick the same member.
+    workspace = session.scalar(
+        select(WorkspaceORM).where(WorkspaceORM.id == lead.workspace_id).with_for_update()
+    )
+    if workspace is None:
+        if lead.workspace_id == DEFAULT_WORKSPACE_ID:
+            return _choose_rep(routing, queue, lead)
+        return None, "Workspace is unavailable; assignment withheld."
+    if workspace.is_demo or lead.workspace_id == DEFAULT_WORKSPACE_ID:
+        return _choose_rep(routing, queue, lead)
+    members = session.execute(
+        select(WorkspaceMembershipORM, UserORM)
+        .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+        .where(
+            WorkspaceMembershipORM.workspace_id == lead.workspace_id,
+            WorkspaceMembershipORM.status == "active",
+            UserORM.status == "active",
+        )
+    ).all()
+    eligible = [
+        (membership, user)
+        for membership, user in members
+        if "leads.edit" in effective_permissions(membership.role, membership.permission_overrides)
+    ]
+    # Prefer working sales reps; managers and owners serve as a safe fallback.
+    role_rank = {"sales_rep": 0, "sales_manager": 1, "admin": 2, "owner": 3}
+    if not eligible:
+        return None, "No active workspace member with lead-edit access is available."
+    best_rank = min(role_rank.get(normalize_role(m.role), 4) for m, _ in eligible)
+    candidates = [
+        (m, u) for m, u in eligible if role_rank.get(normalize_role(m.role), 4) == best_rank
+    ]
+    counts = dict(
+        session.execute(
+            select(RoutingDecisionORM.assigned_rep_id, func.count(RoutingDecisionORM.id))
+            .outerjoin(
+                LeadOutcomeORM,
+                (LeadOutcomeORM.lead_id == RoutingDecisionORM.lead_id)
+                & (LeadOutcomeORM.workspace_id == lead.workspace_id),
+            )
+            .where(
+                RoutingDecisionORM.workspace_id == lead.workspace_id,
+                RoutingDecisionORM.is_current.is_(True),
+                RoutingDecisionORM.assigned_rep_id.is_not(None),
+                (LeadOutcomeORM.id.is_(None))
+                | (LeadOutcomeORM.pipeline_stage.not_in(("closed_won", "closed_lost"))),
+            )
+            .group_by(RoutingDecisionORM.assigned_rep_id)
+        ).all()
+    )
+    config = session.get(WorkspaceRoutingConfigORM, lead.workspace_id)
+    raw_weights = config.member_weights if config is not None else {}
+    weights = {
+        str(member.user_id): max(float(raw_weights.get(str(member.user_id), 1)), 0.01)
+        for member, _ in candidates
+    }
+    candidates.sort(
+        key=lambda item: (
+            counts.get(str(item[1].id), 0) / weights[str(item[1].id)],
+            str(item[1].id),
+        )
+    )
+    _, selected = candidates[0]
+    load = counts.get(str(selected.id), 0)
+    weight = weights[str(selected.id)]
+    return (
+        RepConfig(id=str(selected.id), name=selected.display_name or selected.email, queue=queue),
+        f"Assigned active workspace {normalize_role(candidates[0][0].role).replace('_', ' ')} "
+        f"{selected.display_name or selected.email} with {load} open assigned lead(s), "
+        f"the lowest weighted load among {len(candidates)} eligible peer(s) "
+        f"(routing weight {weight:g}).",
+    )
+
+
 def _priority(value: str) -> RoutePriority:
     allowed: tuple[RoutePriority, ...] = ("urgent", "high", "normal", "low", "none")
     return value if value in allowed else "normal"
@@ -239,17 +368,35 @@ def _notification_text(
     rep_name: str | None,
     action_plan: ActionPlan,
     priority: RoutePriority,
+    workspace_name: str,
 ) -> str:
     marker = "[HIGH PRIORITY] " if priority in {"urgent", "high"} else ""
-    del analysis
+
+    def compact(value: str | None, limit: int) -> str:
+        return " ".join((value or "").split())[:limit]
+
     frontend_url = get_settings().frontend_public_base_url.strip().rstrip("/")
-    app_link = f"\nOpen Lead Agent: {frontend_url}" if frontend_url else ""
+    app_link = f"\nOpen lead: {frontend_url}/?lead={lead.id}" if frontend_url else ""
+    summary = compact(analysis.summary.need if analysis else lead.message, 320)
+    pain = compact(analysis.summary.pain_point if analysis else None, 220)
+    first_follow_up = (
+        action_plan.follow_up_strategy[0]
+        if action_plan.follow_up_strategy
+        else action_plan.next_step_recommendation
+    )
+    source_detail = f" ({compact(lead.source_detail, 90)})" if lead.source_detail else ""
+    band_label = qualification.classification.replace("_", " ").title()
     return (
-        f"{marker}{lead.company_name} — {lead.full_name}\n"
-        f"Source: {lead.source} | Score: {qualification.total_score}/100 | "
-        f"Band: {qualification.classification}\n"
-        f"Queue: {queue} | Rep: {rep_name or 'Unassigned'}\n"
-        f"Next action: {action_plan.next_step_recommendation}{app_link}"
+        f"{marker}{compact(lead.company_name, 100)} — {compact(lead.full_name, 100)}\n"
+        f"Workspace: {compact(workspace_name, 100)} | Source: {compact(lead.source, 60)}"
+        f"{source_detail}\n"
+        f"Score: {qualification.total_score}/100 | Lead temperature: {band_label}\n"
+        f"Summary: {summary or 'No inquiry summary available.'}\n"
+        f"Pain point: {pain or 'Not confirmed'}\n"
+        f"Route: {compact(queue, 80)} | Assigned: {compact(rep_name, 100) or 'Unassigned'}\n"
+        f"Next step: {compact(action_plan.next_step_recommendation, 300)}\n"
+        f"Follow-up: {compact(first_follow_up, 300)}\n"
+        f"Conversion goal: {compact(action_plan.conversion_goal, 180) or 'Confirm fit'}{app_link}"
     )[:3000]
 
 
@@ -292,12 +439,18 @@ def notify_routing_decision(
     provider: NotificationProvider | None = None,
 ) -> NotificationORM:
     selected_provider = provider or MockNotificationProvider()
-    resolver = getattr(selected_provider, "resolve_for_workspace", None)
-    active_provider = (
-        resolver(session, lead.workspace_id, actor_id="system")
-        if callable(resolver)
-        else selected_provider
-    )
+    resolver = getattr(selected_provider, "resolve_for_lead", None)
+    if callable(resolver):
+        active_provider = resolver(
+            session, lead.workspace_id, lead, decision, actor_id="system"
+        )
+    else:
+        resolver = getattr(selected_provider, "resolve_for_workspace", None)
+        active_provider = (
+            resolver(session, lead.workspace_id, actor_id="system")
+            if callable(resolver)
+            else selected_provider
+        )
     if active_provider is None:
         active_provider = _UnavailableNotificationProvider(
             "No verified Slack connection and notification channel are configured "
@@ -358,6 +511,9 @@ def notify_routing_decision(
             decision.assigned_rep_name,
             ActionPlan.model_validate(decision.action_plan),
             _priority(decision.priority),
+            session.get(WorkspaceORM, lead.workspace_id).name
+            if session.get(WorkspaceORM, lead.workspace_id)
+            else "Workspace",
         ),
         metadata={"lead_id": str(lead.id), "routing_decision_id": str(decision.id)},
     )
@@ -461,6 +617,7 @@ def route_and_notify(
     notification_provider: NotificationProvider | None = None,
     force: bool = False,
     reroute_reason: str | None = None,
+    send_notification: bool = True,
 ) -> RoutingDecisionORM:
     qualification = _qualification(lead)
     analysis = _analysis(lead)
@@ -545,7 +702,7 @@ def route_and_notify(
             "archive",
         }
     ):
-        assigned_rep, assignment_reason = _choose_rep(routing, queue, lead)
+        assigned_rep, assignment_reason = _choose_workspace_rep(session, routing, queue, lead)
     action_plan = _build_action_plan(routing, qualification, lead, analysis, action_key)
     sla_hours = (
         selected_rule.sla_hours
@@ -572,7 +729,7 @@ def route_and_notify(
         action_plan=action_plan.model_dump(mode="json"),
         priority=priority,
         sla_target_at=sla_target,
-        notification_state="pending",
+        notification_state="pending" if send_notification else "suppressed",
         manual_review=manual_review,
         idempotency_key=idempotency_key,
         is_current=True,
@@ -598,14 +755,24 @@ def route_and_notify(
     if reroute_reason:
         decision.routing_reason += f" Reroute requested: {reroute_reason[:500]}"
     session.commit()
-    notify_routing_decision(
-        session,
-        decision,
-        lead,
-        qualification,
-        analysis,
-        notification_provider,
-    )
+    if send_notification:
+        notify_routing_decision(
+            session,
+            decision,
+            lead,
+            qualification,
+            analysis,
+            notification_provider,
+        )
+    else:
+        record_pipeline_event(
+            session,
+            lead.id,
+            "notified",
+            "suppressed",
+            {"routing_decision_id": str(decision.id), "reason": "analysis_backfill"},
+        )
+        session.commit()
     return decision
 
 

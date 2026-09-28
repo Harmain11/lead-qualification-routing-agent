@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import re
 from datetime import UTC, datetime
+from email.message import EmailMessage
 from email.utils import parseaddr
 from html.parser import HTMLParser
 from typing import Any, cast
@@ -22,6 +23,7 @@ from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.provider_errors import ProviderOperationError
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _API = "https://gmail.googleapis.com/gmail/v1/users/me"
 _MAX_BODY_CHARS = 32_000
 _MAX_MESSAGE_BYTES = 1_000_000
@@ -107,6 +109,51 @@ class GmailTransport:
                 retryable=False,
             )
         return cast(dict[str, Any], payload)
+
+    def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = self.client.post(
+                f"{_API}/{path.lstrip('/')}",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.access_token}"},
+            )
+        except httpx.TimeoutException:
+            raise ProviderOperationError(
+                "Gmail request timed out.",
+                provider="gmail",
+                code="gmail_timeout",
+                category="timeout",
+                retryable=True,
+            ) from None
+        except httpx.HTTPError:
+            raise ProviderOperationError(
+                "Gmail is temporarily unavailable.",
+                provider="gmail",
+                code="gmail_transport_error",
+                category="temporarily_unavailable",
+                retryable=True,
+            ) from None
+        if response.status_code >= 400:
+            raise _gmail_http_error(response, path=path)
+        try:
+            result = response.json()
+        except ValueError:
+            raise ProviderOperationError(
+                "Gmail returned an unreadable response.",
+                provider="gmail",
+                code="gmail_malformed_response",
+                category="malformed_response",
+                retryable=False,
+            ) from None
+        if not isinstance(result, dict):
+            raise ProviderOperationError(
+                "Gmail returned an unreadable response.",
+                provider="gmail",
+                code="gmail_malformed_response",
+                category="malformed_response",
+                retryable=False,
+            )
+        return cast(dict[str, Any], result)
 
 
 def _gmail_http_error(response: httpx.Response, *, path: str) -> ProviderOperationError:
@@ -586,3 +633,47 @@ class GmailInboundProvider:
             },
             enrichment_fingerprint=None,
         )
+
+
+class GmailOutboundProvider:
+    """Small Gmail send boundary used only for automatic lead confirmations."""
+
+    provider_name = "gmail"
+
+    def __init__(
+        self,
+        connection_id: UUID,
+        access_token: str,
+        mailbox_email: str,
+        *,
+        client: httpx.Client | None = None,
+    ) -> None:
+        self.connection_id = connection_id
+        self.mailbox_email = mailbox_email.strip().lower()
+        self.api = GmailTransport(access_token, client=client)
+
+    def send_confirmation(
+        self,
+        *,
+        recipient: str,
+        lead_name: str,
+        company_name: str,
+        product_or_service: str,
+    ) -> str | None:
+        message = EmailMessage()
+        message["From"] = self.mailbox_email
+        message["To"] = recipient
+        message["Subject"] = "We received your inquiry"
+        first_name = (lead_name.strip().split() or ["there"])[0]
+        message.set_content(
+            f"Hi {first_name},\n\n"
+            f"Thanks for contacting us about {product_or_service or 'your inquiry'}. "
+            f"We have received your request for {company_name or 'your team'} and "
+            "our team will review it shortly.\n\n"
+            "We will follow up with the next step soon.\n\n"
+            "Best,\nThe team"
+        )
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
+        payload = self.api.post("messages/send", {"raw": raw})
+        message_id = payload.get("id")
+        return str(message_id) if message_id else None

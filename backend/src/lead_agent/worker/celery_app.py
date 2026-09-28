@@ -1,18 +1,27 @@
 import logging
+from decimal import Decimal
 from uuid import UUID
 
 from celery import Celery  # type: ignore[import-untyped]
 from celery.signals import task_failure, task_retry  # type: ignore[import-untyped]
+from sqlalchemy import select
 
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
     run_inbound_sync,
 )
+from lead_agent.application.services import reprocess_lead
 from lead_agent.infrastructure.crm.inbound_factory import get_workspace_inbound_crm_resolver
-from lead_agent.infrastructure.db.models import CrmInboundSyncStateORM, ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    AnalysisRunORM,
+    CrmInboundSyncStateORM,
+    LeadORM,
+    ProviderConnectionORM,
+)
 from lead_agent.infrastructure.db.session import get_session_factory
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.observability import configure_logging
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.settings.config import get_settings
 
 settings = get_settings()
@@ -152,3 +161,94 @@ def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
             notification_provider=get_notification_provider(),
         )
         return run.status
+
+
+@celery_app.task(
+    bind=True,
+    name="lead_agent.reanalyze_workspace_leads",
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,
+    retry_jitter=True,
+)  # type: ignore[untyped-decorator]
+def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
+    """Apply a newly verified workspace OpenAI provider to older non-OpenAI leads."""
+
+    del self
+    workspace_uuid = UUID(workspace_id)
+    with get_session_factory()() as session:
+        icp, routing = settings.load_policies()
+        provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
+        if getattr(provider, "provider_name", "") != "openai":
+            return "skipped: verified workspace OpenAI provider is unavailable"
+        openai_completed = select(AnalysisRunORM.id).where(
+            AnalysisRunORM.lead_id == LeadORM.id,
+            AnalysisRunORM.provider == "openai",
+            AnalysisRunORM.status == "completed",
+        ).exists()
+        lead_ids = list(
+            session.scalars(
+                select(LeadORM.id)
+                .where(
+                    LeadORM.workspace_id == workspace_uuid,
+                    ~openai_completed,
+                )
+                .order_by(LeadORM.created_at.asc())
+            )
+        )
+        processed = 0
+        failed = 0
+        for lead_id in lead_ids:
+            lead = session.get(LeadORM, lead_id)
+            if lead is None:
+                continue
+            try:
+                payload = {
+                    "source": lead.source,
+                    "source_detail": lead.source_detail,
+                    "external_id": lead.external_id,
+                    "full_name": lead.full_name,
+                    "email": lead.email,
+                    "phone": lead.phone,
+                    "job_title": lead.job_title,
+                    "company_name": lead.company_name,
+                    "industry": lead.industry,
+                    "employee_count": lead.employee_count,
+                    "annual_revenue": float(lead.annual_revenue)
+                    if isinstance(lead.annual_revenue, Decimal)
+                    else lead.annual_revenue,
+                    "geography": lead.geography,
+                    "budget": (
+                        float(lead.budget)
+                        if isinstance(lead.budget, Decimal)
+                        else lead.budget
+                    ),
+                    "product_or_service": lead.product_or_service,
+                    "message": lead.message,
+                    "received_at": lead.received_at,
+                }
+                reprocess_lead(
+                    session,
+                    lead,
+                    payload,
+                    icp,
+                    routing,
+                    provider=provider,
+                    notification_provider=get_notification_provider(),
+                    send_notification=False,
+                    reroute_reason="Workspace OpenAI setup backfill.",
+                )
+                processed += 1
+            except Exception as error:
+                session.rollback()
+                failed += 1
+                _LOGGER.warning(
+                    "openai.backfill_lead_failed",
+                    extra={
+                        "fields": {
+                            "workspace_id": workspace_id,
+                            "lead_id": str(lead_id),
+                            "error_type": type(error).__name__,
+                        }
+                    },
+                )
+        return f"completed: {processed} processed, {failed} failed"

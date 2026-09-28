@@ -223,15 +223,17 @@ class WorkspaceAuthorizedConnectionResolver:
                 if allow_unverified
                 else {"connected", "verified"}
             )
-            unverified_gmail_probe = (
+            # Mailbox OAuth rows remain inactive until a real profile/Inbox probe
+            # establishes the safe mailbox identity.
+            unverified_mailbox_probe = (
                 allow_unverified
                 and locked is not None
-                and locked.provider_type == "gmail"
+                and locked.provider_type in {"gmail", "outlook"}
                 and locked.status == "connected"
             )
             if (
                 locked is None
-                or (not locked.is_active and not unverified_gmail_probe)
+                or (not locked.is_active and not unverified_mailbox_probe)
                 or locked.status not in usable_statuses
             ):
                 return None
@@ -383,7 +385,15 @@ class WorkspaceAuthorizedConnectionResolver:
         actor_id: str,
         error: ProviderOperationError,
     ) -> ProviderOperationError:
-        if error.category in {"invalid_credentials", "revoked"}:
+        # OAuth refresh failures such as HubSpot's invalid_request response
+        # commonly mean the refresh grant was revoked or belongs to an older
+        # app configuration. Do not leave the connection looking verified;
+        # outbound writes would otherwise continue to appear available while
+        # every provider request is rejected.
+        if (
+            error.category in {"invalid_credentials", "revoked", "invalid_request"}
+            and connection.auth_type == "oauth2"
+        ):
             connection.status = "needs_reauthorization"
             connection.credential_state = "invalid"
         elif error.category == "configuration":
@@ -446,6 +456,7 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
 @lru_cache
 def get_provider_connection_validator() -> ProviderConnectionValidator:
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
+    from lead_agent.infrastructure.outlook import OutlookConnectionValidator
     from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
     from lead_agent.infrastructure.slack import SlackConnectionValidator
 
@@ -464,6 +475,7 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             ),
             "slack": SlackConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             "gmail": GmailConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
+            "outlook": OutlookConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             "openai": OpenAIConnectionValidator(
                 timeout_seconds=settings.openai_timeout_seconds
             ),

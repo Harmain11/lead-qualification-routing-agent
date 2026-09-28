@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from functools import lru_cache
+from hashlib import sha256
 from typing import Any, cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -17,7 +18,12 @@ from lead_agent.domain.integrations import (
     SecretStore,
 )
 from lead_agent.domain.provider_errors import ProviderErrorCategory, ProviderOperationError
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    LeadORM,
+    ProviderConnectionORM,
+    RoutingDecisionORM,
+    WorkspaceNotificationConfigORM,
+)
 from lead_agent.infrastructure.provider_lifecycle import (
     ResolvedProviderConnection,
     WorkspaceAuthorizedConnectionResolver,
@@ -365,16 +371,106 @@ class WorkspaceSlackNotificationResolver:
         )
         if connection is None:
             return None
-        resolved = self.connection_resolver.resolve_connection(
-            session, workspace_id, connection.id, actor_id=actor_id
+        return self.provider_for_connection(session, workspace_id, connection.id, actor_id)
+
+    def resolve_for_lead(
+        self,
+        session: Session,
+        workspace_id: UUID,
+        lead: LeadORM,
+        decision: RoutingDecisionORM,
+        actor_id: str = "system",
+    ) -> SlackNotificationProvider | None:
+        """Resolve the Slack destination using the workspace admin's rules."""
+
+        connections = list(
+            session.scalars(
+                select(ProviderConnectionORM)
+                .where(
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "slack",
+                    ProviderConnectionORM.is_active.is_(True),
+                    ProviderConnectionORM.status == "verified",
+                )
+                .order_by(ProviderConnectionORM.updated_at.desc())
+            )
         )
-        if resolved is None:
+        if not connections:
             return None
-        channel_id = connection.connection_metadata.get("slack_channel_id")
-        if not isinstance(channel_id, str) or not channel_id:
+        by_id = {connection.id: connection for connection in connections}
+        config = session.get(WorkspaceNotificationConfigORM, workspace_id)
+        if config is not None:
+            matching_rules: list[tuple[dict[str, Any], ProviderConnectionORM]] = []
+            for raw_rule in config.slack_rules:
+                if not isinstance(raw_rule, dict):
+                    continue
+                target_id = self._rule_target_id(raw_rule)
+                target = by_id.get(target_id) if target_id is not None else None
+                if target is not None and self._rule_matches(raw_rule, lead, decision):
+                    matching_rules.append((raw_rule, target))
+            if matching_rules:
+                total_weight = sum(
+                    max(0.01, float(rule.get("weight", 1)))
+                    for rule, _ in matching_rules
+                    if isinstance(rule.get("weight", 1), (int, float))
+                ) or 1
+                bucket = int(sha256(str(lead.id).encode()).hexdigest()[:12], 16) / 16**12
+                selected = bucket * total_weight
+                for raw_rule, target in matching_rules:
+                    weight = max(0.01, float(raw_rule.get("weight", 1)))
+                    selected -= weight
+                    if selected <= 0:
+                        return self.provider_for_connection(
+                            session, workspace_id, target.id, actor_id
+                        )
+                return self.provider_for_connection(
+                    session, workspace_id, matching_rules[-1][1].id, actor_id
+                )
+            if config.default_slack_connection_id in by_id:
+                return self.provider_for_connection(
+                    session, workspace_id, config.default_slack_connection_id, actor_id
+                )
+        # A single connected Slack workspace is the automatic default. With
+        # several connections, the newest one remains a safe compatibility
+        # fallback until an admin defines the destination rules.
+        return self.provider_for_connection(session, workspace_id, connections[0].id, actor_id)
+
+    @staticmethod
+    def _rule_target_id(raw_rule: dict[str, Any]) -> UUID | None:
+        try:
+            value = raw_rule.get("connection_id")
+            return UUID(str(value)) if value else None
+        except (TypeError, ValueError):
             return None
-        return SlackNotificationProvider(
-            connection=resolved, channel_id=channel_id, client=self.client
+
+    @staticmethod
+    def _rule_matches(
+        raw_rule: dict[str, Any], lead: LeadORM, decision: RoutingDecisionORM
+    ) -> bool:
+        def matches(value: str | None, values: Any) -> bool:
+            if not isinstance(values, list) or not values:
+                return True
+            normalized = (value or "").strip().casefold()
+            return bool(normalized) and any(
+                normalized == str(option).strip().casefold()
+                or str(option).strip().casefold() in normalized
+                for option in values
+            )
+
+        source_filters = raw_rule.get("sources")
+        source_matches = (
+            not isinstance(source_filters, list)
+            or not source_filters
+            or any(
+                matches(value, source_filters)
+                for value in (lead.source, lead.source_detail)
+                if value
+            )
+        )
+        return (
+            matches(decision.assigned_queue, raw_rule.get("queues"))
+            and matches(decision.qualification_band, raw_rule.get("qualification_bands"))
+            and source_matches
         )
 
     def resolve_connection(
@@ -397,6 +493,17 @@ class WorkspaceSlackNotificationResolver:
         if resolved is None:
             raise LookupError("verified Slack connection not available")
         return row, resolved
+
+    def provider_for_connection(
+        self, session: Session, workspace_id: UUID, connection_id: UUID, actor_id: str = "system"
+    ) -> SlackNotificationProvider | None:
+        row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+        channel_id = row.connection_metadata.get("slack_channel_id")
+        if not isinstance(channel_id, str) or not channel_id:
+            return None
+        return SlackNotificationProvider(
+            connection=resolved, channel_id=channel_id, client=self.client
+        )
 
     def select_channel(
         self,
@@ -483,6 +590,47 @@ class WorkspaceSlackNotificationResolver:
         except ProviderOperationError as error:
             raise ValueError(str(error)) from None
         return channels
+
+    def list_channel_members(
+        self,
+        session: Session,
+        workspace_id: UUID,
+        connection_id: UUID,
+        channel_id: str,
+        actor_id: str,
+    ) -> list[dict[str, str]]:
+        _, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+        api = SlackWebApi(
+            resolved.credentials.get("access_token")
+            or resolved.credentials.get("bot_token", ""),
+            self.client,
+        )
+        members: list[str] = []
+        cursor: str | None = None
+        for _ in range(10):
+            params: dict[str, str | int] = {"channel": channel_id, "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            payload, _ = api.call("conversations.members", **params)
+            page = payload.get("members", [])
+            members.extend(str(item) for item in page if item)
+            metadata = payload.get("response_metadata", {})
+            cursor = metadata.get("next_cursor") if isinstance(metadata, dict) else None
+            if not isinstance(cursor, str) or not cursor:
+                break
+        result: list[dict[str, str]] = []
+        for member_id in dict.fromkeys(members):
+            name = member_id
+            try:
+                profile, _ = api.call("users.info", user=member_id)
+                user = profile.get("user", {})
+                if isinstance(user, dict):
+                    name = str(user.get("real_name") or user.get("name") or member_id)
+            except ProviderOperationError as error:
+                if error.code != "slack_missing_scope":
+                    raise
+            result.append({"id": member_id, "name": name})
+        return result
 
 
 @lru_cache

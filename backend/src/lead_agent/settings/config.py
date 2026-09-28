@@ -14,7 +14,12 @@ from lead_agent.domain.crm import CrmConfig, load_crm_config
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # The API is often launched from either the repository root or backend/.
+    # Load both locations so OAuth callback URLs and provider credentials do not
+    # silently fall back to development defaults when the working directory changes.
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore"
+    )
 
     app_env: Literal["development", "test", "production"] = "development"
     app_name: str = "lead-qualification-routing-agent"
@@ -30,6 +35,17 @@ class Settings(BaseSettings):
     auth_session_cookie_name: str = "lead_agent_session"
     auth_csrf_cookie_name: str = "lead_agent_csrf"
     auth_session_hours: int = 336
+    auth_require_email_verification: bool = False
+    email_provider: Literal["none", "console", "smtp"] = "console"
+    email_from: str = "no-reply@example.invalid"
+    email_verification_expiry_minutes: int = 60
+    email_verification_resend_seconds: int = 60
+    email_smtp_host: str = ""
+    email_smtp_port: int = 587
+    email_smtp_username: str = ""
+    email_smtp_password: str = ""
+    email_smtp_starttls: bool = True
+    email_smtp_timeout_seconds: float = 10.0
     auth_cookie_secure: bool = False
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     webhook_signing_secret: str = ""
@@ -65,6 +81,7 @@ class Settings(BaseSettings):
     crm_inbound_default_interval_seconds: int = 300
     crm_inbound_batch_limit: int = 500
     crm_inbound_page_size: int = 100
+    outlook_initial_sync_days: int = 30
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"
     crm_config_path: str = "config/crm.example.yaml"
@@ -121,6 +138,14 @@ class Settings(BaseSettings):
             raise ValueError("AUTH_SESSION_HOURS must be between 1 and 744")
         if self.auth_session_cookie_name == self.auth_csrf_cookie_name:
             raise ValueError("session and CSRF cookie names must be different")
+        if not 5 <= self.email_verification_expiry_minutes <= 24 * 7:
+            raise ValueError("EMAIL_VERIFICATION_EXPIRY_MINUTES must be between 5 and 10080")
+        if not 10 <= self.email_verification_resend_seconds <= 24 * 3600:
+            raise ValueError("EMAIL_VERIFICATION_RESEND_SECONDS must be between 10 and 86400")
+        if self.email_smtp_port < 1 or self.email_smtp_port > 65535:
+            raise ValueError("EMAIL_SMTP_PORT must be between 1 and 65535")
+        if self.email_smtp_timeout_seconds <= 0:
+            raise ValueError("EMAIL_SMTP_TIMEOUT_SECONDS must be positive")
         if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
             raise ValueError("SameSite=None cookies require AUTH_COOKIE_SECURE=true")
         if (
@@ -160,6 +185,8 @@ class Settings(BaseSettings):
             raise ValueError("CRM_INBOUND_BATCH_LIMIT must be between 1 and 5000")
         if not 1 <= self.crm_inbound_page_size <= 200:
             raise ValueError("CRM_INBOUND_PAGE_SIZE must be between 1 and 200")
+        if not 1 <= self.outlook_initial_sync_days <= 365:
+            raise ValueError("OUTLOOK_INITIAL_SYNC_DAYS must be between 1 and 365")
         if self.export_sync_limit < 1 or self.export_sync_limit > 100_000:
             raise ValueError("EXPORT_SYNC_LIMIT must be between 1 and 100000")
         if self.app_env == "production":
@@ -175,6 +202,10 @@ class Settings(BaseSettings):
 
         require(not self.auth_development_fallback, "AUTH_DEVELOPMENT_FALLBACK must be false")
         require(self.auth_cookie_secure, "AUTH_COOKIE_SECURE must be true")
+        require(
+            self.auth_require_email_verification,
+            "AUTH_REQUIRE_EMAIL_VERIFICATION must be true",
+        )
         require(self.log_format == "json", "LOG_FORMAT must be json in production")
         require(
             len(self.secret_key) >= 32 and not _is_placeholder(self.secret_key),
@@ -207,6 +238,15 @@ class Settings(BaseSettings):
                 "SECRET_STORE_KEY_VERSION is required for the encrypted database backend",
             )
         require(self.oauth_broker == "provider", "OAUTH_BROKER must be provider")
+        require(
+            self.email_provider == "smtp",
+            "EMAIL_PROVIDER must be smtp in production; password signup is disabled otherwise",
+        )
+        require(
+            bool(self.email_from.strip()) and "@" in self.email_from,
+            "EMAIL_FROM must be configured",
+        )
+        require(bool(self.email_smtp_host.strip()), "EMAIL_SMTP_HOST must be configured")
         require(
             self.llm_provider in {"workspace", "deterministic"},
             "LLM_PROVIDER must be workspace or deterministic in production",

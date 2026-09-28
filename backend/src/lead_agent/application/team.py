@@ -115,6 +115,17 @@ def list_workspace_invitations(
     )
 
 
+def get_invitation_for_token(
+    session: Session, token: str, workspace_id: UUID
+) -> WorkspaceInvitationORM | None:
+    return session.scalar(
+        select(WorkspaceInvitationORM).where(
+            WorkspaceInvitationORM.token_hash == _token_hash(token),
+            WorkspaceInvitationORM.workspace_id == workspace_id,
+        )
+    )
+
+
 def list_admin_audit_events(
     session: Session, workspace_id: UUID
 ) -> list[WorkspaceAdminAuditEventORM]:

@@ -123,7 +123,7 @@ def configure_inbound_sync(
 ) -> CrmInboundSyncStateORM:
     """Deliberately enable or disable scheduled inbound acquisition."""
 
-    if connection.provider_type not in {"salesforce", "hubspot", "mock", "gmail"}:
+    if connection.provider_type not in {"salesforce", "hubspot", "mock", "gmail", "outlook"}:
         raise ValueError("provider does not support automatic inbound synchronization")
     if not connection.is_active or connection.status not in {"connected", "verified"}:
         raise ValueError("provider connection is inactive or unavailable")
@@ -139,8 +139,8 @@ def configure_inbound_sync(
         session,
         connection,
         action=(
-            f"gmail_inbound_{'enabled' if enabled else 'disabled'}"
-            if connection.provider_type == "gmail"
+            f"{connection.provider_type}_inbound_{'enabled' if enabled else 'disabled'}"
+            if connection.provider_type in {"gmail", "outlook"}
             else "inbound_sync_configuration"
         ),
         outcome="enabled" if enabled else "disabled",
@@ -351,6 +351,10 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "gmail_thread_id",
         "gmail_message_id",
         "gmail_mailbox",
+        "outlook_conversation_id",
+        "outlook_message_id",
+        "outlook_internet_message_id",
+        "outlook_mailbox",
         "sender_email",
     }
     return {
@@ -602,7 +606,11 @@ def _process_record(
         outcome = "updated"
     else:
         event = SourceEvent.create(
-            channel=("gmail" if canonical.provider == "gmail" else f"crm:{canonical.provider}"),
+            channel=(
+                canonical.provider
+                if canonical.provider in {"gmail", "outlook"}
+                else f"crm:{canonical.provider}"
+            ),
             external_id=f"{canonical.object_type}:{canonical.provider_record_id}",
             raw_payload={
                 "provider": canonical.provider,
@@ -616,6 +624,17 @@ def _process_record(
                         "gmail_mailbox": canonical.provider_metadata.get("gmail_mailbox"),
                     }
                     if canonical.provider == "gmail"
+                    else {
+                        "outlook_message_id": canonical.provider_record_id,
+                        "outlook_conversation_id": canonical.provider_metadata.get(
+                            "outlook_conversation_id"
+                        ),
+                        "outlook_internet_message_id": canonical.provider_metadata.get(
+                            "outlook_internet_message_id"
+                        ),
+                        "outlook_mailbox": canonical.provider_metadata.get("outlook_mailbox"),
+                    }
+                    if canonical.provider == "outlook"
                     else {}
                 ),
             },
@@ -644,11 +663,15 @@ def _process_record(
         if existing is None:
             raise
         return "unchanged"
-    if canonical.provider == "gmail":
+    if canonical.provider in {"gmail", "outlook"}:
         record_provider_lifecycle_audit(
             session,
             connection,
-            action="gmail_candidate_imported",
+            action=(
+                "gmail_candidate_imported"
+                if canonical.provider == "gmail"
+                else "outlook_candidate_imported"
+            ),
             outcome=outcome,
             actor_id=actor_id,
             correlation_id=correlation_id,
@@ -809,7 +832,9 @@ def run_inbound_sync(
             session,
             connection,
             action=(
-                f"gmail_{mode}_sync" if connection.provider_type == "gmail" else "inbound_sync"
+                f"{connection.provider_type}_{mode}_sync"
+                if connection.provider_type in {"gmail", "outlook"}
+                else "inbound_sync"
             ),
             outcome="started",
             actor_id=actor_id,
@@ -877,11 +902,15 @@ def run_inbound_sync(
                 except ValueError as error:
                     run = session.get(CrmInboundSyncRunORM, run.id) or run
                     run.records_skipped += 1
-                    if connection.provider_type == "gmail":
+                    if connection.provider_type in {"gmail", "outlook"}:
                         record_provider_lifecycle_audit(
                             session,
                             connection,
-                            action="gmail_candidate_skipped",
+                            action=(
+                                "gmail_candidate_skipped"
+                                if connection.provider_type == "gmail"
+                                else "outlook_candidate_skipped"
+                            ),
                             outcome="skipped",
                             actor_id=actor_id,
                             correlation_id=run.correlation_id,
@@ -960,7 +989,9 @@ def run_inbound_sync(
             session,
             connection,
             action=(
-                f"gmail_{mode}_sync" if connection.provider_type == "gmail" else "inbound_sync"
+                f"{connection.provider_type}_{mode}_sync"
+                if connection.provider_type in {"gmail", "outlook"}
+                else "inbound_sync"
             ),
             outcome=run.status,
             actor_id=actor_id,

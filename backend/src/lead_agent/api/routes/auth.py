@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.responses import RedirectResponse
 
 from lead_agent.api.dependencies import (
     get_authenticated_identity,
@@ -16,21 +19,29 @@ from lead_agent.api.dependencies import (
 from lead_agent.application.auth import (
     IssuedSession,
     authenticate_session,
+    begin_google_auth,
+    complete_google_login,
+    consume_google_auth_state,
     hash_password,
     issue_session,
     list_memberships,
     membership_permissions,
     register_user,
     require_membership,
+    resend_email_verification,
     revoke_session,
     revoke_session_token,
     select_workspace,
     sign_in,
+    verify_email_token,
 )
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthenticationError, AuthorizationError
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID, DEMO_WORKSPACE_ID
 from lead_agent.infrastructure.db.models import AuthSessionORM, UserORM, WorkspaceMembershipORM
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.email import EmailDeliveryError, EmailProvider, get_email_provider
+from lead_agent.infrastructure.google_auth import GoogleAuthClient, get_google_auth_client
+from lead_agent.infrastructure.oauth import pkce_challenge
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import ensure_workspace
 from lead_agent.settings.config import Settings
@@ -52,6 +63,29 @@ class SignInRequest(BaseModel):
 
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=256)
+
+
+class WorkspaceAccessCodeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    code: str = Field(min_length=32, max_length=256)
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(min_length=1, max_length=255)
+
+
+class EmailAddressRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320)
+
+
+class EmailVerificationNotice(BaseModel):
+    message: str
+
+
+class PasswordSignupStatus(BaseModel):
+    enabled: bool
 
 
 class WorkspaceSelectionRequest(BaseModel):
@@ -158,31 +192,105 @@ def _session_response(
 
 @router.post(
     "/signup",
-    response_model=SessionResponse,
-    status_code=status.HTTP_201_CREATED,
+    response_model=EmailVerificationNotice,
+    status_code=status.HTTP_202_ACCEPTED,
     dependencies=[Depends(rate_limit_dependency("authentication"))],
 )
 def signup(
     request: SignUpRequest,
-    http_request: Request,
-    response: Response,
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_runtime_settings),
-) -> SessionResponse:
+    email_provider: EmailProvider = Depends(get_email_provider),
+) -> EmailVerificationNotice:
+    if not email_provider.configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Password signup is unavailable until email verification delivery is configured."
+            ),
+        )
     try:
-        issued = register_user(
+        register_user(
             session,
             email=request.email,
             password=request.password,
             display_name=request.display_name,
             workspace_name=request.workspace_name,
-            duration_hours=settings.auth_session_hours,
+            email_provider=email_provider,
+            verification_base_url=settings.frontend_public_base_url,
+            verification_expiry_minutes=settings.email_verification_expiry_minutes,
         )
+    except EmailDeliveryError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Password signup is temporarily unavailable; please try again later.",
+        ) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    revoke_session_token(session, http_request.cookies.get(settings.auth_session_cookie_name))
-    _set_session_cookies(response, issued, settings)
-    return _session_response(session, issued.identity, expires_at=issued.expires_at)
+    return EmailVerificationNotice(
+        message="If the address can be registered, a verification link has been sent."
+    )
+
+
+@router.get("/password-signup/status", response_model=PasswordSignupStatus)
+def password_signup_status(
+    email_provider: EmailProvider = Depends(get_email_provider),
+) -> PasswordSignupStatus:
+    return PasswordSignupStatus(enabled=email_provider.configured)
+
+
+@router.post(
+    "/resend-verification",
+    response_model=EmailVerificationNotice,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_dependency("credentials"))],
+)
+def resend_verification(
+    request: EmailAddressRequest,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+    email_provider: EmailProvider = Depends(get_email_provider),
+) -> EmailVerificationNotice:
+    if email_provider.configured:
+        try:
+            resend_email_verification(
+                session,
+                email=request.email,
+                email_provider=email_provider,
+                verification_base_url=settings.frontend_public_base_url,
+                verification_expiry_minutes=settings.email_verification_expiry_minutes,
+                resend_after_seconds=settings.email_verification_resend_seconds,
+            )
+        except EmailDeliveryError:
+            session.rollback()
+    return EmailVerificationNotice(
+        message="If the address has a pending account, a verification link will be sent."
+    )
+
+
+@router.get("/verify-email", include_in_schema=False)
+def verify_email(
+    token: str,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+) -> Response:
+    try:
+        issued = verify_email_token(
+            session,
+            token,
+            duration_hours=settings.auth_session_hours,
+        )
+    except AuthenticationError:
+        return RedirectResponse(
+            url=f"{settings.frontend_public_base_url.rstrip('/')}/?email_verification=expired",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    redirect = RedirectResponse(
+        url=f"{settings.frontend_public_base_url.rstrip('/')}/?email_verification=verified",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    _set_session_cookies(redirect, issued, settings)
+    return redirect
 
 
 @router.post(
@@ -198,12 +306,195 @@ def signin(
     settings: Settings = Depends(get_runtime_settings),
 ) -> SessionResponse:
     try:
-        issued = sign_in(session, request.email, request.password, settings.auth_session_hours)
+        issued = sign_in(
+            session,
+            request.email,
+            request.password,
+            settings.auth_session_hours,
+            require_email_verified=settings.auth_require_email_verification,
+        )
     except (AuthenticationError, AuthorizationError) as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
     revoke_session_token(session, http_request.cookies.get(settings.auth_session_cookie_name))
     _set_session_cookies(response, issued, settings)
     return _session_response(session, issued.identity, expires_at=issued.expires_at)
+
+
+@router.post(
+    "/workspace-code",
+    response_model=SessionResponse,
+    dependencies=[Depends(rate_limit_dependency("authentication"))],
+)
+def workspace_code_signin(
+    request: WorkspaceAccessCodeRequest,
+    http_request: Request,
+    response: Response,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+) -> SessionResponse:
+    """Create a staff session from an admin-issued, one-time workspace code."""
+    from lead_agent.application.team import accept_invitation, get_invitation_for_token
+
+    email = request.email.strip().lower()
+    invitation = get_invitation_for_token(session, request.code, request.workspace_id)
+    now = datetime.now(UTC)
+    if invitation is None or invitation.status != "pending" or invitation.email != email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid workspace access code",
+        )
+    expires_at = invitation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= now:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Workspace access code has expired",
+        )
+
+    user = session.scalar(select(UserORM).where(UserORM.email == email))
+    if user is None:
+        user = UserORM(
+            id=uuid4(),
+            email=email,
+            display_name=request.display_name.strip(),
+            password_hash=hash_password(secrets.token_urlsafe(32)),
+            email_verified=True,
+            email_verified_at=now,
+            status="active",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(user)
+        session.flush()
+    elif user.status == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This user account is suspended",
+        )
+    else:
+        user.email_verified = True
+        user.email_verified_at = user.email_verified_at or now
+        if user.status == "pending_email":
+            user.status = "active"
+        user.updated_at = now
+
+    try:
+        accept_invitation(session, request.code, user.id, email, request.workspace_id)
+        issued = issue_session(
+            session, user, request.workspace_id, duration_hours=settings.auth_session_hours
+        )
+    except (AuthenticationError, AuthorizationError, ValueError) as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    revoke_session_token(session, http_request.cookies.get(settings.auth_session_cookie_name))
+    _set_session_cookies(response, issued, settings)
+    return _session_response(session, issued.identity, expires_at=issued.expires_at)
+
+
+def _google_redirect(settings: Settings, *, error: str | None = None) -> RedirectResponse:
+    query = urlencode({"auth_error": error}) if error else "auth=google"
+    return RedirectResponse(
+        url=f"{settings.frontend_public_base_url.rstrip('/')}/?{query}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.get(
+    "/google/start",
+    include_in_schema=False,
+    dependencies=[Depends(rate_limit_dependency("oauth"))],
+)
+def google_start(
+    invitation_token: str | None = None,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+    google_client: GoogleAuthClient = Depends(get_google_auth_client),
+) -> RedirectResponse:
+    redirect_uri = (
+        f"{settings.integration_public_base_url.rstrip('/')}/v1/auth/google/callback"
+    )
+    try:
+        state = begin_google_auth(
+            session,
+            redirect_uri=redirect_uri,
+            invitation_token=invitation_token,
+        )
+        authorization_url = google_client.authorization_url(
+            state=state.state,
+            code_challenge=pkce_challenge(state.code_verifier),
+            redirect_uri=state.redirect_uri,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    # Keep the development authorize endpoint on the same origin so local QA can follow it.
+    if settings.oauth_broker == "development" and not settings.app_env == "production":
+        authorization_url = (
+            f"{settings.integration_public_base_url.rstrip('/')}/v1/auth/google/development-authorize?"
+            f"{urlencode({'state': state.state, 'redirect_uri': state.redirect_uri})}"
+        )
+    return RedirectResponse(authorization_url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.get("/google/development-authorize", include_in_schema=False)
+def google_development_authorize(
+    state: str,
+    settings: Settings = Depends(get_runtime_settings),
+) -> RedirectResponse:
+    if settings.oauth_broker != "development" or settings.app_env == "production":
+        raise HTTPException(status_code=404, detail="not found")
+    callback = f"{settings.integration_public_base_url.rstrip('/')}/v1/auth/google/callback"
+    return RedirectResponse(
+        f"{callback}?{urlencode({'state': state, 'code': 'development-approved'})}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
+@router.get(
+    "/google/callback",
+    include_in_schema=False,
+    dependencies=[Depends(rate_limit_dependency("oauth"))],
+)
+def google_callback(
+    request: Request,
+    state: str,
+    code: str | None = None,
+    error: str | None = None,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+    google_client: GoogleAuthClient = Depends(get_google_auth_client),
+) -> Response:
+    try:
+        auth_state = consume_google_auth_state(session, state)
+    except AuthenticationError as exception:
+        session.rollback()
+        raise HTTPException(
+            status_code=400, detail="Google authentication state is invalid"
+        ) from exception
+    if error or not code:
+        return _google_redirect(settings, error="google_authorization_denied")
+    try:
+        google_identity = google_client.exchange(
+            code=code,
+            code_verifier=auth_state.code_verifier,
+            redirect_uri=auth_state.redirect_uri,
+        )
+        issued = complete_google_login(
+            session,
+            google_identity,
+            invitation_token=auth_state.invitation_token,
+            duration_hours=settings.auth_session_hours,
+        )
+    except (AuthenticationError, AuthorizationError, ValueError):
+        session.rollback()
+        return _google_redirect(settings, error="google_authentication_failed")
+    except Exception:
+        session.rollback()
+        return _google_redirect(settings, error="google_authentication_failed")
+    revoke_session_token(session, request.cookies.get(settings.auth_session_cookie_name))
+    redirect = _google_redirect(settings)
+    _set_session_cookies(redirect, issued, settings)
+    return redirect
 
 
 @router.get("/session", response_model=SessionResponse)
@@ -311,6 +602,8 @@ def development_session(
             email="developer@localhost.invalid",
             display_name="Local Developer",
             password_hash=hash_password(uuid4().hex),
+            email_verified=True,
+            email_verified_at=now,
             status="active",
             created_at=now,
             updated_at=now,

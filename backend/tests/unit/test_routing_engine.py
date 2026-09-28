@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +16,9 @@ from lead_agent.infrastructure.db.models import (
     NotificationORM,
     PipelineEventORM,
     RoutingDecisionORM,
+    UserORM,
+    WorkspaceMembershipORM,
+    WorkspaceORM,
 )
 from lead_agent.infrastructure.notifications.mock import MockNotificationProvider
 from lead_agent.infrastructure.repositories import get_current_routing, list_routing_history
@@ -48,6 +54,52 @@ def session_for(tmp_path):
     return Session(engine)
 
 
+def test_live_workspaces_assign_their_own_lowest_load_sales_rep(icp, routing, tmp_path) -> None:
+    with session_for(tmp_path) as session:
+        now = datetime.now(UTC)
+        workspace_ids = [uuid4(), uuid4()]
+        rep_ids: list[list[str]] = []
+        for index, workspace_id in enumerate(workspace_ids):
+            session.add(WorkspaceORM(
+                id=workspace_id, name=f"Team {index}", slug=f"team-{index}-{uuid4().hex}",
+                status="active", is_demo=False, created_at=now, updated_at=now,
+            ))
+            current_ids = []
+            for rep_index in range(2):
+                user = UserORM(
+                    id=uuid4(), email=f"rep-{index}-{rep_index}@example.test",
+                    display_name=f"Rep {index}-{rep_index}", password_hash="test-hash",
+                    status="active", created_at=now, updated_at=now,
+                )
+                session.add(user)
+                session.add(WorkspaceMembershipORM(
+                    id=uuid4(), workspace_id=workspace_id, user_id=user.id,
+                    role="sales_rep", status="active", created_at=now, updated_at=now,
+                ))
+                current_ids.append(str(user.id))
+            rep_ids.append(current_ids)
+        session.commit()
+
+        chosen = []
+        for index in range(3):
+            _, _, lead = process_lead(
+                session, payload(external_id=f"balanced-{index}"), icp, routing,
+                workspace_id=workspace_ids[0],
+            )
+            chosen.append(get_current_routing(session, lead.id, workspace_ids[0]).assigned_rep_id)
+        assert set(chosen[:2]) == set(rep_ids[0])
+        assert chosen[2] == chosen[0]
+
+        _, _, other_lead = process_lead(
+            session, payload(external_id="other-team"), icp, routing,
+            workspace_id=workspace_ids[1],
+        )
+        other_decision = get_current_routing(session, other_lead.id, workspace_ids[1])
+        assert other_decision.assigned_rep_id in rep_ids[1]
+        assert other_decision.assigned_rep_id not in rep_ids[0]
+        assert other_decision.action_plan["follow_up_strategy"]
+
+
 def test_hot_routes_to_senior_rep_and_sends_high_priority_notification(
     icp, routing, tmp_path
 ) -> None:
@@ -67,6 +119,10 @@ def test_hot_routes_to_senior_rep_and_sends_high_priority_notification(
         assert len(provider.sent) == 1
         assert "[HIGH PRIORITY]" in provider.sent[0].text
         assert "Score:" in provider.sent[0].text
+        assert "Summary:" in provider.sent[0].text
+        assert "Lead temperature: Hot" in provider.sent[0].text
+        assert "Follow-up:" in provider.sent[0].text
+        assert "Conversion goal:" in provider.sent[0].text
 
 
 def test_all_qualification_bands_have_configured_default_routes(icp, routing, tmp_path) -> None:

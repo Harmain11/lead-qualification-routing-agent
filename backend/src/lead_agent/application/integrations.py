@@ -116,7 +116,7 @@ def _validate_manual_credentials(
 def _activate_connection(session: Session, connection: ProviderConnectionORM) -> None:
     # Gmail's mailbox identity is unknown until the read-only profile validation
     # succeeds. Keep OAuth-completed but unverified Gmail rows unschedulable.
-    if connection.provider_type == "gmail":
+    if connection.provider_type in {"gmail", "outlook"}:
         connection.is_active = False
         return
     if connection.provider_type not in CRM_PROVIDER_TYPES | {"openai"}:
@@ -134,11 +134,12 @@ def _activate_connection(session: Session, connection: ProviderConnectionORM) ->
     connection.is_active = True
 
 
-def _rebind_gmail_mailbox_state(
+def _rebind_mailbox_state(
     session: Session,
     connection: ProviderConnectionORM,
     mailbox_email: str,
     now: datetime,
+    provider: str,
 ) -> None:
     """Move prior same-mailbox inbound state and message identity onto a verified connection."""
 
@@ -150,7 +151,7 @@ def _rebind_gmail_mailbox_state(
             select(ProviderConnectionORM)
             .where(
                 ProviderConnectionORM.workspace_id == connection.workspace_id,
-                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.provider_type == provider,
                 ProviderConnectionORM.id != connection.id,
                 func.lower(func.trim(ProviderConnectionORM.external_account_id)) == mailbox,
             )
@@ -167,7 +168,7 @@ def _rebind_gmail_mailbox_state(
             select(CrmInboundSyncStateORM)
             .where(
                 CrmInboundSyncStateORM.workspace_id == connection.workspace_id,
-                CrmInboundSyncStateORM.provider == "gmail",
+                CrmInboundSyncStateORM.provider == provider,
                 CrmInboundSyncStateORM.object_type == "message",
                 CrmInboundSyncStateORM.connection_id.in_([*prior_ids, connection.id]),
             )
@@ -179,7 +180,7 @@ def _rebind_gmail_mailbox_state(
         session.scalars(
             select(CrmInboundSyncRunORM).where(
                 CrmInboundSyncRunORM.workspace_id == connection.workspace_id,
-                CrmInboundSyncRunORM.provider == "gmail",
+                CrmInboundSyncRunORM.provider == provider,
                 CrmInboundSyncRunORM.connection_id.in_([*prior_ids, connection.id]),
                 CrmInboundSyncRunORM.status == "running",
             )
@@ -256,7 +257,7 @@ def _rebind_gmail_mailbox_state(
         for run in session.scalars(
             select(CrmInboundSyncRunORM).where(
                 CrmInboundSyncRunORM.workspace_id == connection.workspace_id,
-                CrmInboundSyncRunORM.provider == "gmail",
+                CrmInboundSyncRunORM.provider == provider,
                 CrmInboundSyncRunORM.connection_id.in_([*prior_ids, connection.id]),
             )
         ):
@@ -272,7 +273,7 @@ def _rebind_gmail_mailbox_state(
             select(CrmProviderRecordLinkORM)
             .where(
                 CrmProviderRecordLinkORM.workspace_id == connection.workspace_id,
-                CrmProviderRecordLinkORM.provider == "gmail",
+                CrmProviderRecordLinkORM.provider == provider,
                 CrmProviderRecordLinkORM.object_type == "message",
                 CrmProviderRecordLinkORM.connection_id.in_([*prior_ids, connection.id]),
             )
@@ -298,6 +299,24 @@ def _rebind_gmail_mailbox_state(
     connection.is_active = False
     session.flush()
     connection.is_active = True
+
+
+def _rebind_gmail_mailbox_state(
+    session: Session,
+    connection: ProviderConnectionORM,
+    mailbox_email: str,
+    now: datetime,
+) -> None:
+    _rebind_mailbox_state(session, connection, mailbox_email, now, "gmail")
+
+
+def _rebind_outlook_mailbox_state(
+    session: Session,
+    connection: ProviderConnectionORM,
+    mailbox_email: str,
+    now: datetime,
+) -> None:
+    _rebind_mailbox_state(session, connection, mailbox_email, now, "outlook")
 
 
 def create_manual_connection(
@@ -381,7 +400,9 @@ def begin_oauth_connection(
     if provider == "slack" and set(active_scopes) != set(setup.required_scopes):
         raise ValueError("Slack OAuth scopes must exactly match the configured notification scopes")
     if provider == "gmail" and set(active_scopes) != set(setup.required_scopes):
-        raise ValueError("Gmail OAuth scope must exactly match the read-only mailbox scope")
+        raise ValueError("Gmail OAuth scopes must exactly match mailbox read and send permissions")
+    if provider == "outlook" and set(active_scopes) != set(setup.required_scopes):
+        raise ValueError("Outlook OAuth scopes must exactly match the read-only Graph scope set")
     authorization_url = broker.begin(
         provider,
         connection_id,
@@ -581,7 +602,7 @@ def complete_oauth_connection(
             actor_id=actor_id,
             details={"scopes": list(row.scopes)},
         )
-    if row.provider_type == "gmail":
+    if row.provider_type in {"gmail", "outlook"}:
         record_provider_lifecycle_audit(
             session,
             row,
@@ -758,7 +779,7 @@ def _persist_validation(
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
-    if row.provider_type in {"slack", "gmail", "openai"} and validation.metadata:
+    if row.provider_type in {"slack", "gmail", "outlook", "openai"} and validation.metadata:
         row.connection_metadata = {**row.connection_metadata, **validation.metadata}
         if isinstance(validation.metadata.get("slack_team_id"), str):
             row.external_account_id = str(validation.metadata["slack_team_id"])
@@ -772,13 +793,26 @@ def _persist_validation(
             }
             row.account_name = mailbox_identity
             row.external_account_id = mailbox_identity
+        if isinstance(validation.metadata.get("outlook_email"), str):
+            mailbox_identity = str(validation.metadata["outlook_email"]).strip().casefold()
+            row.connection_metadata = {
+                **row.connection_metadata,
+                "outlook_email": mailbox_identity,
+                "outlook_account_id": validation.metadata.get("outlook_account_id", ""),
+            }
+            row.account_name = mailbox_identity
+            row.external_account_id = mailbox_identity
     row.credential_state = validation.credential_state
     row.updated_at = now
-    if row.provider_type == "gmail":
+    if row.provider_type in {"gmail", "outlook"}:
         if validation.verified and validation.status == "connected":
-            verified_mailbox = validation.metadata.get("gmail_email")
+            mailbox_key = "gmail_email" if row.provider_type == "gmail" else "outlook_email"
+            verified_mailbox = validation.metadata.get(mailbox_key)
             if isinstance(verified_mailbox, str) and verified_mailbox.strip():
-                _rebind_gmail_mailbox_state(session, row, verified_mailbox, now)
+                if row.provider_type == "gmail":
+                    _rebind_gmail_mailbox_state(session, row, verified_mailbox, now)
+                else:
+                    _rebind_outlook_mailbox_state(session, row, verified_mailbox, now)
             else:
                 row.is_active = False
         else:
@@ -792,6 +826,8 @@ def _persist_validation(
             else
             ("gmail_verified" if validation.verified else "gmail_validation")
             if row.provider_type == "gmail"
+            else ("outlook_verified" if validation.verified else "outlook_validation")
+            if row.provider_type == "outlook"
             else "connection_validation"
         ),
         outcome="verified" if validation.verified else validation.status,
@@ -814,6 +850,37 @@ def _persist_validation(
         )
     session.commit()
     session.refresh(row)
+    if (
+        validation.verified
+        and row.is_active
+        and row.provider_type in {"gmail", "outlook", "salesforce", "hubspot"}
+    ):
+        object_type = {
+            "gmail": "message",
+            "outlook": "message",
+            "salesforce": "Lead",
+            "hubspot": "contacts",
+        }[row.provider_type]
+        existing_state = session.scalar(
+            select(CrmInboundSyncStateORM).where(
+                CrmInboundSyncStateORM.workspace_id == row.workspace_id,
+                CrmInboundSyncStateORM.connection_id == row.id,
+                CrmInboundSyncStateORM.provider == row.provider_type,
+                CrmInboundSyncStateORM.object_type == object_type,
+            )
+        )
+        # A disabled state is an explicit user choice, including after a mailbox reconnect.
+        if existing_state is None:
+            from lead_agent.application.crm_inbound import configure_inbound_sync
+
+            configure_inbound_sync(
+                session,
+                row,
+                enabled=True,
+                object_type=object_type,
+                interval_seconds=60,
+                actor_id=actor_id,
+            )
     return row, validation
 
 

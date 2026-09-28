@@ -456,8 +456,12 @@ class HubSpotInboundCrmProvider:
         full_name = " ".join(part for part in (first, last) if part)
         email = str(values.get("email") or "").strip().lower()
         company = str(values.get("company") or "").strip()
-        if not full_name or not email or not company:
-            raise ValueError("HubSpot Contact requires name, email, and company for import")
+        if not full_name or not email:
+            raise ValueError("HubSpot Contact requires name and email for import")
+        # HubSpot Contacts may legitimately have no Primary company. Keep the
+        # contact visible in the lead archive instead of dropping the record.
+        if not company:
+            company = email.split("@", 1)[-1] if "@" in email else "Unknown company"
         source = str(values.get("hs_analytics_source") or "Unknown").strip() or "Unknown"
         description = str(values.get("description") or "").strip()
         source_owned = {

@@ -13,14 +13,16 @@ import {
   getRevenueAnalytics,
   getTimeSeriesAnalytics,
   listLeads,
+  listIntegrations,
   getSession,
   setActiveWorkspace,
   signOut,
   ApiError,
 } from "./api";
-import type { AuthSession, Lead, TimeRange } from "./types";
+import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
 import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
+import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
@@ -64,11 +66,15 @@ function App() {
   const [view, setView] = useState<AppView>(() =>
     new URLSearchParams(window.location.search).has("integration")
       ? "integrations"
+      : new URLSearchParams(window.location.search).has("lead")
+      ? "leads"
       : "dashboard",
   );
   const [range, setRange] = useState<TimeRange>("monthly");
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadRevision, setLeadRevision] = useState(0);
+  const [openaiSetupCard, setOpenaiSetupCard] = useState<IntegrationCard | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +84,8 @@ function App() {
   const refreshController = useRef<AbortController | null>(null);
   const leadRequestVersion = useRef(0);
   const leadController = useRef<AbortController | null>(null);
+  const leadSignature = useRef<string | null>(null);
+  const openaiPromptDismissed = useRef(new Set<string>());
 
   const refresh = useCallback(async (activeRange = range) => {
     refreshController.current?.abort();
@@ -102,6 +110,11 @@ function App() {
       if (requestVersion !== refreshVersion.current) return;
       setData({ dashboard, channels, pipeline, revenue, reps, series, agents, review });
       setLeads(leadRows.items);
+      const nextSignature = JSON.stringify([leadRows.total, leadRows.items[0] ?? null]);
+      if (leadSignature.current !== null && leadSignature.current !== nextSignature) {
+        setLeadRevision((current) => current + 1);
+      }
+      leadSignature.current = nextSignature;
     } catch (requestError) {
       if (requestVersion === refreshVersion.current && !controller.signal.aborted) {
         controller.abort();
@@ -132,13 +145,47 @@ function App() {
 
   useEffect(() => {
     if (!auth) return;
+    leadSignature.current = null;
     void refresh(range);
     return () => refreshController.current?.abort();
   }, [auth?.current_workspace_id, range, refresh]);
 
   useEffect(() => {
+    if (!auth) return;
+    const controller = new AbortController();
+    let inFlight = false;
+    const poll = async () => {
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await listLeads({ limit: 1 }, controller.signal);
+        const nextSignature = JSON.stringify([result.total, result.items[0] ?? null]);
+        if (leadSignature.current !== null && leadSignature.current !== nextSignature) {
+          void refresh();
+        } else if (leadSignature.current === null) {
+          leadSignature.current = nextSignature;
+        }
+      } catch (pollError) {
+        if (pollError instanceof ApiError && pollError.status === 401) setAuth(null);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 12000);
+    const onVisible = () => { if (document.visibilityState === "visible") void poll(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [auth?.current_workspace_id, refresh]);
+
+  useEffect(() => {
     if (!auth) {
       setWorkspacePermissions(new Set());
+      setOpenaiSetupCard(null);
+      openaiPromptDismissed.current.clear();
       return;
     }
     const workspace = auth.workspaces.find(
@@ -146,6 +193,21 @@ function App() {
     );
     setWorkspacePermissions(new Set(workspace?.effective_permissions ?? []));
   }, [auth?.current_workspace_id, auth?.user.id, auth?.workspaces]);
+
+  useEffect(() => {
+    if (!auth) return;
+    setOpenaiSetupCard(null);
+    const workspace = auth.workspaces.find((item) => item.id === auth.current_workspace_id);
+    if (!workspace?.effective_permissions.includes("integrations.manage") ||
+        openaiPromptDismissed.current.has(auth.current_workspace_id)) return;
+    let active = true;
+    void listIntegrations().then((cards) => {
+      if (!active) return;
+      const openai = cards.find((card) => card.provider === "openai");
+      setOpenaiSetupCard(openai?.connection?.status === "verified" ? null : openai ?? null);
+    }).catch(() => { if (active) setOpenaiSetupCard(null); });
+    return () => { active = false; };
+  }, [auth?.user.id, auth?.current_workspace_id]);
 
   useEffect(() => () => {
     refreshController.current?.abort();
@@ -169,7 +231,27 @@ function App() {
     }
   }, []);
 
-  const handleInspectLead = useCallback((id: string) => { void inspectLead(id); }, [inspectLead]);
+  const handleInspectLead = useCallback((id: string) => {
+    setView("leads");
+    void inspectLead(id);
+  }, [inspectLead]);
+
+  const closeLead = useCallback(() => {
+    leadController.current?.abort();
+    leadRequestVersion.current += 1;
+    setSelectedLead(null);
+    if (new URLSearchParams(window.location.search).has("lead")) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("lead");
+      window.history.replaceState({}, "", url);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!auth || !can(workspacePermissions, "leads.view")) return;
+    const leadId = new URLSearchParams(window.location.search).get("lead");
+    if (leadId && /^[0-9a-f-]{36}$/i.test(leadId)) void inspectLead(leadId);
+  }, [auth?.current_workspace_id, workspacePermissions, inspectLead]);
 
   function navigate(next: AppView) {
     setView(next);
@@ -249,13 +331,13 @@ function App() {
         {loading && !data && view !== "settings" && view !== "team" && view !== "icp" ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
             {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "leads" && <LeadsView selected={selectedLead} onInspect={handleInspectLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
+            {view === "leads" && <LeadsView selected={selectedLead} revision={leadRevision} onInspect={handleInspectLead} onClose={closeLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { setSelectedLead(null); setLeads((current) => current.filter((item) => item.id !== leadId)); void refresh(); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
             {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
             {view === "analytics" && <AnalyticsView data={data} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView permissions={workspacePermissions} />}
-            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} />}
+            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} />}
             {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
             {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
           </div>
@@ -266,6 +348,7 @@ function App() {
         </footer>
       </main>
       {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}
+      {openaiSetupCard && <OpenAISetupPrompt card={openaiSetupCard} onVerified={() => { setOpenaiSetupCard(null); void refresh(); }} onLater={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); }} onSettings={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); setView("integrations"); }} />}
     </div>
   );
 }

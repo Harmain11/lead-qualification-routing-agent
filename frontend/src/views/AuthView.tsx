@@ -1,36 +1,58 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
-import { signIn, signUp, startDevelopmentSession } from "../api";
+import { getPasswordSignupStatus, resendVerification, signIn, signInWithWorkspaceCode, signUp, startDevelopmentSession, startGoogleAuth } from "../api";
 import type { AuthSession } from "../types";
 
 const BRAND = "/asset/brand";
 
 export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthSession) => void }) {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "access">("signin");
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passwordSignupEnabled, setPasswordSignupEnabled] = useState(true);
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
   const [form, setForm] = useState({
     email: "",
     password: "",
     display_name: "",
     workspace_name: "",
+    workspace_id: "",
+    access_code: "",
   });
+
+  useEffect(() => {
+    void getPasswordSignupStatus()
+      .then((status) => setPasswordSignupEnabled(status.enabled))
+      .catch(() => setPasswordSignupEnabled(false));
+    const verification = new URLSearchParams(window.location.search).get("email_verification");
+    if (verification === "expired") setError("This verification link has expired. Request a new one below.");
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (mode === "signup" && step === 1) {
+      if (!passwordSignupEnabled) return;
       setStep(2);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const session = mode === "signin"
-        ? await signIn(form.email, form.password)
-        : await signUp(form);
-      onAuthenticated(session);
+      if (mode === "access") {
+        onAuthenticated(await signInWithWorkspaceCode({
+          workspace_id: form.workspace_id,
+          code: form.access_code,
+          email: form.email,
+          display_name: form.display_name,
+        }));
+      } else if (mode === "signin") {
+        onAuthenticated(await signIn(form.email, form.password));
+      } else {
+        await signUp(form);
+        setAwaitingVerification(true);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Authentication failed");
     } finally {
@@ -50,10 +72,30 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
     }
   }
 
-  function switchMode(next: "signin" | "signup") {
+  function switchMode(next: "signin" | "signup" | "access") {
     setMode(next);
     setStep(1);
     setError(null);
+    setAwaitingVerification(false);
+  }
+
+  async function resend() {
+    setBusy(true);
+    setError(null);
+    try {
+      await resendVerification(form.email);
+      setError("If the address has a pending account, a new verification link has been sent.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to resend verification");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function continueWithGoogle() {
+    setBusy(true);
+    setError(null);
+    startGoogleAuth();
   }
 
   return (
@@ -83,23 +125,47 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
         <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
           <button role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "active" : ""} onClick={() => switchMode("signin")}>Sign in</button>
           <button role="tab" aria-selected={mode === "signup"} className={mode === "signup" ? "active" : ""} onClick={() => switchMode("signup")}>Create account</button>
+          <button role="tab" aria-selected={mode === "access"} className={mode === "access" ? "active" : ""} onClick={() => switchMode("access")}>Staff access</button>
         </div>
         <div className="auth-copy">
-          <span className="eyebrow">{mode === "signin" ? "Welcome back" : step === 1 ? "Your identity" : "Workspace setup"}</span>
-          <h2 id="auth-title">{mode === "signin" ? "Enter the control center." : step === 1 ? "Create your secure account." : "Name your operations workspace."}</h2>
-          <p>{mode === "signin" ? "Your session resolves only the workspaces you belong to." : "Workspace ownership keeps leads, analytics, and provider accounts isolated."}</p>
+          <span className="eyebrow">{mode === "signin" ? "Welcome back" : mode === "access" ? "Admin-issued access" : step === 1 ? "Your identity" : "Workspace setup"}</span>
+          <h2 id="auth-title">{mode === "signin" ? "Enter the control center." : mode === "access" ? "Enter with a workspace code." : step === 1 ? "Create your secure account." : "Name your operations workspace."}</h2>
+          <p>{mode === "signin" ? "Your session resolves only the workspaces you belong to." : mode === "access" ? "Ask your workspace admin for the workspace ID and one-time staff code." : "Workspace ownership keeps leads, analytics, and provider accounts isolated."}</p>
         </div>
-        <form className="auth-form" onSubmit={submit}>
-          {mode === "signup" && step === 1 && <label>Full name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>}
-          {(mode === "signin" || step === 1) && <>
-            <label>Work email<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" /></label>
-            <label>Password<input required minLength={mode === "signup" ? 10 : 1} type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="••••••••••" /></label>
-          </>}
-          {mode === "signup" && step === 2 && <label>Workspace name<input required autoFocus value={form.workspace_name} onChange={(event) => setForm({ ...form, workspace_name: event.target.value })} placeholder="Acme Revenue Operations" /></label>}
-          {error && <div className="auth-error" role="alert">{error}</div>}
-          <button className="auth-submit" disabled={busy}>{busy ? "Securing session…" : mode === "signin" ? "Sign in securely" : step === 1 ? "Continue to workspace" : "Create workspace"}</button>
-          {mode === "signup" && step === 2 && <button type="button" className="auth-back" onClick={() => setStep(1)}>← Back to account details</button>}
-        </form>
+        {mode !== "access" && <button type="button" className="google-auth-button" onClick={continueWithGoogle} disabled={busy}>
+          <span aria-hidden="true">G</span> Continue with Google
+        </button>}
+        {mode !== "access" && <div className="auth-divider"><span>or</span></div>}
+        {mode === "signup" && !passwordSignupEnabled ? (
+          <div className="auth-verification-state" role="status">
+            Email signup is temporarily unavailable. Continue with Google to create your workspace.
+          </div>
+        ) : awaitingVerification ? (
+          <div className="auth-verification-state" role="status">
+            <strong>Check your email</strong>
+            <span>We sent a verification link. Your workspace activates after you verify this address.</span>
+            {error && <div className="auth-error" role="alert">{error}</div>}
+            <button type="button" className="auth-submit" onClick={() => void resend()} disabled={busy}>Resend verification</button>
+          </div>
+        ) : (
+          <form className="auth-form" onSubmit={submit}>
+            {mode === "access" && <>
+              <label>Workspace ID<input required autoFocus value={form.workspace_id} onChange={(event) => setForm({ ...form, workspace_id: event.target.value })} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /></label>
+              <label>Staff access code<input required type="password" autoComplete="one-time-code" value={form.access_code} onChange={(event) => setForm({ ...form, access_code: event.target.value })} placeholder="Paste the code from your admin" /></label>
+              <label>Your work email<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" /></label>
+              <label>Your name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>
+            </>}
+            {mode === "signup" && step === 1 && <label>Full name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>}
+            {(mode === "signin" || (mode === "signup" && step === 1)) && <>
+              <label>Work email<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" /></label>
+              <label>Password<input required minLength={mode === "signup" ? 10 : 1} type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="••••••••••" /></label>
+            </>}
+            {mode === "signup" && step === 2 && <label>Workspace name<input required autoFocus value={form.workspace_name} onChange={(event) => setForm({ ...form, workspace_name: event.target.value })} placeholder="Acme Revenue Operations" /></label>}
+            {error && <div className="auth-error" role="alert">{error}</div>}
+            <button className="auth-submit" disabled={busy}>{busy ? "Securing session…" : mode === "access" ? "Enter workspace" : mode === "signin" ? "Sign in" : step === 1 ? "Continue to workspace" : "Create workspace"}</button>
+            {mode === "signup" && step === 2 && <button type="button" className="auth-back" onClick={() => setStep(1)}>← Back to account details</button>}
+          </form>
+        )}
         {import.meta.env.DEV && <>
           <div className="auth-divider"><span>development tools</span></div>
           <button className="demo-session" onClick={() => void localWorkspace()} disabled={busy}>Continue to local workspace</button>

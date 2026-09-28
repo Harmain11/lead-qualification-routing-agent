@@ -458,6 +458,15 @@ def manually_sync_lead_to_crm(
 ) -> CrmSyncORM:
     """Audited command boundary for every application-to-CRM write."""
 
+    imported_source = (lead.source_detail or "").lower()
+    if (
+        provider.provider_name == "salesforce"
+        and imported_source.startswith("crm-import:salesforce:")
+    ):
+        raise ValueError(
+            "Salesforce-imported leads are not written back to Salesforce."
+        )
+
     connection_id = getattr(provider, "connection_id", None)
     existing = _existing_entities(
         session, lead.id, provider.provider_name, connection_id

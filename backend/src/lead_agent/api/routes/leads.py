@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from lead_agent.api.dependencies import (
@@ -38,8 +38,10 @@ from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
     CrmSyncORM,
     LeadORM,
+    NotificationORM,
     QualificationResultORM,
     RoutingDecisionORM,
+    SourceEventORM,
     UserORM,
     WorkspaceORM,
 )
@@ -67,6 +69,41 @@ class LeadTitleUpdateRequest(BaseModel):
         if not value:
             raise ValueError("Job title cannot be blank")
         return value
+
+
+class LeadBulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lead_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+def _delete_lead(
+    session: Session,
+    row: LeadORM,
+    *,
+    actor_id: str,
+) -> None:
+    """Delete only the local copy; future matching source records may re-enter."""
+    now = datetime.now(UTC)
+    if row.source_event_id:
+        event = session.get(SourceEventORM, row.source_event_id)
+        if event is not None:
+            event.status = "deleted"
+            event.error_message = "Lead deleted by workspace user; source may be imported again."
+            event.updated_at = now
+    # CRM sync rows and notifications reference routing decisions with
+    # restrictive foreign keys. Remove those dependants explicitly before the
+    # database cascades the rest of the lead graph.
+    routing_ids = select(RoutingDecisionORM.id).where(RoutingDecisionORM.lead_id == row.id)
+    session.execute(delete(CrmSyncORM).where(CrmSyncORM.lead_id == row.id))
+    session.execute(delete(NotificationORM).where(NotificationORM.routing_decision_id.in_(routing_ids)))
+    session.execute(delete(RoutingDecisionORM).where(RoutingDecisionORM.lead_id == row.id))
+    session.execute(
+        delete(LeadORM).where(
+            LeadORM.id == row.id,
+            LeadORM.workspace_id == row.workspace_id,
+        )
+    )
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:
@@ -144,7 +181,10 @@ def list_all_leads(
             )
         )
     if source:
-        conditions.append(LeadORM.source == source)
+        if source in {"salesforce", "hubspot"}:
+            conditions.append(LeadORM.source_detail.ilike(f"crm-import:{source}:%"))
+        else:
+            conditions.append(LeadORM.source == source)
     if qualification_band:
         conditions.append(QualificationResultORM.classification == qualification_band)
     if date_from:
@@ -202,6 +242,26 @@ def list_all_leads(
         offset=offset,
         has_more=offset + len(rows) < total,
     )
+
+
+@router.post("/bulk-delete")
+def delete_leads(
+    request: LeadBulkDeleteRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> dict[str, int]:
+    rows = list(
+        session.scalars(
+            select(LeadORM).where(
+                LeadORM.workspace_id == workspace.workspace_id,
+                LeadORM.id.in_(request.lead_ids),
+            )
+        )
+    )
+    for row in rows:
+        _delete_lead(session, row, actor_id=workspace.actor_id)
+    session.commit()
+    return {"deleted": len(rows), "requested": len(set(request.lead_ids))}
 
 
 @router.post("/export")
@@ -280,6 +340,20 @@ def export_leads(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.delete("/{lead_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lead(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> Response:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    _delete_lead(session, row, actor_id=workspace.actor_id)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)

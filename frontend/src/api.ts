@@ -14,6 +14,8 @@ import type {
   ProviderConnection,
   RepAnalytics,
   RevenueAnalytics,
+  RoutingConfig,
+  PublicIntakeConfig,
   TimeRange,
   TimeSeriesAnalytics,
   AuthSession,
@@ -25,6 +27,7 @@ import type {
   IcpPreview,
   IcpValidation,
   IcpVersion,
+  SlackNotificationConfig,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -46,6 +49,26 @@ export function setActiveWorkspace(workspaceId: string) {
 
 export function getActiveWorkspace() {
   return activeWorkspaceId;
+}
+
+export function getRoutingConfig(): Promise<RoutingConfig> {
+  return request<RoutingConfig>("/v1/leads/routing/config");
+}
+
+export function updateRoutingConfig(member_weights: Record<string, number>): Promise<RoutingConfig> {
+  return request<RoutingConfig>("/v1/leads/routing/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ member_weights }),
+  });
+}
+
+export function getPublicIntakeConfig(): Promise<PublicIntakeConfig> {
+  return request<PublicIntakeConfig>("/v1/intake/public-config");
+}
+
+export function rotatePublicIntakeConfig(): Promise<PublicIntakeConfig> {
+  return request<PublicIntakeConfig>("/v1/intake/public-config/rotate", { method: "POST" });
 }
 
 export function apiUrl(path: string) {
@@ -117,19 +140,49 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   return session;
 }
 
-export async function signUp(input: {
+export async function signInWithWorkspaceCode(input: {
+  workspace_id: string;
+  code: string;
   email: string;
-  password: string;
   display_name: string;
-  workspace_name: string;
 }): Promise<AuthSession> {
-  const session = await request<AuthSession>("/v1/auth/signup", {
+  const session = await request<AuthSession>("/v1/auth/workspace-code", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
   setActiveWorkspace(session.current_workspace_id);
   return session;
+}
+
+export async function signUp(input: {
+  email: string;
+  password: string;
+  display_name: string;
+  workspace_name: string;
+}): Promise<{ message: string }> {
+  return request<{ message: string }>("/v1/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export const getPasswordSignupStatus = () =>
+  request<{ enabled: boolean }>("/v1/auth/password-signup/status");
+
+export const resendVerification = (email: string) =>
+  request<{ message: string }>("/v1/auth/resend-verification", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+export function startGoogleAuth(invitationToken?: string): void {
+  const query = invitationToken
+    ? `?invitation_token=${encodeURIComponent(invitationToken)}`
+    : "";
+  window.location.assign(apiUrl(`/v1/auth/google/start${query}`));
 }
 
 export async function startDevelopmentSession(): Promise<AuthSession> {
@@ -219,7 +272,7 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
 }
 
 export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {
-  const objectType = provider === "hubspot" ? "contacts" : provider === "gmail" ? "message" : "Lead";
+  const objectType = provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead";
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state?object_type=${objectType}`);
 }
 
@@ -232,7 +285,7 @@ export function configureInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, object_type: provider === "hubspot" ? "contacts" : provider === "gmail" ? "message" : "Lead", interval_seconds: intervalSeconds }),
+    body: JSON.stringify({ enabled, object_type: provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", interval_seconds: intervalSeconds }),
   });
 }
 
@@ -244,7 +297,7 @@ export function runInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : provider === "gmail" ? "message" : "Lead", limit: provider === "gmail" ? 100 : 500, page_size: 100 }),
+    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100 }),
   });
 }
 
@@ -261,12 +314,25 @@ export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead>
   });
 }
 
-export function bulkSendLeadsToCrm(leadIds: string[]): Promise<{
+export function deleteLead(leadId: string): Promise<void> {
+  return jsonRequest<void>(`/v1/leads/${leadId}`, { method: "DELETE" });
+}
+
+export function bulkDeleteLeads(leadIds: string[]): Promise<{ requested: number; deleted: number }> {
+  return jsonRequest(`/v1/leads/bulk-delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lead_ids: leadIds }),
+  });
+}
+
+export function bulkSendLeadsToCrm(leadIds: string[], provider: string): Promise<{
   requested: number;
   succeeded: number;
   failed: number;
+  results: Array<{ lead_id: string; status: string; error?: string | null }>;
 }> {
-  return jsonRequest("/v1/leads/bulk-crm-sync", {
+  return jsonRequest(`/v1/leads/bulk-crm-sync?provider=${encodeURIComponent(provider)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lead_ids: leadIds, confirmed: true }),
@@ -293,9 +359,18 @@ export function testIntegration(connectionId: string): Promise<{ connection: Pro
   return jsonRequest(`/v1/integrations/connections/${connectionId}/test`, { method: "POST" });
 }
 
+export function backfillOpenAI(connectionId: string): Promise<{ status: string; queued_count: number; message: string }> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-openai`, { method: "POST" });
+}
+
 export type SlackChannel = { id: string; name: string };
 export function listSlackChannels(connectionId: string): Promise<SlackChannel[]> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels`);
+}
+
+export type SlackMember = { id: string; name: string };
+export function listSlackChannelMembers(connectionId: string, channelId: string): Promise<SlackMember[]> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels/${encodeURIComponent(channelId)}/members`);
 }
 export function selectSlackChannel(connectionId: string, channelId: string): Promise<SlackChannel> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channel`, {
@@ -304,6 +379,28 @@ export function selectSlackChannel(connectionId: string, channelId: string): Pro
 }
 export function sendSlackTestNotification(connectionId: string): Promise<{ sent: boolean; message: string }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-test-notification`, { method: "POST" });
+}
+
+export function getSlackNotificationConfig(): Promise<SlackNotificationConfig> {
+  return jsonRequest("/v1/integrations/slack/notification-config");
+}
+
+export function updateSlackNotificationConfig(config: {
+  default_connection_id: string | null;
+  rules: Array<{
+    id?: string;
+    name: string;
+    connection_id: string;
+    queues: string[];
+    qualification_bands: string[];
+    sources: string[];
+  }>;
+}): Promise<SlackNotificationConfig> {
+  return jsonRequest("/v1/integrations/slack/notification-config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
 }
 
 export function disconnectIntegration(connectionId: string): Promise<ProviderConnection> {

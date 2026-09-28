@@ -9,18 +9,27 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.main import app
-from lead_agent.application.integrations import create_manual_connection
-from lead_agent.domain.integrations import ManualConnectionInput
+from lead_agent.application.crm_inbound import configure_inbound_sync
+from lead_agent.application.integrations import create_manual_connection, validate_connection
+from lead_agent.domain.integrations import ConnectionValidation, ManualConnectionInput
 from lead_agent.infrastructure.crm.hubspot import HubSpotConnectionValidator
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     AuthSessionORM,
+    CrmInboundSyncStateORM,
+    EmailVerificationTokenORM,
     ProviderConnectionORM,
+    UserORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.email import (
+    CaptureEmailProvider,
+    DisabledEmailProvider,
+    get_email_provider,
+)
 from lead_agent.infrastructure.oauth import DevelopmentOAuthBroker, get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import get_provider_connection_validator
 from lead_agent.infrastructure.secrets import DevelopmentSecretStore, get_secret_store
@@ -46,13 +55,15 @@ def auth_harness(tmp_path):
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_runtime_settings] = lambda: settings
+    provider = CaptureEmailProvider()
+    app.dependency_overrides[get_email_provider] = lambda: provider
     app.dependency_overrides[get_secret_store] = lambda: DevelopmentSecretStore()
     app.dependency_overrides[get_oauth_broker] = lambda: DevelopmentOAuthBroker()
     return session
 
 
 def signup(client: TestClient, email: str = "owner@example.test"):
-    return client.post(
+    created = client.post(
         "/v1/auth/signup",
         json={
             "email": email,
@@ -61,10 +72,117 @@ def signup(client: TestClient, email: str = "owner@example.test"):
             "workspace_name": f"{email} workspace",
         },
     )
+    assert created.status_code == 202
+    token = created_request_token(app.dependency_overrides[get_email_provider]())
+    verified = client.get("/v1/auth/verify-email", params={"token": token}, follow_redirects=False)
+    assert verified.status_code == 303
+    signed_in = client.post(
+        "/v1/auth/signin",
+        json={"email": email, "password": "correct-horse-battery-staple"},
+    )
+    return signed_in
+
+
+def created_request_token(provider: CaptureEmailProvider) -> str:
+    from urllib.parse import parse_qs, urlsplit
+
+    assert provider.messages
+    return parse_qs(urlsplit(provider.messages[-1].verification_url).query)["verify_email"][0]
 
 
 def csrf(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("lead_agent_csrf") or ""}
+
+
+def test_password_signup_is_pending_until_single_use_verification(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            created = client.post(
+                "/v1/auth/signup",
+                json={
+                    "email": "pending@example.test",
+                    "password": "correct-horse-battery-staple",
+                    "display_name": "Pending Owner",
+                    "workspace_name": "Pending Workspace",
+                },
+            )
+            assert created.status_code == 202
+            assert client.cookies.get("lead_agent_session") is None
+            user = session.scalar(select(UserORM).where(UserORM.email == "pending@example.test"))
+            assert user is not None and user.status == "pending_email"
+            assert (
+                session.scalar(
+                    select(WorkspaceMembershipORM).where(
+                        WorkspaceMembershipORM.user_id == user.id
+                    )
+                )
+                is None
+            )
+            assert client.post(
+                "/v1/auth/signin",
+                json={"email": "pending@example.test", "password": "correct-horse-battery-staple"},
+            ).status_code == 401
+
+            provider = app.dependency_overrides[get_email_provider]()
+            assert client.post(
+                "/v1/auth/resend-verification",
+                json={"email": "pending@example.test"},
+            ).status_code == 202
+            assert len(provider.messages) == 1
+            token = created_request_token(provider)
+            verified = client.get(
+                "/v1/auth/verify-email", params={"token": token}, follow_redirects=False
+            )
+            assert verified.status_code == 303
+            assert "email_verification=verified" in verified.headers["location"]
+            assert client.get("/v1/auth/session").status_code == 200
+            assert (
+                session.scalar(
+                    select(WorkspaceMembershipORM).where(
+                        WorkspaceMembershipORM.user_id == user.id
+                    )
+                )
+                is not None
+            )
+            replay = client.get(
+                "/v1/auth/verify-email", params={"token": token}, follow_redirects=False
+            )
+            assert replay.status_code == 303
+            assert "email_verification=expired" in replay.headers["location"]
+            assert (
+                session.scalar(
+                    select(EmailVerificationTokenORM).where(
+                        EmailVerificationTokenORM.consumed_at.is_not(None)
+                    )
+                )
+                is not None
+            )
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_password_signup_is_closed_when_email_delivery_is_unconfigured(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    app.dependency_overrides[get_email_provider] = lambda: DisabledEmailProvider()
+    try:
+        with TestClient(app) as client:
+            assert client.get("/v1/auth/password-signup/status").json() == {"enabled": False}
+            response = client.post(
+                "/v1/auth/signup",
+                json={
+                    "email": "closed@example.test",
+                    "password": "correct-horse-battery-staple",
+                    "display_name": "Closed Owner",
+                    "workspace_name": "Closed Workspace",
+                },
+            )
+            assert response.status_code == 503
+            assert response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
 
 
 def test_production_api_requires_authentication(tmp_path) -> None:
@@ -86,7 +204,7 @@ def test_signup_session_and_signout_lifecycle(tmp_path) -> None:
     try:
         with TestClient(app) as client:
             created = signup(client)
-            assert created.status_code == 201
+            assert created.status_code == 200
             body = created.json()
             assert body["user"]["email"] == "owner@example.test"
             assert len(body["workspaces"]) == 1
@@ -112,7 +230,7 @@ def test_suspended_member_cannot_use_provider_actions(tmp_path) -> None:
     app.dependency_overrides[get_secret_store] = lambda: store
     try:
         with TestClient(app) as client:
-            assert signup(client).status_code == 201
+            assert signup(client).status_code == 200
             membership = session.scalar(select(WorkspaceMembershipORM))
             assert membership is not None
             connection = create_manual_connection(
@@ -149,7 +267,7 @@ def test_session_reports_current_workspace_permission_overrides(tmp_path) -> Non
     session = auth_harness(tmp_path)
     try:
         with TestClient(app) as client:
-            assert signup(client).status_code == 201
+            assert signup(client).status_code == 200
             membership = session.scalar(select(WorkspaceMembershipORM))
             assert membership is not None
             membership.permission_overrides = {
@@ -173,7 +291,7 @@ def test_signin_rejects_bad_password_and_restores_session(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:
         with TestClient(app) as first:
-            assert signup(first).status_code == 201
+            assert signup(first).status_code == 200
         with TestClient(app) as client:
             denied = client.post(
                 "/v1/auth/signin",
@@ -198,7 +316,7 @@ def test_signin_rotates_and_revokes_existing_session(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:
         with TestClient(app) as client:
-            assert signup(client).status_code == 201
+            assert signup(client).status_code == 200
             original_token = client.cookies.get("lead_agent_session")
             accepted = client.post(
                 "/v1/auth/signin",
@@ -211,8 +329,8 @@ def test_signin_rotates_and_revokes_existing_session(tmp_path) -> None:
             rows = list(session.scalars(select(AuthSessionORM)))
             assert accepted.status_code == 200
             assert original_token and rotated_token and original_token != rotated_token
-            assert len(rows) == 2
-            assert sum(row.revoked_at is not None for row in rows) == 1
+            assert len(rows) == 3
+            assert sum(row.revoked_at is not None for row in rows) == 2
     finally:
         app.dependency_overrides.clear()
         session.close()
@@ -304,7 +422,7 @@ def test_revoked_current_membership_cannot_restore_or_access_workspace(tmp_path)
     session = auth_harness(tmp_path)
     try:
         with TestClient(app) as client:
-            assert signup(client).status_code == 201
+            assert signup(client).status_code == 200
             membership = session.scalar(select(WorkspaceMembershipORM))
             assert membership is not None
             membership.status = "inactive"
@@ -424,7 +542,7 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
     )
     try:
         with TestClient(app) as client:
-            assert signup(client).status_code == 201
+            assert signup(client).status_code == 200
             started = client.post(
                 "/v1/integrations/hubspot/connect",
                 headers=csrf(client),
@@ -492,6 +610,19 @@ def test_browser_oauth_callback_uses_connection_workspace_after_workspace_switch
     session = auth_harness(tmp_path)
     store = DevelopmentSecretStore()
     app.dependency_overrides[get_secret_store] = lambda: store
+    class Validator:
+        def validate(self, provider, credentials, scopes):
+            assert provider == "hubspot"
+            assert credentials["access_token"]
+            return ConnectionValidation(
+                valid=True,
+                verified=True,
+                status="connected",
+                credential_state="configured",
+                message="Provider accepted the credentials.",
+            )
+
+    app.dependency_overrides[get_provider_connection_validator] = lambda: Validator()
     try:
         with TestClient(app) as client:
             signup_body = signup(client).json()
@@ -545,7 +676,27 @@ def test_browser_oauth_callback_uses_connection_workspace_after_workspace_switch
             assert callback.headers["location"].endswith("?integration=hubspot&status=connected")
             assert connection is not None
             assert connection.workspace_id == UUID(signup_body["current_workspace_id"])
-            assert connection.status == "connected"
+            assert connection.status == "verified"
+            inbound = session.scalar(select(CrmInboundSyncStateORM))
+            assert inbound is not None
+            assert inbound.connection_id == connection.id
+            assert inbound.object_type == "contacts"
+            assert inbound.enabled is True
+            assert inbound.sync_interval_seconds == 60
+            configure_inbound_sync(
+                session, connection, enabled=False, object_type="contacts", actor_id="owner"
+            )
+            validate_connection(
+                session,
+                connection.workspace_id,
+                connection.id,
+                store,
+                DevelopmentOAuthBroker(),
+                Validator(),
+                "owner",
+            )
+            session.refresh(inbound)
+            assert inbound.enabled is False
     finally:
         app.dependency_overrides.clear()
         session.close()

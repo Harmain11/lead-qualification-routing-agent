@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NotificationState = Literal["pending", "sent", "failed", "retryable"]
+NotificationState = Literal["pending", "sent", "failed", "retryable", "suppressed"]
 RoutePriority = Literal["urgent", "high", "normal", "low", "none"]
 
 
@@ -22,6 +22,8 @@ class ActionPlan(BaseModel):
     potential_objections: list[str] = Field(default_factory=list)
     next_step_recommendation: str
     supporting_evidence: list[str] = Field(default_factory=list)
+    follow_up_strategy: list[str] = Field(default_factory=list)
+    conversion_goal: str = ""
 
 
 class NotificationMessage(BaseModel):

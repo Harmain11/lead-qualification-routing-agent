@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-import { bulkSendLeadsToCrm, createLead, exportLeads, listLeads } from "../api";
+import { bulkDeleteLeads, bulkSendLeadsToCrm, createLead, exportLeads, getPublicIntakeConfig, getRoutingConfig, listIntegrations, listLeads, rotatePublicIntakeConfig, updateRoutingConfig } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
@@ -17,6 +18,7 @@ import type {
   PipelineAnalytics,
   RepAnalytics,
   RevenueAnalytics,
+  RoutingConfig,
   TimeSeriesAnalytics,
 } from "../types";
 
@@ -59,10 +61,16 @@ const LEAD_SOURCE_OPTIONS = [
   "phone_inquiry",
   "partner_referral",
   "clutch",
+  "salesforce",
+  "hubspot",
 ];
 
 export const pretty = (value: string) =>
   value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const crmOrigin = (lead: Lead) => {
+  const match = lead.source_detail?.match(/^crm-import:(salesforce|hubspot):/i);
+  return match ? pretty(match[1]) : null;
+};
 export const money = (value: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -154,17 +162,23 @@ export function DashboardView({
 
 export function LeadsView({
   selected,
+  revision,
   onInspect,
+  onClose,
   onCreated,
   onUpdated,
+  onDeleted,
   canEdit = true,
   canExport = false,
   canCrmSync = false,
 }: {
   selected: Lead | null;
+  revision: number;
   onInspect: (id: string) => void;
+  onClose: () => void;
   onCreated: (lead: Lead) => void;
   onUpdated: (lead: Lead) => void;
+  onDeleted: (leadId: string) => void;
   canEdit?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
@@ -180,19 +194,55 @@ export function LeadsView({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const hasLoadedRows = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [crmNotice, setCrmNotice] = useState<string | null>(null);
+  const [crmProviders, setCrmProviders] = useState<string[]>([]);
+  const [bulkProvider, setBulkProvider] = useState("");
+  useEffect(() => {
+    if (!selected) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [selected, onClose]);
+  useEffect(() => {
+    if (!canCrmSync) return;
+    let active = true;
+    void listIntegrations().then((cards) => {
+      if (!active) return;
+      const providers = cards.filter((card) =>
+        card.category.toLowerCase() === "crm" && card.directionality.manual_outbound &&
+        card.connection?.is_active && card.connection.verification_status === "verified"
+      ).map((card) => card.provider);
+      setCrmProviders(providers);
+      setBulkProvider((current) => providers.includes(current) ? current : providers.length === 1 ? providers[0] : "");
+    }).catch(() => { if (active) setCrmProviders([]); });
+    return () => { active = false; };
+  }, [canCrmSync]);
   useEffect(() => {
     setPage(0);
     setSelectedIds(new Set());
   }, [search, band, source, dateFrom, dateTo]);
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") setRefreshKey((value) => value + 1);
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
     let active = true;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      setLoading(true);
+      if (!hasLoadedRows.current) setLoading(true);
       setLoadError(null);
       void listLeads({
         limit: LEAD_PAGE_SIZE,
@@ -207,6 +257,7 @@ export function LeadsView({
           if (!active) return;
           setRows(result.items);
           setTotal(result.total);
+          hasLoadedRows.current = true;
         })
         .catch((reason) => {
           if (active && !controller.signal.aborted) {
@@ -222,7 +273,7 @@ export function LeadsView({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [search, band, source, dateFrom, dateTo, page, refreshKey]);
+  }, [search, band, source, dateFrom, dateTo, page, refreshKey, revision]);
 
   const visibleSelected = rows.filter((lead) => selectedIds.has(lead.id)).length;
   const toggleSelected = (id: string) => setSelectedIds((current) => {
@@ -240,6 +291,18 @@ export function LeadsView({
   const firstRecord = total === 0 ? 0 : page * LEAD_PAGE_SIZE + 1;
   const lastRecord = Math.min((page + 1) * LEAD_PAGE_SIZE, total);
   const hasFilters = Boolean(search.trim() || band !== "all" || source !== "all" || dateFrom || dateTo);
+  const deleteSelected = async () => {
+    if (!selectedIds.size || !window.confirm(`Delete ${selectedIds.size} selected lead${selectedIds.size === 1 ? "" : "s"}? A later matching inquiry can be imported again.`)) return;
+    try {
+      const result = await bulkDeleteLeads([...selectedIds]);
+      setSelectedIds(new Set());
+      setCrmNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} deleted. Later matching inquiries can be imported again.`);
+      setRefreshKey((value) => value + 1);
+      void onDeleted("bulk");
+    } catch (error) {
+      setCrmNotice(error instanceof Error ? error.message : "Unable to delete selected leads");
+    }
+  };
 
   return (
     <div className="page-view operational-page">
@@ -260,7 +323,7 @@ export function LeadsView({
           <label className="date-filter"><span className="sr-only">Received to</span><input aria-label="Received to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
            <span>{total.toLocaleString()} records</span>
          </div>
-         {rows.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={rows.length > 0 && visibleSelected === rows.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <button className="button-quiet" disabled={!selectedIds.size} onClick={async () => { if (!window.confirm(`Send or update ${selectedIds.size} selected leads in the connected CRM?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds]); setCrmNotice(`${result.succeeded} CRM writes completed; ${result.failed} failed.`); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM write failed"); } }}>Send selected to CRM</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
+         {rows.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={rows.length > 0 && visibleSelected === rows.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <><label>Transfer to <select aria-label="Bulk CRM provider" value={bulkProvider} onChange={(event) => setBulkProvider(event.target.value)}><option value="">Select CRM</option>{crmProviders.map((provider) => <option key={provider} value={provider}>{provider === "hubspot" ? "HubSpot" : pretty(provider)}</option>)}</select></label><button className="button-quiet" disabled={!selectedIds.size || !bulkProvider} onClick={async () => { if (!window.confirm(`Transfer or update ${selectedIds.size} selected leads in ${bulkProvider === "hubspot" ? "HubSpot" : pretty(bulkProvider)}?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds], bulkProvider); const providerLabel = bulkProvider === "hubspot" ? "HubSpot" : pretty(bulkProvider); const firstFailure = result.results.find((item) => item.status !== "synced" && item.error)?.error; setCrmNotice(`${result.succeeded} ${providerLabel} transfers completed; ${result.failed} skipped or failed.${firstFailure ? ` ${firstFailure}` : ""}`); setRefreshKey((value) => value + 1); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM transfer failed"); } }}>Transfer selected</button></>}{canEdit && <button className="danger-button" disabled={!selectedIds.size} onClick={() => void deleteSelected()}>Delete selected</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
          {crmNotice && <div className="notice" role="status">{crmNotice}</div>}
          {loadError && <div className="notice" role="alert"><span>{loadError}</span><button className="button-quiet" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div>}
          <div className="lead-table-wrap" aria-busy={loading}>
@@ -274,7 +337,14 @@ export function LeadsView({
          {total > LEAD_PAGE_SIZE && <nav className="lead-pagination" aria-label="Lead list pages"><span>Showing {firstRecord.toLocaleString()}–{lastRecord.toLocaleString()} of {total.toLocaleString()}</span><div><button className="button-quiet" disabled={page === 0 || loading} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><span>Page {page + 1} of {pageCount}</span><button className="button-quiet" disabled={page >= pageCount - 1 || loading} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}>Next</button></div></nav>}
        </section>
        {showExport && <ExportDialog count={total} selectedCount={selectedIds.size} filters={{ search, band, source, dateFrom, dateTo }} onClose={() => setShowExport(false)} selectedIds={[...selectedIds]} />}
-      {selected && <LeadDetail lead={selected} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={onUpdated} />}
+      {selected && createPortal(
+        <div className="lead-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+          <section className="lead-drawer" role="dialog" aria-modal="true" aria-label={`${selected.company_name} lead details`}>
+            <div className="lead-drawer-toolbar"><span>Lead details · {selected.source}</span><button className="modal-close" type="button" autoFocus aria-label="Close lead details" onClick={onClose}>×</button></div>
+            <LeadDetail key={selected.id} lead={selected} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={(lead) => { onUpdated(lead); setRows((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { onDeleted(leadId); setRows((current) => current.filter((item) => item.id !== leadId)); onClose(); setRefreshKey((value) => value + 1); }} />
+          </section>
+        </div>, document.body,
+      )}
     </div>
   );
 }
@@ -400,7 +470,7 @@ export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalyt
   );
 }
 
-export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewTeam, canViewIcp }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewTeam: boolean; canViewIcp: boolean }) {
+export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewTeam, canViewIcp, canViewRouting, canManageRouting, canViewPublicIntake, canRotatePublicIntake }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewTeam: boolean; canViewIcp: boolean; canViewRouting: boolean; canManageRouting: boolean; canViewPublicIntake: boolean; canRotatePublicIntake: boolean }) {
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
@@ -408,12 +478,71 @@ export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewT
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
         <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned email, CRM and notification connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
         <Panel title="Team & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite staff, review roles and make deliberate permission exceptions. Backend authorization remains the source of truth for every action.</p><button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>{canViewTeam ? "Open Team & Permissions →" : "Members view permission required"}</button></Panel>
+        <RoutingWeightsPanel canView={canViewRouting} canManage={canManageRouting} />
+        <PublicIntakePanel canView={canViewPublicIntake} canRotate={canRotatePublicIntake} />
         <Panel title="Ideal Customer Profile" eyebrow="Qualification policy"><p className="panel-copy">Build, validate and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p><button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>{canViewIcp ? "Open ICP Builder →" : "ICP view permission required"}</button></Panel>
         <Panel title="Data range" eyebrow="Analytics contract"><p className="panel-copy">Weekly, monthly and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p></Panel>
         <Panel title="Product state" eyebrow="Release readiness"><p className="panel-copy">Analytics, team controls, workspace-specific ICP qualification, secure exports and certified provider workflows are active.</p></Panel>
       </section>
     </div>
   );
+}
+
+function RoutingWeightsPanel({ canView, canManage }: { canView: boolean; canManage: boolean }) {
+  const [config, setConfig] = useState<RoutingConfig | null>(null);
+  const [weights, setWeights] = useState<Record<string, number>>({});
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!canView) return;
+    void getRoutingConfig().then((value) => {
+      setConfig(value);
+      setWeights(Object.fromEntries(value.members.map((member) => [member.user_id, member.weight])));
+    }).catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load routing distribution"));
+  }, [canView]);
+  const save = async () => {
+    setBusy(true); setNotice(null);
+    try {
+      const value = await updateRoutingConfig(weights);
+      setConfig(value);
+      setWeights(Object.fromEntries(value.members.map((member) => [member.user_id, member.weight])));
+      setNotice("Routing ratios saved. New leads will use the updated distribution.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to save routing ratios");
+    } finally { setBusy(false); }
+  };
+  if (!canView) return <Panel title="Routing distribution" eyebrow="Workspace assignment"><p className="panel-copy">Routing visibility permission required.</p></Panel>;
+  return <Panel title="Routing distribution" eyebrow="Workspace assignment"><p className="panel-copy">New leads are assigned to the lowest weighted workload. With no custom weights, every eligible sales rep receives an equal share. Existing assignments are unchanged.</p>{config?.members.length ? <div className="routing-ratio-list">{config.members.map((member) => <div className="routing-ratio-row" key={member.user_id}><div><b>{member.display_name}</b><small>{member.role.replaceAll("_", " ")} · {member.open_leads} open lead{member.open_leads === 1 ? "" : "s"}</small></div><label><span>Weight</span><input aria-label={`Routing weight for ${member.display_name}`} type="number" min="0.01" max="100" step="0.25" disabled={!canManage || busy} value={weights[member.user_id] ?? 1} onChange={(event) => setWeights((current) => ({ ...current, [member.user_id]: Number(event.target.value) }))} /></label></div>)}</div> : <p className="panel-copy">No active workspace member with lead assignment permission is available.</p>}{canManage && config?.members.length ? <button className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save routing ratios"}</button> : null}{notice && <div className="notice" role="status">{notice}</div>}</Panel>;
+}
+
+function PublicIntakePanel({ canView, canRotate }: { canView: boolean; canRotate: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const embedCode = url ? `<form action="${url}" method="post">\n  <input name="full_name" required placeholder="Your name">\n  <input type="email" name="email" required placeholder="Work email">\n  <input name="company_name" required placeholder="Company">\n  <input name="product_or_service" required placeholder="What do you need?">\n  <textarea name="message" required placeholder="Tell us about your inquiry"></textarea>\n  <button type="submit">Send inquiry</button>\n</form>` : "";
+  useEffect(() => {
+    if (!canView) return;
+    void getPublicIntakeConfig().then((value) => setUrl(value.url)).catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load website form URL"));
+  }, [canView]);
+  const copy = async () => {
+    if (!url) return;
+    try { await navigator.clipboard.writeText(url); setNotice("Public form URL copied."); }
+    catch { setNotice("Copy was blocked; select the URL and copy it manually."); }
+  };
+  const rotate = async () => {
+    if (!window.confirm("Rotate this URL? The old website form URL will stop accepting leads.")) return;
+    setBusy(true); setNotice(null);
+    try { const value = await rotatePublicIntakeConfig(); setUrl(value.url); setNotice("New public form URL generated. Update your website form action."); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "Unable to rotate public form URL"); }
+    finally { setBusy(false); }
+  };
+  if (!canView) return <Panel title="Website lead form" eyebrow="Public intake"><p className="panel-copy">Lead view permission required.</p></Panel>;
+  const copyEmbed = async () => {
+    if (!embedCode) return;
+    try { await navigator.clipboard.writeText(embedCode); setNotice("Website form HTML copied."); }
+    catch { setNotice("Copy was blocked; select the form HTML manually."); }
+  };
+  return <Panel title="Website lead form" eyebrow="Public intake"><p className="panel-copy">Send your website form to this URL. Each submission enters analysis, qualification, routing, Slack notification and CRM workflows automatically.</p><div className="public-intake-url"><input aria-label="Public website lead form URL" readOnly value={url || "Generating secure URL…"} /><button className="button-quiet" disabled={!url} onClick={() => void copy()}>Copy URL</button></div><p className="panel-copy">Email is included and required so the connected Gmail account can send an automatic confirmation to the lead. Required fields: <code>full_name</code>, <code>email</code>, <code>company_name</code>, <code>product_or_service</code>, and <code>message</code>.</p>{url && <><textarea className="embed-code" aria-label="Website form HTML" readOnly value={embedCode} /><button className="button-quiet" onClick={() => void copyEmbed()}>Copy form HTML</button></>}{canRotate && <button className="button-quiet" disabled={busy} onClick={() => void rotate()}>{busy ? "Rotating…" : "Rotate URL"}</button>}{notice && <div className="notice" role="status">{notice}</div>}</Panel>;
 }
 
 function MetricCard({ metric }: { metric: DashboardAnalytics["metrics"][number] }) {
@@ -531,12 +660,13 @@ function qualificationLabel(value: string) {
 }
 
 const LeadTableRow = memo(function LeadTableRow({ lead, selected, checked, onToggle, onInspect }: { lead: Lead; selected: boolean; checked: boolean; onToggle: (id: string) => void; onInspect: (id: string) => void }) {
+  const origin = crmOrigin(lead);
   return <tr className={selected ? "selected" : ""} onClick={() => onInspect(lead.id)} tabIndex={0} onKeyDown={(event) => {
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onInspect(lead.id); }
   }}>
     <td className="lead-select-cell"><input type="checkbox" aria-label={`Select ${lead.full_name}`} checked={checked} onChange={() => onToggle(lead.id)} onClick={(event) => event.stopPropagation()} /></td>
     <td><b>{lead.full_name}</b><span>{lead.company_name}</span></td>
-    <td><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span></td>
+    <td><span className={`source-tag source-${origin?.toLowerCase() || lead.source}`}>{origin || pretty(lead.source)}</span><small>{origin ? "CRM import" : lead.source_detail || "Original intake"}</small></td>
     <td><div className="qualification-cell" aria-label={`Score ${lead.qualification?.total_score ?? "unavailable"}; ${lead.analysis?.requires_manual_review ? "Manual Review" : qualificationLabel(lead.qualification?.classification || "pending")}`}><b>{lead.qualification?.total_score ?? "—"}</b><QualificationBadge value={lead.qualification?.classification || "pending"} manualReview={lead.analysis?.requires_manual_review} /></div></td>
     <td>{pretty(lead.routing?.assigned_queue || "Pending")}</td>
     <td>{lead.routing?.assigned_rep_name || "Unassigned"}</td>

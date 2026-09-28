@@ -204,6 +204,8 @@ export type ActionPlan = {
   potential_objections: string[];
   next_step_recommendation: string;
   supporting_evidence: string[];
+  follow_up_strategy: string[];
+  conversion_goal: string;
 };
 
 export type Notification = {
@@ -375,6 +377,27 @@ export type WorkspaceMember = {
   updated_at: string;
 };
 
+export type RoutingConfig = {
+  workspace_id: string;
+  default_strategy: "equal" | string;
+  updated_at: string | null;
+  members: Array<{
+    user_id: string;
+    display_name: string;
+    email: string;
+    role: string;
+    weight: number;
+    open_leads: number;
+  }>;
+};
+
+export type PublicIntakeConfig = {
+  workspace_id: string;
+  url: string;
+  created_at: string;
+  rotated_at: string | null;
+};
+
 export type WorkspaceInvitation = {
   id: string;
   workspace_id: string;
@@ -390,6 +413,7 @@ export type WorkspaceInvitation = {
   revoked_at: string | null;
   created_at: string;
   updated_at: string;
+  access_code?: string | null;
 };
 
 export type WorkspaceAuditEvent = {
@@ -428,6 +452,24 @@ export type IntegrationCard = {
     description: string;
   };
   connection: ProviderConnection | null;
+  connections: ProviderConnection[];
+};
+
+export type SlackNotificationRule = {
+  id: string;
+  name: string;
+  connection_id: string;
+  queues: string[];
+  qualification_bands: string[];
+  sources: string[];
+  weight: number;
+};
+
+export type SlackNotificationConfig = {
+  workspace_id: string;
+  default_connection_id: string | null;
+  rules: SlackNotificationRule[];
+  updated_at: string | null;
 };
 
 export type CrmInboundSyncState = {
