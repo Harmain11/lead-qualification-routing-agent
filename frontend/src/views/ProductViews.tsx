@@ -24,14 +24,14 @@ import type {
 } from "../types";
 
 export type AnalyticsBundle = {
-  dashboard: DashboardAnalytics;
-  channels: ChannelAnalytics;
-  pipeline: PipelineAnalytics;
-  revenue: RevenueAnalytics;
-  reps: RepAnalytics;
-  series: TimeSeriesAnalytics;
-  agents: AgentActivity;
-  review: ManualReviewAnalytics;
+  dashboard: DashboardAnalytics | null;
+  channels: ChannelAnalytics | null;
+  pipeline: PipelineAnalytics | null;
+  revenue: RevenueAnalytics | null;
+  reps: RepAnalytics | null;
+  series: TimeSeriesAnalytics | null;
+  agents: AgentActivity | null;
+  review: ManualReviewAnalytics | null;
 };
 
 const emptyLead: LeadPayload = {
@@ -88,7 +88,7 @@ export function DashboardView({
   latestLead: Lead | null;
   onInspect: (id: string) => void;
 }) {
-  if (!data) return <Unavailable />;
+  if (!data?.dashboard || !data.pipeline || !data.series || !data.channels) return <Unavailable />;
   const highlighted = [
     "total_leads",
     "qualification_rate",
@@ -120,12 +120,12 @@ export function DashboardView({
       <section className="metric-grid">
         {metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}
       </section>
-      <ResponsiveLeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />
+      {data.agents && <ResponsiveLeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />}
       <section className="dashboard-command-grid">
-        <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
+        {data.agents ? <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
           <ActivityFeed data={data.agents} compact />
-        </Panel>
-        <Panel title="Attention queue" eyebrow="Human judgment required" action={`${data.review.total} open`}>
+        </Panel> : <Panel title="Live operational activity" eyebrow="Audited agent events"><Empty title="Not available" text="Your workspace role does not include agent activity access." /></Panel>}
+        {data.review ? <Panel title="Attention queue" eyebrow="Human judgment required" action={`${data.review.total} open`}>
           {data.review.items.length ? (
             <div className="compact-leads">
               {data.review.items.slice(0, 5).map((lead) => (
@@ -133,7 +133,7 @@ export function DashboardView({
               ))}
             </div>
           ) : <Empty title="No review debt" text="No leads need human review in this period." />}
-        </Panel>
+        </Panel> : <Panel title="Attention queue" eyebrow="Human judgment required"><Empty title="Not available" text="Your workspace role does not include manual review access." /></Panel>}
       </section>
       <section className="dashboard-grid">
         <Panel title="Signal velocity" eyebrow="Lead volume over time" action="Server aggregated">
@@ -438,7 +438,7 @@ export function AgentsView({ data, pipeline }: { data: AgentActivity | null; pip
 }
 
 export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
-  if (!data) return <Unavailable />;
+  if (!data?.dashboard || !data.channels || !data.series || !data.revenue || !data.reps) return <Unavailable />;
   const provenance = data.revenue.data_status === "demo"
     ? "Illustrative values—not production revenue"
     : data.revenue.data_status === "crm"

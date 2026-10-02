@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -68,6 +68,30 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "settings", label: "Settings" },
 ];
 
+const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
+  dashboard: "analytics.view",
+  leads: "leads.view",
+  pipeline: "analytics.view",
+  agents: "agents.view",
+  analytics: "analytics.view",
+  review: "manual_review.view",
+  integrations: "integrations.view",
+};
+
+function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
+  const permission = view === "team"
+    ? "members.view"
+    : view === "icp"
+      ? "icp.view"
+      : VIEW_PERMISSIONS[view as View];
+  return !permission || can(permissions, permission);
+}
+
+function permissionsForWorkspace(session: AuthSession | null, workspaceId?: string) {
+  const workspace = session?.workspaces.find((item) => item.id === workspaceId);
+  return new Set(workspace?.effective_permissions ?? []);
+}
+
 function NavIcon({ id }: { id: View }) {
   const shared = { viewBox: "0 0 24 24", width: 19, height: 19, fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
   switch (id) {
@@ -103,7 +127,11 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(() => window.matchMedia("(min-width: 761px)").matches);
   const [theme, setTheme] = useState<Theme>(savedTheme);
-  const [workspacePermissions, setWorkspacePermissions] = useState<ReadonlySet<string>>(new Set());
+  const activeWorkspace = auth?.workspaces.find((item) => item.id === auth.current_workspace_id);
+  const workspacePermissions = useMemo(
+    () => new Set(activeWorkspace?.effective_permissions ?? []),
+    [activeWorkspace],
+  );
   const refreshVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const leadRequestVersion = useRef(0);
@@ -153,26 +181,40 @@ function App() {
     setLoading(true);
     setError(null);
     try {
+      const activePermissions = permissionsForWorkspace(auth, auth?.current_workspace_id);
+      const canViewAnalytics = can(activePermissions, "analytics.view");
+      const canViewAgents = can(activePermissions, "agents.view");
+      const canViewReview = can(activePermissions, "manual_review.view");
+      const canViewLeads = can(activePermissions, "leads.view");
       const [dashboard, channels, pipeline, revenue, reps, series, agents, review, leadRows] =
         await Promise.all([
-          getDashboard(activeRange, controller.signal),
-          getChannelAnalytics(activeRange, controller.signal),
-          getPipelineAnalytics(activeRange, controller.signal),
-          getRevenueAnalytics(activeRange, controller.signal),
-          getRepAnalytics(activeRange, controller.signal),
-          getTimeSeriesAnalytics(activeRange, controller.signal),
-          getAgentActivity(activeRange, controller.signal),
-          getManualReview(activeRange, controller.signal),
-          listLeads({ limit: 1 }, controller.signal),
+          canViewAnalytics ? getDashboard(activeRange, controller.signal) : Promise.resolve(null),
+          canViewAnalytics ? getChannelAnalytics(activeRange, controller.signal) : Promise.resolve(null),
+          canViewAnalytics ? getPipelineAnalytics(activeRange, controller.signal) : Promise.resolve(null),
+          canViewAnalytics ? getRevenueAnalytics(activeRange, controller.signal) : Promise.resolve(null),
+          canViewAnalytics ? getRepAnalytics(activeRange, controller.signal) : Promise.resolve(null),
+          canViewAnalytics ? getTimeSeriesAnalytics(activeRange, controller.signal) : Promise.resolve(null),
+          canViewAgents ? getAgentActivity(activeRange, controller.signal) : Promise.resolve(null),
+          canViewReview ? getManualReview(activeRange, controller.signal) : Promise.resolve(null),
+          canViewLeads ? listLeads({ limit: 1 }, controller.signal) : Promise.resolve(null),
         ]);
       if (requestVersion !== refreshVersion.current) return;
-      setData({ dashboard, channels, pipeline, revenue, reps, series, agents, review });
-      setLeads(leadRows.items);
-      const nextSignature = JSON.stringify([leadRows.total, leadRows.items[0] ?? null]);
-      if (leadSignature.current !== null && leadSignature.current !== nextSignature) {
-        setLeadRevision((current) => current + 1);
+      setData(
+        dashboard || channels || pipeline || revenue || reps || series || agents || review
+          ? { dashboard, channels, pipeline, revenue, reps, series, agents, review }
+          : null,
+      );
+      const nextLeads = leadRows?.items ?? [];
+      setLeads(nextLeads);
+      if (leadRows) {
+        const nextSignature = JSON.stringify([leadRows.total, nextLeads[0] ?? null]);
+        if (leadSignature.current !== null && leadSignature.current !== nextSignature) {
+          setLeadRevision((current) => current + 1);
+        }
+        leadSignature.current = nextSignature;
+      } else {
+        leadSignature.current = null;
       }
-      leadSignature.current = nextSignature;
     } catch (requestError) {
       if (requestVersion === refreshVersion.current && !controller.signal.aborted) {
         controller.abort();
@@ -185,7 +227,7 @@ function App() {
     } finally {
       if (requestVersion === refreshVersion.current) setLoading(false);
     }
-  }, [range]);
+  }, [range, auth?.current_workspace_id, auth?.workspaces]);
 
   useEffect(() => {
     getSession()
@@ -209,7 +251,7 @@ function App() {
   }, [auth?.current_workspace_id, range, refresh]);
 
   useEffect(() => {
-    if (!auth) return;
+    if (!auth || !can(permissionsForWorkspace(auth, auth.current_workspace_id), "leads.view")) return;
     const controller = new AbortController();
     let inFlight = false;
     const poll = async () => {
@@ -239,20 +281,23 @@ function App() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [auth?.current_workspace_id, refresh]);
+  }, [auth?.current_workspace_id, auth?.workspaces, refresh]);
 
   useEffect(() => {
-    if (!auth) {
-      setWorkspacePermissions(new Set());
-      setOpenaiSetupCard(null);
-      openaiPromptDismissed.current.clear();
-      return;
-    }
-    const workspace = auth.workspaces.find(
-      (item) => item.id === auth.current_workspace_id,
-    );
-    setWorkspacePermissions(new Set(workspace?.effective_permissions ?? []));
-  }, [auth?.current_workspace_id, auth?.user.id, auth?.workspaces]);
+    if (auth) return;
+    setOpenaiSetupCard(null);
+    openaiPromptDismissed.current.clear();
+  }, [auth]);
+
+  useEffect(() => {
+    if (!auth) return;
+    const workspace = auth.workspaces.find((item) => item.id === auth.current_workspace_id);
+    if (!workspace) return;
+    const permissions = new Set(workspace.effective_permissions);
+    if (hasViewPermission(view, permissions)) return;
+    const fallback = navigation.find((item) => hasViewPermission(item.id, permissions))?.id ?? "settings";
+    setView(fallback);
+  }, [auth?.current_workspace_id, auth?.workspaces, view]);
 
   useEffect(() => {
     if (!auth) return;
@@ -275,6 +320,7 @@ function App() {
   }, []);
 
   const inspectLead = useCallback(async (id: string) => {
+    if (!can(permissionsForWorkspace(auth, auth?.current_workspace_id), "leads.view")) return;
     leadController.current?.abort();
     const controller = new AbortController();
     leadController.current = controller;
@@ -289,12 +335,13 @@ function App() {
         else setError(requestError instanceof Error ? requestError.message : "Unable to load lead");
       }
     }
-  }, []);
+  }, [auth?.current_workspace_id, auth?.workspaces]);
 
   const handleInspectLead = useCallback((id: string) => {
+    if (!can(permissionsForWorkspace(auth, auth?.current_workspace_id), "leads.view")) return;
     setView("leads");
     void inspectLead(id);
-  }, [inspectLead]);
+  }, [inspectLead, auth?.current_workspace_id, auth?.workspaces]);
 
   const closeLead = useCallback(() => {
     leadController.current?.abort();
@@ -341,7 +388,8 @@ function App() {
     }
   }
 
-  const metadata = data?.dashboard.metadata;
+  const visibleNavigation = navigation.filter((item) => hasViewPermission(item.id, workspacePermissions));
+  const metadata = data?.dashboard?.metadata;
   if (authLoading) return <LoadingState />;
   if (!auth) {
     return <AuthView theme={theme} onToggleTheme={toggleTheme} onAuthenticated={(session) => {
@@ -364,12 +412,12 @@ function App() {
           <button className="rail-close" onClick={() => setNavOpen(false)} aria-label="Collapse navigation" title="Collapse navigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-5 7 5 7" /></svg></button>
         </div>
         <nav aria-label="Primary navigation">
-          {navigation.map((item, index) => (
+          {visibleNavigation.map((item, index) => (
             <div key={item.id}>
               {item.group && <span className="nav-group">{item.group}</span>}
               <button className={view === item.id || (item.id === "settings" && (view === "team" || view === "icp")) ? "active" : ""} onClick={() => navigate(item.id)}>
                 <i><NavIcon id={item.id} /></i><span>{item.label}</span>
-                {item.id === "review" && (data?.review.total ?? 0) > 0 && <b>{data?.review.total}</b>}
+                {item.id === "review" && (data?.review?.total ?? 0) > 0 && <b>{data?.review?.total}</b>}
               </button>
               {index === 4 && <span className="nav-separator" />}
             </div>
@@ -409,11 +457,11 @@ function App() {
           <span aria-hidden="true">›</span>
         </button>
         <nav className="mini-rail-nav" aria-label="Primary navigation">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const active = view === item.id || (item.id === "settings" && (view === "team" || view === "icp"));
             return <button key={item.id} className={active ? "active" : ""} onClick={() => navigate(item.id)} aria-label={item.label} aria-current={active ? "page" : undefined} title={item.label}>
               <NavIcon id={item.id} />
-              {item.id === "review" && (data?.review.total ?? 0) > 0 && <span className="mini-alert-dot" />}
+              {item.id === "review" && (data?.review?.total ?? 0) > 0 && <span className="mini-alert-dot" />}
             </button>;
           })}
         </nav>
@@ -436,7 +484,7 @@ function App() {
           </div>
         </header>
         {error && <div className="api-error" role="alert"><div><b>Control plane unavailable</b><span>{error}</span></div><button onClick={() => void refresh()}>Retry</button></div>}
-        {loading && !data && view !== "settings" && view !== "team" && view !== "icp" ? <ContentLoadingState /> : (
+        {!hasViewPermission(view, workspacePermissions) || (loading && !data && view !== "settings" && view !== "team" && view !== "icp") ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
             {view === "dashboard" && <DashboardView data={data} latestLead={leads[0] ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "leads" && <LeadsView selected={selectedLead} revision={leadRevision} onInspect={handleInspectLead} onClose={closeLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { setSelectedLead(null); setLeads((current) => current.filter((item) => item.id !== leadId)); void refresh(); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
