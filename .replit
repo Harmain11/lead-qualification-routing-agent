@@ -1,6 +1,6 @@
 entrypoint = "scripts/replit_start.sh"
 run = "bash scripts/replit_start.sh"
-modules = ["python-3.12", "nodejs-20", "web", "bash"]
+modules = ["python-3.12", "web", "bash", "nodejs-22"]
 
 [deployment]
 build = "bash scripts/replit_build.sh"
@@ -8,3 +8,31 @@ run = "bash scripts/replit_start.sh"
 
 [nix]
 channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Corral preview"
+
+[[workflows.workflow]]
+name = "Corral preview"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/replit_dev.sh"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
