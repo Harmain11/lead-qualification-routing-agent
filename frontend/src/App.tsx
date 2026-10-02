@@ -46,10 +46,11 @@ type View =
   | "agents"
   | "analytics"
   | "integrations"
+  | "team"
   | "review"
   | "settings";
   // Team administration is opened from Settings and keeps the primary rail calm.
-type AppView = View | "team" | "icp";
+type AppView = View | "icp";
 type Theme = "light" | "dark";
 
 function savedTheme(): Theme {
@@ -65,6 +66,7 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "analytics", label: "Analytics" },
   { id: "review", label: "Manual Review", group: "Control" },
   { id: "integrations", label: "Integrations" },
+  { id: "team", label: "Users" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -102,6 +104,7 @@ function NavIcon({ id }: { id: View }) {
     case "analytics": return <svg {...shared}><path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20"/></svg>;
     case "review": return <svg {...shared}><path d="M4 4h16v11l-3 5H7l-3-5zM4 15h5l1.5 2h3L15 15h5M9 9l2 2 4-4"/></svg>;
     case "integrations": return <svg {...shared}><path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5"/></svg>;
+    case "team": return <svg {...shared}><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20"/></svg>;
     case "settings": return <svg {...shared}><path d="M12 3l1.4 1.5 2-.2.8 1.8 2 .5v2l1.6 1.2-1 1.8 1 1.8-1.6 1.2v2l-2 .5-.8 1.8-2-.2L12 21l-1.4-1.5-2 .2-.8-1.8-2-.5v-2L4.2 14l1-1.8-1-1.8L5.8 9v-2l2-.5.8-1.8 2 .2z"/><circle cx="12" cy="12" r="3"/></svg>;
   }
 }
@@ -416,7 +419,7 @@ function App() {
           {visibleNavigation.map((item, index) => (
             <div key={item.id}>
               {item.group && <span className="nav-group">{item.group}</span>}
-              <button className={view === item.id || (item.id === "settings" && (view === "team" || view === "icp")) ? "active" : ""} onClick={() => navigate(item.id)}>
+              <button className={view === item.id || (item.id === "settings" && view === "icp") ? "active" : ""} onClick={() => navigate(item.id)}>
                 <i><NavIcon id={item.id} /></i><span>{item.label}</span>
                 {item.id === "review" && (data?.review?.total ?? 0) > 0 && <b>{data?.review?.total}</b>}
               </button>
@@ -471,7 +474,7 @@ function App() {
         <header className="product-bar">
           <div className="bar-leading">
             <button className="menu-button" onClick={() => setNavOpen(true)} aria-controls="corral-navigation" aria-expanded={navOpen} aria-label="Open navigation">☰</button>
-            <div className="breadcrumb"><span>Corral</span><i>/</i><b>{view === "team" ? "Team & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
+            <div className="breadcrumb"><span>Corral</span><i>/</i><b>{view === "team" ? "Users & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
           </div>
           <div className="bar-actions">
             <RangePicker value={range} onChange={setRange} />
