@@ -181,7 +181,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
     {notice && <div className="icp-notice" role="status">{notice}</div>}
     <div className="icp-layout">
       <aside className="panel icp-sections" aria-label="ICP builder sections">{SECTIONS.map((label, index) => <button key={label} className={section === index ? "active" : ""} onClick={() => setSection(index)}><i>{index + 1}</i><span>{label}</span></button>)}</aside>
-      <main className="panel icp-builder">
+     <main className="panel icp-builder" data-tour="icp">
         <div className="icp-builder-head"><div><span className="eyebrow">Step {section + 1} of 7</span><h2>{SECTIONS[section]}</h2></div>{!editable && <span className="read-only-badge">Read only</span>}</div>
         {section === 0 && <div className="icp-profile-meta"><label className="icp-field"><span>ICP name</span><input disabled={!editable} value={selected.name} onChange={(event) => { const name = event.target.value; setSelected((value) => value ? { ...value, name } : value); updateConfig((next) => { next.profile_name = name; }); }} /></label><label className="icp-field"><span>Description</span><input disabled={!editable} value={selected.description} onChange={(event) => { const description = event.target.value; setSelected((value) => value ? { ...value, description } : value); }} placeholder="Explain who this ICP is designed to identify" /></label></div>}
         {section === 0 && <CompanySection config={configuration} editable={editable} update={updateConfig} />}
