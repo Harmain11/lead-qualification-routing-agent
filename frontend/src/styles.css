@@ -413,6 +413,12 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .routing-ratio-row small { margin-top: 4px; color: var(--muted); font-size: 8px; text-transform: capitalize; }
 .routing-ratio-row label { display: grid; gap: 4px; color: var(--subtle); font-size: 8px; text-transform: uppercase; }
 .routing-ratio-row input { width: 80px; min-height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(2,4,9,.55); color: var(--text); }
+.routing-percentage-control { display: flex; align-items: center; gap: 5px; }
+.routing-percentage-control > b { color: var(--muted); font-size: 10px; }
+.routing-percent-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin: 11px 0 14px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 9px; }
+.routing-percent-total > b { color: var(--green); font-size: 11px; }
+.routing-percent-total > small { margin-left: auto; color: var(--muted); font-size: 8px; }
+.routing-percent-total.invalid > b { color: var(--red); }
 .public-intake-url { display: flex; min-width: 0; gap: 8px; margin: 15px 0 10px; }
 .public-intake-url input { min-width: 0; flex: 1 1 auto; min-height: 38px; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--line); border-radius: 7px; background: rgba(2,4,9,.55); color: var(--muted); font: 8px var(--font-mono); }
 .public-intake-url button { flex: 0 0 auto; white-space: nowrap; }

@@ -526,31 +526,106 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
   })}</div>{notice && <div className="notice" role="status">{notice}</div>}</Panel>;
 }
 
+function routingPercentages(members: RoutingConfig["members"]) {
+  if (!members.length) return {};
+  const weights = members.map((member) => Number.isFinite(member.weight) && member.weight > 0 ? member.weight : 1);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let assigned = 0;
+  return Object.fromEntries(members.map((member, index) => {
+    const share = index === members.length - 1
+      ? Math.round((100 - assigned) * 100) / 100
+      : Math.round((weights[index] / totalWeight) * 10000) / 100;
+    assigned += share;
+    return [member.user_id, share];
+  }));
+}
+
 function RoutingWeightsPanel({ canView, canManage }: { canView: boolean; canManage: boolean }) {
   const [config, setConfig] = useState<RoutingConfig | null>(null);
-  const [weights, setWeights] = useState<Record<string, number>>({});
+  const [percentages, setPercentages] = useState<Record<string, number>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!canView) return;
     void getRoutingConfig().then((value) => {
       setConfig(value);
-      setWeights(Object.fromEntries(value.members.map((member) => [member.user_id, member.weight])));
+      setPercentages(routingPercentages(value.members));
     }).catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load routing distribution"));
   }, [canView]);
+  const totalPercentage = config?.members.reduce(
+    (total, member) => total + (percentages[member.user_id] ?? 0),
+    0,
+  ) ?? 0;
+  const percentagesValid = Boolean(config?.members.length)
+    && config!.members.every((member) => {
+      const percentage = percentages[member.user_id];
+      return Number.isFinite(percentage) && percentage >= 0.01 && percentage <= 100;
+    })
+    && Math.abs(totalPercentage - 100) < 0.005;
   const save = async () => {
     setBusy(true); setNotice(null);
     try {
-      const value = await updateRoutingConfig(weights);
+      const value = await updateRoutingConfig(percentages);
       setConfig(value);
-      setWeights(Object.fromEntries(value.members.map((member) => [member.user_id, member.weight])));
-      setNotice("Routing ratios saved. New leads will use the updated distribution.");
+      setPercentages(routingPercentages(value.members));
+      setNotice("Routing percentages saved. New leads will use the updated shares.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to save routing ratios");
     } finally { setBusy(false); }
   };
   if (!canView) return <Panel title="Routing distribution" eyebrow="Workspace assignment"><p className="panel-copy">Routing visibility permission required.</p></Panel>;
-  return <Panel title="Routing distribution" eyebrow="Workspace assignment"><p className="panel-copy">New leads are assigned to the lowest weighted workload. With no custom weights, every eligible sales rep receives an equal share. Existing assignments are unchanged.</p>{config?.members.length ? <div className="routing-ratio-list">{config.members.map((member) => <div className="routing-ratio-row" key={member.user_id}><div><b>{member.display_name}</b><small>{member.role.replaceAll("_", " ")} · {member.open_leads} open lead{member.open_leads === 1 ? "" : "s"}</small></div><label><span>Weight</span><input aria-label={`Routing weight for ${member.display_name}`} type="number" min="0.01" max="100" step="0.25" disabled={!canManage || busy} value={weights[member.user_id] ?? 1} onChange={(event) => setWeights((current) => ({ ...current, [member.user_id]: Number(event.target.value) }))} /></label></div>)}</div> : <p className="panel-copy">No active workspace member with lead assignment permission is available.</p>}{canManage && config?.members.length ? <button className="primary-button" disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : "Save routing ratios"}</button> : null}{notice && <div className="notice" role="status">{notice}</div>}</Panel>;
+  return (
+    <Panel title="Routing distribution" eyebrow="Workspace assignment">
+      <p className="panel-copy">Set each eligible member’s share as a percentage; all shares must total 100%. New leads are routed by relative workload, and existing assignments are unchanged.</p>
+      {config?.members.length ? (
+        <div className="routing-ratio-list">
+          {config.members.map((member) => (
+            <div className="routing-ratio-row" key={member.user_id}>
+              <div>
+                <b>{member.display_name}</b>
+                <small>{member.role.replaceAll("_", " ")} · {member.open_leads} open lead{member.open_leads === 1 ? "" : "s"}</small>
+              </div>
+              <label>
+                <span>Share</span>
+                <div className="routing-percentage-control">
+                  <input
+                    aria-label={`Routing percentage for ${member.display_name}`}
+                    type="number"
+                    min="0.01"
+                    max="100"
+                    step="0.01"
+                    disabled={!canManage || busy}
+                    value={percentages[member.user_id] ?? 0}
+                    onChange={(event) => {
+                      setNotice(null);
+                      setPercentages((current) => ({
+                        ...current,
+                        [member.user_id]: Number(event.target.value),
+                      }));
+                    }}
+                  />
+                  <b aria-hidden="true">%</b>
+                </div>
+              </label>
+            </div>
+          ))}
+        </div>
+      ) : <p className="panel-copy">No active workspace member with lead assignment permission is available.</p>}
+      {config?.members.length ? (
+        <div className={`routing-percent-total ${percentagesValid ? "valid" : "invalid"}`} role="status">
+          <span>Total share</span>
+          <b>{totalPercentage.toFixed(2)}%</b>
+          <small>{percentagesValid ? "Ready to save" : "Shares must total 100%"}</small>
+        </div>
+      ) : null}
+      {canManage && config?.members.length ? (
+        <button className="primary-button" disabled={busy || !percentagesValid} onClick={() => void save()}>
+          {busy ? "Saving…" : "Save percentages"}
+        </button>
+      ) : null}
+      {notice && <div className="notice" role="status">{notice}</div>}
+    </Panel>
+  );
 }
 
 function PublicIntakePanel({ canView, canRotate }: { canView: boolean; canRotate: boolean }) {
