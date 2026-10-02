@@ -312,7 +312,7 @@ export function runInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100 }),
+    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
   });
 }
 

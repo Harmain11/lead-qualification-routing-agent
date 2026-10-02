@@ -218,6 +218,8 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
   const [notice, setNotice] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
+  const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error"; message: string }>>({});
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
   const [slackChannels, setSlackChannels] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const [slackMembers, setSlackMembers] = useState<Record<string, Array<{ id: string; name: string }>>>({});
@@ -283,6 +285,37 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
     } catch (actionError) {
       setNotice(actionError instanceof Error ? actionError.message : "Integration action failed");
     } finally { setBusy(null); }
+  }
+
+  async function syncInbound(connectionId: string, provider: string, mode: "initial" | "manual") {
+    setBusy(provider);
+    setSyncingProvider(provider);
+    setNotice(null);
+    setSyncFeedback((current) => ({
+      ...current,
+      [connectionId]: { kind: "progress", message: "Syncing provider records. This may take a moment." },
+    }));
+    try {
+      const result = await runInboundSync(connectionId, mode, provider);
+      const summary = `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
+      setSyncFeedback((current) => ({
+        ...current,
+        [connectionId]: {
+          kind: result.status === "completed" ? "success" : "error",
+          message: summary,
+        },
+      }));
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Inbound sync failed.";
+      setSyncFeedback((current) => ({
+        ...current,
+        [connectionId]: { kind: "error", message: `Sync failed: ${message}` },
+      }));
+    } finally {
+      setBusy(null);
+      setSyncingProvider(null);
+    }
   }
 
   async function loadSlackChannelsForRouting(connectionId: string) {
@@ -398,7 +431,8 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
           {(canInboundSync || canManage) && <div className="card-actions">
             {canManage && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${mailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (mailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (mailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
-            {syncState?.enabled && <button className="button-quiet" onClick={() => void act(card.provider, () => runInboundSync(connection.id, syncState.initial_import_completed ? "manual" : "initial", card.provider), "Bounded inbound sync completed.")} disabled={busy === card.provider}>Sync now</button>}
+            {syncState?.enabled && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
+            {syncFeedback[connection.id] && <div className={`notice integration-sync-feedback sync-feedback-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">{syncFeedback[connection.id].message}</div>}
           </div>}
         </div>}
         {!comingSoon && open && <div className="integration-guide">
