@@ -16,11 +16,20 @@ The preview uses the project's supported development configuration:
   `python -m lead_agent.seed --demo` command.
 - The existing `SESSION_SECRET` Replit secret is used as the session signing key.
 - Secure SameSite=None cookies support the HTTPS Replit preview iframe.
+- OAuth redirect and post-login URLs use the active Replit HTTPS preview origin,
+  not localhost.
 
 Use **Continue to local workspace** on the sign-in page to enter the demo. Development
 session access is for preview only; do not put sensitive customer data in it.
-Normal account creation/sign-in remains available. Google sign-in and live
-integrations require their own provider configuration.
+The Google button uses the app's built-in development-only mock login until both
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are configured as Replit Secrets.
+With both present, it switches to Google's real OpenID sign-in flow. Add the
+preview callback
+`https://${REPLIT_DEV_DOMAIN}/v1/auth/google/callback` to the Google OAuth web
+client's authorized redirect URIs. Normal account creation/sign-in remains
+available. Gmail inbox access and other live integrations require their own
+provider configuration and user authorization; a Replit Gmail/Calendar
+connection does not configure Corral's Google sign-in.
 
 ## Dependencies and rebuilding
 
