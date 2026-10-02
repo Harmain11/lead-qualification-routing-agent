@@ -60,11 +60,11 @@ export function getRoutingConfig(): Promise<RoutingConfig> {
   return request<RoutingConfig>("/v1/routing/config");
 }
 
-export function updateRoutingConfig(member_weights: Record<string, number>): Promise<RoutingConfig> {
+export function updateRoutingConfig(member_percentages: Record<string, number>): Promise<RoutingConfig> {
   return request<RoutingConfig>("/v1/routing/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ member_weights }),
+    body: JSON.stringify({ member_percentages }),
   });
 }
 
