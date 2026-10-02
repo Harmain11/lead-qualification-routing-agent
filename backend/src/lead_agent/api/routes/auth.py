@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import secrets
 from datetime import UTC, datetime
 from urllib.parse import urlencode
@@ -114,6 +116,77 @@ class SessionResponse(BaseModel):
     current_workspace_id: UUID
     workspaces: list[WorkspaceMembershipResponse]
     expires_at: datetime | None
+
+
+class AccountProfileResponse(BaseModel):
+    id: UUID
+    email: str
+    display_name: str
+    job_title: str | None
+    phone: str | None
+    bio: str | None
+    avatar_data_url: str | None
+
+
+class AccountProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    job_title: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=64)
+    bio: str | None = Field(default=None, max_length=1000)
+    avatar_data_url: str | None = Field(default=None, max_length=1_500_000)
+
+
+def _account_profile_response(user: UserORM) -> AccountProfileResponse:
+    return AccountProfileResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        job_title=user.job_title,
+        phone=user.phone,
+        bio=user.bio,
+        avatar_data_url=user.avatar_data_url,
+    )
+
+
+def _validated_avatar_data_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    header, separator, encoded = value.partition(",")
+    formats = {
+        "data:image/jpeg;base64": ("jpeg", b"\xff\xd8\xff"),
+        "data:image/png;base64": ("png", b"\x89PNG\r\n\x1a\n"),
+        "data:image/webp;base64": ("webp", b"RIFF"),
+    }
+    image_format = formats.get(header)
+    if not separator or image_format is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Profile photo must be a JPEG, PNG, or WebP image.",
+        )
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Profile photo data is invalid.",
+        ) from error
+    if not image_bytes or len(image_bytes) > 1_000_000:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Profile photo must be smaller than 1 MB.",
+        )
+    format_name, signature = image_format
+    has_signature = image_bytes.startswith(signature)
+    if format_name == "webp":
+        has_signature = has_signature and image_bytes[8:12] == b"WEBP"
+    if not has_signature:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Profile photo data does not match its image format.",
+        )
+    return value
 
 
 def _set_session_cookies(response: Response, issued: IssuedSession, settings: Settings) -> None:
@@ -513,6 +586,54 @@ def current_session(
     except AuthorizationError as error:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     return _session_response(session, identity)
+
+
+@router.get("/profile", response_model=AccountProfileResponse)
+def account_profile(
+    identity: AuthenticatedIdentity = Depends(get_authenticated_identity),
+    session: Session = Depends(get_db),
+) -> AccountProfileResponse:
+    user = session.get(UserORM, identity.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found.")
+    return _account_profile_response(user)
+
+
+@router.patch("/profile", response_model=AccountProfileResponse)
+def update_account_profile(
+    request: AccountProfileUpdateRequest,
+    identity: AuthenticatedIdentity = Depends(get_csrf_authenticated_identity),
+    session: Session = Depends(get_db),
+) -> AccountProfileResponse:
+    user = session.get(UserORM, identity.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found.")
+
+    changes = request.model_dump(exclude_unset=True)
+    normalized: dict[str, str | None] = {}
+    if "display_name" in changes:
+        value = changes["display_name"]
+        clean_name = value.strip() if isinstance(value, str) else ""
+        if not clean_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Display name cannot be blank.",
+            )
+        normalized["display_name"] = clean_name
+    for field in ("job_title", "phone", "bio"):
+        if field in changes:
+            value = changes[field]
+            normalized[field] = value.strip() or None if isinstance(value, str) else None
+    if "avatar_data_url" in changes:
+        normalized["avatar_data_url"] = _validated_avatar_data_url(changes["avatar_data_url"])
+
+    for field, value in normalized.items():
+        setattr(user, field, value)
+    if normalized:
+        user.updated_at = datetime.now(UTC)
+        session.commit()
+        session.refresh(user)
+    return _account_profile_response(user)
 
 
 @router.get("/status", response_model=SessionResponse | None)

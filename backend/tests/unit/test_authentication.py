@@ -538,6 +538,52 @@ def test_session_status_selects_another_active_workspace_after_current_membershi
         session.close()
 
 
+def test_user_can_update_account_profile_and_invalid_photo_is_rejected(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            signed_in = signup(client)
+            assert signed_in.status_code == 200
+            user_id = UUID(signed_in.json()["user"]["id"])
+
+            current = client.get("/v1/auth/profile")
+            assert current.status_code == 200
+            assert current.json()["email"] == "owner@example.test"
+            assert current.json()["avatar_data_url"] is None
+
+            updated = client.patch(
+                "/v1/auth/profile",
+                headers=csrf(client),
+                json={
+                    "display_name": "  Alex Morgan ",
+                    "job_title": "Revenue Operations Lead",
+                    "phone": "+1 555 010 1000",
+                    "bio": "Building reliable revenue systems.",
+                    "avatar_data_url": "data:image/jpeg;base64,/9j/2Q==",
+                },
+            )
+            assert updated.status_code == 200
+            assert updated.json()["display_name"] == "Alex Morgan"
+            assert updated.json()["job_title"] == "Revenue Operations Lead"
+            assert updated.json()["phone"] == "+1 555 010 1000"
+            assert updated.json()["bio"] == "Building reliable revenue systems."
+            assert updated.json()["avatar_data_url"] == "data:image/jpeg;base64,/9j/2Q=="
+
+            invalid_photo = client.patch(
+                "/v1/auth/profile",
+                headers=csrf(client),
+                json={"avatar_data_url": "data:image/svg+xml;base64,PHN2Zz4="},
+            )
+            assert invalid_photo.status_code == 422
+            user = session.get(UserORM, user_id)
+            assert user is not None
+            assert user.display_name == "Alex Morgan"
+            assert user.avatar_data_url == "data:image/jpeg;base64,/9j/2Q=="
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_inactive_workspace_rejects_access_with_active_membership(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:

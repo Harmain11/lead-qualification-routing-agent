@@ -406,6 +406,25 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .settings-grid > *, .data-panel > * { min-width: 0; }
+.account-profile-panel { grid-column: 1 / -1; padding: 22px; }
+.account-profile-heading { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.account-profile-photo { width: 76px; height: 76px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 50%; background: var(--surface-high); color: var(--green); font-size: 24px; font-weight: 700; }
+.account-profile-photo img { width: 100%; height: 100%; object-fit: cover; }
+.account-profile-summary { min-width: 0; flex: 1; }
+.account-profile-summary h2 { margin: 0 0 5px; font-size: 19px; font-weight: 600; }
+.account-profile-summary p, .account-profile-photo-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.account-profile-photo-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.account-profile-photo-help { display: block; margin-top: 7px; font-size: 10px; }
+.account-profile-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.account-profile-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; }
+.account-profile-form input, .account-profile-form textarea { width: 100%; min-height: 39px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; }
+.account-profile-form input:disabled { opacity: .72; }
+.account-profile-form textarea { min-height: 92px; resize: vertical; line-height: 1.5; }
+.account-profile-form .account-profile-bio { grid-column: 1 / -1; }
+.account-profile-form-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.account-profile-notice { margin: 12px 0 0; color: var(--green); font-size: 11px; }
+.account-profile-error { margin: 12px 0 0; color: var(--red); font-size: 11px; }
+.account-profile-loading { color: var(--muted); font-size: 12px; }
 .routing-ratio-list { display: grid; gap: 8px; margin: 15px 0; }
 .routing-ratio-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .routing-ratio-row b, .routing-ratio-row small { display: block; }
@@ -756,6 +775,10 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
   .fact-grid, .icp-matrix, .score-contract, .signal-strip, .delivery-grid, .split-list { grid-template-columns: 1fr; }
   .pipeline-track { grid-template-columns: repeat(5, 145px); }
   .integration-grid, .settings-grid, .review-grid { grid-template-columns: 1fr; }
+  .account-profile-panel { grid-column: auto; padding: 17px; }
+  .account-profile-heading { align-items: flex-start; flex-wrap: wrap; }
+  .account-profile-form { grid-template-columns: 1fr; }
+  .account-profile-form .account-profile-bio, .account-profile-form-actions { grid-column: auto; }
   .public-intake-url { flex-direction: column; }
   .public-intake-url button { width: 100%; }
   .integration-section-heading { display: grid; gap: 8px; }
