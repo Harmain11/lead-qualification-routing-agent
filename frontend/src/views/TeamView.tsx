@@ -360,6 +360,12 @@ function MemberDetail({
     setEditing(false);
   }, [member]);
   if (!member) return <aside className="team-detail panel"><div className="team-detail-empty"><span className="eyebrow">User details</span><h2>Select a user</h2><p>Choose a person from the roster to edit their role and permissions or remove their access.</p></div></aside>;
+  const selectedMember = member;
+  function cancelEditing() {
+    setRole(selectedMember.role);
+    setOverrides(selectedMember.permission_overrides);
+    setEditing(false);
+  }
   const isOwner = member.role === "owner";
   const isSelf = actor?.id === member.id;
   const canEdit = canManage && !isOwner && !isSelf;
@@ -367,11 +373,6 @@ function MemberDetail({
   const effective = new Set(member.effective_permissions);
   async function saveRole() { setSaving(true); try { await onSaveRole(role); } finally { setSaving(false); } }
   async function savePermissions() { setSaving(true); try { await onSavePermissions(overrides); } finally { setSaving(false); } }
-  function cancelEditing() {
-    setRole(member.role);
-    setOverrides(member.permission_overrides);
-    setEditing(false);
-  }
   return (
     <aside className="team-detail panel">
       <div className="team-detail-head">

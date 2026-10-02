@@ -206,6 +206,78 @@ def test_owner_protection_and_member_lifecycle(session: Session) -> None:
         require_membership(session, staff.id, workspace.id)
 
 
+def test_admin_can_manage_another_admin_and_promote_a_member(session: Session) -> None:
+    workspace, _, _ = _workspace_with_owner(session)
+    actor = _user("admin-actor@example.test")
+    other_admin = _user("other-admin@example.test")
+    member = _user("member@example.test")
+    now = datetime.now(UTC)
+    actor_membership = WorkspaceMembershipORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        user_id=actor.id,
+        role="admin",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    other_admin_membership = WorkspaceMembershipORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        user_id=other_admin.id,
+        role="admin",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    member_membership = WorkspaceMembershipORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        user_id=member.id,
+        role="sales_rep",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add_all(
+        [
+            actor,
+            other_admin,
+            member,
+            actor_membership,
+            other_admin_membership,
+            member_membership,
+        ]
+    )
+    session.commit()
+
+    assert "members.manage" in membership_permissions(actor_membership)
+
+    updated_admin = change_member_permissions(
+        session,
+        workspace.id,
+        other_admin_membership.id,
+        actor.id,
+        {"grants": ["leads.export"], "denies": ["leads.view"]},
+    )
+    assert updated_admin.permission_overrides == {
+        "grants": ["leads.export"],
+        "denies": ["leads.view"],
+    }
+    assert "leads.export" in membership_permissions(updated_admin)
+    assert "leads.view" not in membership_permissions(updated_admin)
+
+    promoted_member = change_member_role(
+        session,
+        workspace.id,
+        member_membership.id,
+        actor.id,
+        "admin",
+    )
+    assert promoted_member.role == "admin"
+    assert "members.manage" in membership_permissions(promoted_member)
+
+
 def test_permissions_are_workspace_specific(session: Session) -> None:
     workspace_one, owner, _ = _workspace_with_owner(session)
     workspace_two = WorkspaceORM(
