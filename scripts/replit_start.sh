@@ -66,6 +66,7 @@ echo "[startup] starting API on ${api_host}:${port}"
 "$python_bin" -m uvicorn lead_agent.api.main:app \
   --host "$api_host" \
   --port "$port" \
+  --no-access-log \
   --proxy-headers \
   --forwarded-allow-ips "$forwarded_allow_ips" &
 child_pids+=("$!")
