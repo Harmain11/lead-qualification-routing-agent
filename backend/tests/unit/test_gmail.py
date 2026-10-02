@@ -218,6 +218,53 @@ def test_gmail_initial_sync_is_bounded_to_recent_query_and_has_checkpoint() -> N
     assert "maxResults=25" in requests[-1]
 
 
+def test_gmail_contact_thread_search_and_sync_includes_both_directions() -> None:
+    def message(message_id: str, sender: str, recipient: str, sent_at: str, body: str) -> dict:
+        return {
+            "id": message_id,
+            "threadId": "thread-1",
+            "internalDate": sent_at,
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [
+                    {"name": "From", "value": sender},
+                    {"name": "To", "value": recipient},
+                    {"name": "Subject", "value": "Project follow-up"},
+                ],
+                "body": {"data": _encoded(body)},
+            },
+        }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/messages"):
+            return httpx.Response(
+                200,
+                json={"messages": [{"id": "inbound-1", "threadId": "thread-1"}]},
+            )
+        if request.url.path.endswith("/threads/thread-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "messages": [
+                        message("outbound-1", "rep@example.test", "buyer@example.test", "1700000000000", "Sent the proposal."),
+                        message("inbound-1", "buyer@example.test", "rep@example.test", "1700000001000", "Please include pricing."),
+                        message("other-1", "other@example.test", "rep@example.test", "1700000002000", "Not part of this lead thread."),
+                    ]
+                },
+            )
+        raise AssertionError(f"Unexpected Gmail request: {request.url}")
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "rep@example.test", client=_client(handler)
+    )
+    assert provider.list_contact_threads("buyer@example.test") == ["thread-1"]
+    conversation = provider.fetch_thread("thread-1", lead_email="buyer@example.test")
+    assert [item["message_id"] for item in conversation] == ["outbound-1", "inbound-1"]
+    assert [item["direction"] for item in conversation] == ["outbound", "inbound"]
+    assert conversation[0]["body"] == "Sent the proposal."
+    assert conversation[1]["body"] == "Please include pricing."
+
+
 def test_gmail_incremental_history_and_expired_history_reconciliation() -> None:
     calls: list[str] = []
 

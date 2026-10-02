@@ -39,12 +39,23 @@ postgres-data/
 redis-data/
 coverage/
 *.sqlite3
+*.db
+*.db-shm
+*.db-wal
 *.log
 celerybeat-schedule*
 backend/celerybeat-schedule*
+.uv-cache-*/
+.pytest-*/
+pytest-*/
+runtime-logs/
 .pytest-tmp/
+.codex-npm-cache/
+.codex-hubspot-cli.zip
+motion-video/
 .DS_Store
 Thumbs.db
+local-dev.db
 
 # IDE and OS
 .idea/

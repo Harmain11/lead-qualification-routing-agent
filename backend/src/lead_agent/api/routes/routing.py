@@ -40,6 +40,7 @@ from lead_agent.infrastructure.repositories import (
 )
 
 router = APIRouter(prefix="/v1/leads", tags=["routing"])
+config_router = APIRouter(prefix="/v1/routing", tags=["routing"])
 
 
 class RerouteRequest(BaseModel):
@@ -96,7 +97,7 @@ def _routing_config_response(session: Session, workspace_id: UUID) -> dict[str, 
     }
 
 
-@router.get("/config")
+@config_router.get("/config")
 def routing_config(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("routing.view")),
@@ -104,7 +105,7 @@ def routing_config(
     return _routing_config_response(session, workspace.workspace_id)
 
 
-@router.put("/config")
+@config_router.put("/config")
 def update_routing_config(
     request: RoutingWeightsRequest,
     session: Session = Depends(get_db),

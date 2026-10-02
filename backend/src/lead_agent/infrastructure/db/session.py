@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from functools import lru_cache
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -14,11 +14,31 @@ from lead_agent.settings.config import Settings, get_settings
 def build_engine(settings: Settings | None = None) -> Engine:
     active = settings or get_settings()
     if active.database_url.startswith("sqlite"):
-        return create_engine(
+        engine = create_engine(
             active.database_url,
             pool_pre_ping=True,
-            connect_args={"check_same_thread": False},
+            # SQLite serializes writers. Public intake can run for several
+            # seconds while analysis and provider notifications complete, so
+            # a concurrent request must wait for the writer instead of
+            # failing immediately with "database is locked".
+            connect_args={
+                "check_same_thread": False,
+                "timeout": max(float(active.database_pool_timeout_seconds), 30.0),
+            },
         )
+        @event.listens_for(engine, "connect")
+        def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
+            cursor = dbapi_connection.cursor()
+            try:
+                # WAL keeps the CRM/dashboard reads from blocking an intake
+                # writer while analysis, Slack, or Gmail work is in flight.
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=60000")
+            finally:
+                cursor.close()
+
+        return engine
     is_postgres = active.database_url.startswith(("postgresql://", "postgresql+psycopg://"))
     connect_args = (
         {

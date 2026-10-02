@@ -12,6 +12,8 @@ from lead_agent.api.routes import (
     auth,
     crm,
     crm_inbound,
+    email_templates,
+    follow_up,
     health,
     icp,
     intake,
@@ -51,9 +53,12 @@ app.add_middleware(
 install_request_middleware(app, settings)
 app.include_router(health.router)
 app.include_router(auth.router)
-app.include_router(leads.router)
-app.include_router(intake.router)
+app.include_router(routing.config_router)
 app.include_router(routing.router)
+app.include_router(leads.router)
+app.include_router(follow_up.router)
+app.include_router(email_templates.router)
+app.include_router(intake.router)
 app.include_router(crm.router)
 app.include_router(crm_inbound.router)
 app.include_router(integrations.router)

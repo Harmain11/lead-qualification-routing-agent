@@ -421,10 +421,18 @@ class WorkspaceSlackNotificationResolver:
                     selected -= weight
                     if selected <= 0:
                         return self.provider_for_connection(
-                            session, workspace_id, target.id, actor_id
+                            session,
+                            workspace_id,
+                            target.id,
+                            actor_id,
+                            channel_id=self._rule_channel_id(raw_rule),
                         )
                 return self.provider_for_connection(
-                    session, workspace_id, matching_rules[-1][1].id, actor_id
+                    session,
+                    workspace_id,
+                    matching_rules[-1][1].id,
+                    actor_id,
+                    channel_id=self._rule_channel_id(matching_rules[-1][0]),
                 )
             if config.default_slack_connection_id in by_id:
                 return self.provider_for_connection(
@@ -442,6 +450,11 @@ class WorkspaceSlackNotificationResolver:
             return UUID(str(value)) if value else None
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _rule_channel_id(raw_rule: dict[str, Any]) -> str | None:
+        value = raw_rule.get("channel_id")
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     @staticmethod
     def _rule_matches(
@@ -495,14 +508,19 @@ class WorkspaceSlackNotificationResolver:
         return row, resolved
 
     def provider_for_connection(
-        self, session: Session, workspace_id: UUID, connection_id: UUID, actor_id: str = "system"
+        self,
+        session: Session,
+        workspace_id: UUID,
+        connection_id: UUID,
+        actor_id: str = "system",
+        channel_id: str | None = None,
     ) -> SlackNotificationProvider | None:
         row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
-        channel_id = row.connection_metadata.get("slack_channel_id")
-        if not isinstance(channel_id, str) or not channel_id:
+        selected_channel_id = channel_id or row.connection_metadata.get("slack_channel_id")
+        if not isinstance(selected_channel_id, str) or not selected_channel_id:
             return None
         return SlackNotificationProvider(
-            connection=resolved, channel_id=channel_id, client=self.client
+            connection=resolved, channel_id=selected_channel_id, client=self.client
         )
 
     def select_channel(

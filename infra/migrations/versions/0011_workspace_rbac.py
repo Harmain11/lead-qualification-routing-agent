@@ -37,14 +37,14 @@ def upgrade() -> None:
             server_default=sa.text("'{}'"),
         ),
     )
-    op.create_foreign_key(
-        "fk_workspace_memberships_invited_by_users",
-        "workspace_memberships",
-        "users",
-        ["invited_by"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    with op.batch_alter_table("workspace_memberships") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_workspace_memberships_invited_by_users",
+            "users",
+            ["invited_by"],
+            ["id"],
+            ondelete="SET NULL",
+        )
     op.execute(
         sa.text(
             "UPDATE workspace_memberships SET role = 'viewer' "
@@ -133,11 +133,10 @@ def downgrade() -> None:
         "ix_workspace_invitations_workspace_status", table_name="workspace_invitations"
     )
     op.drop_table("workspace_invitations")
-    op.drop_constraint(
-        "fk_workspace_memberships_invited_by_users",
-        "workspace_memberships",
-        type_="foreignkey",
-    )
+    with op.batch_alter_table("workspace_memberships") as batch_op:
+        batch_op.drop_constraint(
+            "fk_workspace_memberships_invited_by_users", type_="foreignkey"
+        )
     op.drop_column("workspace_memberships", "permission_overrides")
     op.drop_column("workspace_memberships", "accepted_at")
     op.drop_column("workspace_memberships", "invited_at")

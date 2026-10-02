@@ -59,7 +59,7 @@ export function OpenAISetupPrompt({
       const result = await withTimeout(testIntegration(connection.id));
       if (!result.verified) throw new Error(result.message);
       setPhase("backfilling");
-      await withTimeout(backfillOpenAI(connection.id));
+      await withTimeout(backfillOpenAI(connection.id), 5000);
       onVerified();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "OpenAI verification failed. Check the key and project access.");

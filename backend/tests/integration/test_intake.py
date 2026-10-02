@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from lead_agent.application.services import process_source_event
+import lead_agent.application.services as services
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -107,3 +108,36 @@ def test_failed_processing_is_recorded_and_can_be_retried(icp, routing, tmp_path
         retried = session.get(SourceEventORM, failed.id)
         assert retried is not None
         assert retried.processing_attempts == 2
+
+
+def test_email_delivery_failure_does_not_fail_committed_intake(
+    icp, routing, tmp_path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'email-failure.db'}")
+    Base.metadata.create_all(engine)
+    event = EmailAdapter().adapt(
+        {
+            "external_message_id": "mail-email-failure-001",
+            "sender": "buyer@example.com",
+            "subject": "Delivery resilience",
+            "body": "Please send a demo of the workflow.",
+        }
+    )
+
+    def fail_delivery(*_args, **_kwargs):
+        raise RuntimeError("simulated Gmail ledger lock")
+
+    monkeypatch.setattr(services, "_deliver_lead_confirmation_email", fail_delivery)
+
+    with Session(engine) as session:
+        result = process_source_event(session, event, icp, routing)
+        persisted = session.scalar(
+            select(SourceEventORM).where(
+                SourceEventORM.external_event_id == "mail-email-failure-001"
+            )
+        )
+
+        assert result.status == "processed"
+        assert persisted is not None
+        assert persisted.status == "processed"
+        assert session.scalar(select(func.count()).select_from(LeadORM)) == 1

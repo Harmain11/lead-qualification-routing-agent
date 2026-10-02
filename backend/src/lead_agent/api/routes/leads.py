@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
-from uuid import UUID
+from typing import Literal
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -30,15 +31,27 @@ from lead_agent.application.exports import (
     render_export,
     write_export_audit,
 )
-from lead_agent.application.services import process_lead
+from lead_agent.application.icp import resolve_workspace_icp
+from lead_agent.application.routing import record_pipeline_event, route_and_notify
+from lead_agent.application.services import _analyze_and_qualify, process_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.crm.inbound_factory import (
+    WorkspaceInboundCrmProviderResolver,
+    get_workspace_inbound_crm_resolver,
+)
 from lead_agent.infrastructure.db.models import (
+    CrmProviderRecordLinkORM,
     CrmSyncORM,
+    LeadFollowUpEmailORM,
     LeadORM,
     NotificationORM,
+    PipelineEventORM,
+    ProviderConnectionORM,
     QualificationResultORM,
     RoutingDecisionORM,
     SourceEventORM,
@@ -47,15 +60,31 @@ from lead_agent.infrastructure.db.models import (
 )
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import (
     get_current_crm_sync,
     get_current_routing,
     get_lead,
     get_qualification,
+    update_lead_with_result,
 )
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
+
+
+def _current_confirmation_email(
+    session: Session, lead_id: UUID, workspace_id: UUID
+) -> LeadFollowUpEmailORM | None:
+    return session.scalar(
+        select(LeadFollowUpEmailORM)
+        .where(
+            LeadFollowUpEmailORM.lead_id == lead_id,
+            LeadFollowUpEmailORM.workspace_id == workspace_id,
+            LeadFollowUpEmailORM.kind == "lead_confirmation",
+        )
+        .order_by(LeadFollowUpEmailORM.updated_at.desc())
+    )
 
 
 class LeadTitleUpdateRequest(BaseModel):
@@ -75,6 +104,60 @@ class LeadBulkDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lead_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class LeadProgressUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    stage: Literal[
+        "contacted", "responded", "meeting_scheduled", "proposal_sent", "converted", "lost"
+    ]
+    note: str = Field(min_length=3, max_length=2000)
+
+
+class LeadProgressResponse(BaseModel):
+    stage: str
+    note: str
+    classification: str
+    score: int
+    rationale: list[str]
+    updated_at: datetime
+
+
+class GmailConversationSyncResponse(BaseModel):
+    messages_added: int
+    threads_checked: int
+    truncated: bool
+    classification: str
+    score: int
+
+
+class LeadMomentumEvidence(BaseModel):
+    source: str
+    excerpt: str
+    observed_at: datetime | None = None
+
+
+class LeadDeliveryCheckpoint(BaseModel):
+    destination: str
+    status: str
+    detail: str
+    attempted_at: datetime | None = None
+    needs_attention: bool = False
+
+
+class LeadMomentumResponse(BaseModel):
+    score: int
+    classification: str
+    state: Literal["new", "warming", "cooling", "steady", "awaiting_review"]
+    score_delta: int | None = None
+    previous_score: int | None = None
+    confidence: float | None = None
+    freshness_hours: int
+    observed_signals: int
+    last_signal_at: datetime | None = None
+    next_human_action: str
+    evidence: list[LeadMomentumEvidence]
+    delivery: list[LeadDeliveryCheckpoint]
 
 
 def _delete_lead(
@@ -133,6 +216,7 @@ def _process_create_request(
         row,
         get_current_routing(session, row.id, workspace.workspace_id),
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
     )
 
 
@@ -234,6 +318,7 @@ def list_all_leads(
                 row,
                 current_routing(row),
                 current_crm_sync(row),
+                _current_confirmation_email(session, row.id, workspace.workspace_id),
             )
             for row in rows
         ],
@@ -369,6 +454,7 @@ def retrieve_lead(
         row,
         get_current_routing(session, row.id, workspace.workspace_id),
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
     )
 
 
@@ -390,6 +476,7 @@ def update_lead_title(
         row,
         get_current_routing(session, row.id, workspace.workspace_id),
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
     )
 
 
@@ -405,3 +492,472 @@ def retrieve_qualification(
     if result is None:
         raise HTTPException(status_code=404, detail="Qualification not found")
     return qualification_response(result)  # type: ignore[return-value]
+
+
+def _delivery_checkpoint(
+    destination: str,
+    status: str,
+    detail: str,
+    attempted_at: datetime | None = None,
+) -> LeadDeliveryCheckpoint:
+    return LeadDeliveryCheckpoint(
+        destination=destination,
+        status=status,
+        detail=detail,
+        attempted_at=attempted_at,
+        needs_attention=status in {"failed", "retryable", "delivery_uncertain", "not_configured"},
+    )
+
+
+@router.get("/{lead_id}/momentum", response_model=LeadMomentumResponse)
+def retrieve_lead_momentum(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> LeadMomentumResponse:
+    """Explain how verified evidence has changed the lead's current temperature.
+
+    This is deliberately a read model. It never changes scoring, routing, or
+    provider state; it explains persisted decisions and delivery records.
+    """
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    events = list(
+        session.scalars(
+            select(PipelineEventORM)
+            .where(
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+            )
+            .order_by(PipelineEventORM.created_at.asc(), PipelineEventORM.id.asc())
+        )
+    )
+    qualification = row.qualification
+    score = qualification.total_score if qualification else 0
+    classification = qualification.classification if qualification else "needs_qualifying"
+    rechecks = [event for event in events if event.stage == "qualification_rechecked"]
+    latest_recheck = rechecks[-1] if rechecks else None
+    previous_score: int | None = None
+    if latest_recheck:
+        previous = latest_recheck.details.get("previous_qualification")
+        if isinstance(previous, dict) and isinstance(previous.get("score"), int):
+            previous_score = previous["score"]
+    score_delta = score - previous_score if previous_score is not None else None
+    if qualification is None:
+        state: Literal["new", "warming", "cooling", "steady", "awaiting_review"] = "awaiting_review"
+    elif row.analysis and row.analysis.requires_manual_review:
+        state = "awaiting_review"
+    elif score_delta is None:
+        state = "new" if not rechecks else "steady"
+    elif score_delta >= 5:
+        state = "warming"
+    elif score_delta <= -5:
+        state = "cooling"
+    else:
+        state = "steady"
+
+    evidence: list[LeadMomentumEvidence] = []
+    if qualification:
+        for line in qualification.score_breakdown:
+            for item in line.get("evidence", [])[:2]:
+                if isinstance(item, str) and item.strip():
+                    evidence.append(
+                        LeadMomentumEvidence(
+                            source=f"Qualification · {line.get('component', 'score')}",
+                            excerpt=item.strip()[:360],
+                            observed_at=qualification.created_at,
+                        )
+                    )
+    for event in reversed(events):
+        if event.stage == "manual_progress":
+            note = event.details.get("note")
+            if isinstance(note, str) and note.strip():
+                evidence.append(LeadMomentumEvidence(
+                    source=f"Verified progress · {event.details.get('stage', event.status)}",
+                    excerpt=note.strip()[:360], observed_at=event.created_at,
+                ))
+        elif event.stage == "gmail_message":
+            subject = event.details.get("subject") or "Email conversation"
+            body = event.details.get("body")
+            if isinstance(body, str) and body.strip():
+                evidence.append(LeadMomentumEvidence(
+                    source=f"Gmail · {event.details.get('direction', event.status)} · {subject}",
+                    excerpt=body.strip()[:360], observed_at=event.created_at,
+                ))
+        if len(evidence) >= 8:
+            break
+    evidence.sort(key=lambda item: item.observed_at or row.received_at, reverse=True)
+
+    current_route = get_current_routing(session, row.id, workspace.workspace_id)
+    confirmation = _current_confirmation_email(session, row.id, workspace.workspace_id)
+    crm = get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id)
+    notification = (
+        current_route.notifications[0]
+        if current_route and current_route.notifications
+        else None
+    )
+    notification_status = (
+        notification.status
+        if notification
+        else ("not_configured" if not current_route else "not_attempted")
+    )
+    notification_detail = (
+        notification.error_message
+        if notification and notification.error_message
+        else (
+            notification.provider
+            if notification
+            else "No notification delivery record is available."
+        )
+    )
+    notification_at = (
+        notification.sent_at
+        if notification and notification.sent_at
+        else (notification.updated_at if notification else None)
+    )
+    confirmation_detail = (
+        confirmation.error_message
+        if confirmation and confirmation.error_message
+        else (
+            confirmation.recipient
+            if confirmation
+            else "No confirmation delivery has been recorded."
+        )
+    )
+    confirmation_at = (
+        confirmation.sent_at
+        if confirmation and confirmation.sent_at
+        else (confirmation.updated_at if confirmation else None)
+    )
+    delivery = [
+        _delivery_checkpoint(
+            "Slack notification",
+            notification_status,
+            notification_detail,
+            notification_at,
+        ),
+        _delivery_checkpoint(
+            "Confirmation email",
+            confirmation.status if confirmation else "not_attempted",
+            confirmation_detail,
+            confirmation_at,
+        ),
+        _delivery_checkpoint(
+            "CRM handoff",
+            crm.status if crm else "not_synchronized",
+            crm.last_error if crm and crm.last_error else (
+                crm.provider if crm else "No CRM write has been requested yet."
+            ),
+            crm.completed_at if crm and crm.completed_at else (crm.updated_at if crm else None),
+        ),
+    ]
+    signal_events = [
+        event for event in events if event.stage in {"manual_progress", "gmail_message"}
+    ]
+    last_signal_at = signal_events[-1].created_at if signal_events else row.received_at
+    # SQLite returns naive datetimes even for timezone-aware mapped columns.
+    # Treat persisted naive values as UTC, which is the application's storage
+    # convention, rather than allowing the read-only insight to fail.
+    freshness_observed_at = (
+        last_signal_at.replace(tzinfo=UTC)
+        if last_signal_at.tzinfo is None
+        else last_signal_at
+    )
+    freshness_hours = max(
+        0, int((datetime.now(UTC) - freshness_observed_at).total_seconds() // 3600)
+    )
+    next_action = (
+        current_route.action_plan.get("immediate_action")
+        if current_route else None
+    ) or "Review the source evidence and assign an owner."
+    return LeadMomentumResponse(
+        score=score,
+        classification=classification,
+        state=state,
+        score_delta=score_delta,
+        previous_score=previous_score,
+        confidence=float(qualification.confidence) if qualification else None,
+        freshness_hours=freshness_hours,
+        observed_signals=len(signal_events),
+        last_signal_at=last_signal_at,
+        next_human_action=next_action,
+        evidence=evidence[:8],
+        delivery=delivery,
+    )
+
+
+@router.post("/{lead_id}/progress", response_model=LeadProgressResponse)
+def update_lead_progress(
+    lead_id: UUID,
+    request: LeadProgressUpdate,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadProgressResponse:
+    row = session.scalar(
+        select(LeadORM).where(
+            LeadORM.id == lead_id, LeadORM.workspace_id == workspace.workspace_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    now = datetime.now(UTC)
+    progress_event = PipelineEventORM(
+        id=uuid4(),
+        workspace_id=workspace.workspace_id,
+        lead_id=row.id,
+        stage="manual_progress",
+        status=request.stage,
+        details={"stage": request.stage, "note": request.note, "updated_by": workspace.actor_id},
+        created_at=now,
+    )
+    session.add(progress_event)
+    session.flush()
+    classification, score, rationale = _reanalyze_lead_with_history(
+        session, row, workspace.workspace_id, policies, notification_provider,
+        trigger="manual_progress_update",
+    )
+    progress_event.details = {
+        **progress_event.details,
+        "qualification": {"classification": classification, "score": score},
+    }
+    session.commit()
+    return LeadProgressResponse(
+        stage=request.stage,
+        note=request.note,
+        classification=classification,
+        score=score,
+        rationale=rationale,
+        updated_at=now,
+    )
+
+
+def _reanalyze_lead_with_history(
+    session: Session,
+    row: LeadORM,
+    workspace_id: UUID,
+    policies: tuple[IcpConfig, RoutingConfig],
+    notification_provider: NotificationProvider | None,
+    *,
+    trigger: str,
+) -> tuple[str, int, list[str]]:
+    events = list(
+        session.scalars(
+            select(PipelineEventORM)
+            .where(
+                PipelineEventORM.lead_id == row.id,
+                PipelineEventORM.workspace_id == workspace_id,
+                PipelineEventORM.stage.in_(["manual_progress", "gmail_message"]),
+            )
+            .order_by(PipelineEventORM.created_at.asc())
+        )
+    )
+    context_lines: list[str] = []
+    for event in events[-60:]:
+        details = event.details
+        if event.stage == "manual_progress":
+            context_lines.append(
+                f"Sales stage {details.get('stage', event.status)}: {details.get('note', '')}"
+            )
+        else:
+            direction = details.get("direction", "email")
+            context_lines.append(
+                f"Gmail {direction} email ({details.get('sent_at', '')}) "
+                f"{details.get('subject', '')}: {details.get('body', '')}"
+            )
+    progress_context = "\n".join(context_lines)[-24000:]
+    payload = {
+        "source": row.source,
+        "source_detail": row.source_detail,
+        "external_id": row.external_id,
+        "full_name": row.full_name,
+        "email": row.email,
+        "phone": row.phone,
+        "job_title": row.job_title,
+        "company_name": row.company_name,
+        "industry": row.industry,
+        "employee_count": row.employee_count,
+        "annual_revenue": row.annual_revenue,
+        "geography": row.geography,
+        "budget": row.budget,
+        "product_or_service": row.product_or_service,
+        "message": f"{row.message}\n\nVerified lead history (oldest first):\n{progress_context}",
+        "received_at": row.received_at,
+        "raw_payload": row.raw_payload,
+        "normalization_version": row.normalization_version,
+    }
+    normalized = normalize_lead(payload, row.id)
+    resolved_icp = resolve_workspace_icp(session, workspace_id, policies[0])
+    reasoning_provider = resolve_workspace_reasoning_provider(session, workspace_id)
+    analysis, result = _analyze_and_qualify(
+        normalized, resolved_icp.configuration, policies[1], reasoning_provider
+    )
+    result = resolved_icp.trace_result(result)
+    previous = {
+        "classification": row.qualification.classification,
+        "score": row.qualification.total_score,
+    } if row.qualification else None
+    update_lead_with_result(session, row, normalized, result, analysis, preserve_inquiry=True)
+    record_pipeline_event(
+        session,
+        row.id,
+        "qualification_rechecked",
+        analysis.status,
+        {
+            "trigger": trigger,
+            "previous_qualification": previous,
+            "classification": result.classification,
+            "score": result.total_score,
+            "rationale": list(result.rationale),
+            "analysis_provider": analysis.provider,
+        },
+    )
+    route_and_notify(
+        session,
+        row,
+        policies[1],
+        notification_provider=notification_provider,
+        force=True,
+        send_notification=False,
+        reroute_reason="Lead history changed; qualification was recalculated.",
+    )
+    return result.classification, result.total_score, list(result.rationale)
+
+
+@router.post(
+    "/{lead_id}/gmail-conversation/sync",
+    response_model=GmailConversationSyncResponse,
+)
+def sync_lead_gmail_conversation(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    resolver: WorkspaceInboundCrmProviderResolver = Depends(get_workspace_inbound_crm_resolver),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> GmailConversationSyncResponse:
+    row = session.scalar(
+        select(LeadORM).where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace.workspace_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    connections = list(
+        session.scalars(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.workspace_id == workspace.workspace_id,
+                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+        )
+    )
+    if not connections:
+        raise HTTPException(
+            status_code=409,
+            detail="Connect and verify Gmail before syncing conversations.",
+        )
+
+    existing_events = list(
+        session.scalars(
+            select(PipelineEventORM).where(
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.stage == "gmail_message",
+            )
+        )
+    )
+    known_message_ids = {
+        str(event.details.get("message_id"))
+        for event in existing_events
+        if event.details.get("message_id")
+    }
+    now = datetime.now(UTC)
+    checked_threads: set[str] = set()
+    messages_added = 0
+    truncated = False
+    try:
+        for connection in connections:
+            provider = resolver.resolve(
+                session, workspace.workspace_id, connection.id, actor_id=workspace.actor_id
+            )
+            if not hasattr(provider, "list_contact_threads"):
+                continue
+            link_rows = list(
+                session.scalars(
+                    select(CrmProviderRecordLinkORM).where(
+                        CrmProviderRecordLinkORM.workspace_id == workspace.workspace_id,
+                        CrmProviderRecordLinkORM.connection_id == connection.id,
+                        CrmProviderRecordLinkORM.lead_id == lead_id,
+                        CrmProviderRecordLinkORM.provider == "gmail",
+                        CrmProviderRecordLinkORM.object_type == "message",
+                        CrmProviderRecordLinkORM.status == "active",
+                    )
+                )
+            )
+            linked_threads = {
+                str(link.provider_metadata.get("gmail_thread_id"))
+                for link in link_rows
+                if link.provider_metadata.get("gmail_thread_id")
+            }
+            found_threads = set(provider.list_contact_threads(row.email, max_threads=200))
+            thread_ids = linked_threads | found_threads
+            truncated = truncated or len(thread_ids) >= 200
+            for thread_id in thread_ids:
+                if thread_id in checked_threads:
+                    continue
+                checked_threads.add(thread_id)
+                for message in provider.fetch_thread(thread_id, lead_email=row.email):
+                    message_id = message.get("message_id", "")
+                    if not message_id or message_id in known_message_ids:
+                        continue
+                    event_time = now
+                    if message.get("sent_at"):
+                        try:
+                            event_time = datetime.fromisoformat(message["sent_at"])
+                        except ValueError:
+                            pass
+                    session.add(
+                        PipelineEventORM(
+                            id=uuid4(),
+                            workspace_id=workspace.workspace_id,
+                            lead_id=lead_id,
+                            stage="gmail_message",
+                            status=message.get("direction", "inbound"),
+                            details=message,
+                            created_at=event_time,
+                        )
+                    )
+                    known_message_ids.add(message_id)
+                    messages_added += 1
+    except ProviderOperationError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=503 if error.retryable else 502,
+            detail=str(error),
+        ) from error
+
+    if messages_added:
+        session.flush()
+        classification, score, _rationale = _reanalyze_lead_with_history(
+            session, row, workspace.workspace_id, policies, notification_provider,
+            trigger="gmail_conversation_sync",
+        )
+    else:
+        classification = (
+            row.qualification.classification
+            if row.qualification
+            else "needs_qualifying"
+        )
+        score = row.qualification.total_score if row.qualification else 0
+    session.commit()
+    return GmailConversationSyncResponse(
+        messages_added=messages_added,
+        threads_checked=len(checked_threads),
+        truncated=truncated,
+        classification=classification,
+        score=score,
+    )

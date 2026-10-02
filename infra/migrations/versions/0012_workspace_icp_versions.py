@@ -82,29 +82,28 @@ def upgrade() -> None:
             server_default="legacy",
         ),
     )
-    op.create_foreign_key(
-        "fk_qualification_results_icp_version",
-        "qualification_results",
-        "workspace_icp_versions",
-        ["icp_version_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
-    op.alter_column("qualification_results", "disqualifier_evidence", server_default=None)
-    op.alter_column("qualification_results", "icp_source", server_default=None)
-    op.alter_column("qualification_results", "icp_profile_version", server_default=None)
-    op.alter_column("qualification_results", "icp_configuration_hash", server_default=None)
+    with op.batch_alter_table("qualification_results") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_qualification_results_icp_version",
+            "workspace_icp_versions",
+            ["icp_version_id"],
+            ["id"],
+            ondelete="RESTRICT",
+        )
+        batch_op.alter_column("disqualifier_evidence", server_default=None)
+        batch_op.alter_column("icp_source", server_default=None)
+        batch_op.alter_column("icp_profile_version", server_default=None)
+        batch_op.alter_column("icp_configuration_hash", server_default=None)
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "fk_qualification_results_icp_version", "qualification_results", type_="foreignkey"
-    )
-    op.drop_column("qualification_results", "icp_configuration_hash")
-    op.drop_column("qualification_results", "icp_profile_version")
-    op.drop_column("qualification_results", "icp_source")
-    op.drop_column("qualification_results", "icp_version_id")
-    op.drop_column("qualification_results", "disqualifier_evidence")
+    with op.batch_alter_table("qualification_results") as batch_op:
+        batch_op.drop_constraint("fk_qualification_results_icp_version", type_="foreignkey")
+        batch_op.drop_column("icp_configuration_hash")
+        batch_op.drop_column("icp_profile_version")
+        batch_op.drop_column("icp_source")
+        batch_op.drop_column("icp_version_id")
+        batch_op.drop_column("disqualifier_evidence")
     op.drop_index("ix_workspace_icp_workspace_updated", table_name="workspace_icp_versions")
     op.drop_index("ix_workspace_icp_workspace_status", table_name="workspace_icp_versions")
     op.drop_table("workspace_icp_versions")

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     app_name: str = "lead-qualification-routing-agent"
     app_version: str = "0.6.5"
     api_host: str = "127.0.0.1"
-    api_port: int = 8000
+    api_port: int = 8001
     frontend_dist_path: str = "frontend/dist"
     log_level: str = "INFO"
     log_format: Literal["text", "json"] = "text"
@@ -106,7 +106,7 @@ class Settings(BaseSettings):
     secret_store_key_version: str = "v1"
     secret_store_previous_keys: str = "{}"
     oauth_broker: str = "development"
-    integration_public_base_url: str = "http://localhost:8000"
+    integration_public_base_url: str = "http://localhost:8001"
     frontend_public_base_url: str = "http://localhost:5173"
     google_client_id: str = ""
     google_client_secret: str = ""

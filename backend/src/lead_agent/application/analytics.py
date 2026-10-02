@@ -426,7 +426,7 @@ class AnalyticsService:
             {"name": "Action Planning Agent", "status": "implemented"},
             {"name": "CRM Tool", "status": "implemented"},
             {"name": "Notification Tool", "status": "implemented"},
-            {"name": "Follow-up Agent", "status": "future"},
+            {"name": "Follow-up Agent", "status": "implemented"},
             {"name": "Enrichment Agent", "status": "future"},
             {"name": "Analytics Agent", "status": "future"},
         ]

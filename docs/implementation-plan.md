@@ -150,3 +150,7 @@ Live provider testing, deployment bindings, browser E2E, broader operational har
 ## Current Phase 7A2 implementation note
 
 Phase 7A2 adds shared production rate limiting, request correlation, structured/redacted logs, safe browser/API headers, vendor-neutral observability hooks, explicit dependency readiness, database/Redis production controls, bounded Celery reliability defaults, and production configuration checks. Deployment topology and checklist are documented separately. Provider certification, infrastructure provisioning, browser E2E, and Phase 7B remain unstarted.
+
+## Current Phase 7A3 implementation note
+
+The first AI follow-up increment is a single, persisted, editable email draft per lead. It uses the verified workspace OpenAI provider when available and a clearly labeled grounded template otherwise. Leads flagged for manual review or hard disqualification cannot receive a draft. A workspace member with lead-edit permission must save and explicitly approve the email; Gmail send scope is checked at delivery, and approval actor/time plus delivery state are persisted. Uncertain delivery is not automatically retried. Automated sequences, scheduling, reply detection, and stop/unsubscribe detection remain out of scope until their prerequisites exist.

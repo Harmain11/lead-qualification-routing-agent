@@ -6,7 +6,7 @@ import type { AuthSession } from "../types";
 
 const BRAND = "/asset/brand";
 
-export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthSession) => void }) {
+export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenticated: (session: AuthSession) => void; theme: "light" | "dark"; onToggleTheme: () => void }) {
   const [mode, setMode] = useState<"signin" | "signup" | "access">("signin");
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
@@ -100,6 +100,7 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
 
   return (
     <main className="auth-shell">
+      <button className="theme-toggle auth-theme-toggle" onClick={onToggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
       <div className="auth-ambient" aria-hidden="true">
         <img src={`${BRAND}/twinkle-widecard.svg`} alt="" />
         <span className="auth-orbit orbit-a" />
@@ -107,7 +108,7 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
         <div className="auth-signal-path"><i /><i /><i /><i /></div>
       </div>
       <section className="auth-story">
-        <img className="auth-logo" src={`${BRAND}/logo-light.png`} alt="Ingenuity Systems" />
+        <div className="auth-product-brand"><img className="auth-logo" src={`${BRAND}/corral-mark.png`} alt="" /><span><strong>Corral</strong><small>Powered by Ingenuity Systems</small></span></div>
         <div>
           <span className="eyebrow">AI revenue operations control center</span>
           <h1>Every signal.<br /><em>Understood and acted on.</em></h1>
@@ -119,7 +120,7 @@ export function AuthView({ onAuthenticated }: { onAuthenticated: (session: AuthS
       </section>
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-panel-brand">
-          <img src={`${BRAND}/logo-icon.png`} alt="" />
+          <img src={`${BRAND}/corral-mark.png`} alt="" />
           <span>Secure workspace access</span>
         </div>
         <div className="auth-tabs" role="tablist" aria-label="Authentication mode">

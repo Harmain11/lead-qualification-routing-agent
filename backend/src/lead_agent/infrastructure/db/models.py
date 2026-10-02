@@ -34,6 +34,27 @@ class WorkspaceORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceEmailTemplateORM(Base):
+    """Workspace-owned confirmation and follow-up email templates."""
+
+    __tablename__ = "workspace_email_templates"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "kind", name="uq_workspace_email_template_kind"),
+        Index("ix_workspace_email_templates_workspace_kind", "workspace_id", "kind"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject: Mapped[str] = mapped_column(String(180), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    generation_method: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkspaceRoutingConfigORM(Base):
     """Workspace-owned routing weights. An absent member weight means equal share."""
 
@@ -175,9 +196,7 @@ class WorkspaceMembershipORM(Base):
     )
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    permission_overrides: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
+    permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -196,9 +215,7 @@ class WorkspaceInvitationORM(Base):
     )
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
-    permission_overrides: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
+    permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     invited_by: Mapped[UUID] = mapped_column(
@@ -527,9 +544,7 @@ class CrmProviderRecordLinkORM(Base):
     provider_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     enrichment_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    last_writeback_fingerprint: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
-    )
+    last_writeback_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     synchronization_origin: Mapped[str] = mapped_column(
         String(32), nullable=False, default="provider"
     )
@@ -667,7 +682,7 @@ class LeadSuppressionORM(Base):
 
 
 class LeadFollowUpEmailORM(Base):
-    """Idempotent automatic confirmation email for a stored lead."""
+    """Workspace-scoped confirmation email or human-approved follow-up draft."""
 
     __tablename__ = "lead_follow_up_emails"
     __table_args__ = (
@@ -688,6 +703,12 @@ class LeadFollowUpEmailORM(Base):
     kind: Mapped[str] = mapped_column(String(64), nullable=False, default="lead_confirmation")
     recipient: Mapped[str] = mapped_column(String(320), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    generation_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     external_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -747,9 +768,7 @@ class QualificationResultORM(Base):
     icp_version_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workspace_icp_versions.id", ondelete="RESTRICT"), nullable=True
     )
-    icp_source: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="system_default"
-    )
+    icp_source: Mapped[str] = mapped_column(String(32), nullable=False, default="system_default")
     icp_profile_version: Mapped[str] = mapped_column(String(64), nullable=False, default="legacy")
     icp_configuration_hash: Mapped[str] = mapped_column(
         String(64), nullable=False, default="legacy"

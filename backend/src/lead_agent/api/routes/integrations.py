@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
+from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -128,6 +130,8 @@ class SlackNotificationRuleRequest(BaseModel):
     id: UUID | None = None
     name: str = Field(min_length=1, max_length=120)
     connection_id: UUID
+    destination_type: Literal["channel", "direct_message"] = "channel"
+    channel_id: str | None = Field(default=None, min_length=3, max_length=255)
     queues: list[str] = Field(default_factory=list, max_length=10)
     qualification_bands: list[str] = Field(default_factory=list, max_length=10)
     sources: list[str] = Field(default_factory=list, max_length=10)
@@ -261,7 +265,7 @@ def update_slack_notification_config(
         )
     seen_rule_ids: set[UUID] = set()
     normalized_rules: list[dict[str, Any]] = []
-    allowed_bands = {"hot", "warm", "nurture", "disqualify", "manual_review"}
+    allowed_bands = {"hot", "warm", "needs_qualifying", "nurture", "disqualify", "manual_review"}
     for rule in request.rules:
         if rule.connection_id not in available:
             raise HTTPException(
@@ -281,11 +285,18 @@ def update_slack_notification_config(
                 status_code=422,
                 detail=f"Unsupported qualification band(s): {', '.join(sorted(unknown_bands))}",
             )
+        if rule.destination_type == "direct_message" and not rule.channel_id:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Slack rule '{rule.name}' needs a Slack member ID for direct messages.",
+            )
         normalized_rules.append(
             {
                 "id": str(rule_id),
                 "name": rule.name.strip(),
                 "connection_id": str(rule.connection_id),
+                "destination_type": rule.destination_type,
+                "channel_id": rule.channel_id.strip() if rule.channel_id else None,
                 "queues": sorted({value.strip() for value in rule.queues if value.strip()}),
                 "qualification_bands": sorted(set(bands)),
                 "sources": sorted({value.strip() for value in rule.sources if value.strip()}),
@@ -557,6 +568,7 @@ def backfill_openai_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     connection = _connection_or_404(session, workspace.workspace_id, connection_id)
     if (
@@ -581,6 +593,27 @@ def backfill_openai_connection(
             .exists(),
         )
     ) or 0
+    # Backfill is optional. In local development, do not hold the successful
+    # credential verification hostage to a missing Redis/Celery worker.
+    redis_client = Redis.from_url(
+        settings.redis_url,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+    )
+    try:
+        redis_client.ping()
+    except (RedisError, OSError, ValueError) as error:
+        if settings.app_env.lower() in {"development", "test", "local"}:
+            return {
+                "status": "skipped",
+                "queued_count": 0,
+                "message": "OpenAI is verified. Backfill will run when the local worker and Redis are available.",
+            }
+        raise HTTPException(
+            status_code=503, detail="The lead analysis worker is unavailable"
+        ) from error
+    finally:
+        redis_client.close()
     from lead_agent.worker.celery_app import reanalyze_workspace_leads
 
     try:

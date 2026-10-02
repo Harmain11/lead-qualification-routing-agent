@@ -14,7 +14,8 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.add_column("users", sa.Column("email_verified", sa.Boolean(), nullable=False, server_default=sa.false()))
     op.add_column("users", sa.Column("email_verified_at", sa.DateTime(timezone=True), nullable=True))
-    op.alter_column("users", "email_verified", server_default=None)
+    with op.batch_alter_table("users") as batch_op:
+        batch_op.alter_column("email_verified", server_default=None)
     op.create_table(
         "external_identities",
         sa.Column("id", sa.Uuid(), nullable=False),

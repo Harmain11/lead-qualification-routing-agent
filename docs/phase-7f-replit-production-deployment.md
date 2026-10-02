@@ -87,7 +87,7 @@ For a clean production database, provision an empty database and run:
 alembic -c backend/alembic.ini upgrade head
 ```
 
-The migration head is `0019_unique_lead_source_event`. Do not copy the local development database or seed demo data into production.
+The migration head is the latest revision in `infra/migrations/versions` (currently `0029_workspace_email_templates`). Do not copy the local development database or seed demo data into production.
 
 ## Public URLs and callbacks
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -29,6 +30,7 @@ from lead_agent.infrastructure.db.models import (
     NotificationORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
+    WorkspaceNotificationConfigORM,
 )
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.oauth import ProviderOAuthBroker
@@ -351,6 +353,62 @@ def test_resolver_and_channel_configuration_are_workspace_scoped(tmp_path) -> No
         assert audit.actor_id == "actor-a"
         assert audit.details["channel_id"] == "C-new"
         assert "access_token" not in str(audit.details)
+
+
+def test_matching_slack_rule_can_override_the_workspace_channel(tmp_path) -> None:
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace = uuid4()
+        connection = make_connection(session, store, workspace)
+        session.add(
+            WorkspaceNotificationConfigORM(
+                workspace_id=workspace,
+                default_slack_connection_id=connection.id,
+                slack_rules=[
+                    {
+                        "id": str(uuid4()),
+                        "name": "Warm website leads",
+                        "connection_id": str(connection.id),
+                        "channel_id": "C-WARM",
+                        "queues": [],
+                        "qualification_bands": ["hot", "warm"],
+                        "sources": ["email", "website"],
+                        "weight": 1,
+                    }
+                ],
+                updated_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+        resolver = WorkspaceSlackNotificationResolver(
+            store, WorkspaceAuthorizedConnectionResolver(store), slack_client(lambda _: httpx.Response(200))
+        )
+        provider = resolver.resolve_for_lead(
+            session,
+            workspace,
+            SimpleNamespace(id=uuid4(), source="website", source_detail=None),
+            SimpleNamespace(assigned_queue="sales", qualification_band="warm"),
+        )
+        assert provider is not None
+        assert provider.channel_id == "C-WARM"
+        assert WorkspaceSlackNotificationResolver._rule_matches(
+            {
+                "queues": ["sales", "marketing"],
+                "qualification_bands": ["hot", "warm"],
+                "sources": ["email", "website"],
+            },
+            SimpleNamespace(source="website", source_detail=None),
+            SimpleNamespace(assigned_queue="sales", qualification_band="warm"),
+        )
+        assert not WorkspaceSlackNotificationResolver._rule_matches(
+            {
+                "queues": ["sales", "marketing"],
+                "qualification_bands": ["hot", "warm"],
+                "sources": ["email", "website"],
+            },
+            SimpleNamespace(source="referral", source_detail=None),
+            SimpleNamespace(assigned_queue="sales", qualification_band="warm"),
+        )
 
 
 def test_missing_channel_and_bot_membership_are_permanent_configuration_errors(tmp_path) -> None:

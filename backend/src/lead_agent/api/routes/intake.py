@@ -30,7 +30,7 @@ from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import WorkspacePublicIntakeORM
+from lead_agent.infrastructure.db.models import LeadFollowUpEmailORM, WorkspacePublicIntakeORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.intake.adapters import (
     ClutchAdapter,
@@ -97,6 +97,12 @@ def _intake(
         result.lead,
         get_current_routing(session, result.lead.id, workspace.workspace_id),
         get_current_crm_sync(session, result.lead.id, workspace_id=workspace.workspace_id),
+        session.scalar(
+            select(LeadFollowUpEmailORM).where(
+                LeadFollowUpEmailORM.lead_id == result.lead.id,
+                LeadFollowUpEmailORM.kind == "lead_confirmation",
+            )
+        ),
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -9,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.application.icp import resolve_workspace_icp
+from lead_agent.application.email_templates import get_email_template, render_email_template
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
@@ -41,6 +43,8 @@ from lead_agent.infrastructure.repositories import (
     update_lead_with_result,
     update_source_event,
 )
+
+_LOGGER = logging.getLogger("lead_agent.intake")
 
 
 def _record_pre_routing_history(
@@ -86,9 +90,8 @@ def _record_pre_routing_history(
     )
 
 
-def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
+def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     """Send one idempotent confirmation using the active admin-connected Gmail."""
-
     recipient = (row.email or "").strip().lower()
     if "@" not in recipient:
         return
@@ -104,6 +107,9 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     )
     if connection is None:
         return
+    connection_id = connection.id
+    connection_scopes = set(connection.scopes)
+    mailbox = str(connection.connection_metadata.get("gmail_email") or connection.account_name)
     existing = session.scalar(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.lead_id == row.id,
@@ -112,14 +118,34 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     )
     if existing is not None and existing.status == "sent":
         return
+    if existing is not None and existing.status == "sent":
+        return
+    session.rollback()
+    resolved = get_workspace_connection_resolver().resolve_connection(
+        session, row.workspace_id, connection_id, actor_id="system"
+    )
+    session.rollback()
+    existing = session.scalar(
+        select(LeadFollowUpEmailORM).where(
+            LeadFollowUpEmailORM.lead_id == row.id,
+            LeadFollowUpEmailORM.kind == "lead_confirmation",
+        )
+    )
+    if existing is not None and existing.status == "sent":
+        return
+
     now = datetime.now(UTC)
-    subject = "We received your inquiry"
+    template = render_email_template(
+        get_email_template(session, row.workspace_id, "confirmation"), row
+    )
+    subject = template["subject"]
+    body = template["body"]
     if existing is None:
         existing = LeadFollowUpEmailORM(
             id=uuid4(),
             workspace_id=row.workspace_id,
             lead_id=row.id,
-            provider_connection_id=connection.id,
+            provider_connection_id=connection_id,
             kind="lead_confirmation",
             recipient=recipient,
             subject=subject,
@@ -130,8 +156,8 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
         )
         session.add(existing)
         session.flush()
-    elif existing.provider_connection_id != connection.id:
-        existing.provider_connection_id = connection.id
+    elif existing.provider_connection_id != connection_id:
+        existing.provider_connection_id = connection_id
         existing.recipient = recipient
         existing.error_message = None
         existing.status = "pending"
@@ -139,7 +165,7 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     elif existing.attempts >= 3 and existing.status in {"failed", "retryable"}:
         return
 
-    if GMAIL_SEND_SCOPE not in set(connection.scopes):
+    if GMAIL_SEND_SCOPE not in connection_scopes:
         existing.status = "failed"
         existing.error_message = (
             "Reconnect the admin Gmail connection and approve Gmail send permission "
@@ -148,11 +174,7 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
         existing.updated_at = now
         session.commit()
         return
-    resolved = get_workspace_connection_resolver().resolve_connection(
-        session, row.workspace_id, connection.id, actor_id="system"
-    )
     access_token = resolved.credentials.get("access_token") if resolved else None
-    mailbox = str(connection.connection_metadata.get("gmail_email") or connection.account_name)
     if resolved is None or not access_token or "@" not in mailbox:
         existing.status = "failed"
         existing.error_message = "The connected Gmail mailbox is not available for sending."
@@ -165,13 +187,8 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     session.commit()
     try:
         message_id = GmailOutboundProvider(
-            connection.id, access_token, mailbox
-        ).send_confirmation(
-            recipient=recipient,
-            lead_name=row.full_name,
-            company_name=row.company_name,
-            product_or_service=row.product_or_service,
-        )
+            connection_id, access_token, mailbox
+        ).send_email(recipient=recipient, subject=subject, body=body)
     except Exception as error:  # Do not fail lead ingestion because confirmation mail failed.
         existing.status = "retryable" if getattr(error, "retryable", False) else "failed"
         existing.error_message = str(error)[:1000]
@@ -184,6 +201,23 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     existing.sent_at = datetime.now(UTC)
     existing.updated_at = datetime.now(UTC)
     session.commit()
+
+
+def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
+    """Attempt delivery without allowing email problems to fail lead intake."""
+    try:
+        _deliver_lead_confirmation_email(session, row)
+    except Exception as error:  # pragma: no cover - defensive integration boundary
+        session.rollback()
+        _LOGGER.warning(
+            "lead confirmation delivery deferred",
+            extra={
+                "lead_id": str(row.id),
+                "workspace_id": str(row.workspace_id),
+                "error_type": error.__class__.__name__,
+                "error_message": str(error)[:500],
+            },
+        )
 
 
 @dataclass(frozen=True)
@@ -320,6 +354,11 @@ def process_source_event(
     if source_event and source_event.status in {"processed", "manual_review"}:
         existing_lead = source_event.lead
         if existing_lead is not None:
+            # A provider outage can leave the lead processed while its
+            # confirmation email is retryable. Re-check the idempotent email
+            # record on duplicate webhook deliveries so a later retry can
+            # complete the confirmation without duplicating the lead.
+            _send_lead_confirmation_email(session, existing_lead)
             return IntakeResult(
                 str(source_event.id), source_event.status, existing_lead, duplicate=True
             )
@@ -371,13 +410,16 @@ def process_source_event(
         if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
         route_and_notify(session, row, routing, notification_provider=notification_provider)
-        _send_lead_confirmation_email(session, row)
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message
         source_event.processed_at = now
         source_event.updated_at = now
         session.commit()
+        # Commit the lead/source event before touching Gmail or its delivery
+        # ledger. This makes intake durable even when email storage/provider
+        # work is temporarily locked or unavailable.
+        _send_lead_confirmation_email(session, row)
         return IntakeResult(str(source_event.id), source_event.status, row)
     except Exception as error:
         session.rollback()

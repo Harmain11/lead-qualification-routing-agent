@@ -5,28 +5,32 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 python_bin="${PYTHON_BIN:-python3}"
-port="${PORT:-${API_PORT:-8000}}"
+port="${PORT:-${API_PORT:-8001}}"
 api_host="${REPLIT_API_HOST:-0.0.0.0}"
 forwarded_allow_ips="${FORWARDED_ALLOW_IPS:-127.0.0.1}"
 worker_concurrency="${CELERY_WORKER_CONCURRENCY:-2}"
 beat_lock_file="${CELERY_BEAT_LOCK_FILE:-/tmp/lead-agent-celerybeat.lock}"
 beat_schedule_file="${CELERY_BEAT_SCHEDULE_FILE:-/tmp/lead-agent-celerybeat-schedule}"
 
+# Keep imports and module execution consistent whether Replit is using the
+# editable package from the build step or a source checkout during setup.
+export PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}"
+
 case "$port" in
   ''|*[!0-9]*) echo "[startup] PORT must be numeric" >&2; exit 1 ;;
 esac
 
 echo "[startup] validating production configuration"
-PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" -m lead_agent.production_check
+"$python_bin" -m lead_agent.production_check
 
 echo "[startup] checking built frontend"
 test -s frontend/dist/index.html
 
 echo "[startup] applying database migrations"
-PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" -m alembic -c backend/alembic.ini upgrade head
+"$python_bin" -m alembic -c backend/alembic.ini upgrade head
 
 echo "[startup] checking PostgreSQL and Redis connectivity"
-PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" - <<'PY'
+"$python_bin" - <<'PY'
 from redis import Redis
 from sqlalchemy import text
 
@@ -59,7 +63,7 @@ shutdown() {
 trap shutdown TERM INT EXIT
 
 echo "[startup] starting API on ${api_host}:${port}"
-uvicorn lead_agent.api.main:app \
+"$python_bin" -m uvicorn lead_agent.api.main:app \
   --host "$api_host" \
   --port "$port" \
   --proxy-headers \
@@ -67,7 +71,7 @@ uvicorn lead_agent.api.main:app \
 child_pids+=("$!")
 
 echo "[startup] starting Celery worker with concurrency ${worker_concurrency}"
-celery -A lead_agent.worker.celery_app:celery_app worker \
+"$python_bin" -m celery -A lead_agent.worker.celery_app:celery_app worker \
   --loglevel="${CELERY_LOG_LEVEL:-INFO}" \
   --concurrency "$worker_concurrency" \
   --hostname="${CELERY_WORKER_HOSTNAME:-lead-agent-worker@%h}" &
@@ -80,7 +84,7 @@ if ! command -v flock >/dev/null 2>&1; then
 fi
 mkdir -p "$(dirname "$beat_lock_file")" "$(dirname "$beat_schedule_file")"
 flock -n "$beat_lock_file" \
-  celery -A lead_agent.worker.celery_app:celery_app beat \
+  "$python_bin" -m celery -A lead_agent.worker.celery_app:celery_app beat \
     --loglevel="${CELERY_LOG_LEVEL:-INFO}" \
     --schedule "$beat_schedule_file" \
     --pidfile="${CELERY_BEAT_PID_FILE:-/tmp/lead-agent-celerybeat.pid}" &

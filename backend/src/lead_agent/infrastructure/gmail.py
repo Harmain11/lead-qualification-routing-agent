@@ -6,7 +6,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 from html.parser import HTMLParser
 from typing import Any, cast
 from uuid import UUID
@@ -509,6 +509,85 @@ class GmailInboundProvider:
             checkpoint={"history_id": newest} if newest else None,
         )
 
+    def list_contact_threads(self, email: str, *, max_threads: int = 200) -> list[str]:
+        """Find bounded Gmail threads that include one exact lead email address."""
+        target = email.strip().lower()
+        if not target or "@" not in target:
+            return []
+        thread_ids: dict[str, None] = {}
+        page_token: str | None = None
+        while len(thread_ids) < max_threads:
+            params: dict[str, object] = {
+                "q": f"{{from:{target} to:{target}}} -in:spam -in:trash",
+                "maxResults": 100,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            result = self.api.get("messages", **params)
+            messages = result.get("messages", [])
+            for message in messages if isinstance(messages, list) else []:
+                if isinstance(message, dict) and message.get("threadId"):
+                    thread_ids[str(message["threadId"])] = None
+                    if len(thread_ids) >= max_threads:
+                        break
+            page_token = result.get("nextPageToken")
+            if not page_token or not messages:
+                break
+        return list(thread_ids)
+
+    def fetch_thread(self, thread_id: str, *, lead_email: str) -> list[dict[str, str]]:
+        """Read messages between this mailbox and a lead from a known Gmail thread."""
+        target = lead_email.strip().lower()
+        result = self.api.get(
+            f"threads/{thread_id}",
+            format="full",
+            fields="id,messages(id,threadId,internalDate,snippet,payload(mimeType,headers,body(data),parts(mimeType,filename,body(data),parts)))",
+        )
+        rows: list[dict[str, str]] = []
+        messages = result.get("messages", [])
+        for message in messages if isinstance(messages, list) else []:
+            if not isinstance(message, dict):
+                continue
+            payload = message.get("payload", {})
+            headers = {
+                str(item.get("name", "")).lower(): str(item.get("value", ""))
+                for item in payload.get("headers", [])
+                if isinstance(item, dict)
+            }
+            sender_name, sender = parseaddr(headers.get("from", ""))
+            recipients = [
+                address.strip().lower()
+                for _name, address in getaddresses(
+                    [headers.get("to", ""), headers.get("cc", "")]
+                )
+                if address
+            ]
+            sender = sender.strip().lower()
+            if sender != target and target not in recipients:
+                continue
+            try:
+                timestamp = datetime.fromtimestamp(
+                    int(message.get("internalDate", "0")) / 1000, tz=UTC
+                ).isoformat()
+            except (TypeError, ValueError, OSError):
+                timestamp = ""
+            body = parse_mime_body(payload if isinstance(payload, dict) else {})
+            rows.append(
+                {
+                    "message_id": str(message.get("id", "")),
+                    "thread_id": str(message.get("threadId", thread_id)),
+                    "sender": sender,
+                    "sender_name": sender_name[:255],
+                    "recipients": ", ".join(recipients),
+                    "subject": headers.get("subject", "(no subject)")[:500],
+                    "sent_at": timestamp,
+                    "direction": "outbound" if sender == self.mailbox_email else "inbound",
+                    "body": (body or str(message.get("snippet", "")))[:8000],
+                }
+            )
+        rows.sort(key=lambda item: item["sent_at"])
+        return rows
+
     def fetch_record(self, *, object_type: str, record_id: str) -> ExternalCrmRecord:
         del object_type
         data = self.api.get(
@@ -636,7 +715,7 @@ class GmailInboundProvider:
 
 
 class GmailOutboundProvider:
-    """Small Gmail send boundary used only for automatic lead confirmations."""
+    """Gmail send boundary for confirmations and explicitly approved follow-ups."""
 
     provider_name = "gmail"
 
@@ -673,6 +752,17 @@ class GmailOutboundProvider:
             "We will follow up with the next step soon.\n\n"
             "Best,\nThe team"
         )
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
+        payload = self.api.post("messages/send", {"raw": raw})
+        message_id = payload.get("id")
+        return str(message_id) if message_id else None
+
+    def send_email(self, *, recipient: str, subject: str, body: str) -> str | None:
+        message = EmailMessage()
+        message["From"] = self.mailbox_email
+        message["To"] = recipient
+        message["Subject"] = subject
+        message.set_content(body)
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
         payload = self.api.post("messages/send", {"raw": raw})
         message_id = payload.get("id")

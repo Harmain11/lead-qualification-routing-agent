@@ -1,10 +1,38 @@
-# Lead Qualification & Routing Agent
+# Corral — Lead Qualification & Routing Agent
 
-Production-ready foundation for a channel-agnostic lead qualification, explainable routing, CRM synchronization, and sales analytics demo.
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
+![React](https://img.shields.io/badge/React-TypeScript-149ECA?logo=react&logoColor=white)
+![Tests](https://img.shields.io/badge/backend%20tests-335%20passing-1E6B52)
+![Deploy](https://img.shields.io/badge/deploy-Replit%20Ready-F2A541)
+
+Production-ready foundation for a channel-agnostic lead qualification, explainable routing, CRM synchronization, and sales analytics demo. Corral turns inbound interest into an explainable next action for the right person, in the right channel, with a human in control.
+
+## Product flow
+
+```mermaid
+flowchart LR
+    A[Web form / Gmail / CRM / Social] --> B[Normalize]
+    B --> C[AI context]
+    C --> D[ICP fit]
+    D --> E[Qualify<br/>40 / 35 / 25]
+    E --> F[Route by rules<br/>and workload]
+    F --> G[Slack / CRM /<br/>human review]
+    G --> H[Follow-up draft]
+    H --> I[Human approves<br/>and sends]
+
+    classDef input fill:#e7f5ef,stroke:#1e6b52,color:#0f2b20
+    classDef ai fill:#e7efff,stroke:#2459a6,color:#10264b
+    classDef action fill:#fff2df,stroke:#f2a541,color:#4a2b00
+    class A input
+    class B,C,D,E ai
+    class F,G,H,I action
+```
+
+The dashboard mirrors this pipeline: inspect the lead, understand the evidence behind its score, adjust routing context when needed, and send a lead-specific follow-up only after a human approves it.
 
 ## Project status
 
-Phases 1–6.5, Phase 7A1, and Phase 7A2 operations/deployment readiness are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, analytics, production configuration validation, managed secrets, authentication/OAuth hardening, shared rate limiting, request correlation, redacted structured logs, dependency readiness, and deployment guidance. Infrastructure provisioning, live-provider certification, browser E2E, and later Phase 7 work remain deferred.
+Phases 1–6.5, Phase 7A1–7A3, and Phase 7A2 operations/deployment readiness are implemented locally: durable multi-channel intake, canonical normalization, deterministic/mock AI analysis, ICP qualification, configurable routing, notifications, provider-neutral CRM synchronization, workspace-scoped provider connections, controlled agent tools, analytics, production configuration validation, managed secrets, authentication/OAuth hardening, shared rate limiting, request correlation, redacted structured logs, dependency readiness, human-approved AI follow-up drafts, and deployment guidance. Infrastructure provisioning, live-provider certification, browser E2E, and automated follow-up sequences remain deferred.
 
 The source build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>). The normalized requirements are in [`docs/requirements.md`](docs/requirements.md), and the production architecture is in [`docs/architecture.md`](docs/architecture.md).
 
@@ -43,6 +71,17 @@ The system is a modular monolith for v1: one API, one worker boundary, one dashb
 └── .gitignore
 ```
 
+## Explore the product
+
+| Area | What to inspect |
+| --- | --- |
+| Dashboard | Pipeline health, qualification distribution, routing activity, and recent runs |
+| Leads | Explainable decision trail, source details, CRM history, and follow-up drafts |
+| Integrations | Workspace-scoped Gmail, Outlook, Slack, Salesforce, and HubSpot connections |
+| Settings | ICP versions, routing rules, email templates, workspace access, and deployment configuration |
+
+The app is intentionally workspace-scoped: provider credentials, routing rules, templates, and audit history stay isolated per workspace. Secrets belong in the runtime secret manager or `.env`, never in Git.
+
 ## Local setup
 
 Prerequisites: Python 3.12+, Node.js 22+, Docker Desktop, and `uv`.
@@ -62,7 +101,7 @@ uv run --project backend python -m lead_agent.seed --demo
 Run the API:
 
 ```powershell
-uv run --project backend uvicorn lead_agent.api.main:app --reload --host 127.0.0.1 --port 8000
+uv run --project backend uvicorn lead_agent.api.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
 Run the dashboard in another terminal:
@@ -73,7 +112,23 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Open <http://localhost:5173>. API documentation is available at <http://localhost:8000/docs>.
+Open <http://localhost:5173>. API documentation is available at <http://localhost:8001/docs>.
+
+## Replit import and deployment
+
+This repository is structured for direct Replit import. Replit reads the root
+`.replit` file, runs `bash scripts/replit_build.sh` once for the build, and
+starts `bash scripts/replit_start.sh` for a Reserved VM web deployment. The
+build installs the backend package and compiles the Vite dashboard. The runtime
+serves the dashboard and API from one public origin and supervises the API,
+Celery worker, and one Celery beat scheduler.
+
+For production, provision durable PostgreSQL and Redis, add the required
+secrets from [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md),
+and let Replit provide `PORT`. Do not upload `.env`, local SQLite databases,
+runtime logs, or `frontend/.env.local` as deployment configuration. Set the
+public frontend, integration, and CORS URLs to the same HTTPS Replit origin so
+OAuth callbacks and website intake URLs are generated correctly.
 
 If `uv` is unavailable, use `python -m venv .venv`, activate it, install with `python -m pip install -e "backend[dev]"`, set `$env:PYTHONPATH = "$pwd\backend\src"`, and run the equivalent commands from that environment.
 

@@ -271,6 +271,10 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
     assert activity["activity"]
     assert all(item["lead_id"] != str(other_lead.id) for item in activity["activity"])
     assert any(
+        item["name"] == "Follow-up Agent" and item["status"] == "implemented"
+        for item in activity["capabilities"]
+    )
+    assert any(
         item["name"] == "Analytics Agent" and item["status"] == "future"
         for item in activity["capabilities"]
     )

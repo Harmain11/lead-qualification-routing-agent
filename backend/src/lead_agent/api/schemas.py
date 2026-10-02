@@ -194,6 +194,15 @@ class AnalysisResponse(LeadContextAnalysis):
     created_at: datetime
 
 
+class ConfirmationEmailResponse(BaseModel):
+    status: str
+    recipient: str
+    attempts: int
+    external_message_id: str | None = None
+    error_message: str | None = None
+    sent_at: datetime | None = None
+
+
 class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -221,6 +230,7 @@ class LeadResponse(BaseModel):
     analysis: AnalysisResponse | None
     routing: RoutingDecisionResponse | None = None
     crm_sync: CrmSyncResponse | None = None
+    confirmation_email: ConfirmationEmailResponse | None = None
 
 
 class LeadListResponse(BaseModel):
@@ -547,7 +557,22 @@ def crm_sync_response(row: Any) -> CrmSyncResponse | None:
     )
 
 
-def lead_response(row: Any, routing: Any = None, crm_sync: Any = None) -> LeadResponse:
+def confirmation_email_response(row: Any) -> ConfirmationEmailResponse | None:
+    if row is None:
+        return None
+    return ConfirmationEmailResponse(
+        status=row.status,
+        recipient=row.recipient,
+        attempts=row.attempts,
+        external_message_id=row.external_message_id,
+        error_message=row.error_message,
+        sent_at=row.sent_at,
+    )
+
+
+def lead_response(
+    row: Any, routing: Any = None, crm_sync: Any = None, confirmation_email: Any = None
+) -> LeadResponse:
     return LeadResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -573,4 +598,5 @@ def lead_response(row: Any, routing: Any = None, crm_sync: Any = None) -> LeadRe
         analysis=analysis_response(row.analysis),
         routing=routing_response(routing),
         crm_sync=crm_sync_response(crm_sync),
+        confirmation_email=confirmation_email_response(confirmation_email),
     )

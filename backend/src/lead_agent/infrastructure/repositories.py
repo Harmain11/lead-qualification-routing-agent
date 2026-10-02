@@ -177,6 +177,8 @@ def update_lead_with_result(
     lead: NormalizedLead,
     result: QualificationResult,
     analysis: LeadContextAnalysis,
+    *,
+    preserve_inquiry: bool = False,
 ) -> LeadORM:
     """Replace the current canonical projection after a meaningful source update."""
 
@@ -199,9 +201,11 @@ def update_lead_with_result(
     row.geography = lead.geography
     row.budget = float(lead.budget) if lead.budget is not None else None
     row.product_or_service = lead.product_or_service
-    row.message = lead.message
+    if not preserve_inquiry:
+        row.message = lead.message
     row.received_at = lead.received_at
-    row.raw_payload = lead.raw_payload
+    if not preserve_inquiry:
+        row.raw_payload = lead.raw_payload
     row.normalization_version = lead.normalization_version
     row.updated_at = now
 

@@ -59,21 +59,21 @@ def upgrade() -> None:
                 server_default=sa.text(f"'{DEFAULT_WORKSPACE_ID}'"),
             ),
         )
-        op.create_foreign_key(
-            f"fk_{table_name}_workspace",
-            table_name,
-            "workspaces",
-            ["workspace_id"],
-            ["id"],
-            ondelete="CASCADE",
-        )
+        with op.batch_alter_table(table_name) as batch_op:
+            batch_op.create_foreign_key(
+                f"fk_{table_name}_workspace",
+                "workspaces",
+                ["workspace_id"],
+                ["id"],
+                ondelete="CASCADE",
+            )
 
-    op.drop_constraint("uq_source_provider_external", "source_events", type_="unique")
-    op.create_unique_constraint(
-        "uq_source_workspace_provider_external",
-        "source_events",
-        ["workspace_id", "provider", "external_event_id"],
-    )
+    with op.batch_alter_table("source_events") as batch_op:
+        batch_op.drop_constraint("uq_source_provider_external", type_="unique")
+        batch_op.create_unique_constraint(
+            "uq_source_workspace_provider_external",
+            ["workspace_id", "provider", "external_event_id"],
+        )
     op.create_index("ix_leads_workspace_created", "leads", ["workspace_id", "created_at"])
 
     op.create_table(
@@ -111,14 +111,14 @@ def upgrade() -> None:
     op.add_column(
         "crm_syncs", sa.Column("provider_connection_id", sa.Uuid(), nullable=True)
     )
-    op.create_foreign_key(
-        "fk_crm_syncs_provider_connection",
-        "crm_syncs",
-        "provider_connections",
-        ["provider_connection_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
+    with op.batch_alter_table("crm_syncs") as batch_op:
+        batch_op.create_foreign_key(
+            "fk_crm_syncs_provider_connection",
+            "provider_connections",
+            ["provider_connection_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
     op.create_table(
         "agent_tool_audit_events",
@@ -155,9 +155,8 @@ def downgrade() -> None:
         "ix_agent_tool_audit_workspace_created", table_name="agent_tool_audit_events"
     )
     op.drop_table("agent_tool_audit_events")
-    op.drop_constraint(
-        "fk_crm_syncs_provider_connection", "crm_syncs", type_="foreignkey"
-    )
+    with op.batch_alter_table("crm_syncs") as batch_op:
+        batch_op.drop_constraint("fk_crm_syncs_provider_connection", type_="foreignkey")
     op.drop_column("crm_syncs", "provider_connection_id")
     op.drop_index(
         "ix_provider_connections_workspace_active", table_name="provider_connections"
@@ -167,13 +166,13 @@ def downgrade() -> None:
     )
     op.drop_table("provider_connections")
     op.drop_index("ix_leads_workspace_created", table_name="leads")
-    op.drop_constraint(
-        "uq_source_workspace_provider_external", "source_events", type_="unique"
-    )
-    op.create_unique_constraint(
-        "uq_source_provider_external", "source_events", ["provider", "external_event_id"]
-    )
+    with op.batch_alter_table("source_events") as batch_op:
+        batch_op.drop_constraint("uq_source_workspace_provider_external", type_="unique")
+        batch_op.create_unique_constraint(
+            "uq_source_provider_external", ["provider", "external_event_id"]
+        )
     for table_name in reversed(OWNED_TABLES):
-        op.drop_constraint(f"fk_{table_name}_workspace", table_name, type_="foreignkey")
+        with op.batch_alter_table(table_name) as batch_op:
+            batch_op.drop_constraint(f"fk_{table_name}_workspace", type_="foreignkey")
         op.drop_column(table_name, "workspace_id")
     op.drop_table("workspaces")

@@ -302,11 +302,102 @@ export type Lead = {
   analysis: LeadAnalysis | null;
   routing: RoutingDecision | null;
   crm_sync: CrmSync | null;
+  confirmation_email?: ConfirmationEmail | null;
+};
+
+export type ConfirmationEmail = {
+  status: string;
+  recipient: string;
+  attempts: number;
+  external_message_id: string | null;
+  error_message: string | null;
+  sent_at: string | null;
+};
+
+export type FollowUpEmail = {
+  id: string;
+  lead_id: string;
+  recipient: string;
+  subject: string;
+  body: string | null;
+  rationale: string | null;
+  generation_method: "openai" | "template" | null;
+  generation_note: string | null;
+  status: string;
+  attempts: number;
+  error_message: string | null;
+  external_message_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceEmailTemplate = {
+  kind: "confirmation" | "follow_up";
+  subject: string;
+  body: string;
+  generation_method: "manual" | "ai";
+};
+
+export type LeadPipelineEvent = {
+  id: string;
+  stage: string;
+  status: string;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
+export type LeadMomentumEvidence = {
+  source: string;
+  excerpt: string;
+  observed_at: string | null;
+};
+
+export type LeadDeliveryCheckpoint = {
+  destination: string;
+  status: string;
+  detail: string;
+  attempted_at: string | null;
+  needs_attention: boolean;
+};
+
+export type LeadMomentum = {
+  score: number;
+  classification: string;
+  state: "new" | "warming" | "cooling" | "steady" | "awaiting_review";
+  score_delta: number | null;
+  previous_score: number | null;
+  confidence: number | null;
+  freshness_hours: number;
+  observed_signals: number;
+  last_signal_at: string | null;
+  next_human_action: string;
+  evidence: LeadMomentumEvidence[];
+  delivery: LeadDeliveryCheckpoint[];
+};
+
+export type LeadProgressResult = {
+  stage: string;
+  note: string;
+  classification: string;
+  score: number;
+  rationale: string[];
+  updated_at: string;
+};
+
+export type GmailConversationSyncResult = {
+  messages_added: number;
+  threads_checked: number;
+  truncated: boolean;
+  classification: string;
+  score: number;
 };
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "external_id" | "source_detail"
+  "id" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "external_id" | "source_detail"
 > & {
   source: string;
   source_detail: string;
@@ -459,6 +550,8 @@ export type SlackNotificationRule = {
   id: string;
   name: string;
   connection_id: string;
+  destination_type: "channel" | "direct_message";
+  channel_id: string | null;
   queues: string[];
   qualification_bands: string[];
   sources: string[];

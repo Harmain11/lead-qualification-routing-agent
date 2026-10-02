@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 
-import { bulkDeleteLeads, bulkSendLeadsToCrm, createLead, exportLeads, getPublicIntakeConfig, getRoutingConfig, listIntegrations, listLeads, rotatePublicIntakeConfig, updateRoutingConfig } from "../api";
+import { bulkDeleteLeads, bulkSendLeadsToCrm, createLead, exportLeads, generateEmailTemplate, getEmailTemplates, getPublicIntakeConfig, getRoutingConfig, listIntegrations, listLeads, rotatePublicIntakeConfig, saveEmailTemplate, updateRoutingConfig } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
@@ -20,6 +20,7 @@ import type {
   RevenueAnalytics,
   RoutingConfig,
   TimeSeriesAnalytics,
+  WorkspaceEmailTemplate,
 } from "../types";
 
 export type AnalyticsBundle = {
@@ -235,7 +236,7 @@ export function LeadsView({
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") setRefreshKey((value) => value + 1);
-    }, 30000);
+    }, 5000);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
@@ -321,7 +322,7 @@ export function LeadsView({
            <select aria-label="Lead source" value={source} onChange={(event) => setSource(event.target.value)}><option value="all">All channels</option>{LEAD_SOURCE_OPTIONS.map((item) => <option key={item}>{item}</option>)}</select>
           <label className="date-filter"><span className="sr-only">Received from</span><input aria-label="Received from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
           <label className="date-filter"><span className="sr-only">Received to</span><input aria-label="Received to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
-           <span>{total.toLocaleString()} records</span>
+           <span className="live-feed-status"><i />{total.toLocaleString()} records · live</span>
          </div>
          {rows.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={rows.length > 0 && visibleSelected === rows.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <><label>Transfer to <select aria-label="Bulk CRM provider" value={bulkProvider} onChange={(event) => setBulkProvider(event.target.value)}><option value="">Select CRM</option>{crmProviders.map((provider) => <option key={provider} value={provider}>{provider === "hubspot" ? "HubSpot" : pretty(provider)}</option>)}</select></label><button className="button-quiet" disabled={!selectedIds.size || !bulkProvider} onClick={async () => { if (!window.confirm(`Transfer or update ${selectedIds.size} selected leads in ${bulkProvider === "hubspot" ? "HubSpot" : pretty(bulkProvider)}?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds], bulkProvider); const providerLabel = bulkProvider === "hubspot" ? "HubSpot" : pretty(bulkProvider); const firstFailure = result.results.find((item) => item.status !== "synced" && item.error)?.error; setCrmNotice(`${result.succeeded} ${providerLabel} transfers completed; ${result.failed} skipped or failed.${firstFailure ? ` ${firstFailure}` : ""}`); setRefreshKey((value) => value + 1); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM transfer failed"); } }}>Transfer selected</button></>}{canEdit && <button className="danger-button" disabled={!selectedIds.size} onClick={() => void deleteSelected()}>Delete selected</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
          {crmNotice && <div className="notice" role="status">{crmNotice}</div>}
@@ -470,7 +471,7 @@ export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalyt
   );
 }
 
-export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewTeam, canViewIcp, canViewRouting, canManageRouting, canViewPublicIntake, canRotatePublicIntake }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewTeam: boolean; canViewIcp: boolean; canViewRouting: boolean; canManageRouting: boolean; canViewPublicIntake: boolean; canRotatePublicIntake: boolean }) {
+export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewTeam, canViewIcp, canViewRouting, canManageRouting, canViewPublicIntake, canRotatePublicIntake, canManageEmail }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewTeam: boolean; canViewIcp: boolean; canViewRouting: boolean; canManageRouting: boolean; canViewPublicIntake: boolean; canRotatePublicIntake: boolean; canManageEmail: boolean }) {
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
@@ -480,12 +481,49 @@ export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewT
         <Panel title="Team & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite staff, review roles and make deliberate permission exceptions. Backend authorization remains the source of truth for every action.</p><button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>{canViewTeam ? "Open Team & Permissions →" : "Members view permission required"}</button></Panel>
         <RoutingWeightsPanel canView={canViewRouting} canManage={canManageRouting} />
         <PublicIntakePanel canView={canViewPublicIntake} canRotate={canRotatePublicIntake} />
+        <EmailTemplatesPanel canManage={canManageEmail} />
         <Panel title="Ideal Customer Profile" eyebrow="Qualification policy"><p className="panel-copy">Build, validate and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p><button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>{canViewIcp ? "Open ICP Builder →" : "ICP view permission required"}</button></Panel>
         <Panel title="Data range" eyebrow="Analytics contract"><p className="panel-copy">Weekly, monthly and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p></Panel>
         <Panel title="Product state" eyebrow="Release readiness"><p className="panel-copy">Analytics, team controls, workspace-specific ICP qualification, secure exports and certified provider workflows are active.</p></Panel>
       </section>
     </div>
   );
+}
+
+function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
+  const [templates, setTemplates] = useState<WorkspaceEmailTemplate[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canManage) return;
+    void getEmailTemplates().then(setTemplates).catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load email templates"));
+  }, [canManage]);
+  const update = (kind: WorkspaceEmailTemplate["kind"], field: "subject" | "body" | "generation_method", value: string) =>
+    setTemplates((current) => current.map((item) => item.kind === kind ? { ...item, [field]: value } : item));
+  const save = async (template: WorkspaceEmailTemplate) => {
+    setBusy(`${template.kind}-save`); setNotice(null);
+    try {
+      const saved = await saveEmailTemplate(template.kind, { subject: template.subject, body: template.body, generation_method: template.generation_method });
+      setTemplates((current) => current.map((item) => item.kind === saved.kind ? saved : item));
+      setNotice(`${template.kind === "confirmation" ? "Confirmation" : "Follow-up"} email sample saved.`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to save email sample"); }
+    finally { setBusy(null); }
+  };
+  const generate = async (kind: WorkspaceEmailTemplate["kind"]) => {
+    setBusy(`${kind}-ai`); setNotice(null);
+    try {
+      const generated = await generateEmailTemplate(kind);
+      setTemplates((current) => current.map((item) => item.kind === kind ? generated : item));
+      setNotice("AI sample generated. Review it, then save to use it.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to generate email sample"); }
+    finally { setBusy(null); }
+  };
+  if (!canManage) return <Panel title="Email templates" eyebrow="Workspace messaging"><p className="panel-copy">Integration management permission is required to configure email templates.</p></Panel>;
+  const preview = (value: string) => value.replaceAll("{{lead_name}}", "Alex").replaceAll("{{company_name}}", "Northstar Labs").replaceAll("{{product_or_service}}", "lead workflow automation").replaceAll("{{job_title}}", "Sales Director");
+  return <Panel title="Email templates" eyebrow="Workspace messaging"><p className="panel-copy">Edit sample emails here. Confirmation is sent automatically when a new lead arrives. Follow-up is never sent automatically; a teammate reviews the lead-specific draft and clicks Send in Corral.</p><div className="email-template-grid">{templates.map((template) => {
+    const confirmation = template.kind === "confirmation";
+    return <article className="email-template-card" key={template.kind}><div className="email-template-heading"><h3>{confirmation ? "New-lead confirmation" : "Lead follow-up"}</h3><span>{confirmation ? "Automatic on intake" : "Human-send only"}</span></div><p className="panel-copy">{confirmation ? "Acknowledges receipt using this sample." : "Used as the workspace style for lead-specific drafts."} Available fields: <code>{"{{lead_name}}"}</code>, <code>{"{{company_name}}"}</code>, <code>{"{{product_or_service}}"}</code>, <code>{"{{job_title}}"}</code>.</p><label className="email-template-field">Sample subject<input value={template.subject} onChange={(event) => update(template.kind, "subject", event.target.value)} disabled={busy !== null} /></label><label className="email-template-field">Sample body<textarea rows={8} value={template.body} onChange={(event) => update(template.kind, "body", event.target.value)} disabled={busy !== null} /></label><div className="email-template-actions"><label>Draft style<select value={template.generation_method} onChange={(event) => update(template.kind, "generation_method", event.target.value)} disabled={busy !== null}><option value="manual">Use my saved sample</option><option value="ai">AI personalize from my sample</option></select></label><button className="button-quiet" disabled={busy !== null} onClick={() => void generate(template.kind)}>{busy === `${template.kind}-ai` ? "Generating…" : "Generate sample with AI"}</button><button className="primary-button" disabled={busy !== null || !template.subject.trim() || !template.body.trim()} onClick={() => void save(template)}>{busy === `${template.kind}-save` ? "Saving…" : "Save sample"}</button></div><div className="email-template-preview"><small>PREVIEW</small><b>{preview(template.subject)}</b><p>{preview(template.body)}</p></div></article>;
+  })}</div>{notice && <div className="notice" role="status">{notice}</div>}</Panel>;
 }
 
 function RoutingWeightsPanel({ canView, canManage }: { canView: boolean; canManage: boolean }) {
@@ -519,10 +557,14 @@ function PublicIntakePanel({ canView, canRotate }: { canView: boolean; canRotate
   const [url, setUrl] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const publicIntakeBaseUrl = import.meta.env.VITE_PUBLIC_INTAKE_BASE_URL?.replace(/\/$/, "");
+  const displayUrl = (value: string) => publicIntakeBaseUrl
+    ? `${publicIntakeBaseUrl}${new URL(value).pathname}`
+    : value;
   const embedCode = url ? `<form action="${url}" method="post">\n  <input name="full_name" required placeholder="Your name">\n  <input type="email" name="email" required placeholder="Work email">\n  <input name="company_name" required placeholder="Company">\n  <input name="product_or_service" required placeholder="What do you need?">\n  <textarea name="message" required placeholder="Tell us about your inquiry"></textarea>\n  <button type="submit">Send inquiry</button>\n</form>` : "";
   useEffect(() => {
     if (!canView) return;
-    void getPublicIntakeConfig().then((value) => setUrl(value.url)).catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load website form URL"));
+    void getPublicIntakeConfig().then((value) => setUrl(displayUrl(value.url))).catch((error) => setNotice(error instanceof Error ? error.message : "Unable to load website form URL"));
   }, [canView]);
   const copy = async () => {
     if (!url) return;
@@ -532,7 +574,7 @@ function PublicIntakePanel({ canView, canRotate }: { canView: boolean; canRotate
   const rotate = async () => {
     if (!window.confirm("Rotate this URL? The old website form URL will stop accepting leads.")) return;
     setBusy(true); setNotice(null);
-    try { const value = await rotatePublicIntakeConfig(); setUrl(value.url); setNotice("New public form URL generated. Update your website form action."); }
+    try { const value = await rotatePublicIntakeConfig(); setUrl(displayUrl(value.url)); setNotice("New public form URL generated. Update your website form action."); }
     catch (error) { setNotice(error instanceof Error ? error.message : "Unable to rotate public form URL"); }
     finally { setBusy(false); }
   };

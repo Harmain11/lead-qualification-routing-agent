@@ -62,11 +62,11 @@ The callback URI is built as:
 
 | Provider | Exact development redirect URI |
 |---|---|
-| Salesforce | `http://localhost:8000/v1/integrations/salesforce/oauth/callback` |
-| HubSpot | `http://localhost:8000/v1/integrations/hubspot/oauth/callback` |
-| Slack | `http://localhost:8000/v1/integrations/slack/oauth/callback` |
-| Google | `http://localhost:8000/v1/integrations/gmail/oauth/callback` |
-| Microsoft | `http://localhost:8000/v1/integrations/outlook/oauth/callback` |
+| Salesforce | `http://localhost:8001/v1/integrations/salesforce/oauth/callback` |
+| HubSpot | `http://localhost:8001/v1/integrations/hubspot/oauth/callback` |
+| Slack | `http://localhost:8001/v1/integrations/slack/oauth/callback` |
+| Google | `http://localhost:8001/v1/integrations/gmail/oauth/callback` |
+| Microsoft | `http://localhost:8001/v1/integrations/outlook/oauth/callback` |
 
 Slack requires HTTPS for configured redirect URLs outside its documented local/development allowances; use a public HTTPS development tunnel if its console rejects localhost HTTP.
 

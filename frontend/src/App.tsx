@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import {
   changeWorkspace,
@@ -48,17 +49,37 @@ type View =
   | "settings";
   // Team administration is opened from Settings and keeps the primary rail calm.
 type AppView = View | "team" | "icp";
+type Theme = "light" | "dark";
 
-const navigation: Array<{ id: View; label: string; glyph: string; group?: string }> = [
-  { id: "dashboard", label: "Dashboard", glyph: "⌁" },
-  { id: "leads", label: "Leads", glyph: "◈" },
-  { id: "pipeline", label: "Pipeline", glyph: "⇢" },
-  { id: "agents", label: "Agents / AI Activity", glyph: "✦" },
-  { id: "analytics", label: "Analytics", glyph: "⌇" },
-  { id: "review", label: "Manual Review", glyph: "!", group: "Control" },
-  { id: "integrations", label: "Integrations", glyph: "∞" },
-  { id: "settings", label: "Settings", glyph: "◇" },
+function savedTheme(): Theme {
+  try { return window.localStorage.getItem("corral-theme") === "dark" ? "dark" : "light"; }
+  catch { return "light"; }
+}
+
+const navigation: Array<{ id: View; label: string; group?: string }> = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "leads", label: "Leads" },
+  { id: "pipeline", label: "Pipeline" },
+  { id: "agents", label: "Agents / AI Activity" },
+  { id: "analytics", label: "Analytics" },
+  { id: "review", label: "Manual Review", group: "Control" },
+  { id: "integrations", label: "Integrations" },
+  { id: "settings", label: "Settings" },
 ];
+
+function NavIcon({ id }: { id: View }) {
+  const shared = { viewBox: "0 0 24 24", width: 19, height: 19, fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
+  switch (id) {
+    case "dashboard": return <svg {...shared}><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>;
+    case "leads": return <svg {...shared}><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20"/></svg>;
+    case "pipeline": return <svg {...shared}><path d="M4 5v5a5 5 0 0 0 5 5h9M4 19v-4a5 5 0 0 1 5-5h9M15 6l4 4-4 4"/></svg>;
+    case "agents": return <svg {...shared}><path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z"/></svg>;
+    case "analytics": return <svg {...shared}><path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20"/></svg>;
+    case "review": return <svg {...shared}><path d="M4 4h16v11l-3 5H7l-3-5zM4 15h5l1.5 2h3L15 15h5M9 9l2 2 4-4"/></svg>;
+    case "integrations": return <svg {...shared}><path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5"/></svg>;
+    case "settings": return <svg {...shared}><path d="M12 3l1.4 1.5 2-.2.8 1.8 2 .5v2l1.6 1.2-1 1.8 1 1.8-1.6 1.2v2l-2 .5-.8 1.8-2-.2L12 21l-1.4-1.5-2 .2-.8-1.8-2-.5v-2L4.2 14l1-1.8-1-1.8L5.8 9v-2l2-.5.8-1.8 2 .2z"/><circle cx="12" cy="12" r="3"/></svg>;
+  }
+}
 
 function App() {
   const [auth, setAuth] = useState<AuthSession | null>(null);
@@ -78,7 +99,8 @@ function App() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [navOpen, setNavOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(() => window.matchMedia("(min-width: 761px)").matches);
+  const [theme, setTheme] = useState<Theme>(savedTheme);
   const [workspacePermissions, setWorkspacePermissions] = useState<ReadonlySet<string>>(new Set());
   const refreshVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
@@ -86,6 +108,18 @@ function App() {
   const leadController = useRef<AbortController | null>(null);
   const leadSignature = useRef<string | null>(null);
   const openaiPromptDismissed = useRef(new Set<string>());
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { window.localStorage.setItem("corral-theme", theme); } catch { /* Appearance still works for this session. */ }
+  }, [theme]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 761px)");
+    const syncNavigation = () => setNavOpen(media.matches);
+    media.addEventListener("change", syncNavigation);
+    return () => media.removeEventListener("change", syncNavigation);
+  }, []);
 
   const refresh = useCallback(async (activeRange = range) => {
     refreshController.current?.abort();
@@ -171,7 +205,9 @@ function App() {
         inFlight = false;
       }
     };
-    const timer = window.setInterval(() => void poll(), 12000);
+    // Keep the dashboard, manual review count, and CRM lead archive in sync
+    // with public intake without requiring a browser refresh.
+    const timer = window.setInterval(() => void poll(), 5000);
     const onVisible = () => { if (document.visibilityState === "visible") void poll(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -255,34 +291,60 @@ function App() {
 
   function navigate(next: AppView) {
     setView(next);
-    setNavOpen(false);
+    if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
+  }
+
+  function toggleTheme(event?: React.MouseEvent<HTMLButtonElement>) {
+    const next = theme === "light" ? "dark" : "light";
+    const apply = () => {
+      document.documentElement.dataset.theme = next;
+      flushSync(() => setTheme(next));
+    };
+    if (document.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const bounds = event?.currentTarget?.getBoundingClientRect();
+      const x = bounds ? bounds.left + bounds.width / 2 : window.innerWidth / 2;
+      const y = bounds ? bounds.top + bounds.height / 2 : window.innerHeight / 2;
+      const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+      const transition = document.startViewTransition(apply);
+      void transition.ready.then(() => {
+        document.documentElement.animate(
+          { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+          { duration: 680, easing: "cubic-bezier(.16, 1, .3, 1)", pseudoElement: "::view-transition-new(root)" },
+        );
+      }).catch(() => { /* A cancelled transition still applies the chosen theme. */ });
+    } else {
+      apply();
+    }
   }
 
   const metadata = data?.dashboard.metadata;
   if (authLoading) return <LoadingState />;
   if (!auth) {
-    return <AuthView onAuthenticated={(session) => {
+    return <AuthView theme={theme} onToggleTheme={toggleTheme} onAuthenticated={(session) => {
       setActiveWorkspace(session.current_workspace_id);
       setAuth(session);
     }} />;
   }
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${navOpen ? "nav-expanded" : "nav-collapsed"}`}>
       <div className="app-ambient ambient-a" />
       <div className="app-ambient ambient-b" />
       <img className="app-twinkle app-twinkle-a" src="/asset/brand/twinkle-cap.svg" alt="" aria-hidden="true" />
       <img className="app-twinkle app-twinkle-b" src="/asset/brand/twinkle-role.svg" alt="" aria-hidden="true" />
-      <aside className={`side-rail ${navOpen ? "open" : ""}`}>
-        <button className="brand-lockup" onClick={() => navigate("dashboard")} aria-label="Ingenuity Revenue Intelligence home">
-          <img src="/asset/brand/logo-light.png" alt="Ingenuity Systems" />
-          <span><small>REVENUE INTELLIGENCE</small></span>
-        </button>
+      <aside id="corral-navigation" className={`side-rail ${navOpen ? "open" : ""}`} aria-label="Corral navigation" aria-hidden={!navOpen} inert={!navOpen}>
+        <div className="rail-brand-row">
+          <button className="brand-lockup" onClick={() => navigate("dashboard")} aria-label="Corral home">
+            <img src="/asset/brand/corral-mark.png" alt="" />
+            <span><b>Corral</b><small>POWERED BY INGENUITY SYSTEMS</small></span>
+          </button>
+          <button className="rail-close" onClick={() => setNavOpen(false)} aria-label="Collapse navigation" title="Collapse navigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-5 7 5 7" /></svg></button>
+        </div>
         <nav aria-label="Primary navigation">
           {navigation.map((item, index) => (
             <div key={item.id}>
               {item.group && <span className="nav-group">{item.group}</span>}
               <button className={view === item.id || (item.id === "settings" && (view === "team" || view === "icp")) ? "active" : ""} onClick={() => navigate(item.id)}>
-                <i>{item.glyph}</i><span>{item.label}</span>
+                <i><NavIcon id={item.id} /></i><span>{item.label}</span>
                 {item.id === "review" && (data?.review.total ?? 0) > 0 && <b>{data?.review.total}</b>}
               </button>
               {index === 4 && <span className="nav-separator" />}
@@ -291,7 +353,7 @@ function App() {
         </nav>
         <div className="rail-foot">
           <div className="workspace-mark">
-            <img src="/asset/brand/logo-icon.png" alt="" />
+            <img src="/asset/brand/corral-mark.png" alt="" />
             <span>
               <select
                 aria-label="Current workspace"
@@ -317,14 +379,32 @@ function App() {
           }}>Sign out</button>
         </div>
       </aside>
+      {!navOpen && <aside className="mini-rail" aria-label="Collapsed Corral navigation">
+        <button className="mini-rail-expand" onClick={() => setNavOpen(true)} aria-controls="corral-navigation" aria-expanded={false} aria-label="Expand navigation" title="Expand navigation">
+          <img src="/asset/brand/corral-mark.png" alt="" />
+          <span aria-hidden="true">›</span>
+        </button>
+        <nav className="mini-rail-nav" aria-label="Primary navigation">
+          {navigation.map((item) => {
+            const active = view === item.id || (item.id === "settings" && (view === "team" || view === "icp"));
+            return <button key={item.id} className={active ? "active" : ""} onClick={() => navigate(item.id)} aria-label={item.label} aria-current={active ? "page" : undefined} title={item.label}>
+              <NavIcon id={item.id} />
+              {item.id === "review" && (data?.review.total ?? 0) > 0 && <span className="mini-alert-dot" />}
+            </button>;
+          })}
+        </nav>
+      </aside>}
       <main className="product-main">
         <header className="product-bar">
-          <button className="menu-button" onClick={() => setNavOpen((current) => !current)} aria-expanded={navOpen} aria-label="Toggle navigation">☰</button>
-          <div className="breadcrumb"><span>Revenue Operations</span><i>/</i><b>{view === "team" ? "Team & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
+          <div className="bar-leading">
+            <button className="menu-button" onClick={() => setNavOpen(true)} aria-controls="corral-navigation" aria-expanded={navOpen} aria-label="Open navigation">☰</button>
+            <div className="breadcrumb"><span>Corral</span><i>/</i><b>{view === "team" ? "Team & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
+          </div>
           <div className="bar-actions">
             <RangePicker value={range} onChange={setRange} />
             <span className={`mode-badge ${metadata?.data_mode || "live"}`}>{metadata?.data_mode === "demo" ? "ILLUSTRATIVE DATA" : "LIVE DATA"}</span>
             <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh data">↻</button>
+            <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
           </div>
         </header>
         {error && <div className="api-error" role="alert"><div><b>Control plane unavailable</b><span>{error}</span></div><button onClick={() => void refresh()}>Retry</button></div>}
@@ -337,13 +417,13 @@ function App() {
             {view === "analytics" && <AnalyticsView data={data} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView permissions={workspacePermissions} />}
-            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} />}
+            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} canManageEmail={can(workspacePermissions, "integrations.manage")} />}
             {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
             {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
           </div>
         )}
         <footer className="product-footer">
-          <span>Ingenuity Systems · AI Revenue Operations</span>
+          <span>Corral · Powered by Ingenuity Systems</span>
           <span>Generated {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"} · Workspace {getActiveWorkspace().slice(0, 8)}</span>
         </footer>
       </main>

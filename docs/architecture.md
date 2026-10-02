@@ -168,7 +168,9 @@ Each lead persists a Phase 3 `analysis_runs` record containing structured contex
 - Redact email addresses, message bodies, tokens, and raw provider payloads from logs and traces.
 - Define retention and deletion workflows for raw messages, attachments, analysis outputs, and audit records.
 - Apply prompt-injection defenses: treat inbound content as untrusted data, isolate instructions from lead text, and allow-list tools/actions.
-- Do not make outbound communication or calendar commitments autonomously in v1.
+- Do not make outbound communication or calendar commitments autonomously in v1. The first
+  follow-up increment persists an editable email draft and sends only after an authenticated
+  workspace user explicitly approves it; scheduling and reply/stop detection remain out of scope.
 
 ## Observability and operations
 
@@ -239,7 +241,7 @@ The intended orchestration remains:
 
 `Orchestrator → Intake/Context Agent → Qualification Agent → Routing Agent → Action Planning Agent → CRM Tool → Notification Tool`
 
-Future agents may add follow-up, enrichment, and analytics/insight behavior. Authentication, authorization, tenant isolation, hard disqualifiers, score limits, routing thresholds, retries, validation, and idempotency remain deterministic application policy and cannot be overridden by an LLM.
+Follow-up drafting is available as a workspace-scoped application workflow: use verified workspace OpenAI when available, otherwise identify a grounded deterministic template; persist edits and approval metadata; require Gmail send scope; and never dispatch without a user's explicit approval. This does not activate the reserved `email.send` agent tool. Scheduling, reply/stop detection, and multi-message sequences remain future work. Authentication, authorization, tenant isolation, hard disqualifiers, score limits, routing thresholds, retries, validation, and idempotency remain deterministic application policy and cannot be overridden by an LLM.
 
 ## Phase 6 analytics read model and product shell
 

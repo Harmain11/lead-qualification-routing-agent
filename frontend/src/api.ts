@@ -7,8 +7,12 @@ import type {
   DashboardAnalytics,
   IntegrationCard,
   Lead,
+  LeadPipelineEvent,
+  LeadProgressResult,
+  GmailConversationSyncResult,
   LeadListResponse,
   LeadPayload,
+  FollowUpEmail,
   ManualReviewAnalytics,
   PipelineAnalytics,
   ProviderConnection,
@@ -28,6 +32,7 @@ import type {
   IcpValidation,
   IcpVersion,
   SlackNotificationConfig,
+  WorkspaceEmailTemplate,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -52,11 +57,11 @@ export function getActiveWorkspace() {
 }
 
 export function getRoutingConfig(): Promise<RoutingConfig> {
-  return request<RoutingConfig>("/v1/leads/routing/config");
+  return request<RoutingConfig>("/v1/routing/config");
 }
 
 export function updateRoutingConfig(member_weights: Record<string, number>): Promise<RoutingConfig> {
-  return request<RoutingConfig>("/v1/leads/routing/config", {
+  return request<RoutingConfig>("/v1/routing/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ member_weights }),
@@ -129,6 +134,16 @@ async function performRequest<T>(url: string, options?: RequestInit): Promise<T>
 }
 
 export const getSession = () => request<AuthSession | null>("/v1/auth/status");
+
+export const getEmailTemplates = () => request<WorkspaceEmailTemplate[]>("/v1/settings/email-templates");
+export const saveEmailTemplate = (kind: WorkspaceEmailTemplate["kind"], template: Omit<WorkspaceEmailTemplate, "kind">) =>
+  request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(template),
+  });
+export const generateEmailTemplate = (kind: WorkspaceEmailTemplate["kind"]) =>
+  request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}/generate`, { method: "POST" });
 
 export async function signIn(email: string, password: string): Promise<AuthSession> {
   const session = await request<AuthSession>("/v1/auth/signin", {
@@ -255,7 +270,7 @@ export async function exportLeads(input: LeadExportInput): Promise<{ blob: Blob;
     throw new Error(typeof body.detail === "string" ? body.detail : "Export failed");
   }
   const disposition = response.headers.get("Content-Disposition") || "";
-  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `ingenuity-leads-${new Date().toISOString().slice(0, 10)}.${input.format}`;
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `corral-leads-${new Date().toISOString().slice(0, 10)}.${input.format}`;
   return { blob: await response.blob(), filename };
 }
 
@@ -391,9 +406,12 @@ export function updateSlackNotificationConfig(config: {
     id?: string;
     name: string;
     connection_id: string;
+    destination_type: "channel" | "direct_message";
+    channel_id: string | null;
     queues: string[];
     qualification_bands: string[];
     sources: string[];
+    weight: number;
   }>;
 }): Promise<SlackNotificationConfig> {
   return jsonRequest("/v1/integrations/slack/notification-config", {
@@ -425,6 +443,42 @@ export function updateOpenAIModel(connectionId: string, model: string): Promise<
 
 export function getLead(leadId: string, signal?: AbortSignal): Promise<Lead> {
   return jsonRequest<Lead>(`/v1/leads/${leadId}`, { signal });
+}
+
+export function getLeadPipelineHistory(leadId: string, signal?: AbortSignal): Promise<LeadPipelineEvent[]> {
+  return jsonRequest<LeadPipelineEvent[]>(`/v1/leads/${leadId}/pipeline-history`, { signal });
+}
+
+export function getLeadMomentum(leadId: string, signal?: AbortSignal): Promise<import("./types").LeadMomentum> {
+  return jsonRequest<import("./types").LeadMomentum>(`/v1/leads/${leadId}/momentum`, { signal });
+}
+
+export function updateLeadProgress(leadId: string, input: { stage: string; note: string }): Promise<LeadProgressResult> {
+  return jsonRequest<LeadProgressResult>(`/v1/leads/${leadId}/progress`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+}
+
+export function syncLeadGmailConversation(leadId: string): Promise<GmailConversationSyncResult> {
+  return jsonRequest<GmailConversationSyncResult>(`/v1/leads/${leadId}/gmail-conversation/sync`, { method: "POST" });
+}
+
+export function getLeadFollowUp(leadId: string, signal?: AbortSignal): Promise<FollowUpEmail | null> {
+  return jsonRequest<FollowUpEmail | null>(`/v1/leads/${leadId}/follow-up`, { signal });
+}
+
+export function generateLeadFollowUp(leadId: string): Promise<FollowUpEmail> {
+  return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/draft`, { method: "POST" });
+}
+
+export function updateLeadFollowUp(leadId: string, draftId: string, input: { subject: string; body: string }): Promise<FollowUpEmail> {
+  return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/${draftId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+}
+
+export function approveAndSendLeadFollowUp(leadId: string, draftId: string): Promise<FollowUpEmail> {
+  return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/${draftId}/send`, { method: "POST" });
 }
 
 function analyticsRequest<T>(path: string, range: TimeRange, signal?: AbortSignal): Promise<T> {
