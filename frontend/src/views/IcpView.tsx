@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createIcpDraft,
   getCurrentIcp,
+  getSystemDefaultIcp,
   listIcpVersions,
   previewIcpDraft,
   publishIcpDraft,
@@ -47,6 +48,7 @@ const pretty = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (i
 
 export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () => void }) {
   const [current, setCurrent] = useState<IcpVersion | null>(null);
+  const [systemDefault, setSystemDefault] = useState<IcpVersion | null>(null);
   const [versions, setVersions] = useState<IcpVersion[]>([]);
   const [selected, setSelected] = useState<IcpVersion | null>(null);
   const [configuration, setConfiguration] = useState<IcpConfiguration | null>(null);
@@ -62,8 +64,13 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
   const [confirmExclusions, setConfirmExclusions] = useState(false);
 
   const load = useCallback(async (preferId?: string | null) => {
-    const [active, history] = await Promise.all([getCurrentIcp(), listIcpVersions()]);
+    const [active, history, defaultIcp] = await Promise.all([
+      getCurrentIcp(),
+      listIcpVersions(),
+      getSystemDefaultIcp(),
+    ]);
     setCurrent(active);
+    setSystemDefault(defaultIcp);
     setVersions(history);
     const target = history.find((item) => item.id === preferId)
       ?? history.find((item) => item.status === "draft")
@@ -109,9 +116,26 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
     try {
       const draft = await createIcpDraft(current?.id ? { based_on_version_id: current.id } : {});
       await load(draft.id);
-      setNotice(`Draft v${draft.version_number} created from the active ICP.`);
+      setNotice(`Custom draft v${draft.version_number} created and prefilled from the current ICP.`);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to create draft"); }
     finally { setBusy(false); }
+  }
+
+  async function openCustom() {
+    const draft = versions.find((version) => version.status === "draft");
+    if (draft) {
+      choose(draft);
+      return;
+    }
+    if (!canManage) {
+      const customVersion = current?.source === "workspace"
+        ? current
+        : versions.find((version) => version.status === "published") ?? versions[0];
+      if (customVersion) choose(customVersion);
+      return;
+    }
+    if (selected?.source === "workspace" && selected.editable) return;
+    await createDraft();
   }
 
   async function saveDraft() {
@@ -177,9 +201,35 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
       {editable && <button className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>Save draft</button>}
       {canManage && !editable && <button className="primary-button" disabled={busy} onClick={() => void createDraft()}>Create new draft</button>}
     </div>
+     <section className="icp-mode-picker" aria-label="Choose ICP setup mode">
+       <div className="icp-mode-intro">
+         <span className="eyebrow">ICP setup</span>
+         <p>Choose the system profile or open a custom draft to edit.</p>
+       </div>
+       <div className="icp-mode-options">
+         <button
+           type="button"
+           className={`icp-mode-option ${selected.source === "system_default" ? "active" : ""}`}
+           aria-pressed={selected.source === "system_default"}
+           disabled={busy || !systemDefault}
+           onClick={() => systemDefault && choose(systemDefault)}
+         >
+           <span><b>Default</b><small>View the built-in profile; no workspace changes.</small></span>
+         </button>
+         <button
+           type="button"
+           className={`icp-mode-option ${selected.source === "workspace" ? "active" : ""}`}
+           aria-pressed={selected.source === "workspace"}
+           disabled={busy || (!canManage && versions.length === 0)}
+           onClick={() => void openCustom()}
+         >
+           <span><b>Custom</b><small>Open a prefilled draft and edit the fields yourself.</small></span>
+         </button>
+       </div>
+     </section>
     {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
     {notice && <div className="icp-notice" role="status">{notice}</div>}
-    <div className="icp-layout">
+     <div className="icp-layout">
       <aside className="panel icp-sections" aria-label="ICP builder sections">{SECTIONS.map((label, index) => <button key={label} className={section === index ? "active" : ""} onClick={() => setSection(index)}><i>{index + 1}</i><span>{label}</span></button>)}</aside>
      <main className="panel icp-builder" data-tour="icp">
         <div className="icp-builder-head"><div><span className="eyebrow">Step {section + 1} of 7</span><h2>{SECTIONS[section]}</h2></div>{!editable && <span className="read-only-badge">Read only</span>}</div>
@@ -193,7 +243,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
         {section === 6 && <ReviewSection selected={selected} total={total} validation={validation} preview={preview} editable={editable} busy={busy} runValidation={runValidation} runPreview={runPreview} openPublish={() => setPublishOpen(true)} />}
         <div className="icp-step-actions"><button className="button-quiet" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Previous</button><button className="secondary-button" disabled={section === 6} onClick={() => setSection((value) => Math.min(6, value + 1))}>Next section →</button></div>
       </main>
-      <aside className="panel icp-history"><div className="icp-history-head"><span className="eyebrow">Version history</span><h2>Workspace versions</h2></div><button className={selected.source === "system_default" ? "active" : ""} onClick={() => current?.source === "system_default" && choose(current)}><b>System</b><span>Default fallback</span><em>Published</em></button>{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</aside>
+       <aside className="panel icp-history"><div className="icp-history-head"><span className="eyebrow">Version history</span><h2>Workspace versions</h2></div>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>System</b><span>Default fallback</span><em>Published</em></button>}{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</aside>
     </div>
     {publishOpen && <div className="modal-backdrop" role="presentation"><section className="team-modal icp-publish-modal" role="dialog" aria-modal="true" aria-labelledby="publish-title"><button className="modal-close" onClick={() => setPublishOpen(false)} aria-label="Close">×</button><span className="eyebrow">Deliberate policy change</span><h2 id="publish-title">Publish workspace ICP?</h2><p>New qualification runs will use this version. Existing lead scores and their ICP references will not be rewritten.</p><label><input type="checkbox" checked={confirmUse} onChange={(event) => setConfirmUse(event.target.checked)} /> I understand new leads will use this version.</label><label><input type="checkbox" checked={confirmHistory} onChange={(event) => setConfirmHistory(event.target.checked)} /> I understand historical results are preserved.</label>{exclusionsChanged && <label className="exclusion-confirm"><input type="checkbox" checked={confirmExclusions} onChange={(event) => setConfirmExclusions(event.target.checked)} /> I confirm the hard-disqualifier changes may force matching leads to Disqualified.</label>}<div className="team-modal-actions"><button className="button-quiet" onClick={() => setPublishOpen(false)}>Cancel</button><button className="primary-button" disabled={total !== 40 || !confirmUse || !confirmHistory || (exclusionsChanged && !confirmExclusions) || busy} onClick={() => void publish()}>Publish ICP</button></div></section></div>}
   </div>;

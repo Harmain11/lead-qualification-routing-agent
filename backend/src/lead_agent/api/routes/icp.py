@@ -163,6 +163,14 @@ def current_icp(
     return _version_response(row)
 
 
+@router.get("/default", response_model=IcpVersionResponse)
+def system_default_icp(
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
+    workspace: WorkspaceContext = Depends(require_permission("icp.view")),
+) -> IcpVersionResponse:
+    return _system_response(workspace.workspace_id, policies[0])
+
+
 @router.get("/versions", response_model=list[IcpVersionResponse])
 def versions(
     session: Session = Depends(get_db),

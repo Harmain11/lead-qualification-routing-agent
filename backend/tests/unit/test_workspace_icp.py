@@ -340,6 +340,10 @@ def test_icp_api_enforces_view_manage_and_cross_workspace_isolation(
     try:
         with TestClient(app) as client:
             assert client.get("/v1/icp/current").status_code == 200
+            default = client.get("/v1/icp/default")
+            assert default.status_code == 200
+            assert default.json()["source"] == "system_default"
+            assert default.json()["configuration"]["profile_name"] == icp.profile_name
             assert client.post("/v1/icp/drafts", json={}).status_code == 403
 
             active_context["value"] = WorkspaceContext(
