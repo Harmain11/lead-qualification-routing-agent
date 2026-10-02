@@ -44,6 +44,7 @@ class InboundSyncRequest(BaseModel):
     object_type: Literal["Lead", "contacts", "message"] = "Lead"
     limit: int = Field(default=500, ge=1, le=5000)
     page_size: int = Field(default=100, ge=1, le=200)
+    send_confirmation_email: bool = True
 
 
 class InboundSyncConfigurationRequest(BaseModel):
@@ -127,6 +128,7 @@ def synchronize_inbound_crm(
             routing=policies[1],
             reasoning_provider=None,
             notification_provider=notification_provider,
+            send_confirmation_email=request.send_confirmation_email,
         )
     except ProviderOperationError as error:
         status_code = 503 if error.retryable else 409
