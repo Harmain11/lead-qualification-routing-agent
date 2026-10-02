@@ -479,6 +479,7 @@ def _process_record(
     *,
     actor_id: str,
     correlation_id: str,
+    send_confirmation_email: bool,
 ) -> str:
     normalized_payload = _json_safe_payload(canonical.normalized_payload)
     link = _record_link(session, connection, canonical)
@@ -570,6 +571,7 @@ def _process_record(
             routing,
             provider=reasoning_provider,
             notification_provider=notification_provider,
+            send_confirmation_email=send_confirmation_email,
         )
         link = _record_link(session, connection, canonical)
         if link is None:
@@ -601,6 +603,7 @@ def _process_record(
             routing,
             provider=reasoning_provider,
             notification_provider=notification_provider,
+            send_confirmation_email=send_confirmation_email,
         )
         strategy = "exact_email"
         outcome = "updated"
@@ -650,6 +653,7 @@ def _process_record(
             provider=reasoning_provider,
             notification_provider=notification_provider,
             workspace_id=connection.workspace_id,
+            send_confirmation_email=send_confirmation_email,
         )
         lead = result.lead
         strategy = "new_provider_record" if not matches else "ambiguous_email_created_separate"
@@ -756,6 +760,7 @@ def run_inbound_sync(
     routing: RoutingConfig,
     reasoning_provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
+    send_confirmation_email: bool = True,
     before_page: Callable[[CrmInboundSyncRunORM], None] | None = None,
 ) -> CrmInboundSyncRunORM:
     """Run one bounded, resumable provider import without retaining whole-CRM pages."""
@@ -892,6 +897,7 @@ def run_inbound_sync(
                         notification_provider,
                         actor_id=actor_id,
                         correlation_id=run.correlation_id,
+                        send_confirmation_email=send_confirmation_email,
                     )
                 except ProviderOperationError as error:
                     run = session.get(CrmInboundSyncRunORM, run.id) or run

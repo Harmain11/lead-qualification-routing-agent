@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.application.crm_inbound import configure_inbound_sync, run_inbound_sync
+import lead_agent.application.services as application_services
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
@@ -431,13 +432,19 @@ class _CanonicalGmailProvider:
 
 
 def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_contact(
-    tmp_path: Path, icp: IcpConfig, routing: RoutingConfig
+    tmp_path: Path, icp: IcpConfig, routing: RoutingConfig, monkeypatch
 ) -> None:
     engine = create_engine(
         f"sqlite:///{tmp_path / 'gmail.db'}", connect_args={"check_same_thread": False}
     )
     Base.metadata.create_all(engine)
     with Session(engine) as session:
+        confirmation_calls: list[bool] = []
+        monkeypatch.setattr(
+            application_services,
+            "_send_lead_confirmation_email",
+            lambda *_args, **_kwargs: confirmation_calls.append(True),
+        )
         workspace_id = uuid4()
         ensure_workspace(session, workspace_id, name="Gmail test workspace")
         now = datetime.now(UTC)
@@ -510,6 +517,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
                 icp=icp,
                 routing=routing,
                 notification_provider=SlackProvider(),
+                send_confirmation_email=False,
             )
 
         first = run(
@@ -537,6 +545,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         )
         assert first.records_created == 1
         assert second.records_updated == 1
+        assert confirmation_calls == []
         assert delivery_correlations == [first.correlation_id, second.correlation_id]
         assert all(value != "-" for value in delivery_correlations)
         assert current_request_id() == "-"
@@ -561,6 +570,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
             "manual",
         )
         assert repeated.records_unchanged == 1
+        assert confirmation_calls == []
         assert len(delivery_correlations) == 2
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
         assert (

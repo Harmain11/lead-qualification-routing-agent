@@ -347,6 +347,7 @@ def process_source_event(
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
+    send_confirmation_email: bool = True,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
@@ -358,7 +359,8 @@ def process_source_event(
             # confirmation email is retryable. Re-check the idempotent email
             # record on duplicate webhook deliveries so a later retry can
             # complete the confirmation without duplicating the lead.
-            _send_lead_confirmation_email(session, existing_lead)
+            if send_confirmation_email:
+                _send_lead_confirmation_email(session, existing_lead)
             return IntakeResult(
                 str(source_event.id), source_event.status, existing_lead, duplicate=True
             )
@@ -419,7 +421,8 @@ def process_source_event(
         # Commit the lead/source event before touching Gmail or its delivery
         # ledger. This makes intake durable even when email storage/provider
         # work is temporarily locked or unavailable.
-        _send_lead_confirmation_email(session, row)
+        if send_confirmation_email:
+            _send_lead_confirmation_email(session, row)
         return IntakeResult(str(source_event.id), source_event.status, row)
     except Exception as error:
         session.rollback()
@@ -445,6 +448,7 @@ def reprocess_lead(
     send_notification: bool = True,
     reroute_reason: str = "Meaningful CRM source fields changed.",
     require_provider_success: bool = False,
+    send_confirmation_email: bool = True,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     """Run a meaningful source update through the canonical qualification pipeline."""
 
@@ -492,7 +496,8 @@ def reprocess_lead(
         reroute_reason=reroute_reason,
         send_notification=send_notification,
     )
-    _send_lead_confirmation_email(session, row)
+    if send_confirmation_email:
+        _send_lead_confirmation_email(session, row)
     return normalized, result, row
 
 
