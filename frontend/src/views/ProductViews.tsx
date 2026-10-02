@@ -35,6 +35,36 @@ export type AnalyticsBundle = {
   review: ManualReviewAnalytics | null;
 };
 
+const analyticsPanelOptions = [
+  { id: "channel-performance", label: "Channel performance" },
+  { id: "lead-trajectory", label: "Lead trajectory" },
+  { id: "revenue-by-channel", label: "Revenue by channel" },
+  { id: "revenue-by-service", label: "Revenue by service" },
+  { id: "representatives", label: "Representative performance" },
+  { id: "revenue-trajectory", label: "Revenue trajectory" },
+] as const;
+
+type AnalyticsPanelId = (typeof analyticsPanelOptions)[number]["id"];
+
+function defaultAnalyticsPanels() {
+  return new Set<AnalyticsPanelId>(analyticsPanelOptions.map((option) => option.id));
+}
+
+function loadAnalyticsPanels(storageKey: string) {
+  const defaults = defaultAnalyticsPanels();
+  if (typeof window === "undefined") return defaults;
+  try {
+    const saved = window.localStorage.getItem(storageKey);
+    if (!saved) return defaults;
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return defaults;
+    const validIds = new Set<string>(analyticsPanelOptions.map((option) => option.id));
+    return new Set(parsed.filter((value): value is AnalyticsPanelId => typeof value === "string" && validIds.has(value)));
+  } catch {
+    return defaults;
+  }
+}
+
 const emptyLead: LeadPayload = {
   source: "website",
   source_detail: "manual-control-center",
@@ -438,7 +468,17 @@ export function AgentsView({ data, pipeline }: { data: AgentActivity | null; pip
   );
 }
 
-export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
+export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundle | null; userId?: string }) {
+  const preferenceKey = `corral.analytics.panels.v1:${userId}`;
+  const [visiblePanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(() => loadAnalyticsPanels(preferenceKey));
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(preferenceKey, JSON.stringify([...visiblePanels]));
+    } catch {
+      // Analytics preferences are optional when browser storage is unavailable.
+    }
+  }, [preferenceKey, visiblePanels]);
+
   if (!data?.dashboard || !data.channels || !data.series || !data.revenue || !data.reps) return <Unavailable />;
   const provenance = data.revenue.data_status === "demo"
     ? "Illustrative values—not production revenue"
@@ -446,18 +486,45 @@ export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
       ? "CRM-derived outcomes"
       : "No revenue facts available";
   const totalLeads = metricValue(data.dashboard, "total_leads");
+  const togglePanel = (id: AnalyticsPanelId, checked: boolean) => {
+    setVisiblePanels((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
   return (
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
       {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No analytics yet" text="Metrics remain at zero until real lead activity is recorded." /></section>}
-       <section className="analytics-grid analytics-motion" data-tour="analytics">
-        <Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel>
-        <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>
-        <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>
-        <Panel title="Revenue by service" eyebrow="Closed / won attribution"><Bars rows={data.revenue.by_service.map((row) => ({ label: row.label, value: row.value }))} formatter={money} /></Panel>
-        <Panel title="Representative performance" eyebrow="Context, not leaderboard"><div className="rep-table">{data.reps.reps.map((rep) => <div key={rep.rep_name}><span className="rep-avatar">{rep.rep_name.split(" ").map((word) => word[0]).join("")}</span><span><b>{rep.rep_name}</b><small>{rep.assigned_leads} assigned · {rep.qualified_leads} qualified</small></span><span><b>{rep.closed_leads}</b><small>closed</small></span><span><b>{rep.conversion_rate}%</b><small>conversion</small></span><span><b>{money(rep.revenue)}</b><small>revenue</small></span><span><b>{rep.average_response_minutes ?? "—"}</b><small>avg min</small></span></div>)}</div></Panel>
-        <Panel title="Revenue trajectory" eyebrow="Closed / won over time"><TrendChart values={data.revenue.over_time.map((point) => point.value)} labels={data.revenue.over_time.map((point) => point.period)} /></Panel>
+      <section className="analytics-customizer panel" aria-labelledby="analytics-customizer-title">
+        <div className="analytics-customizer-heading">
+          <div><span className="eyebrow">Personal view</span><h2 id="analytics-customizer-title">Choose what to see</h2><p>Select the analytics sections you want. Only selected sections appear below.</p></div>
+          <button className="button-quiet" type="button" onClick={() => setVisiblePanels(defaultAnalyticsPanels())} disabled={visiblePanels.size === analyticsPanelOptions.length}>Show all sections</button>
+        </div>
+        <div className="analytics-section-options">
+          {analyticsPanelOptions.map((option) => (
+            <label className="analytics-section-option" key={option.id}>
+              <input type="checkbox" checked={visiblePanels.has(option.id)} onChange={(event) => togglePanel(option.id, event.target.checked)} />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+        <small className="analytics-preference-note">Your selection is saved for your account on this device.</small>
       </section>
+      {visiblePanels.size > 0 ? (
+        <section className={`analytics-grid analytics-motion${visiblePanels.size === 1 ? " analytics-grid-single" : ""}`} data-tour="analytics">
+          {visiblePanels.has("channel-performance") && <div className="analytics-panel-wide"><Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel></div>}
+          {visiblePanels.has("lead-trajectory") && <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>}
+          {visiblePanels.has("revenue-by-channel") && <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>}
+          {visiblePanels.has("revenue-by-service") && <Panel title="Revenue by service" eyebrow="Closed / won attribution"><Bars rows={data.revenue.by_service.map((row) => ({ label: row.label, value: row.value }))} formatter={money} /></Panel>}
+          {visiblePanels.has("representatives") && <div className="analytics-panel-wide"><Panel title="Representative performance" eyebrow="Context, not leaderboard"><div className="rep-table">{data.reps.reps.map((rep) => <div key={rep.rep_name}><span className="rep-avatar">{rep.rep_name.split(" ").map((word) => word[0]).join("")}</span><span><b>{rep.rep_name}</b><small>{rep.assigned_leads} assigned · {rep.qualified_leads} qualified</small></span><span><b>{rep.closed_leads}</b><small>closed</small></span><span><b>{rep.conversion_rate}%</b><small>conversion</small></span><span><b>{money(rep.revenue)}</b><small>revenue</small></span><span><b>{rep.average_response_minutes ?? "—"}</b><small>avg min</small></span></div>)}</div></Panel></div>}
+          {visiblePanels.has("revenue-trajectory") && <Panel title="Revenue trajectory" eyebrow="Closed / won over time"><TrendChart values={data.revenue.over_time.map((point) => point.value)} labels={data.revenue.over_time.map((point) => point.period)} /></Panel>}
+        </section>
+      ) : (
+        <section className="analytics-empty-selection panel"><h2>No sections selected</h2><p>Choose at least one analytics section above to display it here.</p></section>
+      )}
     </div>
   );
 }
