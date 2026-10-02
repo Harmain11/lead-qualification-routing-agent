@@ -46,23 +46,91 @@ const analyticsPanelOptions = [
 
 type AnalyticsPanelId = (typeof analyticsPanelOptions)[number]["id"];
 
-function defaultAnalyticsPanels() {
-  return new Set<AnalyticsPanelId>(analyticsPanelOptions.map((option) => option.id));
+const dashboardWidgetOptions = [
+  { id: "qualification-pulse", label: "Qualification pulse", group: "Overview" },
+  { id: "total_leads", label: "Total leads", group: "Key metrics" },
+  { id: "qualification_rate", label: "Qualification rate", group: "Key metrics" },
+  { id: "hot_leads", label: "Hot leads", group: "Key metrics" },
+  { id: "active_pipeline_value", label: "Active pipeline value", group: "Key metrics" },
+  { id: "manual_review", label: "Manual review", group: "Key metrics" },
+  { id: "average_routing_velocity_minutes", label: "Routing velocity", group: "Key metrics" },
+  { id: "lead-intelligence-network", label: "Lead intelligence network", group: "Dashboard panels" },
+  { id: "live-activity", label: "Live operational activity", group: "Dashboard panels" },
+  { id: "attention-queue", label: "Attention queue", group: "Dashboard panels" },
+  { id: "signal-velocity", label: "Signal velocity", group: "Dashboard panels" },
+  { id: "qualification-mix", label: "Qualification mix", group: "Dashboard panels" },
+  { id: "channel-intelligence", label: "Channel intelligence", group: "Dashboard panels" },
+  { id: "pipeline-pulse", label: "Pipeline pulse", group: "Dashboard panels" },
+] as const;
+
+type DashboardWidgetId = (typeof dashboardWidgetOptions)[number]["id"];
+type VisibilityOption<T extends string> = { id: T; label: string; group?: string };
+
+function defaultSectionSelection<T extends string>(options: readonly { id: T }[]) {
+  return new Set<T>(options.map((option) => option.id));
 }
 
-function loadAnalyticsPanels(storageKey: string) {
-  const defaults = defaultAnalyticsPanels();
+function loadSectionSelection<T extends string>(storageKey: string, options: readonly { id: T }[]) {
+  const defaults = defaultSectionSelection(options);
   if (typeof window === "undefined") return defaults;
   try {
     const saved = window.localStorage.getItem(storageKey);
     if (!saved) return defaults;
     const parsed: unknown = JSON.parse(saved);
     if (!Array.isArray(parsed)) return defaults;
-    const validIds = new Set<string>(analyticsPanelOptions.map((option) => option.id));
-    return new Set(parsed.filter((value): value is AnalyticsPanelId => typeof value === "string" && validIds.has(value)));
+    const validIds = new Set<string>(options.map((option) => option.id));
+    return new Set(parsed.filter((value): value is T => typeof value === "string" && validIds.has(value)));
   } catch {
     return defaults;
   }
+}
+
+function SectionVisibilityPicker<T extends string>({
+  options,
+  visible,
+  description,
+  showAllLabel,
+  onToggle,
+  onShowAll,
+}: {
+  options: readonly VisibilityOption<T>[];
+  visible: ReadonlySet<T>;
+  description: string;
+  showAllLabel: string;
+  onToggle: (id: T, checked: boolean) => void;
+  onShowAll: () => void;
+}) {
+  const groups = Array.from(new Set(options.map((option) => option.group).filter((group): group is string => !!group)));
+  const renderOptions = (items: readonly VisibilityOption<T>[], groupLabel: string) => (
+    <div className="section-picker-options" role="group" aria-label={groupLabel}>
+      {items.map((option) => (
+        <label className="section-picker-option" key={option.id}>
+          <input type="checkbox" checked={visible.has(option.id)} onChange={(event) => onToggle(option.id, event.target.checked)} />
+          <span>{option.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+
+  return (
+    <section className="section-picker panel" aria-labelledby="section-picker-title">
+      <div className="section-picker-heading">
+        <div><span className="eyebrow">Personal view</span><h2 id="section-picker-title">Choose what to see</h2><p>{description}</p></div>
+        <button className="button-quiet" type="button" onClick={onShowAll} disabled={visible.size === options.length}>{showAllLabel}</button>
+      </div>
+      {groups.length ? (
+        <div className="section-picker-groups">
+          {groups.map((group) => (
+            <fieldset className="section-picker-group" key={group}>
+              <legend>{group}</legend>
+              {renderOptions(options.filter((option) => option.group === group), group)}
+            </fieldset>
+          ))}
+        </div>
+      ) : renderOptions(options, "Available sections")}
+      <small className="section-picker-note">Your selection is saved for your account on this device.</small>
+    </section>
+  );
 }
 
 const emptyLead: LeadPayload = {
@@ -114,23 +182,39 @@ export function DashboardView({
   data,
   latestLead,
   onInspect,
+  userId = "local",
 }: {
   data: AnalyticsBundle | null;
   latestLead: Lead | null;
   onInspect: (id: string) => void;
+  userId?: string;
 }) {
+  const preferenceKey = `corral.dashboard.widgets.v1:${userId}`;
+  const [visibleWidgets, setVisibleWidgets] = useState<Set<DashboardWidgetId>>(() => loadSectionSelection(preferenceKey, dashboardWidgetOptions));
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(preferenceKey, JSON.stringify([...visibleWidgets]));
+    } catch {
+      // Dashboard preferences are optional when browser storage is unavailable.
+    }
+  }, [preferenceKey, visibleWidgets]);
+
   if (!data?.dashboard || !data.pipeline || !data.series || !data.channels) return <Unavailable />;
-  const highlighted = [
-    "total_leads",
-    "qualification_rate",
-    "hot_leads",
-    "active_pipeline_value",
-    "manual_review",
-    "average_routing_velocity_minutes",
-  ];
-  const metrics = data.dashboard.metrics.filter((metric) => highlighted.includes(metric.key));
+  const metricIds = new Set<string>(dashboardWidgetOptions.filter((option) => option.group === "Key metrics").map((option) => option.id));
+  const metrics = data.dashboard.metrics.filter((metric) => metricIds.has(metric.key) && visibleWidgets.has(metric.key as DashboardWidgetId));
   const qualificationRate = metricValue(data.dashboard, "qualification_rate");
   const totalLeads = metricValue(data.dashboard, "total_leads");
+  const hasCommandWidgets = visibleWidgets.has("live-activity") || visibleWidgets.has("attention-queue");
+  const hasTrendWidgets = visibleWidgets.has("signal-velocity") || visibleWidgets.has("qualification-mix");
+  const hasBreakdownWidgets = visibleWidgets.has("channel-intelligence") || visibleWidgets.has("pipeline-pulse");
+  const toggleWidget = (id: DashboardWidgetId, checked: boolean) => {
+    setVisibleWidgets((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
 
   return (
     <div className="page-view dashboard-view">
@@ -140,54 +224,66 @@ export function DashboardView({
           <h1>Revenue intelligence,<br /><em>in operational motion.</em></h1>
           <p>Every metric resolves to workspace-owned lead, decision and delivery evidence. No cross-workspace aggregation. No unverified revenue is presented as live.</p>
         </div>
-        <div className="hero-pulse">
+        {visibleWidgets.has("qualification-pulse") && <div className="hero-pulse">
           <span>Qualification pulse</span>
           <strong>{qualificationRate}%</strong>
           <i><span style={{ transform: `scaleX(${qualificationRate / 100})` }} /></i>
           <small>{metricValue(data.dashboard, "sqls")} sales-qualified leads</small>
-        </div>
+        </div>}
       </header>
+      <SectionVisibilityPicker
+        options={dashboardWidgetOptions}
+        visible={visibleWidgets}
+        description="Select the metrics and cards you want on your dashboard. Unchecked items are removed from the view."
+        showAllLabel="Show all cards"
+        onToggle={toggleWidget}
+        onShowAll={() => setVisibleWidgets(defaultSectionSelection(dashboardWidgetOptions))}
+      />
       {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No leads yet" text="Connect a source or add your first lead to get started." /></section>}
-      <section className="metric-grid">
-        {metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}
-      </section>
-      {data.agents && <ResponsiveLeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />}
-      <section className="dashboard-command-grid">
-        {data.agents ? <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
-          <ActivityFeed data={data.agents} compact />
-        </Panel> : <Panel title="Live operational activity" eyebrow="Audited agent events"><Empty title="Not available" text="Your workspace role does not include agent activity access." /></Panel>}
-        {data.review ? <Panel title="Attention queue" eyebrow="Human judgment required" action={`${data.review.total} open`}>
-          {data.review.items.length ? (
-            <div className="compact-leads">
-              {data.review.items.slice(0, 5).map((lead) => (
-                <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />
-              ))}
-            </div>
-          ) : <Empty title="No review debt" text="No leads need human review in this period." />}
-        </Panel> : <Panel title="Attention queue" eyebrow="Human judgment required"><Empty title="Not available" text="Your workspace role does not include manual review access." /></Panel>}
-      </section>
-      <section className="dashboard-grid">
-        <Panel title="Signal velocity" eyebrow="Lead volume over time" action="Server aggregated">
-          <TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} />
-        </Panel>
-        <Panel title="Qualification mix" eyebrow="Decision bands">
-          <Donut rows={data.dashboard.band_distribution.map((row) => ({ label: row.band, value: row.count }))} />
-        </Panel>
-      </section>
-      <section className="dashboard-grid">
-        <Panel title="Channel intelligence" eyebrow="Quality + useful volume">
-          <Bars
-            rows={data.channels.channels.map((row) => ({
-              label: pretty(row.channel),
-              value: row.importance_index,
-              note: `${row.lead_volume} leads · ${row.average_score} avg score`,
-            }))}
-          />
-        </Panel>
-        <Panel title="Pipeline pulse" eyebrow="Active progression by stage">
-          <Bars rows={data.pipeline.stages.map((stage) => ({ label: stage.label, value: stage.count, note: stage.value ? money(stage.value) : undefined }))} />
-        </Panel>
-      </section>
+      {visibleWidgets.size > 0 ? (
+        <>
+          {metrics.length > 0 && <section className="metric-grid dashboard-metric-grid">{metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}</section>}
+          {visibleWidgets.has("lead-intelligence-network") && data.agents && <ResponsiveLeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />}
+          {hasCommandWidgets && <section className="dashboard-command-grid">
+            {visibleWidgets.has("live-activity") && (data.agents ? <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
+              <ActivityFeed data={data.agents} compact />
+            </Panel> : <Panel title="Live operational activity" eyebrow="Audited agent events"><Empty title="Not available" text="Your workspace role does not include agent activity access." /></Panel>)}
+            {visibleWidgets.has("attention-queue") && (data.review ? <Panel title="Attention queue" eyebrow="Human judgment required" action={`${data.review.total} open`}>
+              {data.review.items.length ? (
+                <div className="compact-leads">
+                  {data.review.items.slice(0, 5).map((lead) => (
+                    <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />
+                  ))}
+                </div>
+              ) : <Empty title="No review debt" text="No leads need human review in this period." />}
+            </Panel> : <Panel title="Attention queue" eyebrow="Human judgment required"><Empty title="Not available" text="Your workspace role does not include manual review access." /></Panel>)}
+          </section>}
+          {hasTrendWidgets && <section className="dashboard-grid">
+            {visibleWidgets.has("signal-velocity") && <Panel title="Signal velocity" eyebrow="Lead volume over time" action="Server aggregated">
+              <TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} />
+            </Panel>}
+            {visibleWidgets.has("qualification-mix") && <Panel title="Qualification mix" eyebrow="Decision bands">
+              <Donut rows={data.dashboard.band_distribution.map((row) => ({ label: row.band, value: row.count }))} />
+            </Panel>}
+          </section>}
+          {hasBreakdownWidgets && <section className="dashboard-grid">
+            {visibleWidgets.has("channel-intelligence") && <Panel title="Channel intelligence" eyebrow="Quality + useful volume">
+              <Bars
+                rows={data.channels.channels.map((row) => ({
+                  label: pretty(row.channel),
+                  value: row.importance_index,
+                  note: `${row.lead_volume} leads · ${row.average_score} avg score`,
+                }))}
+              />
+            </Panel>}
+            {visibleWidgets.has("pipeline-pulse") && <Panel title="Pipeline pulse" eyebrow="Active progression by stage">
+              <Bars rows={data.pipeline.stages.map((stage) => ({ label: stage.label, value: stage.count, note: stage.value ? money(stage.value) : undefined }))} />
+            </Panel>}
+          </section>}
+        </>
+      ) : (
+        <section className="section-picker-empty panel"><h2>No dashboard cards selected</h2><p>Choose one or more items above to add them back.</p></section>
+      )}
     </div>
   );
 }
@@ -470,7 +566,7 @@ export function AgentsView({ data, pipeline }: { data: AgentActivity | null; pip
 
 export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundle | null; userId?: string }) {
   const preferenceKey = `corral.analytics.panels.v1:${userId}`;
-  const [visiblePanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(() => loadAnalyticsPanels(preferenceKey));
+  const [visiblePanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(() => loadSectionSelection(preferenceKey, analyticsPanelOptions));
   useEffect(() => {
     try {
       window.localStorage.setItem(preferenceKey, JSON.stringify([...visiblePanels]));
@@ -498,21 +594,14 @@ export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundl
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
       {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No analytics yet" text="Metrics remain at zero until real lead activity is recorded." /></section>}
-      <section className="analytics-customizer panel" aria-labelledby="analytics-customizer-title">
-        <div className="analytics-customizer-heading">
-          <div><span className="eyebrow">Personal view</span><h2 id="analytics-customizer-title">Choose what to see</h2><p>Select the analytics sections you want. Only selected sections appear below.</p></div>
-          <button className="button-quiet" type="button" onClick={() => setVisiblePanels(defaultAnalyticsPanels())} disabled={visiblePanels.size === analyticsPanelOptions.length}>Show all sections</button>
-        </div>
-        <div className="analytics-section-options">
-          {analyticsPanelOptions.map((option) => (
-            <label className="analytics-section-option" key={option.id}>
-              <input type="checkbox" checked={visiblePanels.has(option.id)} onChange={(event) => togglePanel(option.id, event.target.checked)} />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-        <small className="analytics-preference-note">Your selection is saved for your account on this device.</small>
-      </section>
+      <SectionVisibilityPicker
+        options={analyticsPanelOptions}
+        visible={visiblePanels}
+        description="Select the analytics sections you want. Only selected sections appear below."
+        showAllLabel="Show all sections"
+        onToggle={togglePanel}
+        onShowAll={() => setVisiblePanels(defaultSectionSelection(analyticsPanelOptions))}
+      />
       {visiblePanels.size > 0 ? (
         <section className={`analytics-grid analytics-motion${visiblePanels.size === 1 ? " analytics-grid-single" : ""}`} data-tour="analytics">
           {visiblePanels.has("channel-performance") && <div className="analytics-panel-wide"><Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel></div>}
@@ -523,7 +612,7 @@ export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundl
           {visiblePanels.has("revenue-trajectory") && <Panel title="Revenue trajectory" eyebrow="Closed / won over time"><TrendChart values={data.revenue.over_time.map((point) => point.value)} labels={data.revenue.over_time.map((point) => point.period)} /></Panel>}
         </section>
       ) : (
-        <section className="analytics-empty-selection panel"><h2>No sections selected</h2><p>Choose at least one analytics section above to display it here.</p></section>
+        <section className="section-picker-empty panel"><h2>No sections selected</h2><p>Choose at least one analytics section above to display it here.</p></section>
       )}
     </div>
   );
