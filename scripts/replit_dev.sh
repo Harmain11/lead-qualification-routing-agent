@@ -20,13 +20,26 @@ export DEMO_DATA_ENABLED=true
 export SECRET_KEY="${SESSION_SECRET:?SESSION_SECRET must be configured in Replit Secrets}"
 export AUTH_COOKIE_SECURE=true
 export AUTH_COOKIE_SAMESITE=none
+preview_origin="https://${REPLIT_DEV_DOMAIN:?Replit development domain is required}"
+export FRONTEND_PUBLIC_BASE_URL="$preview_origin"
+export INTEGRATION_PUBLIC_BASE_URL="$preview_origin"
+
+if [[ -n "${GOOGLE_CLIENT_ID:-}" && -z "${GOOGLE_CLIENT_SECRET:-}" ]] ||
+   [[ -z "${GOOGLE_CLIENT_ID:-}" && -n "${GOOGLE_CLIENT_SECRET:-}" ]]; then
+  echo "Configure both GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable real Google sign-in." >&2
+  exit 1
+elif [[ -n "${GOOGLE_CLIENT_ID:-}" ]]; then
+  export OAUTH_BROKER=provider
+else
+  export OAUTH_BROKER=development
+fi
 
 python -m alembic -c backend/alembic.ini upgrade head
 python -m lead_agent.seed --demo
 
 # Vite's development mode exposes the existing local-workspace button.
 # Only Vite is public; its existing proxy forwards API requests to FastAPI.
-export VITE_ALLOWED_HOSTS="${REPLIT_DEV_DOMAIN:?Replit development domain is required}${VITE_ALLOWED_HOSTS:+,$VITE_ALLOWED_HOSTS}"
+export VITE_ALLOWED_HOSTS="${REPLIT_DEV_DOMAIN}${VITE_ALLOWED_HOSTS:+,$VITE_ALLOWED_HOSTS}"
 export VITE_API_PROXY_TARGET=http://127.0.0.1:8001
 child_pids=()
 shutdown() {
