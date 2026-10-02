@@ -1913,3 +1913,20 @@ html body .app-shell :is(
 ) { font-size: 11px; }
 
 html body .auth-shell :is(small, .eyebrow) { font-size: 10px; }
+
+/* Keep dashboard KPI cards wide enough for labels and values at every viewport width. */
+.metric-grid.dashboard-metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+@media (max-width: 760px) {
+  .metric-grid.dashboard-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .metric-grid.dashboard-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
