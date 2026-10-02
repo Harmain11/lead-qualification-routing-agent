@@ -46,6 +46,7 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
           code: form.access_code,
           email: form.email,
           display_name: form.display_name,
+          password: form.password || null,
         }));
       } else if (mode === "signin") {
         onAuthenticated(await signIn(form.email, form.password));
@@ -130,8 +131,8 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
         </div>
         <div className="auth-copy">
           <span className="eyebrow">{mode === "signin" ? "Welcome back" : mode === "access" ? "Admin-issued access" : step === 1 ? "Your identity" : "Workspace setup"}</span>
-          <h2 id="auth-title">{mode === "signin" ? "Enter the control center." : mode === "access" ? "Enter with a workspace code." : step === 1 ? "Create your secure account." : "Name your operations workspace."}</h2>
-          <p>{mode === "signin" ? "Your session resolves only the workspaces you belong to." : mode === "access" ? "Ask your workspace admin for the workspace ID and one-time staff code." : "Workspace ownership keeps leads, analytics, and provider accounts isolated."}</p>
+          <h2 id="auth-title">{mode === "signin" ? "Enter the control center." : mode === "access" ? "Set up staff access." : step === 1 ? "Create your secure account." : "Name your operations workspace."}</h2>
+          <p>{mode === "signin" ? "Sign in with your work email and password." : mode === "access" ? "Use the workspace ID and one-time code from your admin. Your work email is your username. New invitees set a password here for future sign-ins; existing accounts keep their current password." : "Workspace ownership keeps leads, analytics, and provider accounts isolated."}</p>
         </div>
         {mode !== "access" && <button type="button" className="google-auth-button" onClick={continueWithGoogle} disabled={busy}>
           <span aria-hidden="true">G</span> Continue with Google
@@ -155,6 +156,7 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
               <label>Staff access code<input required type="password" autoComplete="one-time-code" value={form.access_code} onChange={(event) => setForm({ ...form, access_code: event.target.value })} placeholder="Paste the code from your admin" /></label>
               <label>Your work email<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" /></label>
               <label>Your name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>
+            <label>Password for future sign-ins (new accounts)<input minLength={10} type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 10 characters" /></label>
             </>}
             {mode === "signup" && step === 1 && <label>Full name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>}
             {(mode === "signin" || (mode === "signup" && step === 1)) && <>
@@ -163,7 +165,7 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
             </>}
             {mode === "signup" && step === 2 && <label>Workspace name<input required autoFocus value={form.workspace_name} onChange={(event) => setForm({ ...form, workspace_name: event.target.value })} placeholder="Acme Revenue Operations" /></label>}
             {error && <div className="auth-error" role="alert">{error}</div>}
-            <button className="auth-submit" disabled={busy}>{busy ? "Securing session…" : mode === "access" ? "Enter workspace" : mode === "signin" ? "Sign in" : step === 1 ? "Continue to workspace" : "Create workspace"}</button>
+            <button className="auth-submit" disabled={busy}>{busy ? "Securing session…" : mode === "access" ? "Set up account & enter workspace" : mode === "signin" ? "Sign in" : step === 1 ? "Continue to workspace" : "Create workspace"}</button>
             {mode === "signup" && step === 2 && <button type="button" className="auth-back" onClick={() => setStep(1)}>← Back to account details</button>}
           </form>
         )}

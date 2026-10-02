@@ -122,11 +122,23 @@ async function performRequest<T>(url: string, options?: RequestInit): Promise<T>
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
-    const message = response.status === 401
-      ? "Your session expired. Sign in again."
-      : response.status === 403
-        ? "You do not have permission to perform this action."
-        : typeof body.detail === "string" ? body.detail : "Request failed";
+    const detail = typeof body.detail === "string"
+      ? body.detail
+      : Array.isArray(body.detail)
+        ? body.detail
+          .map((item: unknown) => {
+            if (!item || typeof item !== "object" || !("msg" in item)) return null;
+            return typeof item.msg === "string" ? item.msg : null;
+          })
+          .filter((message: string | null): message is string => Boolean(message))
+          .join("; ")
+        : null;
+    const message = detail
+      || (response.status === 401
+        ? "Your session expired or the credentials were not accepted."
+        : response.status === 403
+          ? "You do not have permission to perform this action."
+          : `Request failed (${response.status}). Please try again.`);
     throw new ApiError(message, response.status);
   }
   if (response.status === 204) return undefined as T;
@@ -160,6 +172,7 @@ export async function signInWithWorkspaceCode(input: {
   code: string;
   email: string;
   display_name: string;
+  password: string | null;
 }): Promise<AuthSession> {
   const session = await request<AuthSession>("/v1/auth/workspace-code", {
     method: "POST",
