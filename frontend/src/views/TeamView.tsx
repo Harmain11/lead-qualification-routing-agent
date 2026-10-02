@@ -76,7 +76,7 @@ function cycleOverride(
   effective?: ReadonlySet<string>,
 ): PermissionOverrides {
   const current = overrideState(permission, overrides, effective);
-  const next = current === "none" || current === "inherited" ? "grant" : current === "grant" ? "deny" : "none";
+  const next = current === "inherited" ? "deny" : current === "none" ? "grant" : current === "grant" ? "deny" : "none";
   return {
     grants: next === "grant"
       ? [...overrides.grants.filter((item) => item !== permission), permission].sort()
@@ -95,6 +95,7 @@ function PermissionEditor({ overrides, effective, readOnly, onChange }: Permissi
         <span><i className="permission-dot grant" /> Custom grant</span>
         <span><i className="permission-dot deny" /> Explicit deny</span>
       </div>
+      <p className="permission-edit-hint">Click an inherited permission to deny it, or a missing one to grant it. Click a custom choice again to reset.</p>
       <div className="permission-groups">
         {PERMISSION_GROUPS.map((group) => (
           <section className="permission-group" key={group.label}>
@@ -154,6 +155,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [audit, setAudit] = useState<WorkspaceAuditEvent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +182,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
       setMembers(nextMembers);
       setInvitations(nextInvitations);
       setAudit(nextAudit);
-      setSelectedId((current) => current && nextMembers.some((member) => member.id === current) ? current : nextMembers[0]?.id ?? null);
+      setSelectedId((current) => current && nextMembers.some((member) => member.id === current) ? current : null);
     } catch (requestError) {
       if (!signal?.aborted) setError(friendlyError(requestError));
     } finally {
@@ -250,9 +252,9 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
       <header className="page-hero compact-hero team-hero" data-tour="team">
         <div>
           <button className="team-back" onClick={onBack}>← Settings</button>
-          <span className="eyebrow">Workspace administration</span>
-          <h1>Team &amp; <em>permissions.</em></h1>
-          <p>Share <strong>{workspaceName}</strong> with the people who move revenue forward. Role defaults stay clear, and every exception is visible.</p>
+          <span className="eyebrow">Workspace users</span>
+          <h1>Users &amp; <em>permissions.</em></h1>
+          <p>Review each user’s role, edit their workspace permissions, and remove access when needed.</p>
         </div>
         <div className="team-context-card"><span>Editing workspace</span><strong>{workspaceName}</strong><small>{auth.current_workspace_id}</small><i>Permissions are workspace-specific</i></div>
       </header>
@@ -270,7 +272,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-main-column">
               <div className="panel team-members-panel">
                 <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace members</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite team member</button>}</div></div>
-                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <button type="button" className={`team-member-row ${selected?.id === member.id ? "selected" : ""}`} key={member.id} onClick={() => setSelectedId(member.id)}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><i className="member-chevron">→</i></button>)}</div> : <div className="empty-state"><i /><b>No members yet</b><span>Invite the first staff member to begin sharing this workspace.</span></div>}
+                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <button type="button" className={`team-member-row ${selected?.id === member.id ? "selected" : ""}`} key={member.id} onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><i className="member-chevron">→</i></button>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
               </div>
               <div className="panel team-invitations-panel">
                 <div className="section-heading"><div><span className="eyebrow">Pending access</span><h2>Invitations</h2></div><span className="panel-action">One-time staff codes</span></div>
@@ -278,7 +280,42 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
               </div>
               <div className="panel team-audit-panel"><div className="section-heading"><div><span className="eyebrow">Durable administration trail</span><h2>Recent activity</h2></div><span className="panel-action">Last {Math.min(audit.length, 6)} events</span></div>{audit.length ? <ul className="team-audit-list">{audit.slice(0, 6).map((event) => <AuditLine key={event.id} event={event} members={members} />)}</ul> : <div className="compact-empty"><span>No administration activity recorded yet.</span></div>}</div>
             </div>
-            <MemberDetail member={selected} actor={actor} canManage={canManage} onSaveRole={async (role) => { if (!selected) return; await runAction(async () => { const next = await updateMemberRole(selected.id, role); setMembers((current) => current.map((item) => item.id === next.id ? next : item)); }, "Role updated."); }} onSavePermissions={async (overrides) => { if (!selected) return; await runAction(async () => { const next = await updateMemberPermissions(selected.id, overrides); setMembers((current) => current.map((item) => item.id === next.id ? next : item)); }, "Permissions updated."); }} onSuspend={() => selected && requestConfirmation({ title: "Suspend member?", detail: `${selected.display_name} will lose workspace access until reactivated.`, confirmLabel: "Suspend member", danger: true, action: async () => { await suspendMember(selected.id); } })} onReactivate={() => selected && runAction(() => reactivateMember(selected.id).then(() => undefined), "Member reactivated.")} onRemove={() => selected && requestConfirmation({ title: "Remove access?", detail: `${selected.display_name} will be revoked from this workspace. Existing sessions will stop authorizing this workspace.`, confirmLabel: "Remove access", danger: true, action: async () => { await removeMember(selected.id); } })} />
+            <MemberDetail
+              member={selected}
+              actor={actor}
+              canManage={canManage}
+              collapsed={detailsCollapsed}
+              onToggleCollapsed={() => setDetailsCollapsed((current) => !current)}
+              onSaveRole={async (role) => {
+                if (!selected) return;
+                await runAction(async () => {
+                  const next = await updateMemberRole(selected.id, role);
+                  setMembers((current) => current.map((item) => item.id === next.id ? next : item));
+                }, "Role updated.");
+              }}
+              onSavePermissions={async (overrides) => {
+                if (!selected) return;
+                await runAction(async () => {
+                  const next = await updateMemberPermissions(selected.id, overrides);
+                  setMembers((current) => current.map((item) => item.id === next.id ? next : item));
+                }, "Permissions updated.");
+              }}
+              onSuspend={() => selected && requestConfirmation({
+                title: "Suspend member?",
+                detail: `${selected.display_name} will lose workspace access until reactivated.`,
+                confirmLabel: "Suspend member",
+                danger: true,
+                action: async () => { await suspendMember(selected.id); },
+              })}
+              onReactivate={() => selected && runAction(() => reactivateMember(selected.id).then(() => undefined), "Member reactivated.")}
+              onRemove={() => selected && requestConfirmation({
+                title: "Remove from workspace?",
+                detail: `${selected.display_name} will lose access to this workspace. Their account and other workspace memberships will remain.`,
+                confirmLabel: "Remove from workspace",
+                danger: true,
+                action: async () => { await removeMember(selected.id); },
+              })}
+            />
           </section>
         </>
       )}
@@ -294,6 +331,8 @@ function MemberDetail({
   member,
   actor,
   canManage,
+  collapsed,
+  onToggleCollapsed,
   onSaveRole,
   onSavePermissions,
   onSuspend,
@@ -303,6 +342,8 @@ function MemberDetail({
   member: WorkspaceMember | null;
   actor: WorkspaceMember | undefined;
   canManage: boolean;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onSaveRole: (role: string) => Promise<void>;
   onSavePermissions: (overrides: PermissionOverrides) => Promise<void>;
   onSuspend: () => void;
@@ -313,14 +354,64 @@ function MemberDetail({
   const [overrides, setOverrides] = useState<PermissionOverrides>(member?.permission_overrides ?? emptyOverrides());
   const [saving, setSaving] = useState(false);
   useEffect(() => { setRole(member?.role ?? "viewer"); setOverrides(member?.permission_overrides ?? emptyOverrides()); }, [member]);
-  if (!member) return <aside className="team-detail panel"><div className="team-detail-empty"><span className="eyebrow">Member detail</span><h2>Select a member</h2><p>Choose a person from the roster to inspect their role, effective permissions and access history.</p></div></aside>;
+  if (!member) return <aside className="team-detail panel"><div className="team-detail-empty"><span className="eyebrow">User details</span><h2>Select a user</h2><p>Choose a person from the roster to edit their role and permissions or remove their access.</p></div></aside>;
   const isOwner = member.role === "owner";
   const isSelf = actor?.id === member.id;
   const editable = canManage && !isOwner && !isSelf;
   const effective = new Set(member.effective_permissions);
   async function saveRole() { setSaving(true); try { await onSaveRole(role); } finally { setSaving(false); } }
   async function savePermissions() { setSaving(true); try { await onSavePermissions(overrides); } finally { setSaving(false); } }
-  return <aside className="team-detail panel"><div className="team-detail-head"><span className="member-avatar large">{member.display_name.slice(0, 1).toUpperCase()}</span><div><span className="eyebrow">Member detail</span><h2>{member.display_name}</h2><p>{member.email}</p></div></div><div className="team-detail-badges"><RolePill role={member.role} /><MemberStatus status={member.status} />{isSelf && <span className="you-badge">You</span>}</div>{isOwner && <div className="owner-protected"><b>Ownership protected</b><span>The workspace owner cannot be suspended, revoked or removed. Ownership transfer is not available in this phase.</span></div>}<div className="team-detail-facts"><div><span>Invited</span><b>{formatDate(member.invited_at)}</b></div><div><span>Joined</span><b>{formatDate(member.accepted_at)}</b></div><div><span>Last updated</span><b>{formatDate(member.updated_at)}</b></div></div><div className="detail-editor-section"><div className="section-heading"><div><span className="eyebrow">Role defaults</span><h3>Role</h3></div>{editable && role !== member.role && <button className="button-quiet" disabled={saving} onClick={() => setRole(member.role)}>Reset</button>}</div><select value={role} disabled={!editable || saving} onChange={(event) => setRole(event.target.value)}>{Object.entries(ROLE_LABELS).filter(([id]) => id !== "owner").map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select>{editable && role !== member.role && <button className="secondary-button" disabled={saving} onClick={() => void saveRole()}>{saving ? "Saving…" : "Save role"}</button>}</div><div className="detail-editor-section"><div className="section-heading"><div><span className="eyebrow">Role + exceptions</span><h3>Effective permissions</h3></div>{editable && (overrides.grants.length > 0 || overrides.denies.length > 0) && <button className="button-quiet" disabled={saving} onClick={() => setOverrides(emptyOverrides())}>Reset to role defaults</button>}</div><PermissionEditor overrides={overrides} effective={effective} readOnly={!editable || saving} onChange={setOverrides} />{editable && JSON.stringify(overrides) !== JSON.stringify(member.permission_overrides) && <button className="secondary-button" disabled={saving} onClick={() => void savePermissions()}>{saving ? "Saving…" : "Save permissions"}</button>}</div>{canManage && !isOwner && !isSelf && <div className="member-danger-actions">{member.status === "suspended" ? <button className="button-quiet" onClick={onReactivate}>Reactivate member</button> : member.status === "active" && <button className="button-quiet danger-text" onClick={onSuspend}>Suspend member</button>}<button className="button-quiet danger-text" onClick={onRemove}>Remove access</button></div>}</aside>;
+  return (
+    <aside className="team-detail panel">
+      <div className="team-detail-head">
+        <span className="member-avatar large">{member.display_name.slice(0, 1).toUpperCase()}</span>
+        <div><span className="eyebrow">User details</span><h2>{member.display_name}</h2><p>{member.email}</p></div>
+        <button
+          type="button"
+          className="member-details-toggle"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Show details for ${member.display_name}` : `Collapse details for ${member.display_name}`}
+          onClick={onToggleCollapsed}
+        >{collapsed ? "Show details +" : "Collapse −"}</button>
+      </div>
+      <div className="team-detail-badges"><RolePill role={member.role} /><MemberStatus status={member.status} />{isSelf && <span className="you-badge">You</span>}</div>
+      {!collapsed && <>
+        {isOwner && <div className="owner-protected"><b>Ownership protected</b><span>The workspace owner cannot be suspended, revoked or removed. Ownership transfer is not available in this phase.</span></div>}
+        {isSelf && !isOwner && <div className="owner-protected"><b>Your own access is protected</b><span>Select another user to edit their role or permissions. Admins can manage other Admins, but cannot change their own access here.</span></div>}
+        {!canManage && !isOwner && !isSelf && <div className="owner-protected"><b>Read-only access</b><span>Your role does not include permission to manage workspace users.</span></div>}
+        <div className="team-detail-facts">
+          <div><span>Invited</span><b>{formatDate(member.invited_at)}</b></div>
+          <div><span>Joined</span><b>{formatDate(member.accepted_at)}</b></div>
+          <div><span>Last updated</span><b>{formatDate(member.updated_at)}</b></div>
+        </div>
+        <div className="detail-editor-section">
+          <div className="section-heading">
+            <div><span className="eyebrow">Role defaults</span><h3>Role</h3></div>
+            {editable && role !== member.role && <button className="button-quiet" disabled={saving} onClick={() => setRole(member.role)}>Reset</button>}
+          </div>
+          <select value={role} disabled={!editable || saving} onChange={(event) => setRole(event.target.value)}>
+            {Object.entries(ROLE_LABELS).filter(([id]) => id !== "owner").map(([id, label]) => <option value={id} key={id}>{label}</option>)}
+          </select>
+          {editable && <small className="role-edit-help">Admins can assign the Admin role to another user. Owner access stays protected.</small>}
+          {editable && role !== member.role && <button className="secondary-button" disabled={saving} onClick={() => void saveRole()}>{saving ? "Saving…" : "Save role"}</button>}
+        </div>
+        <div className="detail-editor-section">
+          <div className="section-heading">
+            <div><span className="eyebrow">Role + exceptions</span><h3>Effective permissions</h3></div>
+            {editable && (overrides.grants.length > 0 || overrides.denies.length > 0) && <button className="button-quiet" disabled={saving} onClick={() => setOverrides(emptyOverrides())}>Reset to role defaults</button>}
+          </div>
+          <PermissionEditor overrides={overrides} effective={effective} readOnly={!editable || saving} onChange={setOverrides} />
+          {editable && JSON.stringify(overrides) !== JSON.stringify(member.permission_overrides) && <button className="secondary-button" disabled={saving} onClick={() => void savePermissions()}>{saving ? "Saving…" : "Save permissions"}</button>}
+        </div>
+        {canManage && !isOwner && !isSelf && <div className="member-danger-actions">
+          {member.status === "suspended"
+            ? <button className="button-quiet" onClick={onReactivate}>Reactivate member</button>
+            : member.status === "active" && <button className="button-quiet danger-text" onClick={onSuspend}>Suspend member</button>}
+          <button className="button-quiet danger-text" onClick={onRemove}>Remove from workspace</button>
+        </div>}
+      </>}
+    </aside>
+  );
 }
 
 function InviteDialog({
