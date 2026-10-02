@@ -1,6 +1,6 @@
 entrypoint = "scripts/replit_start.sh"
 run = "bash scripts/replit_start.sh"
-modules = ["python-3.12", "web", "bash", "nodejs-22"]
+modules = ["python-3.12", "web", "bash", "nodejs-22", "postgresql-16"]
 
 [deployment]
 build = "bash scripts/replit_build.sh"
