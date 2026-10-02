@@ -348,3 +348,31 @@
   .ct-tour-button,
   .ct-tour-close { transition-duration: .01ms; }
 }
+
+html[data-theme="dark"] .ct-tour-dialog {
+  border-color: rgba(135,212,168,.26);
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(242,165,65,.1), transparent 39%),
+    linear-gradient(150deg, #1D3025, #111D1B 100%);
+  box-shadow: 0 28px 90px rgba(0,0,0,.48), 0 4px 12px rgba(0,0,0,.24), inset 0 1px rgba(255,255,255,.06);
+}
+html[data-theme="dark"] .ct-tour-title { color: #F5F7F4; }
+html[data-theme="dark"] .ct-tour-description,
+html[data-theme="dark"] .ct-tour-progress,
+html[data-theme="dark"] .ct-tour-note { color: #C6D9CB; }
+html[data-theme="dark"] .ct-tour-brand,
+html[data-theme="dark"] .ct-tour-kicker,
+html[data-theme="dark"] .ct-tour-progress strong { color: #A8D4B3; }
+html[data-theme="dark"] .ct-tour-close,
+html[data-theme="dark"] .ct-tour-flow i,
+html[data-theme="dark"] .ct-tour-button-secondary {
+  border-color: rgba(135,212,168,.24);
+  background: linear-gradient(180deg, #253E2E, #1A2E24);
+  color: #E0F1E5;
+}
+html[data-theme="dark"] .ct-tour-flow { border-color: rgba(135,212,168,.2); background: linear-gradient(100deg,rgba(30,107,82,.16),rgba(242,165,65,.09)); }
+html[data-theme="dark"] .ct-tour-flow span,
+html[data-theme="dark"] .ct-tour-button-quiet { color: #C6D9CB; }
+html[data-theme="dark"] .ct-tour-note { background: rgba(242,165,65,.12); }
+html[data-theme="dark"] .ct-tour-note b { color: #F2C37A; }
+html[data-theme="dark"] .ct-tour-button-primary { border-color: #4A9B70; background: linear-gradient(135deg,#2C825C,#1E6B52); }

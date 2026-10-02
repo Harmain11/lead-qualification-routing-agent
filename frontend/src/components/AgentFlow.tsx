@@ -23,7 +23,7 @@ export function AgentFlow({
   const activeIndex = received === 0 ? 0 : eventStages.has("crm") ? 7 : eventStages.has("routed") ? 6 : 4;
 
   return (
-    <section className="agent-flow panel" aria-labelledby="agent-flow-title">
+    <section className="agent-flow panel" aria-labelledby="agent-flow-title" data-tour="agents">
       <div className="section-heading">
         <div>
           <span className="eyebrow">Live operating model</span>

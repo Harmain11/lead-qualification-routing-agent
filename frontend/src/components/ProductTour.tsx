@@ -79,6 +79,18 @@ const steps: TourStep[] = [
     description: "Settings is the home for workspace configuration. Configure your Ideal Customer Profile (ICP) and manage the team and permissions from here.",
     note: "These choices shape how leads are evaluated and who can take action.",
   },
+  {
+    view: "team",
+    title: "Give the right people access",
+    description: "Team & Permissions lets workspace admins invite members, assign roles, and review the permissions available to each person.",
+    note: "Access is scoped to the current workspace. If a control is unavailable, ask an owner or admin.",
+  },
+  {
+    view: "icp",
+    title: "Define and test customer fit",
+    description: "The ICP Builder lets authorized users define qualification criteria, validate a draft, and test its effect before publishing.",
+    note: "Published ICP versions are immutable so past qualification decisions stay traceable.",
+  },
 ];
 
 type Spotlight = { x: number; y: number; width: number; height: number };
@@ -106,6 +118,15 @@ export function ProductTour({
   const descriptionId = useId();
   const maskId = `corral-tour-mask-${useId().replaceAll(":", "")}`;
   const activeStep = steps[stepIndex];
+  const activeSectionTitle = activeStep.view === "agents"
+    ? "Agents / AI Activity"
+    : activeStep.view === "review"
+      ? "Manual Review"
+      : activeStep.view === "team"
+        ? "Team & Permissions"
+        : activeStep.view === "icp"
+          ? "Ideal Customer Profile"
+          : activeStep.view[0].toUpperCase() + activeStep.view.slice(1);
   const progressLabel = useMemo(
     () => `Step ${stepIndex + 1} of ${steps.length}`,
     [stepIndex],
@@ -224,6 +245,7 @@ export function ProductTour({
     let frameOne = 0;
     let frameTwo = 0;
     let target: HTMLElement | null = null;
+    let targetResizeObserver: ResizeObserver | null = null;
     const measureTarget = () => {
       if (!target || !target.isConnected || currentView !== activeStep.view) {
         setSpotlight(null);
@@ -237,24 +259,37 @@ export function ProductTour({
         height: Math.min(window.innerHeight - 16, rect.height + 16),
       });
     };
-    frameOne = window.requestAnimationFrame(() => {
-      frameTwo = window.requestAnimationFrame(() => {
-        const candidates = Array.from(document.querySelectorAll<HTMLElement>("[data-tour]"));
-        target = candidates.find((element) => element.dataset.tour === activeStep.view) ?? null;
-        if (target && currentView === activeStep.view) {
+    const findTarget = () => {
+      const nextTarget = Array.from(document.querySelectorAll<HTMLElement>("[data-tour]"))
+        .find((element) => element.dataset.tour === activeStep.view) ?? null;
+      if (nextTarget !== target) {
+        targetResizeObserver?.disconnect();
+        target = nextTarget;
+        if (target) {
+          targetResizeObserver = new ResizeObserver(measureTarget);
+          targetResizeObserver.observe(target);
           const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
           target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center", inline: "nearest" });
         }
-        measureTarget();
+      }
+      measureTarget();
+    };
+    frameOne = window.requestAnimationFrame(() => {
+      frameTwo = window.requestAnimationFrame(() => {
+        findTarget();
       });
     });
     window.addEventListener("scroll", measureTarget, true);
     window.addEventListener("resize", measureTarget);
+    const mutationObserver = new MutationObserver(findTarget);
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
     return () => {
       window.cancelAnimationFrame(frameOne);
       window.cancelAnimationFrame(frameTwo);
       window.removeEventListener("scroll", measureTarget, true);
       window.removeEventListener("resize", measureTarget);
+      mutationObserver.disconnect();
+      targetResizeObserver?.disconnect();
     };
   }, [open, mode, activeStep, currentView]);
 
@@ -396,7 +431,7 @@ export function ProductTour({
               </div>
               <div className="ct-tour-step-body" aria-live="polite" aria-atomic="true">
                 <span className="ct-tour-kicker ct-tour-step-label"><i aria-hidden="true" />{activeStep.title}</span>
-                <h2 id={titleId} className="ct-tour-title ct-tour-step-title">{activeStep.view === "agents" ? "Agents / AI Activity" : activeStep.view === "review" ? "Manual Review" : activeStep.view[0].toUpperCase() + activeStep.view.slice(1)}</h2>
+                <h2 id={titleId} className="ct-tour-title ct-tour-step-title">{activeSectionTitle}</h2>
                 <p id={descriptionId} className="ct-tour-description">{activeStep.description}</p>
                 <div className="ct-tour-note"><b>Good to know</b><span>{activeStep.note}</span></div>
               </div>

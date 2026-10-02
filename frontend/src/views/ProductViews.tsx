@@ -103,7 +103,7 @@ export function DashboardView({
 
   return (
     <div className="page-view dashboard-view">
-      <header className="page-hero dashboard-hero">
+      <header className="page-hero dashboard-hero" data-tour="dashboard">
         <div>
           <span className="eyebrow">Executive signal field / {data.dashboard.metadata.range}</span>
           <h1>Revenue intelligence,<br /><em>in operational motion.</em></h1>
@@ -315,7 +315,7 @@ export function LeadsView({
         </div>
       </header>
       {showForm && <LeadForm onCreated={(lead) => { onCreated(lead); setRefreshKey((value) => value + 1); }} />}
-      <section className="lead-browser panel">
+      <section className="lead-browser panel" data-tour="leads">
         <div className="lead-toolbar">
           <label><span className="sr-only">Search leads</span><input type="search" placeholder="Search company, contact, service…" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
           <select aria-label="Qualification band" value={band} onChange={(event) => setBand(event.target.value)}><option value="all">All qualification bands</option>{["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => <option value={item} key={item}>{qualificationLabel(item)}</option>)}</select>
@@ -414,7 +414,7 @@ export function PipelineView({ data, onInspect }: { data: PipelineAnalytics | nu
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Commercial motion map</span><h1>Pipeline, without<br /><em>the blind spots.</em></h1><p>Inspect every stage and the qualification state that shaped progression.</p></div><div className="pipeline-total"><span>Active pipeline</span><strong>{money(data.stages.find((stage) => stage.stage === "opportunity")?.value ?? 0)}</strong></div></header>
       {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="Pipeline is ready" text="Qualified leads will appear here as connected sources begin sending records." /></section>}
-      <section className="pipeline-track panel">{data.stages.map((stage, index) => <button key={stage.stage} className={active === stage.stage ? "active" : ""} aria-pressed={active === stage.stage} onClick={() => setActive(stage.stage)}><span>{String(index + 1).padStart(2, "0")}</span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.value ? money(stage.value) : "—"}</small><span className="pipeline-lead-dots" aria-hidden="true">{stage.leads.slice(0, 4).map((lead) => <i key={lead.id} />)}</span>{index < data.stages.length - 1 && <i className="pipeline-link" />}</button>)}</section>
+       <section className="pipeline-track panel" data-tour="pipeline">{data.stages.map((stage, index) => <button key={stage.stage} className={active === stage.stage ? "active" : ""} aria-pressed={active === stage.stage} onClick={() => setActive(stage.stage)}><span>{String(index + 1).padStart(2, "0")}</span><b>{stage.label}</b><strong>{stage.count}</strong><small>{stage.value ? money(stage.value) : "—"}</small><span className="pipeline-lead-dots" aria-hidden="true">{stage.leads.slice(0, 4).map((lead) => <i key={lead.id} />)}</span>{index < data.stages.length - 1 && <i className="pipeline-link" />}</button>)}</section>
       <section className="pipeline-inspector pipeline-detail-enter" key={selected.stage}>
         <Panel title={`${selected.label} leads`} eyebrow="Underlying workspace records" action={`${selected.count} total`}>{selected.leads.length ? <div className="compact-leads">{selected.leads.map((lead) => <LeadRow lead={lead} key={lead.id} onClick={() => onInspect(lead.id)} />)}</div> : <Empty title="Stage is clear" text="No leads occupy this stage in the selected period." />}</Panel>
         <Panel title="Qualification state" eyebrow="Decision distribution"><Bars rows={data.bands.map((row) => ({ label: row.band, value: row.count }))} /></Panel>
@@ -449,7 +449,7 @@ export function AnalyticsView({ data }: { data: AnalyticsBundle | null }) {
     <div className="page-view">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
       {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No analytics yet" text="Metrics remain at zero until real lead activity is recorded." /></section>}
-      <section className="analytics-grid analytics-motion">
+       <section className="analytics-grid analytics-motion" data-tour="analytics">
         <Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel>
         <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>
         <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>
@@ -466,7 +466,7 @@ export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalyt
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Human judgment queue</span><h1>Uncertainty made<br /><em>safe and inspectable.</em></h1><p>Provider failures, low confidence and contradictory evidence pause here. The system does not invent a resolution.</p></div><div className="review-total"><strong>{data.total}</strong><span>open review{data.total === 1 ? "" : "s"}</span></div></header>
-      <section className="review-grid">{data.items.length ? data.items.map((lead) => <article className="review-card panel" key={lead.id}><div className="review-card-head"><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span><div className="review-qualification"><b>{lead.score}</b><QualificationBadge value={lead.band} manualReview /></div></div><h2>{lead.company}</h2><p>{lead.name} · {lead.service}</p><div className="review-reasons">{lead.review_reasons.map((reason) => <span key={reason}>{reason}</span>)}</div><div><small>Current queue</small><b>{pretty(lead.routing_status)}</b></div><button onClick={() => onInspect(lead.id)}>Inspect evidence →</button></article>) : <Empty title="Manual review is clear" text="No leads need human judgment in this period." />}</section>
+       <section className="review-grid" data-tour="review">{data.items.length ? data.items.map((lead) => <article className="review-card panel" key={lead.id}><div className="review-card-head"><span className={`source-tag source-${lead.source}`}>{pretty(lead.source)}</span><div className="review-qualification"><b>{lead.score}</b><QualificationBadge value={lead.band} manualReview /></div></div><h2>{lead.company}</h2><p>{lead.name} · {lead.service}</p><div className="review-reasons">{lead.review_reasons.map((reason) => <span key={reason}>{reason}</span>)}</div><div><small>Current queue</small><b>{pretty(lead.routing_status)}</b></div><button onClick={() => onInspect(lead.id)}>Inspect evidence →</button></article>) : <Empty title="Manual review is clear" text="No leads need human judgment in this period." />}</section>
     </div>
   );
 }
@@ -475,7 +475,7 @@ export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewT
   return (
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
-      <section className="settings-grid">
+      <section className="settings-grid" data-tour="settings">
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
         <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned email, CRM and notification connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
         <Panel title="Team & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite staff, review roles and make deliberate permission exceptions. Backend authorization remains the source of truth for every action.</p><button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>{canViewTeam ? "Open Team & Permissions →" : "Members view permission required"}</button></Panel>

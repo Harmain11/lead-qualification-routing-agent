@@ -247,7 +247,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
 
   return (
     <div className="page-view operational-page team-page">
-      <header className="page-hero compact-hero team-hero">
+      <header className="page-hero compact-hero team-hero" data-tour="team">
         <div>
           <button className="team-back" onClick={onBack}>← Settings</button>
           <span className="eyebrow">Workspace administration</span>

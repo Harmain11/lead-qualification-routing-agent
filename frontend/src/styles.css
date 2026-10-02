@@ -1766,3 +1766,33 @@ html[data-theme="dark"] .lead-drawer .momentum-delivery article.needs-attention 
 @media (max-width: 760px) {
   .momentum-summary, .momentum-columns { grid-template-columns: 1fr; }
 }
+
+.guide-launch {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--blue-line);
+  border-radius: 9px;
+  background: linear-gradient(180deg, var(--surface), var(--surface-high));
+  color: var(--brand-orange);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(12, 53, 38, .06);
+  cursor: pointer;
+  transition: background var(--fast), border-color var(--fast), box-shadow var(--fast), transform var(--fast);
+}
+.guide-launch:hover { border-color: rgba(30,107,82,.42); background: var(--surface-high); box-shadow: 0 7px 14px rgba(12,53,38,.11); transform: translateY(-1px); }
+.guide-launch:focus-visible { outline: 3px solid rgba(242,165,65,.72); outline-offset: 2px; }
+.guide-launch svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+
+html[data-theme="dark"] .guide-launch { border-color: var(--line); background: linear-gradient(180deg, #263D2F, #1A2B23); color: #E5F2E8; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+html[data-theme="dark"] .guide-launch:hover { border-color: rgba(135,212,168,.45); background: #294635; }
+
+@media (max-width: 760px) {
+  .app-shell .guide-launch { width: 36px; padding: 0; }
+  .app-shell .guide-launch span { display: none; }
+}

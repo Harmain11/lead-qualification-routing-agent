@@ -24,6 +24,7 @@ import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
 import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
+import { ProductTour } from "./components/ProductTour";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
@@ -95,6 +96,7 @@ function App() {
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadRevision, setLeadRevision] = useState(0);
+  const [tourOpen, setTourOpen] = useState(false);
   const [openaiSetupCard, setOpenaiSetupCard] = useState<IntegrationCard | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,11 +110,33 @@ function App() {
   const leadController = useRef<AbortController | null>(null);
   const leadSignature = useRef<string | null>(null);
   const openaiPromptDismissed = useRef(new Set<string>());
+  const tourSeenKey = auth?.current_workspace_id
+    ? `corral-product-tour-seen:v1:${auth.current_workspace_id}`
+    : null;
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try { window.localStorage.setItem("corral-theme", theme); } catch { /* Appearance still works for this session. */ }
   }, [theme]);
+
+  useEffect(() => {
+    if (!tourSeenKey) {
+      setTourOpen(false);
+      return;
+    }
+    try {
+      setTourOpen(window.localStorage.getItem(tourSeenKey) !== "seen");
+    } catch {
+      setTourOpen(true);
+    }
+  }, [tourSeenKey]);
+
+  const closeTour = useCallback(() => {
+    if (tourSeenKey) {
+      try { window.localStorage.setItem(tourSeenKey, "seen"); } catch { /* The guide remains available for this session. */ }
+    }
+    setTourOpen(false);
+  }, [tourSeenKey]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 761px)");
@@ -404,6 +428,10 @@ function App() {
             <RangePicker value={range} onChange={setRange} />
             <span className={`mode-badge ${metadata?.data_mode || "live"}`}>{metadata?.data_mode === "demo" ? "ILLUSTRATIVE DATA" : "LIVE DATA"}</span>
             <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh data">↻</button>
+            <button className="guide-launch" onClick={() => setTourOpen(true)} aria-haspopup="dialog" aria-label="Open Corral product guide" title="Open Corral product guide">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" /><path d="M7.8 7.4a2.3 2.3 0 1 1 3.8 1.7c-.9.8-1.6 1.1-1.6 2.3M10 14.2v.1" /></svg>
+              <span>Guide</span>
+            </button>
             <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
           </div>
         </header>
@@ -429,6 +457,7 @@ function App() {
       </main>
       {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}
       {openaiSetupCard && <OpenAISetupPrompt card={openaiSetupCard} onVerified={() => { setOpenaiSetupCard(null); void refresh(); }} onLater={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); }} onSettings={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); setView("integrations"); }} />}
+      <ProductTour open={tourOpen} currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
     </div>
   );
 }
