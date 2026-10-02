@@ -47,7 +47,7 @@ ROLE_ALIASES: dict[str, str] = {
 ROLE_LABELS: dict[str, str] = {
     "owner": "Owner",
     "admin": "Admin",
-    "sales_manager": "Sales Manager",
+    "sales_manager": "Manager",
     "sales_rep": "Sales Rep",
     "viewer": "Analyst / Viewer",
 }
