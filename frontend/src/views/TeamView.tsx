@@ -271,7 +271,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           <section className="team-layout">
             <div className="team-main-column">
               <div className="panel team-members-panel">
-                <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace members</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite team member</button>}</div></div>
+                <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace users</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite user</button>}</div></div>
                 {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <button type="button" className={`team-member-row ${selected?.id === member.id ? "selected" : ""}`} key={member.id} onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><i className="member-chevron">→</i></button>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
               </div>
               <div className="panel team-invitations-panel">
@@ -353,14 +353,25 @@ function MemberDetail({
   const [role, setRole] = useState(member?.role ?? "viewer");
   const [overrides, setOverrides] = useState<PermissionOverrides>(member?.permission_overrides ?? emptyOverrides());
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setRole(member?.role ?? "viewer"); setOverrides(member?.permission_overrides ?? emptyOverrides()); }, [member]);
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    setRole(member?.role ?? "viewer");
+    setOverrides(member?.permission_overrides ?? emptyOverrides());
+    setEditing(false);
+  }, [member]);
   if (!member) return <aside className="team-detail panel"><div className="team-detail-empty"><span className="eyebrow">User details</span><h2>Select a user</h2><p>Choose a person from the roster to edit their role and permissions or remove their access.</p></div></aside>;
   const isOwner = member.role === "owner";
   const isSelf = actor?.id === member.id;
-  const editable = canManage && !isOwner && !isSelf;
+  const canEdit = canManage && !isOwner && !isSelf;
+  const editable = canEdit && editing;
   const effective = new Set(member.effective_permissions);
   async function saveRole() { setSaving(true); try { await onSaveRole(role); } finally { setSaving(false); } }
   async function savePermissions() { setSaving(true); try { await onSavePermissions(overrides); } finally { setSaving(false); } }
+  function cancelEditing() {
+    setRole(member.role);
+    setOverrides(member.permission_overrides);
+    setEditing(false);
+  }
   return (
     <aside className="team-detail panel">
       <div className="team-detail-head">
@@ -376,6 +387,10 @@ function MemberDetail({
       </div>
       <div className="team-detail-badges"><RolePill role={member.role} /><MemberStatus status={member.status} />{isSelf && <span className="you-badge">You</span>}</div>
       {!collapsed && <>
+        <div className="member-detail-actions">
+          {canEdit && <button className="secondary-button" onClick={() => editing ? cancelEditing() : setEditing(true)}>{editing ? "Cancel edit" : "Edit access"}</button>}
+          {canManage && !isOwner && !isSelf && <button className="button-quiet danger-text" onClick={onRemove}>Remove from workspace</button>}
+        </div>
         {isOwner && <div className="owner-protected"><b>Ownership protected</b><span>The workspace owner cannot be suspended, revoked or removed. Ownership transfer is not available in this phase.</span></div>}
         {isSelf && !isOwner && <div className="owner-protected"><b>Your own access is protected</b><span>Select another user to edit their role or permissions. Admins can manage other Admins, but cannot change their own access here.</span></div>}
         {!canManage && !isOwner && !isSelf && <div className="owner-protected"><b>Read-only access</b><span>Your role does not include permission to manage workspace users.</span></div>}
@@ -407,7 +422,6 @@ function MemberDetail({
           {member.status === "suspended"
             ? <button className="button-quiet" onClick={onReactivate}>Reactivate member</button>
             : member.status === "active" && <button className="button-quiet danger-text" onClick={onSuspend}>Suspend member</button>}
-          <button className="button-quiet danger-text" onClick={onRemove}>Remove from workspace</button>
         </div>}
       </>}
     </aside>

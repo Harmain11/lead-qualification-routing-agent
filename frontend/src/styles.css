@@ -969,6 +969,9 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .team-detail-empty h2 { margin: 0; font-size: 21px; font-weight: 500; }
 .team-detail-empty p { max-width: 270px; color: var(--muted); font-size: 9px; line-height: 1.6; }
 .team-detail-head { display: flex; align-items: center; gap: 12px; }
+.team-detail-head > div { min-width: 0; flex: 1; }
+.member-details-toggle { flex: 0 0 auto; min-height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: transparent; color: var(--muted); font-size: 8px; white-space: nowrap; }
+.member-details-toggle:hover { border-color: var(--line-bright); color: var(--text); }
 .team-detail-head h2 { margin: 5px 0 3px; font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
 .team-detail-head p { margin: 0; color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .team-detail-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 17px 0; }
@@ -981,12 +984,14 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .team-detail-facts span { color: var(--subtle); font: 7px var(--font-mono); text-transform: uppercase; }
 .team-detail-facts b { color: var(--text); font-size: 8px; overflow-wrap: anywhere; }
 .detail-editor-section { margin-top: 20px; }
+.role-edit-help { display: block; margin-top: 7px; color: var(--subtle); font-size: 8px; line-height: 1.45; }
 .detail-editor-section .section-heading { align-items: center; margin-bottom: 10px; }
 .detail-editor-section h3 { margin: 5px 0 0; font-size: 14px; font-weight: 500; }
 .detail-editor-section select, .team-field input, .team-field select { width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(2,4,9,.55); color: var(--text); font-size: 10px; }
 .detail-editor-section select:disabled { color: var(--muted); opacity: .82; }
 .member-danger-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; padding-top: 15px; border-top: 1px solid var(--line); }
 .permission-editor { display: grid; gap: 11px; }
+.permission-edit-hint { margin: -5px 0 0; color: var(--subtle); font-size: 8px; line-height: 1.45; }
 .permission-legend { display: flex; flex-wrap: wrap; gap: 9px; color: var(--subtle); font-size: 7px; }
 .permission-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .permission-dot { width: 6px; height: 6px; display: inline-block; border-radius: 50%; background: var(--subtle); }
@@ -995,8 +1000,10 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .permission-group { padding: 10px; border: 1px solid rgba(255,255,255,.055); border-radius: 9px; background: rgba(255,255,255,.018); }
 .permission-group h3 { margin: 0 0 7px; color: var(--muted); font: 8px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 .permission-group > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
-.permission-toggle { min-height: 39px; display: flex; align-items: center; gap: 7px; padding: 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: left; transition: background var(--fast), border-color var(--fast); }
+.permission-toggle { min-height: 39px; display: flex; align-items: center; gap: 7px; padding: 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; text-align: left; cursor: pointer; transition: background var(--fast), border-color var(--fast); }
 .permission-toggle:hover:not(:disabled) { border-color: var(--line-bright); background: rgba(255,255,255,.035); }
+.permission-toggle:focus-visible { outline: 2px solid rgba(112,199,156,.7); outline-offset: 2px; }
+.permission-toggle:disabled { cursor: not-allowed; opacity: .58; }
 .permission-toggle > i { width: 18px; height: 18px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--line-bright); border-radius: 5px; color: var(--subtle); font-style: normal; font-size: 10px; }
 .permission-toggle > span { min-width: 0; display: grid; gap: 2px; }
 .permission-toggle b { color: var(--muted); font-size: 8px; font-weight: 600; line-height: 1.2; }
