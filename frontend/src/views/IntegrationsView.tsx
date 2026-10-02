@@ -31,6 +31,19 @@ function connectionStage(status?: string) {
   return 0;
 }
 
+function oauthConnectFailureMessage(provider: string, message: string) {
+  const settings: Record<string, { name: string; keys: [string, string] }> = {
+    slack: { name: "Slack", keys: ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET"] },
+    salesforce: { name: "Salesforce", keys: ["SALESFORCE_CLIENT_ID", "SALESFORCE_CLIENT_SECRET"] },
+    hubspot: { name: "HubSpot", keys: ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"] },
+  };
+  const providerSettings = settings[provider];
+  if (providerSettings && /OAuth application credentials are not configured/i.test(message)) {
+    return `${providerSettings.name} can't connect yet. Add ${providerSettings.keys.join(" and ")} to Replit Secrets, then try again.`;
+  }
+  return message;
+}
+
 function qualificationBandLabel(value: string) {
   const labels: Record<string, string> = {
     hot: "Hot",
@@ -203,6 +216,7 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
   const [modelSelections, setModelSelections] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
   const [slackChannels, setSlackChannels] = useState<Record<string, Array<{ id: string; name: string }>>>({});
@@ -282,15 +296,28 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
 
   async function connectOAuth(provider: string) {
     if (provider === "slack" && !canManage) {
-      setNotice("Integration management permission is required to connect Slack.");
+      const message = "Integration management permission is required to connect Slack.";
+      setActionErrors((current) => ({ ...current, [provider]: message }));
+      setNotice(message);
       return;
     }
-    setBusy(provider); setNotice(null);
+    setBusy(provider);
+    setNotice(null);
+    setActionErrors((current) => {
+      const next = { ...current };
+      delete next[provider];
+      return next;
+    });
     try {
       const started = await beginIntegration(provider);
       window.location.assign(apiUrl(started.authorization_url));
     } catch (actionError) {
-      setNotice(actionError instanceof Error ? actionError.message : "Authorization could not begin");
+      const message = oauthConnectFailureMessage(
+        provider,
+        actionError instanceof Error ? actionError.message : "Authorization could not begin",
+      );
+      setActionErrors((current) => ({ ...current, [provider]: message }));
+      setNotice(message);
       setBusy(null);
     }
   }
@@ -395,6 +422,7 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
             <small>The key is sent only to the backend, encrypted by the configured secret service, cleared from this form after success, and never returned.</small>
           </div>}
         </div>}
+        {actionErrors[card.provider] && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
       </article>;
     })}</div>
     </section>)}</div>}

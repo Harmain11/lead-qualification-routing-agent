@@ -464,6 +464,7 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .provider-head h2 { margin: 3px 0 0; font-size: 16px; }
 .provider-head > b { padding: 5px 7px; border-radius: 6px; background: var(--surface-soft); color: var(--muted); font-size: 7px; text-transform: uppercase; }
 .integration-card > p { min-height: 43px; margin: 18px 0; color: var(--muted); font-size: 9px; line-height: 1.6; }
+.integration-action-error { margin-top: 12px; padding: 10px 12px; border: 1px solid rgba(190,63,48,.28); border-radius: 8px; background: rgba(190,63,48,.08); color: var(--red); font-size: 9px; line-height: 1.5; }
 .connection-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .connection-facts span { display: flex; flex-direction: column; gap: 4px; color: var(--subtle); font-size: 7px; }
 .connection-facts b { color: var(--text); font-size: 9px; }
