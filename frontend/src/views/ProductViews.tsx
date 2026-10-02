@@ -4,6 +4,7 @@ import type { CSSProperties, FormEvent, ReactNode } from "react";
 
 import { bulkDeleteLeads, bulkSendLeadsToCrm, createLead, exportLeads, generateEmailTemplate, getEmailTemplates, getPublicIntakeConfig, getRoutingConfig, listIntegrations, listLeads, rotatePublicIntakeConfig, saveEmailTemplate, updateRoutingConfig } from "../api";
 import { AgentFlow } from "../components/AgentFlow";
+import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
 import { NetworkDomFallback } from "../components/NetworkDomFallback";
@@ -476,6 +477,7 @@ export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewT
     <div className="page-view operational-page">
       <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
       <section className="settings-grid" data-tour="settings">
+        <AccountProfilePanel />
         <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
         <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned email, CRM and notification connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
         <Panel title="Users & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite users, review roles and make deliberate per-person permission changes. Backend authorization remains the source of truth for every action.</p><button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>{canViewTeam ? "Open Users →" : "Members view permission required"}</button></Panel>

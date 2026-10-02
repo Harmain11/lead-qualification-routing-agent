@@ -147,6 +147,26 @@ async function performRequest<T>(url: string, options?: RequestInit): Promise<T>
 
 export const getSession = () => request<AuthSession | null>("/v1/auth/status");
 
+export type AccountProfile = {
+  id: string;
+  email: string;
+  display_name: string;
+  job_title: string | null;
+  phone: string | null;
+  bio: string | null;
+  avatar_data_url: string | null;
+};
+
+export type AccountProfileUpdate = Omit<AccountProfile, "id" | "email">;
+
+export const getAccountProfile = () => request<AccountProfile>("/v1/auth/profile");
+export const updateAccountProfile = (profile: AccountProfileUpdate) =>
+  request<AccountProfile>("/v1/auth/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+
 export const getEmailTemplates = () => request<WorkspaceEmailTemplate[]>("/v1/settings/email-templates");
 export const saveEmailTemplate = (kind: WorkspaceEmailTemplate["kind"], template: Omit<WorkspaceEmailTemplate, "kind">) =>
   request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}`, {

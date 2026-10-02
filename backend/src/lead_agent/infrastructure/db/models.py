@@ -110,6 +110,10 @@ class UserORM(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    avatar_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     email_verified: Mapped[bool] = mapped_column(nullable=False, default=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(
