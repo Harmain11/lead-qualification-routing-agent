@@ -72,6 +72,7 @@ class WorkspaceAccessCodeRequest(BaseModel):
     code: str = Field(min_length=32, max_length=256)
     email: str = Field(min_length=3, max_length=320)
     display_name: str = Field(min_length=1, max_length=255)
+    password: str | None = Field(default=None, min_length=10, max_length=256)
 
 
 class EmailAddressRequest(BaseModel):
@@ -354,11 +355,16 @@ def workspace_code_signin(
 
     user = session.scalar(select(UserORM).where(UserORM.email == email))
     if user is None:
+        if request.password is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Choose a password of at least 10 characters to finish account setup.",
+            )
         user = UserORM(
             id=uuid4(),
             email=email,
             display_name=request.display_name.strip(),
-            password_hash=hash_password(secrets.token_urlsafe(32)),
+            password_hash=hash_password(request.password),
             email_verified=True,
             email_verified_at=now,
             status="active",

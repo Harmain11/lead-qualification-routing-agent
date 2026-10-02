@@ -11,6 +11,7 @@ from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.main import app
 from lead_agent.application.crm_inbound import configure_inbound_sync
 from lead_agent.application.integrations import create_manual_connection, validate_connection
+from lead_agent.application.team import invite_member
 from lead_agent.domain.integrations import ConnectionValidation, ManualConnectionInput
 from lead_agent.infrastructure.crm.hubspot import HubSpotConnectionValidator
 from lead_agent.infrastructure.db import models  # noqa: F401
@@ -331,6 +332,63 @@ def test_signin_rotates_and_revokes_existing_session(tmp_path) -> None:
             assert original_token and rotated_token and original_token != rotated_token
             assert len(rows) == 3
             assert sum(row.revoked_at is not None for row in rows) == 2
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_workspace_access_code_sets_password_for_first_signin(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 200
+            owner = session.scalar(select(UserORM).where(UserORM.email == "owner@example.test"))
+            assert owner is not None
+            membership = session.scalar(
+                select(WorkspaceMembershipORM).where(WorkspaceMembershipORM.user_id == owner.id)
+            )
+            assert membership is not None
+            invited_email = "new-staff@example.test"
+            invitation, access_code = invite_member(
+                session,
+                membership.workspace_id,
+                owner.id,
+                invited_email,
+                "sales_rep",
+            )
+
+            missing_password = client.post(
+                "/v1/auth/workspace-code",
+                json={
+                    "workspace_id": str(invitation.workspace_id),
+                    "code": access_code,
+                    "email": invited_email,
+                    "display_name": "New Staff",
+                    "password": None,
+                },
+            )
+            assert missing_password.status_code == 422
+            assert "Choose a password" in missing_password.json()["detail"]
+
+            accepted = client.post(
+                "/v1/auth/workspace-code",
+                json={
+                    "workspace_id": str(invitation.workspace_id),
+                    "code": access_code,
+                    "email": invited_email,
+                    "display_name": "New Staff",
+                    "password": "staff-login-password",
+                },
+            )
+            assert accepted.status_code == 200, accepted.text
+            assert accepted.json()["user"]["display_name"] == "New Staff"
+
+            signed_in = client.post(
+                "/v1/auth/signin",
+                json={"email": invited_email, "password": "staff-login-password"},
+            )
+            assert signed_in.status_code == 200, signed_in.text
+            assert signed_in.json()["user"]["email"] == invited_email
     finally:
         app.dependency_overrides.clear()
         session.close()
