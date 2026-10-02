@@ -111,6 +111,8 @@ class ManagedSecretStore:
     protocol without changing application or provider code.
     """
 
+    _legacy_process_local_prefix = "devsecret://"
+
     def __init__(self, backend: ManagedSecretBackend) -> None:
         self._backend = backend
 
@@ -121,12 +123,16 @@ class ManagedSecretStore:
         return reference
 
     def retrieve(self, reference: str) -> dict[str, str] | None:
+        if reference.startswith(self._legacy_process_local_prefix):
+            return None
         values = self._backend.retrieve(reference)
         return dict(values) if values is not None else None
 
     def retrieve_for_workspace(
         self, workspace_id: UUID, provider: str, reference: str
     ) -> dict[str, str] | None:
+        if reference.startswith(self._legacy_process_local_prefix):
+            return None
         values = self._backend.retrieve_for_workspace(workspace_id, provider, reference)
         return dict(values) if values is not None else None
 
@@ -147,9 +153,13 @@ class ManagedSecretStore:
         return updated_reference
 
     def invalidate(self, reference: str) -> None:
+        if reference.startswith(self._legacy_process_local_prefix):
+            return
         self._backend.invalidate(reference)
 
     def delete(self, reference: str) -> None:
+        if reference.startswith(self._legacy_process_local_prefix):
+            return
         self._backend.delete(reference)
 
     def put(self, workspace_id: UUID, provider: str, values: dict[str, str]) -> str:

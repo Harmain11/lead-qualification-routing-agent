@@ -9,6 +9,9 @@ if [[ "${APP_ENV:-development}" == "production" ]]; then
 fi
 
 export APP_ENV=development
+export SECRET_STORE_PROVIDER=managed
+export MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend
+: "${SECRET_STORE_ENCRYPTION_KEY:?SECRET_STORE_ENCRYPTION_KEY must be configured in Replit Secrets}"
 export PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///./local-dev.db}"
 export REDIS_REQUIRED=false
