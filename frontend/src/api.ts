@@ -563,6 +563,9 @@ export function updateMemberPermissions(memberId: string, overrides: PermissionO
 export const getCurrentIcp = (signal?: AbortSignal) =>
   jsonRequest<IcpVersion>("/v1/icp/current", { signal });
 
+export const getSystemDefaultIcp = (signal?: AbortSignal) =>
+  jsonRequest<IcpVersion>("/v1/icp/default", { signal });
+
 export const listIcpVersions = (signal?: AbortSignal) =>
   jsonRequest<IcpVersion[]>("/v1/icp/versions", { signal });
 

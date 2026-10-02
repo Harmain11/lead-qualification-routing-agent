@@ -803,6 +803,16 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .icp-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .icp-toolbar .secondary-button { margin: 0 0 0 auto; }
 .icp-status, .weight-pill, .read-only-badge { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font: 7px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; }
+.icp-mode-picker { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 0 0 16px; padding: 15px 17px; border: 1px solid var(--line); border-radius: 11px; background: rgba(14,18,26,.52); }
+.icp-mode-intro { min-width: 170px; }
+.icp-mode-intro p { margin: 5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.icp-mode-options { display: grid; grid-template-columns: repeat(2, minmax(190px, 1fr)); gap: 8px; }
+.icp-mode-option { min-height: 58px; display: flex; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.02); color: var(--text); text-align: left; }
+.icp-mode-option > span { display: grid; gap: 4px; }
+.icp-mode-option b { font-size: 10px; }
+.icp-mode-option small { color: var(--muted); font-size: 8px; line-height: 1.4; }
+.icp-mode-option.active { border-color: rgba(30,107,82,.52); background: rgba(30,107,82,.12); }
+.icp-mode-option:disabled { opacity: .55; cursor: not-allowed; }
 .weight-pill { margin-left: auto; }
 .weight-pill b { margin-right: 4px; color: var(--text); }
 .weight-pill.valid { border-color: rgba(112,199,156,.32); color: var(--icp-ok); }
@@ -893,6 +903,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 @media (max-width: 760px) {
   .icp-current-card { min-width: 0; }
   .icp-toolbar { flex-wrap: wrap; }
+  .icp-mode-picker { align-items: stretch; flex-direction: column; }
+  .icp-mode-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .weight-pill { order: 4; width: 100%; margin: 0; text-align: center; }
   .icp-layout { grid-template-columns: 1fr; }
   .icp-sections { position: static; display: flex; overflow-x: auto; }
