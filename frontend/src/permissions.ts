@@ -79,7 +79,7 @@ export const ROLE_OPTIONS = [
   },
   {
     id: "sales_manager",
-    label: "Sales Manager",
+    label: "Manager",
     description: "Manage leads, routing, manual review, analytics and exports.",
   },
   {
@@ -97,7 +97,7 @@ export const ROLE_OPTIONS = [
 export const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
   admin: "Admin",
-  sales_manager: "Sales Manager",
+  sales_manager: "Manager",
   sales_rep: "Sales Rep",
   viewer: "Analyst / Viewer",
 };
