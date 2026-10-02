@@ -495,6 +495,49 @@ def test_revoked_current_membership_cannot_restore_or_access_workspace(tmp_path)
         session.close()
 
 
+def test_session_status_selects_another_active_workspace_after_current_membership_is_removed(
+    tmp_path,
+) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 200
+            current = session.scalar(select(WorkspaceMembershipORM))
+            assert current is not None
+            other = WorkspaceORM(
+                id=uuid4(),
+                name="Remaining workspace",
+                slug=f"remaining-{uuid4().hex}",
+                status="active",
+                is_demo=False,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+            session.add(other)
+            session.flush()
+            session.add(
+                WorkspaceMembershipORM(
+                    id=uuid4(),
+                    workspace_id=other.id,
+                    user_id=current.user_id,
+                    role="member",
+                    status="active",
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            current.status = "revoked"
+            session.commit()
+
+            recovered = client.get("/v1/auth/status")
+            assert recovered.status_code == 200
+            assert recovered.json()["current_workspace_id"] == str(other.id)
+            assert client.get("/v1/leads").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_inactive_workspace_rejects_access_with_active_membership(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:

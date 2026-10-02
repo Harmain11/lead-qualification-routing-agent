@@ -221,7 +221,32 @@ function App() {
     } catch (requestError) {
       if (requestVersion === refreshVersion.current && !controller.signal.aborted) {
         controller.abort();
-        if (requestError instanceof ApiError && requestError.status === 401) {
+        if (
+          requestError instanceof ApiError
+          && requestError.status === 403
+          && requestError.message === "workspace membership is required"
+        ) {
+          try {
+            const session = await getSession();
+            if (requestVersion !== refreshVersion.current) return;
+            if (!session) {
+              setAuth(null);
+              return;
+            }
+            const workspaceChanged = session.current_workspace_id !== auth?.current_workspace_id
+              || session.current_workspace_id !== getActiveWorkspace();
+            if (workspaceChanged) {
+              setActiveWorkspace(session.current_workspace_id);
+              setAuth(session);
+              setData(null);
+              setError(null);
+            } else {
+              setError(requestError.message);
+            }
+          } catch {
+            setError(requestError.message);
+          }
+        } else if (requestError instanceof ApiError && requestError.status === 401) {
           setAuth(null);
         } else {
           setError(requestError instanceof Error ? requestError.message : "Analytics service unavailable");

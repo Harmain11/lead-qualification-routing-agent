@@ -530,11 +530,24 @@ def session_status(
     except AuthenticationError:
         _clear_session_cookies(response, settings)
         return None
-    try:
-        require_membership(session, identity.user_id, identity.current_workspace_id)
-    except AuthorizationError:
+    memberships = list_memberships(session, identity.user_id)
+    if not memberships:
         _clear_session_cookies(response, settings)
         return None
+    if not any(workspace.id == identity.current_workspace_id for _, workspace in memberships):
+        fallback_workspace_id = memberships[0][1].id
+        try:
+            select_workspace(session, identity, fallback_workspace_id)
+        except AuthorizationError:
+            _clear_session_cookies(response, settings)
+            return None
+        identity = AuthenticatedIdentity(
+            user_id=identity.user_id,
+            email=identity.email,
+            display_name=identity.display_name,
+            session_id=identity.session_id,
+            current_workspace_id=fallback_workspace_id,
+        )
     return _session_response(session, identity)
 
 
