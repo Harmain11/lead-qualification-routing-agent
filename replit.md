@@ -9,9 +9,13 @@ supervised by the single preview workflow.
 
 The preview uses the project's supported development configuration:
 
-- SQLite at `local-dev.db` (ignored by Git).
+- SQLite at `local-dev.db` by default (or the configured `DATABASE_URL`).
 - In-memory rate limiting; Redis is not required.
 - Deterministic AI and mock CRM/notification providers, not live provider delivery.
+- The existing encrypted database-backed secret store, using the dedicated
+  `SECRET_STORE_ENCRYPTION_KEY` Replit Secret. The key must be a unique 32-byte
+  value encoded as unpadded base64url. OAuth tokens and PKCE state survive workflow
+  restarts; old process-local connections must be reauthorized.
 - Illustrative data seeded into the isolated demo workspace using the existing
   `python -m lead_agent.seed --demo` command.
 - The existing `SESSION_SECRET` Replit secret is used as the session signing key.

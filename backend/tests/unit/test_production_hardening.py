@@ -201,6 +201,36 @@ def test_managed_secret_store_persists_only_opaque_reference() -> None:
     assert store.retrieve(reference) == {"api_key": "not-in-reference"}
 
 
+def test_managed_secret_store_treats_process_local_references_as_unavailable() -> None:
+    class Backend:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def retrieve(self, _reference):
+            self.calls.append("retrieve")
+            return {"access_token": "must-not-be-used"}
+
+        def retrieve_for_workspace(self, *_args):
+            self.calls.append("retrieve_for_workspace")
+            return {"access_token": "must-not-be-used"}
+
+        def invalidate(self, _reference):
+            self.calls.append("invalidate")
+
+        def delete(self, _reference):
+            self.calls.append("delete")
+
+    backend = Backend()
+    store = ManagedSecretStore(backend)
+    reference = "devsecret://workspace/gmail/ephemeral"
+
+    assert store.retrieve(reference) is None
+    assert store.retrieve_for_workspace(uuid4(), "gmail", reference) is None
+    store.invalidate(reference)
+    store.delete(reference)
+    assert backend.calls == []
+
+
 def test_pkce_uses_rfc7636_s256_challenge() -> None:
     verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
     assert pkce_challenge(verifier) == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
