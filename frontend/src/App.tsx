@@ -309,7 +309,8 @@ function App() {
     void listIntegrations().then((cards) => {
       if (!active) return;
       const openai = cards.find((card) => card.provider === "openai");
-      setOpenaiSetupCard(openai?.connection?.status === "verified" ? null : openai ?? null);
+      // A saved key can be `connected` before verification; only ask for a key when none is stored.
+      setOpenaiSetupCard(openai?.connection?.configured ? null : openai ?? null);
     }).catch(() => { if (active) setOpenaiSetupCard(null); });
     return () => { active = false; };
   }, [auth?.user.id, auth?.current_workspace_id]);
