@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from math import isclose, isfinite
 from typing import Any
 from uuid import UUID
 
@@ -47,8 +48,9 @@ class RerouteRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
-class RoutingWeightsRequest(BaseModel):
-    member_weights: dict[UUID, float] = Field(default_factory=dict)
+class RoutingConfigRequest(BaseModel):
+    member_weights: dict[UUID, float] | None = None
+    member_percentages: dict[UUID, float] | None = None
 
 
 def _routing_config_response(session: Session, workspace_id: UUID) -> dict[str, object]:
@@ -107,27 +109,55 @@ def routing_config(
 
 @config_router.put("/config")
 def update_routing_config(
-    request: RoutingWeightsRequest,
+    request: RoutingConfigRequest,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
 ) -> dict[str, object]:
     current = _routing_config_response(session, workspace.workspace_id)
     current_members = current["members"]
     allowed = {str(item["user_id"]) for item in current_members}  # type: ignore[index]
-    unknown = {str(user_id) for user_id in request.member_weights} - allowed
+    if request.member_weights is not None and request.member_percentages is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="Send either member_percentages or member_weights, not both",
+        )
+    if request.member_percentages is not None:
+        percentages = request.member_percentages
+        percentage_members = {str(user_id) for user_id in percentages}
+        unknown = percentage_members - allowed
+        missing = allowed - percentage_members
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail="Percentages may only be set for active lead assignees",
+            )
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail="Percentages must be provided for every active lead assignee",
+            )
+        if any(not isfinite(value) or value <= 0 or value > 100 for value in percentages.values()):
+            raise HTTPException(
+                status_code=422,
+                detail="Each routing percentage must be greater than 0 and no more than 100",
+            )
+        if not isclose(sum(percentages.values()), 100, rel_tol=0, abs_tol=0.005):
+            raise HTTPException(status_code=422, detail="Routing percentages must total 100")
+        raw_weights = percentages
+    else:
+        raw_weights = request.member_weights or {}
+    unknown = {str(user_id) for user_id in raw_weights} - allowed
     if unknown:
         raise HTTPException(
             status_code=422,
             detail="Weights may only be set for active lead assignees",
         )
-    weights = {
-        str(user_id): round(value, 4) for user_id, value in request.member_weights.items()
-    }
-    if any(value <= 0 or value > 100 for value in weights.values()):
+    if any(not isfinite(value) or value <= 0 or value > 100 for value in raw_weights.values()):
         raise HTTPException(
             status_code=422,
             detail="Routing weights must be greater than 0 and no more than 100",
         )
+    weights = {str(user_id): round(value, 4) for user_id, value in raw_weights.items()}
     config = session.get(WorkspaceRoutingConfigORM, workspace.workspace_id)
     now = datetime.now(UTC)
     if config is None:
