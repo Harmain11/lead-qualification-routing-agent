@@ -346,8 +346,6 @@ def test_exact_calendly_booking_skips_disconnected_event_type(
                 )
             if event_type_uri.endswith("/no-open-times"):
                 return []
-            if event_type_uri.endswith("/no-open-times"):
-                return []
             return [{"start_time": "2026-11-06T14:00:00Z"}]
 
     monkeypatch.setattr(
@@ -533,6 +531,131 @@ def test_confirm_meeting_reuses_existing_booking_and_closes_pending_offer() -> N
     assert result.provider_event_id == "calendar-event-1"
     assert offer.status == "booked"
     assert offer.details["booking_method"] == "manual"
+    assert session.commits == 1
+
+
+def test_confirm_meeting_reconciles_existing_calendly_event_before_availability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    source_id = "gmail-message-calendly"
+    gmail_connection_id = uuid4()
+    connection_id = uuid4()
+    event_type_uri = "https://api.calendly.com/event_types/30-minute"
+    start_at = datetime.now(UTC) + timedelta(days=1)
+    event_uri = "https://api.calendly.com/scheduled_events/event-123"
+    lead = SimpleNamespace(
+        id=lead_id,
+        workspace_id=workspace_id,
+        email="buyer@example.test",
+        full_name="Buyer Person",
+        company_name="Buyer Company",
+    )
+    source = SimpleNamespace(
+        details={
+            "message_id": source_id,
+            "gmail_connection_id": str(gmail_connection_id),
+            "thread_id": "gmail-thread-calendly",
+            "direction": "inbound",
+            "sender": "buyer@example.test",
+            "subject": "Can we schedule a demo?",
+            "body": "Could we schedule a product demo?",
+        }
+    )
+    connection = SimpleNamespace(
+        id=connection_id,
+        provider_type="calendly",
+        account_name="admin@example.test",
+    )
+
+    class BookingSession:
+        def __init__(self) -> None:
+            self.scalar_calls = 0
+            self.scalar_results = [lead, lead_id, connection]
+            self.scalars_results = [[source], [source], [], [], []]
+            self.added: list[object] = []
+            self.commits = 0
+
+        def scalar(self, _statement):
+            result = self.scalar_results[self.scalar_calls]
+            self.scalar_calls += 1
+            return result
+
+        def scalars(self, _statement):
+            return iter(self.scalars_results.pop(0))
+
+        def add(self, value) -> None:
+            self.added.append(value)
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    class Calendly:
+        def current_user(self):
+            return {
+                "uri": "https://api.calendly.com/users/123",
+                "email": "admin@example.test",
+                "timezone": "UTC",
+            }
+
+        def event_types(self, _user_uri: str):
+            return [
+                {
+                    "uri": event_type_uri,
+                    "name": "30 Minute Meeting",
+                    "duration": 30,
+                    "active": True,
+                }
+            ]
+
+        def scheduled_events(self, **_kwargs):
+            return [
+                {
+                    "uri": event_uri,
+                    "event_type": event_type_uri,
+                    "start_time": start_at.isoformat(),
+                }
+            ]
+
+        def available_times(self, *_args):
+            raise AssertionError("An existing booking must be checked before availability.")
+
+        def create_invitee(self, **_kwargs):
+            raise AssertionError("An existing Calendly event must not be booked twice.")
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._resolve_credentials",
+        lambda *_args, **_kwargs: {"access_token": "calendly-token"},
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.CalendlyClient",
+        lambda _token: Calendly(),
+    )
+    session = BookingSession()
+    request = ConfirmMeetingRequest(
+        provider="calendly",
+        connection_id=connection_id,
+        source_message_id=source_id,
+        source_gmail_connection_id=gmail_connection_id,
+        start_at=start_at,
+        end_at=start_at + timedelta(minutes=30),
+        time_zone="UTC",
+        event_type_uri=event_type_uri,
+        event_type_name="30 Minute Meeting",
+    )
+
+    result = confirm_meeting(
+        lead_id,
+        request,
+        session=session,  # type: ignore[arg-type]
+        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="admin"),
+    )
+
+    assert result.provider_event_id == "event-123"
+    assert result.provider_event_uri == event_uri
+    assert len(session.added) == 1
+    assert session.added[0].stage == "meeting_scheduled"
     assert session.commits == 1
 
 
