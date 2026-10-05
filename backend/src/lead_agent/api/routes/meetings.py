@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -226,6 +226,75 @@ def _resolve_credentials(
             retryable=False,
         )
     return resolved.credentials
+
+
+_CALENDLY_LOCATION_KINDS = {
+    "ask_invitee",
+    "custom",
+    "google_conference",
+    "gotomeeting_conference",
+    "inbound_call",
+    "microsoft_teams_conference",
+    "outbound_call",
+    "physical",
+    "webex_conference",
+    "zoom_conference",
+}
+
+
+def _calendly_invitee_location(
+    event_type: dict[str, Any],
+) -> dict[str, str] | None:
+    if event_type.get("pooling_type") == "round_robin":
+        return None
+    locations = event_type.get("locations")
+    if locations is None or locations == []:
+        return None
+    if not isinstance(locations, list) or any(
+        not isinstance(location, dict) for location in locations
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Calendly returned an invalid location configuration for this event type.",
+        )
+    if len(locations) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This Calendly event type has multiple location choices. "
+                "Automatic booking requires one configured location."
+            ),
+        )
+
+    configuration = locations[0]
+    kind = str(configuration.get("kind") or "").strip()
+    if kind not in _CALENDLY_LOCATION_KINDS:
+        raise HTTPException(
+            status_code=409,
+            detail="This Calendly event type has no supported configured location.",
+        )
+    if kind == "ask_invitee":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This Calendly event type requires the invitee to provide a location. "
+                "Use a fixed-location event type or collect the location before booking."
+            ),
+        )
+
+    location = {"kind": kind}
+    if kind in {"custom", "physical", "outbound_call"}:
+        value = configuration.get("location") or configuration.get("phone_number")
+        if not isinstance(value, str) or not value.strip():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This Calendly event type is missing its configured meeting "
+                    "location. Update the event type in Calendly before booking."
+                ),
+            )
+        location["location"] = value.strip()
+    return location
 
 
 @router.get(
@@ -744,6 +813,7 @@ def confirm_meeting(
                     name=lead.full_name,
                     email=lead.email,
                     time_zone=request.time_zone,
+                    location=_calendly_invitee_location(event_type),
                 )
                 invitee_uri = str(invitee.get("uri") or "")
                 event_uri = str(invitee.get("event") or "")
