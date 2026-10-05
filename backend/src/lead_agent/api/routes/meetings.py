@@ -61,6 +61,7 @@ class MeetingProviderError(BaseModel):
     provider: MeetingProvider
     message: str
     retryable: bool = False
+    code: str
 
 
 class MeetingRecommendationsResponse(BaseModel):
@@ -344,6 +345,7 @@ def get_meeting_recommendations(
                     provider=provider,  # type: ignore[arg-type]
                     message=str(error),
                     retryable=error.retryable,
+                    code=error.code,
                 )
             )
     suggestions.sort(key=lambda row: row.start_at)

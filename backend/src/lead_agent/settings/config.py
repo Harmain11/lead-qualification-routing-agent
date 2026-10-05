@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
@@ -133,6 +133,13 @@ class Settings(BaseSettings):
     social_provider: str = "none"
     demo_data_enabled: bool = False
     notification_provider: str = "mock"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def use_psycopg3_driver(cls, value: object) -> object:
+        if isinstance(value, str) and value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        return value
 
     @model_validator(mode="after")
     def validate_environment_security(self) -> Settings:

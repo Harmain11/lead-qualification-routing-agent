@@ -375,6 +375,7 @@ export type MeetingProviderError = {
   provider: MeetingProvider;
   message: string;
   retryable: boolean;
+  code: string;
 };
 
 export type MeetingRecommendations = {
