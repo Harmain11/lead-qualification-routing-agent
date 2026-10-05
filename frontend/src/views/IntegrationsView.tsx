@@ -36,6 +36,8 @@ function oauthConnectFailureMessage(provider: string, message: string) {
     slack: { name: "Slack", keys: ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET"] },
     salesforce: { name: "Salesforce", keys: ["SALESFORCE_CLIENT_ID", "SALESFORCE_CLIENT_SECRET"] },
     hubspot: { name: "HubSpot", keys: ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"] },
+    google_calendar: { name: "Google Calendar", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
+    calendly: { name: "Calendly", keys: ["CALENDLY_CLIENT_ID", "CALENDLY_CLIENT_SECRET"] },
   };
   const providerSettings = settings[provider];
   if (providerSettings && /OAuth application credentials are not configured/i.test(message)) {
@@ -360,8 +362,8 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
       id: "available",
       eyebrow: "Ready to connect",
       title: "Available Integrations",
-      description: "Certified workspace connections for inbound acquisition, CRM coordination and notifications.",
-      providers: ["gmail", "salesforce", "hubspot", "slack", "openai"],
+      description: "Connect email, calendars, CRMs and notification services to your workspace.",
+      providers: ["gmail", "google_calendar", "calendly", "salesforce", "hubspot", "slack", "openai"],
     },
     {
       id: "coming-soon",
@@ -401,6 +403,8 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
       const crmDirection = card.category === "CRM";
       const gmailDirection = card.provider === "gmail";
       const outlookDirection = card.provider === "outlook";
+       const googleCalendarDirection = card.provider === "google_calendar";
+       const calendlyDirection = card.provider === "calendly";
       const mailDirection = gmailDirection || outlookDirection;
       const canConnectProvider = openAI
         ? canManage
@@ -419,7 +423,7 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>}
         {!comingSoon && <div className="card-actions">
-          {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={busy === card.provider}>{busy === card.provider ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={busy === card.provider}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>{openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>}
+           {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={busy === card.provider}>{busy === card.provider ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={busy === card.provider}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>{openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>}
           <button className="button-quiet" onClick={() => setExpanded(open ? null : card.provider)}>Setup guide</button>
         </div>}
         {openAI && connection && canManage && <div className="integration-guide"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button onClick={() => void act(card.provider, () => updateOpenAIModel(connection.id, selectedOpenAIModel), "OpenAI model saved. Test the connection before use.")} disabled={busy === card.provider || !selectedOpenAIModel}>Save model</button></div>}
