@@ -18,6 +18,8 @@ from lead_agent.infrastructure.calendar_providers import (
     CalendlyConnectionValidator,
     GoogleCalendarConnectionValidator,
 )
+from lead_agent.infrastructure.oauth import ProviderOAuthBroker
+from lead_agent.settings.config import Settings
 
 
 class _Session:
@@ -196,4 +198,42 @@ def test_calendar_connection_validators_require_scopes_and_check_account_identit
     )
     assert calendly_result.verified
     assert calendly_result.metadata["calendly_email"] == "admin@example.test"
+
+
+def test_calendly_oauth_uses_pkce_and_requested_scopes() -> None:
+    captured: list[httpx.Request] = []
+
+    def token_handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"access_token": "access-token"})
+
+    broker = ProviderOAuthBroker(
+        Settings(
+            calendly_client_id="client-id",
+            calendly_client_secret="client-secret",
+        ),
+        client=httpx.Client(transport=httpx.MockTransport(token_handler)),
+    )
+    redirect_uri = "https://corral.example.test/v1/integrations/calendly/oauth/callback"
+    authorization_url = broker.begin(
+        "calendly",
+        uuid4(),
+        "oauth-state",
+        "pkce-challenge",
+        redirect_uri,
+        list(CALENDLY_SCOPES),
+    )
+
+    tokens = broker.exchange(
+        "calendly",
+        "authorization-code",
+        "pkce-verifier",
+        redirect_uri,
+    )
+
+    assert "code_challenge=pkce-challenge" in authorization_url
+    assert "code_challenge_method=S256" in authorization_url
+    assert "scope=users%3Aread" in authorization_url
+    assert tokens["access_token"] == "access-token"
+    assert b"code_verifier=pkce-verifier" in captured[0].content
 
