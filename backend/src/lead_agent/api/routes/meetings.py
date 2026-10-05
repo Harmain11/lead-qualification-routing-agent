@@ -357,7 +357,7 @@ def get_meeting_recommendations(
             elif offer_has_confirmed_selection:
                 automation_message = (
                     "The lead’s numbered choice was saved, but Corral has not confirmed "
-                    "the booking. Use Read Gmail & refresh to retry the choice safely."
+                    "the booking. Use “Retry confirmed booking” below to retry it safely."
                 )
             else:
                 automation_message = (

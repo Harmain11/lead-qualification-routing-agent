@@ -104,13 +104,18 @@ def find_meeting_request(
             continue
         subject = str(details.get("subject") or "").strip()
         body = str(details.get("body") or details.get("snippet") or "").strip()
-        text = f"{subject}\n{body}"
+        excerpt = _plain_excerpt(body)
+        if (
+            match_confirmed_meeting_option(excerpt, option_count=5) is not None
+            and not meeting_reply_requests_other_times(excerpt)
+        ):
+            continue
+        text = f"{subject}\n{excerpt}"
         if not any(pattern.search(text) for pattern in _MEETING_PATTERNS):
             continue
         message_id = str(details.get("message_id") or "")
         if not message_id:
             continue
-        excerpt = _plain_excerpt(body)
         return {
             "message_id": message_id,
             "subject": subject[:500],

@@ -767,6 +767,30 @@ def test_confirmed_booking_retry_stops_after_a_newer_lead_reply() -> None:
     )
 
 
+def test_confirmed_booking_retry_stops_when_choice_also_requests_other_times() -> None:
+    details = {
+        "reply_message_id": "reply-1",
+        "selected_option": 1,
+        "options": [{}],
+    }
+    messages = [
+        {
+            "message_id": "reply-1",
+            "direction": "inbound",
+            "sender": "buyer@example.test",
+            "body": "1, but none of these times work. Please send other times.",
+            "sent_at": datetime.now(UTC).isoformat(),
+        }
+    ]
+
+    assert (
+        meeting_email._confirmed_booking_retry(
+            details, messages, "buyer@example.test"
+        )
+        is None
+    )
+
+
 def test_direct_booking_retry_fetches_the_saved_gmail_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -915,6 +939,46 @@ def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
     assert find_meeting_request(
         _Session(events), SimpleNamespace(id=lead_id), lead_id
     ) is None
+
+
+def test_find_meeting_request_skips_numbered_reply_and_quoted_request_text() -> None:
+    lead_id = uuid4()
+    events = [
+        SimpleNamespace(
+            details={
+                "message_id": "numbered-reply",
+                "thread_id": "gmail-thread-1",
+                "direction": "inbound",
+                "sender": "buyer@example.test",
+                "subject": "Re: Timing confirmation",
+                "body": (
+                    "5\n\nOn Monday, buyer@example.test wrote:\n"
+                    "Can we schedule a meeting next week?"
+                ),
+                "sent_at": "2026-10-05T10:05:00+00:00",
+            }
+        ),
+        SimpleNamespace(
+            details={
+                "message_id": "original-request",
+                "thread_id": "gmail-thread-1",
+                "direction": "inbound",
+                "sender": "buyer@example.test",
+                "subject": "Timing confirmation",
+                "body": "Can we schedule a meeting next week?",
+                "sent_at": "2026-10-05T09:55:00+00:00",
+            }
+        ),
+    ]
+
+    result = find_meeting_request(
+        _Session(events),
+        SimpleNamespace(id=lead_id, email="buyer@example.test"),
+        lead_id,
+    )
+
+    assert result is not None
+    assert result["message_id"] == "original-request"
 
 
 def test_google_calendar_suggestions_exclude_busy_time() -> None:
