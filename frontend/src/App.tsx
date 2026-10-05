@@ -529,6 +529,11 @@ function App() {
         )}
         <footer className="product-footer">
           <span>Corral · Powered by Ingenuity Systems</span>
+          <nav className="product-legal-links" aria-label="Legal information">
+            <a href="/terms.html">Terms</a>
+            <a href="/privacy.html">Privacy</a>
+            <a href="mailto:harmainmughal8@gmail.com">Contact</a>
+          </nav>
           <span>Generated {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"} · Workspace {getActiveWorkspace().slice(0, 8)}</span>
         </footer>
       </main>
