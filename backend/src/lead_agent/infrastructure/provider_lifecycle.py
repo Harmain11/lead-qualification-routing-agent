@@ -223,12 +223,13 @@ class WorkspaceAuthorizedConnectionResolver:
                 if allow_unverified
                 else {"connected", "verified"}
             )
-            # Mailbox OAuth rows remain inactive until a real profile/Inbox probe
-            # establishes the safe mailbox identity.
+            # OAuth rows remain inactive until a low-risk identity probe verifies
+            # the account and required scopes.
             unverified_mailbox_probe = (
                 allow_unverified
                 and locked is not None
-                and locked.provider_type in {"gmail", "outlook"}
+                and locked.provider_type
+                in {"gmail", "outlook", "google_calendar", "calendly"}
                 and locked.status == "connected"
             )
             if (
@@ -455,6 +456,10 @@ def _token_lifetime_seconds(values: dict[str, str]) -> int:
 
 @lru_cache
 def get_provider_connection_validator() -> ProviderConnectionValidator:
+    from lead_agent.infrastructure.calendar_providers import (
+        CalendlyConnectionValidator,
+        GoogleCalendarConnectionValidator,
+    )
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
     from lead_agent.infrastructure.outlook import OutlookConnectionValidator
     from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
@@ -476,6 +481,12 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             "slack": SlackConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             "gmail": GmailConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             "outlook": OutlookConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
+            "google_calendar": GoogleCalendarConnectionValidator(
+                timeout_seconds=settings.crm_timeout_seconds
+            ),
+            "calendly": CalendlyConnectionValidator(
+                timeout_seconds=settings.crm_timeout_seconds
+            ),
             "openai": OpenAIConnectionValidator(
                 timeout_seconds=settings.openai_timeout_seconds
             ),

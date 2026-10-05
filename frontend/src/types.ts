@@ -349,6 +349,58 @@ export type LeadPipelineEvent = {
   created_at: string;
 };
 
+export type MeetingProvider = "google_calendar" | "calendly";
+
+export type MeetingSuggestion = {
+  provider: MeetingProvider;
+  connection_id: string;
+  account_name: string;
+  event_type_uri: string | null;
+  event_type_name: string | null;
+  start_at: string;
+  end_at: string;
+  time_zone: string;
+  source_message_id: string;
+};
+
+export type MeetingIntegrationState = {
+  provider: MeetingProvider;
+  connected: boolean;
+  account_name: string | null;
+  message: string | null;
+};
+
+export type MeetingProviderError = {
+  provider: MeetingProvider;
+  message: string;
+  retryable: boolean;
+};
+
+export type MeetingRecommendations = {
+  lead_id: string;
+  detected: boolean;
+  message: string;
+  source_message_id: string | null;
+  source_subject: string | null;
+  source_excerpt: string | null;
+  integrations: MeetingIntegrationState[];
+  suggestions: MeetingSuggestion[];
+  provider_errors: MeetingProviderError[];
+};
+
+export type ConfirmMeetingResult = {
+  lead_id: string;
+  provider: MeetingProvider;
+  provider_event_id: string;
+  provider_event_uri: string | null;
+  event_url: string | null;
+  title: string;
+  start_at: string;
+  end_at: string;
+  time_zone: string;
+  status: "scheduled";
+};
+
 export type LeadMomentumEvidence = {
   source: string;
   excerpt: string;

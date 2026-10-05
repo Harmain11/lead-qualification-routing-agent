@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     frontend_public_base_url: str = "http://localhost:5173"
     google_client_id: str = ""
     google_client_secret: str = ""
+    calendly_client_id: str = ""
+    calendly_client_secret: str = ""
     microsoft_tenant_id: str = "common"
     microsoft_client_id: str = ""
     microsoft_client_secret: str = ""

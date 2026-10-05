@@ -116,7 +116,7 @@ def _validate_manual_credentials(
 def _activate_connection(session: Session, connection: ProviderConnectionORM) -> None:
     # Gmail's mailbox identity is unknown until the read-only profile validation
     # succeeds. Keep OAuth-completed but unverified Gmail rows unschedulable.
-    if connection.provider_type in {"gmail", "outlook"}:
+    if connection.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}:
         connection.is_active = False
         return
     if connection.provider_type not in CRM_PROVIDER_TYPES | {"openai"}:
@@ -403,6 +403,10 @@ def begin_oauth_connection(
         raise ValueError("Gmail OAuth scopes must exactly match mailbox read and send permissions")
     if provider == "outlook" and set(active_scopes) != set(setup.required_scopes):
         raise ValueError("Outlook OAuth scopes must exactly match the read-only Graph scope set")
+    if provider in {"google_calendar", "calendly"} and set(active_scopes) != set(
+        setup.required_scopes
+    ):
+        raise ValueError(f"{setup.display_name} OAuth scopes must match the configured permissions")
     authorization_url = broker.begin(
         provider,
         connection_id,
@@ -602,7 +606,7 @@ def complete_oauth_connection(
             actor_id=actor_id,
             details={"scopes": list(row.scopes)},
         )
-    if row.provider_type in {"gmail", "outlook"}:
+    if row.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}:
         record_provider_lifecycle_audit(
             session,
             row,
@@ -779,7 +783,14 @@ def _persist_validation(
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
-    if row.provider_type in {"slack", "gmail", "outlook", "openai"} and validation.metadata:
+    if row.provider_type in {
+        "slack",
+        "gmail",
+        "outlook",
+        "google_calendar",
+        "calendly",
+        "openai",
+    } and validation.metadata:
         row.connection_metadata = {**row.connection_metadata, **validation.metadata}
         if isinstance(validation.metadata.get("slack_team_id"), str):
             row.external_account_id = str(validation.metadata["slack_team_id"])
@@ -802,17 +813,38 @@ def _persist_validation(
             }
             row.account_name = mailbox_identity
             row.external_account_id = mailbox_identity
+        calendar_identity = validation.metadata.get("google_calendar_name")
+        if row.provider_type == "google_calendar" and isinstance(calendar_identity, str):
+            row.account_name = calendar_identity
+            row.external_account_id = str(
+                validation.metadata.get("google_calendar_id") or "primary"
+            )
+        calendly_email = validation.metadata.get("calendly_email")
+        if row.provider_type == "calendly" and isinstance(calendly_email, str):
+            row.account_name = calendly_email
+            row.external_account_id = str(
+                validation.metadata.get("calendly_user_uri") or calendly_email
+            )
     row.credential_state = validation.credential_state
     row.updated_at = now
-    if row.provider_type in {"gmail", "outlook"}:
+    if row.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}:
         if validation.verified and validation.status == "connected":
-            mailbox_key = "gmail_email" if row.provider_type == "gmail" else "outlook_email"
-            verified_mailbox = validation.metadata.get(mailbox_key)
+            if row.provider_type in {"gmail", "outlook"}:
+                mailbox_key = "gmail_email" if row.provider_type == "gmail" else "outlook_email"
+                verified_mailbox = validation.metadata.get(mailbox_key)
+            else:
+                verified_mailbox = (
+                    validation.metadata.get("google_calendar_id")
+                    if row.provider_type == "google_calendar"
+                    else validation.metadata.get("calendly_user_uri")
+                )
             if isinstance(verified_mailbox, str) and verified_mailbox.strip():
                 if row.provider_type == "gmail":
                     _rebind_gmail_mailbox_state(session, row, verified_mailbox, now)
-                else:
+                elif row.provider_type == "outlook":
                     _rebind_outlook_mailbox_state(session, row, verified_mailbox, now)
+                else:
+                    row.is_active = True
             else:
                 row.is_active = False
         else:

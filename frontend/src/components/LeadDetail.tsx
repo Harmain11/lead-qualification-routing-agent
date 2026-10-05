@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadFollowUp, getLeadMomentum, getLeadPipelineHistory, listIntegrations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, FollowUpEmail, Lead, LeadMomentum } from "../types";
+import { LeadMeetingPanel } from "./LeadMeetingPanel";
 
 const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 const crmProviderLabel = (provider: string) => provider === "hubspot" ? "HubSpot" : title(provider);
@@ -58,6 +59,8 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
   const [crmResult, setCrmResult] = useState<CrmSync | null>(null);
   const [crmProviders, setCrmProviders] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState(lead.crm_sync?.provider || "");
+  const [meetingRefreshToken, setMeetingRefreshToken] = useState(0);
+  const [activityRefreshToken, setActivityRefreshToken] = useState(0);
   useEffect(() => {
     let active = true;
     listIntegrations().then((cards) => {
@@ -91,7 +94,21 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
     <header className="story-head"><div><span className="eyebrow">Complete decision trail</span><h2>{lead.company_name}</h2><p>{lead.full_name} · {lead.job_title || "Role not supplied"}</p>{canEdit && (editingTitle ? <form onSubmit={async (event) => { event.preventDefault(); setSavingTitle(true); setEditNotice(null); try { const updated = await updateLeadTitle(lead.id, jobTitle); onUpdated?.(updated); setEditingTitle(false); setEditNotice("Title saved locally. No CRM was changed."); } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to save title"); } finally { setSavingTitle(false); } }}><label>Job title <input aria-label="Job title" maxLength={255} required value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={savingTitle}>{savingTitle ? "Saving…" : "Save title"}</button><button className="button-quiet" type="button" onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(false); setEditNotice(null); }}>Cancel</button></form> : <button className="button-quiet" onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null); }}>Edit title</button>)}{editNotice && <div className="notice" role="status">{editNotice}</div>}</div><div className="story-head-side">{qualification && <div className={`score-orb band-${qualification.classification.toLowerCase().replaceAll("_", "-")}`}><strong>{qualification.total_score}</strong><span>{title(qualification.classification)}</span></div>}{canEdit && <button className="danger-button" type="button" onClick={async () => { if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return; try { await deleteLead(lead.id); onDeleted?.(lead.id); } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); } }}>Delete lead</button>}</div></header>
     <LeadLifecycle lead={lead} />
     <LeadMomentumPanel lead={lead} />
-    <LeadProgressEditor lead={lead} canEdit={canEdit} />
+    <LeadProgressEditor
+      lead={lead}
+      canEdit={canEdit}
+      refreshToken={activityRefreshToken}
+      onConversationSynced={() => {
+        setActivityRefreshToken((revision) => revision + 1);
+        setMeetingRefreshToken((revision) => revision + 1);
+      }}
+    />
+    <LeadMeetingPanel
+      lead={lead}
+      canEdit={canEdit}
+      refreshToken={meetingRefreshToken}
+      onScheduled={() => setActivityRefreshToken((revision) => revision + 1)}
+    />
     {route && <section className="story-section"><div className="story-index">→</div><div><span className="eyebrow">Follow-up strategy</span><h3>How to move this lead forward</h3><div className="follow-up-plan"><div className="follow-up-goal"><span>Conversion goal</span>{route.action_plan.conversion_goal || route.action_plan.next_step_recommendation}</div><h4>Recommended sequence</h4><ol>{(route.action_plan.follow_up_strategy?.length ? route.action_plan.follow_up_strategy : [route.action_plan.immediate_action, route.action_plan.next_step_recommendation]).map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}</ol>{route.manual_review && <p className="attention-callout">Validate the analysis before contacting this lead.</p>}</div></div></section>}
     <FollowUpComposer lead={lead} canEdit={canEdit} />
     <section className="story-section"><div className="story-index">01</div><div><span className="eyebrow">Source / original inquiry</span><h3>{title(lead.source)} signal</h3><blockquote>{lead.message}</blockquote><div className="fact-grid"><Fact label="Received" value={new Date(lead.received_at).toLocaleString()} /><Fact label="Source detail" value={lead.source_detail || "Unspecified"} /><Fact label="External ID" value={lead.external_id || "Not supplied"} /></div></div></section>
@@ -104,7 +121,17 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
   </article>;
 }
 
-function LeadProgressEditor({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
+function LeadProgressEditor({
+  lead,
+  canEdit,
+  refreshToken,
+  onConversationSynced,
+}: {
+  lead: Lead;
+  canEdit: boolean;
+  refreshToken: number;
+  onConversationSynced: () => void;
+}) {
   const [events, setEvents] = useState<Awaited<ReturnType<typeof getLeadPipelineHistory>>>([]);
   const [stage, setStage] = useState("contacted");
   const [note, setNote] = useState("");
@@ -123,14 +150,16 @@ function LeadProgressEditor({ lead, canEdit }: { lead: Lead; canEdit: boolean })
       }
     }).catch(() => undefined);
     return () => controller.abort();
-  }, [lead.id]);
+  }, [lead.id, refreshToken]);
   const progressEvents = events.filter((event) => event.stage === "manual_progress").reverse();
   const emailEvents = events.filter((event) => event.stage === "gmail_message").reverse();
+  const meetingEvents = events.filter((event) => event.stage === "meeting_scheduled").reverse();
   const syncConversation = async () => {
     setSyncBusy(true); setNotice(null);
     try {
       const result = await syncLeadGmailConversation(lead.id);
       setEvents(await getLeadPipelineHistory(lead.id));
+      onConversationSynced();
       setNotice(result.messages_added
         ? `Synced ${result.messages_added} new Gmail messages across ${result.threads_checked} threads. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).${result.truncated ? " More than 200 threads were found; sync was capped for safety." : ""}`
         : `No new Gmail messages found across ${result.threads_checked} threads. Current assessment: ${title(result.classification)} (${result.score}/100).`);
@@ -162,6 +191,12 @@ function LeadProgressEditor({ lead, canEdit }: { lead: Lead; canEdit: boolean })
     </form>}
     {progressEvents.length > 0 && <div className="lead-progress-history"><h4>Progress history</h4>{progressEvents.slice(0, 5).map((event) => <article key={event.id}><b>{title(String(event.details.stage || event.status))}</b><time>{new Date(event.created_at).toLocaleString()}</time><p>{String(event.details.note || "")}</p><small>AI assessment: {title(String((event.details.qualification as { classification?: string } | undefined)?.classification || "pending"))} · {String((event.details.qualification as { score?: number } | undefined)?.score ?? "—")}/100</small></article>)}</div>}
     {emailEvents.length > 0 && <div className="lead-progress-history"><h4>Gmail conversation history</h4>{emailEvents.slice(0, 10).map((event) => <article key={event.id}><b>{event.details.direction === "outbound" ? "You sent" : "Lead sent"}: {String(event.details.subject || "(no subject)")}</b><time>{new Date(event.created_at).toLocaleString()}</time><p>{String(event.details.body || "")}</p><small>{String(event.details.sender || "")} · {String(event.details.recipients || "")}</small></article>)}</div>}
+    {meetingEvents.length > 0 && <div className="lead-progress-history"><h4>Scheduled meetings</h4>{meetingEvents.slice(0, 10).map((event) => {
+      const start = String(event.details.start_at || "");
+      const provider = String(event.details.provider || "");
+      const eventUrl = event.details.event_url;
+      return <article key={event.id}><b>{String(event.details.title || "Meeting")} · {title(provider)}</b><time>{start ? new Date(start).toLocaleString() : new Date(event.created_at).toLocaleString()}</time><p>Scheduled from the Gmail conversation. The connected workspace account is the host.</p>{typeof eventUrl === "string" && eventUrl && <a href={eventUrl} target="_blank" rel="noreferrer">Open event</a>}</article>;
+    })}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>;
 }

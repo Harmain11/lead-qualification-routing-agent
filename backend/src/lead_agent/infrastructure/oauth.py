@@ -93,6 +93,18 @@ class ProviderOAuthBroker:
                 "https://accounts.google.com/o/oauth2/v2/auth",
                 "https://oauth2.googleapis.com/token",
             ),
+            "google_calendar": OAuthProviderConfig(
+                self.settings.google_client_id,
+                self.settings.google_client_secret,
+                "https://accounts.google.com/o/oauth2/v2/auth",
+                "https://oauth2.googleapis.com/token",
+            ),
+            "calendly": OAuthProviderConfig(
+                self.settings.calendly_client_id,
+                self.settings.calendly_client_secret,
+                "https://auth.calendly.com/oauth/authorize",
+                "https://auth.calendly.com/oauth/token",
+            ),
             "outlook": OAuthProviderConfig(
                 self.settings.microsoft_client_id,
                 self.settings.microsoft_client_secret,
@@ -147,10 +159,15 @@ class ProviderOAuthBroker:
             "response_type": "code",
             "state": state,
             "scope": ",".join(scopes) if provider == "slack" else " ".join(scopes),
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
         }
-        if provider == "gmail":
+        if provider != "calendly":
+            query.update(
+                {
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": "S256",
+                }
+            )
+        if provider in {"gmail", "google_calendar"}:
             query.update({"access_type": "offline", "prompt": "consent"})
         return f"{config.authorize_url}?{urlencode(query)}"
 
@@ -170,16 +187,18 @@ class ProviderOAuthBroker:
         redirect_uri: str,
     ) -> dict[str, str]:
         config = self._config(provider)
+        token_payload = {
+            "grant_type": "authorization_code",
+            "code": authorization_code,
+            "client_id": config.client_id,
+            "client_secret": config.client_secret,
+            "redirect_uri": redirect_uri,
+        }
+        if provider != "calendly":
+            token_payload["code_verifier"] = code_verifier
         response = self.client.post(
             config.token_url,
-            data={
-                "grant_type": "authorization_code",
-                "code": authorization_code,
-                "client_id": config.client_id,
-                "client_secret": config.client_secret,
-                "redirect_uri": redirect_uri,
-                "code_verifier": code_verifier,
-            },
+            data=token_payload,
         )
         response.raise_for_status()
         payload = response.json()

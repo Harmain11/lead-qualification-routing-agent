@@ -10,6 +10,9 @@ import type {
   LeadPipelineEvent,
   LeadProgressResult,
   GmailConversationSyncResult,
+  MeetingRecommendations,
+  MeetingSuggestion,
+  ConfirmMeetingResult,
   LeadListResponse,
   LeadPayload,
   FollowUpEmail,
@@ -494,6 +497,27 @@ export function updateLeadProgress(leadId: string, input: { stage: string; note:
 
 export function syncLeadGmailConversation(leadId: string): Promise<GmailConversationSyncResult> {
   return jsonRequest<GmailConversationSyncResult>(`/v1/leads/${leadId}/gmail-conversation/sync`, { method: "POST" });
+}
+
+export function getLeadMeetingRecommendations(leadId: string, signal?: AbortSignal): Promise<MeetingRecommendations> {
+  return jsonRequest<MeetingRecommendations>(`/v1/leads/${leadId}/meeting-recommendations`, { signal });
+}
+
+export function confirmLeadMeeting(leadId: string, slot: MeetingSuggestion): Promise<ConfirmMeetingResult> {
+  return jsonRequest<ConfirmMeetingResult>(`/v1/leads/${leadId}/meetings/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      provider: slot.provider,
+      connection_id: slot.connection_id,
+      source_message_id: slot.source_message_id,
+      start_at: slot.start_at,
+      end_at: slot.end_at,
+      time_zone: slot.time_zone,
+      event_type_uri: slot.event_type_uri,
+      event_type_name: slot.event_type_name,
+    }),
+  });
 }
 
 export function getLeadFollowUp(leadId: string, signal?: AbortSignal): Promise<FollowUpEmail | null> {
