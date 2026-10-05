@@ -57,6 +57,12 @@ class MeetingIntegrationState(BaseModel):
     message: str | None = None
 
 
+class MeetingCalendlyEventType(BaseModel):
+    event_type_uri: str
+    event_type_name: str
+    status: Literal["available", "no_times", "calendar_unavailable"]
+
+
 class MeetingProviderError(BaseModel):
     provider: MeetingProvider
     message: str
@@ -73,6 +79,7 @@ class MeetingRecommendationsResponse(BaseModel):
     source_excerpt: str | None = None
     integrations: list[MeetingIntegrationState]
     suggestions: list[MeetingSuggestion]
+    calendly_event_types: list[MeetingCalendlyEventType] = Field(default_factory=list)
     provider_errors: list[MeetingProviderError]
 
 
@@ -309,6 +316,7 @@ def get_meeting_recommendations(
             )
 
     suggestions: list[MeetingSuggestion] = []
+    calendly_event_types: list[dict[str, str]] = []
     provider_errors: list[MeetingProviderError] = []
     for provider in ("google_calendar", "calendly"):
         connection = connections.get(provider)
@@ -332,6 +340,7 @@ def get_meeting_recommendations(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
+                    event_type_statuses=calendly_event_types,
                 )
                 for slot in slots:
                     slot["account_name"] = connection.account_name
@@ -358,6 +367,10 @@ def get_meeting_recommendations(
         source_excerpt=source["excerpt"] or None,
         integrations=_integration_states(connections),
         suggestions=suggestions,
+        calendly_event_types=[
+            MeetingCalendlyEventType.model_validate(event_type)
+            for event_type in calendly_event_types
+        ],
         provider_errors=provider_errors,
     )
 

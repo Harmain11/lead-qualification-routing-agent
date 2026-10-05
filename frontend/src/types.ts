@@ -371,6 +371,12 @@ export type MeetingIntegrationState = {
   message: string | null;
 };
 
+export type MeetingCalendlyEventType = {
+  event_type_uri: string;
+  event_type_name: string;
+  status: "available" | "no_times" | "calendar_unavailable";
+};
+
 export type MeetingProviderError = {
   provider: MeetingProvider;
   message: string;
@@ -387,6 +393,7 @@ export type MeetingRecommendations = {
   source_excerpt: string | null;
   integrations: MeetingIntegrationState[];
   suggestions: MeetingSuggestion[];
+  calendly_event_types: MeetingCalendlyEventType[];
   provider_errors: MeetingProviderError[];
 };
 
