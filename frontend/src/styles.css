@@ -1094,6 +1094,12 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 @media (max-width: 1024px) {
   .team-layout { grid-template-columns: 1fr; }
   .team-detail { position: static; }
+  .team-hero { flex-wrap: wrap; gap: 24px; }
+}
+
+@media (max-width: 920px) {
+  .team-member-row { grid-template-columns: 35px minmax(0, 1fr) 18px; gap: 9px; }
+  .team-member-row > .team-role, .team-member-row > .team-status, .team-member-row > .member-permission-count { display: none; }
 }
 
 @media (max-width: 760px) {
@@ -1245,7 +1251,11 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 }
 
 @media (max-width: 1024px) {
+  .app-shell .product-bar { padding-inline: 14px; }
+  .app-shell .bar-actions { gap: 6px; }
+  .app-shell .range-picker button { padding-inline: 7px; }
   .dashboard-command-grid { grid-template-columns: 1fr; }
+  .dashboard-view .dashboard-hero { flex-wrap: wrap; gap: 24px; }
   .network-layout { grid-template-columns: minmax(0, 1fr) 240px; }
   .network-node-labels button { padding-inline: 3px; letter-spacing: 0; }
 }
