@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.calendar_providers import CalendlyClient, GoogleCalendarClient
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
 
@@ -383,6 +384,7 @@ def recommend_calendly_slots(
     else:
         window_end = current + timedelta(days=14)
     suggestions: list[dict[str, str]] = []
+    unavailable_event_type_errors: list[ProviderOperationError] = []
     for event_type in client.event_types(user_uri)[:5]:
         uri = str(event_type.get("uri") or "")
         name = str(event_type.get("name") or "Calendly meeting")
@@ -394,7 +396,13 @@ def recommend_calendly_slots(
             continue
         if duration < 5 or duration > 180:
             continue
-        event_slots = client.available_times(uri, window_start, window_end)
+        try:
+            event_slots = client.available_times(uri, window_start, window_end)
+        except ProviderOperationError as error:
+            if error.code != "calendly_external_calendar_unavailable":
+                raise
+            unavailable_event_type_errors.append(error)
+            continue
         event_suggestions = 0
         for slot in event_slots:
             start_at = _parse_provider_time(slot.get("start_time"))
@@ -418,6 +426,8 @@ def recommend_calendly_slots(
             event_suggestions += 1
             if event_suggestions >= limit_per_event_type:
                 break
+    if not suggestions and unavailable_event_type_errors:
+        raise unavailable_event_type_errors[0]
     return suggestions
 
 
