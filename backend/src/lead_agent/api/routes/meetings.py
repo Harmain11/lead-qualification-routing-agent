@@ -19,6 +19,7 @@ from lead_agent.application.meetings import (
     meeting_title,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
+    requested_meeting_date,
 )
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -46,6 +47,7 @@ class MeetingSuggestion(BaseModel):
     end_at: datetime
     time_zone: str
     source_message_id: str
+    source_gmail_connection_id: UUID | None = None
 
 
 class MeetingIntegrationState(BaseModel):
@@ -79,6 +81,7 @@ class ConfirmMeetingRequest(BaseModel):
     provider: MeetingProvider
     connection_id: UUID
     source_message_id: str = Field(min_length=1, max_length=512)
+    source_gmail_connection_id: UUID | None = None
     start_at: datetime
     end_at: datetime
     time_zone: str = Field(min_length=1, max_length=80)
@@ -254,13 +257,17 @@ def get_meeting_recommendations(
             )
             if isinstance(event.details, dict)
             and event.details.get("thread_id") == source["thread_id"]
+            and str(event.details.get("gmail_connection_id") or "")
+            == source.get("gmail_connection_id", "")
         ),
         None,
     )
     automation_message = (
-        "Meeting-related Gmail text found. When the request is recent and times are "
-        "available, Corral emails numbered options and books after the lead selects one."
+        "Date-only requests get open times for that day. If the lead gives an exact "
+        "date and time, Corral books it only when the calendar confirms it is free; "
+        "otherwise, Corral emails open options and books after the lead selects one."
     )
+    requested_date = requested_meeting_date(source.get("excerpt", ""))
     if offer_event is not None:
         if offer_event.status == "awaiting_confirmation":
             automation_message = (
@@ -269,8 +276,8 @@ def get_meeting_recommendations(
             )
         elif offer_event.status == "booked":
             automation_message = (
-                "The meeting is booked. The lead selected an emailed option or an "
-                "admin confirmed a time."
+                "The meeting is booked after Corral confirmed an exact requested "
+                "time was free, the lead selected an emailed option, or an admin confirmed it."
             )
         elif offer_event.status == "needs_attention":
             offer_details = (
@@ -280,6 +287,15 @@ def get_meeting_recommendations(
                 automation_message = (
                     "The lead asked for different times. Review their reply and send "
                     "new options or follow up manually."
+                )
+            elif offer_details.get("error_code") in {
+                "gmail_send_scope_missing",
+                "gmail_insufficient_scope",
+                "gmail_send_forbidden",
+            }:
+                automation_message = (
+                    "Reconnect Gmail and grant permission to send email so Corral "
+                    "can deliver meeting options."
                 )
             else:
                 automation_message = (
@@ -305,12 +321,16 @@ def get_meeting_recommendations(
                     connection_id=str(connection.id),
                     account_name=connection.account_name,
                     source_message_id=source["message_id"],
+                    source_gmail_connection_id=source.get("gmail_connection_id"),
+                    requested_date=requested_date,
                 )
             else:
                 slots = recommend_calendly_slots(
                     CalendlyClient(credentials["access_token"]),
                     connection_id=str(connection.id),
                     source_message_id=source["message_id"],
+                    source_gmail_connection_id=source.get("gmail_connection_id"),
+                    requested_date=requested_date,
                 )
                 for slot in slots:
                     slot["account_name"] = connection.account_name
@@ -377,24 +397,49 @@ def confirm_meeting(
         )
         .with_for_update()
     )
-    message_event = next(
-        (
-            event
-            for event in session.scalars(
-                select(PipelineEventORM).where(
-                    PipelineEventORM.lead_id == lead_id,
-                    PipelineEventORM.workspace_id == workspace.workspace_id,
-                    PipelineEventORM.stage == "gmail_message",
-                )
+    matching_messages = [
+        event
+        for event in session.scalars(
+            select(PipelineEventORM).where(
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.stage == "gmail_message",
             )
-            if str(event.details.get("message_id") or "") == request.source_message_id
-        ),
-        None,
-    )
+        )
+        if isinstance(event.details, dict)
+        and str(event.details.get("message_id") or "") == request.source_message_id
+    ]
+    if request.source_gmail_connection_id is not None:
+        expected_gmail_connection_id = str(request.source_gmail_connection_id)
+        matching_messages = [
+            event
+            for event in matching_messages
+            if str(event.details.get("gmail_connection_id") or "")
+            == expected_gmail_connection_id
+        ]
+    elif len(
+        {
+            str(event.details.get("gmail_connection_id") or "")
+            for event in matching_messages
+        }
+    ) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This Gmail message ID exists in more than one connected mailbox. "
+                "Refresh meeting recommendations before booking."
+            ),
+        )
+    message_event = matching_messages[0] if matching_messages else None
     if message_event is None:
         raise HTTPException(status_code=404, detail="The source Gmail message was not found.")
     source_details = (
         message_event.details if isinstance(message_event.details, dict) else {}
+    )
+    source_gmail_connection_id = str(
+        request.source_gmail_connection_id
+        or source_details.get("gmail_connection_id")
+        or ""
     )
     source_thread_id = str(source_details.get("thread_id") or "")
     latest_request = find_meeting_request(
@@ -402,6 +447,7 @@ def confirm_meeting(
         lead,
         workspace.workspace_id,
         thread_id=source_thread_id or None,
+        gmail_connection_id=source_gmail_connection_id or None,
     )
     if latest_request is None or latest_request["message_id"] != request.source_message_id:
         raise HTTPException(
@@ -423,6 +469,8 @@ def confirm_meeting(
             )
             if isinstance(event.details, dict)
             and event.details.get("source_message_id") == request.source_message_id
+            and str(event.details.get("source_gmail_connection_id") or "")
+            == source_gmail_connection_id
         ),
         None,
     )
@@ -438,6 +486,8 @@ def confirm_meeting(
             offer_details = offer.details if isinstance(offer.details, dict) else {}
             if (
                 offer_details.get("source_message_id") == request.source_message_id
+                and str(offer_details.get("gmail_connection_id") or "")
+                == source_gmail_connection_id
                 and offer.status
                 in {"sending", "awaiting_confirmation", "booking", "needs_attention"}
             ):
@@ -462,6 +512,7 @@ def confirm_meeting(
         provider=request.provider,
         connection_id=str(request.connection_id),
         source_message_id=request.source_message_id,
+        source_gmail_connection_id=source_gmail_connection_id,
         start_at=request.start_at,
     )
     if existing is not None:
@@ -508,7 +559,8 @@ def confirm_meeting(
                         ),
                     )
             event_id = hashlib.sha256(
-                f"{workspace.workspace_id}:{lead_id}:{request.source_message_id}:"
+                f"{workspace.workspace_id}:{lead_id}:{source_gmail_connection_id}:"
+                f"{request.source_message_id}:"
                 f"{request.start_at.astimezone(UTC).isoformat()}".encode()
             ).hexdigest()[:40]
             try:
@@ -655,6 +707,7 @@ def confirm_meeting(
         "time_zone": request.time_zone,
         "title": title,
         "source_message_id": request.source_message_id,
+        "source_gmail_connection_id": source_gmail_connection_id,
         "source_subject": latest_request["subject"],
     }
     if provider_event_uri:
@@ -683,6 +736,8 @@ def confirm_meeting(
         offer_details = offer.details if isinstance(offer.details, dict) else {}
         if (
             offer_details.get("source_message_id") == request.source_message_id
+            and str(offer_details.get("gmail_connection_id") or "")
+            == source_gmail_connection_id
             and offer.status
             in {"sending", "awaiting_confirmation", "booking", "needs_attention"}
         ):

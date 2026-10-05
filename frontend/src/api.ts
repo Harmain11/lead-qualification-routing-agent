@@ -511,6 +511,7 @@ export function confirmLeadMeeting(leadId: string, slot: MeetingSuggestion): Pro
       provider: slot.provider,
       connection_id: slot.connection_id,
       source_message_id: slot.source_message_id,
+      source_gmail_connection_id: slot.source_gmail_connection_id,
       start_at: slot.start_at,
       end_at: slot.end_at,
       time_zone: slot.time_zone,

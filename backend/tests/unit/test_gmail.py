@@ -40,9 +40,11 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.gmail import (
     GMAIL_READONLY_SCOPE,
+    GMAIL_SEND_SCOPE,
     GmailConnectionValidator,
     GmailInboundProvider,
     GmailOutboundProvider,
+    _gmail_http_error,
     candidate_reason,
     parse_mime_body,
 )
@@ -111,6 +113,44 @@ def test_gmail_validator_classifies_api_disabled_scope_and_transport() -> None:
         "gmail", {"access_token": "token"}, [GMAIL_READONLY_SCOPE]
     )
     assert scope_result.status == "insufficient_permissions"
+
+
+def test_gmail_403_errors_distinguish_mailbox_read_from_send_permission() -> None:
+    insufficient_scope = httpx.Response(
+        403,
+        json={
+            "error": {
+                "message": "insufficient authentication scopes",
+                "errors": [{"reason": "insufficientPermissions"}],
+            }
+        },
+    )
+
+    send_error = _gmail_http_error(insufficient_scope, path="messages/send")
+    read_error = _gmail_http_error(insufficient_scope, path="threads/thread-1")
+
+    assert GMAIL_SEND_SCOPE.endswith("/gmail.send")
+    assert send_error.code == "gmail_insufficient_scope"
+    assert "send email" in str(send_error).lower()
+    assert read_error.code == "gmail_insufficient_scope"
+    assert "read this mailbox" in str(read_error).lower()
+
+
+def test_unknown_gmail_thread_403_is_a_skippable_thread_error() -> None:
+    forbidden = httpx.Response(
+        403,
+        json={
+            "error": {
+                "message": "User cannot access this thread",
+                "errors": [{"reason": "forbidden"}],
+            }
+        },
+    )
+
+    error = _gmail_http_error(forbidden, path="threads/thread-1")
+
+    assert error.code == "gmail_thread_access_denied"
+    assert error.retryable is False
 
 
 def test_mime_parser_prefers_nested_plain_text_and_html_fallback() -> None:
