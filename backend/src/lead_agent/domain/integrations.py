@@ -163,9 +163,11 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         required_scopes=[
             "https://www.googleapis.com/auth/calendar.events",
             "https://www.googleapis.com/auth/calendar.events.freebusy",
+            "https://www.googleapis.com/auth/calendar.calendars.readonly",
         ],
         permission_reason=(
-            "Read free/busy availability and create events only after a workspace admin confirms."
+            "Read calendar metadata and free/busy availability; create events only after a "
+            "workspace admin confirms."
         ),
         documentation_url="https://developers.google.com/calendar/api/auth",
     ),

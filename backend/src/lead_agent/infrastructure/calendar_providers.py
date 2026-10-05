@@ -10,6 +10,7 @@ from lead_agent.domain.provider_errors import ProviderOperationError
 
 GOOGLE_CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 GOOGLE_CALENDAR_FREEBUSY_SCOPE = "https://www.googleapis.com/auth/calendar.events.freebusy"
+GOOGLE_CALENDAR_METADATA_SCOPE = "https://www.googleapis.com/auth/calendar.calendars.readonly"
 CALENDLY_SCOPES = (
     "users:read",
     "event_types:read",
@@ -328,14 +329,21 @@ class GoogleCalendarConnectionValidator:
         self, provider: str, credentials: dict[str, str], scopes: list[str]
     ) -> ConnectionValidation:
         del provider
-        required = {GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_FREEBUSY_SCOPE}
+        required = {
+            GOOGLE_CALENDAR_EVENTS_SCOPE,
+            GOOGLE_CALENDAR_FREEBUSY_SCOPE,
+            GOOGLE_CALENDAR_METADATA_SCOPE,
+        }
         if not required.issubset(scopes):
             return ConnectionValidation(
                 valid=False,
                 verified=False,
                 status="insufficient_permissions",
                 credential_state="configured",
-                message="Google Calendar connection is missing event and availability permissions.",
+                message=(
+                    "Google Calendar connection is missing event, availability, or "
+                    "calendar metadata permissions."
+                ),
                 error_code="google_calendar_insufficient_scope",
             )
         token = credentials.get("access_token", "")

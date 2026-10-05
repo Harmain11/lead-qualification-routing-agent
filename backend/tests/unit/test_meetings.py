@@ -13,6 +13,7 @@ from lead_agent.application.meetings import (
 )
 from lead_agent.infrastructure.calendar_providers import (
     CALENDLY_SCOPES,
+    GOOGLE_CALENDAR_METADATA_SCOPE,
     GOOGLE_CALENDAR_EVENTS_SCOPE,
     GOOGLE_CALENDAR_FREEBUSY_SCOPE,
     CalendlyConnectionValidator,
@@ -167,10 +168,20 @@ def test_calendar_connection_validators_require_scopes_and_check_account_identit
 
     google_client = httpx.Client(transport=httpx.MockTransport(google_handler))
     google_validator = GoogleCalendarConnectionValidator(client=google_client)
-    google_result = google_validator.validate(
+    missing_calendar_metadata = google_validator.validate(
         "google_calendar",
         {"access_token": "google-token"},
         [GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_FREEBUSY_SCOPE],
+    )
+    assert missing_calendar_metadata.status == "insufficient_permissions"
+    google_result = google_validator.validate(
+        "google_calendar",
+        {"access_token": "google-token"},
+        [
+            GOOGLE_CALENDAR_EVENTS_SCOPE,
+            GOOGLE_CALENDAR_FREEBUSY_SCOPE,
+            GOOGLE_CALENDAR_METADATA_SCOPE,
+        ],
     )
     assert google_result.verified
     assert google_result.metadata["google_calendar_name"] == "Sales calendar"
