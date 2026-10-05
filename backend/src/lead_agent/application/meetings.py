@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -37,6 +37,22 @@ _OTHER_TIME_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_MONTH_TOKEN = (
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?"
+)
+_DAY_MONTH_DATE = re.compile(
+    rf"\b(?P<day>\d{{1,2}})(?:st|nd|rd|th)?\s+"
+    rf"(?P<month>{_MONTH_TOKEN})(?:\s*,?\s*(?P<year>\d{{4}}))?\b",
+    re.IGNORECASE,
+)
+_MONTH_DAY_DATE = re.compile(
+    rf"\b(?P<month>{_MONTH_TOKEN})\s+"
+    rf"(?P<day>\d{{1,2}})(?:st|nd|rd|th)?(?:\s*,?\s*(?P<year>\d{{4}}))?\b",
+    re.IGNORECASE,
+)
+_ISO_DATE = re.compile(r"\b(?P<year>20\d{2})-(?P<month>\d{1,2})-(?P<day>\d{1,2})\b")
 
 
 def find_meeting_request(
@@ -155,6 +171,62 @@ def _parse_provider_time(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
+def requested_meeting_date(
+    text: str, *, reference: datetime | None = None
+) -> date | None:
+    """Parse an explicit ISO or English month/day request without guessing a weekday."""
+    month_numbers = {
+        "jan": 1,
+        "january": 1,
+        "feb": 2,
+        "february": 2,
+        "mar": 3,
+        "march": 3,
+        "apr": 4,
+        "april": 4,
+        "may": 5,
+        "jun": 6,
+        "june": 6,
+        "jul": 7,
+        "july": 7,
+        "aug": 8,
+        "august": 8,
+        "sep": 9,
+        "sept": 9,
+        "september": 9,
+        "oct": 10,
+        "october": 10,
+        "nov": 11,
+        "november": 11,
+        "dec": 12,
+        "december": 12,
+    }
+    match = _ISO_DATE.search(text)
+    month_is_numeric = match is not None
+    if match is None:
+        match = _DAY_MONTH_DATE.search(text) or _MONTH_DAY_DATE.search(text)
+    if match is None:
+        return None
+
+    try:
+        day = int(match.group("day"))
+        month_text = match.group("month")
+        month = (
+            int(month_text)
+            if month_is_numeric
+            else month_numbers[month_text.lower()]
+        )
+        supplied_year = match.group("year")
+        current = reference or datetime.now(UTC)
+        year = int(supplied_year) if supplied_year else current.year
+        requested = date(year, month, day)
+        if supplied_year is None and requested < current.date():
+            requested = date(year + 1, month, day)
+        return requested
+    except (ValueError, KeyError):
+        return None
+
+
 def _timezone(name: str) -> ZoneInfo:
     try:
         return ZoneInfo(name)
@@ -169,23 +241,33 @@ def recommend_google_calendar_slots(
     account_name: str,
     source_message_id: str,
     now: datetime | None = None,
+    requested_date: date | None = None,
     limit: int = 5,
 ) -> list[dict[str, str]]:
     current = now or datetime.now(UTC)
     calendar = client.primary_calendar()
     zone = _timezone(str(calendar.get("timeZone") or "UTC"))
     time_zone = zone.key
-    window_end = current + timedelta(days=14)
+    local_today = current.astimezone(zone).date()
+    if requested_date is not None:
+        day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
+        window_end = day_start + timedelta(days=1)
+        if window_end <= current:
+            return []
+        window_start = max(current, day_start)
+        days = [requested_date]
+    else:
+        window_start = current
+        window_end = current + timedelta(days=14)
+        days = [local_today + timedelta(days=day_offset) for day_offset in range(15)]
     busy = [
         (start, end)
-        for item in client.busy_intervals(current, window_end)
+        for item in client.busy_intervals(window_start, window_end)
         if (start := _parse_provider_time(item.get("start"))) is not None
         and (end := _parse_provider_time(item.get("end"))) is not None
     ]
     available: list[dict[str, str]] = []
-    local_today = current.astimezone(zone).date()
-    for day_offset in range(15):
-        day = local_today + timedelta(days=day_offset)
+    for day in days:
         if day.weekday() >= 5:
             continue
         for minute_of_day in range(9 * 60, 17 * 60, 30):
@@ -228,6 +310,7 @@ def recommend_calendly_slots(
     connection_id: str,
     source_message_id: str,
     now: datetime | None = None,
+    requested_date: date | None = None,
     limit_per_event_type: int = 5,
 ) -> list[dict[str, str]]:
     current = now or datetime.now(UTC)
@@ -236,7 +319,15 @@ def recommend_calendly_slots(
     time_zone = _timezone(str(user.get("timezone") or "UTC")).key
     if not user_uri:
         return []
-    window_end = current + timedelta(days=14)
+    window_start = current + timedelta(minutes=5)
+    if requested_date is not None:
+        day_start = datetime.combine(requested_date, time.min, tzinfo=_timezone(time_zone))
+        window_end = day_start + timedelta(days=1)
+        window_start = max(window_start, day_start)
+        if window_start >= window_end:
+            return []
+    else:
+        window_end = current + timedelta(days=14)
     suggestions: list[dict[str, str]] = []
     for event_type in client.event_types(user_uri)[:5]:
         uri = str(event_type.get("uri") or "")

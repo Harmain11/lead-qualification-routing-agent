@@ -184,10 +184,36 @@ def _gmail_http_error(response: httpx.Response, *, path: str) -> ProviderOperati
         or "insufficient authentication scopes" in message
         or "insufficient_scope" in message
     ):
+        is_send = path.lstrip("/") == "messages/send"
         code, category, reason, retryable = (
             "gmail_insufficient_scope",
             "insufficient_permissions",
-            "Gmail authorization is missing the read-only mailbox scope.",
+            (
+                "Gmail authorization is missing permission to send email. "
+                "Reconnect Gmail and grant send permission."
+                if is_send
+                else "Gmail authorization is missing permission to read this mailbox."
+            ),
+            False,
+        )
+    elif status_code == 403 and reasons.intersection(
+        {"userratelimitexceeded", "ratelimitexceeded", "quotaexceeded"}
+    ):
+        code, category, reason, retryable = (
+            "gmail_rate_limited",
+            "temporarily_unavailable",
+            "Gmail is temporarily limiting requests. Wait briefly and retry.",
+            True,
+        )
+    elif status_code == 403:
+        code, category, reason, retryable = (
+            "gmail_thread_access_denied",
+            "insufficient_permissions",
+            (
+                "Google denied access to this Gmail thread. Check that it is "
+                "available in the connected mailbox; reconnect Gmail if this "
+                "affects every thread."
+            ),
             False,
         )
     elif status_code == 401:

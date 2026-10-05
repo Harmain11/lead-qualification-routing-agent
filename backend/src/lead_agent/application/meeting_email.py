@@ -16,6 +16,7 @@ from lead_agent.application.meetings import (
     meeting_reply_requests_other_times,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
+    requested_meeting_date,
 )
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -204,6 +205,10 @@ def _calendar_options(
     source: dict[str, str],
     actor_id: str,
 ) -> tuple[ProviderConnectionORM, list[dict[str, Any]]] | None:
+    requested_date = requested_meeting_date(
+        source.get("excerpt", ""),
+        reference=_parse_datetime(source.get("sent_at")),
+    )
     # Use one calendar for each offer to avoid presenting duplicate or competing
     # slots when both providers are connected. Prefer the direct Google Calendar.
     for provider_name in ("google_calendar", "calendly"):
@@ -220,6 +225,7 @@ def _calendar_options(
                     connection_id=str(connection.id),
                     account_name=connection.account_name,
                     source_message_id=source["message_id"],
+                    requested_date=requested_date,
                     limit=5,
                 )
             else:
@@ -227,6 +233,7 @@ def _calendar_options(
                     CalendlyClient(credentials["access_token"]),
                     connection_id=str(connection.id),
                     source_message_id=source["message_id"],
+                    requested_date=requested_date,
                     limit_per_event_type=5,
                 )
                 for slot in slots:
