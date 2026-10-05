@@ -725,6 +725,7 @@ def _confirmed_booking_retry(
                 message.get("body", ""), len(options)
             )
             == selected_option
+            and not meeting_reply_requests_other_times(message.get("body", ""))
         ),
         None,
     )
