@@ -13,9 +13,9 @@ from lead_agent.application.meetings import (
 )
 from lead_agent.infrastructure.calendar_providers import (
     CALENDLY_SCOPES,
-    GOOGLE_CALENDAR_METADATA_SCOPE,
     GOOGLE_CALENDAR_EVENTS_SCOPE,
     GOOGLE_CALENDAR_FREEBUSY_SCOPE,
+    GOOGLE_CALENDAR_METADATA_SCOPE,
     CalendlyConnectionValidator,
     GoogleCalendarConnectionValidator,
 )
