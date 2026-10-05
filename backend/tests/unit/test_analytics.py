@@ -260,6 +260,9 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
             session, _payload("other"), icp, routing, workspace_id=other_id
         )
         assert lead.analysis is not None
+        lead.job_title = None
+        other_lead.email = lead.email
+        other_lead.job_title = "Cross-workspace value"
         lead.analysis.requires_manual_review = True
         lead.analysis.status = "manual_review"
         lead.analysis.error_message = "Confidence needs human validation."
@@ -275,11 +278,69 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
         for item in activity["capabilities"]
     )
     assert any(
-        item["name"] == "Analytics Agent" and item["status"] == "future"
+        item["name"] == "Enrichment Agent" and item["status"] == "implemented"
         for item in activity["capabilities"]
     )
+    assert any(
+        item["name"] == "Analytics Agent" and item["status"] == "implemented"
+        for item in activity["capabilities"]
+    )
+    insights = {item["agent"]: item for item in activity["insights"]}
+    enrichment_metrics = {
+        metric["key"]: metric["value"] for metric in insights["Enrichment Agent"]["metrics"]
+    }
+    analytics_metrics = {
+        metric["key"]: metric["value"] for metric in insights["Analytics Agent"]["metrics"]
+    }
+    assert enrichment_metrics["leads_reviewed"] == 1
+    assert enrichment_metrics["exact_email_suggestions"] == 0
+    assert analytics_metrics["leads_analyzed"] == 1
+    assert "SQL-ready" in insights["Analytics Agent"]["summary"]
     assert review["total"] == 1
     assert review["items"][0]["review_reasons"] == ["Confidence needs human validation."]
+
+
+def test_enrichment_agent_suggests_only_unambiguous_exact_email_matches(
+    icp: IcpConfig, routing: RoutingConfig
+) -> None:
+    factory = _factory()
+    workspace_id = uuid4()
+    with factory() as session:
+        _, _, target = process_lead(
+            session, _payload("enrichment-target"), icp, routing, workspace_id=workspace_id
+        )
+        _, _, source_one = process_lead(
+            session, _payload("enrichment-source-one"), icp, routing, workspace_id=workspace_id
+        )
+        _, _, source_two = process_lead(
+            session, _payload("enrichment-source-two"), icp, routing, workspace_id=workspace_id
+        )
+        source_one.email = target.email
+        source_two.email = target.email
+        target.job_title = None
+        source_one.job_title = "Director"
+        source_two.job_title = "VP of Sales"
+        target.phone = None
+        source_one.phone = "+1 555 0100"
+        source_two.phone = "+1 555 0100"
+        target.industry = None
+        source_one.industry = "SaaS"
+        source_two.industry = "SaaS"
+        session.commit()
+
+        activity = AnalyticsService(session, workspace_id).agent_activity()
+
+        assert target.job_title is None
+        assert target.phone is None
+        assert target.industry is None
+
+    enrichment = next(
+        item for item in activity["insights"] if item["agent"] == "Enrichment Agent"
+    )
+    metrics = {metric["key"]: metric["value"] for metric in enrichment["metrics"]}
+    assert metrics["exact_email_suggestions"] == 2
+    assert any("read-only" in detail.lower() for detail in enrichment["details"])
+    assert any("crm-imported" in detail.lower() for detail in enrichment["details"])
 
 
 def test_analytics_api_smoke_and_unknown_workspace(icp: IcpConfig, routing: RoutingConfig) -> None:

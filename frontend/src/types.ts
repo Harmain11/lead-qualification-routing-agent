@@ -779,6 +779,12 @@ export type TimeSeriesAnalytics = {
 export type AgentActivity = {
   metadata: AnalyticsMetadata;
   capabilities: Array<{ name: string; status: "implemented" | "future" }>;
+  insights: Array<{
+    agent: string;
+    summary: string;
+    metrics: Array<{ key: string; label: string; value: number | string }>;
+    details: string[];
+  }>;
   activity: Array<{
     id: string;
     lead_id: string | null;
