@@ -28,6 +28,7 @@ from lead_agent.infrastructure.calendar_providers import (
     CalendlyClient,
     CalendlyConnectionValidator,
     GoogleCalendarConnectionValidator,
+    _http_error,
 )
 from lead_agent.infrastructure.oauth import ProviderOAuthBroker
 from lead_agent.settings.config import Settings
@@ -595,6 +596,29 @@ def test_calendly_availability_serializes_utc_as_z() -> None:
         datetime(2026, 11, 6, 9, tzinfo=UTC),
         datetime(2026, 11, 6, 10, tzinfo=UTC),
     )
+
+
+def test_calendly_bad_request_includes_provider_validation_detail() -> None:
+    error = _http_error(
+        "calendly",
+        httpx.Response(
+            400,
+            json={
+                "message": "Request validation failed.",
+                "details": [
+                    {
+                        "parameter": "start_time",
+                        "message": "must be within the supported booking window.",
+                    }
+                ],
+            },
+        ),
+        "event_type_available_times",
+    )
+
+    assert "Calendly rejected the request." in str(error)
+    assert "start_time" in str(error)
+    assert "supported booking window" in str(error)
 
 
 def test_calendar_connection_validators_require_scopes_and_check_account_identity() -> None:

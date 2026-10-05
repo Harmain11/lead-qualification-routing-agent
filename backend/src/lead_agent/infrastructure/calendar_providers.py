@@ -67,6 +67,42 @@ def _http_error(provider: str, response: httpx.Response, path: str) -> ProviderO
             f"{provider.replace('_', ' ').title()} rejected the request.",
             False,
         )
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    provider_details: list[str] = []
+    if isinstance(body, dict):
+        for key in ("message", "detail", "title", "error"):
+            value = body.get(key)
+            if isinstance(value, str) and value.strip():
+                provider_details.append(value.strip())
+            elif isinstance(value, dict):
+                nested = value.get("message") or value.get("detail")
+                if isinstance(nested, str) and nested.strip():
+                    provider_details.append(nested.strip())
+        for key in ("details", "errors"):
+            entries = body.get(key)
+            if isinstance(entries, dict):
+                entries = [entries]
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if isinstance(entry, str) and entry.strip():
+                    provider_details.append(entry.strip())
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                detail = entry.get("message") or entry.get("detail")
+                if not isinstance(detail, str) or not detail.strip():
+                    continue
+                field = entry.get("parameter") or entry.get("field")
+                prefix = f"{field}: " if isinstance(field, str) and field else ""
+                provider_details.append(f"{prefix}{detail.strip()}")
+    if provider_details:
+        detail_text = " ".join(dict.fromkeys(provider_details))
+        detail_text = " ".join(detail_text.split())[:320]
+        message = f"{message} Details: {detail_text}"
     return ProviderOperationError(
         message,
         provider=provider,
