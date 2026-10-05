@@ -1914,6 +1914,21 @@ html body .app-shell :is(
 
 html body .auth-shell :is(small, .eyebrow) { font-size: 10px; }
 
+.auth-legal-links,
+.product-legal-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.auth-legal-links { margin-top: 14px; }
+.product-legal-links { font-size: 10px; }
+.auth-legal-links a,
+.product-legal-links a { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.auth-legal-links a:hover,
+.product-legal-links a:hover { color: var(--green); }
+
 /* Keep dashboard KPI cards wide enough for labels and values at every viewport width. */
 .metric-grid.dashboard-metric-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));

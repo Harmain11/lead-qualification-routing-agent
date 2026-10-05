@@ -174,6 +174,11 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
           <button className="demo-session" onClick={() => void localWorkspace()} disabled={busy}>Continue to local workspace</button>
         </>}
         <small className="auth-security">Opaque session · HttpOnly cookie · Workspace membership verified server-side</small>
+        <nav className="auth-legal-links" aria-label="Legal information">
+          <a href="/terms.html">Terms of Service</a>
+          <a href="/privacy.html">Privacy Policy</a>
+          <a href="mailto:harmainmughal8@gmail.com">Contact</a>
+        </nav>
       </section>
     </main>
   );
