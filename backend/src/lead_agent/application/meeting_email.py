@@ -688,6 +688,7 @@ def _book_selected_option(
 
     details["provider_event_id"] = result.provider_event_id
     details["event_url"] = result.event_url or ""
+    details.pop("booking_error", None)
     offer.status = "booked"
     offer.details = details
     session.commit()
@@ -735,6 +736,25 @@ def process_gmail_meeting_thread(
     offer = _thread_offer(
         session, workspace_id, lead.id, thread_id, str(gmail_connection.id)
     )
+    if offer is not None and offer.status == "needs_attention":
+        details = offer.details if isinstance(offer.details, dict) else {}
+        selected_option = details.get("selected_option")
+        reply_message_id = str(details.get("reply_message_id") or "")
+        if (
+            details.get("booking_error")
+            and isinstance(selected_option, int)
+            and not isinstance(selected_option, bool)
+            and reply_message_id
+        ):
+            return _book_selected_option(
+                session,
+                lead,
+                workspace_id,
+                actor_id,
+                offer,
+                reply_message_id,
+                selected_option,
+            )
     if offer is not None and offer.status == "sending":
         details = offer.details if isinstance(offer.details, dict) else {}
         metadata = (

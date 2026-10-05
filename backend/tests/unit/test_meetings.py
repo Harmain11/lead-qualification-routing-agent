@@ -659,6 +659,78 @@ def test_confirm_meeting_reconciles_existing_calendly_event_before_availability(
     assert session.commits == 1
 
 
+def test_gmail_refresh_retries_only_a_previously_confirmed_booking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    gmail_connection_id = uuid4()
+    reply_id = "gmail-reply-confirmed"
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    gmail_connection = SimpleNamespace(id=gmail_connection_id)
+    offer = SimpleNamespace(
+        status="needs_attention",
+        details={
+            "thread_id": "gmail-thread-1",
+            "gmail_connection_id": str(gmail_connection_id),
+            "source_message_id": "gmail-source-1",
+            "reply_message_id": reply_id,
+            "selected_option": 2,
+            "booking_error": "Calendly did not return a confirmed booking.",
+            "options": [{}, {}, {}],
+        },
+    )
+    message = {
+        "message_id": reply_id,
+        "thread_id": "gmail-thread-1",
+        "direction": "inbound",
+        "sender": "buyer@example.test",
+        "body": "2",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+
+    class RefreshSession:
+        def __init__(self) -> None:
+            self.scalar_calls = 0
+            self.scalars_results = [[], [offer]]
+            self.added: list[object] = []
+
+        def scalar(self, _statement):
+            self.scalar_calls += 1
+            return lead_id
+
+        def scalars(self, _statement):
+            return iter(self.scalars_results.pop(0))
+
+        def add(self, value) -> None:
+            self.added.append(value)
+
+        def flush(self) -> None:
+            pass
+
+    captured: list[tuple[object, ...]] = []
+
+    def retry_booking(*args):
+        captured.append(args)
+        return "booked"
+
+    monkeypatch.setattr(meeting_email, "_book_selected_option", retry_booking)
+    session = RefreshSession()
+
+    result = meeting_email.process_gmail_meeting_thread(
+        session,  # type: ignore[arg-type]
+        workspace_id=workspace_id,
+        lead=lead,  # type: ignore[arg-type]
+        gmail_connection=gmail_connection,  # type: ignore[arg-type]
+        messages=[message],
+        actor_id="workspace-owner",
+    )
+
+    assert result == "booked"
+    assert len(captured) == 1
+    assert captured[0][4:] == (offer, reply_id, 2)
+
+
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
     lead_id = uuid4()
     events = [
