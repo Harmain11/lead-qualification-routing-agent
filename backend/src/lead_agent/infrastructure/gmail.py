@@ -581,6 +581,7 @@ class GmailInboundProvider:
                     "recipients": ", ".join(recipients),
                     "subject": headers.get("subject", "(no subject)")[:500],
                     "sent_at": timestamp,
+                    "rfc_message_id": headers.get("message-id", ""),
                     "direction": "outbound" if sender == self.mailbox_email else "inbound",
                     "body": (body or str(message.get("snippet", "")))[:8000],
                 }
@@ -715,7 +716,7 @@ class GmailInboundProvider:
 
 
 class GmailOutboundProvider:
-    """Gmail send boundary for confirmations and explicitly approved follow-ups."""
+    """Gmail send boundary for confirmations, follow-ups, and meeting options."""
 
     provider_name = "gmail"
 
@@ -757,13 +758,27 @@ class GmailOutboundProvider:
         message_id = payload.get("id")
         return str(message_id) if message_id else None
 
-    def send_email(self, *, recipient: str, subject: str, body: str) -> str | None:
+    def send_email(
+        self,
+        *,
+        recipient: str,
+        subject: str,
+        body: str,
+        thread_id: str | None = None,
+        in_reply_to: str | None = None,
+    ) -> str | None:
         message = EmailMessage()
         message["From"] = self.mailbox_email
         message["To"] = recipient
         message["Subject"] = subject
+        if in_reply_to:
+            message["In-Reply-To"] = in_reply_to
+            message["References"] = in_reply_to
         message.set_content(body)
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
-        payload = self.api.post("messages/send", {"raw": raw})
+        request: dict[str, str] = {"raw": raw}
+        if thread_id:
+            request["threadId"] = thread_id
+        payload = self.api.post("messages/send", request)
         message_id = payload.get("id")
         return str(message_id) if message_id else None

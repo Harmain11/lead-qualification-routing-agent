@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
@@ -71,6 +72,7 @@ from lead_agent.infrastructure.repositories import (
 from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
+_LOGGER = logging.getLogger("lead_agent.api.leads")
 
 
 def _current_confirmation_email(
@@ -876,7 +878,10 @@ def sync_lead_gmail_conversation(
         if event.details.get("message_id")
     }
     now = datetime.now(UTC)
-    checked_threads: set[str] = set()
+    checked_threads: set[tuple[str, str]] = set()
+    automation_threads: list[
+        tuple[ProviderConnectionORM, list[dict[str, str]]]
+    ] = []
     messages_added = 0
     truncated = False
     try:
@@ -907,10 +912,15 @@ def sync_lead_gmail_conversation(
             thread_ids = linked_threads | found_threads
             truncated = truncated or len(thread_ids) >= 200
             for thread_id in thread_ids:
-                if thread_id in checked_threads:
+                thread_key = (str(connection.id), thread_id)
+                if thread_key in checked_threads:
                     continue
-                checked_threads.add(thread_id)
-                for message in provider.fetch_thread(thread_id, lead_email=row.email):
+                checked_threads.add(thread_key)
+                thread_messages = provider.fetch_thread(
+                    thread_id, lead_email=row.email
+                )
+                for message in thread_messages:
+                    message["gmail_connection_id"] = str(connection.id)
                     message_id = message.get("message_id", "")
                     if not message_id or message_id in known_message_ids:
                         continue
@@ -933,6 +943,8 @@ def sync_lead_gmail_conversation(
                     )
                     known_message_ids.add(message_id)
                     messages_added += 1
+                if thread_messages:
+                    automation_threads.append((connection, thread_messages))
     except ProviderOperationError as error:
         session.rollback()
         raise HTTPException(
@@ -954,6 +966,29 @@ def sync_lead_gmail_conversation(
         )
         score = row.qualification.total_score if row.qualification else 0
     session.commit()
+    from lead_agent.application.meeting_email import process_gmail_meeting_thread
+
+    for connection, thread_messages in automation_threads:
+        try:
+            process_gmail_meeting_thread(
+                session,
+                workspace_id=workspace.workspace_id,
+                lead=row,
+                gmail_connection=connection,
+                messages=thread_messages,
+                actor_id=workspace.actor_id,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "meeting_email.manual_gmail_sync_failed",
+                extra={
+                    "fields": {
+                        "workspace_id": str(workspace.workspace_id),
+                        "lead_id": str(row.id),
+                        "connection_id": str(connection.id),
+                    }
+                },
+            )
     return GmailConversationSyncResponse(
         messages_added=messages_added,
         threads_checked=len(checked_threads),

@@ -239,6 +239,58 @@ def get_meeting_recommendations(
             provider_errors=[],
         )
 
+    offer_event = next(
+        (
+            event
+            for event in session.scalars(
+                select(PipelineEventORM)
+                .where(
+                    PipelineEventORM.lead_id == lead_id,
+                    PipelineEventORM.workspace_id == workspace.workspace_id,
+                    PipelineEventORM.stage == "meeting_email_offer",
+                )
+                .order_by(PipelineEventORM.created_at.desc())
+                .limit(50)
+            )
+            if isinstance(event.details, dict)
+            and event.details.get("thread_id") == source["thread_id"]
+        ),
+        None,
+    )
+    automation_message = (
+        "Meeting-related Gmail text found. When the request is recent and times are "
+        "available, Corral emails numbered options and books after the lead selects one."
+    )
+    if offer_event is not None:
+        if offer_event.status == "awaiting_confirmation":
+            automation_message = (
+                "Available times were emailed to the lead. Corral will book after "
+                "they clearly reply with an option number."
+            )
+        elif offer_event.status == "booked":
+            automation_message = (
+                "The meeting is booked. The lead selected an emailed option or an "
+                "admin confirmed a time."
+            )
+        elif offer_event.status == "needs_attention":
+            offer_details = (
+                offer_event.details if isinstance(offer_event.details, dict) else {}
+            )
+            if offer_details.get("lead_requested_other_times"):
+                automation_message = (
+                    "The lead asked for different times. Review their reply and send "
+                    "new options or follow up manually."
+                )
+            else:
+                automation_message = (
+                    "Meeting email scheduling needs attention. Check the connected "
+                    "Gmail and calendar accounts."
+                )
+        elif offer_event.status == "superseded":
+            automation_message = (
+                "The lead sent a newer meeting request; Corral will use the latest request."
+            )
+
     suggestions: list[MeetingSuggestion] = []
     provider_errors: list[MeetingProviderError] = []
     for provider in ("google_calendar", "calendly"):
@@ -278,7 +330,7 @@ def get_meeting_recommendations(
     return MeetingRecommendationsResponse(
         lead_id=lead_id,
         detected=True,
-        message="Meeting-related Gmail text found. Choose a time and confirm to create the event.",
+        message=automation_message,
         source_message_id=source["message_id"],
         source_subject=source["subject"] or None,
         source_excerpt=source["excerpt"] or None,
@@ -317,6 +369,14 @@ def confirm_meeting(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> ConfirmMeetingResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    session.scalar(
+        select(LeadORM.id)
+        .where(
+            LeadORM.id == lead_id,
+            LeadORM.workspace_id == workspace.workspace_id,
+        )
+        .with_for_update()
+    )
     message_event = next(
         (
             event
@@ -333,7 +393,16 @@ def confirm_meeting(
     )
     if message_event is None:
         raise HTTPException(status_code=404, detail="The source Gmail message was not found.")
-    latest_request = find_meeting_request(session, lead, workspace.workspace_id)
+    source_details = (
+        message_event.details if isinstance(message_event.details, dict) else {}
+    )
+    source_thread_id = str(source_details.get("thread_id") or "")
+    latest_request = find_meeting_request(
+        session,
+        lead,
+        workspace.workspace_id,
+        thread_id=source_thread_id or None,
+    )
     if latest_request is None or latest_request["message_id"] != request.source_message_id:
         raise HTTPException(
             status_code=409,
@@ -342,6 +411,50 @@ def confirm_meeting(
                 "Refresh the recommendations."
             ),
         )
+    existing_for_source = next(
+        (
+            event
+            for event in session.scalars(
+                select(PipelineEventORM).where(
+                    PipelineEventORM.lead_id == lead_id,
+                    PipelineEventORM.workspace_id == workspace.workspace_id,
+                    PipelineEventORM.stage == "meeting_scheduled",
+                )
+            )
+            if isinstance(event.details, dict)
+            and event.details.get("source_message_id") == request.source_message_id
+        ),
+        None,
+    )
+    if existing_for_source is not None:
+        offers = session.scalars(
+            select(PipelineEventORM).where(
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.stage == "meeting_email_offer",
+            )
+        )
+        for offer in offers:
+            offer_details = offer.details if isinstance(offer.details, dict) else {}
+            if (
+                offer_details.get("source_message_id") == request.source_message_id
+                and offer.status
+                in {"sending", "awaiting_confirmation", "booking", "needs_attention"}
+            ):
+                offer.status = "booked"
+                offer.details = {
+                    **offer_details,
+                    "booking_method": (
+                        "automatic_lead_confirmation"
+                        if workspace.actor_id == "system:meeting-email-automation"
+                        else "manual"
+                    ),
+                    "provider_event_id": existing_for_source.details.get(
+                        "provider_event_id", ""
+                    ),
+                }
+        session.commit()
+        return _existing_confirmation_response(lead_id, existing_for_source)
     existing = appointment_event_exists(
         session,
         workspace_id=workspace.workspace_id,
@@ -559,6 +672,30 @@ def confirm_meeting(
             created_at=now,
         )
     )
+    offers = session.scalars(
+        select(PipelineEventORM).where(
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.stage == "meeting_email_offer",
+        )
+    )
+    for offer in offers:
+        offer_details = offer.details if isinstance(offer.details, dict) else {}
+        if (
+            offer_details.get("source_message_id") == request.source_message_id
+            and offer.status
+            in {"sending", "awaiting_confirmation", "booking", "needs_attention"}
+        ):
+            offer.status = "booked"
+            offer.details = {
+                **offer_details,
+                "booking_method": (
+                    "automatic_lead_confirmation"
+                    if workspace.actor_id == "system:meeting-email-automation"
+                    else "manual"
+                ),
+                "provider_event_id": provider_event_id,
+            }
     session.commit()
     return ConfirmMeetingResponse(
         lead_id=lead_id,
