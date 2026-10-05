@@ -35,6 +35,14 @@ from lead_agent.infrastructure.secrets import get_secret_store
 
 router = APIRouter(prefix="/v1/leads", tags=["lead-meetings"])
 MeetingProvider = Literal["google_calendar", "calendly"]
+MeetingOfferStatus = Literal[
+    "sending",
+    "awaiting_confirmation",
+    "booking",
+    "booked",
+    "needs_attention",
+    "superseded",
+]
 
 
 class MeetingSuggestion(BaseModel):
@@ -81,6 +89,9 @@ class MeetingRecommendationsResponse(BaseModel):
     suggestions: list[MeetingSuggestion]
     calendly_event_types: list[MeetingCalendlyEventType] = Field(default_factory=list)
     provider_errors: list[MeetingProviderError]
+    offer_status: MeetingOfferStatus | None = None
+    offer_booking_error: str | None = None
+    offer_calendar_provider: MeetingProvider | None = None
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -276,6 +287,23 @@ def get_meeting_recommendations(
         "otherwise, Corral emails open options and books after the lead selects one."
     )
     requested_date = requested_meeting_date(source.get("excerpt", ""))
+    offer_details = (
+        offer_event.details
+        if offer_event is not None and isinstance(offer_event.details, dict)
+        else {}
+    )
+    offer_status = offer_event.status if offer_event is not None else None
+    offer_booking_error = (
+        str(offer_details["booking_error"])
+        if offer_details.get("booking_error")
+        else None
+    )
+    raw_offer_provider = offer_details.get("calendar_provider")
+    offer_calendar_provider = (
+        raw_offer_provider
+        if raw_offer_provider in {"google_calendar", "calendly"}
+        else None
+    )
     if offer_event is not None:
         if offer_event.status == "awaiting_confirmation":
             automation_message = (
@@ -283,14 +311,17 @@ def get_meeting_recommendations(
                 "they clearly reply with an option number."
             )
         elif offer_event.status == "booked":
-            automation_message = (
-                "The meeting is booked after Corral confirmed an exact requested "
-                "time was free, the lead selected an emailed option, or an admin confirmed it."
-            )
+            if offer_calendar_provider == "calendly":
+                automation_message = (
+                    "Calendly booking recorded. Calendly’s event-type notification "
+                    "settings control whether the invitee receives an email."
+                )
+            else:
+                automation_message = (
+                    "The meeting is booked after Corral confirmed an exact requested "
+                    "time was free, the lead selected an emailed option, or an admin confirmed it."
+                )
         elif offer_event.status == "needs_attention":
-            offer_details = (
-                offer_event.details if isinstance(offer_event.details, dict) else {}
-            )
             if offer_details.get("lead_requested_other_times"):
                 automation_message = (
                     "The lead asked for different times. Review their reply and send "
@@ -304,6 +335,12 @@ def get_meeting_recommendations(
                 automation_message = (
                     "Reconnect Gmail and grant permission to send email so Corral "
                     "can deliver meeting options."
+                )
+            elif offer_booking_error:
+                automation_message = (
+                    "Corral could not verify the booking. Check the calendar for an "
+                    "existing event before trying again; a booking may have succeeded "
+                    "without being recorded here."
                 )
             else:
                 automation_message = (
@@ -372,6 +409,9 @@ def get_meeting_recommendations(
             for event_type in calendly_event_types
         ],
         provider_errors=provider_errors,
+        offer_status=offer_status,
+        offer_booking_error=offer_booking_error,
+        offer_calendar_provider=offer_calendar_provider,
     )
 
 
@@ -633,29 +673,7 @@ def confirm_meeting(
                     status_code=409,
                     detail="The Calendly event duration changed. Refresh the recommendations.",
                 )
-            available = client.available_times(
-                request.event_type_uri,
-                request.start_at - timedelta(minutes=1),
-                request.start_at + timedelta(minutes=1),
-            )
             selected_start = request.start_at.astimezone(UTC)
-            selected_is_available = False
-            for item in available:
-                raw_start = item.get("start_time")
-                if not isinstance(raw_start, str):
-                    continue
-                offered_start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
-                if offered_start.astimezone(UTC) == selected_start:
-                    selected_is_available = True
-                    break
-            if not selected_is_available:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "That time is no longer available in Calendly. "
-                        "Refresh the recommendations."
-                    ),
-                )
             existing_events = client.scheduled_events(
                 user_uri=user_uri,
                 invitee_email=lead.email,
@@ -675,6 +693,28 @@ def confirm_meeting(
                 None,
             )
             if already_booked is None:
+                available = client.available_times(
+                    request.event_type_uri,
+                    request.start_at - timedelta(minutes=1),
+                    request.start_at + timedelta(minutes=1),
+                )
+                selected_is_available = False
+                for item in available:
+                    raw_start = item.get("start_time")
+                    if not isinstance(raw_start, str):
+                        continue
+                    offered_start = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
+                    if offered_start.astimezone(UTC) == selected_start:
+                        selected_is_available = True
+                        break
+                if not selected_is_available:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "That time is no longer available in Calendly. "
+                            "Refresh the recommendations."
+                        ),
+                    )
                 invitee = client.create_invitee(
                     event_type_uri=request.event_type_uri,
                     start_at=request.start_at,

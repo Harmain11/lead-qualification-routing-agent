@@ -65,6 +65,9 @@ const styles = `
 .lmp-calendly-howto summary { cursor:pointer; color:#875a30; font-weight:700; }
 .lmp-calendly-howto ol { margin:6px 0 0; padding-left:18px; }
 .lmp-calendly-howto li { margin:4px 0; line-height:1.5; }
+.lmp-booking-warning, .lmp-calendly-notice { margin-top:8px; padding:9px 10px; border:1px solid #eaded0; border-radius:8px; background:#fffaf4; color:#76563a; font-size:9px; line-height:1.5; }
+.lmp-booking-warning p, .lmp-calendly-notice p { margin:3px 0; }
+.lmp-calendly-notice a { color:#875a30; font-weight:700; }
 .lmp-skeleton { display:grid; gap:10px; }
 .lmp-skeleton-line { height:11px; border-radius:8px; background:linear-gradient(90deg,#edf2ed 25%,#e3ebe4 42%,#edf2ed 65%); background-size:240% 100%; animation:lmp-shimmer 1.4s ease-in-out infinite; }
 @keyframes lmp-shimmer { to { background-position:-120% 0; } }
@@ -270,7 +273,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
       <div className="lmp-head-main">
         <span className="lmp-mark" aria-hidden="true">MTG</span>
         <div>
-          <span className="lmp-eyebrow">Lead-confirmed · email scheduling</span>
+          <span className="lmp-eyebrow">Gmail · calendar scheduling</span>
           <h3 id={`meeting-title-${lead.id}`}>Schedule from the lead’s email</h3>
           <p className="lmp-intro">When a recent synced Gmail request has open times, Corral emails numbered options and books the lead’s clear numbered choice. You can still book manually below.</p>
         </div>
@@ -307,6 +310,16 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
             <div className="lmp-context-top"><span className="lmp-context-label">Conversation evidence</span>{recommendations.source_subject && <span className="lmp-subject">{recommendations.source_subject}</span>}</div>
             {recommendations.source_excerpt && <p className="lmp-excerpt">{recommendations.source_excerpt}</p>}
             {recommendations.message && <p className="lmp-excerpt">{recommendations.message}</p>}
+            {recommendations.offer_status === "needs_attention" && recommendations.offer_booking_error && <div className="lmp-booking-warning" role="alert">
+              <b>Booking attempt detail</b>
+              <p>{recommendations.offer_booking_error}</p>
+              <p>Check the calendar for an existing event before trying again; Corral may not have recorded a booking that succeeded.</p>
+            </div>}
+            {recommendations.offer_status === "booked" && recommendations.offer_calendar_provider === "calendly" && <div className="lmp-calendly-notice" role="status">
+              <b>Did the invitee miss the confirmation?</b>
+              <p>Calendly controls invitee email and calendar invitations in the event type’s notification settings. Check the invitee email and confirm an email confirmation or calendar invitation is enabled.</p>
+              <a href="https://calendly.com/help/calendly-scheduling-notifications" target="_blank" rel="noreferrer">Review Calendly notification settings</a>
+            </div>}
           </div>}
 
           {!hasCalendar && <div className="lmp-state">
@@ -431,7 +444,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
           <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> Confirm this meeting?</div>
           <p>This action will add the meeting to the selected workspace account. Its connected account owner will be the host.</p>
           <div className="lmp-review-slot">{providerName(selectedSlot.provider)} · {selectedSlot.account_name}<br />{meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)} · {selectedSlot.time_zone}</div>
-          <p><strong>Invite notice:</strong> Calendly or Google Calendar may send its normal invite notification when the meeting is added.</p>
+          <p><strong>Invite notice:</strong> Calendly uses the selected event type’s notification settings. If the invitee does not receive an email or calendar invite, <a href="https://calendly.com/help/calendly-scheduling-notifications" target="_blank" rel="noreferrer">check Calendly’s notification settings</a>.</p>
           {confirmError && <div className="lmp-provider-error" role="alert" style={{ marginTop: 10 }}>{confirmError}</div>}
           <div className="lmp-review-actions">
             <button className="lmp-secondary" type="button" disabled={confirming} onClick={() => { setReviewing(false); setConfirmError(null); }}>Back to times</button>

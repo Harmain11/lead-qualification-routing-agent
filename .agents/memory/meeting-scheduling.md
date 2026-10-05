@@ -3,9 +3,9 @@ name: Meeting scheduling safety
 description: Product requirements for Gmail-based meeting recommendations in Corral.
 ---
 
-Read the tracked Gmail conversation in the correct workspace and Gmail mailbox. A date-only request gets open options for that date. An exact future date and time may be booked only after the connected calendar confirms it is free; if it is not free, email available options and book only after the lead clearly selects one. Do not book ambiguous replies, and keep the existing manual booking path.
+Read the tracked Gmail conversation in the correct workspace and Gmail mailbox. A date-only request gets open options for that date. An exact future date and time may be booked only after the connected calendar confirms it is free; if it is not free, email available options and automatically book after the lead clearly selects a numbered option. Do not book ambiguous replies, and keep the existing manual booking path.
 
-**Why:** The user clarified that an exact date/time can be booked automatically when available, while date-only requests must get options and unavailable times must fall back to options.
+**Why:** The user confirmed that clear numbered replies should continue to book automatically; exact date/time requests may also book when available, while date-only requests must get options.
 
 **How to apply:** Interpret requested times in the connected calendar’s timezone. Use the lead’s exact Gmail connection, thread, and workspace when routing messages and offers. Send options in that same thread; accept only a clear numbered selection for offered slots. Keep ambiguous replies and requests for different times visible for team follow-up.
 
@@ -20,3 +20,9 @@ Calendly's connected external calendars are account-level settings shared by its
 **Why:** Calendly's current help center states connected calendars apply to all event types and documents reconnecting/connecting calendars separately from event type setup.
 
 **How to apply:** Distinguish choosing a working event type from choosing the underlying external calendar. When no Calendly type has availability, guide users to reconnect or connect a calendar first; offer event-type setup steps only as a separate remedy.
+
+Before rejecting a Calendly booking as unavailable, check for a matching scheduled event for the same invitee, event type, and start time. Calendly may already have created it even if Corral did not record the response. Do not send a second confirmation email from Corral by default; Calendly's event-type notification settings govern its standard invite and confirmation.
+
+**Why:** A booking can exist in Calendly after Corral reports a booking error, and duplicating Calendly's normal email can confuse the invitee.
+
+**How to apply:** Reconcile an existing provider event before rechecking availability or retrying a booking. Show the stored booking error and direct missing-email issues to Calendly's event-type notification settings rather than sending another message.
