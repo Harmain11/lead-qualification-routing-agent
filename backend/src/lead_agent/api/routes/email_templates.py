@@ -34,10 +34,21 @@ class EmailTemplateEdit(BaseModel):
         return value
 
 
+class EmailTemplateGenerationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    subject: str | None = Field(default=None, min_length=1, max_length=180)
+    body: str | None = Field(default=None, min_length=10, max_length=5000)
+
+
 def _response(kind: str, row: WorkspaceEmailTemplateORM | None) -> dict[str, str]:
     if row is None:
         return {"kind": kind, **DEFAULT_EMAIL_TEMPLATES[kind], "generation_method": "manual"}
-    return {"kind": kind, "subject": row.subject, "body": row.body, "generation_method": row.generation_method}
+    return {
+        "kind": kind,
+        "subject": row.subject,
+        "body": row.body,
+        "generation_method": row.generation_method,
+    }
 
 
 def _load(session: Session, workspace_id, kind: str) -> WorkspaceEmailTemplateORM | None:
@@ -54,7 +65,10 @@ def get_email_templates(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
 ) -> list[dict[str, str]]:
-    return [get_email_template(session, workspace.workspace_id, kind) for kind in ("confirmation", "follow_up")]
+    return [
+        get_email_template(session, workspace.workspace_id, kind)
+        for kind in ("confirmation", "follow_up")
+    ]
 
 
 @router.put("/{kind}")
@@ -92,29 +106,48 @@ def save_email_template(
 @router.post("/{kind}/generate")
 def generate_email_template(
     kind: TemplateKind,
+    request: EmailTemplateGenerationRequest | None = None,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
 ) -> dict[str, str]:
     provider = resolve_workspace_reasoning_provider(session, workspace.workspace_id)
     draft = getattr(provider, "draft_follow_up", None)
     if not callable(draft):
-        raise HTTPException(status_code=409, detail="Configure an AI drafting provider to generate a template.")
+        raise HTTPException(
+            status_code=409,
+            detail="Configure an AI drafting provider to generate a template.",
+        )
+    current = _response(kind, _load(session, workspace.workspace_id, kind))
+    sample_subject = (
+        request.subject
+        if request is not None and request.subject is not None
+        else current["subject"]
+    )
+    sample_body = (
+        request.body if request is not None and request.body is not None else current["body"]
+    )
+    supported_placeholders = (
+        "{{lead_name}}",
+        "{{company_name}}",
+        "{{product_or_service}}",
+        "{{job_title}}",
+    )
+    required_placeholders = [
+        placeholder
+        for placeholder in supported_placeholders
+        if placeholder in f"{sample_subject}\n{sample_body}"
+    ]
     facts = {
-        "lead_name": "there",
+        "template_generation": True,
+        "email_purpose": kind,
+        "style_reference": {"subject": sample_subject, "body": sample_body},
+        "required_placeholders": required_placeholders,
+        "lead_name": "{{lead_name}}",
         "company": "{{company_name}}",
         "job_title": "{{job_title}}",
         "requested_product_or_service": "{{product_or_service}}",
-        "original_message": (
-            "Create a reusable workspace email template. Preserve the placeholders "
-            "{{lead_name}}, {{company_name}}, {{product_or_service}}, and {{job_title}}. "
-            + (
-                "This is an acknowledgment of a newly received inquiry. Confirm receipt, "
-                "do not claim a person reviewed it, and do not add a sales pitch."
-                if kind == "confirmation"
-                else "This is a personal sales follow-up that asks one relevant next-step question."
-            )
-        ),
-        "qualification": "lead qualification",
+        "original_message": "Reusable workspace template; no individual lead message is available.",
+        "qualification": "not applicable",
         "qualification_score": 0,
         "next_step_recommendation": "Use only the provided merge fields; invent no facts.",
         "conversion_goal": "{{product_or_service}}",
@@ -122,9 +155,24 @@ def generate_email_template(
     try:
         content = FollowUpEmailContent.model_validate(draft(facts))
     except Exception as error:
-        raise HTTPException(status_code=502, detail="AI could not generate an email template. Try again.") from error
-    subject = content.subject.replace("lead workflow automation", "{{product_or_service}}")
-    body = content.body.replace("Hi there,", "Hi {{lead_name}},").replace(
-        "your company", "{{company_name}}"
-    )
-    return {"kind": kind, "subject": subject, "body": body, "generation_method": "ai"}
+        raise HTTPException(
+            status_code=502,
+            detail="AI could not generate an email template. Try again.",
+        ) from error
+    generated_text = f"{content.subject}\n{content.body}"
+    if any(placeholder not in generated_text for placeholder in required_placeholders):
+        raise HTTPException(
+            status_code=502,
+            detail="AI did not preserve all merge fields from the sample. Try again.",
+        )
+    if " ".join(content.body.split()).casefold() == " ".join(sample_body.split()).casefold():
+        raise HTTPException(
+            status_code=502,
+            detail="AI returned the sample unchanged. Try generating it again.",
+        )
+    return {
+        "kind": kind,
+        "subject": content.subject,
+        "body": content.body,
+        "generation_method": "ai",
+    }
