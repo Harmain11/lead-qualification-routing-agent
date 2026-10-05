@@ -44,6 +44,27 @@ const styles = `
 .lmp-link-button { padding:0; border:0; background:transparent; color:var(--lmp-green); font-size:10px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
 .lmp-recovery-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:8px; }
 .lmp-recovery-actions .lmp-link-button { display:inline-block; }
+.lmp-calendly-types { display:grid; gap:8px; margin:14px 0; padding:12px; border:1px solid var(--lmp-line); border-radius:10px; background:#f8fbf8; }
+.lmp-calendly-types-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.lmp-calendly-types-head b, .lmp-calendly-type b { display:block; color:#355644; font-size:10px; }
+.lmp-calendly-types-head small, .lmp-calendly-type small { display:block; margin-top:3px; color:#748278; font-size:9px; line-height:1.5; }
+.lmp-calendly-type-list { display:grid; gap:6px; }
+.lmp-calendly-type { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:42px; padding:8px 10px; border:1px solid #e3ebe3; border-radius:8px; background:white; text-align:left; }
+.lmp-calendly-type:not(:disabled) { cursor:pointer; }
+.lmp-calendly-type:not(:disabled):hover { border-color:#a9c7b0; background:#f7faf7; }
+.lmp-calendly-type.is-selected { border-color:#8db69a; background:#edf5ee; }
+.lmp-calendly-type:disabled { cursor:not-allowed; opacity:.82; }
+.lmp-type-status { flex:0 0 auto; color:#8a5a36; font-size:8px; font-weight:700; }
+.lmp-type-status.available { color:#347253; }
+.lmp-calendly-fix { margin-top:9px; padding-top:9px; border-top:1px solid #eaded0; }
+.lmp-calendly-fix > b, .lmp-calendly-fallback > b { color:#875a30; font-size:10px; }
+.lmp-calendly-fix ol { margin:6px 0 6px; padding-left:18px; }
+.lmp-calendly-fix li, .lmp-calendly-fix p, .lmp-calendly-fallback p { margin:4px 0; color:#76563a; font-size:9px; line-height:1.55; }
+.lmp-calendly-fallback { margin-top:12px; padding:12px; border:1px solid #eaded0; border-radius:9px; background:#fffaf4; }
+.lmp-calendly-howto { margin-top:9px; color:#76563a; font-size:9px; }
+.lmp-calendly-howto summary { cursor:pointer; color:#875a30; font-weight:700; }
+.lmp-calendly-howto ol { margin:6px 0 0; padding-left:18px; }
+.lmp-calendly-howto li { margin:4px 0; line-height:1.5; }
 .lmp-skeleton { display:grid; gap:10px; }
 .lmp-skeleton-line { height:11px; border-radius:8px; background:linear-gradient(90deg,#edf2ed 25%,#e3ebe4 42%,#edf2ed 65%); background-size:240% 100%; animation:lmp-shimmer 1.4s ease-in-out infinite; }
 @keyframes lmp-shimmer { to { background-position:-120% 0; } }
@@ -110,6 +131,7 @@ const styles = `
  .lmp-refresh { width:34px; padding:0; justify-content:center; font-size:0; }.lmp-refresh-mark { font-size:16px; }
  .lmp-option { grid-template-columns:18px minmax(0,1fr); }.lmp-option-duration { grid-column:2; margin-top:-3px; }
  .lmp-controls { align-items:stretch; flex-direction:column; }.lmp-controls .lmp-primary { width:100%; }
+  .lmp-calendly-type { align-items:flex-start; }.lmp-type-status { margin-top:2px; }
 }
 `;
 
@@ -118,6 +140,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [selectedCalendlyEventTypeUri, setSelectedCalendlyEventTypeUri] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -136,6 +159,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
     setLoadState("loading");
     setLoadError(null);
     setRecommendations(null);
+    setSelectedCalendlyEventTypeUri(null);
     setSelectedKey(null);
     setReviewing(false);
     setConfirming(false);
@@ -161,20 +185,36 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
     };
   }, [lead.id, refreshToken, retryCount, canEdit]);
 
+  const calendlyEventTypes = recommendations?.calendly_event_types ?? [];
+  const visibleSuggestions = useMemo(
+    () => (recommendations?.suggestions ?? []).filter((slot) =>
+      !selectedCalendlyEventTypeUri
+      || slot.provider !== "calendly"
+      || slot.event_type_uri === selectedCalendlyEventTypeUri
+    ),
+    [recommendations, selectedCalendlyEventTypeUri],
+  );
   const selectedSlot = useMemo(
-    () => recommendations?.suggestions.find((slot) => slotKey(slot) === selectedKey) ?? null,
-    [recommendations, selectedKey],
+    () => visibleSuggestions.find((slot) => slotKey(slot) === selectedKey) ?? null,
+    [visibleSuggestions, selectedKey],
   );
   const groupedSuggestions = useMemo(() => {
     const groups = new Map<string, MeetingSuggestion[]>();
-    for (const slot of recommendations?.suggestions ?? []) {
+    for (const slot of visibleSuggestions) {
       const key = [slot.provider, slot.connection_id, slot.event_type_name || ""].join("|");
       groups.set(key, [...(groups.get(key) ?? []), slot]);
     }
     return [...groups.entries()];
-  }, [recommendations]);
+  }, [visibleSuggestions]);
   const connectedCalendars = (recommendations?.integrations ?? []).filter((integration) => integration.connected);
   const hasCalendar = connectedCalendars.length > 0;
+  const hasConnectedCalendly = connectedCalendars.some((integration) => integration.provider === "calendly");
+  const hasCalendlySlots = (recommendations?.suggestions ?? []).some((slot) => slot.provider === "calendly");
+  const hasUnavailableCalendlyEventType = calendlyEventTypes.some((eventType) => eventType.status === "calendar_unavailable");
+  const hasAvailableCalendlyEventType = calendlyEventTypes.some((eventType) => eventType.status === "available");
+  const calendlyCalendarError = recommendations?.provider_errors.some(
+    (error) => error.code === "calendly_external_calendar_unavailable",
+  ) ?? false;
   const noThread = !recommendations?.source_message_id;
   const noMeetingDetected = Boolean(recommendations && !recommendations.detected && recommendations.source_message_id);
 
@@ -274,8 +314,32 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
             <div><h4>No connected calendar account</h4><p>Connect a Google Calendar or Calendly account in Integrations settings to see bookable times. No event or message has been created.</p></div>
           </div>}
 
+        {!result && calendlyEventTypes.length > 0 && <div className="lmp-calendly-types" aria-label="Calendly event type availability">
+            <div className="lmp-calendly-types-head">
+              <div><b>Calendly event types</b><small>Choose a type to filter its available times. Calendly’s connected calendars are shared across event types.</small></div>
+              {selectedCalendlyEventTypeUri && <button className="lmp-link-button" type="button" onClick={() => { setSelectedCalendlyEventTypeUri(null); setSelectedKey(null); setReviewing(false); }}>Show all</button>}
+            </div>
+            <div className="lmp-calendly-type-list">
+              {calendlyEventTypes.map((eventType) => {
+                const available = eventType.status === "available";
+                const statusLabel = available ? "Times available" : eventType.status === "no_times" ? "No times in this window" : "Calendar unavailable";
+                return <button
+                  className={`lmp-calendly-type${selectedCalendlyEventTypeUri === eventType.event_type_uri ? " is-selected" : ""}`}
+                  key={eventType.event_type_uri}
+                  type="button"
+                  aria-pressed={selectedCalendlyEventTypeUri === eventType.event_type_uri}
+                  disabled={!available}
+                  onClick={() => { setSelectedCalendlyEventTypeUri(eventType.event_type_uri); setSelectedKey(null); setReviewing(false); setConfirmError(null); }}
+                >
+                  <span><b>{eventType.event_type_name}</b><small>{statusLabel}</small></span>
+                  <span className={`lmp-type-status${available ? " available" : ""}`}>{available ? "Available" : eventType.status === "no_times" ? "No times" : "Reconnect"}</span>
+                </button>;
+              })}
+            </div>
+          </div>}
+
           {recommendations.suggestions.length > 0 && <>
-            <div className="lmp-section-heading"><h4>Available times</h4><span className="lmp-count">{recommendations.suggestions.length} option{recommendations.suggestions.length === 1 ? "" : "s"}</span></div>
+            <div className="lmp-section-heading"><h4>Available times</h4><span className="lmp-count">{visibleSuggestions.length} option{visibleSuggestions.length === 1 ? "" : "s"}</span></div>
             <div className="lmp-groups">
               {groupedSuggestions.map(([groupKey, slots]) => {
                 const first = slots[0];
@@ -313,11 +377,50 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
 
         {recommendations.provider_errors.length > 0 && <div className="lmp-errors" aria-label="Provider issues">
           {recommendations.provider_errors.map((error, index) => <div className="lmp-provider-error" key={`${error.provider}-${index}`}><b>{providerName(error.provider)}{error.retryable ? " · can retry" : ""}</b>{error.message}
-            {error.code === "calendly_external_calendar_unavailable" && <div className="lmp-recovery-actions">
-              <a className="lmp-link-button" href="https://calendly.com/help/how-to-reconnect-a-disconnected-calendar" target="_blank" rel="noreferrer">Open Calendly reconnect guide</a>
-              <button className="lmp-link-button" type="button" onClick={retryAvailability} disabled={confirming}>Retry availability</button>
+            {error.code === "calendly_external_calendar_unavailable" && <div className="lmp-calendly-fix">
+              <b>Fix this in Calendly</b>
+              <ol>
+                <li>Open Calendly’s calendar settings and reconnect the disconnected Google, Outlook, or Exchange calendar.</li>
+                <li>If needed, connect another calendar and choose which calendars to check for conflicts and where to add new bookings.</li>
+                <li>Return here and check availability again.</li>
+              </ol>
+              <p>Calendly applies connected calendars across the account; a new event type alone will not repair a disconnected calendar. {hasAvailableCalendlyEventType ? "Choose an event type marked “Available” above to use its time slots." : "No checked event type currently has working availability; reconnect or connect a calendar before checking again."}</p>
+              <details className="lmp-calendly-howto">
+                <summary>How to create a Calendly event type</summary>
+                <ol>
+                  <li>In Calendly, open Scheduling and choose <strong>+ Create</strong>.</li>
+                  <li>Choose an event type, such as One-on-one, then set its name, duration, location, and availability.</li>
+                  <li>Save the event type. Reconnect the calendar first if Calendly says it is unavailable.</li>
+                </ol>
+              </details>
+              <div className="lmp-recovery-actions">
+                <a className="lmp-link-button" href="https://calendly.com/help/how-to-reconnect-a-disconnected-calendar" target="_blank" rel="noreferrer">Reconnect a calendar</a>
+                <a className="lmp-link-button" href="https://calendly.com/help/connect-your-calendar-to-calendly" target="_blank" rel="noreferrer">Connect or choose a calendar</a>
+                <a className="lmp-link-button" href="https://calendly.com/help/how-to-set-up-an-event-type" target="_blank" rel="noreferrer">Create an event type</a>
+                <button className="lmp-link-button" type="button" onClick={retryAvailability} disabled={confirming}>Check Calendly again</button>
+              </div>
             </div>}
           </div>)}
+        </div>}
+
+        {hasConnectedCalendly && ((!hasCalendlySlots && !calendlyCalendarError) || (hasCalendlySlots && hasUnavailableCalendlyEventType)) && <div className="lmp-calendly-fallback">
+          <b>{hasUnavailableCalendlyEventType ? "Some Calendly event types cannot read the connected calendar" : "Need Calendly options?"}</b>
+          <p>{hasUnavailableCalendlyEventType
+            ? "Choose an event type marked Available above to use its times. To restore the others, reconnect or connect the calendar in Calendly. Calendly shares connected calendars across event types."
+            : "Check that Calendly has an active event type with future availability and a connected calendar. If you need one, create an event type in Calendly, then check again here."}</p>
+          {!hasCalendlySlots && <details className="lmp-calendly-howto">
+            <summary>How to create a Calendly event type</summary>
+            <ol>
+              <li>In Calendly, open Scheduling and choose <strong>+ Create</strong>.</li>
+              <li>Choose an event type, such as One-on-one, then set its name, duration, location, and availability.</li>
+              <li>Save it, return here, and check Calendly again.</li>
+            </ol>
+          </details>}
+          <div className="lmp-recovery-actions">
+            <a className="lmp-link-button" href="https://calendly.com/help/connect-your-calendar-to-calendly" target="_blank" rel="noreferrer">Connect a calendar</a>
+            <a className="lmp-link-button" href="https://calendly.com/help/how-to-set-up-an-event-type" target="_blank" rel="noreferrer">Create an event type</a>
+            <button className="lmp-link-button" type="button" onClick={retryAvailability} disabled={confirming}>Check Calendly again</button>
+          </div>
         </div>}
 
         {!result && selectedSlot && !reviewing && !confirmError && <div className="lmp-controls">

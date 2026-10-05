@@ -344,6 +344,10 @@ def test_exact_calendly_booking_skips_disconnected_event_type(
                     ),
                     "event_type_available_times",
                 )
+            if event_type_uri.endswith("/no-open-times"):
+                return []
+            if event_type_uri.endswith("/no-open-times"):
+                return []
             return [{"start_time": "2026-11-06T14:00:00Z"}]
 
     monkeypatch.setattr(
@@ -648,6 +652,12 @@ def test_calendly_suggestions_skip_event_types_with_unavailable_calendars() -> N
                     "duration": 30,
                     "active": True,
                 },
+                {
+                    "uri": "https://api.calendly.com/event_types/no-open-times",
+                    "name": "No open times",
+                    "duration": 30,
+                    "active": True,
+                },
             ]
 
         def available_times(self, event_type_uri: str, _start: datetime, _end: datetime):
@@ -667,19 +677,28 @@ def test_calendly_suggestions_skip_event_types_with_unavailable_calendars() -> N
                     ),
                     "event_type_available_times",
                 )
+            if event_type_uri.endswith("/no-open-times"):
+                return []
             return [{"start_time": "2026-11-06T14:00:00Z"}]
 
+    event_type_statuses: list[dict[str, str]] = []
     slots = recommend_calendly_slots(
         Calendly(),  # type: ignore[arg-type]
         connection_id="connection-2",
         source_message_id="message-2",
         now=datetime(2026, 10, 5, 10, tzinfo=UTC),
         requested_date=datetime(2026, 11, 6, tzinfo=UTC).date(),
+        event_type_statuses=event_type_statuses,
     )
 
     assert len(slots) == 1
     assert slots[0]["event_type_uri"].endswith("/working")
     assert slots[0]["event_type_name"] == "Working calendar"
+    assert [event_type["status"] for event_type in event_type_statuses] == [
+        "calendar_unavailable",
+        "available",
+        "no_times",
+    ]
 
 
 def test_calendly_suggestions_query_the_requested_day_with_a_future_buffer() -> None:

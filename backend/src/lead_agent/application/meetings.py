@@ -367,6 +367,7 @@ def recommend_calendly_slots(
     now: datetime | None = None,
     requested_date: date | None = None,
     limit_per_event_type: int = 5,
+    event_type_statuses: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
     current = now or datetime.now(UTC)
     user = client.current_user()
@@ -396,11 +397,19 @@ def recommend_calendly_slots(
             continue
         if duration < 5 or duration > 180:
             continue
+        event_type_status = {
+            "event_type_uri": uri,
+            "event_type_name": name,
+            "status": "no_times",
+        }
+        if event_type_statuses is not None:
+            event_type_statuses.append(event_type_status)
         try:
             event_slots = client.available_times(uri, window_start, window_end)
         except ProviderOperationError as error:
             if error.code != "calendly_external_calendar_unavailable":
                 raise
+            event_type_status["status"] = "calendar_unavailable"
             unavailable_event_type_errors.append(error)
             continue
         event_suggestions = 0
@@ -426,6 +435,8 @@ def recommend_calendly_slots(
             event_suggestions += 1
             if event_suggestions >= limit_per_event_type:
                 break
+        if event_suggestions:
+            event_type_status["status"] = "available"
     if not suggestions and unavailable_event_type_errors:
         raise unavailable_event_type_errors[0]
     return suggestions

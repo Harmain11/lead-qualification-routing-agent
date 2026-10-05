@@ -14,3 +14,9 @@ Calendly account and event-type reads can succeed even when an event type’s li
 **Why:** Calendly returned a specific external-calendar failure from availability lookup while its OAuth identity and event-type endpoints remained accessible.
 
 **How to apply:** Treat this error as a Calendly-side calendar connection issue. Preserve results from other event types and show a clear reconnect instruction only when the affected provider cannot offer alternatives.
+
+Calendly's connected external calendars are account-level settings shared by its event types; a separate calendar cannot be assigned to each event type. Corral can show and filter event types with usable slots, but calendar reconnect/selection must happen in Calendly. Creating an event type does not repair a disconnected calendar.
+
+**Why:** Calendly's current help center states connected calendars apply to all event types and documents reconnecting/connecting calendars separately from event type setup.
+
+**How to apply:** Distinguish choosing a working event type from choosing the underlying external calendar. When no Calendly type has availability, guide users to reconnect or connect a calendar first; offer event-type setup steps only as a separate remedy.
