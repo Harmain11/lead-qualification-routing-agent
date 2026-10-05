@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { confirmLeadMeeting, getLeadMeetingRecommendations, syncLeadGmailConversation } from "../api";
+import { confirmLeadMeeting, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
 import type { ConfirmMeetingResult, Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
 
 type Props = { lead: Lead; refreshToken?: number; canEdit: boolean; onScheduled?: () => void };
@@ -147,6 +147,9 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [retryingBooking, setRetryingBooking] = useState(false);
+  const [retryBookingMessage, setRetryBookingMessage] = useState("");
+  const [retryBookingError, setRetryBookingError] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [result, setResult] = useState<ConfirmMeetingResult | null>(null);
   const actionSequence = useRef(0);
@@ -166,6 +169,9 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
     setSelectedKey(null);
     setReviewing(false);
     setConfirming(false);
+    setRetryingBooking(false);
+    setRetryBookingMessage("");
+    setRetryBookingError("");
     setConfirmError(null);
     setResult(null);
     (async () => {
@@ -242,6 +248,32 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
     }
   };
 
+  const retrySavedBooking = async () => {
+    const sourceMessageId = recommendations?.source_message_id;
+    if (!canEdit || !sourceMessageId || retryingBooking) return;
+    const targetLeadId = lead.id;
+    const actionId = ++actionSequence.current;
+    setRetryingBooking(true);
+    setRetryBookingMessage("");
+    setRetryBookingError("");
+    try {
+      const retryResult = await retryConfirmedMeetingBooking(targetLeadId, sourceMessageId);
+      if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
+      setRetryBookingMessage(retryResult.message);
+      const updated = await getLeadMeetingRecommendations(targetLeadId);
+      if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
+      setRecommendations(updated);
+      setLoadState("ready");
+    } catch (reason: unknown) {
+      if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
+      setRetryBookingError(reason instanceof Error ? reason.message : "The saved booking could not be retried.");
+    } finally {
+      if (currentLeadId.current === targetLeadId && actionSequence.current === actionId) {
+        setRetryingBooking(false);
+      }
+    }
+  };
+
   const scheduleAnother = () => {
     setResult(null);
     setConfirmError(null);
@@ -313,7 +345,16 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
             {recommendations.offer_status === "needs_attention" && (recommendations.offer_booking_error || recommendations.offer_has_confirmed_selection) && <div className="lmp-booking-warning" role="alert">
               <b>Booking attempt detail</b>
               {recommendations.offer_booking_error && <p>{recommendations.offer_booking_error}</p>}
-              {recommendations.offer_has_confirmed_selection && <p>Use “Read Gmail & refresh” to retry this confirmed choice. Corral checks the connected calendar for an existing event before attempting another booking.</p>}
+              {recommendations.offer_has_confirmed_selection && <>
+                <p>Retry the saved choice directly. Corral checks the connected calendar for an existing event before attempting another booking.</p>
+                <div className="lmp-recovery-actions">
+                  <button className="lmp-primary" type="button" onClick={() => void retrySavedBooking()} disabled={!canEdit || retryingBooking}>
+                    {retryingBooking ? "Retrying booking…" : "Retry confirmed booking"}
+                  </button>
+                </div>
+              </>}
+              {retryBookingMessage && <p role="status">{retryBookingMessage}</p>}
+              {retryBookingError && <p role="alert">{retryBookingError}</p>}
             </div>}
             {recommendations.offer_status === "booked" && recommendations.offer_calendar_provider === "calendly" && <div className="lmp-calendly-notice" role="status">
               <b>Did the invitee miss the confirmation?</b>

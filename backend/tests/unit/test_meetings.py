@@ -7,6 +7,10 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from lead_agent.api.routes.leads import (
+    RetryConfirmedMeetingBookingRequest,
+    retry_saved_meeting_booking,
+)
 from lead_agent.api.routes.meetings import (
     ConfirmMeetingRequest,
     MeetingProviderError,
@@ -760,6 +764,83 @@ def test_confirmed_booking_retry_stops_after_a_newer_lead_reply() -> None:
         )
         is None
     )
+
+
+def test_direct_booking_retry_fetches_the_saved_gmail_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    gmail_connection_id = uuid4()
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    gmail_connection = SimpleNamespace(id=gmail_connection_id)
+    offer = SimpleNamespace(
+        status="needs_attention",
+        details={
+            "source_message_id": "gmail-source-1",
+            "thread_id": "gmail-thread-1",
+            "gmail_connection_id": str(gmail_connection_id),
+            "reply_message_id": "gmail-reply-1",
+            "selected_option": 2,
+            "options": [{}, {}, {}],
+        },
+    )
+    reply = {
+        "message_id": "gmail-reply-1",
+        "thread_id": "gmail-thread-1",
+        "direction": "inbound",
+        "sender": "buyer@example.test",
+        "body": "2",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+
+    class RetrySession:
+        def __init__(self) -> None:
+            self.scalar_results = [lead, gmail_connection]
+            self.scalar_calls = 0
+            self.commits = 0
+
+        def scalar(self, _statement):
+            result = self.scalar_results[self.scalar_calls]
+            self.scalar_calls += 1
+            return result
+
+        def scalars(self, _statement):
+            return iter([offer])
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    class GmailProvider:
+        def fetch_thread(self, thread_id: str, *, lead_email: str):
+            assert thread_id == "gmail-thread-1"
+            assert lead_email == "buyer@example.test"
+            return [reply]
+
+    class Resolver:
+        def resolve(self, *_args, **_kwargs):
+            return GmailProvider()
+
+    def process_retry(_session, **kwargs):
+        assert kwargs["messages"][0]["gmail_connection_id"] == str(gmail_connection_id)
+        offer.status = "booked"
+        offer.details = {**offer.details, "provider_event_id": "calendly-event-1"}
+        return "booked"
+
+    monkeypatch.setattr(meeting_email, "process_gmail_meeting_thread", process_retry)
+    session = RetrySession()
+
+    result = retry_saved_meeting_booking(
+        lead_id,
+        RetryConfirmedMeetingBookingRequest(source_message_id="gmail-source-1"),
+        session=session,  # type: ignore[arg-type]
+        resolver=Resolver(),  # type: ignore[arg-type]
+        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="owner"),
+    )
+
+    assert result.status == "booked"
+    assert "existing calendar event" in result.message
+    assert session.commits == 1
 
 
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
