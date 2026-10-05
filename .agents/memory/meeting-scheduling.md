@@ -8,3 +8,9 @@ Read the tracked Gmail conversation in the correct workspace and Gmail mailbox. 
 **Why:** The user clarified that an exact date/time can be booked automatically when available, while date-only requests must get options and unavailable times must fall back to options.
 
 **How to apply:** Interpret requested times in the connected calendar’s timezone. Use the lead’s exact Gmail connection, thread, and workspace when routing messages and offers. Send options in that same thread; accept only a clear numbered selection for offered slots. Keep ambiguous replies and requests for different times visible for team follow-up.
+
+Calendly account and event-type reads can succeed even when an event type’s linked external calendar is unavailable. Skip only that event type when other Calendly event types can still provide slots; if none work, direct the user to reconnect the calendar inside Calendly rather than reauthorizing Corral’s Calendly connection.
+
+**Why:** Calendly returned a specific external-calendar failure from availability lookup while its OAuth identity and event-type endpoints remained accessible.
+
+**How to apply:** Treat this error as a Calendly-side calendar connection issue. Preserve results from other event types and show a clear reconnect instruction only when the affected provider cannot offer alternatives.

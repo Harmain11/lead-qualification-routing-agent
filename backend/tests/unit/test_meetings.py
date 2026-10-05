@@ -292,6 +292,92 @@ def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
     assert str(captured[0].source_gmail_connection_id) == gmail_connection_id
 
 
+def test_exact_calendly_booking_skips_disconnected_event_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = SimpleNamespace(
+        id=uuid4(), provider_type="calendly", account_name="admin@example.test"
+    )
+    captured: list[ConfirmMeetingRequest] = []
+
+    class Calendly:
+        def current_user(self):
+            return {
+                "uri": "https://api.calendly.com/users/123",
+                "timezone": "UTC",
+            }
+
+        def event_types(self, _user_uri: str):
+            return [
+                {
+                    "uri": "https://api.calendly.com/event_types/disconnected",
+                    "name": "Disconnected calendar",
+                    "duration": 30,
+                    "active": True,
+                },
+                {
+                    "uri": "https://api.calendly.com/event_types/working",
+                    "name": "Working calendar",
+                    "duration": 30,
+                    "active": True,
+                },
+            ]
+
+        def available_times(self, event_type_uri: str, _start: datetime, _end: datetime):
+            if event_type_uri.endswith("/disconnected"):
+                raise _http_error(
+                    "calendly",
+                    httpx.Response(
+                        400,
+                        json={
+                            "details": [
+                                {
+                                    "parameter": "event_type",
+                                    "message": "Failed to connect to external calendar.",
+                                }
+                            ]
+                        },
+                    ),
+                    "event_type_available_times",
+                )
+            return [{"start_time": "2026-11-06T14:00:00Z"}]
+
+    monkeypatch.setattr(
+        meeting_email,
+        "_active_connection",
+        lambda _session, _workspace_id, provider: (
+            connection if provider == "calendly" else None
+        ),
+    )
+    monkeypatch.setattr(
+        meeting_email,
+        "_authorized_credentials",
+        lambda *_args, **_kwargs: {"access_token": "calendly-token"},
+    )
+    monkeypatch.setattr(meeting_email, "CalendlyClient", lambda _token: Calendly())
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.confirm_meeting",
+        lambda _lead_id, request, **_kwargs: (
+            captured.append(request) or SimpleNamespace(provider_event_id="event-1")
+        ),
+    )
+
+    booked = meeting_email._attempt_requested_time_booking(
+        object(),  # type: ignore[arg-type]
+        SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+        uuid4(),
+        "actor-1",
+        "source-message-1",
+        str(uuid4()),
+        "November 6, 2026 at 2:00 PM",
+        datetime(2026, 10, 5, 10, tzinfo=UTC),
+    )
+
+    assert booked is True
+    assert len(captured) == 1
+    assert captured[0].event_type_uri == "https://api.calendly.com/event_types/working"
+
+
 def test_date_only_request_does_not_attempt_direct_booking() -> None:
     booked = meeting_email._attempt_requested_time_booking(
         object(),  # type: ignore[arg-type]
@@ -533,6 +619,63 @@ def test_calendly_suggestions_include_event_duration_and_timezone() -> None:
     assert slots[0]["end_at"] == (start_at + timedelta(minutes=45)).isoformat()
     assert slots[0]["time_zone"] == "Asia/Karachi"
     assert slots[0]["source_message_id"] == "message-2"
+
+
+def test_calendly_suggestions_skip_event_types_with_unavailable_calendars() -> None:
+    class Calendly:
+        def current_user(self):
+            return {
+                "uri": "https://api.calendly.com/users/123",
+                "email": "admin@example.test",
+                "timezone": "UTC",
+            }
+
+        def event_types(self, _user_uri: str):
+            return [
+                {
+                    "uri": "https://api.calendly.com/event_types/disconnected",
+                    "name": "Disconnected calendar",
+                    "duration": 30,
+                    "active": True,
+                },
+                {
+                    "uri": "https://api.calendly.com/event_types/working",
+                    "name": "Working calendar",
+                    "duration": 30,
+                    "active": True,
+                },
+            ]
+
+        def available_times(self, event_type_uri: str, _start: datetime, _end: datetime):
+            if event_type_uri.endswith("/disconnected"):
+                raise _http_error(
+                    "calendly",
+                    httpx.Response(
+                        400,
+                        json={
+                            "details": [
+                                {
+                                    "parameter": "event_type",
+                                    "message": "Failed to connect to external calendar.",
+                                }
+                            ]
+                        },
+                    ),
+                    "event_type_available_times",
+                )
+            return [{"start_time": "2026-11-06T14:00:00Z"}]
+
+    slots = recommend_calendly_slots(
+        Calendly(),  # type: ignore[arg-type]
+        connection_id="connection-2",
+        source_message_id="message-2",
+        now=datetime(2026, 10, 5, 10, tzinfo=UTC),
+        requested_date=datetime(2026, 11, 6, tzinfo=UTC).date(),
+    )
+
+    assert len(slots) == 1
+    assert slots[0]["event_type_uri"].endswith("/working")
+    assert slots[0]["event_type_name"] == "Working calendar"
 
 
 def test_calendly_suggestions_query_the_requested_day_with_a_future_buffer() -> None:
