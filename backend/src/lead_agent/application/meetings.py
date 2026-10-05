@@ -53,6 +53,16 @@ _MONTH_DAY_DATE = re.compile(
     re.IGNORECASE,
 )
 _ISO_DATE = re.compile(r"\b(?P<year>20\d{2})-(?P<month>\d{1,2})-(?P<day>\d{1,2})\b")
+_MERIDIEM_TIME = re.compile(
+    r"\b(?:(?:at)\s+|@\s*)?(?P<hour>\d{1,2})(?::(?P<minute>[0-5]\d))?\s*"
+    r"(?P<meridiem>a\.?m\.?|p\.?m\.?)(?=\s|[,.!?]|$)",
+    re.IGNORECASE,
+)
+_24_HOUR_TIME = re.compile(
+    r"\b(?:(?:at)\s+|@\s*)?(?P<hour>(?:[01]\d|2[0-3])):"
+    r"(?P<minute>[0-5]\d)\b",
+    re.IGNORECASE,
+)
 
 
 def find_meeting_request(
@@ -61,6 +71,7 @@ def find_meeting_request(
     workspace_id: Any,
     *,
     thread_id: str | None = None,
+    gmail_connection_id: str | None = None,
 ) -> dict[str, str] | None:
     messages = list(
         session.scalars(
@@ -84,6 +95,11 @@ def find_meeting_request(
         ):
             continue
         if thread_id is not None and str(details.get("thread_id") or "") != thread_id:
+            continue
+        if (
+            gmail_connection_id is not None
+            and str(details.get("gmail_connection_id") or "") != gmail_connection_id
+        ):
             continue
         subject = str(details.get("subject") or "").strip()
         body = str(details.get("body") or details.get("snippet") or "").strip()
@@ -234,12 +250,48 @@ def _timezone(name: str) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+def requested_meeting_time(text: str) -> time | None:
+    """Parse a stated clock time only when its meaning is unambiguous."""
+    clean = text.strip()
+    if re.search(r"\bnoon\b", clean, re.IGNORECASE):
+        return time(12, 0)
+    if re.search(r"\bmidnight\b", clean, re.IGNORECASE):
+        return time(0, 0)
+    match = _MERIDIEM_TIME.search(clean)
+    if match is not None:
+        hour = int(match.group("hour"))
+        minute = int(match.group("minute") or "0")
+        meridiem = match.group("meridiem").lower().replace(".", "")
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if meridiem == "pm" else 0)
+        return time(hour, minute)
+    match = _24_HOUR_TIME.search(clean)
+    if match is None:
+        return None
+    return time(int(match.group("hour")), int(match.group("minute")))
+
+
+def requested_meeting_datetime(
+    text: str,
+    *,
+    time_zone: str,
+    reference: datetime | None = None,
+) -> datetime | None:
+    day = requested_meeting_date(text, reference=reference)
+    clock = requested_meeting_time(text)
+    if day is None or clock is None:
+        return None
+    return datetime.combine(day, clock, tzinfo=_timezone(time_zone))
+
+
 def recommend_google_calendar_slots(
     client: GoogleCalendarClient,
     *,
     connection_id: str,
     account_name: str,
     source_message_id: str,
+    source_gmail_connection_id: str | None = None,
     now: datetime | None = None,
     requested_date: date | None = None,
     limit: int = 5,
@@ -297,6 +349,7 @@ def recommend_google_calendar_slots(
                     "end_at": local_end.isoformat(),
                     "time_zone": time_zone,
                     "source_message_id": source_message_id,
+                    "source_gmail_connection_id": source_gmail_connection_id,
                 }
             )
             if len(available) >= limit:
@@ -309,6 +362,7 @@ def recommend_calendly_slots(
     *,
     connection_id: str,
     source_message_id: str,
+    source_gmail_connection_id: str | None = None,
     now: datetime | None = None,
     requested_date: date | None = None,
     limit_per_event_type: int = 5,
@@ -340,7 +394,7 @@ def recommend_calendly_slots(
             continue
         if duration < 5 or duration > 180:
             continue
-        event_slots = client.available_times(uri, current, window_end)
+        event_slots = client.available_times(uri, window_start, window_end)
         event_suggestions = 0
         for slot in event_slots:
             start_at = _parse_provider_time(slot.get("start_time"))
@@ -358,6 +412,7 @@ def recommend_calendly_slots(
                     "end_at": end_at.isoformat(),
                     "time_zone": time_zone,
                     "source_message_id": source_message_id,
+                    "source_gmail_connection_id": source_gmail_connection_id,
                 }
             )
             event_suggestions += 1
@@ -393,6 +448,7 @@ def appointment_event_exists(
     provider: str,
     connection_id: str,
     source_message_id: str,
+    source_gmail_connection_id: str | None = None,
     start_at: datetime,
 ) -> PipelineEventORM | None:
     events = session.scalars(
@@ -409,6 +465,11 @@ def appointment_event_exists(
             details.get("provider") == provider
             and details.get("connection_id") == connection_id
             and details.get("source_message_id") == source_message_id
+            and (
+                source_gmail_connection_id is None
+                or str(details.get("source_gmail_connection_id") or "")
+                == source_gmail_connection_id
+            )
             and details.get("start_at") == target_start
         ):
             return event

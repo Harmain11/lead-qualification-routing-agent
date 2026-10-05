@@ -1,2 +1,2 @@
 - [OpenAI credential prompts](openai-credential-prompts.md) — a stored workspace key should stop repeated setup prompts; only missing or invalid credentials should prompt again.
-- [Meeting scheduling safety](meeting-scheduling.md) — Read tracked Gmail for recommendations; only create a calendar event after an admin confirms a slot.
+- [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.

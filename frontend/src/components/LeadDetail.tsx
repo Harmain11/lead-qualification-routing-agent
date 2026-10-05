@@ -160,9 +160,13 @@ function LeadProgressEditor({
       const result = await syncLeadGmailConversation(lead.id);
       setEvents(await getLeadPipelineHistory(lead.id));
       onConversationSynced();
-      setNotice(result.messages_added
+      const summary = result.messages_added
         ? `Synced ${result.messages_added} new Gmail messages across ${result.threads_checked} threads. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).${result.truncated ? " More than 200 threads were found; sync was capped for safety." : ""}`
-        : `No new Gmail messages found across ${result.threads_checked} threads. Current assessment: ${title(result.classification)} (${result.score}/100).`);
+        : `No new Gmail messages found across ${result.threads_checked} threads. Current assessment: ${title(result.classification)} (${result.score}/100).`;
+      const inaccessible = result.threads_unreadable
+        ? ` Google denied access to ${result.threads_unreadable} Gmail thread${result.threads_unreadable === 1 ? "" : "s"}; verify the connected mailbox can open it.`
+        : "";
+      setNotice(`${summary}${inaccessible}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to sync Gmail conversation");
     } finally { setSyncBusy(false); }

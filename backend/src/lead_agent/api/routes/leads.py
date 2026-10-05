@@ -128,6 +128,7 @@ class LeadProgressResponse(BaseModel):
 class GmailConversationSyncResponse(BaseModel):
     messages_added: int
     threads_checked: int
+    threads_unreadable: int = 0
     truncated: bool
     classification: str
     score: int
@@ -872,17 +873,25 @@ def sync_lead_gmail_conversation(
             )
         )
     )
-    known_message_ids = {
-        str(event.details.get("message_id"))
-        for event in existing_events
-        if event.details.get("message_id")
-    }
+    known_message_ids_by_connection: set[tuple[str, str]] = set()
+    legacy_known_message_ids: set[str] = set()
+    for event in existing_events:
+        details = event.details if isinstance(event.details, dict) else {}
+        message_id = str(details.get("message_id") or "")
+        if not message_id:
+            continue
+        connection_id = str(details.get("gmail_connection_id") or "")
+        if connection_id:
+            known_message_ids_by_connection.add((connection_id, message_id))
+        else:
+            legacy_known_message_ids.add(message_id)
     now = datetime.now(UTC)
     checked_threads: set[tuple[str, str]] = set()
     automation_threads: list[
         tuple[ProviderConnectionORM, list[dict[str, str]]]
     ] = []
     messages_added = 0
+    threads_unreadable = 0
     truncated = False
     try:
         for connection in connections:
@@ -916,13 +925,24 @@ def sync_lead_gmail_conversation(
                 if thread_key in checked_threads:
                     continue
                 checked_threads.add(thread_key)
-                thread_messages = provider.fetch_thread(
-                    thread_id, lead_email=row.email
-                )
+                try:
+                    thread_messages = provider.fetch_thread(
+                        thread_id, lead_email=row.email
+                    )
+                except ProviderOperationError as error:
+                    if error.code != "gmail_thread_access_denied":
+                        raise
+                    threads_unreadable += 1
+                    continue
                 for message in thread_messages:
                     message["gmail_connection_id"] = str(connection.id)
                     message_id = message.get("message_id", "")
-                    if not message_id or message_id in known_message_ids:
+                    scoped_message_id = (str(connection.id), message_id)
+                    if (
+                        not message_id
+                        or scoped_message_id in known_message_ids_by_connection
+                        or message_id in legacy_known_message_ids
+                    ):
                         continue
                     event_time = now
                     if message.get("sent_at"):
@@ -941,7 +961,7 @@ def sync_lead_gmail_conversation(
                             created_at=event_time,
                         )
                     )
-                    known_message_ids.add(message_id)
+                    known_message_ids_by_connection.add(scoped_message_id)
                     messages_added += 1
                 if thread_messages:
                     automation_threads.append((connection, thread_messages))
@@ -992,6 +1012,7 @@ def sync_lead_gmail_conversation(
     return GmailConversationSyncResponse(
         messages_added=messages_added,
         threads_checked=len(checked_threads),
+        threads_unreadable=threads_unreadable,
         truncated=truncated,
         classification=classification,
         score=score,

@@ -4,19 +4,22 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.application.meetings import (
+    _plain_excerpt,
     find_meeting_request,
     match_confirmed_meeting_option,
     meeting_reply_requests_other_times,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
     requested_meeting_date,
+    requested_meeting_datetime,
+    requested_meeting_time,
 )
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -30,7 +33,11 @@ from lead_agent.infrastructure.db.models import (
     PipelineEventORM,
     ProviderConnectionORM,
 )
-from lead_agent.infrastructure.gmail import GmailInboundProvider, GmailOutboundProvider
+from lead_agent.infrastructure.gmail import (
+    GMAIL_SEND_SCOPE,
+    GmailInboundProvider,
+    GmailOutboundProvider,
+)
 from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import WorkspaceAuthorizedConnectionResolver
 from lead_agent.infrastructure.secrets import get_secret_store
@@ -93,7 +100,11 @@ def _active_connection(
 
 
 def _thread_offer(
-    session: Session, workspace_id: UUID, lead_id: UUID, thread_id: str
+    session: Session,
+    workspace_id: UUID,
+    lead_id: UUID,
+    thread_id: str,
+    gmail_connection_id: str | None = None,
 ) -> PipelineEventORM | None:
     events = session.scalars(
         select(PipelineEventORM)
@@ -107,7 +118,14 @@ def _thread_offer(
     )
     for event in events:
         details = event.details if isinstance(event.details, dict) else {}
-        if details.get("thread_id") == thread_id:
+        if (
+            details.get("thread_id") == thread_id
+            and (
+                gmail_connection_id is None
+                or str(details.get("gmail_connection_id") or "")
+                == gmail_connection_id
+            )
+        ):
             return event
     return None
 
@@ -129,15 +147,26 @@ def record_gmail_thread_messages(
             )
         )
     )
-    known_ids = {
-        str(event.details.get("message_id"))
-        for event in existing
-        if isinstance(event.details, dict) and event.details.get("message_id")
-    }
+    known_ids_by_connection: set[tuple[str, str]] = set()
+    legacy_known_ids: set[str] = set()
+    for event in existing:
+        if not isinstance(event.details, dict) or not event.details.get("message_id"):
+            continue
+        message_id = str(event.details["message_id"])
+        connection_id = str(event.details.get("gmail_connection_id") or "")
+        if connection_id:
+            known_ids_by_connection.add((connection_id, message_id))
+        else:
+            legacy_known_ids.add(message_id)
     added = 0
     for message in messages:
         message_id = str(message.get("message_id") or "")
-        if not message_id or message_id in known_ids:
+        scoped_id = (str(gmail_connection_id), message_id)
+        if (
+            not message_id
+            or scoped_id in known_ids_by_connection
+            or message_id in legacy_known_ids
+        ):
             continue
         details = dict(message)
         details["gmail_connection_id"] = str(gmail_connection_id)
@@ -153,7 +182,7 @@ def record_gmail_thread_messages(
                 created_at=sent_at or datetime.now(UTC),
             )
         )
-        known_ids.add(message_id)
+        known_ids_by_connection.add(scoped_id)
         added += 1
     if added:
         session.flush()
@@ -187,9 +216,40 @@ def _offer_email(
     first_name = (lead.full_name.strip().split() or ["there"])[0]
     provider_name = "Google Calendar" if provider == "google_calendar" else "Calendly"
     options = "\n".join(_format_slot(index, slot) for index, slot in enumerate(slots, 1))
+    requested_text = source.get("excerpt", "")
+    reference = _parse_datetime(source.get("sent_at"))
+    requested_date = requested_meeting_date(
+        requested_text, reference=reference
+    )
+    if requested_date is not None and requested_meeting_time(requested_text) is not None:
+        introduction = (
+            "I couldn't confirm the exact time you requested. Here are the "
+            "available options:"
+        )
+    elif requested_date is not None:
+        offered_dates = set()
+        for slot in slots:
+            start_at = _parse_datetime(slot.get("start_at"))
+            if start_at is None:
+                continue
+            try:
+                slot_zone = ZoneInfo(str(slot.get("time_zone") or "UTC"))
+            except (ZoneInfoNotFoundError, ValueError):
+                slot_zone = ZoneInfo("UTC")
+            offered_dates.add(start_at.astimezone(slot_zone).date())
+        date_label = f"{requested_date.strftime('%B')} {requested_date.day}"
+        if requested_date in offered_dates:
+            introduction = f"Here are the available times for {date_label}:"
+        else:
+            introduction = (
+                f"There are no open times on {date_label}. Here are the next "
+                "available options:"
+            )
+    else:
+        introduction = "Thanks for asking to meet. Here are some available times:"
     body = (
         f"Hi {first_name},\n\n"
-        "Thanks for asking to meet. Here are some available times:\n\n"
+        f"{introduction}\n\n"
         f"{options}\n\n"
         "Reply with the option number (for example, 2) to confirm. "
         f"We’ll add the meeting to {provider_name} and send you a calendar invitation. "
@@ -220,22 +280,43 @@ def _calendar_options(
                 session, workspace_id, connection, actor_id
             )
             if provider_name == "google_calendar":
+                client = GoogleCalendarClient(credentials["access_token"])
                 slots = recommend_google_calendar_slots(
-                    GoogleCalendarClient(credentials["access_token"]),
+                    client,
                     connection_id=str(connection.id),
                     account_name=connection.account_name,
                     source_message_id=source["message_id"],
+                    source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
                     limit=5,
                 )
+                if not slots and requested_date is not None:
+                    slots = recommend_google_calendar_slots(
+                        client,
+                        connection_id=str(connection.id),
+                        account_name=connection.account_name,
+                        source_message_id=source["message_id"],
+                        source_gmail_connection_id=source.get("gmail_connection_id"),
+                        limit=5,
+                    )
             else:
+                client = CalendlyClient(credentials["access_token"])
                 slots = recommend_calendly_slots(
-                    CalendlyClient(credentials["access_token"]),
+                    client,
                     connection_id=str(connection.id),
                     source_message_id=source["message_id"],
+                    source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
                     limit_per_event_type=5,
                 )
+                if not slots and requested_date is not None:
+                    slots = recommend_calendly_slots(
+                        client,
+                        connection_id=str(connection.id),
+                        source_message_id=source["message_id"],
+                        source_gmail_connection_id=source.get("gmail_connection_id"),
+                        limit_per_event_type=5,
+                    )
                 for slot in slots:
                     slot["account_name"] = connection.account_name
                 slots.sort(key=lambda slot: str(slot.get("start_at") or ""))
@@ -256,6 +337,143 @@ def _calendar_options(
     return None
 
 
+def _attempt_requested_time_booking(
+    session: Session,
+    lead: LeadORM,
+    workspace_id: UUID,
+    actor_id: str,
+    source_message_id: str,
+    source_gmail_connection_id: str | None,
+    request_text: str,
+    reference: datetime | None,
+) -> bool:
+    """Book a clearly stated future date/time only if a connected calendar accepts it."""
+    if (
+        requested_meeting_date(request_text, reference=reference) is None
+        or requested_meeting_time(request_text) is None
+    ):
+        return False
+    from lead_agent.api.routes.meetings import ConfirmMeetingRequest, confirm_meeting
+
+    workspace = WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id=actor_id,
+        role="owner",
+    )
+    for provider_name in ("google_calendar", "calendly"):
+        connection = _active_connection(session, workspace_id, provider_name)
+        if connection is None:
+            continue
+        try:
+            credentials = _authorized_credentials(
+                session, workspace_id, connection, actor_id
+            )
+            event_type_uri: str | None = None
+            event_type_name: str | None = None
+            if provider_name == "google_calendar":
+                client = GoogleCalendarClient(credentials["access_token"])
+                calendar = client.primary_calendar()
+                time_zone = str(calendar.get("timeZone") or "UTC")
+                start_at = requested_meeting_datetime(
+                    request_text, time_zone=time_zone, reference=reference
+                )
+                if start_at is None or start_at <= datetime.now(UTC) + timedelta(minutes=5):
+                    continue
+                end_at = start_at + timedelta(minutes=30)
+            else:
+                client = CalendlyClient(credentials["access_token"])
+                user = client.current_user()
+                user_uri = str(user.get("uri") or "")
+                time_zone = str(user.get("timezone") or "UTC")
+                start_at = requested_meeting_datetime(
+                    request_text, time_zone=time_zone, reference=reference
+                )
+                if start_at is None or start_at <= datetime.now(UTC) + timedelta(minutes=5):
+                    continue
+                event_types = client.event_types(user_uri) if user_uri else []
+                available_event_type = None
+                for event_type in event_types:
+                    uri = str(event_type.get("uri") or "")
+                    if not uri or event_type.get("active") is False:
+                        continue
+                    try:
+                        duration = int(event_type.get("duration") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if duration < 5 or duration > 180:
+                        continue
+                    available = client.available_times(
+                        uri,
+                        max(
+                            datetime.now(UTC) + timedelta(minutes=5),
+                            start_at - timedelta(minutes=1),
+                        ),
+                        start_at + timedelta(minutes=duration + 1),
+                    )
+                    matching = any(
+                        (
+                            slot_start := _parse_datetime(slot.get("start_time"))
+                        )
+                        is not None
+                        and slot_start.astimezone(UTC) == start_at.astimezone(UTC)
+                        for slot in available
+                    )
+                    if matching:
+                        available_event_type = (event_type, duration)
+                        break
+                if available_event_type is None:
+                    continue
+                event_type, duration = available_event_type
+                event_type_uri = str(event_type["uri"])
+                event_type_name = str(event_type.get("name") or "Calendly meeting")
+                end_at = start_at + timedelta(minutes=duration)
+
+            booking_request = ConfirmMeetingRequest(
+                provider=provider_name,
+                connection_id=connection.id,
+                source_message_id=source_message_id,
+                source_gmail_connection_id=source_gmail_connection_id,
+                start_at=start_at,
+                end_at=end_at,
+                time_zone=time_zone,
+                event_type_uri=event_type_uri,
+                event_type_name=event_type_name,
+            )
+            confirm_meeting(
+                lead.id,
+                booking_request,
+                session=session,
+                workspace=workspace,
+            )
+            return True
+        except HTTPException as error:
+            if error.status_code != 409:
+                _LOGGER.warning(
+                    "meeting_email.exact_time_booking_failed",
+                    extra={
+                        "fields": {
+                            "workspace_id": str(workspace_id),
+                            "lead_id": str(lead.id),
+                            "provider": provider_name,
+                            "status_code": error.status_code,
+                        }
+                    },
+                )
+        except ProviderOperationError as error:
+            _LOGGER.warning(
+                "meeting_email.exact_time_calendar_unavailable",
+                extra={
+                    "fields": {
+                        "workspace_id": str(workspace_id),
+                        "lead_id": str(lead.id),
+                        "provider": provider_name,
+                        "error_code": error.code,
+                    }
+                },
+            )
+    return False
+
+
 def _send_options(
     session: Session,
     lead: LeadORM,
@@ -268,7 +486,9 @@ def _send_options(
     thread_id = source.get("thread_id", "").strip()
     if not thread_id:
         return "no_thread"
-    existing_offer = _thread_offer(session, workspace_id, lead.id, thread_id)
+    existing_offer = _thread_offer(
+        session, workspace_id, lead.id, thread_id, str(gmail_connection.id)
+    )
     existing_details = (
         existing_offer.details if existing_offer is not None else {}
     )
@@ -276,6 +496,8 @@ def _send_options(
         existing_offer is not None
         and isinstance(existing_details, dict)
         and existing_details.get("source_message_id") == source["message_id"]
+        and existing_offer.status
+        in {"sending", _OFFER_PENDING, "booking", "booked"}
     ):
         return "already_offered"
     sent_at = _parse_datetime(source.get("sent_at"))
@@ -288,13 +510,14 @@ def _send_options(
         return "no_calendar_availability"
     calendar_connection, slots = selected_calendar
     provider = calendar_connection.provider_type
+    send_scope_missing = GMAIL_SEND_SCOPE not in set(gmail_connection.scopes or [])
 
     offer = PipelineEventORM(
         id=uuid4(),
         workspace_id=workspace_id,
         lead_id=lead.id,
         stage=_OFFER_STAGE,
-        status="sending",
+        status="needs_attention" if send_scope_missing else "sending",
         details={
             "thread_id": thread_id,
             "source_message_id": source["message_id"],
@@ -304,11 +527,18 @@ def _send_options(
             "calendar_connection_id": str(calendar_connection.id),
             "options": slots,
             "created_at": now.isoformat(),
+            **(
+                {"error_code": "gmail_send_scope_missing"}
+                if send_scope_missing
+                else {}
+            ),
         },
         created_at=now,
     )
     session.add(offer)
     session.commit()
+    if send_scope_missing:
+        return "needs_attention"
 
     try:
         credentials = _authorized_credentials(
@@ -396,6 +626,10 @@ def _book_selected_option(
             provider=str(selected["provider"]),
             connection_id=UUID(str(selected["connection_id"])),
             source_message_id=str(details["source_message_id"]),
+            source_gmail_connection_id=selected.get(
+                "source_gmail_connection_id"
+            )
+            or details.get("gmail_connection_id"),
             start_at=datetime.fromisoformat(str(selected["start_at"])),
             end_at=datetime.fromisoformat(str(selected["end_at"])),
             time_zone=str(selected.get("time_zone") or "UTC"),
@@ -493,7 +727,9 @@ def process_gmail_meeting_thread(
         return "no_single_thread"
     thread_id = next(iter(thread_ids))
 
-    offer = _thread_offer(session, workspace_id, lead.id, thread_id)
+    offer = _thread_offer(
+        session, workspace_id, lead.id, thread_id, str(gmail_connection.id)
+    )
     if offer is not None and offer.status == "sending":
         details = offer.details if isinstance(offer.details, dict) else {}
         metadata = (
@@ -542,6 +778,13 @@ def process_gmail_meeting_thread(
     if offer is not None and offer.status in {_OFFER_PENDING, "booking"}:
         details = offer.details if isinstance(offer.details, dict) else {}
         offered_at = _parse_datetime(details.get("offered_at") or details.get("created_at"))
+        source = find_meeting_request(
+            session,
+            lead,
+            workspace_id,
+            thread_id=thread_id,
+            gmail_connection_id=str(gmail_connection.id),
+        )
         for message in messages:
             if (
                 message.get("direction") != "inbound"
@@ -558,6 +801,82 @@ def process_gmail_meeting_thread(
             options = details.get("options", [])
             if not isinstance(options, list):
                 continue
+            option_number = match_confirmed_meeting_option(
+                message.get("body", ""), len(options)
+            )
+            if option_number is not None:
+                return _book_selected_option(
+                    session,
+                    lead,
+                    workspace_id,
+                    actor_id,
+                    offer,
+                    str(message.get("message_id") or ""),
+                    option_number,
+                )
+
+            reply_excerpt = _plain_excerpt(str(message.get("body") or ""), limit=2000)
+            request_text = "\n".join(
+                part
+                for part in (
+                    reply_excerpt,
+                    source.get("excerpt", "") if source is not None else "",
+                )
+                if part
+            )
+            if (
+                source is not None
+                and requested_meeting_date(
+                    request_text, reference=sent_at
+                ) is not None
+                and requested_meeting_time(request_text) is not None
+            ):
+                if _attempt_requested_time_booking(
+                    session,
+                    lead,
+                    workspace_id,
+                    actor_id,
+                    source["message_id"],
+                    source.get("gmail_connection_id"),
+                    request_text,
+                    sent_at,
+                ):
+                    offer.status = "booked"
+                    offer.details = {
+                        **(offer.details if isinstance(offer.details, dict) else details),
+                        "reply_message_id": str(message.get("message_id") or ""),
+                        "booking_source": "lead_requested_exact_time",
+                    }
+                    session.commit()
+                    return "booked"
+
+                offer.status = "superseded"
+                offer.details = {
+                    **details,
+                    "reply_message_id": str(message.get("message_id") or ""),
+                    "closed_reason": "requested_time_unavailable",
+                }
+                session.commit()
+                updated_source = {
+                    **source,
+                    "excerpt": request_text[:320],
+                    "sent_at": str(message.get("sent_at") or ""),
+                    "rfc_message_id": str(
+                        message.get("rfc_message_id")
+                        or source.get("rfc_message_id")
+                        or ""
+                    ),
+                }
+                return _send_options(
+                    session,
+                    lead,
+                    workspace_id,
+                    gmail_connection,
+                    messages,
+                    updated_source,
+                    actor_id,
+                )
+
             if meeting_reply_requests_other_times(message.get("body", "")):
                 offer.status = "needs_attention"
                 offer.details = {
@@ -567,24 +886,7 @@ def process_gmail_meeting_thread(
                 }
                 session.commit()
                 return "needs_attention"
-            option_number = match_confirmed_meeting_option(
-                message.get("body", ""), len(options)
-            )
-            if option_number is None:
-                continue
-            return _book_selected_option(
-                session,
-                lead,
-                workspace_id,
-                actor_id,
-                offer,
-                str(message.get("message_id") or ""),
-                option_number,
-            )
 
-        source = find_meeting_request(
-            session, lead, workspace_id, thread_id=thread_id
-        )
         if source is None or details.get("source_message_id") == source["message_id"]:
             return offer.status
         offer.status = "superseded"
@@ -593,7 +895,11 @@ def process_gmail_meeting_thread(
         offer = None
     else:
         source = find_meeting_request(
-            session, lead, workspace_id, thread_id=thread_id
+            session,
+            lead,
+            workspace_id,
+            thread_id=thread_id,
+            gmail_connection_id=str(gmail_connection.id),
         )
 
     if offer is not None and source is not None:
@@ -602,12 +908,49 @@ def process_gmail_meeting_thread(
             str(details.get("source_message_id") or ""),
             str(details.get("reply_message_id") or ""),
         }:
-            return offer.status
+            retry_after_gmail_reconnect = (
+                offer.status == "needs_attention"
+                and details.get("error_code")
+                in {
+                    "gmail_send_scope_missing",
+                    "gmail_insufficient_scope",
+                    "gmail_send_forbidden",
+                }
+                and GMAIL_SEND_SCOPE in set(gmail_connection.scopes or [])
+            )
+            if not retry_after_gmail_reconnect:
+                return offer.status
     if source is None:
         return "no_meeting_request"
     gmail_connection_id = source.get("gmail_connection_id")
     if gmail_connection_id and gmail_connection_id != str(gmail_connection.id):
         return "wrong_gmail_connection"
+    source_sent_at = _parse_datetime(source.get("sent_at"))
+    request_is_fresh = (
+        source_sent_at is not None
+        and datetime.now(UTC) - _MAX_REQUEST_AGE
+        <= source_sent_at
+        <= datetime.now(UTC) + timedelta(minutes=5)
+    )
+    if (
+        request_is_fresh
+        and requested_meeting_date(
+            source.get("excerpt", ""), reference=source_sent_at
+        )
+        is not None
+        and requested_meeting_time(source.get("excerpt", "")) is not None
+        and _attempt_requested_time_booking(
+            session,
+            lead,
+            workspace_id,
+            actor_id,
+            source["message_id"],
+            source.get("gmail_connection_id"),
+            source.get("excerpt", ""),
+            source_sent_at,
+        )
+    ):
+        return "booked"
     return _send_options(
         session,
         lead,

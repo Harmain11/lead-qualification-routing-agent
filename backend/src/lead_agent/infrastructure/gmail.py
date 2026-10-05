@@ -206,13 +206,25 @@ def _gmail_http_error(response: httpx.Response, *, path: str) -> ProviderOperati
             True,
         )
     elif status_code == 403:
+        is_send = path.lstrip("/") == "messages/send"
         code, category, reason, retryable = (
-            "gmail_thread_access_denied",
+            (
+                "gmail_send_forbidden"
+                if is_send
+                else "gmail_thread_access_denied"
+            ),
             "insufficient_permissions",
             (
-                "Google denied access to this Gmail thread. Check that it is "
-                "available in the connected mailbox; reconnect Gmail if this "
-                "affects every thread."
+                (
+                    "Gmail denied the email send. Reconnect Gmail and verify "
+                    "the account is allowed to send this message."
+                )
+                if is_send
+                else (
+                    "Google denied access to this Gmail thread. Check that it is "
+                    "available in the connected mailbox; reconnect Gmail if this "
+                    "affects every thread."
+                )
             ),
             False,
         )

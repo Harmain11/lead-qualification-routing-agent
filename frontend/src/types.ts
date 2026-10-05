@@ -361,6 +361,7 @@ export type MeetingSuggestion = {
   end_at: string;
   time_zone: string;
   source_message_id: string;
+  source_gmail_connection_id: string | null;
 };
 
 export type MeetingIntegrationState = {
@@ -442,6 +443,7 @@ export type LeadProgressResult = {
 export type GmailConversationSyncResult = {
   messages_added: number;
   threads_checked: number;
+  threads_unreadable: number;
   truncated: boolean;
   classification: string;
   score: number;
