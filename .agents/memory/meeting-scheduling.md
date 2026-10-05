@@ -26,3 +26,9 @@ Before rejecting a Calendly booking as unavailable, check for a matching schedul
 **Why:** A booking can exist in Calendly after Corral reports a booking error, and duplicating Calendly's normal email can confuse the invitee.
 
 **How to apply:** Reconcile an existing provider event before rechecking availability or retrying a booking. For a saved-choice retry, fetch its exact stored Gmail thread and pass the offer's original source message ID; current conversation evidence may point to a later reply. Detect meeting intent only in unquoted message text, and do not mistake a clear numbered choice for a new request because its subject contains meeting language. Preserve replies that ask for different times. Show provider errors and direct missing-email issues to Calendly's event-type notification settings rather than sending another message.
+
+Direct Calendly bookings must include the selected event type's configured location when it has one. Do not guess when there are multiple location choices or the invitee must supply location details.
+
+**Why:** On 2026-10-05, the user confirmed bookings worked after matching the invitee request's location to the selected Calendly event type; omitting it caused Calendly to reject the booking.
+
+**How to apply:** Derive the location from a fresh event-type response, include it in the invitee request, and keep regression coverage for that mapping. Calendly remains responsible for its standard confirmation email.
