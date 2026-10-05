@@ -249,15 +249,15 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
   };
 
   const retrySavedBooking = async () => {
-    const sourceMessageId = recommendations?.source_message_id;
-    if (!canEdit || !sourceMessageId || retryingBooking) return;
+    const offerSourceMessageId = recommendations?.offer_source_message_id;
+    if (!canEdit || !offerSourceMessageId || retryingBooking) return;
     const targetLeadId = lead.id;
     const actionId = ++actionSequence.current;
     setRetryingBooking(true);
     setRetryBookingMessage("");
     setRetryBookingError("");
     try {
-      const retryResult = await retryConfirmedMeetingBooking(targetLeadId, sourceMessageId);
+      const retryResult = await retryConfirmedMeetingBooking(targetLeadId, offerSourceMessageId);
       if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
       setRetryBookingMessage(retryResult.message);
       const updated = await getLeadMeetingRecommendations(targetLeadId);
@@ -348,7 +348,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
               {recommendations.offer_has_confirmed_selection && <>
                 <p>Retry the saved choice directly. Corral checks the connected calendar for an existing event before attempting another booking.</p>
                 <div className="lmp-recovery-actions">
-                  <button className="lmp-primary" type="button" onClick={() => void retrySavedBooking()} disabled={!canEdit || retryingBooking}>
+                  <button className="lmp-primary" type="button" onClick={() => void retrySavedBooking()} disabled={!canEdit || retryingBooking || !recommendations.offer_source_message_id}>
                     {retryingBooking ? "Retrying booking…" : "Retry confirmed booking"}
                   </button>
                 </div>

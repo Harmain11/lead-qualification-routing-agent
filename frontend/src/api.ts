@@ -502,12 +502,12 @@ export function syncLeadGmailConversation(leadId: string): Promise<GmailConversa
 
 export function retryConfirmedMeetingBooking(
   leadId: string,
-  sourceMessageId: string,
+  offerSourceMessageId: string,
 ): Promise<RetryConfirmedMeetingBookingResult> {
   return jsonRequest<RetryConfirmedMeetingBookingResult>(`/v1/leads/${leadId}/meeting-booking/retry`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source_message_id: sourceMessageId }),
+    body: JSON.stringify({ offer_source_message_id: offerSourceMessageId }),
   });
 }
 

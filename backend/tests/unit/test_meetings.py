@@ -15,6 +15,7 @@ from lead_agent.api.routes.meetings import (
     ConfirmMeetingRequest,
     MeetingProviderError,
     confirm_meeting,
+    get_meeting_recommendations,
 )
 from lead_agent.application import meeting_email
 from lead_agent.application.meetings import (
@@ -832,7 +833,7 @@ def test_direct_booking_retry_fetches_the_saved_gmail_thread(
 
     result = retry_saved_meeting_booking(
         lead_id,
-        RetryConfirmedMeetingBookingRequest(source_message_id="gmail-source-1"),
+        RetryConfirmedMeetingBookingRequest(offer_source_message_id="gmail-source-1"),
         session=session,  # type: ignore[arg-type]
         resolver=Resolver(),  # type: ignore[arg-type]
         workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="owner"),
@@ -841,6 +842,62 @@ def test_direct_booking_retry_fetches_the_saved_gmail_thread(
     assert result.status == "booked"
     assert "existing calendar event" in result.message
     assert session.commits == 1
+
+
+def test_recommendations_expose_saved_offer_source_message_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    gmail_connection_id = str(uuid4())
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    offer = SimpleNamespace(
+        status="needs_attention",
+        details={
+            "source_message_id": "original-request-1",
+            "thread_id": "gmail-thread-1",
+            "gmail_connection_id": gmail_connection_id,
+            "reply_message_id": "numbered-reply-1",
+            "selected_option": 2,
+            "options": [{}, {}, {}],
+            "calendar_provider": "calendly",
+        },
+    )
+    source = {
+        "message_id": "numbered-reply-1",
+        "thread_id": "gmail-thread-1",
+        "gmail_connection_id": gmail_connection_id,
+        "subject": "Re: Timing confirmation",
+        "excerpt": "5",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+
+    class RecommendationsSession:
+        def scalars(self, _statement):
+            return iter([offer])
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._lead_or_404",
+        lambda *_args, **_kwargs: lead,
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._workspace_calendar_connections",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.find_meeting_request",
+        lambda *_args, **_kwargs: source,
+    )
+
+    result = get_meeting_recommendations(
+        lead_id,
+        session=RecommendationsSession(),  # type: ignore[arg-type]
+        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="owner"),
+    )
+
+    assert result.source_message_id == "numbered-reply-1"
+    assert result.offer_source_message_id == "original-request-1"
+    assert result.offer_has_confirmed_selection is True
 
 
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:

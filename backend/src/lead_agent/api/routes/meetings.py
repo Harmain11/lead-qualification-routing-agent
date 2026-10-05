@@ -83,6 +83,7 @@ class MeetingRecommendationsResponse(BaseModel):
     detected: bool
     message: str
     source_message_id: str | None = None
+    offer_source_message_id: str | None = None
     source_subject: str | None = None
     source_excerpt: str | None = None
     integrations: list[MeetingIntegrationState]
@@ -416,6 +417,11 @@ def get_meeting_recommendations(
         detected=True,
         message=automation_message,
         source_message_id=source["message_id"],
+        offer_source_message_id=(
+            str(offer_details["source_message_id"])
+            if offer_details.get("source_message_id")
+            else None
+        ),
         source_subject=source["subject"] or None,
         source_excerpt=source["excerpt"] or None,
         integrations=_integration_states(connections),
