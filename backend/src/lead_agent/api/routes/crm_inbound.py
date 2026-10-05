@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Literal
 from uuid import UUID
 
@@ -35,6 +36,7 @@ from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import get_provider_connection
 
 router = APIRouter(prefix="/v1/integrations/connections", tags=["crm-inbound"])
+_LOGGER = logging.getLogger("lead_agent.api.crm_inbound")
 
 
 class InboundSyncRequest(BaseModel):
@@ -135,6 +137,26 @@ def synchronize_inbound_crm(
         raise HTTPException(status_code=status_code, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    if connection.provider_type == "gmail" and request.object_type == "message":
+        try:
+            from lead_agent.application.meeting_email import process_recent_gmail_imports
+
+            process_recent_gmail_imports(
+                session,
+                connection=connection,
+                actor_id=workspace.actor_id,
+                since=run.started_at,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "meeting_email.manual_inbound_sync_failed",
+                extra={
+                    "fields": {
+                        "workspace_id": str(workspace.workspace_id),
+                        "connection_id": str(connection.id),
+                    }
+                },
+            )
     return crm_inbound_run_response(run)
 
 

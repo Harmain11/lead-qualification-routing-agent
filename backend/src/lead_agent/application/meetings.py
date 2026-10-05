@@ -29,10 +29,22 @@ _MEETING_PATTERNS = (
     ),
 )
 _QUOTED_LINE = re.compile(r"^\s*(?:>|On .+wrote:|From:|Sent:)", re.IGNORECASE)
+_OTHER_TIME_PATTERNS = (
+    re.compile(
+        r"\b(?:none of these|none of them|none of those|neither|none work|no times? work|"
+        r"different times?|other times?|another time|can't make|cannot make|"
+        r"not available)\b",
+        re.IGNORECASE,
+    ),
+)
 
 
 def find_meeting_request(
-    session: Session, lead: LeadORM, workspace_id: Any
+    session: Session,
+    lead: LeadORM,
+    workspace_id: Any,
+    *,
+    thread_id: str | None = None,
 ) -> dict[str, str] | None:
     messages = list(
         session.scalars(
@@ -48,6 +60,15 @@ def find_meeting_request(
     )
     for event in messages:
         details = event.details if isinstance(event.details, dict) else {}
+        direction = str(details.get("direction") or getattr(event, "status", "")).lower()
+        sender = str(details.get("sender") or "").strip().lower()
+        lead_email = str(getattr(lead, "email", "") or "").strip().lower()
+        if direction == "outbound" or (
+            sender and (not lead_email or sender != lead_email)
+        ):
+            continue
+        if thread_id is not None and str(details.get("thread_id") or "") != thread_id:
+            continue
         subject = str(details.get("subject") or "").strip()
         body = str(details.get("body") or details.get("snippet") or "").strip()
         text = f"{subject}\n{body}"
@@ -62,6 +83,9 @@ def find_meeting_request(
             "subject": subject[:500],
             "excerpt": excerpt,
             "thread_id": str(details.get("thread_id") or ""),
+            "sent_at": str(details.get("sent_at") or ""),
+            "rfc_message_id": str(details.get("rfc_message_id") or ""),
+            "gmail_connection_id": str(details.get("gmail_connection_id") or ""),
         }
     return None
 
@@ -75,6 +99,50 @@ def _plain_excerpt(body: str, limit: int = 320) -> str:
             clean_lines.append(line.strip())
     excerpt = " ".join(clean_lines).strip()
     return excerpt[:limit] + ("…" if len(excerpt) > limit else "")
+
+
+def match_confirmed_meeting_option(body: str, option_count: int) -> int | None:
+    """Accept a clear numbered choice only; never infer a booking from vague agreement."""
+    if option_count < 1:
+        return None
+    clean = _plain_excerpt(body, limit=2000)
+    first_line = next((line.strip() for line in clean.splitlines() if line.strip()), "")
+    leading_pattern = (
+        r"^(?:hi\b[^,\n]*,\s*)?(?:(?:i\s+(?:choose|pick|select|take|confirm)\s+)?)"
+        r"(?:(?:option|slot|time|choice|number)\s*)?#?\s*(\d{1,2})(?=\b|$)"
+    )
+    match = re.search(leading_pattern, first_line, flags=re.IGNORECASE)
+    if match is not None:
+        if re.search(r"\d", first_line[match.end() :]):
+            return None
+        selected = int(match.group(1))
+        return selected if 1 <= selected <= option_count else None
+    mentions = list(
+        re.finditer(
+            r"\b(?:option|slot|time|choice|number)\s*#?\s*(\d{1,2})\b",
+            clean,
+            flags=re.IGNORECASE,
+        )
+    )
+    if len(mentions) != 1:
+        return None
+    mention = mentions[0]
+    context = clean[max(0, mention.start() - 30) : mention.end() + 40]
+    if re.search(
+        r"\b(?:not|no|don't|doesn't|cannot|can't|won't|unavailable)\b",
+        context,
+        flags=re.IGNORECASE,
+    ):
+        return None
+    selected = int(mention.group(1))
+    return selected if 1 <= selected <= option_count else None
+
+
+def meeting_reply_requests_other_times(body: str) -> bool:
+    clean = _plain_excerpt(body, limit=2000).strip()
+    if clean.lower().rstrip(".!?") in {"none", "neither", "no"}:
+        return True
+    return any(pattern.search(clean) for pattern in _OTHER_TIME_PATTERNS)
 
 
 def _parse_provider_time(value: Any) -> datetime | None:

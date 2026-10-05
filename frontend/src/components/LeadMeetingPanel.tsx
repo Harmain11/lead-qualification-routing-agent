@@ -223,9 +223,9 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
       <div className="lmp-head-main">
         <span className="lmp-mark" aria-hidden="true">MTG</span>
         <div>
-          <span className="lmp-eyebrow">Human-approved · meeting handoff</span>
-          <h3 id={`meeting-title-${lead.id}`}>Find a time to meet</h3>
-          <p className="lmp-intro">Read the Gmail conversation, review suggested availability, then choose what to book.</p>
+          <span className="lmp-eyebrow">Lead-confirmed · email scheduling</span>
+          <h3 id={`meeting-title-${lead.id}`}>Schedule from the lead’s email</h3>
+          <p className="lmp-intro">When a recent synced Gmail request has open times, Corral emails numbered options and books the lead’s clear numbered choice. You can still book manually below.</p>
         </div>
       </div>
       <button className="lmp-refresh" type="button" onClick={() => { scanGmailOnNextLoad.current = canEdit; setRetryCount((count) => count + 1); }} disabled={loadState === "loading" || confirming} aria-label={canEdit ? "Read latest Gmail conversation and refresh meeting recommendations" : "Refresh meeting recommendations"}>
@@ -241,7 +241,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
           <span className="lmp-outcome-icon" aria-hidden="true">✓</span>
           <div><h4>Meeting scheduled</h4><p>{result.title} · {meetingWindow(result.start_at, result.end_at, result.time_zone)}. Hosted by {recommendations.integrations.find((integration) => integration.provider === result.provider && integration.connected)?.account_name || "the selected connected account"}.</p>
             {result.event_url && <a href={result.event_url} target="_blank" rel="noreferrer">Open meeting details</a>}
-            <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Choose another time</button></div>
+            <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Review other times</button></div>
           </div>
         </div>}
 
@@ -309,7 +309,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
         </div>}
 
         {!result && selectedSlot && !reviewing && !confirmError && <div className="lmp-controls">
-          <small>{canEdit ? "Nothing is booked until you review and confirm." : "You can review suggested times; an editor must confirm to schedule."}</small>
+            <small>{canEdit ? "Manual booking is available if the lead needs a different time." : "You can review suggested times; an editor can book manually."}</small>
           <button className="lmp-primary" type="button" disabled={!canEdit || confirming} onClick={() => setReviewing(true)}>Review selected time</button>
         </div>}
         {!result && selectedSlot && reviewing && <div className="lmp-review" role="group" aria-label="Confirm meeting booking">

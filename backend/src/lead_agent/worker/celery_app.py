@@ -57,7 +57,11 @@ celery_app.conf.update(
         "dispatch-due-crm-inbound-syncs": {
             "task": "lead_agent.dispatch_due_crm_inbound_syncs",
             "schedule": settings.crm_inbound_scheduler_interval_seconds,
-        }
+        },
+        "process-pending-meeting-email-confirmations": {
+            "task": "lead_agent.process_pending_meeting_email_confirmations",
+            "schedule": settings.crm_inbound_scheduler_interval_seconds,
+        },
     },
 )
 # Celery has no effective global ``task_max_retries`` configuration key. Set the
@@ -160,7 +164,41 @@ def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
             reasoning_provider=None,
             notification_provider=get_notification_provider(),
         )
+        if connection.provider_type == "gmail" and state.object_type == "message":
+            try:
+                from lead_agent.application.meeting_email import (
+                    process_recent_gmail_imports,
+                )
+
+                process_recent_gmail_imports(
+                    session,
+                    connection=connection,
+                    actor_id="system:crm-inbound-scheduler",
+                    since=run.started_at,
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "meeting_email.scheduled_inbound_sync_failed",
+                    extra={
+                        "fields": {
+                            "workspace_id": str(state.workspace_id),
+                            "connection_id": str(connection.id),
+                        }
+                    },
+                )
         return run.status
+
+
+@celery_app.task(
+    name="lead_agent.process_pending_meeting_email_confirmations"
+)
+def process_pending_meeting_email_confirmations() -> int:
+    from lead_agent.application.meeting_email import (
+        process_pending_meeting_confirmations,
+    )
+
+    with get_session_factory()() as session:
+        return process_pending_meeting_confirmations(session)
 
 
 @celery_app.task(

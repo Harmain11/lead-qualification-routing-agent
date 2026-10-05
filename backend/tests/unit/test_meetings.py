@@ -6,11 +6,15 @@ from uuid import uuid4
 
 import httpx
 
+from lead_agent.api.routes.meetings import ConfirmMeetingRequest, confirm_meeting
 from lead_agent.application.meetings import (
     find_meeting_request,
+    match_confirmed_meeting_option,
+    meeting_reply_requests_other_times,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
 )
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.calendar_providers import (
     CALENDLY_SCOPES,
     GOOGLE_CALENDAR_EVENTS_SCOPE,
@@ -61,7 +65,137 @@ def test_find_meeting_request_uses_latest_matching_synced_message() -> None:
         "thread_id": "thread-1",
         "subject": "Demo follow-up",
         "excerpt": "Could we schedule a product demo next week?",
+        "sent_at": "",
+        "rfc_message_id": "",
+        "gmail_connection_id": "",
     }
+
+
+def test_find_meeting_request_ignores_outbound_and_non_lead_senders() -> None:
+    lead_id = uuid4()
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    events = [
+        SimpleNamespace(
+            status="outbound",
+            details={
+                "message_id": "sent",
+                "thread_id": "thread-1",
+                "subject": "Schedule a meeting",
+                "body": "Please choose a time.",
+                "sender": "rep@example.test",
+            },
+        ),
+        SimpleNamespace(
+            status="inbound",
+            details={
+                "message_id": "other",
+                "thread_id": "thread-1",
+                "subject": "Schedule a meeting",
+                "body": "Can we book a demo?",
+                "sender": "other@example.test",
+            },
+        ),
+    ]
+
+    assert find_meeting_request(
+        _Session(events), lead, lead_id, thread_id="thread-1"
+    ) is None
+
+
+def test_meeting_reply_requires_an_explicit_valid_option_number() -> None:
+    assert match_confirmed_meeting_option("Option 2 works for me.", 3) == 2
+    assert match_confirmed_meeting_option("I choose option 1.", 3) == 1
+    assert match_confirmed_meeting_option("3", 3) == 3
+    assert match_confirmed_meeting_option("Yes, Tuesday works.", 3) is None
+    assert match_confirmed_meeting_option("Option 4 works.", 3) is None
+    assert match_confirmed_meeting_option("Option 2 doesn't work; option 3 does.", 3) is None
+    assert match_confirmed_meeting_option("Option 1 or option 2.", 3) is None
+    assert meeting_reply_requests_other_times("None of those times work.") is True
+    assert meeting_reply_requests_other_times("none") is True
+    assert meeting_reply_requests_other_times("Option 2 works.") is False
+
+
+def test_confirm_meeting_reuses_existing_booking_and_closes_pending_offer() -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    source_id = "gmail-message-1"
+    lead = SimpleNamespace(
+        id=lead_id,
+        workspace_id=workspace_id,
+        email="buyer@example.test",
+        full_name="Buyer Person",
+    )
+    source = SimpleNamespace(
+        details={
+            "message_id": source_id,
+            "thread_id": "gmail-thread-1",
+            "direction": "inbound",
+            "sender": "buyer@example.test",
+            "subject": "Can we schedule a demo?",
+            "body": "Could we schedule a product demo?",
+        }
+    )
+    scheduled_at = datetime.now(UTC) + timedelta(days=1)
+    existing_event = SimpleNamespace(
+        details={
+            "provider": "google_calendar",
+            "provider_event_id": "calendar-event-1",
+            "title": "Meeting with Buyer Person",
+            "source_message_id": source_id,
+            "start_at": scheduled_at.isoformat(),
+            "end_at": (scheduled_at + timedelta(minutes=30)).isoformat(),
+            "time_zone": "UTC",
+        }
+    )
+    offer = SimpleNamespace(
+        status="awaiting_confirmation",
+        details={"source_message_id": source_id, "thread_id": "gmail-thread-1"},
+    )
+
+    class BookingSession:
+        def __init__(self) -> None:
+            self.scalar_calls = 0
+            self.scalar_results = [lead, lead_id]
+            self.scalars_results = [
+                [source],
+                [source],
+                [existing_event],
+                [offer],
+            ]
+            self.commits = 0
+
+        def scalar(self, _statement):
+            result = self.scalar_results[self.scalar_calls]
+            self.scalar_calls += 1
+            return result
+
+        def scalars(self, _statement):
+            return iter(self.scalars_results.pop(0))
+
+        def commit(self):
+            self.commits += 1
+
+    session = BookingSession()
+    request = ConfirmMeetingRequest(
+        provider="google_calendar",
+        connection_id=uuid4(),
+        source_message_id=source_id,
+        start_at=scheduled_at,
+        end_at=scheduled_at + timedelta(minutes=30),
+        time_zone="UTC",
+    )
+
+    result = confirm_meeting(
+        lead_id,
+        request,
+        session=session,  # type: ignore[arg-type]
+        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="admin"),
+    )
+
+    assert result.provider_event_id == "calendar-event-1"
+    assert offer.status == "booked"
+    assert offer.details["booking_method"] == "manual"
+    assert session.commits == 1
 
 
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,10 +14,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
+import lead_agent.application.services as application_services
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.application.crm_inbound import configure_inbound_sync, run_inbound_sync
-import lead_agent.application.services as application_services
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
@@ -41,6 +42,7 @@ from lead_agent.infrastructure.gmail import (
     GMAIL_READONLY_SCOPE,
     GmailConnectionValidator,
     GmailInboundProvider,
+    GmailOutboundProvider,
     candidate_reason,
     parse_mime_body,
 )
@@ -231,6 +233,7 @@ def test_gmail_contact_thread_search_and_sync_includes_both_directions() -> None
                     {"name": "From", "value": sender},
                     {"name": "To", "value": recipient},
                     {"name": "Subject", "value": "Project follow-up"},
+                    {"name": "Message-ID", "value": f"<{message_id}@example.test>"},
                 ],
                 "body": {"data": _encoded(body)},
             },
@@ -247,9 +250,27 @@ def test_gmail_contact_thread_search_and_sync_includes_both_directions() -> None
                 200,
                 json={
                     "messages": [
-                        message("outbound-1", "rep@example.test", "buyer@example.test", "1700000000000", "Sent the proposal."),
-                        message("inbound-1", "buyer@example.test", "rep@example.test", "1700000001000", "Please include pricing."),
-                        message("other-1", "other@example.test", "rep@example.test", "1700000002000", "Not part of this lead thread."),
+                        message(
+                            "outbound-1",
+                            "rep@example.test",
+                            "buyer@example.test",
+                            "1700000000000",
+                            "Sent the proposal.",
+                        ),
+                        message(
+                            "inbound-1",
+                            "buyer@example.test",
+                            "rep@example.test",
+                            "1700000001000",
+                            "Please include pricing.",
+                        ),
+                        message(
+                            "other-1",
+                            "other@example.test",
+                            "rep@example.test",
+                            "1700000002000",
+                            "Not part of this lead thread.",
+                        ),
                     ]
                 },
             )
@@ -264,6 +285,33 @@ def test_gmail_contact_thread_search_and_sync_includes_both_directions() -> None
     assert [item["direction"] for item in conversation] == ["outbound", "inbound"]
     assert conversation[0]["body"] == "Sent the proposal."
     assert conversation[1]["body"] == "Please include pricing."
+    assert conversation[1]["rfc_message_id"] == "<inbound-1@example.test>"
+
+
+def test_gmail_outbound_provider_replies_inside_existing_thread() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"id": "outbound-2"})
+
+    provider = GmailOutboundProvider(
+        uuid4(), "access", "rep@example.test", client=_client(handler)
+    )
+    result = provider.send_email(
+        recipient="buyer@example.test",
+        subject="Re: Project follow-up",
+        body="Reply with option 1.",
+        thread_id="thread-1",
+        in_reply_to="<inbound-1@example.test>",
+    )
+
+    assert result == "outbound-2"
+    assert captured["threadId"] == "thread-1"
+    raw = str(captured["raw"])
+    decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode()
+    assert "In-Reply-To: <inbound-1@example.test>" in decoded
+    assert "References: <inbound-1@example.test>" in decoded
 
 
 def test_gmail_incremental_history_and_expired_history_reconciliation() -> None:
