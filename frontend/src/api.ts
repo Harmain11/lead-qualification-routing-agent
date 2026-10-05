@@ -178,8 +178,15 @@ export const saveEmailTemplate = (kind: WorkspaceEmailTemplate["kind"], template
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(template),
   });
-export const generateEmailTemplate = (kind: WorkspaceEmailTemplate["kind"]) =>
-  request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}/generate`, { method: "POST" });
+export const generateEmailTemplate = (
+  kind: WorkspaceEmailTemplate["kind"],
+  sample: Pick<WorkspaceEmailTemplate, "subject" | "body">,
+) =>
+  request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sample),
+  });
 
 export async function signIn(email: string, password: string): Promise<AuthSession> {
   const session = await request<AuthSession>("/v1/auth/signin", {
