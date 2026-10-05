@@ -36,3 +36,9 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+CALENDLY_CLIENT_ID = "f5EilpCTFxHzry7TD-H1po8q_6_o3gpKjmBaa_VJWLk"
+CALENDLY_CLIENT_SECRET = "bfnwEVuj5P4BPnaxIuodKWI8Y8FBZ5JycgUSGyvVLQo"
