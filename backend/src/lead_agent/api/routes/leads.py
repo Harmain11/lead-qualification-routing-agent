@@ -137,7 +137,7 @@ class GmailConversationSyncResponse(BaseModel):
 class RetryConfirmedMeetingBookingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    source_message_id: str = Field(min_length=1, max_length=512)
+    offer_source_message_id: str = Field(min_length=1, max_length=512)
 
 
 class RetryConfirmedMeetingBookingResponse(BaseModel):
@@ -1071,7 +1071,8 @@ def retry_saved_meeting_booking(
             event
             for event in offers
             if isinstance(event.details, dict)
-            and event.details.get("source_message_id") == request.source_message_id
+            and event.details.get("source_message_id")
+            == request.offer_source_message_id
         ),
         None,
     )

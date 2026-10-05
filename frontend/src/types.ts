@@ -389,6 +389,7 @@ export type MeetingRecommendations = {
   detected: boolean;
   message: string;
   source_message_id: string | null;
+  offer_source_message_id: string | null;
   source_subject: string | null;
   source_excerpt: string | null;
   integrations: MeetingIntegrationState[];
