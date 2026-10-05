@@ -92,6 +92,7 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_status: MeetingOfferStatus | None = None
     offer_booking_error: str | None = None
     offer_calendar_provider: MeetingProvider | None = None
+    offer_has_confirmed_selection: bool = False
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -298,6 +299,16 @@ def get_meeting_recommendations(
         if offer_details.get("booking_error")
         else None
     )
+    options = offer_details.get("options")
+    selected_option = offer_details.get("selected_option")
+    offer_has_confirmed_selection = (
+        not offer_details.get("lead_requested_other_times")
+        and isinstance(options, list)
+        and isinstance(selected_option, int)
+        and not isinstance(selected_option, bool)
+        and 1 <= selected_option <= len(options)
+        and bool(offer_details.get("reply_message_id"))
+    )
     raw_offer_provider = offer_details.get("calendar_provider")
     offer_calendar_provider = (
         raw_offer_provider
@@ -341,6 +352,11 @@ def get_meeting_recommendations(
                     "Corral could not verify the booking. Check the calendar for an "
                     "existing event before trying again; a booking may have succeeded "
                     "without being recorded here."
+                )
+            elif offer_has_confirmed_selection:
+                automation_message = (
+                    "The lead’s numbered choice was saved, but Corral has not confirmed "
+                    "the booking. Use Read Gmail & refresh to retry the choice safely."
                 )
             else:
                 automation_message = (
@@ -412,6 +428,7 @@ def get_meeting_recommendations(
         offer_status=offer_status,
         offer_booking_error=offer_booking_error,
         offer_calendar_provider=offer_calendar_provider,
+        offer_has_confirmed_selection=offer_has_confirmed_selection,
     )
 
 

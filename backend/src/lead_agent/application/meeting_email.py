@@ -695,6 +695,57 @@ def _book_selected_option(
     return "booked"
 
 
+def _confirmed_booking_retry(
+    details: dict[str, Any],
+    messages: list[dict[str, str]],
+    lead_email: str,
+) -> tuple[str, int] | None:
+    if details.get("lead_requested_other_times"):
+        return None
+    options = details.get("options")
+    selected_option = details.get("selected_option")
+    reply_message_id = str(details.get("reply_message_id") or "")
+    if (
+        not isinstance(options, list)
+        or not isinstance(selected_option, int)
+        or isinstance(selected_option, bool)
+        or not 1 <= selected_option <= len(options)
+        or not reply_message_id
+    ):
+        return None
+
+    reply = next(
+        (
+            message
+            for message in messages
+            if str(message.get("message_id") or "") == reply_message_id
+            and message.get("direction") == "inbound"
+            and message.get("sender", "").strip().lower() == lead_email.strip().lower()
+            and match_confirmed_meeting_option(
+                message.get("body", ""), len(options)
+            )
+            == selected_option
+        ),
+        None,
+    )
+    if reply is None:
+        return None
+    reply_time = _parse_datetime(reply.get("sent_at"))
+    if reply_time is None:
+        return None
+    for message in messages:
+        if (
+            str(message.get("message_id") or "") == reply_message_id
+            or message.get("direction") != "inbound"
+            or message.get("sender", "").strip().lower() != lead_email.strip().lower()
+        ):
+            continue
+        sent_at = _parse_datetime(message.get("sent_at"))
+        if sent_at is not None and sent_at > reply_time:
+            return None
+    return reply_message_id, selected_option
+
+
 def process_gmail_meeting_thread(
     session: Session,
     *,
@@ -738,22 +789,16 @@ def process_gmail_meeting_thread(
     )
     if offer is not None and offer.status == "needs_attention":
         details = offer.details if isinstance(offer.details, dict) else {}
-        selected_option = details.get("selected_option")
-        reply_message_id = str(details.get("reply_message_id") or "")
-        if (
-            details.get("booking_error")
-            and isinstance(selected_option, int)
-            and not isinstance(selected_option, bool)
-            and reply_message_id
-        ):
+        retry = _confirmed_booking_retry(details, messages, lead.email)
+        if retry is not None:
             return _book_selected_option(
                 session,
                 lead,
                 workspace_id,
                 actor_id,
                 offer,
-                reply_message_id,
-                selected_option,
+                retry[0],
+                retry[1],
             )
     if offer is not None and offer.status == "sending":
         details = offer.details if isinstance(offer.details, dict) else {}
