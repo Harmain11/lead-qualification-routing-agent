@@ -266,8 +266,16 @@ class CalendlyClient:
             "event_type_available_times",
             params={
                 "event_type": event_type_uri,
-                "start_time": start_at.isoformat(),
-                "end_time": end_at.isoformat(),
+                "start_time": (
+                    start_at.astimezone(UTC)
+                    .isoformat(timespec="seconds")
+                    .replace("+00:00", "Z")
+                ),
+                "end_time": (
+                    end_at.astimezone(UTC)
+                    .isoformat(timespec="seconds")
+                    .replace("+00:00", "Z")
+                ),
             },
         )
         collection = result.get("collection", [])
