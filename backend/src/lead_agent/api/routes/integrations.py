@@ -456,7 +456,14 @@ def browser_connection_callback(
             broker,
             str(identity.user_id),
         )
-        if provider in {"gmail", "outlook", "salesforce", "hubspot"}:
+        if provider in {
+            "gmail",
+            "outlook",
+            "google_calendar",
+            "calendly",
+            "salesforce",
+            "hubspot",
+        }:
             _, validation = validate_connection(
                 session,
                 connection.workspace_id,
@@ -607,7 +614,10 @@ def backfill_openai_connection(
             return {
                 "status": "skipped",
                 "queued_count": 0,
-                "message": "OpenAI is verified. Backfill will run when the local worker and Redis are available.",
+                "message": (
+                    "OpenAI is verified. Backfill will run when the local worker "
+                    "and Redis are available."
+                ),
             }
         raise HTTPException(
             status_code=503, detail="The lead analysis worker is unavailable"

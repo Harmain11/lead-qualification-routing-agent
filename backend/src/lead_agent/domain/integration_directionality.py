@@ -37,7 +37,8 @@ _EMAIL = IntegrationDirectionality(
     automatic_inbound=True,
     automatic_outbound=True,
     description=(
-        "Approved mailbox messages are inbound lead sources; the admin-connected Gmail sends one confirmation for stored leads with an email address."
+        "Approved mailbox messages are inbound lead sources; the admin-connected Gmail sends "
+        "one confirmation for stored leads with an email address."
     ),
 )
 _NOTIFICATION = IntegrationDirectionality(
@@ -52,12 +53,21 @@ _INBOUND = IntegrationDirectionality(
     automatic_inbound=True,
     description="This provider supplies inbound lead events only.",
 )
+_CALENDAR = IntegrationDirectionality(
+    request_response=True,
+    description=(
+        "Availability is read on demand; creating a calendar event requires an explicit "
+        "workspace admin confirmation."
+    ),
+)
 
 PROVIDER_DIRECTIONALITY: dict[str, IntegrationDirectionality] = {
     "salesforce": _CRM,
     "hubspot": _CRM,
     "gmail": _EMAIL,
     "outlook": _EMAIL,
+    "google_calendar": _CALENDAR,
+    "calendly": _CALENDAR,
     "slack": _NOTIFICATION,
     "openai": _ANALYSIS,
     "linkedin": _INBOUND,

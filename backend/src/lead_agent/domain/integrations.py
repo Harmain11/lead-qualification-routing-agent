@@ -12,6 +12,8 @@ ProviderType = Literal[
     "slack",
     "gmail",
     "outlook",
+    "google_calendar",
+    "calendly",
     "linkedin",
     "openai",
 ]
@@ -134,13 +136,62 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Google OAuth consent",
-        credential_help="Sign in with Google to read the intake mailbox and send one confirmation to new leads.",
+        credential_help=(
+            "Sign in with Google to read the intake mailbox and send one confirmation to new leads."
+        ),
         required_scopes=[
             "https://www.googleapis.com/auth/gmail.readonly",
             "https://www.googleapis.com/auth/gmail.send",
         ],
-        permission_reason="Read approved inbound lead messages and send the configured lead confirmation email.",
+        permission_reason=(
+            "Read approved inbound lead messages and send the configured lead confirmation email."
+        ),
         documentation_url="https://developers.google.com/gmail/api/auth/web-server",
+    ),
+    "google_calendar": ProviderSetupMetadata(
+        provider="google_calendar",
+        display_name="Google Calendar",
+        category="Calendar",
+        availability="available",
+        preferred_auth="oauth2",
+        supported_auth=["oauth2"],
+        dashboard_path="Managed by Ingenuity Systems · Google OAuth consent",
+        credential_help=(
+            "Sign in with the Google account this workspace should use for availability "
+            "and confirmed meeting creation."
+        ),
+        required_scopes=[
+            "https://www.googleapis.com/auth/calendar.events",
+            "https://www.googleapis.com/auth/calendar.events.freebusy",
+        ],
+        permission_reason=(
+            "Read free/busy availability and create events only after a workspace admin confirms."
+        ),
+        documentation_url="https://developers.google.com/calendar/api/auth",
+    ),
+    "calendly": ProviderSetupMetadata(
+        provider="calendly",
+        display_name="Calendly",
+        category="Calendar",
+        availability="available",
+        preferred_auth="oauth2",
+        supported_auth=["oauth2"],
+        dashboard_path="Managed by Ingenuity Systems · Calendly OAuth app",
+        credential_help=(
+            "Connect the Calendly account used by this workspace. Direct booking requires a "
+            "Calendly Standard plan or above."
+        ),
+        required_scopes=[
+            "users:read",
+            "event_types:read",
+            "availability:read",
+            "scheduled_events:read",
+            "scheduled_events:write",
+        ],
+        permission_reason=(
+            "Read event types and availability; book a selected slot only after an admin confirms."
+        ),
+        documentation_url="https://developer.calendly.com/api-docs/calendly-o-auth-2-0",
     ),
     "outlook": ProviderSetupMetadata(
         provider="outlook",
