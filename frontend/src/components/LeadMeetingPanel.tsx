@@ -310,10 +310,10 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
             <div className="lmp-context-top"><span className="lmp-context-label">Conversation evidence</span>{recommendations.source_subject && <span className="lmp-subject">{recommendations.source_subject}</span>}</div>
             {recommendations.source_excerpt && <p className="lmp-excerpt">{recommendations.source_excerpt}</p>}
             {recommendations.message && <p className="lmp-excerpt">{recommendations.message}</p>}
-            {recommendations.offer_status === "needs_attention" && recommendations.offer_booking_error && <div className="lmp-booking-warning" role="alert">
+            {recommendations.offer_status === "needs_attention" && (recommendations.offer_booking_error || recommendations.offer_has_confirmed_selection) && <div className="lmp-booking-warning" role="alert">
               <b>Booking attempt detail</b>
-              <p>{recommendations.offer_booking_error}</p>
-              <p>Use “Read Gmail & refresh” to retry this confirmed choice. Corral checks the connected calendar for an existing event before attempting another booking.</p>
+              {recommendations.offer_booking_error && <p>{recommendations.offer_booking_error}</p>}
+              {recommendations.offer_has_confirmed_selection && <p>Use “Read Gmail & refresh” to retry this confirmed choice. Corral checks the connected calendar for an existing event before attempting another booking.</p>}
             </div>}
             {recommendations.offer_status === "booked" && recommendations.offer_calendar_provider === "calendly" && <div className="lmp-calendly-notice" role="status">
               <b>Did the invitee miss the confirmation?</b>

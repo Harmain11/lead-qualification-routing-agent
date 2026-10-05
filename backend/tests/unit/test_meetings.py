@@ -676,7 +676,6 @@ def test_gmail_refresh_retries_only_a_previously_confirmed_booking(
             "source_message_id": "gmail-source-1",
             "reply_message_id": reply_id,
             "selected_option": 2,
-            "booking_error": "Calendly did not return a confirmed booking.",
             "options": [{}, {}, {}],
         },
     )
@@ -729,6 +728,38 @@ def test_gmail_refresh_retries_only_a_previously_confirmed_booking(
     assert result == "booked"
     assert len(captured) == 1
     assert captured[0][4:] == (offer, reply_id, 2)
+
+
+def test_confirmed_booking_retry_stops_after_a_newer_lead_reply() -> None:
+    reply_at = datetime.now(UTC)
+    details = {
+        "reply_message_id": "reply-1",
+        "selected_option": 1,
+        "options": [{}],
+    }
+    messages = [
+        {
+            "message_id": "reply-1",
+            "direction": "inbound",
+            "sender": "buyer@example.test",
+            "body": "1",
+            "sent_at": reply_at.isoformat(),
+        },
+        {
+            "message_id": "reply-2",
+            "direction": "inbound",
+            "sender": "buyer@example.test",
+            "body": "Actually, another time would be better.",
+            "sent_at": (reply_at + timedelta(minutes=1)).isoformat(),
+        },
+    ]
+
+    assert (
+        meeting_email._confirmed_booking_retry(
+            details, messages, "buyer@example.test"
+        )
+        is None
+    )
 
 
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
