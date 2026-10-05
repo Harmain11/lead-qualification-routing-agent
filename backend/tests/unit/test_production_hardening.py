@@ -83,6 +83,16 @@ def test_valid_production_configuration_has_explicit_security_boundaries() -> No
     assert settings.secret_store_provider == "managed"
 
 
+def test_postgresql_urls_use_the_declared_psycopg3_driver() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="test",
+        database_url="postgresql://app@db.internal/lead_agent",
+    )
+
+    assert settings.database_url == "postgresql+psycopg://app@db.internal/lead_agent"
+
+
 @pytest.mark.parametrize(
     ("override", "expected"),
     [

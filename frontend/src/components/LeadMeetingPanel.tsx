@@ -42,6 +42,8 @@ const styles = `
 .lmp-error .lmp-state-icon { background:#f8ece4; color:#9b5438; }
 .lmp-state-action { margin-top:10px; }
 .lmp-link-button { padding:0; border:0; background:transparent; color:var(--lmp-green); font-size:10px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
+.lmp-recovery-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:8px; }
+.lmp-recovery-actions .lmp-link-button { display:inline-block; }
 .lmp-skeleton { display:grid; gap:10px; }
 .lmp-skeleton-line { height:11px; border-radius:8px; background:linear-gradient(90deg,#edf2ed 25%,#e3ebe4 42%,#edf2ed 65%); background-size:240% 100%; animation:lmp-shimmer 1.4s ease-in-out infinite; }
 @keyframes lmp-shimmer { to { background-position:-120% 0; } }
@@ -210,6 +212,11 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
     </div>
   );
 
+  const retryAvailability = () => {
+    scanGmailOnNextLoad.current = false;
+    setRetryCount((count) => count + 1);
+  };
+
   const renderSkeleton = () => (
     <div className="lmp-skeleton" aria-label="Loading meeting recommendations" role="status">
       <span className="lmp-sr-only">Loading meeting recommendations</span>
@@ -305,7 +312,12 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
         </div>}
 
         {recommendations.provider_errors.length > 0 && <div className="lmp-errors" aria-label="Provider issues">
-          {recommendations.provider_errors.map((error, index) => <div className="lmp-provider-error" key={`${error.provider}-${index}`}><b>{providerName(error.provider)}{error.retryable ? " · can retry" : ""}</b>{error.message}</div>)}
+          {recommendations.provider_errors.map((error, index) => <div className="lmp-provider-error" key={`${error.provider}-${index}`}><b>{providerName(error.provider)}{error.retryable ? " · can retry" : ""}</b>{error.message}
+            {error.code === "calendly_external_calendar_unavailable" && <div className="lmp-recovery-actions">
+              <a className="lmp-link-button" href="https://calendly.com/help/how-to-reconnect-a-disconnected-calendar" target="_blank" rel="noreferrer">Open Calendly reconnect guide</a>
+              <button className="lmp-link-button" type="button" onClick={retryAvailability} disabled={confirming}>Retry availability</button>
+            </div>}
+          </div>)}
         </div>}
 
         {!result && selectedSlot && !reviewing && !confirmError && <div className="lmp-controls">

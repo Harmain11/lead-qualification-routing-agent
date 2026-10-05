@@ -7,7 +7,11 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from lead_agent.api.routes.meetings import ConfirmMeetingRequest, confirm_meeting
+from lead_agent.api.routes.meetings import (
+    ConfirmMeetingRequest,
+    MeetingProviderError,
+    confirm_meeting,
+)
 from lead_agent.application import meeting_email
 from lead_agent.application.meetings import (
     find_meeting_request,
@@ -786,6 +790,17 @@ def test_calendly_external_calendar_failure_gives_reconnect_guidance() -> None:
     assert error.category == "configuration"
     assert "Reconnect that calendar in Calendly" in str(error)
     assert error.retryable is False
+
+
+def test_meeting_provider_error_includes_provider_error_code() -> None:
+    response_error = MeetingProviderError(
+        provider="calendly",
+        message="Reconnect that calendar in Calendly.",
+        retryable=False,
+        code="calendly_external_calendar_unavailable",
+    )
+
+    assert response_error.model_dump()["code"] == "calendly_external_calendar_unavailable"
 
 
 def test_calendar_connection_validators_require_scopes_and_check_account_identity() -> None:
