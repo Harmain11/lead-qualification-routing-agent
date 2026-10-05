@@ -538,7 +538,7 @@ function App() {
         </footer>
       </main>
       {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}
-      {openaiSetupCard && <OpenAISetupPrompt card={openaiSetupCard} onVerified={() => { setOpenaiSetupCard(null); void refresh(); }} onLater={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); }} onSettings={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); setView("integrations"); }} />}
+      {openaiSetupCard && !tourOpen && view === "dashboard" && <OpenAISetupPrompt card={openaiSetupCard} onVerified={() => { setOpenaiSetupCard(null); void refresh(); }} onLater={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); }} onSettings={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); setView("integrations"); }} />}
       <ProductTour open={tourOpen} currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
     </div>
   );
