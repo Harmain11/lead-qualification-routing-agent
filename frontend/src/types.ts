@@ -401,6 +401,12 @@ export type MeetingRecommendations = {
   offer_has_confirmed_selection: boolean;
 };
 
+export type RetryConfirmedMeetingBookingResult = {
+  status: string;
+  message: string;
+  booking_error: string | null;
+};
+
 export type ConfirmMeetingResult = {
   lead_id: string;
   provider: MeetingProvider;

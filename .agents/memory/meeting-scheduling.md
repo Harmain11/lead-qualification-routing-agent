@@ -25,4 +25,4 @@ Before rejecting a Calendly booking as unavailable, check for a matching schedul
 
 **Why:** A booking can exist in Calendly after Corral reports a booking error, and duplicating Calendly's normal email can confuse the invitee.
 
-**How to apply:** Reconcile an existing provider event before rechecking availability or retrying a booking. Show the stored booking error and direct missing-email issues to Calendly's event-type notification settings rather than sending another message.
+**How to apply:** Reconcile an existing provider event before rechecking availability or retrying a booking. For a saved-choice retry, fetch its exact stored Gmail thread instead of relying on contact-thread search. Show provider errors and direct missing-email issues to Calendly's event-type notification settings rather than sending another message.

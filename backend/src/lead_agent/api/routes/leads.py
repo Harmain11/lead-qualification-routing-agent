@@ -134,6 +134,18 @@ class GmailConversationSyncResponse(BaseModel):
     score: int
 
 
+class RetryConfirmedMeetingBookingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    source_message_id: str = Field(min_length=1, max_length=512)
+
+
+class RetryConfirmedMeetingBookingResponse(BaseModel):
+    status: str
+    message: str
+    booking_error: str | None = None
+
+
 class LeadMomentumEvidence(BaseModel):
     source: str
     excerpt: str
@@ -1016,4 +1028,151 @@ def sync_lead_gmail_conversation(
         truncated=truncated,
         classification=classification,
         score=score,
+    )
+
+
+@router.post(
+    "/{lead_id}/meeting-booking/retry",
+    response_model=RetryConfirmedMeetingBookingResponse,
+)
+def retry_saved_meeting_booking(
+    lead_id: UUID,
+    request: RetryConfirmedMeetingBookingRequest,
+    session: Session = Depends(get_db),
+    resolver: WorkspaceInboundCrmProviderResolver = Depends(get_workspace_inbound_crm_resolver),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> RetryConfirmedMeetingBookingResponse:
+    lead = session.scalar(
+        select(LeadORM)
+        .where(
+            LeadORM.id == lead_id,
+            LeadORM.workspace_id == workspace.workspace_id,
+        )
+        .with_for_update()
+    )
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found.")
+
+    offers = list(
+        session.scalars(
+            select(PipelineEventORM)
+            .where(
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.stage == "meeting_email_offer",
+                PipelineEventORM.status == "needs_attention",
+            )
+            .order_by(PipelineEventORM.created_at.desc())
+            .limit(50)
+        )
+    )
+    offer = next(
+        (
+            event
+            for event in offers
+            if isinstance(event.details, dict)
+            and event.details.get("source_message_id") == request.source_message_id
+        ),
+        None,
+    )
+    if offer is None or not isinstance(offer.details, dict):
+        raise HTTPException(
+            status_code=409,
+            detail="No unresolved meeting booking was found for this Gmail request.",
+        )
+
+    details = offer.details
+    options = details.get("options")
+    selected_option = details.get("selected_option")
+    thread_id = str(details.get("thread_id") or "")
+    reply_message_id = str(details.get("reply_message_id") or "")
+    if (
+        details.get("lead_requested_other_times")
+        or not isinstance(options, list)
+        or not isinstance(selected_option, int)
+        or isinstance(selected_option, bool)
+        or not 1 <= selected_option <= len(options)
+        or not thread_id
+        or not reply_message_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="There is no saved, confirmed numbered choice to retry.",
+        )
+
+    try:
+        gmail_connection_id = UUID(str(details.get("gmail_connection_id") or ""))
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail="The Gmail connection for this meeting request is unavailable.",
+        ) from error
+    gmail_connection = session.scalar(
+        select(ProviderConnectionORM).where(
+            ProviderConnectionORM.id == gmail_connection_id,
+            ProviderConnectionORM.workspace_id == workspace.workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+    )
+    if gmail_connection is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Reconnect and verify the Gmail account used for this conversation.",
+        )
+
+    try:
+        provider = resolver.resolve(
+            session,
+            workspace.workspace_id,
+            gmail_connection.id,
+            actor_id=workspace.actor_id,
+        )
+        if not hasattr(provider, "fetch_thread"):
+            raise HTTPException(
+                status_code=502,
+                detail="The connected Gmail account cannot read this conversation.",
+            )
+        messages = provider.fetch_thread(thread_id, lead_email=lead.email)
+    except ProviderOperationError as error:
+        raise HTTPException(
+            status_code=503 if error.retryable else 502,
+            detail=str(error),
+        ) from error
+    for message in messages:
+        message["gmail_connection_id"] = str(gmail_connection.id)
+
+    from lead_agent.application.meeting_email import process_gmail_meeting_thread
+
+    result = process_gmail_meeting_thread(
+        session,
+        workspace_id=workspace.workspace_id,
+        lead=lead,
+        gmail_connection=gmail_connection,
+        messages=messages,
+        actor_id=workspace.actor_id,
+    )
+    session.commit()
+    updated_details = offer.details if isinstance(offer.details, dict) else {}
+    booking_error = (
+        str(updated_details["booking_error"])
+        if updated_details.get("booking_error")
+        else None
+    )
+    if offer.status == "booked" or result == "booked":
+        message = "The saved choice was booked or an existing calendar event was recorded."
+    elif booking_error:
+        message = f"The booking retry did not complete: {booking_error}"
+    elif result == "needs_attention":
+        message = (
+            "No booking was made. Corral could not verify that the saved numbered "
+            "reply is still the lead’s latest choice."
+        )
+    else:
+        message = f"Booking retry result: {result}."
+    return RetryConfirmedMeetingBookingResponse(
+        status=offer.status,
+        message=message,
+        booking_error=booking_error,
     )

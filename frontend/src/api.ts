@@ -13,6 +13,7 @@ import type {
   MeetingRecommendations,
   MeetingSuggestion,
   ConfirmMeetingResult,
+  RetryConfirmedMeetingBookingResult,
   LeadListResponse,
   LeadPayload,
   FollowUpEmail,
@@ -497,6 +498,17 @@ export function updateLeadProgress(leadId: string, input: { stage: string; note:
 
 export function syncLeadGmailConversation(leadId: string): Promise<GmailConversationSyncResult> {
   return jsonRequest<GmailConversationSyncResult>(`/v1/leads/${leadId}/gmail-conversation/sync`, { method: "POST" });
+}
+
+export function retryConfirmedMeetingBooking(
+  leadId: string,
+  sourceMessageId: string,
+): Promise<RetryConfirmedMeetingBookingResult> {
+  return jsonRequest<RetryConfirmedMeetingBookingResult>(`/v1/leads/${leadId}/meeting-booking/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_message_id: sourceMessageId }),
+  });
 }
 
 export function getLeadMeetingRecommendations(leadId: string, signal?: AbortSignal): Promise<MeetingRecommendations> {
