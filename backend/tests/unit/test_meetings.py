@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from lead_agent.api.routes.leads import (
     RetryConfirmedMeetingBookingRequest,
@@ -14,6 +15,7 @@ from lead_agent.api.routes.leads import (
 from lead_agent.api.routes.meetings import (
     ConfirmMeetingRequest,
     MeetingProviderError,
+    _calendly_invitee_location,
     confirm_meeting,
     get_meeting_recommendations,
 )
@@ -299,6 +301,60 @@ def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
     assert len(captured) == 1
     assert captured[0].start_at.isoformat() == "2026-11-06T14:30:00+05:00"
     assert str(captured[0].source_gmail_connection_id) == gmail_connection_id
+
+
+def test_calendly_event_type_location_is_sent_with_invitee_creation() -> None:
+    location = _calendly_invitee_location(
+        {"locations": [{"kind": "google_conference"}]}
+    )
+    assert location == {"kind": "google_conference"}
+
+    class FakeApi:
+        def request(self, method: str, path: str, *, payload: dict[str, object]):
+            assert method == "POST"
+            assert path == "invitees"
+            assert payload["location"] == location
+            return {"resource": {"uri": "https://api.calendly.com/invitees/123"}}
+
+    client = CalendlyClient("calendly-token")
+    client.api = FakeApi()  # type: ignore[assignment]
+    invitee = client.create_invitee(
+        event_type_uri="https://api.calendly.com/event_types/demo",
+        start_at=datetime(2026, 11, 6, 14, tzinfo=UTC),
+        name="Buyer Person",
+        email="buyer@example.test",
+        time_zone="UTC",
+        location=location,
+    )
+
+    assert invitee["uri"] == "https://api.calendly.com/invitees/123"
+
+
+def test_calendly_invitee_location_checks_event_type_configuration() -> None:
+    assert _calendly_invitee_location(
+        {"locations": [{"kind": "physical", "location": "Room 1"}]}
+    ) == {"kind": "physical", "location": "Room 1"}
+    assert _calendly_invitee_location(
+        {
+            "pooling_type": "round_robin",
+            "locations": [{"kind": "google_conference"}],
+        }
+    ) is None
+
+    with pytest.raises(HTTPException) as multiple_locations:
+        _calendly_invitee_location(
+            {
+                "locations": [
+                    {"kind": "google_conference"},
+                    {"kind": "zoom_conference"},
+                ]
+            }
+        )
+    assert multiple_locations.value.status_code == 409
+
+    with pytest.raises(HTTPException) as invitee_location:
+        _calendly_invitee_location({"locations": [{"kind": "ask_invitee"}]})
+    assert invitee_location.value.status_code == 409
 
 
 def test_exact_calendly_booking_skips_disconnected_event_type(

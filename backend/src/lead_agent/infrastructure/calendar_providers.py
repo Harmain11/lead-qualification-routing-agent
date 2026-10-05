@@ -339,15 +339,19 @@ class CalendlyClient:
         name: str,
         email: str,
         time_zone: str,
+        location: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "event_type": event_type_uri,
+            "start_time": start_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "invitee": {"name": name, "email": email, "timezone": time_zone},
+        }
+        if location is not None:
+            payload["location"] = location
         result = self.api.request(
             "POST",
             "invitees",
-            payload={
-                "event_type": event_type_uri,
-                "start_time": start_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                "invitee": {"name": name, "email": email, "timezone": time_zone},
-            },
+            payload=payload,
         )
         resource = result.get("resource")
         return cast(dict[str, Any], resource) if isinstance(resource, dict) else {}
