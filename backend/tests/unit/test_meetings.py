@@ -621,6 +621,30 @@ def test_calendly_bad_request_includes_provider_validation_detail() -> None:
     assert "supported booking window" in str(error)
 
 
+def test_calendly_external_calendar_failure_gives_reconnect_guidance() -> None:
+    error = _http_error(
+        "calendly",
+        httpx.Response(
+            400,
+            json={
+                "message": "The supplied parameters are invalid.",
+                "details": [
+                    {
+                        "parameter": "event_type",
+                        "message": "Failed to connect to external calendar.",
+                    }
+                ],
+            },
+        ),
+        "event_type_available_times",
+    )
+
+    assert error.code == "calendly_external_calendar_unavailable"
+    assert error.category == "configuration"
+    assert "Reconnect that calendar in Calendly" in str(error)
+    assert error.retryable is False
+
+
 def test_calendar_connection_validators_require_scopes_and_check_account_identity() -> None:
     def google_handler(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer google-token"

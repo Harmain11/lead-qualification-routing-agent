@@ -102,7 +102,21 @@ def _http_error(provider: str, response: httpx.Response, path: str) -> ProviderO
     if provider_details:
         detail_text = " ".join(dict.fromkeys(provider_details))
         detail_text = " ".join(detail_text.split())[:320]
-        message = f"{message} Details: {detail_text}"
+        if (
+            provider == "calendly"
+            and path == "event_type_available_times"
+            and "failed to connect to external calendar" in detail_text.casefold()
+        ):
+            code = "calendly_external_calendar_unavailable"
+            category = "configuration"
+            message = (
+                "Calendly cannot check availability because the calendar connected "
+                "to this event type is unavailable. Reconnect that calendar in "
+                "Calendly, then retry."
+            )
+            retryable = False
+        else:
+            message = f"{message} Details: {detail_text}"
     return ProviderOperationError(
         message,
         provider=provider,
