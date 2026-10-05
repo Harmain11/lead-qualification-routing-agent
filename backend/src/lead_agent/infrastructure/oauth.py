@@ -160,13 +160,12 @@ class ProviderOAuthBroker:
             "state": state,
             "scope": ",".join(scopes) if provider == "slack" else " ".join(scopes),
         }
-        if provider != "calendly":
-            query.update(
-                {
-                    "code_challenge": code_challenge,
-                    "code_challenge_method": "S256",
-                }
-            )
+        query.update(
+            {
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
+            }
+        )
         if provider in {"gmail", "google_calendar"}:
             query.update({"access_type": "offline", "prompt": "consent"})
         return f"{config.authorize_url}?{urlencode(query)}"
@@ -194,8 +193,7 @@ class ProviderOAuthBroker:
             "client_secret": config.client_secret,
             "redirect_uri": redirect_uri,
         }
-        if provider != "calendly":
-            token_payload["code_verifier"] = code_verifier
+        token_payload["code_verifier"] = code_verifier
         response = self.client.post(
             config.token_url,
             data=token_payload,
