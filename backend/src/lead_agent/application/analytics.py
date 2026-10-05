@@ -26,6 +26,16 @@ SQL_BANDS = {"hot", "warm"}
 QUALIFIED_BANDS = {"hot", "warm", "needs_qualifying"}
 ACTIVE_OPPORTUNITY_STAGES = {"opportunity", "proposal", "negotiation"}
 CLOSED_STAGES = {"closed_won", "closed_lost"}
+ENRICHMENT_FIELDS = (
+    ("company_name", "Company"),
+    ("job_title", "Job title"),
+    ("phone", "Phone"),
+    ("industry", "Industry"),
+    ("employee_count", "Company size"),
+    ("annual_revenue", "Annual revenue"),
+    ("geography", "Geography"),
+)
+MISSING_ENRICHMENT_VALUES = {"", "unknown", "unknown company", "n/a", "not provided", "unspecified"}
 
 
 @dataclass(frozen=True)
@@ -91,6 +101,16 @@ def _rep_name(lead: LeadORM) -> str:
     return (
         route.assigned_rep_name if route is not None and route.assigned_rep_name else "Unassigned"
     )
+
+
+def _enrichment_value_is_missing(value: Any) -> bool:
+    return value is None or (
+        isinstance(value, str) and value.strip().casefold() in MISSING_ENRICHMENT_VALUES
+    )
+
+
+def _enrichment_value_key(value: Any) -> str:
+    return str(value).strip().casefold()
 
 
 class AnalyticsService:
@@ -352,6 +372,8 @@ class AnalyticsService:
 
     def agent_activity(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
         window = AnalyticsWindow.build(range_key)
+        leads = self._leads(window.start, window.end)
+        previous_leads = self._leads(window.previous_start, window.previous_end)
         events = list(
             self.session.scalars(
                 select(PipelineEventORM)
@@ -427,13 +449,170 @@ class AnalyticsService:
             {"name": "CRM Tool", "status": "implemented"},
             {"name": "Notification Tool", "status": "implemented"},
             {"name": "Follow-up Agent", "status": "implemented"},
-            {"name": "Enrichment Agent", "status": "future"},
-            {"name": "Analytics Agent", "status": "future"},
+            {"name": "Enrichment Agent", "status": "implemented"},
+            {"name": "Analytics Agent", "status": "implemented"},
         ]
         return {
             "metadata": self.metadata(window),
             "capabilities": capabilities,
+            "insights": [
+                self._enrichment_agent_insight(leads),
+                self._analytics_agent_insight(leads, previous_leads),
+            ],
             "activity": activity[:100],
+        }
+
+    @staticmethod
+    def _enrichment_agent_insight(leads: list[LeadORM]) -> dict[str, Any]:
+        missing_by_field: Counter[str] = Counter()
+        leads_by_email: dict[str, list[LeadORM]] = defaultdict(list)
+        for lead in leads:
+            email_key = lead.email.strip().casefold()
+            if email_key:
+                leads_by_email[email_key].append(lead)
+            for field, label in ENRICHMENT_FIELDS:
+                if _enrichment_value_is_missing(getattr(lead, field)):
+                    missing_by_field[label] += 1
+
+        exact_email_suggestions = 0
+        for matches in leads_by_email.values():
+            if len(matches) < 2:
+                continue
+            for lead in matches:
+                for field, _ in ENRICHMENT_FIELDS:
+                    if not _enrichment_value_is_missing(getattr(lead, field)):
+                        continue
+                    available_values = {
+                        _enrichment_value_key(getattr(match, field))
+                        for match in matches
+                        if match.id != lead.id
+                        and not _enrichment_value_is_missing(getattr(match, field))
+                    }
+                    if len(available_values) == 1:
+                        exact_email_suggestions += 1
+
+        missing_fields = sum(missing_by_field.values())
+        details = [
+            f"{label}: missing from {count} lead{'s' if count != 1 else ''}."
+            for label, count in missing_by_field.most_common(3)
+        ]
+        if exact_email_suggestions:
+            details.append(
+                "Suggestions use a single unambiguous value from an exact-email match "
+                "in this workspace and date range."
+            )
+        else:
+            details.append(
+                "No unambiguous exact-email field matches were found in this workspace "
+                "and date range."
+            )
+        details.append(
+            "Includes CRM-imported profile fields already stored on workspace leads; "
+            "this read-only scan calls no provider and changes no records."
+        )
+
+        if leads:
+            summary = (
+                f"Reviewed {len(leads)} leads and found {missing_fields} missing profile "
+                f"fields. {exact_email_suggestions} values can be suggested from exact-email "
+                "matches in this workspace and date range."
+            )
+        else:
+            summary = (
+                "No leads are available in this date range; "
+                "there are no profile fields to scan."
+            )
+
+        return {
+            "agent": "Enrichment Agent",
+            "summary": summary,
+            "metrics": [
+                {"key": "leads_reviewed", "label": "Leads reviewed", "value": len(leads)},
+                {"key": "profile_gaps", "label": "Profile gaps", "value": missing_fields},
+                {
+                    "key": "exact_email_suggestions",
+                    "label": "Exact-email suggestions",
+                    "value": exact_email_suggestions,
+                },
+            ],
+            "details": details,
+        }
+
+    def _analytics_agent_insight(
+        self, leads: list[LeadORM], previous_leads: list[LeadORM]
+    ) -> dict[str, Any]:
+        sql_ready = sum(_qualification(lead).classification in SQL_BANDS for lead in leads)
+        manual_review = sum(self._is_manual_review(lead) for lead in leads)
+        volume_change = _safe_change(float(len(leads)), float(len(previous_leads)))
+
+        source_leads: dict[str, list[LeadORM]] = defaultdict(list)
+        for lead in leads:
+            source_leads[lead.source].append(lead)
+        comparable_sources = [
+            (source, items)
+            for source, items in source_leads.items()
+            if len(items) >= 3
+        ]
+        comparable_sources.sort(
+            key=lambda row: (
+                sum(_qualification(lead).classification in SQL_BANDS for lead in row[1])
+                / len(row[1]),
+                len(row[1]),
+                row[0].casefold(),
+            ),
+            reverse=True,
+        )
+        details = []
+        if comparable_sources:
+            source, items = comparable_sources[0]
+            source_sqls = sum(
+                _qualification(lead).classification in SQL_BANDS for lead in items
+            )
+            source_rate = round((source_sqls / len(items)) * 100, 1)
+            details.append(
+                f"Highest SQL-ready share: {source.replace('_', ' ').title()} "
+                f"({source_sqls}/{len(items)}, {source_rate:.1f}%)."
+            )
+        else:
+            details.append(
+                "Source comparisons are withheld until a source has at least three leads "
+                "in this date range."
+            )
+        details.append(
+            "Insights use existing workspace lead, qualification, routing, and review data."
+        )
+
+        if leads:
+            sql_rate = round((sql_ready / len(leads)) * 100, 1)
+            change_text = (
+                "no prior-period baseline"
+                if volume_change is None
+                else f"{volume_change:+.1f}% lead volume versus the prior period"
+            )
+            summary = (
+                f"Analyzed {len(leads)} leads: {sql_ready} are SQL-ready ({sql_rate}%), "
+                f"{manual_review} need manual review, with {change_text}."
+            )
+        else:
+            summary = (
+                "No leads are available in this date range. Analytics will report "
+                "workspace trends when records are present."
+            )
+
+        return {
+            "agent": "Analytics Agent",
+            "summary": summary,
+            "metrics": [
+                {"key": "leads_analyzed", "label": "Leads analyzed", "value": len(leads)},
+                {"key": "sql_ready", "label": "SQL-ready", "value": sql_ready},
+                {"key": "manual_review", "label": "Need review", "value": manual_review},
+                {
+                    "key": "lead_volume_change",
+                    "label": "Lead volume change",
+                    "value": "No baseline" if volume_change is None else f"{volume_change:+.1f}%",
+                },
+            ],
+            "details": details,
         }
 
     def manual_review(self, range_key: RangeKey = "monthly") -> dict[str, Any]:

@@ -19,6 +19,7 @@ export function AgentFlow({
   activity: AgentActivity | null;
 }) {
   const eventStages = new Set(activity?.activity.map((item) => item.stage) ?? []);
+  const futureCapabilities = activity?.capabilities.filter((item) => item.status === "future") ?? [];
   const received = pipeline?.stages.find((stage) => stage.stage === "received")?.count ?? 0;
   const activeIndex = received === 0 ? 0 : eventStages.has("crm") ? 7 : eventStages.has("routed") ? 6 : 4;
 
@@ -48,7 +49,7 @@ export function AgentFlow({
       </div>
       <div className="flow-legend">
         <span><i className="implemented" /> Implemented capability</span>
-        <span><i className="future" /> Future agents remain inactive</span>
+        {futureCapabilities.length > 0 && <span><i className="future" /> {futureCapabilities.length} future capabilities remain inactive</span>}
         <span>Motion reflects pipeline state, not model reasoning.</span>
       </div>
     </section>
