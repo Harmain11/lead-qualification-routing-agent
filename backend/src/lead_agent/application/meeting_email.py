@@ -402,14 +402,19 @@ def _attempt_requested_time_booking(
                         continue
                     if duration < 5 or duration > 180:
                         continue
-                    available = client.available_times(
-                        uri,
-                        max(
-                            datetime.now(UTC) + timedelta(minutes=5),
-                            start_at - timedelta(minutes=1),
-                        ),
-                        start_at + timedelta(minutes=duration + 1),
-                    )
+                    try:
+                        available = client.available_times(
+                            uri,
+                            max(
+                                datetime.now(UTC) + timedelta(minutes=5),
+                                start_at - timedelta(minutes=1),
+                            ),
+                            start_at + timedelta(minutes=duration + 1),
+                        )
+                    except ProviderOperationError as error:
+                        if error.code != "calendly_external_calendar_unavailable":
+                            raise
+                        continue
                     matching = any(
                         (
                             slot_start := _parse_datetime(slot.get("start_time"))
