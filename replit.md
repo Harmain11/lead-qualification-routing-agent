@@ -53,9 +53,26 @@ Database migrations are applied on startup; existing preview data is retained.
 
 ## Production
 
-The existing `scripts/replit_build.sh` and `scripts/replit_start.sh` production
-commands are unchanged. Preview setup does **not** configure production publishing.
-Production requires durable PostgreSQL, Redis, managed secret storage, production
-security settings, public URLs, and credentials for any live providers.
+The production build installs the server-side Replit connector SDK as well as
+the existing backend/frontend dependencies. Preview remains separate from publishing.
+The production runner defaults to Gmail verification-email delivery using the
+Replit-connected application account, with its real sender resolved from the mailbox
+profile. Startup checks this connection read-only; no test email is sent automatically.
+This connection does not replace customer workspace mailbox OAuth or Google sign-in.
+Gmail sending limits and provider restrictions apply; use a dedicated app account.
+
+The production runner defaults to `REDIS_DEPLOYMENT_MODE=local_vm`, with Redis
+bound only to `127.0.0.1:6380`, protected mode on, and supervised alongside the API,
+worker, and beat. AOF reduces loss on ordinary process restarts, but this VM's local
+files are **not durable across redeploy/VM replacement**: pending jobs, cache, and
+rate-limit counters can be lost. This is a single-VM, no-separate-provider-subscription
+option, not managed Redis. Durable business records remain in PostgreSQL.
+For managed Redis, explicitly set `REDIS_DEPLOYMENT_MODE=remote` and a remote
+`rediss://` URL. SMTP remains supported with `EMAIL_PROVIDER=smtp` and SMTP settings.
+
+Production still requires durable PostgreSQL, managed secret storage, production
+security settings including `WEBHOOK_SIGNING_SECRET`, public URLs, and credentials
+for live providers. These changes do not publish the app. Replit hosting costs apply.
 Follow `docs/phase-7f-replit-production-deployment.md`; never publish the
-development preview script or SQLite/demo configuration.
+development preview script or SQLite/demo configuration. The Gmail/local-VM setup
+above supersedes that guide's SMTP/remote-Redis-only requirements for this deployment.

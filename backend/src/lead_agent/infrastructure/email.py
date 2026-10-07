@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import smtplib
 import ssl
+import subprocess
 from dataclasses import dataclass
 from email.message import EmailMessage
 from typing import Protocol
@@ -55,6 +58,64 @@ class CaptureEmailProvider:
         )
 
 
+def _verification_message(
+    settings: Settings, message: VerificationEmail, sender: str
+) -> EmailMessage:
+    email = EmailMessage()
+    email["From"] = sender
+    email["To"] = message.recipient
+    email["Subject"] = "Verify your Ingenuity Systems account"
+    email.set_content(
+        "Verify your email address to activate your Ingenuity Systems workspace.\n\n"
+        f"Open this link within {settings.email_verification_expiry_minutes} minutes:\n"
+        f"{message.verification_url}\n\n"
+        "If you did not request this account, you can ignore this message."
+    )
+    return email
+
+
+class GmailEmailProvider:
+    """Send using the Replit-connected application mailbox, not workspace mailboxes."""
+
+    provider_name = "gmail"
+    configured = True
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def _request(self, payload: dict[str, str]) -> dict[str, object]:
+        bridge = self._settings.repository_root / "scripts" / "gmail_connector.mjs"
+        try:
+            response = subprocess.run(
+                ["node", str(bridge)],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                timeout=self._settings.email_gmail_timeout_seconds,
+                check=False,
+            )
+            body = json.loads(response.stdout)
+            if response.returncode or not isinstance(body, dict) or body.get("ok") is not True:
+                raise EmailDeliveryError("Gmail connector rejected the request")
+            return body
+        except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+            # No automatic retries: a timed-out send may already have been delivered.
+            raise EmailDeliveryError("Gmail connector request failed") from error
+
+    def sender_address(self) -> str:
+        address = self._request({"action": "profile"}).get("emailAddress")
+        if not isinstance(address, str) or "@" not in address or "\n" in address or "\r" in address:
+            raise EmailDeliveryError("Gmail mailbox profile is unavailable")
+        return address
+
+    def send_verification_email(self, message: VerificationEmail) -> None:
+        email = _verification_message(self._settings, message, self.sender_address())
+        raw = base64.urlsafe_b64encode(email.as_bytes()).decode("ascii")
+        result = self._request({"action": "send", "raw": raw})
+        if not isinstance(result.get("id"), str) or not result["id"]:
+            raise EmailDeliveryError("Gmail did not confirm message acceptance")
+
+
 class SmtpEmailProvider:
     provider_name = "smtp"
     configured = True
@@ -63,16 +124,7 @@ class SmtpEmailProvider:
         self._settings = settings
 
     def send_verification_email(self, message: VerificationEmail) -> None:
-        email = EmailMessage()
-        email["From"] = self._settings.email_from
-        email["To"] = message.recipient
-        email["Subject"] = "Verify your Ingenuity Systems account"
-        email.set_content(
-            "Verify your email address to activate your Ingenuity Systems workspace.\n\n"
-            f"Open this link within {self._settings.email_verification_expiry_minutes} minutes:\n"
-            f"{message.verification_url}\n\n"
-            "If you did not request this account, you can ignore this message."
-        )
+        email = _verification_message(self._settings, message, self._settings.email_from)
         try:
             context = ssl.create_default_context()
             with smtplib.SMTP(
@@ -100,6 +152,8 @@ def build_email_provider(settings: Settings) -> EmailProvider:
         return CaptureEmailProvider()
     if provider == "smtp":
         return SmtpEmailProvider(settings)
+    if provider == "gmail":
+        return GmailEmailProvider(settings)
     raise ValueError(f"unsupported EMAIL_PROVIDER: {settings.email_provider}")
 
 
