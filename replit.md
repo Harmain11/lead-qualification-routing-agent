@@ -58,6 +58,9 @@ the existing backend/frontend dependencies. Preview remains separate from publis
 The production runner defaults to Gmail verification-email delivery using the
 Replit-connected application account, with its real sender resolved from the mailbox
 profile. Startup checks this connection read-only; no test email is sent automatically.
+After configuration validation and local Redis startup, the API starts while remote
+dependency probes run, so publishing health checks do not wait for every provider.
+Probe failures stop the supervised API; Celery worker/beat start only after success.
 This connection does not replace customer workspace mailbox OAuth or Google sign-in.
 Gmail sending limits and provider restrictions apply; use a dedicated app account.
 
