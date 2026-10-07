@@ -83,7 +83,11 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         preferred_auth="oauth2",
         supported_auth=["oauth2", "private_token"],
         dashboard_path="Managed by Ingenuity Systems · Salesforce OAuth app",
-        credential_help="Sign in to Salesforce and approve access. No developer setup is required.",
+        credential_help=(
+            "Sign in to Salesforce and approve access. If authorization is denied, the "
+            "Salesforce app owner must allow your user to authorize the app and enable "
+            "its API and refresh-token permissions."
+        ),
         required_scopes=["api", "refresh_token"],
         permission_reason="Create or update Lead records and the configured sales fields.",
         documentation_url=(
@@ -120,7 +124,11 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Slack application",
-        credential_help="Choose a Slack workspace and approve the lead-alert bot.",
+        credential_help=(
+            "Choose a Slack workspace and approve the lead-alert bot. An undistributed app "
+            "can only connect to the workspace where it was created; the app owner must "
+            "enable App Distribution to support other workspaces."
+        ),
         required_scopes=["chat:write", "channels:read"],
         permission_reason=(
             "Send routed lead alerts and list public channels for workspace channel selection."

@@ -11,6 +11,7 @@ from uuid import UUID
 import httpx
 
 from lead_agent.domain.integrations import OAuthBroker
+from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.settings.config import Settings, get_settings
 
 
@@ -198,10 +199,16 @@ class ProviderOAuthBroker:
             config.token_url,
             data=token_payload,
         )
-        response.raise_for_status()
+        if response.is_error:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
+            error_code = error_payload.get("error") if isinstance(error_payload, dict) else None
+            raise OAuthProviderError(provider, error_code, response.status_code)
         payload = response.json()
         if payload.get("ok") is False:
-            raise ValueError(str(payload.get("error", "OAuth token exchange failed")))
+            raise OAuthProviderError(provider, payload.get("error"), response.status_code)
         values = self._string_values(payload)
         team = payload.get("team")
         if isinstance(team, dict):
@@ -212,7 +219,7 @@ class ProviderOAuthBroker:
         if "hub_id" in values:
             values["external_account_id"] = values["hub_id"]
         if not values.get("access_token"):
-            raise ValueError("OAuth provider did not return an access token")
+            raise OAuthProviderError(provider, "missing_access_token", response.status_code)
         return values
 
     def refresh(self, provider: str, refresh_token: str) -> dict[str, str]:
