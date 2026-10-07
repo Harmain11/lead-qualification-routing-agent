@@ -30,6 +30,10 @@ from lead_agent.settings.config import Settings
         ),
         ("salesforce", 401, {"error": "secret-looking-unknown-value"}, "oauth_provider_error"),
         ("salesforce", 200, {}, "missing_access_token"),
+        ("salesforce", 400, {"error": "invalid_app_access"}, "invalid_app_access"),
+        ("salesforce", 400, {"error": "inactive_user"}, "inactive_user"),
+        ("salesforce", 400, {"error": "CSRF"}, "CSRF"),
+        ("slack", 400, {"error": "invalid_app_access"}, "oauth_provider_error"),
     ],
 )
 def test_exchange_errors_are_actionable_and_redacted(provider, status, payload, expected):
@@ -53,6 +57,7 @@ def test_exchange_errors_are_actionable_and_redacted(provider, status, payload, 
 
 @pytest.mark.parametrize("provider,code", [
     ("salesforce", "access_denied"),
+    ("salesforce", "invalid_app_access"),
     ("slack", "invalid_team_for_non_distributed_app"),
 ])
 def test_rejected_callback_requires_valid_state_and_cleans_pending_secret(tmp_path, provider, code):
@@ -120,3 +125,26 @@ def test_exchange_failure_is_persisted_without_raw_provider_details(tmp_path, ty
         )
         assert "private-token" not in str(row.last_validation_result)
         assert "private-token" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "code,message",
+    [
+        ("invalid_app_access", "profiles or permission sets"),
+        ("inactive_user", "activate the user"),
+        ("inactive_org", "locked, closed or suspended"),
+        ("CSRF", "approved Salesforce login domain"),
+        ("NO_ACCESS", "active user"),
+        ("rate_limit_exceeded", "Wait"),
+        ("redirect_uri_missing", "registered callback URL"),
+        ("immediate_unsuccessful", "interactive login"),
+        ("No_OAuth_State", "do not reuse a callback link"),
+        ("No_Openid_Response", "User Info Endpoint URL"),
+        ("REGISTRATION_HANDLER_ERROR", "Apex registration handler"),
+        ("ERROR_CREATING_USER", "license availability"),
+    ],
+)
+def test_salesforce_specific_errors_have_static_actionable_messages(code, message):
+    error = OAuthProviderError("salesforce", code)
+    assert error.error_code == code
+    assert message in str(error)
