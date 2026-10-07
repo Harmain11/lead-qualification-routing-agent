@@ -436,10 +436,9 @@ function App() {
         <div className="rail-brand-row">
           <button className="brand-lockup" onClick={() => navigate("dashboard")} aria-label="Corral home">
             <img src="/asset/brand/corral-mark.png" alt="" />
-            <span><b>Corral</b></span>
+            <span><b>Corral</b><small className="rail-brand-tagline">Powered by Ingenuity Systems</small></span>
           </button>
           <button className="rail-close" onClick={() => setNavOpen(false)} aria-label="Collapse navigation" title="Collapse navigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-5 7 5 7" /></svg></button>
-          <div className="rail-brand-tagline">POWERED BY INGENUITY SYSTEMS</div>
         </div>
         <nav aria-label="Primary navigation">
           {visibleNavigation.map((item, index) => (
