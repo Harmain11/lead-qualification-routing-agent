@@ -1986,6 +1986,16 @@ html body .auth-shell :is(small, .eyebrow) { font-size: 10px; }
 .auth-legal-links a:hover,
 .product-legal-links a:hover { color: var(--green); }
 
+@media (max-width: 760px) {
+  .auth-story { padding: 22px 22px 10px; }
+  .auth-product-brand .auth-logo { width: 58px; height: 58px; flex-basis: 58px; }
+  .auth-panel { margin: 4px auto 20px; padding: 22px 20px; }
+  .auth-tabs { margin: 20px 0; }
+  .auth-divider { margin: 18px 0 12px; }
+  .auth-security { margin-top: 12px; }
+  .auth-legal-links { gap: 10px 14px; margin-top: 10px; }
+}
+
 /* Keep dashboard KPI cards wide enough for labels and values at every viewport width. */
 .metric-grid.dashboard-metric-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
