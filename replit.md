@@ -73,6 +73,17 @@ For managed Redis, explicitly set `REDIS_DEPLOYMENT_MODE=remote` and a remote
 Production still requires durable PostgreSQL, managed secret storage, production
 security settings including `WEBHOOK_SIGNING_SECRET`, public URLs, and credentials
 for live providers. These changes do not publish the app. Replit hosting costs apply.
+The production API binds to `PORT` (default 5000), matching Replit's public port
+mapping; port 8001 is only the preview backend. Run
+`bash scripts/replit_start.sh --check` for a read-only production preflight:
+it validates settings, frontend assets, Gmail profile access, and database/Redis
+connectivity without applying migrations, starting workers, or sending email.
+The workspace's managed development PostgreSQL does not support the strict SSL
+required in production. A preflight in the workspace can therefore pass configuration,
+Gmail, and Redis but reject this development database. Do not lower production SSL
+requirements to make that check pass. Publishing injects the separate production
+database URL; verify actual production readiness after publishing.
+Production schema changes are applied by Replit Publish, never by startup-time Alembic.
 Follow `docs/phase-7f-replit-production-deployment.md`; never publish the
 development preview script or SQLite/demo configuration. The Gmail/local-VM setup
 above supersedes that guide's SMTP/remote-Redis-only requirements for this deployment.

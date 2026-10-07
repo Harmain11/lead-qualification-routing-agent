@@ -5,7 +5,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 python_bin="${PYTHON_BIN:-python3}"
-port="${PORT:-${API_PORT:-8001}}"
+# Match Replit's public port mapping; API_PORT is for the development backend.
+port="${PORT:-5000}"
 api_host="${REPLIT_API_HOST:-0.0.0.0}"
 forwarded_allow_ips="${FORWARDED_ALLOW_IPS:-127.0.0.1}"
 worker_concurrency="${CELERY_WORKER_CONCURRENCY:-2}"
@@ -98,9 +99,6 @@ print("[startup] Gmail mailbox is accessible")
 PY
 fi
 
-echo "[startup] applying database migrations"
-"$python_bin" -m alembic -c backend/alembic.ini upgrade head
-
 echo "[startup] checking PostgreSQL and Redis connectivity"
 "$python_bin" - <<'PY'
 from redis import Redis
@@ -110,8 +108,17 @@ from lead_agent.infrastructure.db.session import build_engine
 from lead_agent.settings.config import get_settings
 
 settings = get_settings()
-with build_engine(settings).connect() as connection:
-    connection.execute(text("SELECT 1"))
+engine = build_engine(settings)
+try:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+except Exception:
+    raise SystemExit(
+        "[startup] PostgreSQL connection failed. Production requires SSL; "
+        "the workspace development database is not the published production database."
+    )
+finally:
+    engine.dispose()
 client = Redis.from_url(
     settings.redis_url,
     socket_connect_timeout=settings.redis_connect_timeout_seconds,
@@ -123,6 +130,13 @@ finally:
     client.close()
 print("[startup] PostgreSQL and Redis are reachable")
 PY
+
+if [[ "${1:-}" == "--check" ]]; then
+  echo "[startup] production preflight passed (no migrations, workers, or email sends)"
+  exit 0
+fi
+
+echo "[startup] production schema is managed by Replit Publish; no startup migrations"
 
 echo "[startup] starting API on ${api_host}:${port}"
 "$python_bin" -m uvicorn lead_agent.api.main:app \
