@@ -1577,7 +1577,8 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .app-shell .brand-lockup > img { grid-column: 1; grid-row: 1; width: 42px; height: 42px; object-fit: contain; }
 .app-shell .brand-lockup > span { display: grid; grid-column: 2; grid-row: 1 / span 2; grid-template-rows: 42px auto; align-content: start; align-items: start; min-width: 0; gap: 0; }
 .app-shell .brand-lockup b { grid-column: 1; grid-row: 1; align-self: center; color: #0F1B2D; font: 500 21px/1 var(--font-display); letter-spacing: -.045em; white-space: nowrap; }
-.app-shell .brand-lockup .rail-brand-tagline { grid-column: 1; grid-row: 2; align-self: start; max-width: 100%; margin: -4px 0 0; color: #507762; font: 400 clamp(6.2px, 2vw, 7.4px)/1.15 var(--font-display); letter-spacing: .015em; text-align: left; }
+.app-shell .brand-lockup .rail-brand-tagline { display: flex; flex-direction: column; grid-column: 1; grid-row: 2; align-self: start; max-width: 100%; margin: -4px 0 0; color: #1E6B52; font: 500 clamp(7px, .63vw, 8px)/1.12 var(--font-display); letter-spacing: .07em; text-align: left; text-transform: uppercase; }
+.app-shell .brand-lockup .rail-brand-tagline > span { white-space: nowrap; }
 .rail-close { grid-column: 2; grid-row: 1; align-self: start; margin-top: 1px; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--muted); transition: color var(--fast), border-color var(--fast), background var(--fast), transform var(--fast); }
 .rail-close svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .rail-close:hover { border-color: var(--blue-line); background: #E9F3EB; color: #1E6B52; }

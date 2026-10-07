@@ -1,0 +1,128 @@
+.corral-brand-preview {
+  --font-display: "Arial Nova", "Segoe UI Variable", system-ui, sans-serif;
+  --brand-ink: #0F1B2D;
+  --brand-green: #1E6B52;
+  box-sizing: border-box;
+  width: 100%;
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #fff;
+  color: var(--brand-ink);
+  font-family: var(--font-display);
+}
+
+.corral-brand-preview *,
+.corral-brand-preview *::before,
+.corral-brand-preview *::after {
+  box-sizing: border-box;
+}
+
+.corral-brand-scale {
+  width: 218px;
+  transform: scale(1.72);
+  transform-origin: center;
+}
+
+.corral-brand-preview .rail-brand-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: start;
+  column-gap: 4px;
+  padding: 2px 3px 0;
+}
+
+.corral-brand-preview .brand-lockup {
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-rows: 42px auto;
+  align-items: center;
+  gap: 2px 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.corral-brand-preview .brand-lockup > img {
+  grid-column: 1;
+  grid-row: 1;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+}
+
+.corral-brand-preview .brand-lockup > span {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  grid-template-rows: 42px auto;
+  align-content: start;
+  align-items: start;
+  min-width: 0;
+  gap: 0;
+}
+
+.corral-brand-preview .brand-lockup b {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  color: var(--brand-ink);
+  font: 500 21px/1 var(--font-display);
+  letter-spacing: -.045em;
+  white-space: nowrap;
+}
+
+.corral-brand-preview .rail-brand-tagline {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1;
+  grid-row: 2;
+  align-self: start;
+  max-width: 100%;
+  margin: -4px 0 0;
+  color: var(--brand-green);
+  font: 500 8px/1.12 var(--font-display);
+  letter-spacing: .07em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.corral-brand-preview .rail-brand-tagline > span {
+  white-space: nowrap;
+}
+
+.corral-brand-preview .rail-close {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  padding: 0;
+  border: 1px solid rgba(15, 27, 45, .13);
+  border-radius: 12px;
+  background: #fff;
+  color: #507762;
+}
+
+.corral-brand-preview .rail-close svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
