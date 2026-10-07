@@ -16,6 +16,32 @@ beat_schedule_file="${CELERY_BEAT_SCHEDULE_FILE:-/tmp/lead-agent-celerybeat-sche
 # editable package from the build step or a source checkout during setup.
 export PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}"
 
+# Production-specific defaults. The preview runner intentionally uses relaxed
+# local settings; deployments must not inherit those development defaults.
+export APP_ENV=production
+export AUTH_DEVELOPMENT_FALLBACK=false
+export AUTH_COOKIE_SECURE=true
+export AUTH_REQUIRE_EMAIL_VERIFICATION=true
+export LOG_FORMAT=json
+export SECRET_KEY="${SESSION_SECRET:?SESSION_SECRET must be configured in Replit Secrets}"
+export SECRET_STORE_PROVIDER=managed
+export MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend
+: "${SECRET_STORE_ENCRYPTION_KEY:?SECRET_STORE_ENCRYPTION_KEY must be configured in Replit Secrets}"
+export OAUTH_BROKER=provider
+export EMAIL_PROVIDER=smtp
+export EMAIL_SMTP_PORT="${EMAIL_SMTP_PORT:-587}"
+export EMAIL_SMTP_STARTTLS="${EMAIL_SMTP_STARTTLS:-true}"
+export LLM_PROVIDER=workspace
+export CRM_PROVIDER="${CRM_PROVIDER:-hubspot}"
+export NOTIFICATION_PROVIDER=slack
+export DATABASE_SSL_MODE=require
+export RATE_LIMIT_BACKEND=redis
+export REDIS_REQUIRED=true
+export INTEGRATION_PUBLIC_BASE_URL="${INTEGRATION_PUBLIC_BASE_URL:-https://corralai.tech}"
+export FRONTEND_PUBLIC_BASE_URL="${FRONTEND_PUBLIC_BASE_URL:-https://corralai.tech}"
+export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-https://corralai.tech,https://lead-qualification-routing-agent.replit.app}"
+export DEMO_DATA_ENABLED=false
+
 case "$port" in
   ''|*[!0-9]*) echo "[startup] PORT must be numeric" >&2; exit 1 ;;
 esac
