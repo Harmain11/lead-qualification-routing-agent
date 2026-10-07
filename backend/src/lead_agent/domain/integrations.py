@@ -84,7 +84,9 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         supported_auth=["oauth2", "private_token"],
         dashboard_path="Managed by Ingenuity Systems · Salesforce OAuth app",
         credential_help=(
-            "Sign in to Salesforce and approve access. If authorization is denied, the "
+            "Install the Corral Salesforce package in the organization you want to connect "
+            "before authorizing. Connect opens the installer and a step-by-step guide. "
+            "Then sign in to Salesforce and approve access. If authorization is denied, the "
             "Salesforce app owner must allow your user to authorize the app and enable "
             "its API and refresh-token permissions."
         ),

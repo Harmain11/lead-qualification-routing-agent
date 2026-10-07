@@ -20,6 +20,7 @@ import {
   updateOpenAIModel,
 } from "../api";
 import { can } from "../permissions";
+import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
 import type { CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
@@ -214,6 +215,7 @@ function SlackRoutingEditor({
 export function IntegrationsView({ permissions }: { permissions: ReadonlySet<string> }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [salesforceSetupOpen, setSalesforceSetupOpen] = useState(false);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
   const [modelSelections, setModelSelections] = useState<Record<string, string>>({});
@@ -274,6 +276,13 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
       const name = provider === "salesforce" ? "Salesforce" : provider === "slack" ? "Slack" : provider;
       const message = params.get("message")?.trim().slice(0, 500);
       setNotice(status === "connected" ? `${name} connected successfully.` : message || `${name} authorization failed. Reconnect to try again.`);
+      if (provider === "salesforce" && status !== "connected" && canConnect) {
+        setSalesforceSetupOpen(true);
+        setActionErrors((current) => ({
+          ...current,
+          salesforce: message || "Salesforce authorization failed. Check the package installation and organization before trying again.",
+        }));
+      }
       window.history.replaceState({}, "", window.location.pathname);
       void refresh();
     }
@@ -331,7 +340,22 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
     }
   }
 
-  async function connectOAuth(provider: string) {
+  function connectOAuth(provider: string) {
+    if (!canConnect || (provider === "slack" && !canManage) || busy) return;
+    if (provider === "salesforce") {
+      setSalesforceSetupOpen(true);
+      setActionErrors((current) => {
+        const next = { ...current };
+        delete next.salesforce;
+        return next;
+      });
+      return;
+    }
+    void authorizeOAuth(provider);
+  }
+
+  async function authorizeOAuth(provider: string) {
+    if (!canConnect || busy) return;
     if (provider === "slack" && !canManage) {
       const message = "Integration management permission is required to connect Slack.";
       setActionErrors((current) => ({ ...current, [provider]: message }));
@@ -427,7 +451,7 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
         </div>}
         {!comingSoon && <div className="card-actions">
            {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={busy === card.provider}>{busy === card.provider ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={busy === card.provider}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>{openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>}
-          <button className="button-quiet" onClick={() => setExpanded(open ? null : card.provider)}>Setup guide</button>
+          <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : setExpanded(open ? null : card.provider)}>Setup guide</button>
         </div>}
         {openAI && connection && canManage && <div className="integration-guide openai-model-config"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button className="button-quiet" onClick={() => void act(card.provider, () => updateOpenAIModel(connection.id, selectedOpenAIModel), "OpenAI model saved. Test the connection before use.")} disabled={busy === card.provider || !selectedOpenAIModel}>Save model</button></div>}
         {!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified" && <div className="integration-guide">
@@ -467,5 +491,12 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
       </article>;
     })}</div>
     </section>)}</div>}
-  </div>;
+     {salesforceSetupOpen && <SalesforceSetupGuide
+       onClose={() => setSalesforceSetupOpen(false)}
+       onContinue={() => { if (canConnect && !busy) void authorizeOAuth("salesforce"); }}
+       busy={busy !== null}
+       canAuthorize={canConnect}
+       error={actionErrors.salesforce}
+     />}
+   </div>;
 }
