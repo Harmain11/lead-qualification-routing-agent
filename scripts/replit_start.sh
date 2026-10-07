@@ -16,6 +16,7 @@ beat_schedule_file="${CELERY_BEAT_SCHEDULE_FILE:-/tmp/lead-agent-celerybeat-sche
 # Keep imports and module execution consistent whether Replit is using the
 # editable package from the build step or a source checkout during setup.
 export PYTHONPATH="backend/src${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONUNBUFFERED=1
 
 # Production-specific defaults. The preview runner intentionally uses relaxed
 # local settings; deployments must not inherit those development defaults.
@@ -85,6 +86,22 @@ if [[ "$REDIS_DEPLOYMENT_MODE" == "local_vm" ]]; then
   redis-cli -h 127.0.0.1 -p 6380 ping >/dev/null
 fi
 
+# Bind the public port before slow remote-provider probes. Production settings
+# have already passed validation and the API validates them again on import.
+# Any failed probe still exits this runner and stops all supervised children.
+# Workers must not consume live jobs until the probes below have passed.
+if [[ "${1:-}" != "--check" ]]; then
+  echo "[startup] starting API on ${api_host}:${port}"
+  "$python_bin" -m uvicorn lead_agent.api.main:app \
+    --host "$api_host" \
+    --port "$port" \
+    --no-access-log \
+    --proxy-headers \
+    --forwarded-allow-ips "$forwarded_allow_ips" &
+  api_pid=$!
+  child_pids+=("$api_pid")
+fi
+
 if [[ "$EMAIL_PROVIDER" == "gmail" ]]; then
   echo "[startup] checking Gmail connection (read-only; no email sent)"
   "$python_bin" - <<'PY'
@@ -137,15 +154,10 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 echo "[startup] production schema is managed by Replit Publish; no startup migrations"
-
-echo "[startup] starting API on ${api_host}:${port}"
-"$python_bin" -m uvicorn lead_agent.api.main:app \
-  --host "$api_host" \
-  --port "$port" \
-  --no-access-log \
-  --proxy-headers \
-  --forwarded-allow-ips "$forwarded_allow_ips" &
-child_pids+=("$!")
+kill -0 "$api_pid" 2>/dev/null || {
+  echo "[startup] API exited during dependency checks" >&2
+  exit 1
+}
 
 echo "[startup] starting Celery worker with concurrency ${worker_concurrency}"
 "$python_bin" -m celery -A lead_agent.worker.celery_app:celery_app worker \
@@ -160,7 +172,8 @@ if ! command -v flock >/dev/null 2>&1; then
   exit 1
 fi
 mkdir -p "$(dirname "$beat_lock_file")" "$(dirname "$beat_schedule_file")"
-flock -n "$beat_lock_file" \
+# Exec beat under the lock, so its supervised PID receives shutdown signals.
+flock --no-fork -n "$beat_lock_file" \
   "$python_bin" -m celery -A lead_agent.worker.celery_app:celery_app beat \
     --loglevel="${CELERY_LOG_LEVEL:-INFO}" \
     --schedule "$beat_schedule_file" \
