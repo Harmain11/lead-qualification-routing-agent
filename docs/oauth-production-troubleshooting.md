@@ -21,6 +21,27 @@ Official instructions: https://docs.slack.dev/app-management/distribution
 
 ## Salesforce authorization
 
+### Install the package before connecting
+
+Corral requires its Salesforce package to be installed in the organization being
+connected before starting OAuth:
+
+https://login.salesforce.com/packaging/installPackage.apexp?p0=04taj000000j95Z
+
+Connect and Reconnect open this installer in a separate tab and show a setup
+guide. If the tab is blocked, the guide provides the same installer link.
+A Salesforce administrator should review the package publisher, contents and
+requested access, then install it according to the organization's access policy.
+Wait for success, or confirm an existing installation in **Setup → Installed
+Packages**. Return to Corral, confirm installation, then continue authorization
+in the same organization.
+
+The confirmation is user-reported, not an automated package-install check.
+Opening the installer alone does not enable authorization. The existing OAuth
+state, PKCE, actor binding and provider verification remain in place.
+
+### OAuth configuration
+
 Register the exact public API callback:
 `{INTEGRATION_PUBLIC_BASE_URL}/v1/integrations/salesforce/oauth/callback`.
 Enable authorization-code flow, S256 PKCE, `api` and `refresh_token` scopes.
