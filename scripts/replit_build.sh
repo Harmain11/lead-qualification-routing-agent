@@ -10,6 +10,8 @@ echo "[build] installing backend package"
 "$python_bin" -m pip install --no-cache-dir -e backend
 
 echo "[build] installing and building frontend"
+echo "[build] installing server-side Replit connector SDK"
+npm ci --omit=dev
 npm ci --prefix frontend
 npm run build --prefix frontend
 

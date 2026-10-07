@@ -83,6 +83,42 @@ def test_valid_production_configuration_has_explicit_security_boundaries() -> No
     assert settings.secret_store_provider == "managed"
 
 
+def test_gmail_and_explicit_local_vm_redis_are_supported_in_production() -> None:
+    settings = production_settings(
+        email_provider="gmail", email_smtp_host="", email_from="",
+        redis_deployment_mode="local_vm", redis_url="redis://127.0.0.1:6380/0",
+    )
+    assert settings.auth_require_email_verification
+    assert settings.redis_required
+    assert settings.rate_limit_backend == "redis"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://0.0.0.0:6380/0",
+        "redis://remote.example.com:6380/0",
+        "redis://localhost:6379/0",
+        "redis://127.0.0.1:6380/1",
+        "redis://127.0.0.1:6380/0?host=remote.example.com",
+    ],
+)
+def test_local_vm_redis_cannot_point_to_an_insecure_remote_host(url: str) -> None:
+    with pytest.raises(ValidationError, match="local_vm Redis requires"):
+        production_settings(redis_deployment_mode="local_vm", redis_url=url)
+
+
+def test_remote_redis_still_requires_tls_and_explicit_local_mode() -> None:
+    with pytest.raises(ValidationError, match="remote rediss"):
+        production_settings(redis_url="redis://127.0.0.1:6380/0")
+
+
+@pytest.mark.parametrize("email_provider", ["none", "console"])
+def test_production_does_not_allow_fake_or_disabled_email(email_provider: str) -> None:
+    with pytest.raises(ValidationError, match="EMAIL_PROVIDER must be smtp or gmail"):
+        production_settings(email_provider=email_provider)
+
+
 def test_postgresql_urls_use_the_declared_psycopg3_driver() -> None:
     settings = Settings(
         _env_file=None,

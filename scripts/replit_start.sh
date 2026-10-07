@@ -28,7 +28,7 @@ export SECRET_STORE_PROVIDER=managed
 export MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend
 : "${SECRET_STORE_ENCRYPTION_KEY:?SECRET_STORE_ENCRYPTION_KEY must be configured in Replit Secrets}"
 export OAUTH_BROKER=provider
-export EMAIL_PROVIDER=smtp
+export EMAIL_PROVIDER="${EMAIL_PROVIDER:-gmail}"
 export EMAIL_SMTP_PORT="${EMAIL_SMTP_PORT:-587}"
 export EMAIL_SMTP_STARTTLS="${EMAIL_SMTP_STARTTLS:-true}"
 export LLM_PROVIDER=workspace
@@ -37,6 +37,10 @@ export NOTIFICATION_PROVIDER=slack
 export DATABASE_SSL_MODE=require
 export RATE_LIMIT_BACKEND=redis
 export REDIS_REQUIRED=true
+export REDIS_DEPLOYMENT_MODE="${REDIS_DEPLOYMENT_MODE:-local_vm}"
+if [[ "$REDIS_DEPLOYMENT_MODE" == "local_vm" ]]; then
+  export REDIS_URL=redis://127.0.0.1:6380/0
+fi
 export INTEGRATION_PUBLIC_BASE_URL="${INTEGRATION_PUBLIC_BASE_URL:-https://corralai.tech}"
 export FRONTEND_PUBLIC_BASE_URL="${FRONTEND_PUBLIC_BASE_URL:-https://corralai.tech}"
 export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-https://corralai.tech,https://lead-qualification-routing-agent.replit.app}"
@@ -51,6 +55,48 @@ echo "[startup] validating production configuration"
 
 echo "[startup] checking built frontend"
 test -s frontend/dist/index.html
+
+child_pids=()
+shutdown() {
+  trap - TERM INT EXIT
+  if ((${#child_pids[@]})); then
+    kill -TERM "${child_pids[@]}" 2>/dev/null || true
+    wait "${child_pids[@]}" 2>/dev/null || true
+  fi
+}
+trap shutdown TERM INT EXIT
+
+if [[ "$REDIS_DEPLOYMENT_MODE" == "local_vm" ]]; then
+  echo "[startup] local Redis: queue/cache data is not durable across VM replacement or redeploy"
+  command -v redis-server >/dev/null || { echo "[startup] redis-server is missing" >&2; exit 1; }
+  redis_dir="${LOCAL_REDIS_DATA_DIR:-/tmp/corral-redis}"
+  mkdir -p "$redis_dir"
+  redis-server --bind 127.0.0.1 --port 6380 --protected-mode yes \
+    --daemonize no --dir "$redis_dir" --appendonly yes --appendfsync everysec \
+    --save "" --maxmemory-policy noeviction &
+  redis_pid=$!
+  child_pids+=("$redis_pid")
+  for attempt in {1..50}; do
+    kill -0 "$redis_pid" 2>/dev/null || { echo "[startup] local Redis exited" >&2; exit 1; }
+    if redis-cli -h 127.0.0.1 -p 6380 ping >/dev/null 2>&1; then break; fi
+    sleep 0.1
+  done
+  redis-cli -h 127.0.0.1 -p 6380 ping >/dev/null
+fi
+
+if [[ "$EMAIL_PROVIDER" == "gmail" ]]; then
+  echo "[startup] checking Gmail connection (read-only; no email sent)"
+  "$python_bin" - <<'PY'
+from lead_agent.infrastructure.email import EmailDeliveryError, GmailEmailProvider
+from lead_agent.settings.config import get_settings
+
+try:
+    GmailEmailProvider(get_settings()).sender_address()
+except EmailDeliveryError:
+    raise SystemExit("[startup] Gmail connection failed; check the Replit Gmail connection")
+print("[startup] Gmail mailbox is accessible")
+PY
+fi
 
 echo "[startup] applying database migrations"
 "$python_bin" -m alembic -c backend/alembic.ini upgrade head
@@ -77,16 +123,6 @@ finally:
     client.close()
 print("[startup] PostgreSQL and Redis are reachable")
 PY
-
-child_pids=()
-shutdown() {
-  trap - TERM INT EXIT
-  if ((${#child_pids[@]})); then
-    kill -TERM "${child_pids[@]}" 2>/dev/null || true
-    wait "${child_pids[@]}" 2>/dev/null || true
-  fi
-}
-trap shutdown TERM INT EXIT
 
 echo "[startup] starting API on ${api_host}:${port}"
 "$python_bin" -m uvicorn lead_agent.api.main:app \
@@ -117,7 +153,9 @@ flock -n "$beat_lock_file" \
     --pidfile="${CELERY_BEAT_PID_FILE:-/tmp/lead-agent-celerybeat.pid}" &
 child_pids+=("$!")
 
-wait -n "${child_pids[@]}"
-exit_code=$?
+exit_code=0
+wait -n "${child_pids[@]}" || exit_code=$?
 echo "[startup] a supervised process exited with status ${exit_code}" >&2
+# An unexpected clean child exit is also a service failure.
+if [[ "$exit_code" == "0" ]]; then exit_code=1; fi
 exit "$exit_code"

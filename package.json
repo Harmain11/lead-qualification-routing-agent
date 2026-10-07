@@ -1,0 +1,21 @@
+{
+  "name": "corral-server-connectors",
+  "version": "1.0.0",
+  "description": "Server-side Replit connector bridge for the Python backend",
+  "private": true,
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Harmain11/lead-qualification-routing-agent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Harmain11/lead-qualification-routing-agent/issues"
+  },
+  "homepage": "https://github.com/Harmain11/lead-qualification-routing-agent#readme",
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.3"
+  }
+}

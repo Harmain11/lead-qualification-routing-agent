@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     auth_csrf_cookie_name: str = "lead_agent_csrf"
     auth_session_hours: int = 336
     auth_require_email_verification: bool = False
-    email_provider: Literal["none", "console", "smtp"] = "console"
+    email_provider: Literal["none", "console", "smtp", "gmail"] = "console"
     email_from: str = "no-reply@example.invalid"
     email_verification_expiry_minutes: int = 60
     email_verification_resend_seconds: int = 60
@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     email_smtp_password: str = ""
     email_smtp_starttls: bool = True
     email_smtp_timeout_seconds: float = 10.0
+    email_gmail_timeout_seconds: float = 30.0
     auth_cookie_secure: bool = False
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     webhook_signing_secret: str = ""
@@ -60,6 +61,7 @@ class Settings(BaseSettings):
     database_pool_recycle_seconds: int = 1800
     database_connect_timeout_seconds: int = 10
     redis_url: str = "redis://localhost:6379/0"
+    redis_deployment_mode: Literal["remote", "local_vm"] = "remote"
     redis_required: bool = True
     redis_connect_timeout_seconds: float = 2.0
     redis_socket_timeout_seconds: float = 2.0
@@ -155,6 +157,8 @@ class Settings(BaseSettings):
             raise ValueError("EMAIL_SMTP_PORT must be between 1 and 65535")
         if self.email_smtp_timeout_seconds <= 0:
             raise ValueError("EMAIL_SMTP_TIMEOUT_SECONDS must be positive")
+        if self.email_gmail_timeout_seconds <= 0:
+            raise ValueError("EMAIL_GMAIL_TIMEOUT_SECONDS must be positive")
         if self.auth_cookie_samesite == "none" and not self.auth_cookie_secure:
             raise ValueError("SameSite=None cookies require AUTH_COOKIE_SECURE=true")
         if (
@@ -248,14 +252,17 @@ class Settings(BaseSettings):
             )
         require(self.oauth_broker == "provider", "OAUTH_BROKER must be provider")
         require(
-            self.email_provider == "smtp",
-            "EMAIL_PROVIDER must be smtp in production; password signup is disabled otherwise",
+            self.email_provider in {"smtp", "gmail"},
+            "EMAIL_PROVIDER must be smtp or gmail in production",
         )
-        require(
-            bool(self.email_from.strip()) and "@" in self.email_from,
-            "EMAIL_FROM must be configured",
-        )
-        require(bool(self.email_smtp_host.strip()), "EMAIL_SMTP_HOST must be configured")
+        if self.email_provider == "smtp":
+            require(
+                bool(self.email_from.strip()) and "@" in self.email_from
+                and not self.email_from.endswith(".invalid"),
+                "EMAIL_FROM must be configured",
+            )
+            require(bool(self.email_smtp_host.strip()), "EMAIL_SMTP_HOST must be configured")
+        # Gmail obtains its real sender from the connected mailbox profile at runtime.
         require(
             self.llm_provider in {"workspace", "deterministic"},
             "LLM_PROVIDER must be workspace or deterministic in production",
@@ -292,17 +299,22 @@ class Settings(BaseSettings):
                 "require/verify-ca/verify-full"
             ),
         )
-        require(
-            self.redis_url != "redis://localhost:6379/0",
-            "REDIS_URL must be explicitly configured for production",
-        )
         redis = urlsplit(self.redis_url)
-        require(
-            redis.scheme == "rediss"
-            and bool(redis.hostname)
-            and redis.hostname not in {"localhost", "127.0.0.1", "::1"},
-            "production Redis requires a remote rediss:// endpoint",
-        )
+        if self.redis_deployment_mode == "local_vm":
+            require(
+                redis.scheme == "redis" and redis.hostname == "127.0.0.1"
+                and redis.port == 6380 and redis.path == "/0"
+                and not redis.username and not redis.password
+                and not redis.query and not redis.fragment,
+                "local_vm Redis requires redis://127.0.0.1:6380/0",
+            )
+        else:
+            require(
+                redis.scheme == "rediss"
+                and bool(redis.hostname)
+                and redis.hostname not in {"localhost", "127.0.0.1", "::1"},
+                "production Redis requires a remote rediss:// endpoint",
+            )
         require(
             self.rate_limit_backend == "redis",
             "RATE_LIMIT_BACKEND must be redis in production",

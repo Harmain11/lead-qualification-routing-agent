@@ -2,3 +2,4 @@
 - [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
 - [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
+- [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.

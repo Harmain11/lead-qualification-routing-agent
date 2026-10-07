@@ -10,7 +10,7 @@ ignorePorts = false
 
 [nix]
 channel = "stable-25_05"
-packages = ["redis", "mailpit"]
+packages = ["mailpit", "redis"]
 
 [workflows]
 runButton = "Project"
@@ -43,3 +43,8 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
+
+[userenv.production]
+EMAIL_PROVIDER = "gmail"
+REDIS_DEPLOYMENT_MODE = "local_vm"
+REDIS_URL = "redis://127.0.0.1:6380/0"
