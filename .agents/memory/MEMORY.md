@@ -3,3 +3,4 @@
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
 - [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
+- [Dashboard brand alignment](dashboard-brand-alignment.md) — Keep the name beside the mark and the full tagline centered beneath their shared brand column.

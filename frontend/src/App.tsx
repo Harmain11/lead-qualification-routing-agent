@@ -439,8 +439,8 @@ function App() {
             <span><b>Corral</b></span>
           </button>
           <button className="rail-close" onClick={() => setNavOpen(false)} aria-label="Collapse navigation" title="Collapse navigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-5 7 5 7" /></svg></button>
+          <div className="rail-brand-tagline">POWERED BY INGENUITY SYSTEMS</div>
         </div>
-        <div className="rail-brand-tagline">POWERED BY INGENUITY SYSTEMS</div>
         <nav aria-label="Primary navigation">
           {visibleNavigation.map((item, index) => (
             <div key={item.id}>
