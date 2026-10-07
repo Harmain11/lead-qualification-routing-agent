@@ -14,3 +14,14 @@ the failed callback path.
 than treating any provider HTTP 200 in the same time window as OAuth success.
 Historical callbacks without recorded failure reasons need a fresh attempt;
 do not infer their provider error from successful worker requests.
+
+Error-handling improvements are not a fix for provider-side authorization policy.
+Do not describe a new Salesforce connection as resolved solely because local
+tests pass or the published site is healthy.
+
+**Why:** A fresh production authorization remained denied after the callback
+diagnostics were published successfully.
+
+**How to apply:** Confirm a fresh authorization reaches a verified connection;
+otherwise distinguish the tested app-side changes from the unresolved provider
+restriction and request only the missing provider policy information.

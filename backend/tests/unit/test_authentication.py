@@ -106,6 +106,8 @@ def test_browser_oauth_denial_records_safe_reason_and_redirects(tmp_path, caplog
             signup(client)
             for provider, code in [
                 ("salesforce", "access_denied"),
+                ("salesforce", "invalid_app_access"),
+                ("salesforce", "CSRF"),
                 ("slack", "invalid_team_for_non_distributed_app"),
                 ("salesforce", "unknown-private-error"),
                 ("salesforce", None),
@@ -131,7 +133,8 @@ def test_browser_oauth_denial_records_safe_reason_and_redirects(tmp_path, caplog
                 row = session.get(ProviderConnectionORM, UUID(payload["connection"]["id"]))
                 assert row.status == "connection_failed"
                 expected = code if code in {
-                    "access_denied", "invalid_team_for_non_distributed_app"
+                    "access_denied", "invalid_team_for_non_distributed_app", "invalid_app_access",
+                    "CSRF",
                 } else "oauth_provider_error" if code else "missing_authorization_code"
                 assert row.last_validation_result["error_code"] == expected
                 assert row.secret_reference is None
