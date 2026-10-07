@@ -27,6 +27,7 @@ from lead_agent.application.integrations import (
     create_manual_connection,
     disconnect_connection,
     reconnect_connection,
+    reject_oauth_connection,
     update_openai_model,
     validate_connection,
 )
@@ -40,6 +41,7 @@ from lead_agent.domain.integrations import (
     ProviderRevoker,
     SecretStore,
 )
+from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
@@ -445,7 +447,14 @@ def browser_connection_callback(
         if connection.provider_type != provider:
             raise ValueError("provider does not match OAuth transaction")
         if provider_error or not authorization_code:
-            raise ValueError("OAuth authorization was not completed")
+            safe_error = OAuthProviderError(
+                provider, provider_error or "missing_authorization_code"
+            )
+            reject_oauth_connection(
+                session, connection.workspace_id, connection_id, state_value,
+                secret_store, str(identity.user_id), safe_error,
+            )
+            raise safe_error
         complete_oauth_connection(
             session,
             connection.workspace_id,
@@ -476,11 +485,39 @@ def browser_connection_callback(
             if not validation.verified:
                 raise ValueError(validation.message)
     except (ValueError, HTTPException) as error:
+        # Do not log callback query strings, state, authorization codes or raw
+        # provider responses. Only known local messages and allowlisted codes.
+        detail = str(getattr(error, "detail", error))
+        known_messages = {
+            "pending connection was not found",
+            "OAuth state validation failed",
+            "OAuth callback association is invalid",
+            "OAuth transaction belongs to a different actor",
+            "OAuth authorization request expired; reconnect and try again",
+            "OAuth state has already been redeemed",
+            "OAuth PKCE transaction is unavailable",
+            "OAuth credential storage failed",
+            "provider does not match OAuth transaction",
+            "Provider connection not found",
+        }
+        safe_message = (
+            str(error) if isinstance(error, OAuthProviderError)
+            else detail if detail in known_messages
+            else "The provider connection could not be verified. Reconnect and try again."
+        )
+        reason = (
+            error.error_code if isinstance(error, OAuthProviderError)
+            else detail if detail in known_messages else "callback_validation_failed"
+        )
+        _LOGGER.warning(
+            "OAuth callback failed for provider=%s reason=%s",
+            provider if provider in PROVIDER_SETUP else "unknown", reason,
+        )
         query = urlencode(
             {
                 "integration": provider,
                 "status": "failed",
-                "message": str(getattr(error, "detail", error)),
+                "message": safe_message,
             }
         )
         target = f"{settings.frontend_public_base_url.rstrip('/')}?{query}"

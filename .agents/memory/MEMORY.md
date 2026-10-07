@@ -4,3 +4,4 @@
 - [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
 - [Dashboard brand alignment](dashboard-brand-alignment.md) — Center Corral against the mark; keep the sleek tagline below the wordmark only.
+- [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.

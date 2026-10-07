@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -22,6 +23,7 @@ from lead_agent.domain.integrations import (
     RevocationResult,
     SecretStore,
 )
+from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.domain.provider_errors import ProviderErrorCategory, ProviderOperationError
 from lead_agent.infrastructure.db.models import (
     CrmInboundSyncRunORM,
@@ -465,14 +467,12 @@ def begin_oauth_connection(
     )
 
 
-def complete_oauth_connection(
+def _pending_oauth_transaction(
     session: Session,
     workspace_id: UUID,
     connection_id: UUID,
     state: str,
-    authorization_code: str,
     secret_store: SecretStore,
-    broker: OAuthBroker,
     actor_id: str,
 ) -> ProviderConnectionORM:
     row = session.scalar(
@@ -502,6 +502,58 @@ def complete_oauth_connection(
         }
         session.commit()
         raise ValueError("OAuth authorization request expired; reconnect and try again")
+    return row
+
+
+def reject_oauth_connection(
+    session: Session,
+    workspace_id: UUID,
+    connection_id: UUID,
+    state: str,
+    secret_store: SecretStore,
+    actor_id: str,
+    error: OAuthProviderError,
+) -> None:
+    # Never invalidate a pending transaction from an untrusted or replayed state.
+    row = _pending_oauth_transaction(
+        session, workspace_id, connection_id, state, secret_store, actor_id
+    )
+    claimed = session.execute(
+        update(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.id == connection_id,
+            ProviderConnectionORM.status == "awaiting_authorization",
+        )
+        .values(status="connection_failed", updated_at=datetime.now(UTC))
+    )
+    if claimed.rowcount != 1:
+        session.rollback()
+        raise ValueError("OAuth state has already been redeemed")
+    session.commit()
+    session.refresh(row)
+    row.credential_state = "invalid"
+    row.last_validation_result = {
+        "status": "failed",
+        "message": str(error),
+        "error_code": error.error_code,
+        "local_secret": _discard_connection_secret(row, secret_store),
+    }
+    session.commit()
+
+
+def complete_oauth_connection(
+    session: Session,
+    workspace_id: UUID,
+    connection_id: UUID,
+    state: str,
+    authorization_code: str,
+    secret_store: SecretStore,
+    broker: OAuthBroker,
+    actor_id: str,
+) -> ProviderConnectionORM:
+    row = _pending_oauth_transaction(
+        session, workspace_id, connection_id, state, secret_store, actor_id
+    )
 
     # Claim the state before provider I/O. The compare-and-set is portable and
     # prevents two concurrent callbacks from exchanging the same authorization code.
@@ -546,17 +598,26 @@ def complete_oauth_connection(
             redirect_uri,
         )
     except Exception as error:
+        safe_error = (
+            error if isinstance(error, OAuthProviderError)
+            else OAuthProviderError(row.provider_type, "oauth_exchange_failed")
+        )
+        logging.getLogger(__name__).warning(
+            "OAuth token exchange failed for provider=%s reason=%s",
+            row.provider_type, safe_error.error_code,
+        )
         row.status = "connection_failed"
         row.credential_state = "invalid"
         row.last_validation_result = {
             "status": "failed",
-            "message": "OAuth provider authorization failed",
+            "message": str(safe_error),
+            "error_code": safe_error.error_code,
             "error_type": type(error).__name__,
         }
         row.last_validation_result["local_secret"] = _discard_connection_secret(row, secret_store)
         row.updated_at = datetime.now(UTC)
         session.commit()
-        raise ValueError("OAuth provider authorization failed") from error
+        raise safe_error from None
     if row.secret_reference is None:
         raise ValueError("OAuth PKCE transaction is unavailable")
     try:

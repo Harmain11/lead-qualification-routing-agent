@@ -95,6 +95,61 @@ def csrf(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies.get("lead_agent_csrf") or ""}
 
 
+def test_browser_oauth_denial_records_safe_reason_and_redirects(tmp_path, caplog) -> None:
+    from urllib.parse import parse_qs, urlsplit
+
+    session = auth_harness(tmp_path)
+    store = DevelopmentSecretStore()
+    app.dependency_overrides[get_secret_store] = lambda: store
+    try:
+        with TestClient(app) as client:
+            signup(client)
+            for provider, code in [
+                ("salesforce", "access_denied"),
+                ("slack", "invalid_team_for_non_distributed_app"),
+                ("salesforce", "unknown-private-error"),
+                ("salesforce", None),
+            ]:
+                started = client.post(
+                    f"/v1/integrations/{provider}/connect",
+                    headers=csrf(client), json={"account_name": "Pending", "scopes": []},
+                )
+                assert started.status_code == 200
+                payload = started.json()
+                params = {"state": payload["state"]}
+                if code is not None:
+                    params["error"] = code
+                params["error_description"] = "private-provider-description"
+                response = client.get(
+                    f"/v1/integrations/{provider}/oauth/callback",
+                    params=params, follow_redirects=False,
+                )
+                assert response.status_code == 307
+                notice = parse_qs(urlsplit(response.headers["location"]).query)
+                assert notice["status"] == ["failed"]
+                assert notice["integration"] == [provider]
+                row = session.get(ProviderConnectionORM, UUID(payload["connection"]["id"]))
+                assert row.status == "connection_failed"
+                expected = code if code in {
+                    "access_denied", "invalid_team_for_non_distributed_app"
+                } else "oauth_provider_error" if code else "missing_authorization_code"
+                assert row.last_validation_result["error_code"] == expected
+                assert row.secret_reference is None
+                assert expected in notice["message"][0]
+            # The test client's own HTTP logging includes its request URL;
+            # assert the application logger never copies untrusted OAuth values.
+            app_logs = "\n".join(
+                record.getMessage() for record in caplog.records
+                if record.name.startswith("lead_agent.")
+            )
+            assert "unknown-private-error" not in app_logs
+            assert "private-provider-description" not in app_logs
+            assert "OAuth callback failed for provider=salesforce reason=access_denied" in app_logs
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_password_signup_is_pending_until_single_use_verification(tmp_path) -> None:
     session = auth_harness(tmp_path)
     try:
