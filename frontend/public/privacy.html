@@ -26,7 +26,7 @@
   <main>
     <p class="eyebrow">Early access · Testing draft</p>
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated October 5, 2026 · Privacy contact: <a href="mailto:harmainmughal8@gmail.com">harmainmughal8@gmail.com</a></p>
+    <p class="updated">Last updated October 7, 2026 · Privacy contact: <a href="mailto:harmainmughal8@gmail.com">harmainmughal8@gmail.com</a></p>
     <div class="notice"><strong>Draft for testing:</strong> This notice describes the current app in general terms and is not legal advice. “Ingenuity Systems” is the operating brand shown in Corral; the formal legal entity and specific governing-law venue have not been verified. Have qualified counsel review it for the countries where you operate before commercial use.</div>
 
     <h2>1. Who this notice covers</h2>
@@ -46,7 +46,7 @@
     <h2>4. Connected providers</h2>
     <p>These providers receive information only when a user or workspace administrator chooses the related feature. Their own privacy terms also apply:</p>
     <ul>
-      <li><strong>Google:</strong> sign-in receives basic identity information (verified email and profile name). If Gmail is separately connected, Corral can read the approved intake mailbox and send configured lead-confirmation email.</li>
+      <li><strong>Google:</strong> sign-in receives basic identity information (verified email and profile name). If Gmail is separately connected, Corral can read the approved intake mailbox and send configured lead-confirmation email. If Google Calendar is separately connected, see “Google Calendar data” below.</li>
       <li><strong>Microsoft Outlook:</strong> if connected, Corral can read the approved inbox for configured lead intake.</li>
       <li><strong>Salesforce and HubSpot:</strong> if connected, Corral can import configured lead/contact data and perform user-authorized record updates.</li>
       <li><strong>Slack:</strong> if connected, Corral can send configured lead notifications to the selected workspace/channel.</li>
@@ -54,6 +54,11 @@
       <li><strong>Hosting and infrastructure:</strong> infrastructure providers, including Replit when used to publish or run this workspace, may process information to host and secure the service.</li>
     </ul>
     <p>Provider privacy information: <a href="https://policies.google.com/privacy">Google</a>, <a href="https://privacy.microsoft.com/privacystatement">Microsoft</a>, <a href="https://www.salesforce.com/company/privacy/">Salesforce</a>, <a href="https://legal.hubspot.com/privacy-policy">HubSpot</a>, <a href="https://slack.com/trust/privacy/privacy-policy">Slack</a>, <a href="https://openai.com/policies/privacy-policy/">OpenAI</a>, and <a href="https://replit.com/privacy">Replit</a>.</p>
+
+    <h3>Google Calendar data</h3>
+    <p>When a workspace administrator connects Google Calendar, Corral requests permission to read primary-calendar metadata and free/busy availability, and to create calendar events. Corral uses this data only to show meeting availability and to create a meeting after it is selected through the scheduling workflow.</p>
+    <p>For availability checks, Corral uses the primary calendar’s identifier, display name and time zone, and the busy start and end times returned for the requested time range. It does not need to read existing event titles or descriptions to check availability. When a meeting is booked, Corral sends the selected meeting’s title, description, date and time, and the invitee’s name and email address to Google Calendar so Google can create the event and send its invitation.</p>
+    <p>Calendar data is not sold or used for advertising or to train generalized AI models. It is shared with Google as needed to provide the calendar features you choose and is available to workspace members according to their permissions. Corral retains connected-account credentials while the connection is active and removes its stored credentials when you disconnect it. Disconnecting does not delete events already created in Google Calendar; you can manage those events in Google Calendar and revoke Corral’s access in your Google Account settings. Corral’s use and transfer of information received from Google APIs complies with the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including its Limited Use requirements.</p>
 
     <h2>5. Cookies and browser storage</h2>
     <p>Corral uses authentication and CSRF cookies to keep sign-in sessions working and to protect requests. It also uses browser local storage for display preferences such as theme and selected Dashboard or Analytics cards. The current app does not include advertising trackers.</p>
