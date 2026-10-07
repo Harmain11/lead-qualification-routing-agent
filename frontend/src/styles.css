@@ -1572,13 +1572,13 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .app-shell .side-rail nav button > i { display: grid; place-items: center; }
 @keyframes mini-rail-enter { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }
 .bar-leading { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.rail-brand-row { display: flex; align-items: center; gap: 4px; padding: 2px 3px 0; }
-.app-shell .brand-lockup { display: grid; flex: 1; grid-template-columns: 47px minmax(0, 1fr); align-items: center; min-width: 0; gap: 8px; padding: 0; }
+.rail-brand-row { display: grid; grid-template-columns: minmax(0, 1fr) 40px; grid-template-rows: 47px auto; align-items: center; column-gap: 4px; padding: 2px 3px 24px; }
+.app-shell .brand-lockup { display: grid; grid-column: 1; grid-row: 1; grid-template-columns: 47px minmax(0, 1fr); align-items: center; width: 100%; min-width: 0; gap: 8px; padding: 0; }
 .app-shell .brand-lockup > img { grid-column: 1; grid-row: 1; width: 47px; height: 47px; object-fit: contain; }
 .app-shell .brand-lockup > span { display: contents; }
 .app-shell .brand-lockup b { grid-column: 2; grid-row: 1; align-self: center; color: #0F1B2D; font-size: 22px; line-height: 1; letter-spacing: -.05em; white-space: nowrap; }
-.rail-brand-tagline { margin: 0; padding: 0 8px 22px; color: #1E6B52; font: clamp(6.5px, 3.3vw, 9px)/1.2 var(--font-mono); letter-spacing: 0; text-align: center; white-space: nowrap; }
-.rail-close { flex: 0 0 auto; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--muted); transition: color var(--fast), border-color var(--fast), background var(--fast), transform var(--fast); }
+.rail-brand-tagline { grid-column: 1; grid-row: 2; margin: 0; color: #1E6B52; font: clamp(6.5px, 3.3vw, 9px)/1.2 var(--font-mono); letter-spacing: 0; text-align: center; text-wrap: balance; }
+.rail-close { grid-column: 2; grid-row: 1; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--muted); transition: color var(--fast), border-color var(--fast), background var(--fast), transform var(--fast); }
 .rail-close svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .rail-close:hover { border-color: var(--blue-line); background: #E9F3EB; color: #1E6B52; }
 .app-shell .workspace-mark > img { width: 33px; height: 33px; }
