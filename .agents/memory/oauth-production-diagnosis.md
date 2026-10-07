@@ -25,3 +25,12 @@ diagnostics were published successfully.
 **How to apply:** Confirm a fresh authorization reaches a verified connection;
 otherwise distinguish the tested app-side changes from the unresolved provider
 restriction and request only the missing provider policy information.
+
+The user confirmed on 2026-10-07 that Corral's Salesforce app uses
+**All users may self-authorize** as its Permitted Users policy.
+
+**Why:** The user checked and provided the external Salesforce setting.
+
+**How to apply:** Do not assume admin preauthorization or profile assignment is
+the cause of the denial. Check the specific provider error and other app settings;
+reconfirm the policy if the Salesforce configuration changes.
