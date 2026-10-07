@@ -1575,9 +1575,9 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .rail-brand-row { display: flex; align-items: center; gap: 4px; padding: 2px 3px 24px; }
 .app-shell .brand-lockup { flex: 1; min-width: 0; gap: 8px; padding: 0; }
 .app-shell .brand-lockup > img { width: 47px; height: 47px; flex: 0 0 47px; object-fit: contain; }
-.app-shell .brand-lockup > span { min-width: 0; }
-.app-shell .brand-lockup b { color: #0F1B2D; font-size: 22px; line-height: 1; letter-spacing: -.05em; }
-.app-shell .brand-lockup small { margin-top: 6px; color: #1E6B52; font: 7px var(--font-mono); line-height: 1.3; letter-spacing: .04em; }
+.app-shell .brand-lockup > span { position: relative; display: block; flex: 1; min-width: 0; height: 47px; }
+.app-shell .brand-lockup b { position: absolute; top: 50%; left: 0; transform: translateY(-50%); color: #0F1B2D; font-size: 22px; line-height: 1; letter-spacing: -.05em; }
+.app-shell .brand-lockup small { position: absolute; right: 0; bottom: 0; left: 0; display: block; overflow: hidden; margin: 0; color: #1E6B52; font: 10px var(--font-mono); line-height: 1.1; letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
 .rail-close { flex: 0 0 auto; width: 40px; height: 40px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--muted); transition: color var(--fast), border-color var(--fast), background var(--fast), transform var(--fast); }
 .rail-close svg { display: block; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .rail-close:hover { border-color: var(--blue-line); background: #E9F3EB; color: #1E6B52; }
