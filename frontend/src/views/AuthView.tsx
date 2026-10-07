@@ -101,7 +101,6 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
 
   return (
     <main className="auth-shell">
-      <button className="theme-toggle auth-theme-toggle" onClick={onToggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
       <div className="auth-ambient" aria-hidden="true">
         <img src={`${BRAND}/twinkle-widecard.svg`} alt="" />
         <span className="auth-orbit orbit-a" />
@@ -122,7 +121,8 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-panel-brand">
           <img src={`${BRAND}/corral-mark.png`} alt="" />
-          <span>Secure workspace access</span>
+          <span>Workspace access</span>
+          <button className="theme-toggle auth-theme-toggle" onClick={onToggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
         </div>
         <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
           <button role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "active" : ""} onClick={() => switchMode("signin")}>Sign in</button>
@@ -173,7 +173,10 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
           <div className="auth-divider"><span>development tools</span></div>
           <button className="demo-session" onClick={() => void localWorkspace()} disabled={busy}>Continue to local workspace</button>
         </>}
-        <small className="auth-security">Opaque session · HttpOnly cookie · Workspace membership verified server-side</small>
+        <small className="auth-security">
+          <span>Opaque session · HttpOnly cookie</span>
+          <span>Workspace membership verified server-side</span>
+        </small>
         <nav className="auth-legal-links" aria-label="Legal information">
           <a href="/terms.html">Terms of Service</a>
           <a href="/privacy.html">Privacy Policy</a>
