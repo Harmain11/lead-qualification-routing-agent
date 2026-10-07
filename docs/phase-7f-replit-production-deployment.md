@@ -79,15 +79,31 @@ Generate one stable 32-byte base64url `SECRET_STORE_ENCRYPTION_KEY` and back it 
 
 ## Database and Redis
 
-Use Replit's separate production SQL database when available. Current Replit documentation describes production databases as isolated PostgreSQL 16/17 databases hosted on Neon; this keeps development and production data separate. If the account cannot provision that option, use an equivalent durable managed PostgreSQL service. Set `DATABASE_URL` to PostgreSQL, not SQLite, with `DATABASE_SSL_MODE=require` or stronger. Set `REDIS_URL` to a remote `rediss://` endpoint from a managed Redis service; the Replit SQL database is not a replacement for Celery's Redis broker. The startup command runs `alembic upgrade head` exactly once before starting API, worker, or beat, and fails closed if PostgreSQL or Redis cannot be reached.
+Use this project's separate Replit-managed production PostgreSQL database; publishing
+injects its connection URL. Keep `DATABASE_SSL_MODE=require` or stronger. The workspace
+development database does not support SSL, so do not use it as proof that a published
+production database connection will fail or lower production security to access it.
+The startup command checks database and Redis access and fails closed if unavailable.
+Replit Publish manages the production schema; startup does not run Alembic or other DDL.
 
-For a clean production database, provision an empty database and run:
+For schema updates, apply the project's Alembic migrations to **development only**:
 
 ```sh
 alembic -c backend/alembic.ini upgrade head
 ```
 
-The migration head is the latest revision in `infra/migrations/versions` (currently `0029_workspace_email_templates`). Do not copy the local development database or seed demo data into production.
+Then publish and review the database schema changes in Replit's publishing flow.
+Do not run this command against the managed production database, overwrite production
+data with demo data, or seed the demo workspace into production.
+
+The current single-VM deployment defaults to `REDIS_DEPLOYMENT_MODE=local_vm` and
+`redis://127.0.0.1:6380/0`, with supervised, loopback-only Redis. This avoids a separate
+Redis subscription, but queued jobs/cache/counters may be lost on redeploy or VM
+replacement. The database is not a substitute for Celery's Redis broker. A managed
+Redis alternative remains supported via `REDIS_DEPLOYMENT_MODE=remote` and a remote
+`rediss://` URL. Gmail verification delivery through Replit's connected application
+account replaces SMTP for this deployment; `EMAIL_PROVIDER=smtp` remains supported
+when SMTP settings are configured.
 
 ## Public URLs and callbacks
 
