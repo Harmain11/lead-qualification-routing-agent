@@ -8,7 +8,6 @@ import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
 import { TeamPerformancePanel } from "../components/TeamPerformancePanel";
-import { NetworkDomFallback } from "../components/NetworkDomFallback";
 import type {
   AgentActivity,
   AnalyticsMetadata,
@@ -55,7 +54,6 @@ const dashboardWidgetOptions = [
   { id: "active_pipeline_value", label: "Active pipeline value", group: "Key metrics" },
   { id: "manual_review", label: "Manual review", group: "Key metrics" },
   { id: "average_routing_velocity_minutes", label: "Routing velocity", group: "Key metrics" },
-  { id: "lead-intelligence-network", label: "Lead intelligence network", group: "Dashboard panels" },
   { id: "live-activity", label: "Live operational activity", group: "Dashboard panels" },
   { id: "attention-queue", label: "Attention queue", group: "Dashboard panels" },
   { id: "signal-velocity", label: "Signal velocity", group: "Dashboard panels" },
@@ -84,6 +82,22 @@ function loadSectionSelection<T extends string>(storageKey: string, options: rea
   } catch {
     return defaults;
   }
+}
+
+function loadDashboardWidgetSelection(storageKey: string) {
+  const selected = loadSectionSelection(storageKey, dashboardWidgetOptions);
+  if (selected.size > 0 || typeof window === "undefined") return selected;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(storageKey) || "null");
+    // Restore the remaining useful panels if the removed topology was the
+    // only card a returning user had selected.
+    if (Array.isArray(saved) && saved.includes("lead-intelligence-network")) {
+      return defaultSectionSelection(dashboardWidgetOptions);
+    }
+  } catch {
+    // Dashboard preferences remain optional when browser storage is unavailable.
+  }
+  return selected;
 }
 
 function SectionVisibilityPicker<T extends string>({
@@ -181,17 +195,15 @@ export const money = (value: number) =>
 
 export function DashboardView({
   data,
-  latestLead,
   onInspect,
   userId = "local",
 }: {
   data: AnalyticsBundle | null;
-  latestLead: Lead | null;
   onInspect: (id: string) => void;
   userId?: string;
 }) {
   const preferenceKey = `corral.dashboard.widgets.v1:${userId}`;
-  const [visibleWidgets, setVisibleWidgets] = useState<Set<DashboardWidgetId>>(() => loadSectionSelection(preferenceKey, dashboardWidgetOptions));
+  const [visibleWidgets, setVisibleWidgets] = useState<Set<DashboardWidgetId>>(() => loadDashboardWidgetSelection(preferenceKey));
   useEffect(() => {
     try {
       window.localStorage.setItem(preferenceKey, JSON.stringify([...visibleWidgets]));
@@ -244,7 +256,6 @@ export function DashboardView({
       {visibleWidgets.size > 0 ? (
         <>
           {metrics.length > 0 && <section className="metric-grid dashboard-metric-grid">{metrics.map((metric) => <MetricCard key={metric.key} metric={metric} />)}</section>}
-          {visibleWidgets.has("lead-intelligence-network") && data.agents && <ResponsiveLeadIntelligenceNetwork pipeline={data.pipeline} activity={data.agents} lead={latestLead} />}
           {hasCommandWidgets && <section className="dashboard-command-grid">
             {visibleWidgets.has("live-activity") && (data.agents ? <Panel title="Live operational activity" eyebrow="Audited agent events" action={`${data.agents.activity.length} in range`}>
               <ActivityFeed data={data.agents} compact />
@@ -919,10 +930,6 @@ function useCountUp(value: number) {
     };
   }, [value]);
   return display;
-}
-
-function ResponsiveLeadIntelligenceNetwork({ pipeline, activity, lead }: { pipeline: PipelineAnalytics; activity: AgentActivity; lead: Lead | null }) {
-  return <NetworkDomFallback pipeline={pipeline} activity={activity} lead={lead} />;
 }
 
 export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow: string; action?: string; children: ReactNode }) {
