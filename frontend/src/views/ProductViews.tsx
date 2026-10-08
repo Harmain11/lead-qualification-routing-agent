@@ -469,7 +469,7 @@ export function LeadsView({
       {selected && createPortal(
         <div className="lead-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
           <section className="lead-drawer" role="dialog" aria-modal="true" aria-label={`${selected.company_name} lead details`}>
-            <div className="lead-drawer-toolbar"><span>Lead details · {selected.source}</span><button className="modal-close" type="button" autoFocus aria-label="Close lead details" onClick={onClose}>×</button></div>
+            <div className="lead-drawer-toolbar"><span>Lead details · {selected.source}</span><button className="lead-drawer-close" type="button" autoFocus aria-label="Close lead details and return to leads" onClick={onClose}><span aria-hidden="true">←</span> Back to leads</button></div>
             <LeadDetail key={selected.id} lead={selected} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={(lead) => { onUpdated(lead); setRows((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { onDeleted(leadId); setRows((current) => current.filter((item) => item.id !== leadId)); onClose(); setRefreshKey((value) => value + 1); }} />
           </section>
         </div>, document.body,

@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { AiStageAssessment } from "./AiStageAssessment";
 
 import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadClosingOptions, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome } from "../types";
@@ -62,6 +63,18 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
   const [selectedProvider, setSelectedProvider] = useState(lead.crm_sync?.provider || "");
   const [meetingRefreshToken, setMeetingRefreshToken] = useState(0);
   const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const updatedLeadCallback = useRef(onUpdated);
+  useEffect(() => { updatedLeadCallback.current = onUpdated; }, [onUpdated]);
+  useEffect(() => {
+    if (!activityRefreshToken || !updatedLeadCallback.current) return;
+    let active = true;
+    getLead(lead.id).then((updated) => {
+      if (active) updatedLeadCallback.current?.(updated);
+    }).catch(() => {
+      if (active) setEditNotice("The update was saved, but the latest AI assessment could not be refreshed. Reopen this lead to try again.");
+    });
+    return () => { active = false; };
+  }, [activityRefreshToken, lead.id]);
   useEffect(() => {
     let active = true;
     listIntegrations().then((cards) => {
@@ -94,7 +107,6 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
   return <article className="lead-story">
     <header className="story-head"><div><span className="eyebrow">Complete decision trail</span><h2>{lead.company_name}</h2><p>{lead.full_name} · {lead.job_title || "Role not supplied"}</p>{canEdit && (editingTitle ? <form onSubmit={async (event) => { event.preventDefault(); setSavingTitle(true); setEditNotice(null); try { const updated = await updateLeadTitle(lead.id, jobTitle); onUpdated?.(updated); setEditingTitle(false); setEditNotice("Title saved locally. No CRM was changed."); } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to save title"); } finally { setSavingTitle(false); } }}><label>Job title <input aria-label="Job title" maxLength={255} required value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={savingTitle}>{savingTitle ? "Saving…" : "Save title"}</button><button className="button-quiet" type="button" onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(false); setEditNotice(null); }}>Cancel</button></form> : <button className="button-quiet" onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null); }}>Edit title</button>)}{editNotice && <div className="notice" role="status">{editNotice}</div>}</div><div className="story-head-side">{qualification && <div className={`score-orb band-${qualification.classification.toLowerCase().replaceAll("_", "-")}`}><strong>{qualification.total_score}</strong><span>{title(qualification.classification)}</span></div>}{canEdit && <button className="danger-button" type="button" onClick={async () => { if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return; try { await deleteLead(lead.id); onDeleted?.(lead.id); } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); } }}>Delete lead</button>}</div></header>
     <LeadLifecycle lead={lead} />
-    <LeadMomentumPanel lead={lead} />
     <LeadProgressEditor
       lead={lead}
       canEdit={canEdit}
@@ -104,6 +116,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
         setMeetingRefreshToken((revision) => revision + 1);
       }}
     />
+    <LeadMomentumPanel lead={lead} />
     <LeadMeetingPanel
       lead={lead}
       canEdit={canEdit}
@@ -207,18 +220,19 @@ function LeadProgressEditor({
         setNotice(stage === "converted"
           ? `${title(conversionType)} win recorded in Corral. Qualification is unchanged; no CRM record was created.`
           : "Closed / lost recorded. Qualification is unchanged.");
-        onConversationSynced();
       } else {
         setNotice(`Progress saved. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).`);
       }
+      onConversationSynced();
       setEvents(await getLeadPipelineHistory(lead.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to update lead progress");
     } finally { setBusy(false); }
   };
   return <section className="story-section lead-progress"><div className="story-index">↗</div><div>
-    <span className="eyebrow">Sales progress & outcomes</span><h3>Keep this lead current</h3>
-    <p className="story-summary">Record contact progress for AI re-evaluation, or record a Project, Sale, or Lost outcome as a commercial fact. Closing does not rerun AI or create an external CRM record.</p>
+    <span className="eyebrow">Comments & closing</span><h3>Record sales progress or close this lead</h3>
+    <p className="story-summary">Add a verified comment with each update. Choose Converted to record a Project or Sale, or Closed / lost to capture the outcome. Closing does not rerun AI or create an external CRM record.</p>
+    {!canEdit && <AiStageAssessment analysis={lead.analysis} />}
     {outcome && <LeadOutcomeReceipt outcome={outcome} canEdit={canEdit} busy={busy} onRetry={async () => {
       setBusy(true); setNotice(null);
       try { setOutcome(await retryLeadCongratulations(lead.id)); }
@@ -227,15 +241,18 @@ function LeadProgressEditor({
     }} />}
     {canEdit && <div className="lead-progress-sync"><button className="secondary-button" type="button" disabled={syncBusy || busy} onClick={() => void syncConversation()}>{syncBusy ? "Syncing Gmail thread…" : "Sync Gmail conversation & re-check"}</button><small>Read-only sync for messages exchanged with this lead. Imported message text is used as qualification context.</small></div>}
     {canEdit && <form className="lead-progress-form" onSubmit={(event) => void save(event)}>
-      <label className="follow-up-field">Current stage<select value={stage} onChange={(event) => setStage(event.target.value)}>
+      <div className="lead-stage-context">
+      <AiStageAssessment analysis={lead.analysis} />
+      <label className="follow-up-field">Manual progress or closing outcome<select value={stage} onChange={(event) => setStage(event.target.value)}>
         <option value="contacted">Contacted</option><option value="responded">Responded</option><option value="meeting_scheduled">Meeting scheduled</option><option value="proposal_sent">Proposal sent</option><option value="converted">Converted → Project or Sale</option><option value="lost">Closed / lost</option>
       </select></label>
+      </div>
       {stage === "converted" && <div className="lead-closing-fields">
         <label className="follow-up-field">Successful outcome<select value={conversionType} onChange={(event) => setConversionType(event.target.value as "project" | "sale")}><option value="project">Project</option><option value="sale">Sale</option></select></label>
         <label className="follow-up-field">Recorded value (USD, optional)<input type="number" min="0" step="0.01" max="999999999999.99" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Leave blank if unknown" /></label>
       </div>}
       {(stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. Slack DMs require their member link in Users & permissions." : "Uses the assigned workspace member when linked. Otherwise the win is uncredited; choose a member for individual analytics and a direct congratulations."}</small></label>}
-      <label className="follow-up-field">Verified update<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder="Example: Replied asking for a proposal by Friday; timeline is now this quarter." required /></label>
+      <label className="follow-up-field">Comments · verified update<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder="Example: Replied asking for a proposal by Friday; timeline is now this quarter." required /></label>
       {outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
       <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save progress & re-check lead"}</button>
     </form>}

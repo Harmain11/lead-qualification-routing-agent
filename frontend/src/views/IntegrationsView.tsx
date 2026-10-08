@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createSlackRule } from "../slackRouting";
 
 import {
   addIntegrationCredential,
@@ -144,6 +145,14 @@ function SlackRoutingEditor({
   const [rules, setRules] = useState<SlackNotificationRule[]>([]);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [newRuleId, setNewRuleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!newRuleId) return;
+    document.querySelector<HTMLInputElement>(`[data-slack-rule-id="${newRuleId}"] input`)?.focus();
+    setNewRuleId(null);
+  }, [newRuleId, rules]);
 
   useEffect(() => {
     if (editing) return;
@@ -151,9 +160,17 @@ function SlackRoutingEditor({
     setRules(config?.rules ?? []);
   }, [config?.default_connection_id, config?.rules, verified.length, editing]);
 
-  if (!connections.length) return null;
   if (loading || loadError) return <section className="integration-guide slack-routing-guide"><div className="slack-routing-heading"><div><span className="eyebrow">Admin notification routing</span><h3>{loading ? "Loading saved routing" : "Routing could not be loaded"}</h3><p>{loading ? "Reading the current Slack rules before enabling edits." : loadError}</p></div></div></section>;
   const save = async () => {
+    if (rules.some((rule) => !rule.name.trim())) {
+      setEditorError("Give each Slack routing rule a name before saving.");
+      return;
+    }
+    if (rules.some((rule) => rule.destination_type === "direct_message" && !rule.channel_id?.trim())) {
+      setEditorError("Enter a Slack member ID for every direct-message rule before saving.");
+      return;
+    }
+    setEditorError(null);
     setSaving(true);
     try {
       const next = await updateSlackNotificationConfig({ default_connection_id: defaultConnectionId, rules });
@@ -161,15 +178,21 @@ function SlackRoutingEditor({
       setEditing(false);
       onNotice("Slack notification routing saved.");
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "Slack notification routing could not be saved.");
+      const message = error instanceof Error ? error.message : "Slack notification routing could not be saved.";
+      setEditorError(message);
+      onNotice(message);
     } finally { setSaving(false); }
   };
   const addRule = () => {
-    const target = verified[0]?.id;
-    if (!target) { onNotice("Connect and verify a Slack workspace before adding a rule."); return; }
-    const defaultChannel = typeof verified[0]?.metadata.slack_channel_id === "string" ? verified[0].metadata.slack_channel_id : null;
-    setEditing(true);
-    setRules((current) => [...current, { id: crypto.randomUUID(), name: `Rule ${current.length + 1}`, connection_id: target, destination_type: "channel", channel_id: defaultChannel, queues: [], qualification_bands: [], sources: [], weight: 1 }]);
+    try {
+      const rule = createSlackRule(connections, defaultConnectionId, rules.length);
+      setEditorError(null);
+      setEditing(true);
+      setRules((current) => [...current, rule]);
+      setNewRuleId(rule.id);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "A Slack routing rule could not be created.");
+    }
   };
   const updateRule = (id: string, patch: Partial<SlackNotificationRule>) => { setEditing(true); setRules((current) => current.map((rule) => rule.id === id ? { ...rule, ...patch } : rule)); };
   const channelOptions = (rule: SlackNotificationRule) => {
@@ -189,15 +212,17 @@ function SlackRoutingEditor({
       <div className="slack-routing-health"><i /> <span>{verified.length} verified workspace{verified.length === 1 ? "" : "s"}</span></div>
     </div>
     {canManage ? <>
+      {!verified.length && <div className="notice">Connect and verify Slack above to create routing rules. No verified Slack destination is available yet.</div>}
+      {editorError && <div className="notice" role="alert">{editorError}</div>}
       <div className="slack-default-destination">
         <div className="slack-destination-copy"><span className="slack-section-label">Fallback destination</span><strong>Used when no rule matches</strong><small>Every lead still has a safe destination.</small></div>
         <label><span>Slack workspace</span><select value={defaultConnectionId ?? ""} onChange={(event) => { setEditing(true); setDefaultConnectionId(event.target.value || null); }}><option value="">Use newest verified workspace</option>{verified.map((item) => <option value={item.id} key={item.id}>{item.account_name}{item.metadata.slack_channel_name ? ` · #${String(item.metadata.slack_channel_name)}` : " · choose a channel first"}</option>)}</select></label>
       </div>
       <div className="slack-routing-rules">
-        <div className="slack-rules-toolbar"><div><span className="slack-section-label">Routing rules</span><strong>{rules.length ? `${rules.length} rule${rules.length === 1 ? "" : "s"} configured` : "No custom rules yet"}</strong></div><button className="button-quiet" onClick={addRule} disabled={saving || !verified.length}>+ Add rule</button></div>
+        <div className="slack-rules-toolbar"><div><span className="slack-section-label">Routing rules</span><strong>{rules.length ? `${rules.length} rule${rules.length === 1 ? "" : "s"} configured` : "No custom rules yet"}</strong></div><button type="button" className="button-quiet" onClick={addRule} disabled={saving}>+ Add rule</button></div>
         <p className="slack-rules-help">Open each dropdown to choose several values. Choices inside one field mean OR; classification, source and queue fields combine as AND. Leave a dropdown on “Any / all” to ignore that condition.</p>
         {rules.length === 0 && <div className="slack-empty-rules"><span>◎</span><div><strong>Default routing is active</strong><small>Add a rule when a lead classification needs a different Slack destination.</small></div></div>}
-        {rules.map((rule, index) => <div className="slack-routing-rule" key={rule.id}>
+        {rules.map((rule, index) => <div className="slack-routing-rule" data-slack-rule-id={rule.id} key={rule.id}>
           <div className="slack-rule-heading"><div><span className="slack-rule-index">Rule {String(index + 1).padStart(2, "0")}</span><input aria-label="Slack routing rule name" value={rule.name} onChange={(event) => updateRule(rule.id, { name: event.target.value })} /></div><button className="button-quiet danger" onClick={() => { setEditing(true); setRules((current) => current.filter((item) => item.id !== rule.id)); }}>Remove</button></div>
           <div className="slack-condition-grid">
             <SlackMultiSelect label="Lead classifications" values={rule.qualification_bands} options={slackBandOptions} onChange={(values) => updateRule(rule.id, { qualification_bands: values })} hint="Choose one or more; empty means all." />
@@ -418,7 +443,7 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
 
   return <div className="page-view operational-page">
-    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Settings / integration fabric</span><h1>Connect the systems<br /><em>your agents can trust.</em></h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div><div className="connection-orbit" aria-hidden="true"><b>AI</b>{["CRM", "CHAT", "MAIL", "DATA"].map((node) => <i key={node}>{node}</i>)}</div></header>
+    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Settings / integration fabric</span><h1>Connect the systems<br /><em>your agents can trust.</em></h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
     {notice && <div className="notice" role="status">{notice}</div>}
     {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{sections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
       <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
