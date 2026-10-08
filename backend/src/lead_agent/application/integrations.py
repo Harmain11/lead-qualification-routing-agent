@@ -121,9 +121,9 @@ def _activate_connection(session: Session, connection: ProviderConnectionORM) ->
     if connection.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}:
         connection.is_active = False
         return
-    if connection.provider_type not in CRM_PROVIDER_TYPES | {"openai"}:
-        connection.is_active = True
-        return
+    # A workspace has one active account per provider. Keep the old connection
+    # untouched while OAuth is pending and switch accounts only after the new
+    # account has successfully completed provider verification.
     session.execute(
         update(ProviderConnectionORM)
         .where(
