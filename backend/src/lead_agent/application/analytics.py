@@ -202,8 +202,10 @@ class AnalyticsService:
             revenue = fsum(
                 _money(_outcome(lead).closed_revenue) for lead in items if lead.outcome is not None
             )
-            average_score = round(
-                fsum(_qualification(lead).total_score for lead in items) / len(items), 1
+            scored = [lead for lead in items if lead.qualification is not None]
+            average_score = (
+                round(fsum(_qualification(lead).total_score for lead in scored) / len(scored), 1)
+                if scored else 0
             )
             quality = average_score / 100
             volume = len(items) / total if total else 0
@@ -213,6 +215,8 @@ class AnalyticsService:
                 {
                     "channel": channel,
                     "lead_volume": len(items),
+                    "qualified_leads": qualified,
+                    "scored_leads": len(scored),
                     "share_percent": round((len(items) / total) * 100, 1) if total else 0,
                     "qualification_rate": round((qualified / len(items)) * 100, 1),
                     "sql_conversion_rate": round((sqls / len(items)) * 100, 1),

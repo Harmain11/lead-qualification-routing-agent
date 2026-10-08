@@ -238,9 +238,13 @@ function SlackRoutingEditor({
   </section>;
 }
 
-export function IntegrationsView({ permissions }: { permissions: ReadonlySet<string> }) {
+export function IntegrationsView({ permissions, selectedSection = "" }: { permissions: ReadonlySet<string>; selectedSection?: string }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!selectedSection) return;
+    setExpandedProviders((previous) => new Set([...previous, selectedSection]));
+  }, [selectedSection, cards.length]);
   const [salesforceSetupOpen, setSalesforceSetupOpen] = useState(false);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
@@ -441,11 +445,13 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
+  const displayedSections = sections.filter((section) => !selectedSection || section.providers.includes(selectedSection))
+    .map((section) => ({ ...section, providers: section.providers.filter((provider) => !selectedSection || provider === selectedSection) }));
 
-  return <div className="page-view operational-page">
-    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Settings / integration fabric</span><h1>Connect the systems<br /><em>your agents can trust.</em></h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
+  return <div className={`page-view operational-page${selectedSection ? " focused-page" : ""}`} data-integration-page={selectedSection || "overview"}>
+    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{selectedSection ? ` / ${cardByProvider.get(selectedSection)?.display_name || selectedSection}` : ""}</span><h1>{selectedSection ? cardByProvider.get(selectedSection)?.display_name || selectedSection : <>Connect the systems<br /><em>your agents can trust.</em></>}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
     {notice && <div className="notice" role="status">{notice}</div>}
-    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{sections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
+    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
       <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
       <div className="integration-grid">{section.providers.map((provider) => cardByProvider.get(provider)).filter((card): card is IntegrationCard => Boolean(card)).map((card) => {
        const connection = card.connection;
@@ -478,7 +484,7 @@ export function IntegrationsView({ permissions }: { permissions: ReadonlySet<str
         : canConnect && (card.provider !== "slack" || canManage);
       const slackConnections = card.provider === "slack" ? (card.connections.length ? card.connections : connection ? [connection] : []) : [];
       const selectedOpenAIModel = modelSelections[card.provider] ?? connection?.selected_model ?? card.default_model ?? "";
-        return <article className={`integration-card provider-${card.provider} state-${comingSoon ? "coming-soon" : status}${!open ? " is-collapsed" : ""}`} key={card.provider}>
+        return <article data-navigation-section={card.provider} tabIndex={-1} className={`integration-card provider-${card.provider} state-${comingSoon ? "coming-soon" : status}${!open ? " is-collapsed" : ""}`} key={card.provider}>
           <div className="provider-head"><div className="provider-glyph">{card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{card.category}</span><h2>{card.display_name}</h2><small className="provider-account-summary">{connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${open ? "Collapse" : "Expand"} ${card.display_name} details`} aria-expanded={open} aria-controls={`integration-details-${card.provider}`} onClick={() => toggleProviderExpanded(card.provider)}><span aria-hidden="true">{open ? "−" : "+"}</span></button></div>
           <div className="provider-details" id={`integration-details-${card.provider}`} hidden={!open}>
          <p>{comingSoon ? card.credential_help : connection?.account_name ?? card.credential_help}</p>

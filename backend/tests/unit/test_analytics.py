@@ -138,6 +138,25 @@ def test_dashboard_channel_pipeline_and_revenue_analytics(
     assert revenue["data_status"] == "crm"
 
 
+def test_channel_percentages_and_scores_use_recorded_results(icp: IcpConfig, routing: RoutingConfig) -> None:
+    factory = _factory()
+    workspace_id = uuid4()
+    with factory() as session:
+        for identifier, score, band in [("low-score", 24, "nurture"), ("qualified-score", 80, "warm")]:
+            _, _, lead = process_lead(session, _payload(identifier), icp, routing, workspace_id=workspace_id)
+            lead.qualification.total_score = score
+            lead.qualification.classification = band
+        session.commit()
+        rows = AnalyticsService(session, workspace_id=workspace_id).channels()["channels"]
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["lead_volume"] == 2
+        assert row["scored_leads"] == 2
+        assert row["qualified_leads"] == 1
+        assert row["qualification_rate"] == 50
+        assert row["average_score"] == 52
+
+
 def test_period_filter_excludes_old_records(icp: IcpConfig, routing: RoutingConfig) -> None:
     factory = _factory()
     workspace_id = uuid4()

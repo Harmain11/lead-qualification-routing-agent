@@ -12,3 +12,4 @@
 - [Member performance and wins](member-win-policy.md) — choose Project or Sale for each win; record in Corral and congratulate the team plus the credited member.
 - [Full-page editors](full-page-editors.md) — use full-page detail/editor menus; omit decorative AI diagrams and gradient lines, and prevent cramped or overlapping text.
 - [Browser save feedback](browser-save-feedback.md) — embedded-browser ID support and optional notifications must not turn a successful save into an apparent failure.
+- [Browser harness compatibility](browser-harness-compatibility.md) — debugger support differs between the shell Chromium wrapper and installed native Playwright browsers.

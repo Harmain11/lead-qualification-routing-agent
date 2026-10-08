@@ -753,6 +753,8 @@ export type ChannelAnalytics = {
     lead_volume: number;
     share_percent: number;
     qualification_rate: number;
+    qualified_leads?: number;
+    scored_leads?: number;
     sql_conversion_rate: number;
     closed_won_conversion_rate: number;
     revenue: number;

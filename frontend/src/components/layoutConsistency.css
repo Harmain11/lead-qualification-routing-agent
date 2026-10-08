@@ -1,0 +1,209 @@
+/* Page geometry: constrain content without adding padding to shared .panel cards. */
+.page-view.operational-page { max-width: 1440px; }
+.page-view:has(.analytics-grid),
+.page-view:has(.settings-grid),
+.page-view:has(.integration-sections) { max-width: 1440px; }
+
+.operational-page .page-hero { gap: 24px; }
+.operational-page .page-hero > div:first-child { min-width: 0; }
+.operational-page .page-hero p { max-width: 68ch; font-size: 14px; }
+.operational-page .section-heading { gap: 14px; }
+.operational-page .section-heading h2 { line-height: 1.25; }
+.operational-page .panel-copy { font-size: 13px; line-height: 1.6; }
+.operational-page :is(input, select, textarea) { max-width: 100%; }
+
+/* This standalone analytics panel is a .panel, not a padded .data-panel. */
+.team-performance-panel {
+  min-width: 0;
+  padding: clamp(18px, 2.1vw, 28px);
+}
+.team-performance-panel > .section-heading { margin-bottom: 10px; }
+.team-performance-panel .performance-caption {
+  max-width: 75ch;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.team-performance-panel .performance-member-picker {
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.team-performance-panel .performance-member-picker legend {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.team-performance-panel .performance-member-picker label {
+  min-width: 0;
+  padding: 9px 12px;
+  border-color: var(--line);
+  background: var(--surface);
+}
+.team-performance-panel .performance-member-picker label:has(input:checked) {
+  border-color: var(--blue-line);
+  background: var(--orange-soft);
+}
+.team-performance-panel .performance-member-picker input { accent-color: var(--orange); }
+.team-performance-panel .performance-member-picker span { min-width: 0; color: var(--text); line-height: 1.35; }
+.team-performance-panel .performance-member-picker small { color: var(--muted); }
+.team-performance-panel .performance-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  scrollbar-color: var(--subtle) var(--surface-high);
+  scrollbar-width: thin;
+}
+.team-performance-panel .performance-comparison {
+  min-width: 620px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.team-performance-panel .performance-comparison caption {
+  padding: 12px 14px;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+}
+.team-performance-panel .performance-comparison th,
+.team-performance-panel .performance-comparison td {
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+  line-height: 1.4;
+}
+.team-performance-panel .performance-comparison thead th {
+  background: var(--surface-high);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.team-performance-panel .performance-comparison tbody th { color: var(--muted); font-weight: 550; }
+.team-performance-panel .performance-comparison tbody tr:last-child th,
+.team-performance-panel .performance-comparison tbody tr:last-child td { border-bottom: 0; }
+.team-performance-panel .performance-profile-heading { align-items: end; gap: 14px; margin: 20px 0 12px; }
+.team-performance-panel .performance-profile-heading h3 { color: var(--text); font-size: 16px; line-height: 1.35; }
+.team-performance-panel .performance-profile-heading label { color: var(--muted); font-size: 12px; }
+.team-performance-panel .performance-profile-heading select {
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-bright);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.team-performance-panel .performance-profile {
+  padding: 16px;
+  border-color: var(--line);
+  background: var(--surface-high);
+}
+.team-performance-panel .performance-profile h4 { color: var(--text); }
+.team-performance-panel .performance-profile p { margin-bottom: 12px; color: var(--muted); line-height: 1.55; }
+.team-performance-panel .performance-profile dl {
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 10px 16px;
+  margin: 14px 0 6px;
+}
+.team-performance-panel .performance-profile dt { color: var(--muted); font-size: 12px; }
+.team-performance-panel .performance-profile dd { margin: 4px 0; color: var(--text); font-size: 20px; }
+.team-performance-panel .performance-profile small { color: var(--muted); font-size: 12px; }
+.team-performance-panel .performance-empty {
+  margin: 0 0 12px;
+  border: 1px dashed var(--line-bright);
+  background: var(--surface-high);
+  color: var(--muted);
+}
+.team-performance-panel .performance-legacy { color: var(--muted); line-height: 1.55; }
+.team-performance-panel .performance-legacy summary { color: var(--text); cursor: pointer; }
+
+/* Analytics and settings: reflow at the actual content width left by the rail. */
+.analytics-grid { align-items: start; gap: 16px; }
+.analytics-grid > *,
+.settings-grid > *,
+.integration-grid > * { min-width: 0; }
+.analytics-grid .data-panel { height: 100%; }
+.settings-grid { align-items: start; gap: 16px; }
+.settings-grid > .data-panel { height: 100%; }
+.settings-grid .settings-facts { gap: 10px; }
+.settings-grid .panel-copy { max-width: 62ch; }
+.integration-sections { gap: 26px; }
+.integration-section { min-width: 0; gap: 12px; }
+.integration-section-heading { align-items: flex-start; gap: 16px; }
+.integration-section-heading > p { max-width: 56ch; font-size: 13px; line-height: 1.55; }
+.integration-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.integration-card { min-width: 0; }
+.integration-card > p { line-height: 1.55; }
+
+/* The contacts view is mounted outside .page-view; give it the same page frame. */
+.contacts-view {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: 36px var(--page-gutter, 36px) 64px;
+  gap: 18px;
+}
+.contacts-heading { min-width: 0; flex-wrap: wrap; align-items: flex-end; gap: 12px 20px; }
+.contacts-heading > div:first-child { min-width: 0; }
+.contacts-search { width: min(560px, 100%); }
+.contacts-filters { min-width: 0; }
+.contacts-layout { min-width: 0; gap: 14px; }
+.contacts-list,
+.contact-profile { min-width: 0; }
+.contact-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .8fr) minmax(84px, auto); }
+.contact-profile-head > div { min-width: 0; }
+.contact-profile-head h2 { line-height: 1.25; }
+
+/* Team members need the full content column before splitting into roster/detail. */
+.team-hero { min-width: 0; gap: 20px; }
+.team-layout { min-width: 0; }
+.team-members-panel,
+.team-invitations-panel,
+.team-audit-panel,
+.team-detail { min-width: 0; }
+.team-member-row { min-width: 0; }
+.member-identity { min-width: 0; }
+.team-context-card { overflow-wrap: anywhere; }
+.team-detail-head { min-width: 0; }
+
+@media (max-width: 1200px) {
+  .team-layout { grid-template-columns: minmax(0, 1fr); }
+  .team-detail { position: static; }
+}
+
+@media (max-width: 960px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); }
+  .integration-section-heading { flex-direction: column; gap: 6px; }
+  .integration-section-heading > p { max-width: 70ch; text-align: left; }
+}
+
+@media (max-width: 760px) {
+  .page-view.operational-page { padding-inline: 16px; }
+  .page-view:has(.analytics-grid),
+  .page-view:has(.settings-grid),
+  .page-view:has(.integration-sections) { padding-inline: 16px; }
+  .operational-page .page-hero { align-items: flex-start; gap: 12px; }
+  .operational-page .page-hero p { font-size: 13px; }
+  .integration-grid { grid-template-columns: minmax(0, 1fr); }
+  .team-summary-grid { gap: 10px; }
+  .contacts-view { padding: 24px 16px 44px; gap: 15px; }
+  .contacts-heading { align-items: flex-start; }
+  .contacts-count { margin-left: auto; }
+  .contacts-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .contacts-layout { grid-template-columns: minmax(0, 1fr); }
+  .contact-row { grid-template-columns: minmax(0, 1fr) auto; }
+}
+
+@media (max-width: 520px) {
+  .team-performance-panel { padding: 16px; }
+  .team-performance-panel .performance-profile-heading { align-items: stretch; flex-direction: column; }
+  .team-performance-panel .performance-profile-heading label { min-width: 0; }
+  .team-performance-panel .performance-profile dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-performance-panel .performance-member-picker label { flex: 1 1 150px; }
+  .contacts-filter-grid { grid-template-columns: minmax(0, 1fr); }
+  .contact-facts > div { grid-template-columns: 88px minmax(0, 1fr); }
+  .contacts-filter-meta { align-items: flex-start; }
+}
