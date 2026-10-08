@@ -116,7 +116,14 @@ try {
         const response = await originalFetch(input, init);
         try {
           const body = await response.clone().json();
-          if (Array.isArray(body.workspaces)) window.__session = body;
+          if (Array.isArray(body.workspaces)) {
+            window.__session = body;
+            if (!window.__legacyDashboardPreferenceSeeded) {
+              const userId = body.user?.id || "local";
+              localStorage.setItem("corral.dashboard.widgets.v1:" + userId, '["lead-intelligence-network"]');
+              window.__legacyDashboardPreferenceSeeded = true;
+            }
+          }
         } catch {}
         return response;
       }
@@ -163,6 +170,17 @@ try {
     })`);
     await pause(150);
   }
+  await wait(`document.querySelector(".dashboard-view") !== null`);
+  assert(await evaluate(`!document.querySelector(".intelligence-network")
+    && document.querySelector(".data-panel h2") !== null`), "The obsolete topology card remains or the real dashboard panels are missing.");
+  assert(await evaluate(`(() => {
+    const preference = JSON.parse(localStorage.getItem("corral.dashboard.widgets.v1:" + (window.__session.user?.id || "local")) || "[]");
+    return !preference.includes("lead-intelligence-network")
+      && preference.includes("pipeline-pulse")
+      && preference.includes("attention-queue");
+  })()`), "A previously saved topology-only dashboard was not migrated to useful panels.");
+  const dashboardShot = await cdp("Page.captureScreenshot", {format: "png"});
+  await writeFile("/tmp/corral-dashboard-clean.png", Buffer.from(dashboardShot.data, "base64"));
   await evaluate(`document.querySelector(".workspace-trigger").click()`);
   await wait(`document.querySelector(".workspace-chooser[open]") !== null`);
   assert(await evaluate(`(() => {
