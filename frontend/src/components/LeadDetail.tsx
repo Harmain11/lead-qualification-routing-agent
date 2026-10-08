@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
-import type { CrmSync, FollowUpEmail, Lead, LeadMomentum } from "../types";
+import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadClosingOptions, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
+import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome } from "../types";
 import { LeadMeetingPanel } from "./LeadMeetingPanel";
+import "./leadOutcomes.css";
 
 const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 const crmProviderLabel = (provider: string) => provider === "hubspot" ? "HubSpot" : title(provider);
@@ -138,6 +139,26 @@ function LeadProgressEditor({
   const [busy, setBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [conversionType, setConversionType] = useState<"project" | "sale">(lead.outcome?.conversion_type ?? "project");
+  const [value, setValue] = useState(lead.outcome?.closed_revenue?.toString() ?? "");
+  const [creditedId, setCreditedId] = useState(lead.outcome?.credited_user_id ?? lead.routing?.assigned_rep_id ?? "");
+  const [members, setMembers] = useState<Awaited<ReturnType<typeof getLeadClosingOptions>>>([]);
+  const [outcome, setOutcome] = useState<LeadOutcome | null>(lead.outcome ?? null);
+  useEffect(() => {
+    setOutcome(lead.outcome ?? null);
+  }, [lead.outcome]);
+  useEffect(() => {
+    if (!canEdit) return;
+    const controller = new AbortController();
+    getLeadClosingOptions(controller.signal).then((rows) => {
+      if (controller.signal.aborted) return;
+      setMembers(rows);
+      setCreditedId((current) => rows.some((member) => member.user_id === current) ? current : "");
+    }).catch((error) => {
+      if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Unable to load team members.");
+    });
+    return () => controller.abort();
+  }, [lead.id, canEdit]);
   useEffect(() => {
     const controller = new AbortController();
     getLeadPipelineHistory(lead.id, controller.signal).then((rows) => {
@@ -174,24 +195,49 @@ function LeadProgressEditor({
   const save = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setNotice(null);
     try {
-      const result = await updateLeadProgress(lead.id, { stage, note });
+      const closing = stage === "converted" || stage === "lost";
+      const result = await updateLeadProgress(lead.id, {
+        stage, note,
+        ...(stage === "converted" ? { conversion_type: conversionType, closed_revenue: value === "" ? null : Number(value) } : {}),
+        ...(closing ? { credited_user_id: creditedId || null } : {}),
+      });
       setNote("");
-      setNotice(`Progress saved. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).`);
+      if (closing) {
+        setOutcome(result.outcome ?? null);
+        setNotice(stage === "converted"
+          ? `${title(conversionType)} win recorded in Corral. Qualification is unchanged; no CRM record was created.`
+          : "Closed / lost recorded. Qualification is unchanged.");
+        onConversationSynced();
+      } else {
+        setNotice(`Progress saved. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).`);
+      }
       setEvents(await getLeadPipelineHistory(lead.id));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to update lead progress");
     } finally { setBusy(false); }
   };
   return <section className="story-section lead-progress"><div className="story-index">↗</div><div>
-    <span className="eyebrow">Sales progress · AI re-evaluation</span><h3>Keep this lead current</h3>
-    <p className="story-summary">Record what happened after contact. The original inquiry stays unchanged; AI uses your verified updates to re-check lead temperature and routing.</p>
+    <span className="eyebrow">Sales progress & outcomes</span><h3>Keep this lead current</h3>
+    <p className="story-summary">Record contact progress for AI re-evaluation, or record a Project, Sale, or Lost outcome as a commercial fact. Closing does not rerun AI or create an external CRM record.</p>
+    {outcome && <LeadOutcomeReceipt outcome={outcome} canEdit={canEdit} busy={busy} onRetry={async () => {
+      setBusy(true); setNotice(null);
+      try { setOutcome(await retryLeadCongratulations(lead.id)); }
+      catch (error) { setNotice(error instanceof Error ? error.message : "Unable to retry congratulations."); }
+      finally { setBusy(false); }
+    }} />}
     {canEdit && <div className="lead-progress-sync"><button className="secondary-button" type="button" disabled={syncBusy || busy} onClick={() => void syncConversation()}>{syncBusy ? "Syncing Gmail thread…" : "Sync Gmail conversation & re-check"}</button><small>Read-only sync for messages exchanged with this lead. Imported message text is used as qualification context.</small></div>}
     {canEdit && <form className="lead-progress-form" onSubmit={(event) => void save(event)}>
       <label className="follow-up-field">Current stage<select value={stage} onChange={(event) => setStage(event.target.value)}>
-        <option value="contacted">Contacted</option><option value="responded">Responded</option><option value="meeting_scheduled">Meeting scheduled</option><option value="proposal_sent">Proposal sent</option><option value="converted">Converted</option><option value="lost">Closed / lost</option>
+        <option value="contacted">Contacted</option><option value="responded">Responded</option><option value="meeting_scheduled">Meeting scheduled</option><option value="proposal_sent">Proposal sent</option><option value="converted">Converted → Project or Sale</option><option value="lost">Closed / lost</option>
       </select></label>
+      {stage === "converted" && <div className="lead-closing-fields">
+        <label className="follow-up-field">Successful outcome<select value={conversionType} onChange={(event) => setConversionType(event.target.value as "project" | "sale")}><option value="project">Project</option><option value="sale">Sale</option></select></label>
+        <label className="follow-up-field">Recorded value (USD, optional)<input type="number" min="0" step="0.01" max="999999999999.99" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Leave blank if unknown" /></label>
+      </div>}
+      {(stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. Slack DMs require their member link in Users & permissions." : "Uses the assigned workspace member when linked. Otherwise the win is uncredited; choose a member for individual analytics and a direct congratulations."}</small></label>}
       <label className="follow-up-field">Verified update<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder="Example: Replied asking for a proposal by Friday; timeline is now this quarter." required /></label>
-      <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving & re-evaluating…" : "Save progress & re-check lead"}</button>
+      {outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
+      <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save progress & re-check lead"}</button>
     </form>}
     {progressEvents.length > 0 && <div className="lead-progress-history"><h4>Progress history</h4>{progressEvents.slice(0, 5).map((event) => <article key={event.id}><b>{title(String(event.details.stage || event.status))}</b><time>{new Date(event.created_at).toLocaleString()}</time><p>{String(event.details.note || "")}</p><small>AI assessment: {title(String((event.details.qualification as { classification?: string } | undefined)?.classification || "pending"))} · {String((event.details.qualification as { score?: number } | undefined)?.score ?? "—")}/100</small></article>)}</div>}
     {emailEvents.length > 0 && <div className="lead-progress-history"><h4>Gmail conversation history</h4>{emailEvents.slice(0, 10).map((event) => <article key={event.id}><b>{event.details.direction === "outbound" ? "You sent" : "Lead sent"}: {String(event.details.subject || "(no subject)")}</b><time>{new Date(event.created_at).toLocaleString()}</time><p>{String(event.details.body || "")}</p><small>{String(event.details.sender || "")} · {String(event.details.recipients || "")}</small></article>)}</div>}
@@ -203,6 +249,25 @@ function LeadProgressEditor({
     })}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>;
+}
+
+function LeadOutcomeReceipt({ outcome, canEdit, busy, onRetry }: {
+  outcome: LeadOutcome; canEdit: boolean; busy: boolean; onRetry: () => Promise<void>;
+}) {
+  const won = outcome.pipeline_stage === "closed_won";
+  if (!won && outcome.pipeline_stage !== "closed_lost") return null;
+  const retryable = outcome.notifications.some((delivery) => ["failed", "retryable", "not_configured"].includes(delivery.status));
+  return <div className={`lead-outcome-receipt ${won ? "won" : "lost"}`} role="status">
+    <h4>{won ? `Congratulations, ${outcome.credited_name ?? "team"}!` : "Lead closed / lost"}</h4>
+    <p>{won ? `${title(outcome.conversion_type ?? "closed_won")} recorded` : "Lost outcome recorded"}
+      {outcome.closed_revenue !== null && won ? ` · ${outcome.currency} ${outcome.closed_revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : won ? " · Value not recorded" : ""}
+      {outcome.closed_at ? ` · ${new Date(outcome.closed_at).toLocaleDateString()}` : ""}</p>
+    {won && outcome.notifications.map((delivery) => <div className="win-delivery" key={delivery.destination}>
+      <b>{delivery.destination === "channel" ? "Team channel" : "Member direct message"}</b>
+      <span>{title(delivery.status)}</span>{delivery.error_message && <small>{delivery.error_message}</small>}
+    </div>)}
+    {won && retryable && canEdit && <button className="secondary-button" disabled={busy} onClick={() => void onRetry()}>{busy ? "Retrying…" : "Retry unsent congratulations"}</button>}
+  </div>;
 }
 
 function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {

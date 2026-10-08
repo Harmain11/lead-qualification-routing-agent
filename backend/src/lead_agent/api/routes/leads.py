@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -18,9 +19,11 @@ from lead_agent.api.dependencies import (
 from lead_agent.api.schemas import (
     LeadCreateRequest,
     LeadListResponse,
+    LeadOutcomeResponse,
     LeadResponse,
     QualificationResponse,
     lead_response,
+    outcome_response,
     qualification_response,
 )
 from lead_agent.application.exports import (
@@ -33,12 +36,14 @@ from lead_agent.application.exports import (
     write_export_audit,
 )
 from lead_agent.application.icp import resolve_workspace_icp
+from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.domain.rbac import effective_permissions
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.crm.inbound_factory import (
@@ -57,6 +62,7 @@ from lead_agent.infrastructure.db.models import (
     RoutingDecisionORM,
     SourceEventORM,
     UserORM,
+    WorkspaceMembershipORM,
     WorkspaceORM,
 )
 from lead_agent.infrastructure.db.session import get_db
@@ -68,6 +74,10 @@ from lead_agent.infrastructure.repositories import (
     get_lead,
     get_qualification,
     update_lead_with_result,
+)
+from lead_agent.infrastructure.slack import (
+    WorkspaceSlackNotificationResolver,
+    get_workspace_slack_notification_resolver,
 )
 from lead_agent.settings.config import Settings, get_settings
 
@@ -114,6 +124,23 @@ class LeadProgressUpdate(BaseModel):
         "contacted", "responded", "meeting_scheduled", "proposal_sent", "converted", "lost"
     ]
     note: str = Field(min_length=3, max_length=2000)
+    conversion_type: Literal["project", "sale"] | None = None
+    closed_revenue: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    credited_user_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_closing_fields(self) -> LeadProgressUpdate:
+        if self.stage == "converted" and self.conversion_type is None:
+            raise ValueError("Choose Project or Sale for a successful conversion.")
+        if self.stage != "converted" and (
+            self.conversion_type is not None or self.closed_revenue is not None
+        ):
+            raise ValueError(
+                "Conversion type and revenue are only allowed for a successful conversion."
+            )
+        if self.stage not in {"converted", "lost"} and self.credited_user_id is not None:
+            raise ValueError("Member credit is only allowed when closing a lead.")
+        return self
 
 
 class LeadProgressResponse(BaseModel):
@@ -123,6 +150,7 @@ class LeadProgressResponse(BaseModel):
     score: int
     rationale: list[str]
     updated_at: datetime
+    outcome: LeadOutcomeResponse | None = None
 
 
 class GmailConversationSyncResponse(BaseModel):
@@ -342,6 +370,25 @@ def list_all_leads(
         offset=offset,
         has_more=offset + len(rows) < total,
     )
+
+
+@router.get("/closing-options")
+def closing_options(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> list[dict[str, object]]:
+    rows = session.execute(select(WorkspaceMembershipORM, UserORM).join(
+        UserORM, UserORM.id == WorkspaceMembershipORM.user_id,
+    ).where(
+        WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+        WorkspaceMembershipORM.status == "active", UserORM.status == "active",
+    ).order_by(UserORM.display_name)).all()
+    return [
+        {"user_id": str(user.id), "display_name": user.display_name,
+         "slack_linked": bool(member.slack_member_id)}
+        for member, user in rows
+        if "leads.edit" in effective_permissions(member.role, member.permission_overrides)
+    ]
 
 
 @router.post("/bulk-delete")
@@ -711,14 +758,26 @@ def update_lead_progress(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    slack_resolver: WorkspaceSlackNotificationResolver = Depends(
+        get_workspace_slack_notification_resolver
+    ),
 ) -> LeadProgressResponse:
     row = session.scalar(
         select(LeadORM).where(
             LeadORM.id == lead_id, LeadORM.workspace_id == workspace.workspace_id
-        )
+        ).with_for_update()
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+    if (
+        row.outcome and row.outcome.pipeline_stage in {"closed_won", "closed_lost"}
+        and request.stage not in {"converted", "lost"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This lead is closed. Use a closing stage to correct its recorded outcome.",
+        )
 
     now = datetime.now(UTC)
     progress_event = PipelineEventORM(
@@ -732,15 +791,38 @@ def update_lead_progress(
     )
     session.add(progress_event)
     session.flush()
-    classification, score, rationale = _reanalyze_lead_with_history(
-        session, row, workspace.workspace_id, policies, notification_provider,
-        trigger="manual_progress_update",
-    )
+    if request.stage in {"converted", "lost"}:
+        try:
+            outcome = record_outcome(
+                session, row, stage=request.stage, conversion_type=request.conversion_type,
+                revenue=request.closed_revenue, credited_user_id=request.credited_user_id,
+            )
+        except ValueError as error:
+            session.rollback()
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        progress_event.details = {
+            **progress_event.details, "conversion_type": outcome.conversion_type,
+            "closed_revenue": (
+                float(outcome.closed_revenue) if outcome.closed_revenue is not None else None
+            ),
+            "credited_user_id": str(outcome.credited_user_id) if outcome.credited_user_id else None,
+        }
+        qualification = row.qualification
+        classification = qualification.classification if qualification else "needs_qualifying"
+        score = qualification.total_score if qualification else 0
+        rationale = ["Commercial outcome recorded without changing qualification or CRM data."]
+    else:
+        classification, score, rationale = _reanalyze_lead_with_history(
+            session, row, workspace.workspace_id, policies, notification_provider,
+            trigger="manual_progress_update",
+        )
     progress_event.details = {
         **progress_event.details,
         "qualification": {"classification": classification, "score": score},
     }
     session.commit()
+    if request.stage == "converted":
+        send_win_notifications(session, row, slack_resolver, workspace.actor_id)
     return LeadProgressResponse(
         stage=request.stage,
         note=request.note,
@@ -748,7 +830,28 @@ def update_lead_progress(
         score=score,
         rationale=rationale,
         updated_at=now,
+        outcome=outcome_response(row.outcome),
     )
+
+
+@router.post("/{lead_id}/congratulations/retry", response_model=LeadOutcomeResponse)
+def retry_win_notifications(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    slack_resolver: WorkspaceSlackNotificationResolver = Depends(
+        get_workspace_slack_notification_resolver
+    ),
+) -> LeadOutcomeResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if row.outcome is None or row.outcome.pipeline_stage != "closed_won":
+        raise HTTPException(
+            status_code=409, detail="Only a closed-won lead has congratulations to retry."
+        )
+    send_win_notifications(session, row, slack_resolver, workspace.actor_id, retry=True)
+    return outcome_response(row.outcome)
 
 
 def _reanalyze_lead_with_history(

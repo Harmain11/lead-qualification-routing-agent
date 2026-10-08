@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
@@ -33,9 +35,11 @@ from lead_agent.domain.rbac import (
 )
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
+    ProviderConnectionORM,
     UserORM,
     WorkspaceAdminAuditEventORM,
     WorkspaceInvitationORM,
+    WorkspaceMembershipORM,
 )
 from lead_agent.infrastructure.db.session import get_db
 
@@ -82,6 +86,13 @@ class MemberResponse(BaseModel):
     invited_at: datetime | None
     accepted_at: datetime | None
     updated_at: datetime
+    slack_member_id: str | None = None
+    slack_team_id: str | None = None
+
+
+class SlackMemberLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    slack_member_id: str | None = Field(default=None, pattern=r"^[UW][A-Z0-9]{8,63}$")
 
 
 class InvitationResponse(BaseModel):
@@ -134,6 +145,8 @@ def _member_response(row: Any, user: Any | None = None) -> MemberResponse:
         invited_at=row.invited_at,
         accepted_at=row.accepted_at,
         updated_at=row.updated_at,
+        slack_member_id=row.slack_member_id,
+        slack_team_id=row.slack_team_id,
     )
 
 
@@ -190,6 +203,52 @@ def list_members(
         _member_response(row, user)
         for row, user in list_workspace_members(session, workspace.workspace_id)
     ]
+
+
+@router.patch("/v1/members/{membership_id}/slack-link", response_model=MemberResponse)
+def link_member_slack(
+    membership_id: UUID, request: SlackMemberLinkRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("members.manage")),
+) -> MemberResponse:
+    member = session.scalar(select(WorkspaceMembershipORM).where(
+        WorkspaceMembershipORM.id == membership_id,
+        WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+    ))
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+    team_id = None
+    if request.slack_member_id:
+        connection = session.scalar(select(ProviderConnectionORM).where(
+            ProviderConnectionORM.workspace_id == workspace.workspace_id,
+            ProviderConnectionORM.provider_type == "slack",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        ).order_by(ProviderConnectionORM.updated_at.desc()))
+        team_id = connection.connection_metadata.get("slack_team_id") if connection else None
+        if not isinstance(team_id, str) or not team_id:
+            raise HTTPException(
+                status_code=422, detail="Connect and verify Slack before linking a member."
+            )
+    before = {"slack_member_id": member.slack_member_id, "slack_team_id": member.slack_team_id}
+    member.slack_member_id = request.slack_member_id
+    member.slack_team_id = team_id
+    member.updated_at = datetime.now(UTC)
+    session.add(WorkspaceAdminAuditEventORM(
+        workspace_id=workspace.workspace_id, actor_id=_actor(workspace),
+        target_membership_id=member.id, operation="slack_member_link_changed",
+        before=before, after={"slack_member_id": member.slack_member_id, "slack_team_id": team_id},
+        created_at=member.updated_at,
+    ))
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="That Slack member is already linked to another member in this workspace.",
+        ) from None
+    return _member_response(member, session.get(UserORM, member.user_id))
 
 
 @router.get(

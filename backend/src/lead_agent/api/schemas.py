@@ -203,6 +203,17 @@ class ConfirmationEmailResponse(BaseModel):
     sent_at: datetime | None = None
 
 
+class LeadOutcomeResponse(BaseModel):
+    pipeline_stage: str
+    conversion_type: str | None
+    credited_user_id: UUID | None
+    credited_name: str | None
+    closed_revenue: float | None
+    currency: str
+    closed_at: datetime | None
+    notifications: list[dict[str, Any]]
+
+
 class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -231,6 +242,7 @@ class LeadResponse(BaseModel):
     routing: RoutingDecisionResponse | None = None
     crm_sync: CrmSyncResponse | None = None
     confirmation_email: ConfirmationEmailResponse | None = None
+    outcome: LeadOutcomeResponse | None = None
 
 
 class LeadListResponse(BaseModel):
@@ -599,4 +611,22 @@ def lead_response(
         routing=routing_response(routing),
         crm_sync=crm_sync_response(crm_sync),
         confirmation_email=confirmation_email_response(confirmation_email),
+        outcome=outcome_response(row.outcome),
+    )
+
+
+def outcome_response(row: Any) -> LeadOutcomeResponse | None:
+    if row is None:
+        return None
+    return LeadOutcomeResponse(
+        pipeline_stage=row.pipeline_stage, conversion_type=row.conversion_type,
+        credited_user_id=row.credited_user_id,
+        credited_name=row.credited_user.display_name if row.credited_user else None,
+        closed_revenue=float(row.closed_revenue) if row.closed_revenue is not None else None,
+        currency=row.currency, closed_at=row.closed_at,
+        notifications=[
+            {"destination": item.destination, "status": item.status,
+             "error_message": item.error_message, "attempts": item.attempts}
+            for item in sorted(row.win_notifications, key=lambda item: item.destination)
+        ],
     )
