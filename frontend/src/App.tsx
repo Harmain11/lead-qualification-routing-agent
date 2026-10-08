@@ -25,6 +25,7 @@ import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
+import { ActivityToasts } from "./components/ActivityToasts";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
@@ -434,6 +435,7 @@ function App() {
   return (
     <div className={`app-shell ${navOpen ? "nav-expanded" : "nav-collapsed"}`}>
       <div className="app-ambient ambient-a" />
+      <ActivityToasts />
       <div className="app-ambient ambient-b" />
       <img className="app-twinkle app-twinkle-a" src="/asset/brand/twinkle-cap.svg" alt="" aria-hidden="true" />
       <img className="app-twinkle app-twinkle-b" src="/asset/brand/twinkle-role.svg" alt="" aria-hidden="true" />

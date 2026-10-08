@@ -1,19 +1,49 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from functools import lru_cache
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.integrations import SecretStore
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import ProviderConnectionORM, ProviderLifecycleAuditORM
 from lead_agent.infrastructure.reasoning.configuration import validate_openai_model
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.reasoning.openai_provider import OpenAIReasoningProvider
 from lead_agent.infrastructure.secrets import get_secret_store
 from lead_agent.settings.config import Settings, get_settings
+
+
+def _workspace_usage_recorder(session: Session, workspace_id: UUID):
+    """Store metering separately from the lead transaction; never store request content."""
+    writer = sessionmaker(bind=session.get_bind(), autoflush=False, expire_on_commit=False)
+
+    def record(measurement: dict[str, object]) -> None:
+        details = {
+            key: value for key, value in measurement.items()
+            if key in {
+                "model", "outcome", "duration_ms", "input_tokens",
+                "output_tokens", "total_tokens", "error_category",
+            }
+            and isinstance(value, (str, int, float, bool, type(None)))
+        }
+        operation_id = measurement.get("operation_id")
+        with writer() as audit_session:
+            audit_session.add(ProviderLifecycleAuditORM(
+                workspace_id=workspace_id,
+                provider="openai",
+                actor_id="workspace-usage-meter",
+                action="openai_api_usage",
+                outcome=str(details.get("outcome", "unknown"))[:64],
+                correlation_id=str(operation_id or uuid4())[:255],
+                details=details,
+                created_at=datetime.now(UTC),
+            ))
+            audit_session.commit()
+    return record
 
 
 def build_reasoning_provider(settings: Settings) -> ReasoningProvider:
@@ -84,6 +114,7 @@ def resolve_workspace_reasoning_provider(
         timeout_seconds=active.openai_timeout_seconds,
         max_retries=0,
         store_responses=active.openai_store_responses,
+        usage_recorder=_workspace_usage_recorder(session, workspace_id),
     )
 
 

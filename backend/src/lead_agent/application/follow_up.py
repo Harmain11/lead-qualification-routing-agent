@@ -4,13 +4,13 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.provider_errors import ProviderOperationError
-from lead_agent.application.email_templates import get_email_template, render_email_template
+from lead_agent.application.email_templates import get_email_template
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
     LeadORM,
@@ -33,8 +33,12 @@ def _current_email(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace_id,
-            LeadFollowUpEmailORM.kind == "ai_follow_up",
+            or_(
+                LeadFollowUpEmailORM.kind == "ai_follow_up",
+                LeadFollowUpEmailORM.kind.like("ai_follow_up:%"),
+            ),
         )
+        .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
     )
 
 
@@ -69,8 +73,14 @@ def generate_follow_up_draft(
         )
 
     existing = _current_email(session, lead.id, lead.workspace_id)
-    if existing is not None and existing.status in {"sent", "sending", "delivery_uncertain"}:
+    if existing is not None and existing.status in {"sending", "delivery_uncertain"}:
         return existing
+    next_kind = "ai_follow_up"
+    if existing is not None and existing.status == "sent":
+        # Preserve every sent message; the existing unique purpose constraint
+        # supports a distinct, bounded purpose identifier for each follow-up.
+        next_kind = f"ai_follow_up:{uuid4().hex[:16]}"
+        existing = None
     plan = route.action_plan if isinstance(route.action_plan, dict) else {}
     facts = {
         "lead_name": lead.full_name,
@@ -84,46 +94,24 @@ def generate_follow_up_draft(
         "conversion_goal": str(plan.get("conversion_goal", ""))[:300],
     }
     workspace_template = get_email_template(session, lead.workspace_id, "follow_up")
-    if workspace_template["generation_method"] == "manual":
-        rendered = render_email_template(workspace_template, lead)
-        content = FollowUpEmailContent(
-            subject=rendered["subject"],
-            body=rendered["body"],
-            rationale="Personalized from the workspace-approved follow-up sample; review before sending.",
+    facts["workspace_email_template"] = {
+        "subject": workspace_template["subject"],
+        "body": workspace_template["body"],
+    }
+    provider = resolve_workspace_reasoning_provider(session, lead.workspace_id)
+    draft_method = getattr(provider, "draft_follow_up", None)
+    if not callable(draft_method):
+        raise FollowUpNotEligible(
+            "Connect and verify OpenAI to generate an AI follow-up. No template draft was created."
         )
-        method = "template"
-        note = "Workspace follow-up sample personalized for this lead; nothing was sent."
-    else:
-        facts["workspace_email_template"] = {
-            "subject": workspace_template["subject"],
-            "body": workspace_template["body"],
-        }
-        method = "template"
-        note = (
-            "Grounded template: no verified workspace OpenAI drafting connection was available."
-        )
-        provider = resolve_workspace_reasoning_provider(session, lead.workspace_id)
-        draft_method = getattr(provider, "draft_follow_up", None)
-        content: FollowUpEmailContent
-        if callable(draft_method):
-            try:
-                content = FollowUpEmailContent.model_validate(draft_method(facts))
-                method, note = "openai", None
-            except Exception:
-                rendered = render_email_template(workspace_template, lead)
-                content = FollowUpEmailContent(
-                    subject=rendered["subject"],
-                    body=rendered["body"],
-                    rationale="Workspace sample personalized for this lead; review before sending.",
-                )
-                note = "AI drafting was unavailable; the saved workspace sample was personalized instead."
-        else:
-            rendered = render_email_template(workspace_template, lead)
-            content = FollowUpEmailContent(
-                subject=rendered["subject"],
-                body=rendered["body"],
-                rationale="Workspace sample personalized for this lead; review before sending.",
-            )
+    try:
+        content = FollowUpEmailContent.model_validate(draft_method(facts))
+    except Exception as error:
+        raise FollowUpNotEligible(
+            "AI drafting did not complete. Check the OpenAI connection and retry. "
+            "No template draft was created."
+        ) from error
+    method, note = "openai", None
 
     now = datetime.now(UTC)
     if existing is None:
@@ -132,7 +120,7 @@ def generate_follow_up_draft(
             workspace_id=lead.workspace_id,
             lead_id=lead.id,
             provider_connection_id=None,
-            kind="ai_follow_up",
+            kind=next_kind,
             recipient=lead.email,
             subject=content.subject,
             body=content.body,

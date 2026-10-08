@@ -2069,3 +2069,53 @@ html body .auth-shell :is(small, .eyebrow) { font-size: 11px; }
     grid-template-columns: 1fr;
   }
 }
+
+/* Corral's everyday controls and supporting copy should stay comfortably readable. */
+body { font-size: 15px; line-height: 1.5; }
+.side-rail nav button > span { font-size: 14px; }
+.breadcrumb { font-size: 13px; }
+.page-hero p { font-size: 15px; }
+.section-heading h2 { font-size: 21px; }
+.integration-section-heading > p { font-size: 12px; }
+.integration-card > p { font-size: 13px; }
+.provider-head span, .provider-head > b { font-size: 10px; }
+.provider-head h2 { font-size: 18px; }
+
+.integration-grid { align-items: start; }
+.integration-card { width: 100%; align-self: start; }
+.provider-head { grid-template-columns: 42px minmax(0, 1fr) auto 38px; }
+.provider-identity { min-width: 0; }
+.provider-identity h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-account-summary { display: block; max-width: 100%; overflow: hidden; margin-top: 2px; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.provider-head > b { max-width: 175px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-collapse-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--surface);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1;
+  transition: border-color var(--fast), color var(--fast), background var(--fast), transform var(--fast);
+}
+.provider-collapse-toggle:hover { border-color: var(--orange); color: var(--text); background: var(--orange-soft); transform: translateY(-1px); }
+.provider-collapse-toggle span { font-size: 19px; line-height: 1; }
+.provider-details > p { min-height: 43px; margin: 18px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.provider-details[hidden] { display: none !important; }
+.integration-card.is-collapsed { height: 106px; padding: 13px 16px; }
+.integration-card.is-collapsed:hover { transform: none; }
+.integration-card.is-collapsed .provider-head { min-height: 78px; }
+
+@media (max-width: 650px) {
+  .provider-head { grid-template-columns: 38px minmax(0, 1fr) 38px; gap: 9px; }
+  .provider-head > b { grid-column: 2; justify-self: start; max-width: 100%; }
+  .provider-collapse-toggle { grid-column: 3; grid-row: 1 / span 2; }
+  .integration-card.is-collapsed { height: 126px; padding: 10px 12px; }
+  .integration-card.is-collapsed .provider-head { min-height: 104px; }
+}

@@ -1,3 +1,4 @@
+import { mutationStatusMessage, notifyActivity } from "./activity";
 import type {
   AgentActivity,
   ChannelAnalytics,
@@ -25,6 +26,8 @@ import type {
   RoutingConfig,
   PublicIntakeConfig,
   TimeRange,
+  OpenAIUsage,
+  OpenAIUsagePeriod,
   TimeSeriesAnalytics,
   AuthSession,
   PermissionOverrides,
@@ -145,8 +148,13 @@ async function performRequest<T>(url: string, options?: RequestInit): Promise<T>
           : `Request failed (${response.status}). Please try again.`);
     throw new ApiError(message, response.status);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  const result = response.status === 204 ? undefined : await response.json();
+  const method = options?.method?.toUpperCase() ?? "GET";
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !url.startsWith("/v1/auth/")) {
+    const status = mutationStatusMessage(url, result);
+    notifyActivity(status.message, status.kind);
+  }
+  return result as T;
 }
 
 export const getSession = () => request<AuthSession | null>("/v1/auth/status");
@@ -315,7 +323,9 @@ export async function exportLeads(input: LeadExportInput): Promise<{ blob: Blob;
   }
   const disposition = response.headers.get("Content-Disposition") || "";
   const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `corral-leads-${new Date().toISOString().slice(0, 10)}.${input.format}`;
-  return { blob: await response.blob(), filename };
+  const blob = await response.blob();
+  notifyActivity("Export prepared successfully.");
+  return { blob, filename };
 }
 
 export function getCrmSyncHistory(leadId: string, signal?: AbortSignal): Promise<CrmSync[]> {
@@ -491,6 +501,14 @@ export function getLead(leadId: string, signal?: AbortSignal): Promise<Lead> {
 
 export function getLeadPipelineHistory(leadId: string, signal?: AbortSignal): Promise<LeadPipelineEvent[]> {
   return jsonRequest<LeadPipelineEvent[]>(`/v1/leads/${leadId}/pipeline-history`, { signal });
+}
+
+export function getLeadFollowUpHistory(leadId: string, signal?: AbortSignal): Promise<FollowUpEmail[]> {
+  return jsonRequest<FollowUpEmail[]>(`/v1/leads/${leadId}/follow-up/history`, { signal });
+}
+
+export function getOpenAIUsage(period: OpenAIUsagePeriod, signal?: AbortSignal): Promise<OpenAIUsage> {
+  return jsonRequest<OpenAIUsage>(`/v1/integrations/openai/usage?period=${period}`, { signal });
 }
 
 export function getLeadMomentum(leadId: string, signal?: AbortSignal): Promise<import("./types").LeadMomentum> {
