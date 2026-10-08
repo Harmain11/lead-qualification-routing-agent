@@ -9,3 +9,4 @@
 - [Dashboard brand alignment](dashboard-brand-alignment.md) — Center Corral against the mark; keep the sleek tagline below the wordmark only.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
 - [Salesforce package prerequisite](salesforce-package-prerequisite.md) — install the user-supplied package before OAuth; Connect must present the installer and setup steps.
+- [Member performance and wins](member-win-policy.md) — choose Project or Sale for each win; record in Corral and congratulate the team plus the credited member.

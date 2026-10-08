@@ -515,9 +515,27 @@ export function getLeadMomentum(leadId: string, signal?: AbortSignal): Promise<i
   return jsonRequest<import("./types").LeadMomentum>(`/v1/leads/${leadId}/momentum`, { signal });
 }
 
-export function updateLeadProgress(leadId: string, input: { stage: string; note: string }): Promise<LeadProgressResult> {
+export function updateLeadProgress(leadId: string, input: {
+  stage: string; note: string; conversion_type?: "project" | "sale";
+  closed_revenue?: number | null; credited_user_id?: string | null;
+}): Promise<LeadProgressResult & { outcome?: import("./types").LeadOutcome | null }> {
   return jsonRequest<LeadProgressResult>(`/v1/leads/${leadId}/progress`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+}
+
+export function getLeadClosingOptions(signal?: AbortSignal): Promise<Array<{ user_id: string; display_name: string; slack_linked: boolean }>> {
+  return jsonRequest("/v1/leads/closing-options", { signal });
+}
+
+export function retryLeadCongratulations(leadId: string): Promise<import("./types").LeadOutcome> {
+  return jsonRequest(`/v1/leads/${leadId}/congratulations/retry`, { method: "POST" });
+}
+
+export function updateMemberSlackLink(memberId: string, slackMemberId: string | null): Promise<WorkspaceMember> {
+  return jsonRequest(`/v1/members/${memberId}/slack-link`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slack_member_id: slackMemberId }),
   });
 }
 

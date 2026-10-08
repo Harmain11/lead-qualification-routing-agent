@@ -314,13 +314,13 @@ class SlackNotificationProvider:
             client,
         )
 
-    def send(self, message: Any) -> Any:
+    def send(self, message: Any, *, channel_id: str | None = None) -> Any:
         from lead_agent.domain.routing import NotificationDelivery
 
         try:
             payload, _ = self._api.call(
                 "chat.postMessage",
-                channel=self.channel_id,
+                channel=channel_id or self.channel_id,
                 text=message.text,
                 # Slack uses this stable client id to make a retry after a
                 # worker crash safe when the first request was accepted.
@@ -331,6 +331,7 @@ class SlackNotificationProvider:
             return NotificationDelivery(
                 state="sent", external_id=str(payload.get("ts")) if payload.get("ts") else None
             )
+
         except ProviderOperationError as error:
             retry_after = error.metadata.get("retry_after_seconds")
             return NotificationDelivery(
@@ -343,6 +344,10 @@ class SlackNotificationProvider:
                     else None
                 ),
             )
+
+    def send_direct(self, member_id: str, message: Any) -> Any:
+        # A user ID addresses the app's DM with that user using chat:write.
+        return self.send(message, channel_id=member_id)
 
 
 class WorkspaceSlackNotificationResolver:
@@ -371,6 +376,19 @@ class WorkspaceSlackNotificationResolver:
         )
         if connection is None:
             return None
+        config = session.get(WorkspaceNotificationConfigORM, workspace_id)
+        if config and config.default_slack_connection_id:
+            preferred = session.scalar(
+                select(ProviderConnectionORM).where(
+                    ProviderConnectionORM.id == config.default_slack_connection_id,
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "slack",
+                    ProviderConnectionORM.is_active.is_(True),
+                    ProviderConnectionORM.status == "verified",
+                )
+            )
+            if preferred is not None:
+                connection = preferred
         return self.provider_for_connection(session, workspace_id, connection.id, actor_id)
 
     def resolve_for_lead(

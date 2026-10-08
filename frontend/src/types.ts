@@ -303,6 +303,23 @@ export type Lead = {
   routing: RoutingDecision | null;
   crm_sync: CrmSync | null;
   confirmation_email?: ConfirmationEmail | null;
+  outcome?: LeadOutcome | null;
+};
+
+export type LeadOutcome = {
+  pipeline_stage: string;
+  conversion_type: "project" | "sale" | null;
+  credited_user_id: string | null;
+  credited_name: string | null;
+  closed_revenue: number | null;
+  currency: string;
+  closed_at: string | null;
+  notifications: Array<{
+    destination: "channel" | "direct_message";
+    status: string;
+    error_message: string | null;
+    attempts: number;
+  }>;
 };
 
 export type ConfirmationEmail = {
@@ -470,7 +487,7 @@ export type GmailConversationSyncResult = {
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "external_id" | "source_detail"
+  "id" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail"
 > & {
   source: string;
   source_detail: string;
@@ -539,6 +556,8 @@ export type WorkspaceMember = {
   invited_at: string | null;
   accepted_at: string | null;
   updated_at: string;
+  slack_member_id?: string | null;
+  slack_team_id?: string | null;
 };
 
 export type RoutingConfig = {
@@ -757,7 +776,7 @@ export type PipelineAnalytics = {
 
 export type RevenueAnalytics = {
   metadata: AnalyticsMetadata;
-  data_status: "unavailable" | "demo" | "crm" | "mixed";
+  data_status: "unavailable" | "demo" | "crm" | "manual" | "mixed";
   currency: string;
   total_revenue: number;
   pipeline_value: number;
@@ -769,6 +788,9 @@ export type RevenueAnalytics = {
 
 export type RepAnalytics = {
   metadata: AnalyticsMetadata;
+  members?: TeamMemberPerformance[];
+  unattributed_leads?: number;
+  cohort_description?: string;
   reps: Array<{
     rep_name: string;
     assigned_leads: number;
@@ -778,6 +800,26 @@ export type RepAnalytics = {
     revenue: number;
     average_response_minutes: number | null;
   }>;
+};
+
+export type TeamMemberPerformance = {
+  user_id: string;
+  display_name: string;
+  role: string;
+  status: string;
+  assigned_leads: number;
+  qualified_leads: number;
+  closed_leads: number;
+  project_wins: number;
+  sale_wins: number;
+  untyped_wins: number;
+  lost_leads: number;
+  active_leads: number;
+  conversion_rate: number;
+  revenue: number;
+  wins_without_value: number;
+  average_response_minutes: number | null;
+  summary: string;
 };
 
 export type TimeSeriesAnalytics = {

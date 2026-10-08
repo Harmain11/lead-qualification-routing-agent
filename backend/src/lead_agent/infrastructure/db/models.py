@@ -184,6 +184,7 @@ class WorkspaceMembershipORM(Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_workspace_membership"),
         Index("ix_workspace_memberships_user_status", "user_id", "status"),
+        Index("uq_member_slack_link", "workspace_id", "slack_team_id", "slack_member_id", unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -201,6 +202,8 @@ class WorkspaceMembershipORM(Base):
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    slack_member_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -985,6 +988,10 @@ class LeadOutcomeORM(Base):
         ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
     )
     pipeline_stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    conversion_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    credited_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     opportunity_value: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     closed_revenue: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
@@ -995,3 +1002,33 @@ class LeadOutcomeORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     lead: Mapped[LeadORM] = relationship(back_populates="outcome")
+    credited_user: Mapped[UserORM | None] = relationship()
+    win_notifications: Mapped[list[LeadWinNotificationORM]] = relationship(
+        back_populates="outcome", cascade="all, delete-orphan"
+    )
+
+
+class LeadWinNotificationORM(Base):
+    """Independent, durable channel and member delivery receipts for a won lead."""
+
+    __tablename__ = "lead_win_notifications"
+    __table_args__ = (
+        UniqueConstraint("outcome_id", "destination", name="uq_win_notification_destination"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    outcome_id: Mapped[UUID] = mapped_column(
+        ForeignKey("lead_outcomes.id", ondelete="CASCADE"), nullable=False
+    )
+    destination: Mapped[str] = mapped_column(String(32), nullable=False)
+    recipient_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    external_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    outcome: Mapped[LeadOutcomeORM] = relationship(back_populates="win_notifications")

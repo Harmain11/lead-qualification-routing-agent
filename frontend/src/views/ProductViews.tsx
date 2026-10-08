@@ -7,6 +7,7 @@ import { AgentFlow } from "../components/AgentFlow";
 import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
+import { TeamPerformancePanel } from "../components/TeamPerformancePanel";
 import { NetworkDomFallback } from "../components/NetworkDomFallback";
 import type {
   AgentActivity,
@@ -40,7 +41,7 @@ const analyticsPanelOptions = [
   { id: "lead-trajectory", label: "Lead trajectory" },
   { id: "revenue-by-channel", label: "Revenue by channel" },
   { id: "revenue-by-service", label: "Revenue by service" },
-  { id: "representatives", label: "Representative performance" },
+  { id: "representatives", label: "Team member performance" },
   { id: "revenue-trajectory", label: "Revenue trajectory" },
 ] as const;
 
@@ -590,6 +591,10 @@ export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundl
     ? "Illustrative values—not production revenue"
     : data.revenue.data_status === "crm"
       ? "CRM-derived outcomes"
+      : data.revenue.data_status === "manual"
+        ? "Outcomes recorded manually in Corral"
+        : data.revenue.data_status === "mixed"
+          ? "Outcomes from multiple sources, including manual records"
       : "No revenue facts available";
   const totalLeads = metricValue(data.dashboard, "total_leads");
   const togglePanel = (id: AnalyticsPanelId, checked: boolean) => {
@@ -618,7 +623,7 @@ export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundl
           {visiblePanels.has("lead-trajectory") && <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>}
           {visiblePanels.has("revenue-by-channel") && <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>}
           {visiblePanels.has("revenue-by-service") && <Panel title="Revenue by service" eyebrow="Closed / won attribution"><Bars rows={data.revenue.by_service.map((row) => ({ label: row.label, value: row.value }))} formatter={money} /></Panel>}
-          {visiblePanels.has("representatives") && <div className="analytics-panel-wide"><Panel title="Representative performance" eyebrow="Context, not leaderboard"><div className="rep-table">{data.reps.reps.map((rep) => <div key={rep.rep_name}><span className="rep-avatar">{rep.rep_name.split(" ").map((word) => word[0]).join("")}</span><span><b>{rep.rep_name}</b><small>{rep.assigned_leads} assigned · {rep.qualified_leads} qualified</small></span><span><b>{rep.closed_leads}</b><small>closed</small></span><span><b>{rep.conversion_rate}%</b><small>conversion</small></span><span><b>{money(rep.revenue)}</b><small>revenue</small></span><span><b>{rep.average_response_minutes ?? "—"}</b><small>avg min</small></span></div>)}</div></Panel></div>}
+          {visiblePanels.has("representatives") && <div className="analytics-panel-wide"><TeamPerformancePanel data={data.reps} /></div>}
           {visiblePanels.has("revenue-trajectory") && <Panel title="Revenue trajectory" eyebrow="Closed / won over time"><TrendChart values={data.revenue.over_time.map((point) => point.value)} labels={data.revenue.over_time.map((point) => point.period)} /></Panel>}
         </section>
       ) : (

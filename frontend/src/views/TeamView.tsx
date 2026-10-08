@@ -12,6 +12,7 @@ import {
   suspendMember,
   updateMemberPermissions,
   updateMemberRole,
+  updateMemberSlackLink,
 } from "../api";
 import { can, defaultPermissionsForRole, PERMISSION_GROUPS, ROLE_LABELS, ROLE_OPTIONS, roleLabel, statusLabel } from "../permissions";
 import type {
@@ -147,6 +148,7 @@ function AuditLine({ event, members }: { event: WorkspaceAuditEvent; members: Wo
   if (event.operation === "member_suspended") text = `Suspended ${target?.display_name ?? "a member"}`;
   if (event.operation === "member_reactivated") text = `Reactivated ${target?.display_name ?? "a member"}`;
   if (event.operation === "member_removed") text = `Removed ${target?.display_name ?? "a member"}`;
+  if (event.operation === "slack_member_link_changed") text = `Updated the Slack link for ${target?.display_name ?? "a member"}`;
   return <li><span className="audit-marker" /><div><b>{text}</b><small>{formatDate(event.created_at)}</small></div></li>;
 }
 
@@ -300,6 +302,13 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
                   setMembers((current) => current.map((item) => item.id === next.id ? next : item));
                 }, "Permissions updated.");
               }}
+              onSaveSlack={async (slackId) => {
+                if (!selected) return;
+                await runAction(async () => {
+                  const next = await updateMemberSlackLink(selected.id, slackId || null);
+                  setMembers((current) => current.map((item) => item.id === next.id ? next : item));
+                }, slackId ? "Slack member linked." : "Slack member link removed.");
+              }}
               onSuspend={() => selected && requestConfirmation({
                 title: "Suspend member?",
                 detail: `${selected.display_name} will lose workspace access until reactivated.`,
@@ -335,6 +344,7 @@ function MemberDetail({
   onToggleCollapsed,
   onSaveRole,
   onSavePermissions,
+  onSaveSlack,
   onSuspend,
   onReactivate,
   onRemove,
@@ -346,6 +356,7 @@ function MemberDetail({
   onToggleCollapsed: () => void;
   onSaveRole: (role: string) => Promise<void>;
   onSavePermissions: (overrides: PermissionOverrides) => Promise<void>;
+  onSaveSlack: (slackId: string) => Promise<void>;
   onSuspend: () => void;
   onReactivate: () => void;
   onRemove: () => void;
@@ -354,10 +365,12 @@ function MemberDetail({
   const [overrides, setOverrides] = useState<PermissionOverrides>(member?.permission_overrides ?? emptyOverrides());
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [slackId, setSlackId] = useState(member?.slack_member_id ?? "");
   useEffect(() => {
     setRole(member?.role ?? "viewer");
     setOverrides(member?.permission_overrides ?? emptyOverrides());
     setEditing(false);
+    setSlackId(member?.slack_member_id ?? "");
   }, [member]);
   if (!member) return <aside className="team-detail panel"><div className="team-detail-empty"><span className="eyebrow">User details</span><h2>Select a user</h2><p>Choose a person from the roster to edit their role and permissions or remove their access.</p></div></aside>;
   const selectedMember = member;
@@ -399,6 +412,13 @@ function MemberDetail({
           <div><span>Invited</span><b>{formatDate(member.invited_at)}</b></div>
           <div><span>Joined</span><b>{formatDate(member.accepted_at)}</b></div>
           <div><span>Last updated</span><b>{formatDate(member.updated_at)}</b></div>
+        </div>
+        <div className="detail-editor-section">
+          <div className="section-heading"><div><span className="eyebrow">Personal win notifications</span><h3>Slack member link</h3></div></div>
+          <p className="role-edit-help">Copy this person's member ID from their Slack profile (More → Copy member ID). Link it after Slack is verified in Integrations. A win will notify the team channel and send this person a direct congratulations.</p>
+          <label className="follow-up-field">Slack member ID<input value={slackId} disabled={!canManage || saving} placeholder="U0123456789" maxLength={64} onChange={(event) => setSlackId(event.target.value.trim().toUpperCase())} /></label>
+          {member.slack_team_id && <small className="role-edit-help">Linked Slack workspace: {member.slack_team_id}</small>}
+          {canManage && slackId !== (member.slack_member_id ?? "") && <button className="secondary-button" disabled={saving || (!!slackId && !/^[UW][A-Z0-9]{8,63}$/.test(slackId))} onClick={async () => { setSaving(true); try { await onSaveSlack(slackId); } finally { setSaving(false); } }}>{saving ? "Saving…" : slackId ? "Save Slack link" : "Remove Slack link"}</button>}
         </div>
         <div className="detail-editor-section">
           <div className="section-heading">

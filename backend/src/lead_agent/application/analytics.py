@@ -19,6 +19,8 @@ from lead_agent.infrastructure.db.models import (
     ProviderConnectionORM,
     QualificationResultORM,
     WorkspaceORM,
+    WorkspaceMembershipORM,
+    UserORM,
 )
 
 RangeKey = Literal["weekly", "monthly", "annual"]
@@ -97,6 +99,8 @@ def _outcome(lead: LeadORM) -> LeadOutcomeORM:
 
 
 def _rep_name(lead: LeadORM) -> str:
+    if lead.outcome and lead.outcome.credited_user:
+        return lead.outcome.credited_user.display_name
     route = _latest_route(lead)
     return (
         route.assigned_rep_name if route is not None and route.assigned_rep_name else "Unassigned"
@@ -280,8 +284,10 @@ class AnalyticsService:
             status = "unavailable"
         elif source_types == {"demo"}:
             status = "demo"
-        elif "crm" in source_types:
+        elif source_types == {"crm"}:
             status = "crm"
+        elif source_types == {"manual"}:
+            status = "manual"
         else:
             status = "mixed"
         return {
@@ -337,7 +343,67 @@ class AnalyticsService:
                     ),
                 }
             )
-        return {"metadata": self.metadata(window), "reps": rows}
+        roster = self.session.execute(
+            select(WorkspaceMembershipORM, UserORM)
+            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+            .where(WorkspaceMembershipORM.workspace_id == self.workspace_id)
+            .order_by(UserORM.display_name, UserORM.id)
+        ).all()
+        identities = {str(user.id): (member, user) for member, user in roster}
+        by_member: dict[str, list[LeadORM]] = defaultdict(list)
+        unattributed = 0
+        for lead in leads:
+            route = _latest_route(lead)
+            owner = (
+                str(lead.outcome.credited_user_id)
+                if lead.outcome and lead.outcome.credited_user_id
+                else route.assigned_rep_id if route else None
+            )
+            if owner in identities:
+                by_member[owner].append(lead)
+            else:
+                unattributed += 1
+        members = []
+        for user_id, (member, user) in identities.items():
+            items = by_member[user_id]
+            if member.status != "active" and not items:
+                continue
+            won = [lead for lead in items if lead.outcome and lead.outcome.pipeline_stage == "closed_won"]
+            lost = sum(bool(lead.outcome and lead.outcome.pipeline_stage == "closed_lost") for lead in items)
+            projects = sum(lead.outcome.conversion_type == "project" for lead in won)
+            sales = sum(lead.outcome.conversion_type == "sale" for lead in won)
+            qualified = sum(_qualification(lead).classification in QUALIFIED_BANDS for lead in items)
+            conversion_rate = round(len(won) / len(items) * 100, 1) if items else 0
+            revenue = round(fsum(_money(lead.outcome.closed_revenue) for lead in won), 2)
+            velocities = self._routing_velocities(items)
+            members.append({
+                "user_id": user_id, "display_name": user.display_name,
+                "role": member.role, "status": member.status,
+                "assigned_leads": len(items), "qualified_leads": qualified,
+                "closed_leads": len(won), "project_wins": projects, "sale_wins": sales,
+                "untyped_wins": len(won) - projects - sales, "lost_leads": lost,
+                "active_leads": len(items) - len(won) - lost,
+                "conversion_rate": conversion_rate, "revenue": revenue,
+                "wins_without_value": sum(lead.outcome.closed_revenue is None for lead in won),
+                "average_response_minutes": round(sum(velocities) / len(velocities), 1) if velocities else None,
+                "summary": (
+                    f"{user.display_name} has {len(items)} assigned lead(s) in this period, "
+                    f"{qualified} qualified lead(s), and {len(won)} win(s): "
+                    f"{projects} Project(s), {sales} Sale(s)"
+                    + (f", {len(won) - projects - sales} earlier untyped win(s)" if len(won) > projects + sales else "")
+                    + f". {len(items) - len(won) - lost} remain open and {lost} were lost. "
+                    f"Assigned-lead conversion is {conversion_rate:g}%."
+                ),
+            })
+        return {
+            "metadata": self.metadata(window), "reps": rows, "members": members,
+            "unattributed_leads": unattributed,
+            "cohort_description": (
+                "Includes leads received in the selected period and their current outcomes. "
+                "Closed leads use recorded member credit; open leads use their current assigned member. "
+                "Conversion rate is wins divided by assigned leads."
+            ),
+        }
 
     def time_series(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
         window = AnalyticsWindow.build(range_key)
@@ -653,7 +719,7 @@ class AnalyticsService:
                     selectinload(LeadORM.analysis),
                     selectinload(LeadORM.routing_decisions),
                     selectinload(LeadORM.crm_syncs),
-                    selectinload(LeadORM.outcome),
+                    selectinload(LeadORM.outcome).selectinload(LeadOutcomeORM.credited_user),
                 )
                 .where(
                     LeadORM.workspace_id == self.workspace_id,
