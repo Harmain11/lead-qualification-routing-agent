@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { createSlackRule } from "../slackRouting";
 
 import {
@@ -252,6 +253,9 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [notice, setNotice] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [accountChoiceProvider, setAccountChoiceProvider] = useState<"calendly" | "slack" | null>(null);
+  const slackVerificationAttempts = useRef(new Set<string>());
+  const slackChannelLoads = useRef(new Set<string>());
   const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
   const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error"; message: string }>>({});
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
@@ -284,7 +288,22 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   const refresh = async () => {
     try {
-      const nextCards = await listIntegrations();
+      let nextCards = await listIntegrations();
+      // Older production callbacks saved credentials without verifying Slack.
+      // Finish that read-only check once; never send a notification here.
+      const slack = nextCards.find((card) => card.provider === "slack")?.connection;
+      if (canManage && slack?.is_active && slack.status === "connected"
+        && slack.credential_state === "configured" && !slackVerificationAttempts.current.has(slack.id)) {
+        slackVerificationAttempts.current.add(slack.id);
+        try {
+          const result = await testIntegration(slack.id);
+          if (!result.verified) throw new Error(result.message);
+          nextCards = await listIntegrations();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Slack verification could not finish.";
+          setActionErrors((current) => ({ ...current, slack: message }));
+        }
+      }
       setCards(nextCards);
       try {
         setSlackRouting(await getSlackNotificationConfig());
@@ -306,6 +325,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   };
   useEffect(() => { if (canView) void refresh(); }, [canView]);
+  useEffect(() => {
+    const connection = cards.find((card) => card.provider === "slack")?.connection;
+    if (!canManage || !expandedProviders.has("slack") || connection?.status !== "verified"
+      || !connection.is_active || slackChannelLoads.current.has(connection.id)) return;
+    slackChannelLoads.current.add(connection.id);
+    void loadSlackChannelsForRouting(connection.id);
+  }, [cards, canManage, expandedProviders]);
   useEffect(() => {
     if (!canView) return;
     const timer = window.setInterval(() => {
@@ -387,6 +413,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   function connectOAuth(provider: string) {
     if (!canConnect || (provider === "slack" && !canManage) || busy) return;
+    if (provider === "calendly" || provider === "slack") {
+      setExpanded(provider);
+      setAccountChoiceProvider(provider);
+      return;
+    }
     if (provider === "salesforce") {
       setSalesforceSetupOpen(true);
       setActionErrors((current) => {
@@ -503,6 +534,12 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
            {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)} disabled={busy === card.provider}>{busy === card.provider ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={busy === card.provider}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : setExpanded(open ? null : card.provider)}>{openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected.`)} disabled={busy === card.provider}>Disconnect</button>}</>}
           <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>
         </div>}
+        {(card.provider === "slack" || card.provider === "calendly") && accountChoiceProvider === card.provider && <IntegrationAccountChoice
+          key={card.provider} provider={card.provider} accountName={connection?.account_name}
+          busy={busy === card.provider}
+          onContinue={() => void authorizeOAuth(card.provider)}
+          onCancel={() => setAccountChoiceProvider(null)}
+        />}
         {openAI && connection && canManage && <div className="integration-guide openai-model-config"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button className="button-quiet" onClick={() => void act(card.provider, () => updateOpenAIModel(connection.id, selectedOpenAIModel), "OpenAI model saved. Test the connection before use.")} disabled={busy === card.provider || !selectedOpenAIModel}>Save model</button></div>}
         {!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified" && <div className="integration-guide">
           <span className="eyebrow">{mailDirection ? "Automatic inbound email acquisition" : "Inbound CRM synchronization"}</span>

@@ -119,6 +119,7 @@ def test_slack_oauth_uses_exact_scopes_and_derived_callback_path(tmp_path) -> No
         params = parse_qs(urlparse(started.authorization_url).query)
         assert row.scopes == ["chat:write", "channels:read"]
         assert params["scope"] == ["chat:write,channels:read"]
+        assert "team" not in params  # Slack must allow workspace selection.
         assert row.connection_metadata["oauth_redirect_uri"] == (
             "https://api.example.test/v1/integrations/slack/oauth/callback"
         )

@@ -19,7 +19,7 @@ browser.stderr.on("data", (data) => { browserDiagnostic = (browserDiagnostic + S
 browser.on("error", (error) => { browserDiagnostic = error.message; });
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let socket;
-try {
+smoke: try {
   let target;
   for (let index = 0; index < 300; index++) {
     try {
@@ -92,6 +92,9 @@ try {
     window.__slackConfigured = false;
     window.__routingSaves = [];
     window.__dashboardFetches = 0;
+    window.__slackPending = ${JSON.stringify(process.argv.includes("--connections-only"))};
+    window.__slackVerifications = 0;
+    window.__oauthStarts = 0;
     // Exercise embedded browsers without secure-context randomUUID support.
     Object.defineProperty(crypto, "randomUUID", {value: undefined, configurable: true});
     const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
@@ -127,14 +130,24 @@ try {
         const cards = await response.json();
         return json(cards.map(card => {
           if (card.provider !== "slack") return card;
-          const connection = window.__slackConfigured ? {
+          const connection = (window.__slackConfigured || window.__slackPending) ? {
             id: "33333333-3333-4333-8333-333333333333",
             provider_type: "slack", account_name: "UI test Slack", auth_type: "oauth2",
-            status: "verified", is_active: true, scopes: [], credential_state: "configured",
-            metadata: {slack_team_id: "TTEST", slack_channel_id: "CTEST", slack_channel_name: "team"},
+            status: window.__slackPending ? "connected" : "verified", is_active: true, scopes: [], credential_state: "configured",
+            metadata: window.__slackPending ? {} : {slack_team_id: "TTEST", slack_channel_id: "CTEST", slack_channel_name: "team"},
           } : null;
           return {...card, connection, connections: connection ? [connection] : []};
         }));
+      }
+      if (path === "/v1/integrations/connections/33333333-3333-4333-8333-333333333333/test") {
+        window.__slackVerifications++;
+        window.__slackConfigured = true;
+        window.__slackPending = false;
+        return json({verified:true, valid:true, message:"Slack workspace verified."});
+      }
+      if (path === "/v1/integrations/calendly/connect" || path === "/v1/integrations/slack/connect") {
+        window.__oauthStarts++;
+        return json({detail:"Test authorization blocked to avoid an external login."},503);
       }
       if (path.startsWith("/v1/auth/")) {
         const response = await originalFetch(input, init);
@@ -195,6 +208,41 @@ try {
     await pause(150);
   }
   await wait(`document.querySelector(".dashboard-view") !== null`);
+  if (process.argv.includes("--connections-only")) {
+    await click("Integrations");
+    await wait(`document.querySelector(".provider-calendly") !== null`);
+    await wait(`document.querySelector(".slack-routing-health")?.textContent.includes("1 verified")`);
+    assert.equal(await evaluate(`window.__slackVerifications`), 1, "Legacy Slack was not verified once.");
+    await evaluate(`document.querySelector(".provider-calendly .provider-collapse-toggle").click()`);
+    await wait(`!document.querySelector(".provider-calendly").classList.contains("is-collapsed")`);
+    assert(await evaluate(`(() => {
+      const card = document.querySelector(".provider-calendly").getBoundingClientRect();
+      const grid = document.querySelector(".provider-calendly").parentElement.getBoundingClientRect();
+      const later = document.querySelector(".provider-salesforce").getBoundingClientRect();
+      return Math.abs(card.width-grid.width)<3 && later.top>=card.bottom;
+    })()`), "Expanded integration does not span both columns and push later cards down.");
+    await evaluate(`[...document.querySelectorAll(".provider-calendly .card-actions button")].find(b=>/Connect Calendly|Reconnect|^Connect$/.test(b.textContent)).click()`);
+    await wait(`document.querySelector(".integration-account-choice") !== null`);
+    assert.equal(await evaluate(`window.__oauthStarts`), 0, "Connect bypassed the account choice.");
+    await evaluate(`document.querySelectorAll(".integration-account-choice input[type=radio]")[1].click()`);
+    assert(await evaluate(`document.querySelector(".integration-account-choice .card-actions button").disabled`));
+    await evaluate(`document.querySelector(".integration-account-choice input[type=checkbox]").click()`);
+    assert.equal(await evaluate(`document.querySelector(".integration-account-choice .card-actions button").disabled`), false);
+    await writeFile("/tmp/corral-integrations-wide.png", Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    await evaluate(`document.querySelector(".integration-account-choice .card-actions button").click()`);
+    await wait(`window.__oauthStarts === 1`);
+    await evaluate(`document.querySelector(".integration-account-choice .button-quiet").click()`);
+    await evaluate(`[...document.querySelectorAll(".provider-slack .card-actions button")].find(b=>b.textContent==="Reconnect").click()`);
+    await wait(`document.querySelector(".integration-account-choice")?.textContent.includes("Which Slack")`);
+    assert.equal(await evaluate(`window.__oauthStarts`), 1, "Slack bypassed the account choice.");
+    await cdp("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:false});
+    await pause(500);
+    assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`), "Integration page overflows on phone.");
+    await writeFile("/tmp/corral-integrations-phone.png", Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    assert.equal(errors.length,0, errors.join("\n"));
+    console.log("Account choices, legacy Slack verification/routing, full-width expansion and phone layout passed. OAuth was intercepted; no external login or Slack message.");
+    break smoke;
+  }
   if (process.argv.includes("--refresh-only")) {
     await wait(`window.__latestLeadSignature !== undefined && window.__dashboardFetches > 0`);
     const signatureBefore = await evaluate(`window.__latestLeadSignature`);
