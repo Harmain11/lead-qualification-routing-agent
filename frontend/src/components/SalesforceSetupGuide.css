@@ -4,21 +4,23 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 22px;
+  padding: 0;
   background: rgba(15, 27, 45, .58);
   backdrop-filter: blur(5px);
   animation: salesforce-backdrop-in 160ms ease-out both;
 }
 
 .salesforce-guide.team-modal {
-  width: min(690px, 100%);
-  max-height: min(820px, calc(100dvh - 44px));
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   padding: 0;
-  border: 1px solid rgba(30, 107, 82, .2);
-  border-radius: 20px;
+  border: 0;
+  border-radius: 0;
   background: #f8faf5;
   color: var(--text, #183c30);
   box-shadow: 0 28px 90px rgba(15, 27, 45, .26);
@@ -303,8 +305,9 @@
 
   .salesforce-guide.team-modal {
     width: 100%;
-    max-height: min(92dvh, 820px);
-    border-radius: 18px 18px 0 0;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
   }
 
   .salesforce-guide-header {

@@ -26,6 +26,7 @@ import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { ActivityToasts } from "./components/ActivityToasts";
+import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
@@ -468,22 +469,14 @@ function App() {
         <div className="rail-foot">
           <div className="workspace-mark">
             <img src="/asset/brand/corral-mark.png" alt="" />
-            <span>
-              <select
-                aria-label="Current workspace"
-                value={auth.current_workspace_id}
-                onChange={(event) => {
-                  refreshController.current?.abort();
-                  leadController.current?.abort();
-                  void changeWorkspace(event.target.value).then((session) => {
-                    setData(null);
-                    setSelectedLead(null);
-                    setAuth(session);
-                  });
-                }}
-              >{auth.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}</select>
-              <small>{metadata?.data_mode === "demo" ? "Illustrative workspace" : "Live workspace"}</small>
-            </span>
+            <WorkspaceSwitcher session={auth} onSelect={async (workspaceId) => {
+              refreshController.current?.abort();
+              leadController.current?.abort();
+              const session = await changeWorkspace(workspaceId);
+              setData(null);
+              setSelectedLead(null);
+              setAuth(session);
+            }} />
           </div>
           <span className="system-state"><i /> Systems nominal</span>
           <button className="signout-button" onClick={() => {

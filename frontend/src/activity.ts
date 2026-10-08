@@ -1,3 +1,5 @@
+import { createClientId } from "./clientIds";
+
 export type ActivityToast = {
   id: string;
   message: string;
@@ -5,9 +7,14 @@ export type ActivityToast = {
 };
 
 export function notifyActivity(message: string, kind: ActivityToast["kind"] = "success") {
-  window.dispatchEvent(new CustomEvent<ActivityToast>("corral:activity", {
-    detail: { id: crypto.randomUUID(), message, kind },
-  }));
+  try {
+    window.dispatchEvent(new CustomEvent<ActivityToast>("corral:activity", {
+      detail: { id: createClientId(), message, kind },
+    }));
+  } catch {
+    // Feedback is optional; it must not reject an already-successful mutation.
+    console.warn("The action completed, but its status notification could not be displayed.");
+  }
 }
 
 export function mutationStatusMessage(url: string, result: unknown): { message: string; kind: ActivityToast["kind"] } {

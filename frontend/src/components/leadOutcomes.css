@@ -1,4 +1,18 @@
 .lead-closing-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.lead-stage-context { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.ai-stage-assessment { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); }
+.ai-stage-assessment h4 { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.ai-stage-value { display: block; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+.ai-stage-certainty { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; color: var(--green); font-size: 11px; line-height: 1.5; }
+.ai-stage-assessment p { margin: 10px 0 0; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.ai-stage-disclaimer, .ai-stage-updated { color: var(--muted); }
+.ai-stage-review { color: var(--amber); font-weight: 600; }
+.ai-stage-reasoning { margin-top: 12px; font-size: 12px; line-height: 1.6; }
+.ai-stage-reasoning summary { cursor: pointer; color: var(--green); }
+.ai-stage-reasoning ul { margin: 10px 0; padding-left: 18px; }
+.ai-stage-reasoning li { margin-bottom: 10px; overflow-wrap: anywhere; }
+.ai-stage-reasoning li span { display: block; color: var(--muted); font-size: 11px; }
+.ai-stage-updated { display: block; margin-top: 12px; font-size: 10px; line-height: 1.6; }
 .lead-outcome-receipt { margin: 18px 0; padding: 18px; border: 1px solid rgba(64,215,189,.3); border-radius: 12px; background: rgba(64,215,189,.06); }
 .lead-outcome-receipt h4 { margin: 0 0 8px; font-size: 17px; }
 .lead-outcome-receipt p { font-size: 13px; color: var(--muted, #8b9bac); line-height: 1.6; }
@@ -7,4 +21,4 @@
 .win-delivery small { flex-basis: 100%; color: var(--muted, #8b9bac); line-height: 1.5; }
 .closing-edit-note { color: var(--muted, #8b9bac); line-height: 1.6; }
 .lead-outcome-receipt button { margin-top: 10px; }
-@media (max-width: 600px) { .lead-closing-fields { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .lead-closing-fields, .lead-stage-context { grid-template-columns: 1fr; } }

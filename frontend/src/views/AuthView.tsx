@@ -101,12 +101,6 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
 
   return (
     <main className="auth-shell">
-      <div className="auth-ambient" aria-hidden="true">
-        <img src={`${BRAND}/twinkle-widecard.svg`} alt="" />
-        <span className="auth-orbit orbit-a" />
-        <span className="auth-orbit orbit-b" />
-        <div className="auth-signal-path"><i /><i /><i /><i /></div>
-      </div>
       <section className="auth-story">
         <div className="auth-product-brand"><img className="auth-logo" src={`${BRAND}/corral-mark.png`} alt="" /><span><strong>Corral</strong><small>Powered by Ingenuity Systems</small></span></div>
         <div>
