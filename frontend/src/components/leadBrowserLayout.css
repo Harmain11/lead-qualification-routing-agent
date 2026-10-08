@@ -1,0 +1,44 @@
+.lead-browser .lead-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px;
+}
+.lead-browser .lead-toolbar > * { min-width: 0; max-width: 100%; }
+.lead-browser .lead-toolbar > label { width: auto; }
+.lead-browser .lead-toolbar input,
+.lead-browser .lead-toolbar select { width: 100%; min-width: 0; min-height: 42px; }
+.lead-browser .live-feed-status { align-self: center; justify-self: end; white-space: nowrap; }
+.lead-browser .lead-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 18px;
+}
+.lead-browser .lead-selection-bar label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.lead-browser .lead-selection-bar > label:first-child { margin-right: auto; }
+.lead-browser .lead-selection-bar > span { margin-left: 0; }
+.lead-browser .lead-selection-bar input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; accent-color: #1E6B52; }
+.lead-browser .lead-selection-bar select {
+  min-height: 38px;
+  min-width: 120px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line-bright);
+  border-radius: 8px;
+  background: var(--surface-solid);
+  color: var(--text);
+}
+.app-shell .panel::before,
+.app-shell .metric-card::before,
+.app-shell .integration-card::before { display: none; }
+@media (max-width: 760px) {
+  .lead-browser .lead-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; gap: 10px; }
+  .lead-browser .lead-toolbar > label:first-child,
+  .lead-browser .live-feed-status { grid-column: 1 / -1; }
+  .lead-browser .live-feed-status { justify-self: start; }
+  .lead-browser .lead-selection-bar { padding: 14px; }
+  .product-bar .range-picker { min-width: 174px; }
+  .product-bar .range-picker button { min-width: 54px; padding-inline: 8px; }
+}

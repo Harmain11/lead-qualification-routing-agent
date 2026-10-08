@@ -1,0 +1,61 @@
+.app-shell .side-rail {
+  overflow: hidden;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.app-shell .side-rail .rail-brand-row,
+.app-shell .side-rail > .pinned-lead-navigation,
+.app-shell .side-rail .rail-foot {
+  flex: 0 0 auto;
+}
+.app-shell .side-rail > nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-bright) transparent;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+.app-shell .side-rail .rail-brand-row { margin-bottom: 18px; }
+.app-shell .side-rail .rail-foot {
+  position: static;
+  margin-top: 14px;
+  padding-top: 14px;
+  gap: 12px;
+}
+.app-shell .side-rail [data-navigation-id="agents"] .navigation-menu-label { white-space: normal; line-height: 1.3; }
+.navigation-menu-flyout.is-portal {
+  position: fixed;
+  z-index: 80;
+  right: auto;
+  bottom: auto;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-high, #fff);
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+.navigation-menu-flyout.is-inline {
+  position: static;
+  grid-column: 1 / -1;
+  width: auto;
+  max-height: none;
+  margin: 4px 0 8px 12px;
+  padding: 6px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.navigation-menu-flyout.is-portal .navigation-menu-child {
+  min-height: 40px;
+  font-size: 13px;
+}
+.navigation-menu-flyout.is-inline .navigation-menu-child {
+  min-height: 40px;
+  padding: 10px 12px;
+  font-size: 13px;
+}

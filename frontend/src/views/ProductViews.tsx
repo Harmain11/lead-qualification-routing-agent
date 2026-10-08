@@ -7,6 +7,10 @@ import { AgentFlow } from "../components/AgentFlow";
 import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { LeadDetail } from "../components/LeadDetail";
+import { LeadSubpage, leadSubpageCopy } from "../components/LeadSubpage";
+import { LeadRowIdentity } from "../components/LeadRowIdentity";
+import { DashboardInsights } from "../components/DashboardInsights";
+import type { LeadDetailSection } from "../leadSections";
 import { TeamPerformancePanel } from "../components/TeamPerformancePanel";
 import type {
   AgentActivity,
@@ -60,6 +64,9 @@ const dashboardWidgetOptions = [
   { id: "qualification-mix", label: "Qualification mix", group: "Dashboard panels" },
   { id: "channel-intelligence", label: "Channel intelligence", group: "Dashboard panels" },
   { id: "pipeline-pulse", label: "Pipeline pulse", group: "Dashboard panels" },
+  { id: "revenue-trend", label: "Revenue trend", group: "Useful insights" },
+  { id: "source-qualification", label: "Qualification rate by source", group: "Useful insights" },
+  { id: "source-quality", label: "Lead quality by source", group: "Useful insights" },
 ] as const;
 
 type DashboardWidgetId = (typeof dashboardWidgetOptions)[number]["id"];
@@ -86,13 +93,20 @@ function loadSectionSelection<T extends string>(storageKey: string, options: rea
 
 function loadDashboardWidgetSelection(storageKey: string) {
   const selected = loadSectionSelection(storageKey, dashboardWidgetOptions);
-  if (selected.size > 0 || typeof window === "undefined") return selected;
+  if (typeof window === "undefined") return selected;
   try {
     const saved = JSON.parse(window.localStorage.getItem(storageKey) || "null");
     // Restore the remaining useful panels if the removed topology was the
     // only card a returning user had selected.
     if (Array.isArray(saved) && saved.includes("lead-intelligence-network")) {
-      return defaultSectionSelection(dashboardWidgetOptions);
+      if (!selected.size) return defaultSectionSelection(dashboardWidgetOptions);
+    }
+    // Introduce new insight cards once, without restoring cards the user hid
+    // or overriding an intentionally empty dashboard.
+    if (selected.size && !window.localStorage.getItem(`${storageKey}:insights-v1`)) {
+      selected.add("revenue-trend");
+      selected.add("source-qualification");
+      selected.add("source-quality");
     }
   } catch {
     // Dashboard preferences remain optional when browser storage is unavailable.
@@ -207,6 +221,7 @@ export function DashboardView({
   useEffect(() => {
     try {
       window.localStorage.setItem(preferenceKey, JSON.stringify([...visibleWidgets]));
+      window.localStorage.setItem(`${preferenceKey}:insights-v1`, "seen");
     } catch {
       // Dashboard preferences are optional when browser storage is unavailable.
     }
@@ -292,6 +307,7 @@ export function DashboardView({
               <Bars rows={data.pipeline.stages.map((stage) => ({ label: stage.label, value: stage.count, note: stage.value ? money(stage.value) : undefined }))} />
             </Panel>}
           </section>}
+          <DashboardInsights channels={data.channels} revenue={data.revenue} visible={visibleWidgets} />
         </>
       ) : (
         <section className="section-picker-empty panel"><h2>No dashboard cards selected</h2><p>Choose one or more items above to add them back.</p></section>
@@ -302,6 +318,10 @@ export function DashboardView({
 
 export function LeadsView({
   selected,
+  activeSection,
+  onSectionChange,
+  isSectionPinned,
+  onTogglePin,
   revision,
   onInspect,
   onClose,
@@ -313,6 +333,10 @@ export function LeadsView({
   canCrmSync = false,
 }: {
   selected: Lead | null;
+  activeSection: LeadDetailSection;
+  onSectionChange: (section: LeadDetailSection) => void;
+  isSectionPinned: boolean;
+  onTogglePin: () => void;
   revision: number;
   onInspect: (id: string) => void;
   onClose: () => void;
@@ -445,9 +469,9 @@ export function LeadsView({
   };
 
   return (
-    <div className="page-view operational-page">
+    <div className="page-view operational-page focused-page" data-lead-page={activeSection}>
       <header className="page-hero compact-hero">
-        <div><span className="eyebrow">Lead intelligence archive</span><h1>Every decision,<br /><em>traceable to evidence.</em></h1><p>Search, filter and inspect the complete journey from original signal to connected-system delivery.</p></div>
+        <div><span className="eyebrow">Leads / {leadSubpageCopy[activeSection].title}</span><h1>{leadSubpageCopy[activeSection].title}</h1><p>{leadSubpageCopy[activeSection].description}</p></div>
         <div className="lead-hero-actions">
           {canExport && <button className="secondary-button" onClick={() => setShowExport(true)}>Export</button>}
           {canEdit && <button className="primary-button" onClick={() => setShowForm((current) => !current)}>{showForm ? "Close intake" : "+ Submit lead"}</button>}
@@ -466,7 +490,8 @@ export function LeadsView({
          {rows.length > 0 && <div className="lead-selection-bar"><label><input type="checkbox" checked={rows.length > 0 && visibleSelected === rows.length} onChange={selectVisible} /> Select visible</label><span>{selectedIds.size} selected</span>{canCrmSync && <><label>Transfer to <select aria-label="Bulk CRM provider" value={bulkProvider} onChange={(event) => setBulkProvider(event.target.value)}><option value="">Select CRM</option>{crmProviders.map((provider) => <option key={provider} value={provider}>{provider === "hubspot" ? "HubSpot" : pretty(provider)}</option>)}</select></label><button className="button-quiet" disabled={!selectedIds.size || !bulkProvider} onClick={async () => { if (!window.confirm(`Transfer or update ${selectedIds.size} selected leads in ${bulkProvider === "hubspot" ? "HubSpot" : pretty(bulkProvider)}?`)) return; try { const result = await bulkSendLeadsToCrm([...selectedIds], bulkProvider); const providerLabel = bulkProvider === "hubspot" ? "HubSpot" : pretty(bulkProvider); const firstFailure = result.results.find((item) => item.status !== "synced" && item.error)?.error; setCrmNotice(`${result.succeeded} ${providerLabel} transfers completed; ${result.failed} skipped or failed.${firstFailure ? ` ${firstFailure}` : ""}`); setRefreshKey((value) => value + 1); } catch (error) { setCrmNotice(error instanceof Error ? error.message : "Bulk CRM transfer failed"); } }}>Transfer selected</button></>}{canEdit && <button className="danger-button" disabled={!selectedIds.size} onClick={() => void deleteSelected()}>Delete selected</button>}<button className="button-quiet" disabled={!selectedIds.size} onClick={() => setSelectedIds(new Set())}>Clear selection</button></div>}
          {crmNotice && <div className="notice" role="status">{crmNotice}</div>}
          {loadError && <div className="notice" role="alert"><span>{loadError}</span><button className="button-quiet" onClick={() => setRefreshKey((value) => value + 1)}>Retry</button></div>}
-         <div className="lead-table-wrap" role="region" aria-label="Lead results table; scroll horizontally to view every column" tabIndex={0} aria-busy={loading}>
+         {activeSection !== "overview" && <LeadSubpage section={activeSection} rows={rows} onInspect={onInspect} loading={loading} />}
+         <div className="lead-table-wrap" hidden={activeSection !== "overview"} role="region" aria-label="Lead results table; scroll horizontally to view every column" tabIndex={0} aria-busy={loading}>
            <table className="lead-table">
              <thead><tr><th aria-label="Select leads">Select</th><th>Lead</th><th>Source</th><th>Score</th><th>Routing</th><th>Representative</th><th>CRM</th><th>Received</th></tr></thead>
              <tbody>{rows.map((lead) => <LeadTableRow key={lead.id} lead={lead} selected={selected?.id === lead.id} checked={selectedIds.has(lead.id)} onToggle={toggleSelected} onInspect={onInspect} />)}</tbody>
@@ -481,7 +506,7 @@ export function LeadsView({
         <div className="lead-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
           <section className="lead-drawer" role="dialog" aria-modal="true" aria-label={`${selected.company_name} lead details`}>
             <div className="lead-drawer-toolbar"><span>Lead details · {selected.source}</span><button className="lead-drawer-close" type="button" autoFocus aria-label="Close lead details and return to leads" onClick={onClose}><span aria-hidden="true">←</span> Back to leads</button></div>
-            <LeadDetail key={selected.id} lead={selected} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={(lead) => { onUpdated(lead); setRows((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { onDeleted(leadId); setRows((current) => current.filter((item) => item.id !== leadId)); onClose(); setRefreshKey((value) => value + 1); }} />
+            <LeadDetail key={selected.id} lead={selected} activeSection={activeSection} onSectionChange={onSectionChange} isSectionPinned={isSectionPinned} onTogglePin={onTogglePin} canCrmSync={canCrmSync} canEdit={canEdit} onUpdated={(lead) => { onUpdated(lead); setRows((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { onDeleted(leadId); setRows((current) => current.filter((item) => item.id !== leadId)); onClose(); setRefreshKey((value) => value + 1); }} />
           </section>
         </div>, document.body,
       )}
@@ -586,16 +611,18 @@ export function AgentsView({ data, pipeline }: { data: AgentActivity | null; pip
   );
 }
 
-export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundle | null; userId?: string }) {
+export function AnalyticsView({ data, userId = "local", selectedSection = "" }: { data: AnalyticsBundle | null; userId?: string; selectedSection?: string }) {
   const preferenceKey = `corral.analytics.panels.v1:${userId}`;
-  const [visiblePanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(() => loadSectionSelection(preferenceKey, analyticsPanelOptions));
+  const [preferredPanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(() => loadSectionSelection(preferenceKey, analyticsPanelOptions));
+  const displayedPanels = selectedSection ? new Set<AnalyticsPanelId>([selectedSection as AnalyticsPanelId]) : preferredPanels;
+  const visiblePanels = displayedPanels;
   useEffect(() => {
     try {
-      window.localStorage.setItem(preferenceKey, JSON.stringify([...visiblePanels]));
+      window.localStorage.setItem(preferenceKey, JSON.stringify([...preferredPanels]));
     } catch {
       // Analytics preferences are optional when browser storage is unavailable.
     }
-  }, [preferenceKey, visiblePanels]);
+  }, [preferenceKey, preferredPanels]);
 
   if (!data?.dashboard || !data.channels || !data.series || !data.revenue || !data.reps) return <Unavailable />;
   const provenance = data.revenue.data_status === "demo"
@@ -617,25 +644,25 @@ export function AnalyticsView({ data, userId = "local" }: { data: AnalyticsBundl
     });
   };
   return (
-    <div className="page-view">
-      <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>Quality, velocity<br /><em>and commercial value.</em></h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
+    <div className={`page-view${selectedSection ? " focused-page" : ""}`}>
+      <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace analytics</span><h1>{selectedSection ? analyticsPanelOptions.find((item) => item.id === selectedSection)?.label : <>Quality, velocity<br /><em>and commercial value.</em></>}</h1><p>Time-bounded metrics generated server-side from workspace-owned records.</p></div><div className={`data-provenance ${data.revenue.data_status}`}><span>Revenue provenance</span><b>{pretty(data.revenue.data_status)}</b><small>{provenance}</small></div></header>
       {totalLeads === 0 && <section className="panel workspace-empty"><Empty title="No analytics yet" text="Metrics remain at zero until real lead activity is recorded." /></section>}
-      <SectionVisibilityPicker
+      {!selectedSection && <SectionVisibilityPicker
         options={analyticsPanelOptions}
         visible={visiblePanels}
         description="Select the analytics sections you want. Only selected sections appear below."
         showAllLabel="Show all sections"
         onToggle={togglePanel}
         onShowAll={() => setVisiblePanels(defaultSectionSelection(analyticsPanelOptions))}
-      />
-      {visiblePanels.size > 0 ? (
-        <section className={`analytics-grid analytics-motion${visiblePanels.size === 1 ? " analytics-grid-single" : ""}`} data-tour="analytics">
+      />}
+      {displayedPanels.size > 0 ? (
+        <section className={`analytics-grid analytics-motion${displayedPanels.size === 1 ? " analytics-grid-single" : ""}`} data-tour="analytics">
           {visiblePanels.has("channel-performance") && <div className="analytics-panel-wide"><Panel title="Channel performance" eyebrow="Volume × quality × conversion"><div className="channel-table"><div className="channel-head"><span>Channel</span><span>Volume</span><span>Qual.</span><span>SQL</span><span>Won</span><span>Revenue</span><span>Importance</span></div>{data.channels.channels.map((row) => <div key={row.channel}><b>{pretty(row.channel)}</b><span>{row.lead_volume} · {row.share_percent}%</span><span>{row.qualification_rate}%</span><span>{row.sql_conversion_rate}%</span><span>{row.closed_won_conversion_rate}%</span><span>{money(row.revenue)}</span><em>{row.importance_index}</em></div>)}</div></Panel></div>}
-          {visiblePanels.has("lead-trajectory") && <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>}
-          {visiblePanels.has("revenue-by-channel") && <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>}
-          {visiblePanels.has("revenue-by-service") && <Panel title="Revenue by service" eyebrow="Closed / won attribution"><Bars rows={data.revenue.by_service.map((row) => ({ label: row.label, value: row.value }))} formatter={money} /></Panel>}
-          {visiblePanels.has("representatives") && <div className="analytics-panel-wide"><TeamPerformancePanel data={data.reps} /></div>}
-          {visiblePanels.has("revenue-trajectory") && <Panel title="Revenue trajectory" eyebrow="Closed / won over time"><TrendChart values={data.revenue.over_time.map((point) => point.value)} labels={data.revenue.over_time.map((point) => point.period)} /></Panel>}
+          {displayedPanels.has("lead-trajectory") && <Panel title="Lead trajectory" eyebrow="Volume by period"><TrendChart values={data.series.points.map((point) => point.leads)} labels={data.series.points.map((point) => point.period)} /></Panel>}
+          {displayedPanels.has("revenue-by-channel") && <Panel title="Revenue by channel" eyebrow={`${pretty(data.revenue.data_status)} data`}><Bars rows={data.revenue.by_channel.map((row) => ({ label: pretty(row.label), value: row.value }))} formatter={money} /></Panel>}
+          {displayedPanels.has("revenue-by-service") && <Panel title="Revenue by service" eyebrow="Closed / won attribution"><Bars rows={data.revenue.by_service.map((row) => ({ label: row.label, value: row.value }))} formatter={money} /></Panel>}
+          {displayedPanels.has("representatives") && <div className="analytics-panel-wide" data-navigation-section="representatives" tabIndex={-1}><TeamPerformancePanel data={data.reps} /></div>}
+          {displayedPanels.has("revenue-trajectory") && <Panel title="Revenue trajectory" eyebrow="Closed / won over time"><TrendChart values={data.revenue.over_time.map((point) => point.value)} labels={data.revenue.over_time.map((point) => point.period)} /></Panel>}
         </section>
       ) : (
         <section className="section-picker-empty panel"><h2>No sections selected</h2><p>Choose at least one analytics section above to display it here.</p></section>
@@ -654,18 +681,19 @@ export function ManualReviewView({ data, onInspect }: { data: ManualReviewAnalyt
   );
 }
 
-export function SettingsView({ metadata, onIntegrations, onTeam, onIcp, canViewTeam, canViewIcp, canViewRouting, canManageRouting, canViewPublicIntake, canRotatePublicIntake, canManageEmail }: { metadata?: AnalyticsMetadata; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewTeam: boolean; canViewIcp: boolean; canViewRouting: boolean; canManageRouting: boolean; canViewPublicIntake: boolean; canRotatePublicIntake: boolean; canManageEmail: boolean }) {
+export function SettingsView({ metadata, selectedSection = "", onIntegrations, onTeam, onIcp, canViewTeam, canViewIcp, canViewRouting, canManageRouting, canViewPublicIntake, canRotatePublicIntake, canManageEmail }: { metadata?: AnalyticsMetadata; selectedSection?: string; onIntegrations: () => void; onTeam: () => void; onIcp: () => void; canViewTeam: boolean; canViewIcp: boolean; canViewRouting: boolean; canManageRouting: boolean; canViewPublicIntake: boolean; canRotatePublicIntake: boolean; canManageEmail: boolean }) {
+  const show = (section: string) => !selectedSection || selectedSection === section;
   return (
-    <div className="page-view operational-page">
-      <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace control plane</span><h1>Clear boundaries,<br /><em>durable context.</em></h1><p>Workspace identity, data provenance and team access stay visible here. Choose a control surface without losing the workspace context.</p></div></header>
+    <div className={`page-view operational-page${selectedSection ? " focused-page" : ""}`} data-settings-page={selectedSection || "overview"}>
+      <header className="page-hero compact-hero"><div><span className="eyebrow">Workspace settings</span><h1>{selectedSection ? pretty(selectedSection.replaceAll("-", "_")) : <>Clear boundaries,<br /><em>durable context.</em></>}</h1><p>{selectedSection ? "Manage this section for your current workspace." : "Workspace identity, data provenance and team access stay visible here."}</p></div></header>
       <section className="settings-grid" data-tour="settings">
-        <AccountProfilePanel />
-        <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>
-        <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned email, CRM and notification connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>
+        {!selectedSection && <AccountProfilePanel />}
+        {show("workspace") && <Panel title="Workspace" eyebrow="Tenant boundary"><div className="settings-facts"><Fact label="Name" value={metadata?.workspace_name || "Unavailable"} /><Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} /><Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} /><Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} /></div></Panel>}
+        {!selectedSection && <Panel title="External systems" eyebrow="Provider connections"><p className="panel-copy">Manage workspace-owned email, CRM and notification connections. Stored credentials are represented only by safe state metadata.</p><button className="primary-button" onClick={onIntegrations}>Open Integration Center →</button></Panel>}
         <Panel title="Users & permissions" eyebrow="Workspace access"><p className="panel-copy">Invite users, review roles and make deliberate per-person permission changes. Backend authorization remains the source of truth for every action.</p><button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>{canViewTeam ? "Open Users →" : "Members view permission required"}</button></Panel>
-        <RoutingWeightsPanel canView={canViewRouting} canManage={canManageRouting} />
-        <PublicIntakePanel canView={canViewPublicIntake} canRotate={canRotatePublicIntake} />
-        <div className="settings-email-templates"><EmailTemplatesPanel canManage={canManageEmail} /></div>
+        {show("routing-distribution") && <RoutingWeightsPanel canView={canViewRouting} canManage={canManageRouting} />}
+        {show("website-lead-form") && <PublicIntakePanel canView={canViewPublicIntake} canRotate={canRotatePublicIntake} />}
+        {show("email-templates") && <div className="settings-email-templates"><EmailTemplatesPanel canManage={canManageEmail} /></div>}
         <Panel title="Ideal Customer Profile" eyebrow="Qualification policy"><p className="panel-copy">Build, validate and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p><button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>{canViewIcp ? "Open ICP Builder →" : "ICP view permission required"}</button></Panel>
         <Panel title="Data range" eyebrow="Analytics contract"><p className="panel-copy">Weekly, monthly and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p></Panel>
         <Panel title="Product state" eyebrow="Release readiness"><p className="panel-copy">Analytics, team controls, workspace-specific ICP qualification, secure exports and certified provider workflows are active.</p></Panel>
@@ -933,7 +961,7 @@ function useCountUp(value: number) {
 }
 
 export function Panel({ title, eyebrow, action, children }: { title: string; eyebrow: string; action?: string; children: ReactNode }) {
-  return <section className="panel data-panel"><div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{action && <span className="panel-action">{action}</span>}</div>{children}</section>;
+  return <section className="panel data-panel" data-navigation-section={title.toLowerCase().replace(/[^a-z0-9]+/g, "-")} tabIndex={-1}><div className="section-heading"><div><span className="eyebrow">{eyebrow}</span><h2>{title}</h2></div>{action && <span className="panel-action">{action}</span>}</div>{children}</section>;
 }
 
 function LeadRow({ lead, onClick }: { lead: DashboardAnalytics["recent_leads"][number]; onClick: () => void }) {
@@ -967,13 +995,13 @@ const LeadTableRow = memo(function LeadTableRow({ lead, selected, checked, onTog
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onInspect(lead.id); }
   }}>
     <td className="lead-select-cell"><input type="checkbox" aria-label={`Select ${lead.full_name}`} checked={checked} onChange={() => onToggle(lead.id)} onClick={(event) => event.stopPropagation()} /></td>
-    <td><b>{lead.full_name}</b><span>{lead.company_name}</span></td>
-    <td><span className={`source-tag source-${origin?.toLowerCase() || lead.source}`}>{origin || pretty(lead.source)}</span><small>{origin ? "CRM import" : lead.source_detail || "Original intake"}</small></td>
-    <td><div className="qualification-cell" aria-label={`Score ${lead.qualification?.total_score ?? "unavailable"}; ${lead.analysis?.requires_manual_review ? "Manual Review" : qualificationLabel(lead.qualification?.classification || "pending")}`}><b>{lead.qualification?.total_score ?? "—"}</b><QualificationBadge value={lead.qualification?.classification || "pending"} manualReview={lead.analysis?.requires_manual_review} /></div></td>
-    <td>{pretty(lead.routing?.assigned_queue || "Pending")}</td>
-    <td>{lead.routing?.assigned_rep_name || "Unassigned"}</td>
-    <td><span className={`state-dot state-${lead.crm_sync?.status || "none"}`}>{pretty(lead.crm_sync?.status || "Not synced")}</span></td>
-    <td>{new Date(lead.received_at).toLocaleDateString()}</td>
+    <td className="lead-identity-cell"><LeadRowIdentity lead={lead} /></td>
+    <td data-label="Source"><span className={`source-tag source-${origin?.toLowerCase() || lead.source}`}>{origin || pretty(lead.source)}</span><small>{origin ? "CRM import" : lead.source_detail || "Original intake"}</small></td>
+    <td data-label="Score"><div className="qualification-cell" aria-label={`Score ${lead.qualification?.total_score ?? "unavailable"}; ${lead.analysis?.requires_manual_review ? "Manual Review" : qualificationLabel(lead.qualification?.classification || "pending")}`}><b>{lead.qualification?.total_score ?? "—"}</b><QualificationBadge value={lead.qualification?.classification || "pending"} manualReview={lead.analysis?.requires_manual_review} /></div></td>
+    <td data-label="Routing">{pretty(lead.routing?.assigned_queue || "Pending")}</td>
+    <td data-label="Representative">{lead.routing?.assigned_rep_name || "Unassigned"}</td>
+    <td data-label="CRM"><span className={`state-dot state-${lead.crm_sync?.status || "none"}`}>{pretty(lead.crm_sync?.status || "Not synced")}</span></td>
+    <td data-label="Received">{new Date(lead.received_at).toLocaleDateString()}</td>
   </tr>;
 });
 

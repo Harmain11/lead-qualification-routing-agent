@@ -31,6 +31,10 @@ import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
 import { ContactsView } from "./views/ContactsView";
+import { PinnedLeadNavigation, usePinnedLeadSections } from "./components/PinnedLeadNavigation";
+import { NavigationMenuItem } from "./components/NavigationMenuItem";
+import { navigationSections, pageFromSearch, sectionFromSearch } from "./appNavigation";
+import { leadSectionHref, parseLeadSection, type LeadDetailSection } from "./leadSections";
 import {
   AgentsView,
   AnalyticsView,
@@ -119,20 +123,20 @@ function NavIcon({ id }: { id: View }) {
 function App() {
   const [auth, setAuth] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<AppView>(() =>
-    new URLSearchParams(window.location.search).has("integration")
-      ? "integrations"
-      : new URLSearchParams(window.location.search).has("lead")
-      ? "leads"
-      : "dashboard",
-  );
-  const [range, setRange] = useState<TimeRange>("monthly");
+  const [view, setView] = useState<AppView>(() => pageFromSearch(window.location.search));
+  const [pageSection, setPageSection] = useState(() => sectionFromSearch(window.location.search, pageFromSearch(window.location.search)));
+  const [range, setRange] = useState<TimeRange>(() => {
+    const saved = new URLSearchParams(window.location.search).get("range");
+    return saved === "weekly" || saved === "annual" ? saved : "monthly";
+  });
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadRevision, setLeadRevision] = useState(0);
   const [tourOpen, setTourOpen] = useState(false);
   const [openaiSetupCard, setOpenaiSetupCard] = useState<IntegrationCard | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [leadSection, setLeadSection] = useState<LeadDetailSection>(() => parseLeadSection(new URLSearchParams(window.location.search).get("lead_tab")));
+  const pinnedSections = usePinnedLeadSections(auth?.user.id, auth?.current_workspace_id);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(() => window.matchMedia("(min-width: 761px)").matches);
@@ -373,20 +377,33 @@ function App() {
     }
   }, [auth?.current_workspace_id, auth?.workspaces]);
 
-  const handleInspectLead = useCallback((id: string) => {
+  const openLeadSection = useCallback((id: string, section: LeadDetailSection) => {
     if (!can(permissionsForWorkspace(auth, auth?.current_workspace_id), "leads.view")) return;
+    window.history.replaceState({ ...window.history.state, corralView: view }, "", window.location.href);
+    window.history.pushState({ corralView: "leads" }, "", leadSectionHref(id, section));
     setView("leads");
+    setLeadSection(section);
+    setSelectedLead((current) => current?.id === id ? current : null);
     void inspectLead(id);
-  }, [inspectLead, auth?.current_workspace_id, auth?.workspaces]);
+    if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
+  }, [inspectLead, auth?.current_workspace_id, auth?.workspaces, view]);
+
+  const handleInspectLead = useCallback((id: string) => openLeadSection(id, view === "leads" ? leadSection : "overview"), [openLeadSection, view, leadSection]);
+
+  const changeLeadSection = useCallback((section: LeadDetailSection) => {
+    if (!selectedLead || section === leadSection) return;
+    window.history.pushState({ corralView: "leads" }, "", leadSectionHref(selectedLead.id, section));
+    setLeadSection(section);
+  }, [selectedLead, leadSection]);
 
   const closeLead = useCallback(() => {
     leadController.current?.abort();
     leadRequestVersion.current += 1;
     setSelectedLead(null);
-    if (new URLSearchParams(window.location.search).has("lead")) {
+    if (new URLSearchParams(window.location.search).has("lead") || new URLSearchParams(window.location.search).has("lead_tab")) {
       const url = new URL(window.location.href);
       url.searchParams.delete("lead");
-      window.history.replaceState({}, "", url);
+      window.history.replaceState({ corralView: "leads" }, "", url);
     }
   }, []);
 
@@ -396,9 +413,76 @@ function App() {
     if (leadId && /^[0-9a-f-]{36}$/i.test(leadId)) void inspectLead(leadId);
   }, [auth?.current_workspace_id, workspacePermissions, inspectLead]);
 
-  function navigate(next: AppView) {
+  useEffect(() => {
+    const onPopState = () => {
+      if (!auth) return;
+      const params = new URLSearchParams(window.location.search);
+      const restoredView = pageFromSearch(window.location.search);
+      setView(restoredView);
+      setPageSection(sectionFromSearch(window.location.search, restoredView));
+      const restoredRange = params.get("range");
+      setRange(restoredRange === "weekly" || restoredRange === "annual" ? restoredRange : "monthly");
+      const id = params.get("lead");
+      setLeadSection(parseLeadSection(params.get("lead_tab")));
+      if (id && /^[0-9a-f-]{36}$/i.test(id) && can(workspacePermissions, "leads.view")) {
+        setView("leads");
+        setSelectedLead((current) => current?.id === id ? current : null);
+        void inspectLead(id);
+      } else {
+        leadController.current?.abort();
+        leadRequestVersion.current += 1;
+        setSelectedLead(null);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [auth?.current_workspace_id, workspacePermissions, inspectLead]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", view);
+    url.searchParams.set("range", range);
+    if (pageSection && view !== "leads") url.searchParams.set("section", pageSection);
+    else url.searchParams.delete("section");
+    if (view === "leads") url.searchParams.set("lead_tab", leadSection);
+    window.history.replaceState({ ...window.history.state, corralView: view }, "", url);
+  }, [authLoading, view, range, pageSection, leadSection]);
+
+  useEffect(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [view, pageSection]);
+
+  function navigate(next: AppView, section = "") {
+    if (next === "leads" && section && selectedLead) {
+      changeLeadSection(parseLeadSection(section));
+      return;
+    }
+    if (next !== "leads") closeLead();
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", next);
+    url.searchParams.set("range", range);
+    url.searchParams.delete("lead");
+    url.searchParams.delete("lead_tab");
+    if (section && next !== "leads") url.searchParams.set("section", section);
+    else url.searchParams.delete("section");
+    if (next === "leads") {
+      setSelectedLead(null);
+      const leadTab = parseLeadSection(section);
+      setLeadSection(leadTab);
+      url.searchParams.set("lead_tab", leadTab);
+    }
+    window.history.pushState({ corralView: next }, "", url);
     setView(next);
+    setPageSection(section);
     if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
+  }
+
+  function navigationChildren(id: AppView) {
+    return (navigationSections[id] ?? []).filter((child) => !child.permission || can(workspacePermissions, child.permission));
+  }
+
+  function navigateChild(id: View, childId?: string) {
+    const child = navigationChildren(id).find((item) => item.id === childId);
+    navigate(child?.view ?? id, child?.view ? "" : childId);
   }
 
   function toggleTheme(event?: React.MouseEvent<HTMLButtonElement>) {
@@ -458,20 +542,24 @@ function App() {
           {visibleNavigation.map((item, index) => (
             <div key={item.id}>
               {item.group && <span className="nav-group">{item.group}</span>}
-              <button className={view === item.id || (item.id === "settings" && view === "icp") ? "active" : ""} onClick={() => navigate(item.id)}>
-                <i><NavIcon id={item.id} /></i><span>{item.label}</span>
-                {item.id === "review" && (data?.review?.total ?? 0) > 0 && <b>{data?.review?.total}</b>}
-              </button>
+              <NavigationMenuItem item={{ ...item, children: navigationChildren(item.id) }}
+                enabled={navOpen}
+                icon={<NavIcon id={item.id} />} active={view === item.id || (item.id === "settings" && view === "icp")}
+                activeChild={view === "leads" ? leadSection : pageSection}
+                badge={item.id === "review" ? data?.review?.total : undefined}
+                onNavigate={(child) => navigateChild(item.id, child)} />
               {index === 4 && <span className="nav-separator" />}
             </div>
           ))}
         </nav>
+        {can(workspacePermissions, "leads.view") && <PinnedLeadNavigation pins={pinnedSections.pins} notice={pinnedSections.notice} activeLeadId={view === "leads" ? selectedLead?.id : undefined} activeSection={leadSection} onOpen={(pin) => openLeadSection(pin.leadId, pin.section)} onRemove={pinnedSections.remove} />}
         <div className="rail-foot">
           <div className="workspace-mark">
             <img src="/asset/brand/corral-mark.png" alt="" />
             <WorkspaceSwitcher session={auth} onSelect={async (workspaceId) => {
               refreshController.current?.abort();
               leadController.current?.abort();
+              closeLead();
               const session = await changeWorkspace(workspaceId);
               setData(null);
               setSelectedLead(null);
@@ -494,10 +582,11 @@ function App() {
         <nav className="mini-rail-nav" aria-label="Primary navigation">
           {visibleNavigation.map((item) => {
             const active = view === item.id || (item.id === "settings" && (view === "team" || view === "icp"));
-            return <button key={item.id} className={active ? "active" : ""} onClick={() => navigate(item.id)} aria-label={item.label} aria-current={active ? "page" : undefined} title={item.label}>
-              <NavIcon id={item.id} />
-              {item.id === "review" && (data?.review?.total ?? 0) > 0 && <span className="mini-alert-dot" />}
-            </button>;
+            return <NavigationMenuItem key={item.id} item={{ ...item, children: navigationChildren(item.id) }}
+              icon={<NavIcon id={item.id} />} active={active} collapsed
+              activeChild={view === "leads" ? leadSection : pageSection}
+              badge={item.id === "review" ? data?.review?.total : undefined}
+              onNavigate={(child) => navigateChild(item.id, child)} />;
           })}
         </nav>
       </aside>}
@@ -522,14 +611,14 @@ function App() {
         {!hasViewPermission(view, workspacePermissions) || (loading && !data && view !== "settings" && view !== "team" && view !== "icp") ? <ContentLoadingState /> : (
           <div className="view-transition" key={view}>
             {view === "dashboard" && <DashboardView key={auth?.user.id ?? "local"} data={data} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} userId={auth?.user.id ?? "local"} />}
-            {view === "leads" && <LeadsView selected={selectedLead} revision={leadRevision} onInspect={handleInspectLead} onClose={closeLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { setSelectedLead(null); setLeads((current) => current.filter((item) => item.id !== leadId)); void refresh(); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); void refresh(); }} />}
+            {view === "leads" && <LeadsView selected={selectedLead} activeSection={leadSection} onSectionChange={changeLeadSection} isSectionPinned={pinnedSections.pins.some((pin) => pin.leadId === selectedLead?.id && pin.section === leadSection)} onTogglePin={() => { if (selectedLead) pinnedSections.toggle({ leadId: selectedLead.id, company: selectedLead.company_name, section: leadSection }); }} revision={leadRevision} onInspect={handleInspectLead} onClose={closeLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { closeLead(); pinnedSections.removeLead(leadId); setLeads((current) => current.filter((item) => item.id !== leadId)); void refresh(); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); setLeadSection("overview"); window.history.pushState({ corralView: "leads" }, "", leadSectionHref(lead.id, "overview")); void refresh(); }} />}
             {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
-            {view === "analytics" && <AnalyticsView key={auth?.user.id ?? "local"} data={data} userId={auth?.user.id ?? "local"} />}
+            {view === "analytics" && <AnalyticsView key={auth?.user.id ?? "local"} data={data} userId={auth?.user.id ?? "local"} selectedSection={pageSection} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "contacts" && <ContactsView onInspectLead={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "integrations" && <IntegrationsView key={auth.current_workspace_id} permissions={workspacePermissions} />}
-            {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} canManageEmail={can(workspacePermissions, "integrations.manage")} />}
+            {view === "integrations" && <IntegrationsView key={auth.current_workspace_id} permissions={workspacePermissions} selectedSection={pageSection} />}
+            {view === "settings" && <SettingsView metadata={metadata} selectedSection={pageSection} onIntegrations={() => navigate("integrations")} onTeam={() => navigate("team")} onIcp={() => navigate("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} canManageEmail={can(workspacePermissions, "integrations.manage")} />}
             {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
             {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
           </div>

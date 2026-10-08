@@ -1,0 +1,196 @@
+.navigation-menu-item {
+  position: relative;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  isolation: isolate;
+}
+
+.navigation-menu-item.is-open { z-index: 40; }
+.navigation-menu-item:not(:has(.navigation-menu-disclosure)) { grid-template-columns: minmax(0, 1fr); }
+
+.navigation-menu-trigger {
+  position: relative;
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0;
+  padding: 0 10px 0 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.navigation-menu-trigger:hover,
+.navigation-menu-item.is-open .navigation-menu-trigger {
+  color: var(--text);
+  background: var(--surface-high);
+}
+
+.navigation-menu-item.is-active > .navigation-menu-trigger {
+  color: var(--text);
+  border-color: var(--blue-line, var(--line));
+  background: linear-gradient(90deg, rgba(30, 107, 82, .12), rgba(30, 107, 82, .025));
+}
+
+.navigation-menu-icon { display: grid; width: 22px; place-items: center; color: inherit; font-style: normal; }
+.navigation-menu-icon svg { width: 19px; height: 19px; }
+.navigation-menu-label { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.navigation-menu-badge { min-width: 22px; padding: 3px 6px; border-radius: 12px; background: var(--orange); color: #fff; font-size: 10px; text-align: center; }
+
+.navigation-menu-disclosure {
+  position: relative;
+  z-index: 1;
+  width: 27px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  justify-self: end;
+  margin-right: 3px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--subtle);
+  transition: color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.navigation-menu-disclosure:hover,
+.navigation-menu-disclosure:focus-visible { color: var(--text); background: var(--surface-high); }
+.navigation-menu-disclosure svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.navigation-menu-item.is-open > .navigation-menu-disclosure svg { transform: rotate(90deg); }
+
+.navigation-menu-flyout {
+  position: absolute;
+  z-index: 60;
+  top: 0;
+  left: calc(100% + 9px);
+  width: max-content;
+  min-width: 190px;
+  max-width: min(270px, calc(100vw - 24px));
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  border: 1px solid var(--line-bright);
+  border-radius: 12px;
+  background: var(--surface-solid, var(--surface));
+  box-shadow: 0 16px 38px rgba(15, 27, 45, .18);
+  animation: navigation-flyout-in 140ms ease both;
+}
+
+.navigation-menu-flyout[hidden] { display: none; }
+.navigation-menu-item[data-navigation-id="settings"] .navigation-menu-flyout,
+.navigation-menu-item[data-navigation-id="integrations"] .navigation-menu-flyout {
+  top: auto;
+  bottom: 0;
+}
+.navigation-menu-flyout::before {
+  position: absolute;
+  top: 0;
+  left: -12px;
+  width: 12px;
+  height: 100%;
+  content: "";
+}
+
+.navigation-menu-child {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.navigation-menu-child:hover,
+.navigation-menu-child:focus-visible { color: var(--text); border-color: var(--line); background: var(--surface-high); }
+.navigation-menu-child.is-active { color: var(--text); background: var(--orange-soft); }
+.navigation-menu-child > span { min-width: 0; }
+.navigation-menu-child > i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--orange); }
+
+/* Outrank the legacy primary-nav button rules while this component is adopted. */
+.side-rail nav .navigation-menu-item > .navigation-menu-trigger {
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 0 10px 0 12px;
+}
+.side-rail nav .navigation-menu-item > .navigation-menu-disclosure {
+  width: 27px;
+  height: 34px;
+  grid-template-columns: 1fr;
+  padding: 0;
+  margin-right: 3px;
+}
+.side-rail nav .navigation-menu-item > .navigation-menu-trigger > .navigation-menu-label {
+  display: block;
+  overflow: hidden;
+}
+.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger {
+  width: 42px;
+  height: 44px;
+  grid-template-columns: 1fr;
+  padding: 0;
+}
+.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-disclosure {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-label,
+.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-badge { display: none; }
+
+.navigation-menu-item.is-collapsed { grid-template-columns: 42px; justify-content: center; }
+.navigation-menu-item.is-collapsed .navigation-menu-trigger {
+  width: 42px;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: 0;
+}
+.navigation-menu-item.is-collapsed .navigation-menu-label,
+.navigation-menu-item.is-collapsed .navigation-menu-badge { display: none; }
+.navigation-menu-item.is-collapsed .navigation-menu-disclosure {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-radius: 5px;
+  background: var(--surface);
+  opacity: .88;
+}
+.navigation-menu-item.is-collapsed .navigation-menu-disclosure svg { display: block; width: 10px; height: 10px; }
+.navigation-menu-item.is-collapsed .navigation-menu-flyout { left: calc(100% + 9px); }
+
+@keyframes navigation-flyout-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navigation-menu-trigger,
+  .navigation-menu-disclosure,
+  .navigation-menu-child { transition: none; }
+  .navigation-menu-flyout { animation: none; }
+}

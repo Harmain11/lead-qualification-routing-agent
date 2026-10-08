@@ -1,0 +1,13 @@
+.pinned-lead-navigation { padding: 12px 16px; border-top: 1px solid var(--line, #deded8); flex-shrink: 0; }
+.pinned-lead-navigation h3 { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: 12px; font-weight: 650; }
+.pinned-lead-navigation h3 > span { opacity: .6; }
+.pinned-lead-list { max-height: 180px; overflow-y: auto; }
+.pinned-lead-row { display: flex; align-items: center; gap: 6px; }
+.pinned-lead-row a { min-width: 0; flex: 1; padding: 7px 9px; border-radius: 6px; color: inherit; text-decoration: none; }
+.pinned-lead-row a:hover, .pinned-lead-row a[aria-current] { background: rgba(225, 53, 17, .08); }
+.pinned-lead-row a span, .pinned-lead-row a small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinned-lead-row a span { font-size: 12px; font-weight: 600; }
+.pinned-lead-row a small { font-size: 11px; opacity: .72; margin-top: 3px; }
+.pinned-lead-row > button { border: 0; background: none; color: inherit; cursor: pointer; padding: 8px; font-size: 18px; }
+.pinned-lead-navigation p { margin: 8px 0 0; font-size: 11px; line-height: 1.5; }
+.pinned-lead-row :focus-visible { outline: 2px solid #e13511; outline-offset: 2px; }

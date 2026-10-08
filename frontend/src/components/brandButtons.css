@@ -1,0 +1,25 @@
+.primary-button,
+.app-shell .primary-button,
+.lead-drawer .primary-button {
+  background: #1E6B52;
+  border: 1px solid #1E6B52;
+  color: #fff;
+  box-shadow: 0 2px 5px rgba(12, 53, 38, .12);
+}
+.primary-button:hover:not(:disabled),
+.app-shell .primary-button:hover:not(:disabled),
+.lead-drawer .primary-button:hover:not(:disabled) {
+  background: #155640;
+  border-color: #155640;
+  color: #fff;
+}
+.primary-button:focus-visible { outline: 3px solid rgba(30, 107, 82, .35); outline-offset: 3px; }
+.primary-button:disabled,
+.app-shell .primary-button:disabled,
+.lead-drawer .primary-button:disabled {
+  background: #1E6B52;
+  border-color: #1E6B52;
+  opacity: .5;
+  box-shadow: none;
+  cursor: not-allowed;
+}

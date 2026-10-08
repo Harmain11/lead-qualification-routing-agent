@@ -10,21 +10,24 @@ const origin = process.env.REPLIT_DEV_DOMAIN && `https://${process.env.REPLIT_DE
 assert(origin, "This check requires the development preview domain.");
 const profile = await mkdtemp(join(tmpdir(), "corral-member-sales-"));
 const port = 9242;
-const browser = spawn("chromium", [
-  "--headless", "--no-sandbox", "--disable-gpu",
+const browser = spawn(process.env.CORRAL_BROWSER_PATH || "chromium", [
+  "--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
   `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "about:blank",
-], { stdio: "ignore" });
+], { stdio: ["ignore", "ignore", "pipe"] });
+let browserDiagnostic = "";
+browser.stderr.on("data", (data) => { browserDiagnostic = (browserDiagnostic + String(data)).slice(-2000); });
+browser.on("error", (error) => { browserDiagnostic = error.message; });
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let socket;
 try {
   let target;
-  for (let index = 0; index < 80; index++) {
+  for (let index = 0; index < 300; index++) {
     try {
       target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" })).json();
       break;
     } catch { await pause(100); }
   }
-  assert(target?.webSocketDebuggerUrl, "Chromium did not start.");
+  assert(target?.webSocketDebuggerUrl, `Chromium did not start (exit ${browser.exitCode}). ${browserDiagnostic}`);
   socket = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
   let sequence = 0;
@@ -44,6 +47,18 @@ try {
     requests.set(id, { resolve, reject });
     socket.send(JSON.stringify({ id, method, params }));
   });
+  const reloadPage = async () => {
+    const loaded = new Promise((resolve) => {
+      const listener = ({ data }) => {
+        if (JSON.parse(String(data)).method !== "Page.loadEventFired") return;
+        socket.removeEventListener("message", listener);
+        resolve();
+      };
+      socket.addEventListener("message", listener);
+    });
+    await cdp("Page.reload");
+    await loaded;
+  };
   const evaluate = async (expression) => {
     const result = await cdp("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
     assert(!result.exceptionDetails, JSON.stringify(result.exceptionDetails));
@@ -181,6 +196,28 @@ try {
   })()`), "A previously saved topology-only dashboard was not migrated to useful panels.");
   const dashboardShot = await cdp("Page.captureScreenshot", {format: "png"});
   await writeFile("/tmp/corral-dashboard-clean.png", Buffer.from(dashboardShot.data, "base64"));
+  assert(await evaluate(`["Revenue trend", "Qualification rate by source", "Lead quality by source"].every(
+    title => [...document.querySelectorAll("h2")].some(heading => heading.textContent === title)
+  )`), "New dashboard insights are missing.");
+  assert(await evaluate(`[...document.querySelectorAll(".dashboard-insights .bar-row")].every(row => {
+    const value = parseFloat(row.querySelector("b").textContent);
+    return Math.abs(Number(row.querySelector("i span").style.getPropertyValue("--bar-scale")) - value / 100) < .00001;
+  })`), "Score/percentage bars are not using an absolute 0–100 scale.");
+  await evaluate(`window.scrollTo({top: document.querySelector(".dashboard-insights").getBoundingClientRect().top + scrollY - 100, behavior:"instant"})`);
+  let insightsShot = await cdp("Page.captureScreenshot", {format: "png"});
+  await writeFile("/tmp/corral-dashboard-insights-desktop.png", Buffer.from(insightsShot.data, "base64"));
+  await cdp("Emulation.setDeviceMetricsOverride", {width: 390, height: 844, deviceScaleFactor: 1, mobile: true});
+  await wait(`document.querySelector(".app-shell")?.classList.contains("nav-collapsed")`);
+  await pause(300);
+  await evaluate(`window.scrollTo({top: document.querySelector(".dashboard-insights").getBoundingClientRect().top + scrollY - 100, behavior:"instant"})`);
+  assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 1`), "Dashboard charts overflowed the phone.");
+  insightsShot = await cdp("Page.captureScreenshot", {format: "png"});
+  await writeFile("/tmp/corral-dashboard-insights-mobile.png", Buffer.from(insightsShot.data, "base64"));
+  await cdp("Emulation.setDeviceMetricsOverride", {width: 1280, height: 900, deviceScaleFactor: 1, mobile: false});
+  if (process.argv.includes("--insights-only")) {
+    assert.deepEqual(errors, []);
+    console.log("Dashboard insight snapshots and phone layout checks passed.");
+  } else {
   await evaluate(`document.querySelector(".workspace-trigger").click()`);
   await wait(`document.querySelector(".workspace-chooser[open]") !== null`);
   assert(await evaluate(`(() => {
@@ -209,6 +246,96 @@ try {
     await wait(`document.querySelector(".workspace-chooser[open]") !== null`);
     await evaluate(`document.querySelectorAll(".workspace-option")[window.__session.workspaces.findIndex(item => item.id === ${JSON.stringify(originalWorkspace)})].click()`);
     await wait(`window.__session.current_workspace_id === ${JSON.stringify(originalWorkspace)} && !document.querySelector(".workspace-chooser[open]")`);
+  }
+  if (!process.argv.includes("--skip-refresh")) for (const [label, page] of [["Analytics", "analytics"], ["Integrations", "integrations"], ["Settings", "settings"], ["Users", "team"], ["Contacts", "contacts"], ["Pipeline", "pipeline"], ["Agents / AI Activity", "agents"], ["Manual Review", "review"]]) {
+    await click(label);
+    await wait(`new URLSearchParams(location.search).get("view") === ${JSON.stringify(page)}`);
+    await reloadPage();
+    await wait(`Boolean(document.querySelector(".app-shell") && document.querySelector('[data-navigation-id="${page}"].is-active'))`);
+    assert.equal(await evaluate(`new URLSearchParams(location.search).get("view")`), page, `${label} returned to Dashboard after refresh.`);
+  }
+  await evaluate(`document.querySelector(".mini-rail-expand")?.click()`);
+  await wait(`Boolean(document.querySelector(".app-shell.nav-expanded"))`);
+  await pause(350);
+  const menuPoint = await evaluate(`(() => { const r=document.querySelector('.side-rail [data-navigation-id="leads"]').getBoundingClientRect(); return {x:r.left+20,y:r.top+r.height/2}; })()`);
+  await cdp("Input.dispatchMouseEvent", {type:"mouseMoved", ...menuPoint});
+  await wait(`!document.querySelector('[data-navigation-owner="leads"][data-navigation-mode="expanded"]').hidden`);
+  assert(await evaluate(`(() => {
+    const popup = document.querySelector('[data-navigation-owner="leads"][data-navigation-mode="expanded"]');
+    const box = popup.getBoundingClientRect();
+    return box.left >= document.querySelector(".side-rail").getBoundingClientRect().right
+      && box.top >= 0 && box.bottom <= innerHeight
+      && [...popup.querySelectorAll("button")].every(button => {
+        const r=button.getBoundingClientRect();
+        return button.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2));
+      });
+  })()`), "Navigation flyout is clipped, offscreen or covered.");
+  await writeFile("/tmp/corral-navigation-desktop.png", Buffer.from((await cdp("Page.captureScreenshot", {format:"png"})).data, "base64"));
+  assert.equal(await evaluate(`document.querySelectorAll('[data-navigation-owner="leads"][data-navigation-mode="expanded"] .navigation-menu-child').length`), 5);
+  await evaluate(`[...document.querySelectorAll('[data-navigation-owner="leads"][data-navigation-mode="expanded"] .navigation-menu-child')].find(button => button.textContent.trim()==="AI & qualification").click()`);
+  await wait(`document.querySelector(".lead-table") && new URLSearchParams(location.search).get("lead_tab")==="ai"`);
+  await wait(`document.querySelector('[data-lead-subpage="ai"]') !== null`);
+  await wait(`Boolean(document.querySelector(".lead-table tbody tr"))`);
+  await evaluate(`(() => {const row=document.querySelector(".lead-table tbody tr"); (row.querySelector("button") ?? row).click();})()`);
+  await wait(`document.querySelector(".lead-story")?.dataset.activeSection==="ai"`);
+  assert(await evaluate(`[...document.querySelectorAll(".lead-drawer .primary-button")].every(button => getComputedStyle(button).backgroundImage==="none")`), "Lead action buttons still use gradients.");
+  await writeFile("/tmp/corral-lead-ai-desktop.png", Buffer.from((await cdp("Page.captureScreenshot", {format:"png"})).data, "base64"));
+  await evaluate(`document.querySelector(".lead-drawer-close").click()`);
+  await wait(`!document.querySelector(".lead-drawer")`);
+  await evaluate(`(() => { const button=document.querySelector('.side-rail [data-navigation-id="leads"] .navigation-menu-trigger'); button.focus(); button.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true})); })()`);
+  await wait(`document.activeElement?.classList.contains("navigation-menu-child")`);
+  await evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))`);
+  await wait(`document.querySelector('[data-navigation-owner="leads"][data-navigation-mode="expanded"]').hidden`);
+  await cdp("Emulation.setDeviceMetricsOverride", {width:1000,height:620,deviceScaleFactor:1,mobile:false});
+  await pause(450);
+  assert(await evaluate(`(() => {
+    const nav=document.querySelector(".side-rail > nav").getBoundingClientRect();
+    const foot=document.querySelector(".rail-foot").getBoundingClientRect();
+    return nav.bottom <= foot.top && foot.bottom <= innerHeight && nav.height > 100;
+  })()`), "Sidebar footer overlaps navigation at a short desktop height.");
+  await evaluate(`document.querySelector(".side-rail > nav").scrollTop=1000`);
+  await writeFile("/tmp/corral-sidebar-short-desktop.png", Buffer.from((await cdp("Page.captureScreenshot", {format:"png"})).data, "base64"));
+  await cdp("Emulation.setDeviceMetricsOverride", {width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await pause(350);
+  await evaluate(`document.querySelector(".bar-leading button").click()`);
+  await wait(`Boolean(document.querySelector(".app-shell.nav-expanded"))`);
+  await evaluate(`(() => {const button=document.querySelector('.side-rail [data-navigation-id="leads"] .navigation-menu-disclosure'); button.focus(); button.click();})()`);
+  await wait(`!document.querySelector('[data-navigation-owner="leads"][data-navigation-mode="expanded"]').hidden`);
+  assert(await evaluate(`(() => {
+    const popup=document.querySelector('[data-navigation-owner="leads"][data-navigation-mode="expanded"]');
+    return getComputedStyle(popup).position==="static" && popup.getBoundingClientRect().width>100;
+  })()`), "Phone submenu is not readable inline.");
+  await pause(350);
+  await writeFile("/tmp/corral-navigation-mobile.png", Buffer.from((await cdp("Page.captureScreenshot", {format:"png"})).data, "base64"));
+  await evaluate(`document.querySelector('.side-rail [data-navigation-id="leads"] .navigation-menu-disclosure').click()`);
+  await wait(`document.querySelector('[data-navigation-owner="leads"][data-navigation-mode="expanded"]').hidden`);
+  await cdp("Emulation.setDeviceMetricsOverride", {width:1280,height:900,deviceScaleFactor:1,mobile:false});
+  for (const [view, section, selector] of [
+    ["analytics","lead-trajectory",".analytics-grid > *"],
+    ["settings","email-templates",'.settings-email-templates'],
+    ["integrations","gmail",'.integration-card'],
+    ["leads","ai",'[data-lead-subpage="ai"]'],
+    ["leads","closing",'[data-lead-subpage="closing"]'],
+    ["leads","follow-ups",'[data-lead-subpage="follow-ups"]'],
+    ["leads","history",'[data-lead-subpage="history"]'],
+  ]) {
+    const query = view==="leads" ? "lead_tab" : "section";
+    await cdp("Page.navigate",{url: `${origin}/?view=${view}&${query}=${section}`});
+    await wait(`document.querySelector(${JSON.stringify(selector)}) !== null`);
+    if(view==="leads") {
+      await wait(`document.querySelector(".lead-subpage-table tbody tr") !== null && document.querySelector("[data-lead-subpage]").getAttribute("aria-busy")==="false"`);
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector(".lead-subpage-table tbody td")).padding`),"14px 10px","Subpage row spacing differs from the main Leads table.");
+      assert.equal(await evaluate(`getComputedStyle(document.querySelector(".lead-row-identity b")).fontSize`),"14px","Subpage name typography differs from the main Leads table.");
+      assert(await evaluate(`[...document.querySelectorAll(".lead-subpage-table td:last-child button")].every(button => {
+        const rect=button.getBoundingClientRect(), panel=document.querySelector(".lead-browser").getBoundingClientRect();
+        return rect.left>=panel.left && rect.right<=panel.right && button.scrollWidth<=button.clientWidth+1;
+      })`),"Subpage action button is clipped.");
+      await writeFile(`/tmp/corral-subpage-${section}-desktop.png`,Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    }
+    if(view==="analytics" || view==="integrations") assert.equal(await evaluate(`document.querySelectorAll(${JSON.stringify(selector)}).length`),1,"Subtab did not render a dedicated page.");
+    if(view==="settings") assert.equal(await evaluate(`[...document.querySelectorAll(".settings-grid > *")].filter(node=>getComputedStyle(node).display!=="none").length`),1,"Settings subtab contains unrelated panels.");
+    await reloadPage();
+    await wait(`document.querySelector(${JSON.stringify(selector)}) !== null`);
   }
   await click("Integrations");
   await wait(`document.querySelector('[aria-label="Expand Slack details"]') !== null`);
@@ -267,6 +394,44 @@ try {
   await wait(`document.querySelector(".lead-table tbody tr") !== null`);
   await evaluate(`(() => { const row = document.querySelector(".lead-table tbody tr"); (row.querySelector("button") ?? row).click(); })()`);
   await wait(`document.querySelector(".lead-progress-form") !== null`);
+  const chooseLeadTab = async (section) => {
+    await evaluate(`document.getElementById("lead-tab-" + ${JSON.stringify(section)}).click()`);
+    await wait(`document.querySelector(".lead-story")?.dataset.activeSection === ${JSON.stringify(section)}`);
+  };
+  assert.equal(await evaluate(`document.querySelectorAll(".lead-detail-tabs [role='tab']").length`), 5);
+  for (const section of ["ai", "follow-ups", "closing", "history", "overview"]) {
+    await chooseLeadTab(section);
+    assert.equal(await evaluate(`document.querySelectorAll(".lead-story [role='tabpanel']:not([hidden])").length`), 1, "More than one lead section is visible.");
+    assert.equal(await evaluate(`new URLSearchParams(location.search).get("lead_tab")`), section);
+  }
+  await chooseLeadTab("ai");
+  await evaluate(`document.getElementById("lead-tab-ai").focus(); document.getElementById("lead-tab-ai").dispatchEvent(new KeyboardEvent("keydown", {key:"ArrowRight", bubbles:true}))`);
+  await wait(`document.querySelector(".lead-story")?.dataset.activeSection === "follow-ups"`);
+  await chooseLeadTab("closing");
+  await evaluate(`document.querySelector(".lead-section-pin").click()`);
+  await wait(`document.querySelector(".lead-section-pin")?.getAttribute("aria-pressed") === "true"`);
+  await evaluate(`document.querySelector(".lead-drawer-close").click()`);
+  await wait(`document.querySelector(".lead-drawer") === null`);
+  await evaluate(`document.querySelector(".pinned-lead-row a").click()`);
+  await wait(`document.querySelector(".lead-story")?.dataset.activeSection === "closing"`);
+  const reloaded = new Promise((resolve) => {
+    const listener = ({ data }) => {
+      if (JSON.parse(String(data)).method !== "Page.loadEventFired") return;
+      socket.removeEventListener("message", listener);
+      resolve();
+    };
+    socket.addEventListener("message", listener);
+  });
+  await cdp("Page.reload");
+  await reloaded;
+  await wait(`document.querySelector(".lead-story")?.dataset.activeSection === "closing"`);
+  assert.equal(await evaluate(`document.querySelector(".lead-section-pin").getAttribute("aria-pressed")`), "true", "Pin did not survive a refresh/deep link.");
+  await chooseLeadTab("history");
+  await evaluate(`history.back()`);
+  await wait(`document.querySelector(".lead-story")?.dataset.activeSection === "closing"`);
+  await evaluate(`history.forward()`);
+  await wait(`document.querySelector(".lead-story")?.dataset.activeSection === "history"`);
+  await chooseLeadTab("closing");
   await wait(`document.querySelector(".ai-stage-assessment") !== null`);
   const assessedStage = await evaluate(`document.querySelector(".ai-stage-value").textContent`);
   assert(await evaluate(`document.querySelector(".ai-stage-assessment").textContent.includes("AI-assessed buying stage")`));
@@ -302,6 +467,9 @@ try {
   })()`);
   await fillClosing("project");
   await pause(150);
+  await chooseLeadTab("ai");
+  await chooseLeadTab("closing");
+  assert.equal(await evaluate(`document.querySelector(".lead-progress-form textarea").value`), "Confirmed successful conversion.", "Switching sections discarded an unsaved comment.");
   await evaluate(`document.querySelector(".lead-progress-form").requestSubmit()`);
   await wait(`window.__closingRequests.length === 1 && document.querySelector(".lead-outcome-receipt") !== null`);
   assert.equal(await evaluate(`window.__closingRequests[0].conversion_type`), "project");
@@ -333,8 +501,34 @@ try {
   await evaluate(`document.querySelector(".ai-stage-assessment").scrollIntoView({behavior: "instant", block: "start"})`);
   shot = await cdp("Page.captureScreenshot", {format: "png"});
   await writeFile("/tmp/corral-ai-stage-mobile.png", Buffer.from(shot.data, "base64"));
+  await evaluate(`document.querySelector(".lead-section-pin").click()`);
+  await wait(`document.querySelector(".lead-section-pin")?.getAttribute("aria-pressed") === "false"`);
+  const auditRoutes = ["dashboard", "leads", "contacts", "pipeline", "agents", "analytics", "integrations", "team", "settings", "review"];
+  for (const [width, height, mobile] of [[1280,900,false],[390,844,true]]) {
+    await cdp("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile});
+    for (const view of auditRoutes) {
+      await cdp("Page.navigate",{url:`${origin}/?view=${view}`});
+      await wait(`Boolean(document.querySelector('[data-navigation-id="${view}"].is-active')) && Boolean(document.querySelector(".view-transition h1"))`);
+      await wait(`Boolean(document.querySelector(".product-footer")) && !document.querySelector(".product-footer").textContent.includes("Generated —") && !document.querySelector(".view-transition [aria-busy='true']")`);
+      await pause(650);
+      if(view==="leads") await wait(`document.querySelector(".lead-table tbody tr") !== null`);
+      if(view==="leads") assert.equal(await evaluate(`getComputedStyle(document.querySelector(".lead-row-identity")).display`),"grid","Name and company must remain on separate lines.");
+      assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 2`), `${view} overflows the ${mobile?"phone":"desktop"} viewport.`);
+      await writeFile(`/tmp/corral-audit-${view}-${mobile?"mobile":"desktop"}.png`,Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    }
+  }
+  for (const section of ["ai","follow-ups","closing","history"]) {
+    await cdp("Page.navigate",{url:`${origin}/?view=leads&lead_tab=${section}`});
+    await wait(`document.querySelector('[data-lead-subpage="${section}"][aria-busy="false"] .lead-subpage-table tbody tr') !== null`);
+    assert(await evaluate(`[...document.querySelectorAll(".lead-subpage-table td:last-child button")].every(button => {
+      const rect=button.getBoundingClientRect(), panel=document.querySelector(".lead-browser").getBoundingClientRect();
+      return rect.left>=panel.left && rect.right<=panel.right && button.scrollWidth<=button.clientWidth+1;
+    })`),`${section} has a clipped phone action button.`);
+    await writeFile(`/tmp/corral-subpage-${section}-mobile.png`,Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
+  }
   assert.deepEqual(errors, [], "The signed-in UI produced a runtime exception.");
-  console.log("Signed-in desktop/phone checks passed: full-page workspace names, full-page lead details, visible comments/closing, embedded-browser Slack rule add/save/reload/remove, member comparison, Project/Sale outcomes, and retry UI. No live Slack messages sent; rule writes and closing requests were intercepted in this test browser.");
+  console.log("Signed-in desktop/phone checks passed: five lead tabs, keyboard/direct-link/back/forward navigation, draft preservation, pin/reopen/refresh/unpin, dashboard insights without mobile overflow, full-page workspace and lead details, Slack rules, member comparison, Project/Sale outcomes, and retry UI. No live Slack messages sent; rule writes and closing requests were intercepted in this test browser.");
+  }
 } finally {
   socket?.close();
   browser.kill("SIGTERM");
