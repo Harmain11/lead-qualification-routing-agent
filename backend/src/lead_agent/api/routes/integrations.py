@@ -537,6 +537,7 @@ def browser_connection_callback(
             str(identity.user_id),
         )
         if provider in {
+            "slack",
             "gmail",
             "outlook",
             "google_calendar",

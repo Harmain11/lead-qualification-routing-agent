@@ -809,6 +809,50 @@ def test_oauth_state_is_one_time_scoped_and_secrets_are_not_exposed(tmp_path) ->
         session.close()
 
 
+def test_slack_browser_callback_verifies_workspace_before_success(tmp_path) -> None:
+    session = auth_harness(tmp_path)
+    store = DevelopmentSecretStore()
+    app.dependency_overrides[get_secret_store] = lambda: store
+    checked = []
+
+    class SlackValidator:
+        def validate(self, provider, credentials, scopes):
+            checked.append(provider)
+            assert credentials.get("access_token")
+            return ConnectionValidation(
+                valid=True, verified=True, status="connected",
+                credential_state="configured", message="Slack workspace verified.",
+                metadata={"slack_team_id": "TCHOICE", "slack_team_name": "Chosen workspace"},
+            )
+
+    app.dependency_overrides[get_provider_connection_validator] = lambda: SlackValidator()
+    try:
+        with TestClient(app) as client:
+            assert signup(client).status_code == 200
+            started = client.post(
+                "/v1/integrations/slack/connect", headers=csrf(client),
+                json={"account_name": "Pending Slack", "scopes": []},
+            )
+            assert started.status_code == 200
+            payload = started.json()
+            completed = client.get(
+                "/v1/integrations/slack/oauth/callback",
+                params={"state": payload["state"], "code": "test-approval"},
+                follow_redirects=False,
+            )
+            assert completed.status_code == 307
+            assert "integration=slack&status=connected" in completed.headers["location"]
+            connection = session.get(ProviderConnectionORM, UUID(payload["connection"]["id"]))
+            assert checked == ["slack"]
+            assert connection.status == "verified" and connection.is_active
+            assert connection.account_name == "Chosen workspace"
+            assert connection.connection_metadata["slack_team_id"] == "TCHOICE"
+            assert not connection.connection_metadata.get("slack_channel_id")
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
 def test_browser_oauth_callback_uses_connection_workspace_after_workspace_switch(
     tmp_path,
 ) -> None:

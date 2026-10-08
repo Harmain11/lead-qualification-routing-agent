@@ -11,6 +11,7 @@ import "./components/layoutConsistency.css";
 import "./components/leadBrowserLayout.css";
 import "./components/tableTypography.css";
 import "./components/brandButtons.css";
+import "./components/integrationExpansion.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
