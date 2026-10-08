@@ -432,7 +432,7 @@ export function backfillOpenAI(connectionId: string): Promise<{ status: string; 
   return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-openai`, { method: "POST" });
 }
 
-export type SlackChannel = { id: string; name: string };
+export type SlackChannel = { id: string; name: string; is_member: boolean; is_private: boolean };
 export function listSlackChannels(connectionId: string): Promise<SlackChannel[]> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels`);
 }

@@ -117,8 +117,8 @@ def test_slack_oauth_uses_exact_scopes_and_derived_callback_path(tmp_path) -> No
             "operator",
         )
         params = parse_qs(urlparse(started.authorization_url).query)
-        assert row.scopes == ["chat:write", "channels:read"]
-        assert params["scope"] == ["chat:write,channels:read"]
+        assert row.scopes == ["chat:write", "channels:read", "channels:join", "groups:read"]
+        assert params["scope"] == ["chat:write,channels:read,channels:join,groups:read"]
         assert "team" not in params  # Slack must allow workspace selection.
         assert row.connection_metadata["oauth_redirect_uri"] == (
             "https://api.example.test/v1/integrations/slack/oauth/callback"
@@ -178,7 +178,7 @@ def test_non_expiring_slack_oauth_token_does_not_get_a_fake_refresh_deadline(tmp
         )
         assert audit is not None
         assert audit.actor_id == "operator"
-        assert audit.details == {"scopes": ["chat:write", "channels:read"]}
+        assert audit.details == {"scopes": ["chat:write", "channels:read", "channels:join", "groups:read"]}
         assert "workspace-token" not in str(audit.details)
 
 
@@ -333,12 +333,14 @@ def test_resolver_and_channel_configuration_are_workspace_scoped(tmp_path) -> No
         with pytest.raises(ValueError, match="unavailable"):
             resolver.select_channel(session, workspace_a, connection_a.id, "C-B", "actor-a")
         channels = resolver.list_channels(session, workspace_a, connection_a.id, "actor-a")
-        assert channels == [{"id": "C123", "name": "lead-agent-testing"}]
+        assert channels == [{"id": "C123", "name": "lead-agent-testing", "is_member": True, "is_private": False}]
         assert resolver.select_channel(
             session, workspace_a, connection_a.id, "C-new", "actor-a"
         ) == {
             "id": "C-new",
             "name": "lead-agent-testing",
+            "is_member": True,
+            "is_private": False,
         }
         session.refresh(connection_a)
         session.refresh(connection_b)
@@ -354,6 +356,117 @@ def test_resolver_and_channel_configuration_are_workspace_scoped(tmp_path) -> No
         assert audit.actor_id == "actor-a"
         assert audit.details["channel_id"] == "C-new"
         assert "access_token" not in str(audit.details)
+
+
+def test_channel_list_includes_public_channels_before_app_is_invited(tmp_path) -> None:
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace = uuid4()
+        connection = make_connection(session, store, workspace)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path.endswith("conversations.list")
+            assert parse_qs(request.content.decode())["types"] == ["public_channel"]
+            return httpx.Response(200, json={
+                "ok": True,
+                "channels": [
+                    {"id": "CJOINED", "name": "announcements", "is_member": True},
+                    {"id": "CINVITE", "name": "leads", "is_member": False},
+                    {"id": "CUNKNOWN", "name": "projects"},
+                ],
+            })
+
+        resolver = WorkspaceSlackNotificationResolver(
+            store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
+        )
+        assert resolver.list_channels(session, workspace, connection.id, "actor") == [
+            {"id": "CJOINED", "name": "announcements", "is_member": True, "is_private": False},
+            {"id": "CINVITE", "name": "leads", "is_member": False, "is_private": False},
+            {"id": "CUNKNOWN", "name": "projects", "is_member": False, "is_private": False},
+        ]
+
+
+def test_select_public_channel_joins_only_the_selected_channel(tmp_path) -> None:
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace = uuid4()
+        connection = make_connection(session, store, workspace)
+        connection.scopes = [*connection.scopes, "channels:join", "groups:read"]
+        session.commit()
+        calls = []
+        joined = False
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal joined
+            method = request.url.path.rsplit("/", 1)[-1]
+            assert parse_qs(request.content.decode())["channel"] == ["CNEW"]
+            calls.append(method)
+            if method == "conversations.join":
+                joined = True
+            return httpx.Response(200, json={
+                "ok": True,
+                "channel": {"id": "CNEW", "name": "sales", "is_member": joined, "is_private": False},
+            })
+
+        resolver = WorkspaceSlackNotificationResolver(
+            store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
+        )
+        result = resolver.select_channel(session, workspace, connection.id, "CNEW", "actor")
+        assert result["is_member"] is True
+        assert calls == ["conversations.info", "conversations.join", "conversations.info"]
+        assert connection.connection_metadata["slack_channel_id"] == "CNEW"
+
+
+@pytest.mark.parametrize("private", [True, False])
+def test_private_invitation_and_failed_public_join_preserve_destination(tmp_path, private) -> None:
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace = uuid4()
+        connection = make_connection(session, store, workspace)
+        connection.scopes = [*connection.scopes, "channels:join", "groups:read"]
+        session.commit()
+        methods = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            method = request.url.path.rsplit("/", 1)[-1]
+            methods.append(method)
+            if method == "conversations.join":
+                return httpx.Response(200, json={"ok": False, "error": "restricted_action"})
+            return httpx.Response(200, json={
+                "ok": True,
+                "channel": {"id": "CNEW", "name": "sales", "is_member": False, "is_private": private},
+            })
+
+        resolver = WorkspaceSlackNotificationResolver(
+            store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
+        )
+        with pytest.raises(ValueError):
+            resolver.select_channel(session, workspace, connection.id, "CNEW", "actor")
+        assert connection.connection_metadata["slack_channel_id"] == "C123"
+        assert methods == (["conversations.info"] if private else ["conversations.info", "conversations.join"])
+
+
+def test_channel_list_includes_invited_private_channels_with_granted_permission(tmp_path) -> None:
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace = uuid4()
+        connection = make_connection(session, store, workspace)
+        connection.scopes = [*connection.scopes, "groups:read"]
+        session.commit()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert parse_qs(request.content.decode())["types"] == ["public_channel,private_channel"]
+            return httpx.Response(200, json={
+                "ok": True,
+                "channels": [{"id": "CPRIVATE", "name": "lead-review", "is_member": True, "is_private": True}],
+            })
+
+        resolver = WorkspaceSlackNotificationResolver(
+            store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
+        )
+        assert resolver.list_channels(session, workspace, connection.id, "actor") == [
+            {"id": "CPRIVATE", "name": "lead-review", "is_member": True, "is_private": True}
+        ]
 
 
 def test_matching_slack_rule_can_override_the_workspace_channel(tmp_path) -> None:

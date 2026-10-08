@@ -133,11 +133,25 @@ smoke: try {
           const connection = (window.__slackConfigured || window.__slackPending) ? {
             id: "33333333-3333-4333-8333-333333333333",
             provider_type: "slack", account_name: "UI test Slack", auth_type: "oauth2",
-            status: window.__slackPending ? "connected" : "verified", is_active: true, scopes: [], credential_state: "configured",
+            status: window.__slackPending ? "connected" : "verified", is_active: true, scopes: ["channels:join", "groups:read"], credential_state: "configured",
             metadata: window.__slackPending ? {} : {slack_team_id: "TTEST", slack_channel_id: "CTEST", slack_channel_name: "team"},
           } : null;
-          return {...card, connection, connections: connection ? [connection] : []};
+          const old = {...connection, id: "44444444-4444-4444-8444-444444444444", account_name: "Previous inactive workspace", status: "verified", is_active: false, credential_state: "configured", scopes: [], metadata: {}};
+          return {...card, connection, connections: connection ? [connection, old] : [old]};
         }));
+      }
+      if (path === "/v1/integrations/connections/33333333-3333-4333-8333-333333333333/slack-channels") {
+        return json([
+          {id:"CTEST",name:"team",is_member:true,is_private:false},
+          {id:"CPUBLIC",name:"launch",is_member:false,is_private:false},
+          {id:"CPRIVATE",name:"lead-review",is_member:true,is_private:true},
+        ]);
+      }
+      if (path === "/v1/integrations/connections/33333333-3333-4333-8333-333333333333/disconnect") {
+        await new Promise(resolve => { window.__releaseDisconnect = resolve; });
+        window.__slackConfigured = false;
+        window.__slackPending = false;
+        return json({status:"disconnected",is_active:false});
       }
       if (path === "/v1/integrations/connections/33333333-3333-4333-8333-333333333333/test") {
         window.__slackVerifications++;
@@ -145,8 +159,9 @@ smoke: try {
         window.__slackPending = false;
         return json({verified:true, valid:true, message:"Slack workspace verified."});
       }
-      if (path === "/v1/integrations/calendly/connect" || path === "/v1/integrations/slack/connect") {
+      if (path === "/v1/integrations/calendly/connect" || path === "/v1/integrations/slack/connect" || path === "/v1/integrations/salesforce/connect") {
         window.__oauthStarts++;
+        await new Promise(resolve => { window.__releaseOAuth = resolve; });
         return json({detail:"Test authorization blocked to avoid an external login."},503);
       }
       if (path.startsWith("/v1/auth/")) {
@@ -231,16 +246,54 @@ smoke: try {
     await writeFile("/tmp/corral-integrations-wide.png", Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
     await evaluate(`document.querySelector(".integration-account-choice .card-actions button").click()`);
     await wait(`window.__oauthStarts === 1`);
+    assert(await evaluate(`document.querySelector(".integration-account-choice .card-actions button").textContent.includes("Connecting")`));
+    await evaluate(`window.__releaseOAuth()`);
+    await wait(`!document.querySelector(".integration-account-choice .card-actions button").disabled`);
     await evaluate(`document.querySelector(".integration-account-choice .button-quiet").click()`);
     await evaluate(`[...document.querySelectorAll(".provider-slack .card-actions button")].find(b=>b.textContent==="Reconnect").click()`);
-    await wait(`document.querySelector(".integration-account-choice")?.textContent.includes("Which Slack")`);
-    assert.equal(await evaluate(`window.__oauthStarts`), 1, "Slack bypassed the account choice.");
+    await wait(`window.__oauthStarts === 2`);
+    assert(await evaluate(`document.querySelector(".integration-account-choice") === null`), "Slack still has an extra Corral account chooser.");
+    assert(await evaluate(`[...document.querySelectorAll(".provider-slack button")].some(b=>b.textContent==="Reconnecting…" && b.disabled)`), "Reconnect progress is not visible.");
+    await evaluate(`window.__releaseOAuth()`);
+    await wait(`[...document.querySelectorAll(".provider-slack button")].some(b=>b.textContent==="Reconnect" && !b.disabled)`);
+    await wait(`document.querySelector(".slack-destination select")?.options.length === 4`);
+    assert.equal(await evaluate(`document.querySelectorAll(".slack-destination").length`), 1, "Inactive verified workspace is presented as connected.");
+    assert(await evaluate(`document.querySelector(".slack-destination select").textContent.includes("launch · join automatically")`), "Unjoined public channel is missing.");
+    assert(await evaluate(`document.querySelector(".slack-destination select").textContent.includes("lead-review · private")`), "Invited private channel is missing.");
+    await evaluate(`[...document.querySelectorAll(".slack-destination button")].find(b=>b.textContent==="Add a private channel").click()`);
+    assert(await evaluate(`document.querySelector(".slack-destination").textContent.includes("Integrations → Add apps")`), "Private-channel invitation steps are missing.");
+    await evaluate(`document.querySelector(".provider-salesforce .provider-collapse-toggle").click()`);
+    await evaluate(`[...document.querySelectorAll(".provider-salesforce .card-actions button")].find(b=>/Reconnect|^Connect$/.test(b.textContent)).click()`);
+    await wait(`document.querySelector(".salesforce-guide") !== null`);
+    assert(await evaluate(`document.querySelector(".salesforce-guide-backdrop").parentElement===document.body`), "Salesforce is nested under the app sidebar.");
+    assert(await evaluate(`document.querySelector(".salesforce-guide-footer .primary-button").disabled`));
+    await evaluate(`document.querySelector(".salesforce-installed-check input").click()`);
+    await evaluate(`document.querySelectorAll(".salesforce-guide .integration-account-choice input[type=radio]")[1].click()`);
+    assert(await evaluate(`document.querySelector(".salesforce-guide-footer .primary-button").disabled`));
+    await evaluate(`document.querySelector(".salesforce-guide .integration-account-choice input[type=checkbox]").click()`);
+    await wait(`!document.querySelector(".salesforce-guide-footer .primary-button").disabled`);
+    assert(await evaluate(`document.querySelectorAll(".salesforce-guide .primary-button").length===1`), "Duplicate Salesforce continue buttons.");
+    await writeFile("/tmp/corral-salesforce-desktop.png", Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
     await cdp("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:false});
     await pause(500);
     assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth+1`), "Integration page overflows on phone.");
     await writeFile("/tmp/corral-integrations-phone.png", Buffer.from((await cdp("Page.captureScreenshot",{format:"png"})).data,"base64"));
+    assert(await evaluate(`(() => { const r=document.querySelector(".salesforce-guide-footer").getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth+1 && r.bottom<=innerHeight+1; })()`), "Salesforce footer is clipped on phone.");
+    await evaluate(`document.querySelector(".salesforce-guide-footer .primary-button").click()`);
+    await wait(`window.__oauthStarts === 3`);
+    assert(await evaluate(`document.querySelector(".salesforce-guide-footer .primary-button").disabled && document.querySelector(".salesforce-guide-footer .primary-button").textContent.includes("Starting authorization")`));
+    await evaluate(`window.__releaseOAuth()`);
+    await wait(`document.querySelector(".salesforce-guide-error") !== null`);
+    await evaluate(`document.querySelector(".salesforce-guide-close").click()`);
+    await evaluate(`[...document.querySelectorAll(".provider-slack .card-actions button")].find(b=>b.textContent==="Disconnect").click()`);
+    await wait(`window.__releaseDisconnect !== undefined`);
+    assert(await evaluate(`[...document.querySelectorAll(".provider-slack button")].some(b=>b.textContent==="Disconnecting…" && b.disabled)`));
+    await evaluate(`window.__releaseDisconnect()`);
+    await wait(`document.querySelectorAll(".slack-destination").length === 0`);
+    await wait(`document.querySelector(".slack-routing-health")?.textContent.includes("0 verified")`);
+    assert(await evaluate(`document.querySelector(".provider-slack .integration-operation-feedback").textContent.includes("disconnected successfully")`));
     assert.equal(errors.length,0, errors.join("\n"));
-    console.log("Account choices, legacy Slack verification/routing, full-width expansion and phone layout passed. OAuth was intercepted; no external login or Slack message.");
+    console.log("Account choices, channel visibility, private invitation steps, inactive-workspace filtering, disconnect and phone layout passed. OAuth/Slack writes were intercepted.");
     break smoke;
   }
   if (process.argv.includes("--refresh-only")) {

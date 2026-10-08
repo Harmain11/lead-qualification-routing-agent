@@ -3,11 +3,11 @@ name: Browser harness compatibility
 description: Distinguish debugger startup failures from app failures when verifying the signed-in UI.
 ---
 
-CDP support can differ between the shell Chromium wrapper and the native Chromium supplied with installed Playwright browsers.
+CDP support can differ between the shell Chromium wrapper and a native browser executable.
 
-**Why:** The shell browser repeatedly launched without exposing its debugger endpoint, while the installed native Playwright browser successfully ran the same signed-in checks with an isolated profile.
+**Why:** A shell wrapper previously launched without exposing its debugger endpoint. Native browser executables, including the system browser's unwrapped binary, successfully ran signed-in checks with an isolated profile.
 
-**How to apply:** When the debugger does not start, investigate the browser harness separately from the app. Discover and select an existing native browser executable; do not assume the app is broken or install another browser unnecessarily.
+**How to apply:** When the debugger does not start, investigate the browser harness separately from the app. Read the existing wrapper's exec target and try that native executable before looking for Playwright browsers or installing another browser.
 
 Viewport changes can complete before React navigation state and CSS transitions settle.
 

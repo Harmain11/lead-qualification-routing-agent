@@ -5,7 +5,8 @@
 - [Integration card presentation](integration-card-presentation.md) — uniform compact cards with plus/minus controls reveal details independently.
 - [Email lead relevance](email-lead-relevance.md) — exclude unrelated mail before lead creation; existing sales-thread replies remain interactions.
 - [Integration account policy](integration-account-policy.md) — one active account per provider; reconnection must preserve historical data.
-- [OAuth account choice](oauth-account-choice.md) — explicit Calendly/Slack choices; provider sessions control identity, and Slack must not preselect a team.
+- [OAuth account choice](oauth-account-choice.md) — explicit Calendly/Salesforce choices; Slack uses its own workspace picker and must not preselect a team.
+- [Slack channel visibility](slack-channel-visibility.md) — user's Slack has channels; list public channels before the app is invited, and don't show inactive workspaces as connected.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
 - [Dashboard brand alignment](dashboard-brand-alignment.md) — Center Corral against the mark; keep the sleek tagline below the wordmark only.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
