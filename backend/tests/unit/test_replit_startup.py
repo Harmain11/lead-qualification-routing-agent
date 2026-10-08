@@ -41,14 +41,20 @@ def run_service(name):
         record(name + ".stopped")
         sys.exit(0)
     signal.signal(signal.SIGTERM, stop)
+    if name == "gateway":
+        Path(sys.argv[sys.argv.index("--listening-file") + 1]).write_text("listening")
     while True:
         time.sleep(0.01)
 
 if sys.argv[1:3] == ["-m", "lead_agent.production_check"]:
     record("config")
     sys.exit(1 if os.environ.get("TEST_FAILURE") == "config" else 0)
+elif sys.argv[1] == "scripts/startup_gateway.py":
+    assert sys.argv[sys.argv.index("--port") + 1] == "5000"
+    run_service("gateway")
 elif sys.argv[1:3] == ["-m", "uvicorn"]:
-    assert "--port" in sys.argv and sys.argv[sys.argv.index("--port") + 1] == "5000"
+    assert sys.argv[sys.argv.index("--host") + 1] == "127.0.0.1"
+    assert sys.argv[sys.argv.index("--port") + 1] == "8001"
     run_service("api")
 elif sys.argv[1] == "-":
     code = sys.stdin.read()
@@ -104,10 +110,11 @@ else:
 def test_api_starts_before_remote_probes_and_workers_wait(startup_runner):
     result, events = startup_runner()
     assert result.returncode == 1
-    assert events[:4] == ["config", "api", "gmail", "database"]
+    assert events[:5] == ["gateway", "config", "api", "gmail", "database"]
     assert events.index("worker") > events.index("database")
     assert "api.stopped" in events
     assert "beat.stopped" in events
+    assert "gateway.stopped" in events
 
 
 def test_preflight_never_starts_api_or_workers(startup_runner):
@@ -121,10 +128,11 @@ def test_failed_probe_stops_api_without_starting_workers(startup_runner, failure
     result, events = startup_runner(failure=failure)
     assert result.returncode == 1
     assert "api.stopped" in events
+    assert "gateway.stopped" in events
     assert "worker" not in events and "beat" not in events
 
 
 def test_invalid_configuration_never_starts_api(startup_runner):
     result, events = startup_runner(failure="config")
     assert result.returncode == 1
-    assert events == ["config"]
+    assert events == ["gateway", "config", "gateway.stopped"]

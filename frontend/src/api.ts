@@ -349,7 +349,7 @@ export function configureInboundSync(
   connectionId: string,
   enabled: boolean,
   provider: string = "salesforce",
-  intervalSeconds = 300,
+  intervalSeconds = 60,
 ): Promise<CrmInboundSyncState> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",

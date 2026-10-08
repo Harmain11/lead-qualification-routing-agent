@@ -25,3 +25,14 @@ exhausted their attempts about four seconds before Uvicorn finished starting.
 **How to apply:** Compare deployment timestamps for the first health check, dependency
 probes, and the public listener becoming ready. Do not equate a warm TestClient smoke
 test with proof that a cold production boot will meet the health-check deadline.
+
+Starting Uvicorn earlier is not proof that its public socket is bound: cold
+application and configuration imports can still leave the port unavailable.
+
+**Why:** The publishing error recurred even after API launch was moved ahead of
+remote probes. Runtime logs showed successful probes and no application exception,
+but public requests failed until the import phase completed.
+
+**How to apply:** Verify the first successful public response, not merely a
+"starting API" log. Keep operational readiness separate from a startup page,
+and keep failed production checks fatal rather than hiding configuration errors.

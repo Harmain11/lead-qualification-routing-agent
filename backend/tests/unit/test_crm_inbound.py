@@ -21,6 +21,7 @@ from lead_agent.application.crm_inbound import (
     configure_inbound_sync,
     get_inbound_sync_state,
     run_inbound_sync,
+    upgrade_default_mail_sync_intervals,
 )
 from lead_agent.application.services import process_lead
 from lead_agent.domain.crm_inbound import (
@@ -207,6 +208,36 @@ def _session(tmp_path, name: str = "inbound.db") -> Session:
     )
     Base.metadata.create_all(engine)
     return Session(engine)
+
+
+@pytest.mark.parametrize("provider,enabled,interval,active,expected", [
+    ("gmail", True, 300, True, 60),
+    ("outlook", True, 300, True, 60),
+    ("gmail", False, 300, True, 300),
+    ("gmail", True, 600, True, 600),
+    ("gmail", True, 300, False, 300),
+    ("salesforce", True, 300, True, 300),
+])
+def test_fast_mail_default_preserves_pause_custom_interval_and_checkpoint(
+    tmp_path, provider, enabled, interval, active, expected,
+):
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type=provider)
+        state = configure_inbound_sync(
+            session, connection, enabled=enabled, object_type="message",
+            interval_seconds=interval, actor_id="test-user",
+        )
+        state.last_successful_cursor = {"history_id": "saved-checkpoint"}
+        state.initial_import_completed = True
+        state.records_processed = 7
+        connection.is_active = active
+        session.commit()
+        count = upgrade_default_mail_sync_intervals(session)
+        assert count == int(expected != interval)
+        assert state.sync_interval_seconds == expected
+        assert state.enabled == enabled
+        assert state.last_successful_cursor == {"history_id": "saved-checkpoint"}
+        assert state.initial_import_completed and state.records_processed == 7
 
 
 def _connection(

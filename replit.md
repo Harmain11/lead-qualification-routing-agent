@@ -58,9 +58,12 @@ the existing backend/frontend dependencies. Preview remains separate from publis
 The production runner defaults to Gmail verification-email delivery using the
 Replit-connected application account, with its real sender resolved from the mailbox
 profile. Startup checks this connection read-only; no test email is sent automatically.
-After configuration validation and local Redis startup, the API starts while remote
-dependency probes run, so publishing health checks do not wait for every provider.
-Probe failures stop the supervised API; Celery worker/beat start only after success.
+The standard-library startup gateway binds the public port before heavy imports.
+During cold startup it serves a clear, automatically reloading startup page; API
+and readiness requests return 503 until production probes pass and the private
+API is live. It preserves public host, cookies, CSRF and workspace headers.
+Probe failures stop all supervised processes; Celery worker/beat start only after
+success. Do not move the public listener behind heavyweight validation/imports.
 This connection does not replace customer workspace mailbox OAuth or Google sign-in.
 Gmail sending limits and provider restrictions apply; use a dedicated app account.
 
@@ -76,8 +79,8 @@ For managed Redis, explicitly set `REDIS_DEPLOYMENT_MODE=remote` and a remote
 Production still requires durable PostgreSQL, managed secret storage, production
 security settings including `WEBHOOK_SIGNING_SECRET`, public URLs, and credentials
 for live providers. These changes do not publish the app. Replit hosting costs apply.
-The production API binds to `PORT` (default 5000), matching Replit's public port
-mapping; port 8001 is only the preview backend. Run
+The production gateway binds to `PORT` (default 5000), matching Replit's public port
+mapping; the underlying API listens privately on 8001. Run
 `bash scripts/replit_start.sh --check` for a read-only production preflight:
 it validates settings, frontend assets, Gmail profile access, and database/Redis
 connectivity without applying migrations, starting workers, or sending email.
@@ -90,3 +93,15 @@ Production schema changes are applied by Replit Publish, never by startup-time A
 Follow `docs/phase-7f-replit-production-deployment.md`; never publish the
 development preview script or SQLite/demo configuration. The Gmail/local-VM setup
 above supersedes that guide's SMTP/remote-Redis-only requirements for this deployment.
+
+## Automatic source updates
+
+Verified Gmail and CRM connections sync automatically, normally every 60 seconds,
+with a 15-second dispatcher. Existing enabled mailboxes using the former 300-second
+default are upgraded without discarding checkpoints or historical records; explicit
+pauses and other custom intervals remain intact. New Gmail connections start from
+their own verification history checkpoint, not by re-importing old mail.
+The preview runner has a supervised local scheduler without requiring Redis;
+production continues to use its single Celery beat and worker. Acquisition does
+not depend on an open browser. Visible lead lists poll every 5 seconds; dashboard
+data refreshes at least every 30 seconds, and when returning to the browser tab.
