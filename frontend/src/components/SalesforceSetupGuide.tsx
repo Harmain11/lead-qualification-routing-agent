@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
+import { IntegrationAccountChoice } from "./IntegrationAccountChoice";
 
 import { SALESFORCE_PACKAGE_INSTALL_URL } from "../salesforceSetup";
 import "./SalesforceSetupGuide.css";
@@ -10,6 +12,7 @@ type SalesforceSetupGuideProps = {
   busy: boolean;
   canAuthorize?: boolean;
   error?: string;
+  accountName?: string;
 };
 
 const FOCUSABLE_SELECTOR = [
@@ -28,8 +31,10 @@ export function SalesforceSetupGuide({
   busy,
   canAuthorize = true,
   error,
+  accountName,
 }: SalesforceSetupGuideProps) {
   const [packageInstalled, setPackageInstalled] = useState(false);
+  const [accountReady, setAccountReady] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -73,7 +78,7 @@ export function SalesforceSetupGuide({
     }
   }
 
-  return (
+  return createPortal(
     <div
       className="salesforce-guide-backdrop"
       role="presentation"
@@ -163,6 +168,10 @@ export function SalesforceSetupGuide({
             <span>I have installed this package in the Salesforce organization I want to connect</span>
           </label>
 
+          <IntegrationAccountChoice provider="salesforce" accountName={accountName}
+            busy={busy} onContinue={onContinue} onCancel={onClose}
+            showActions={false} onReadyChange={setAccountReady} />
+
           {error && <p className="salesforce-guide-error" role="alert">{error}</p>}
           {!canAuthorize && <p className="salesforce-guide-note" role="status">Your workspace role can view this guide, but integration connection permission is required to authorize Salesforce.</p>}
 
@@ -185,12 +194,13 @@ export function SalesforceSetupGuide({
             className="primary-button"
             type="button"
             onClick={onContinue}
-            disabled={busy || !packageInstalled || !canAuthorize}
+            disabled={busy || !packageInstalled || !accountReady || !canAuthorize}
           >
             {busy ? "Starting authorization…" : "Continue to Salesforce"}
           </button>
         </footer>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }

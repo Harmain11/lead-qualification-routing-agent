@@ -548,24 +548,45 @@ class WorkspaceSlackNotificationResolver:
         connection_id: UUID,
         channel_id: str,
         actor_id: str,
-    ) -> dict[str, str]:
+    ) -> dict[str, str | bool]:
         row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+        api = SlackWebApi(
+            resolved.credentials.get("access_token")
+            or resolved.credentials.get("bot_token", ""),
+            self.client,
+        )
+        joined = False
         try:
-            payload, _ = SlackWebApi(
-                resolved.credentials.get("access_token")
-                or resolved.credentials.get("bot_token", ""),
-                self.client,
-            ).call("conversations.info", channel=channel_id)
+            payload, _ = api.call("conversations.info", channel=channel_id)
+            channel = payload.get("channel", {})
+            if not isinstance(channel, dict):
+                raise ValueError("Slack did not return the selected channel.")
+            if channel.get("is_member") is not True:
+                if channel.get("is_private") is True:
+                    raise ValueError(
+                        "Invite the Slack bot to this private channel in Slack, "
+                        "then refresh channels and select it. Slack does not allow "
+                        "apps to join private channels themselves."
+                    )
+                if "channels:join" not in self._channel_scopes(row, resolved.credentials):
+                    raise ValueError(
+                        "Invite the Slack bot to the selected channel, or reconnect "
+                        "Slack once to enable automatic joining of public channels."
+                    )
+                api.call("conversations.join", channel=channel_id)
+                joined = True
+                payload, _ = api.call("conversations.info", channel=channel_id)
+                channel = payload.get("channel", {})
         except ProviderOperationError as error:
             raise ValueError(str(error)) from None
-        channel = payload.get("channel", {})
         if not isinstance(channel, dict) or channel.get("is_member") is not True:
-            raise ValueError("Invite the Slack bot to the selected channel before choosing it.")
+            raise ValueError("Slack has not confirmed app membership; the destination was not changed.")
         metadata = dict(row.connection_metadata)
         previous_channel_id = metadata.get("slack_channel_id")
         previous_channel_name = metadata.get("slack_channel_name")
         metadata["slack_channel_id"] = channel_id
         metadata["slack_channel_name"] = str(channel.get("name") or channel_id)
+        metadata["slack_channel_is_private"] = channel.get("is_private") is True
         row.connection_metadata = metadata
         row.updated_at = datetime.now(UTC)
         record_provider_lifecycle_audit(
@@ -579,26 +600,40 @@ class WorkspaceSlackNotificationResolver:
                 "channel_name": str(channel.get("name") or channel_id),
                 "previous_channel_id": previous_channel_id,
                 "previous_channel_name": previous_channel_name,
+                "joined_public_channel": joined,
             },
         )
         session.commit()
-        return {"id": channel_id, "name": str(channel.get("name") or channel_id)}
+        return {
+            "id": channel_id, "name": str(channel.get("name") or channel_id),
+            "is_member": True, "is_private": channel.get("is_private") is True,
+        }
+
+    @staticmethod
+    def _channel_scopes(row: ProviderConnectionORM, credentials: dict[str, str]) -> set[str]:
+        granted = (row.connection_metadata or {}).get("granted_scopes")
+        if isinstance(granted, list):
+            return set(granted)
+        if credentials.get("scope"):
+            return set(credentials["scope"].replace(" ", ",").split(","))
+        return set(row.scopes or [])
 
     def list_channels(
         self, session: Session, workspace_id: UUID, connection_id: UUID, actor_id: str
-    ) -> list[dict[str, str]]:
-        _, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+    ) -> list[dict[str, str | bool]]:
+        row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
+        include_private = "groups:read" in self._channel_scopes(row, resolved.credentials)
         try:
             api = SlackWebApi(
                 resolved.credentials.get("access_token")
                 or resolved.credentials.get("bot_token", ""),
                 self.client,
             )
-            channels: list[dict[str, str]] = []
+            channels: list[dict[str, str | bool]] = []
             cursor: str | None = None
             for _ in range(10):
                 params: dict[str, str | int] = {
-                    "types": "public_channel",
+                    "types": "public_channel,private_channel" if include_private else "public_channel",
                     "exclude_archived": "true",
                     "limit": 200,
                 }
@@ -607,10 +642,14 @@ class WorkspaceSlackNotificationResolver:
                 payload, _ = api.call("conversations.list", **params)
                 page = payload.get("channels", [])
                 channels.extend(
-                    {"id": str(item["id"]), "name": str(item["name"])}
+                    {
+                        "id": str(item["id"]),
+                        "name": str(item["name"]),
+                        "is_member": item.get("is_member") is True,
+                        "is_private": item.get("is_private") is True,
+                    }
                     for item in page
                     if isinstance(item, dict)
-                    and item.get("is_member") is True
                     and item.get("id")
                     and item.get("name")
                 )

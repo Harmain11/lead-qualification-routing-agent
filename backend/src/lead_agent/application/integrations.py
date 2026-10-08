@@ -401,6 +401,10 @@ def begin_oauth_connection(
         )
     if provider == "slack" and set(active_scopes) != set(setup.required_scopes):
         raise ValueError("Slack OAuth scopes must exactly match the configured notification scopes")
+    if provider == "slack":
+        # Request channel management on new authorizations, but keep the original
+        # notification scopes as the verification minimum for existing tokens.
+        active_scopes = [*active_scopes, "channels:join", "groups:read"]
     if provider == "gmail" and set(active_scopes) != set(setup.required_scopes):
         raise ValueError("Gmail OAuth scopes must exactly match mailbox read and send permissions")
     if provider == "outlook" and set(active_scopes) != set(setup.required_scopes):

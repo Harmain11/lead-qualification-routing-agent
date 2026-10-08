@@ -190,6 +190,8 @@ class SlackChannelRequest(BaseModel):
 class SlackChannelResponse(BaseModel):
     id: str
     name: str
+    is_member: bool = True
+    is_private: bool = False
 
 
 class SlackMemberResponse(BaseModel):
