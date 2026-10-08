@@ -290,17 +290,26 @@ function App() {
   }, [auth?.current_workspace_id, range, refresh]);
 
   useEffect(() => {
-    if (!auth || !can(permissionsForWorkspace(auth, auth.current_workspace_id), "leads.view")) return;
+    const permissions = permissionsForWorkspace(auth, auth?.current_workspace_id);
+    if (!auth || !(["leads.view", "analytics.view", "agents.view", "manual_review.view"] as const)
+      .some((permission) => can(permissions, permission))) return;
+    const canPollLeads = can(permissions, "leads.view");
     const controller = new AbortController();
     let inFlight = false;
+    let lastFullRefresh = Date.now();
     const poll = async () => {
       if (document.visibilityState !== "visible" || inFlight) return;
       inFlight = true;
       try {
-        const result = await listLeads({ limit: 1 }, controller.signal);
-        const nextSignature = JSON.stringify([result.total, result.items[0] ?? null]);
-        if (leadSignature.current !== null && leadSignature.current !== nextSignature) {
-          void refresh();
+        const result = canPollLeads ? await listLeads({ limit: 1 }, controller.signal) : null;
+        const nextSignature = result ? JSON.stringify([result.total, result.items[0] ?? null]) : null;
+        // New leads update quickly. Also refresh periodically even if the
+        // newest lead/count is unchanged: replies, older qualifications,
+        // delivery results and analytics can change independently.
+        if ((leadSignature.current !== null && leadSignature.current !== nextSignature)
+          || Date.now() - lastFullRefresh >= 30000) {
+          await refresh();
+          lastFullRefresh = Date.now();
         } else if (leadSignature.current === null) {
           leadSignature.current = nextSignature;
         }
@@ -313,12 +322,19 @@ function App() {
     // Keep the dashboard, manual review count, and CRM lead archive in sync
     // with public intake without requiring a browser refresh.
     const timer = window.setInterval(() => void poll(), 5000);
-    const onVisible = () => { if (document.visibilityState === "visible") void poll(); };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        lastFullRefresh = 0;
+        void poll();
+      }
+    };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onVisible);
     return () => {
       controller.abort();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onVisible);
     };
   }, [auth?.current_workspace_id, auth?.workspaces, refresh]);
 

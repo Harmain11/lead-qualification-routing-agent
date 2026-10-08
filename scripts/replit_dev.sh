@@ -56,6 +56,8 @@ trap shutdown TERM INT EXIT
 
 python -m uvicorn lead_agent.api.main:app --host 127.0.0.1 --port 8001 --no-access-log &
 child_pids+=("$!")
+python -m lead_agent.worker.preview_sync &
+child_pids+=("$!")
 npm run dev --prefix frontend -- --host 0.0.0.0 --port 5000 --strictPort &
 child_pids+=("$!")
 wait -n "${child_pids[@]}"

@@ -7,6 +7,7 @@ cd "$repo_root"
 python_bin="${PYTHON_BIN:-python3}"
 # Match Replit's public port mapping; API_PORT is for the development backend.
 port="${PORT:-5000}"
+internal_api_port=8001
 api_host="${REPLIT_API_HOST:-0.0.0.0}"
 forwarded_allow_ips="${FORWARDED_ALLOW_IPS:-127.0.0.1}"
 worker_concurrency="${CELERY_WORKER_CONCURRENCY:-2}"
@@ -51,22 +52,46 @@ export DEMO_DATA_ENABLED=false
 case "$port" in
   ''|*[!0-9]*) echo "[startup] PORT must be numeric" >&2; exit 1 ;;
 esac
-
-echo "[startup] validating production configuration"
-"$python_bin" -m lead_agent.production_check
-
-echo "[startup] checking built frontend"
-test -s frontend/dist/index.html
+if [[ "$port" == "$internal_api_port" ]]; then
+  echo "[startup] public and internal API ports must differ" >&2
+  exit 1
+fi
 
 child_pids=()
+startup_dir=""
 shutdown() {
   trap - TERM INT EXIT
   if ((${#child_pids[@]})); then
     kill -TERM "${child_pids[@]}" 2>/dev/null || true
     wait "${child_pids[@]}" 2>/dev/null || true
   fi
+  if [[ -n "$startup_dir" ]]; then rm -rf "$startup_dir"; fi
 }
 trap shutdown TERM INT EXIT
+
+# This listener uses only Python's standard library: unlike starting Uvicorn
+# early, it binds before heavy application/configuration imports on a cold VM.
+# It exposes no operational API until all existing production checks pass.
+if [[ "${1:-}" != "--check" ]]; then
+  startup_dir="$(mktemp -d /tmp/corral-startup.XXXXXX)"
+  "$python_bin" scripts/startup_gateway.py --host "$api_host" --port "$port" \
+    --upstream-port "$internal_api_port" --ready-file "$startup_dir/ready" \
+    --listening-file "$startup_dir/listening" &
+  gateway_pid=$!
+  child_pids+=("$gateway_pid")
+  for attempt in {1..100}; do
+    kill -0 "$gateway_pid" 2>/dev/null || { echo "[startup] public listener exited" >&2; exit 1; }
+    if [[ -s "$startup_dir/listening" ]]; then break; fi
+    sleep 0.1
+  done
+  test -s "$startup_dir/listening" || { echo "[startup] public listener did not bind" >&2; exit 1; }
+fi
+
+echo "[startup] validating production configuration"
+"$python_bin" -m lead_agent.production_check
+
+echo "[startup] checking built frontend"
+test -s frontend/dist/index.html
 
 if [[ "$REDIS_DEPLOYMENT_MODE" == "local_vm" ]]; then
   echo "[startup] local Redis: queue/cache data is not durable across VM replacement or redeploy"
@@ -86,15 +111,15 @@ if [[ "$REDIS_DEPLOYMENT_MODE" == "local_vm" ]]; then
   redis-cli -h 127.0.0.1 -p 6380 ping >/dev/null
 fi
 
-# Bind the public port before slow remote-provider probes. Production settings
-# have already passed validation and the API validates them again on import.
+# Load the private API while remote-provider probes run. The public listener
+# already serves the honest startup page, without claiming API readiness.
 # Any failed probe still exits this runner and stops all supervised children.
 # Workers must not consume live jobs until the probes below have passed.
 if [[ "${1:-}" != "--check" ]]; then
-  echo "[startup] starting API on ${api_host}:${port}"
+  echo "[startup] starting private API on 127.0.0.1:${internal_api_port}"
   "$python_bin" -m uvicorn lead_agent.api.main:app \
-    --host "$api_host" \
-    --port "$port" \
+    --host 127.0.0.1 \
+    --port "$internal_api_port" \
     --no-access-log \
     --proxy-headers \
     --forwarded-allow-ips "$forwarded_allow_ips" &
@@ -179,6 +204,9 @@ flock --no-fork -n "$beat_lock_file" \
     --schedule "$beat_schedule_file" \
     --pidfile="${CELERY_BEAT_PID_FILE:-/tmp/lead-agent-celerybeat.pid}" &
 child_pids+=("$!")
+
+touch "$startup_dir/ready"
+echo "[startup] dependency checks passed; gateway will switch when the API is live"
 
 exit_code=0
 wait -n "${child_pids[@]}" || exit_code=$?

@@ -952,16 +952,13 @@ def _persist_validation(
         )
     session.commit()
     session.refresh(row)
-    # CRM connections opt into inbound synchronization automatically after
-    # verification. Mailboxes are different: a newly verified mailbox must
-    # not silently inherit or create a scheduler checkpoint. Gmail/Outlook
-    # users explicitly enable inbound sync from the integration card; a
-    # same-mailbox reconnect is still rebound above when an existing state is
-    # present.
+    # Verified Gmail and CRM sources acquire new records automatically.
+    # A new mailbox starts from its OWN verification history checkpoint, never
+    # a different mailbox's history. Explicitly paused states stay paused.
     if (
         validation.verified
         and row.is_active
-        and row.provider_type in {"salesforce", "hubspot"}
+        and row.provider_type in {"salesforce", "hubspot", "gmail"}
     ):
         object_type = {
             "gmail": "message",
@@ -981,6 +978,7 @@ def _persist_validation(
         if existing_state is None:
             from lead_agent.application.crm_inbound import configure_inbound_sync
 
+            history_id = validation.metadata.get("history_id")
             configure_inbound_sync(
                 session,
                 row,
@@ -988,6 +986,10 @@ def _persist_validation(
                 object_type=object_type,
                 interval_seconds=60,
                 actor_id=actor_id,
+                initial_cursor=(
+                    {"history_id": str(history_id)}
+                    if row.provider_type == "gmail" and history_id else None
+                ),
             )
     return row, validation
 

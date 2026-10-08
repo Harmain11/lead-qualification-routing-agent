@@ -86,7 +86,7 @@ def _state(
         object_type=object_type,
         enabled=False,
         initial_import_completed=False,
-        sync_interval_seconds=300,
+        sync_interval_seconds=60,
         next_sync_at=None,
         status="disabled",
         records_processed=0,
@@ -118,8 +118,9 @@ def configure_inbound_sync(
     *,
     enabled: bool,
     object_type: str = "Lead",
-    interval_seconds: int = 300,
+    interval_seconds: int = 60,
     actor_id: str,
+    initial_cursor: InboundCursor | None = None,
 ) -> CrmInboundSyncStateORM:
     """Deliberately enable or disable scheduled inbound acquisition."""
 
@@ -129,6 +130,11 @@ def configure_inbound_sync(
         raise ValueError("provider connection is inactive or unavailable")
     interval = max(60, min(interval_seconds, 86_400))
     state = _state(session, connection, object_type)
+    if initial_cursor is not None:
+        if state.last_successful_cursor or state.records_processed:
+            raise ValueError("an existing synchronization checkpoint cannot be replaced")
+        state.last_successful_cursor = dict(initial_cursor)
+        state.initial_import_completed = True
     now = datetime.now(UTC)
     state.enabled = enabled
     state.sync_interval_seconds = interval
@@ -183,6 +189,32 @@ def list_due_inbound_sync_states(
     )
 
 
+def upgrade_default_mail_sync_intervals(session: Session, *, now: datetime | None = None) -> int:
+    """Upgrade the old five-minute default without unpausing or resetting mail."""
+    now = now or datetime.now(UTC)
+    states = list(session.scalars(
+        select(CrmInboundSyncStateORM)
+        .join(ProviderConnectionORM,
+              ProviderConnectionORM.id == CrmInboundSyncStateORM.connection_id)
+        .where(
+            CrmInboundSyncStateORM.provider.in_({"gmail", "outlook"}),
+            CrmInboundSyncStateORM.enabled.is_(True),
+            CrmInboundSyncStateORM.sync_interval_seconds == 300,
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+    ))
+    for state in states:
+        state.sync_interval_seconds = 60
+        # A running sync still owns its lease. Do not discard its checkpoint.
+        if state.status != "running":
+            state.next_sync_at = now
+        state.updated_at = now
+    if states:
+        session.commit()
+    return len(states)
+
+
 def claim_due_inbound_sync_states(
     session: Session,
     *,
@@ -192,6 +224,7 @@ def claim_due_inbound_sync_states(
     """Claim bounded due work by advancing its next-dispatch time atomically."""
 
     claimed_at = now or datetime.now(UTC)
+    upgrade_default_mail_sync_intervals(session, now=claimed_at)
     rows = list(
         session.scalars(
             select(CrmInboundSyncStateORM)

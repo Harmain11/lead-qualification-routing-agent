@@ -91,6 +91,7 @@ try {
     window.__routing = {default_connection_id: null, rules: []};
     window.__slackConfigured = false;
     window.__routingSaves = [];
+    window.__dashboardFetches = 0;
     // Exercise embedded browsers without secure-context randomUUID support.
     Object.defineProperty(crypto, "randomUUID", {value: undefined, configurable: true});
     const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
@@ -105,6 +106,14 @@ try {
     const json = (value) => new Response(JSON.stringify(value), {headers: {"Content-Type": "application/json"}});
     window.fetch = async (input, init) => {
       const path = new URL(typeof input === "string" ? input : input.url, location.origin).pathname;
+      if (path === "/v1/analytics/dashboard") window.__dashboardFetches++;
+      if (path === "/v1/leads"
+        && new URL(typeof input === "string" ? input : input.url, location.origin).searchParams.get("limit") === "1") {
+        const response = await originalFetch(input, init);
+        const body = await response.clone().json();
+        window.__latestLeadSignature = JSON.stringify([body.total, body.items[0] ?? null]);
+        return response;
+      }
       if (path === "/v1/integrations/slack/notification-config") {
         if (init?.method === "PUT") {
           const request = JSON.parse(init.body);
@@ -186,6 +195,16 @@ try {
     await pause(150);
   }
   await wait(`document.querySelector(".dashboard-view") !== null`);
+  if (process.argv.includes("--refresh-only")) {
+    await wait(`window.__latestLeadSignature !== undefined && window.__dashboardFetches > 0`);
+    const signatureBefore = await evaluate(`window.__latestLeadSignature`);
+    const requestsBefore = await evaluate(`window.__dashboardFetches`);
+    await evaluate(`window.__realDateNow = Date.now; Date.now = () => window.__realDateNow() + 31000`);
+    await wait(`window.__dashboardFetches > ${requestsBefore}`);
+    assert.equal(await evaluate(`window.__latestLeadSignature`), signatureBefore,
+      "Refresh test requires an unchanged lead count and newest lead.");
+    await evaluate(`Date.now = window.__realDateNow`);
+  }
   assert(await evaluate(`!document.querySelector(".intelligence-network")
     && document.querySelector(".data-panel h2") !== null`), "The obsolete topology card remains or the real dashboard panels are missing.");
   assert(await evaluate(`(() => {
@@ -214,9 +233,11 @@ try {
   insightsShot = await cdp("Page.captureScreenshot", {format: "png"});
   await writeFile("/tmp/corral-dashboard-insights-mobile.png", Buffer.from(insightsShot.data, "base64"));
   await cdp("Emulation.setDeviceMetricsOverride", {width: 1280, height: 900, deviceScaleFactor: 1, mobile: false});
-  if (process.argv.includes("--insights-only")) {
+  if (process.argv.includes("--insights-only") || process.argv.includes("--refresh-only")) {
     assert.deepEqual(errors, []);
-    console.log("Dashboard insight snapshots and phone layout checks passed.");
+    console.log(process.argv.includes("--refresh-only")
+      ? "Automatic dashboard refresh passed with an unchanged lead count/newest lead; phone layout passed."
+      : "Dashboard insight snapshots and phone layout checks passed.");
   } else {
   await evaluate(`document.querySelector(".workspace-trigger").click()`);
   await wait(`document.querySelector(".workspace-chooser[open]") !== null`);
