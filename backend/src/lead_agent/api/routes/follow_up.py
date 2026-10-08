@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
@@ -78,10 +78,31 @@ def get_follow_up(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            LeadFollowUpEmailORM.kind == "ai_follow_up",
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
+        .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
     )
     return _response(row)
+
+
+@router.get("/{lead_id}/follow-up/history")
+def get_follow_up_history(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> list[dict[str, object]]:
+    _lead(session, lead_id, workspace.workspace_id)
+    rows = session.scalars(
+        select(LeadFollowUpEmailORM)
+        .where(
+            LeadFollowUpEmailORM.lead_id == lead_id,
+            LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
+        )
+        .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
+        .limit(100)
+    ).all()
+    return [response for row in rows if (response := _response(row)) is not None]
 
 
 @router.post("/{lead_id}/follow-up/draft")
@@ -112,7 +133,7 @@ def update_follow_up_draft(
             LeadFollowUpEmailORM.id == draft_id,
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            LeadFollowUpEmailORM.kind == "ai_follow_up",
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
     )
     if row is None:
@@ -140,7 +161,7 @@ def approve_and_send_follow_up(
             LeadFollowUpEmailORM.id == draft_id,
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            LeadFollowUpEmailORM.kind == "ai_follow_up",
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
     )
     if row is None:

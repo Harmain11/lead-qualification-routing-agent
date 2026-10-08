@@ -99,7 +99,7 @@ def _lead(workspace_id, *, manual_review: bool = False, disqualified: bool = Fal
     return lead
 
 
-def test_template_draft_is_grounded_and_persisted(tmp_path, monkeypatch) -> None:
+def test_draft_requires_ai_instead_of_silent_template_fallback(tmp_path, monkeypatch) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'follow-up.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -112,17 +112,13 @@ def test_template_draft_is_grounded_and_persisted(tmp_path, monkeypatch) -> None
             "lead_agent.application.follow_up.resolve_workspace_reasoning_provider",
             lambda *_args: object(),
         )
-        row = generate_follow_up_draft(session, lead, actor_id="qa-user")
-        assert row.kind == "ai_follow_up"
-        assert row.status == "draft"
-        assert row.generation_method == "template"
-        assert "Northstar Labs" in row.body
-        assert row.approved_at is None
-        assert session.query(LeadFollowUpEmailORM).filter_by(lead_id=lead.id).count() == 1
+        with pytest.raises(FollowUpNotEligible, match="Connect and verify OpenAI"):
+            generate_follow_up_draft(session, lead, actor_id="qa-user")
+        assert session.query(LeadFollowUpEmailORM).filter_by(lead_id=lead.id).count() == 0
     engine.dispose()
 
 
-def test_manual_workspace_follow_up_sample_is_personalized_for_lead(tmp_path) -> None:
+def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, monkeypatch) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'workspace-email-sample.db'}")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -137,13 +133,35 @@ def test_manual_workspace_follow_up_sample_is_personalized_for_lead(tmp_path) ->
             generation_method="manual", updated_by="qa-user", updated_at=datetime.now(UTC),
         ))
         session.commit()
+        facts_seen = []
+        def ai_draft(facts):
+            facts_seen.append(facts)
+            return FollowUpEmailContent(
+                subject="A fresh next step for Northstar Labs",
+                body="Hi Riley, let's explore your lead workflow automation requirements.",
+                rationale="Grounded in the original inquiry.",
+            )
+        monkeypatch.setattr(
+            "lead_agent.application.follow_up.resolve_workspace_reasoning_provider",
+            lambda *_args: SimpleNamespace(draft_follow_up=ai_draft),
+        )
 
         row = generate_follow_up_draft(session, lead, actor_id="qa-user")
 
-        assert row.subject == "Hello Riley at Northstar Labs"
-        assert row.body == "Hi Riley, can we discuss lead workflow automation?"
-        assert row.generation_method == "template"
+        assert row.subject == "A fresh next step for Northstar Labs"
+        assert row.generation_method == "openai"
+        assert facts_seen[0]["workspace_email_template"]["subject"] == "Hello {{lead_name}} at {{company_name}}"
         assert row.status == "draft"
+        original_id = row.id
+        row.status = "sent"
+        row.sent_at = datetime.now(UTC)
+        session.commit()
+        next_draft = generate_follow_up_draft(session, lead, actor_id="qa-user")
+        assert next_draft.id != original_id
+        assert next_draft.status == "draft"
+        assert len(next_draft.kind) <= 32
+        assert session.get(LeadFollowUpEmailORM, original_id).status == "sent"
+        assert session.query(LeadFollowUpEmailORM).filter_by(lead_id=lead.id).count() == 2
     engine.dispose()
 
 
@@ -183,7 +201,11 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
     session.commit()
     monkeypatch.setattr(
         "lead_agent.application.follow_up.resolve_workspace_reasoning_provider",
-        lambda *_args: object(),
+        lambda *_args: SimpleNamespace(draft_follow_up=lambda facts: FollowUpEmailContent(
+            subject=f"A next step for {facts['company']}",
+            body=f"Hi {facts['lead_name']}, let's discuss {facts['requested_product_or_service']}.",
+            rationale="Grounded in the lead inquiry.",
+        )),
     )
     draft = generate_follow_up_draft(session, lead, actor_id="qa-user")
     connection = ProviderConnectionORM(

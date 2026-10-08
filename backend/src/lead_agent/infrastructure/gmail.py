@@ -31,12 +31,24 @@ _AUTO_LOCAL = re.compile(
     r"(?:^|[+._-])(no.?reply|do.?not.?reply|mailer-daemon|postmaster)(?:$|[+._-])", re.I
 )
 _INQUIRY = re.compile(
-    r"\b(contact|interested|inquiry|enquir|looking for|need|quote|pricing|price|demo|call|meeting|"
-    r"proposal|evaluate|help us|reach out|reply|follow up)\b",
-    re.I,
+    r"\b(?:quote|quotation|pricing|demo|proposal|consultation)\s+(?:request|inquiry|enquiry)\b|"
+    r"\b(?:request(?:ing)?|need|want|would like|please (?:send|share|provide)|"
+    r"(?:can|could|would) you (?:please )?(?:send|share|provide))\b"
+    r".{0,100}\b(?:quote|quotation|pricing|price|demo|proposal|consultation)\b|"
+    r"\b(?:can|could) (?:we|i) (?:please )?(?:schedule|book|see|get|request)"
+    r".{0,60}\b(?:demo|consultation|quote|proposal)\b",
+    re.I | re.S,
 )
 _BUSINESS = re.compile(
-    r"\b(company|business|team|organization|enterprise|agency|startup|project|service|solution|budget|implementation|software|vendor|client)\b",
+    r"\b(?:services?|solutions?|software|platform|product|automation|implementation|"
+    r"consulting|website|vendor|agency|budget|business|project)\b",
+    re.I,
+)
+_BUYER_INTENT = re.compile(
+    r"\b(?:(?:i|we)\s+(?:am |are |would |'d )?(?:interested in|looking for|"
+    r"need|want|require|like to)|(?:looking|searching) for|"
+    r"(?:can|could) you (?:please )?(?:help us|help me|build|develop|implement))\b"
+    r"[^.!?\n]{0,180}",
     re.I,
 )
 _EXCLUDED_SUBJECT = re.compile(
@@ -354,12 +366,34 @@ class GmailConnectionValidator:
         )
 
 
+def _authored_email_text(text: str) -> str:
+    """Exclude quoted/forwarded content and common signatures from new-lead intent."""
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if (
+            stripped.startswith(">")
+            or re.match(r"(?i)^on .{0,200}wrote:$", stripped)
+            or re.match(r"(?i)^-{2,}\s*(?:original|forwarded) message", stripped)
+            or re.match(r"(?i)^begin forwarded message:", stripped)
+            or stripped == "--"
+        ):
+            break
+        lines.append(line)
+    return "\n".join(lines)[:8000]
+
+
 def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) -> str | None:
     sender_name, sender_email = parseaddr(headers.get("from", ""))
     sender_email = sender_email.strip().lower()
     subject = headers.get("subject", "")
     reply_to = parseaddr(headers.get("reply-to", ""))[1].strip().lower()
-    text = f"{subject} {snippet}"
+    authored = _authored_email_text(snippet)
+    is_reply = bool(headers.get("in-reply-to")) or bool(
+        re.match(r"(?i)^\s*(?:re|fw|fwd)\s*:", subject)
+    )
+    # A reply's old subject is not evidence of a new buying inquiry.
+    text = authored if is_reply else f"{subject}\n{authored}"
     if (
         not sender_email
         or sender_email == mailbox_email.strip().lower()
@@ -371,9 +405,18 @@ def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) 
         word in sender_email for word in ("notifications@", "notify@", "updates@", "alerts@")
     ):
         return "automated_sender"
+    if headers.get("auto-submitted", "no").strip().lower() not in {"", "no"}:
+        return "automated_sender"
+    if (
+        headers.get("list-id")
+        or headers.get("list-unsubscribe")
+        or headers.get("precedence", "").strip().lower() in {"bulk", "list", "junk"}
+    ):
+        return "bulk_or_transactional"
     if _EXCLUDED_SUBJECT.search(subject) or "unsubscribe" in text.lower():
         return "bulk_or_transactional"
-    if not (_INQUIRY.search(text) or _BUSINESS.search(text)):
+    buyer_clauses = _BUYER_INTENT.finditer(text)
+    if not (_INQUIRY.search(text) or any(_BUSINESS.search(match.group()) for match in buyer_clauses)):
         return "no_inquiry_signal"
     return None
 
@@ -437,7 +480,7 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
     if not content and html:
         parser = _TextHTML()
         parser.feed("\n".join(html))
-        content = " ".join(" ".join(parser.parts).split())
+        content = re.sub(r"[ \t]+", " ", " ".join(parser.parts)).strip()
     return content[:_MAX_BODY_CHARS]
 
 
@@ -632,7 +675,10 @@ class GmailInboundProvider:
         data = self.api.get(
             f"messages/{record_id}",
             format="metadata",
-            metadataHeaders=["From", "Reply-To", "Subject", "Date"],
+            metadataHeaders=[
+                "From", "Reply-To", "Subject", "Date", "Auto-Submitted",
+                "Precedence", "List-Id", "List-Unsubscribe", "In-Reply-To",
+            ],
             fields="id,threadId,labelIds,internalDate,snippet,payload(headers)",
         )
         headers = {
@@ -649,7 +695,7 @@ class GmailInboundProvider:
                 values={"skip_reason": "system_or_own_message"},
             )
         reason = candidate_reason(headers, str(data.get("snippet", "")), self.mailbox_email)
-        if reason:
+        if reason and reason != "no_inquiry_signal":
             return ExternalCrmRecord(
                 provider="gmail",
                 object_type="message",
@@ -670,12 +716,24 @@ class GmailInboundProvider:
         body = parse_mime_body(payload)
         if not body:
             body = str(data.get("snippet", ""))[:_MAX_BODY_CHARS]
+        merged_headers = {**headers, **full_headers}
+        reason = candidate_reason(merged_headers, body, self.mailbox_email)
+        if reason:
+            return ExternalCrmRecord(
+                provider="gmail",
+                object_type="message",
+                record_id=record_id,
+                values={
+                    "skip_reason": reason,
+                    "thread_id": str(full.get("threadId") or data.get("threadId", "")),
+                },
+            )
         return ExternalCrmRecord(
             provider="gmail",
             object_type="message",
             record_id=record_id,
             values={
-                "headers": full_headers or headers,
+                "headers": merged_headers,
                 "thread_id": str(full.get("threadId") or data.get("threadId", "")),
                 "body": body,
                 "snippet": str(data.get("snippet", ""))[:1000],
@@ -716,7 +774,7 @@ class GmailInboundProvider:
             .replace(".", " ")
             .title()
         )
-        content = f"Subject: {subject}\n\n{body}"[:_MAX_BODY_CHARS]
+        content = f"Subject: {subject}\n\n{_authored_email_text(body)}"[:_MAX_BODY_CHARS]
         payload = {
             "source": "email",
             "source_detail": "Gmail",

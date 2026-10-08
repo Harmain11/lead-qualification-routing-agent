@@ -119,6 +119,51 @@ try {
   }
   await click("button", "Integrations");
   await wait(`document.querySelector(".provider-salesforce") !== null`);
+  // Regression: every provider starts with the same compact dimensions.
+  const cardHeights = () => evaluate(`[...document.querySelectorAll(".integration-card")].map(card => ({
+    provider: card.className, height: card.getBoundingClientRect().height,
+    expanded: card.querySelector(".provider-collapse-toggle").getAttribute("aria-expanded"),
+    hidden: card.querySelector(".provider-details").hidden
+  }))`);
+  const desktopCards = await cardHeights();
+  assert(desktopCards.length >= 2);
+  assert(desktopCards.every(card => card.expanded === "false" && card.hidden));
+  assert(desktopCards.every(card => Math.abs(card.height - desktopCards[0].height) < 1),
+    "Collapsed desktop cards must have the same height.");
+  const compactDesktop = await cdp("Page.captureScreenshot", { format: "png" });
+  await writeFile("/tmp/corral-integration-cards-desktop.png", Buffer.from(compactDesktop.data, "base64"));
+  const togglePosition = await evaluate(`(() => {
+    const button = document.querySelector(".provider-salesforce .provider-collapse-toggle");
+    button.scrollIntoView({block: "center"});
+    const rect = button.getBoundingClientRect();
+    return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2};
+  })()`);
+  await cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...togglePosition, button: "left", clickCount: 1 });
+  await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...togglePosition, button: "left", clickCount: 1 });
+  await wait(`document.querySelector(".provider-salesforce .provider-collapse-toggle").getAttribute("aria-expanded") === "true"`);
+  assert(await evaluate(`!document.querySelector(".provider-salesforce .provider-details").hidden`));
+  assert((await cardHeights()).filter(card => !card.provider.includes("provider-salesforce"))
+    .every(card => Math.abs(card.height - desktopCards[0].height) < 1),
+    "Opening one provider must not stretch compact neighbors.");
+  const expandedDesktop = await cdp("Page.captureScreenshot", { format: "png" });
+  await writeFile("/tmp/corral-integration-cards-expanded.png", Buffer.from(expandedDesktop.data, "base64"));
+  await click(".provider-collapse-toggle", "−");
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width: 390, height: 844, deviceScaleFactor: 1, mobile: true,
+  });
+  await pause(200);
+  const mobileCards = await cardHeights();
+  assert(mobileCards.every(card => Math.abs(card.height - mobileCards[0].height) < 1),
+    "Collapsed phone cards must have the same height.");
+  assert(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`),
+    "Phone layout must not overflow horizontally.");
+  const compactMobile = await cdp("Page.captureScreenshot", { format: "png" });
+  await writeFile("/tmp/corral-integration-cards-mobile.png", Buffer.from(compactMobile.data, "base64"));
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+  });
+  // Existing provider-flow checks must use visible, expanded controls.
+  await evaluate(`document.querySelectorAll('.provider-collapse-toggle[aria-expanded="false"]').forEach(button => button.click())`);
   const salesforceButton = () => evaluate(`(() => {
     const button = [...document.querySelectorAll(".provider-salesforce .card-actions button")]
       .find(item => ["Connect", "Reconnect"].includes(item.textContent.trim()));

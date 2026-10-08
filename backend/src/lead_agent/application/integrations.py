@@ -900,6 +900,15 @@ def _persist_validation(
                     else validation.metadata.get("calendly_user_uri")
                 )
             if isinstance(verified_mailbox, str) and verified_mailbox.strip():
+                session.execute(
+                    update(ProviderConnectionORM)
+                    .where(
+                        ProviderConnectionORM.workspace_id == row.workspace_id,
+                        ProviderConnectionORM.provider_type == row.provider_type,
+                        ProviderConnectionORM.id != row.id,
+                    )
+                    .values(is_active=False)
+                )
                 if row.provider_type == "gmail":
                     _rebind_gmail_mailbox_state(session, row, verified_mailbox, now)
                 elif row.provider_type == "outlook":

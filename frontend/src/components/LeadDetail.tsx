@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadFollowUp, getLeadMomentum, getLeadPipelineHistory, listIntegrations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
+import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, FollowUpEmail, Lead, LeadMomentum } from "../types";
 import { LeadMeetingPanel } from "./LeadMeetingPanel";
 
@@ -207,6 +207,7 @@ function LeadProgressEditor({
 
 function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
   const [draft, setDraft] = useState<FollowUpEmail | null>(null);
+  const [history, setHistory] = useState<FollowUpEmail[]>([]);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -217,6 +218,9 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
       if (controller.signal.aborted) return;
       setDraft(value); setSubject(value?.subject || ""); setBody(value?.body || "");
     }).catch((error) => { if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Unable to load follow-up draft"); });
+    getLeadFollowUpHistory(lead.id, controller.signal).then((value) => {
+      if (!controller.signal.aborted) setHistory(value);
+    }).catch(() => { if (!controller.signal.aborted) setNotice("Follow-up history could not be loaded."); });
     return () => controller.abort();
   }, [lead.id]);
   const dirty = Boolean(draft && (subject !== draft.subject || body !== draft.body));
@@ -232,6 +236,8 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     setBusy(true); setNotice(null);
     try {
       const result = await action(); setDraft(result); setSubject(result.subject); setBody(result.body || ""); setNotice(success);
+      try { setHistory(await getLeadFollowUpHistory(lead.id)); }
+      catch { setNotice(`${success} History could not be refreshed.`); }
     } catch (error) { setNotice(error instanceof Error ? error.message : "Follow-up action failed"); }
     finally { setBusy(false); }
   };
@@ -240,6 +246,7 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     <span className="eyebrow">AI follow-up · human approved</span><h3>Draft a personal next step</h3>
     {!draft && <><p className="story-summary">Create and edit a lead-specific follow-up here. Nothing is sent until you review it and click Send follow-up; Corral uses the connected Gmail account.</p>{blockedReason && <div className="attention-callout follow-up-blocked"><b>{disqualified ? "Outreach paused · disqualified" : "Outreach paused · review required"}</b>{blockedReason}</div>}{canEdit && <button className="secondary-button" disabled={busy || Boolean(blockedReason)} onClick={() => void run(() => generateLeadFollowUp(lead.id), "Draft created. Review and edit it, then click Send follow-up to send through connected Gmail.")}>{busy ? "Preparing draft…" : "Generate follow-up draft"}</button>}</>}
     {draft && <>
+      {draft.status === "sent" && canEdit && <button className="secondary-button" disabled={busy || Boolean(blockedReason)} onClick={() => void run(() => generateLeadFollowUp(lead.id), "Another AI draft is ready. Review and edit it before sending.")}>{busy ? "Preparing draft…" : "Draft another follow-up"}</button>}
       <div className={`follow-up-status status-${draft.status}`}><span>{statusLabel(draft.status)}</span>{draft.generation_method && <small>{draft.generation_method === "openai" ? "AI-generated · review required" : "Grounded template"}</small>}</div>
       {draft.status === "draft" ? <>
         <p className="follow-up-recipient">To <b>{draft.recipient}</b></p>
@@ -250,6 +257,7 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
         {canEdit && <div className="follow-up-actions"><button className="secondary-button" disabled={busy || !dirty || !subject.trim() || body.trim().length < 10} onClick={() => void run(() => updateLeadFollowUp(lead.id, draft.id, { subject, body }), "Draft saved.")}>{busy ? "Saving…" : "Save edits"}</button><button className="primary-button" disabled={busy || dirty || !subject.trim() || body.trim().length < 10} onClick={() => { if (window.confirm(`Send this edited email to ${draft.recipient} from the connected Gmail account?`)) void run(() => approveAndSendLeadFollowUp(lead.id, draft.id), "Follow-up sent from the connected Gmail account."); }}>Send follow-up</button></div>}
       </> : <><p className="follow-up-recipient">To <b>{draft.recipient}</b></p><p className="follow-up-status-copy">{draft.status === "sent" ? `Sent ${draft.sent_at ? new Date(draft.sent_at).toLocaleString() : "successfully"}.` : draft.error_message || "Delivery status is being checked."}</p>{draft.status === "failed" && canEdit && <button className="secondary-button" disabled={busy} onClick={() => void run(() => generateLeadFollowUp(lead.id), "A new editable draft is ready for review.")}>Create a new draft</button>}</>}
     </>}
+    {history.filter((email) => email.id !== draft?.id && email.status === "sent").length > 0 && <details className="follow-up-history"><summary>Previous sent follow-ups</summary>{history.filter((email) => email.id !== draft?.id && email.status === "sent").map((email) => <article key={email.id}><strong>{email.subject}</strong><p>Sent {email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"} · {email.recipient}</p><p style={{ whiteSpace: "pre-wrap" }}>{email.body}</p></article>)}</details>}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>;
 }

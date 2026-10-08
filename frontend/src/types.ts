@@ -672,6 +672,21 @@ export type CrmInboundSyncRun = {
 
 export type TimeRange = "weekly" | "monthly" | "annual";
 
+export type OpenAIUsagePeriod = "weekly" | "monthly" | "quarterly" | "annual";
+export type OpenAIUsage = {
+  period: OpenAIUsagePeriod;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  models: Array<{ model: string; requests: number; input_tokens: number; output_tokens: number; total_tokens: number }>;
+};
+
 export type AnalyticsMetadata = {
   generated_at: string;
   range: TimeRange;
