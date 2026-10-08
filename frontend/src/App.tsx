@@ -28,6 +28,7 @@ import { ProductTour } from "./components/ProductTour";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
+import { ContactsView } from "./views/ContactsView";
 import {
   AgentsView,
   AnalyticsView,
@@ -42,6 +43,7 @@ import type { AnalyticsBundle } from "./views/ProductViews";
 type View =
   | "dashboard"
   | "leads"
+  | "contacts"
   | "pipeline"
   | "agents"
   | "analytics"
@@ -61,6 +63,7 @@ function savedTheme(): Theme {
 const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "leads", label: "Leads" },
+  { id: "contacts", label: "Contacts" },
   { id: "pipeline", label: "Pipeline" },
   { id: "agents", label: "Agents / AI Activity" },
   { id: "analytics", label: "Analytics" },
@@ -73,6 +76,7 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
 const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   dashboard: "analytics.view",
   leads: "leads.view",
+  contacts: "leads.view",
   pipeline: "analytics.view",
   agents: "agents.view",
   analytics: "analytics.view",
@@ -99,6 +103,7 @@ function NavIcon({ id }: { id: View }) {
   switch (id) {
     case "dashboard": return <svg {...shared}><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>;
     case "leads": return <svg {...shared}><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20"/></svg>;
+    case "contacts": return <svg {...shared}><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.3"/><path d="M2.5 20v-1.3a5.5 5.5 0 0 1 11 0V20zM14.5 15a4.5 4.5 0 0 1 7 3.7V20"/></svg>;
     case "pipeline": return <svg {...shared}><path d="M4 5v5a5 5 0 0 0 5 5h9M4 19v-4a5 5 0 0 1 5-5h9M15 6l4 4-4 4"/></svg>;
     case "agents": return <svg {...shared}><path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z"/></svg>;
     case "analytics": return <svg {...shared}><path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20"/></svg>;
@@ -527,7 +532,8 @@ function App() {
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
             {view === "analytics" && <AnalyticsView key={auth?.user.id ?? "local"} data={data} userId={auth?.user.id ?? "local"} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "integrations" && <IntegrationsView permissions={workspacePermissions} />}
+            {view === "contacts" && <ContactsView onInspectLead={(id) => { handleInspectLead(id); setView("leads"); }} />}
+            {view === "integrations" && <IntegrationsView key={auth.current_workspace_id} permissions={workspacePermissions} />}
             {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} canManageEmail={can(workspacePermissions, "integrations.manage")} />}
             {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
             {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
