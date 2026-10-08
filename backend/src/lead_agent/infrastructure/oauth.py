@@ -168,7 +168,10 @@ class ProviderOAuthBroker:
             }
         )
         if provider in {"gmail", "google_calendar"}:
-            query.update({"access_type": "offline", "prompt": "consent"})
+            query.update({"access_type": "offline", "prompt": "consent select_account"})
+        elif provider == "salesforce":
+            # Require a provider login so the user can choose a different Salesforce org.
+            query["prompt"] = "login"
         return f"{config.authorize_url}?{urlencode(query)}"
 
     @staticmethod
