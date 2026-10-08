@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from importlib import import_module
 from time import perf_counter
 from typing import Any
@@ -47,7 +47,9 @@ class OpenAIReasoningProvider:
         store_responses: bool,
         organization: str | None = None,
         client: Any | None = None,
+        usage_recorder: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
+        self._usage_recorder = usage_recorder
         self._configuration_error: str | None = None
         self._initialization_error_class: str | None = None
         if not api_key or api_key.startswith("replace_with_"):
@@ -279,6 +281,10 @@ class OpenAIReasoningProvider:
             value = getattr(usage, name, None)
             return value if isinstance(value, int) and value >= 0 else None
 
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        input_tokens = safe_count("input_tokens")
+        output_tokens = safe_count("output_tokens")
+        total_tokens = safe_count("total_tokens")
         _LOGGER.info(
             "openai.analysis",
             extra={
@@ -293,10 +299,10 @@ class OpenAIReasoningProvider:
                     ),
                     "model": self.model_name,
                     "outcome": outcome,
-                    "duration_ms": round((perf_counter() - started) * 1000, 2),
-                    "input_tokens": safe_count("input_tokens"),
-                    "output_tokens": safe_count("output_tokens"),
-                    "total_tokens": safe_count("total_tokens"),
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": total_tokens,
                     "provider_status_code": safe_status_code,
                     "provider_error_code": self._error_identifier(error, "code"),
                     "provider_error_type": self._error_identifier(error, "type"),
@@ -308,6 +314,20 @@ class OpenAIReasoningProvider:
                 }
             },
         )
+        if self._usage_recorder is not None:
+            try:
+                self._usage_recorder({
+                    "operation_id": operation["operation_id"],
+                    "model": self.model_name,
+                    "outcome": outcome,
+                    "duration_ms": duration_ms,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": total_tokens,
+                    "error_category": error_category,
+                })
+            except Exception:
+                _LOGGER.warning("openai.usage_persist_failed", extra={"fields": {"operation_id": operation["operation_id"]}})
 
     @staticmethod
     def _classify_error(error: Exception) -> tuple[str, str, bool]:

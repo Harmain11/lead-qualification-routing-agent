@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
@@ -48,6 +48,7 @@ from lead_agent.infrastructure.db.models import (
     AnalysisRunORM,
     LeadORM,
     ProviderConnectionORM,
+    ProviderLifecycleAuditORM,
     WorkspaceNotificationConfigORM,
 )
 from lead_agent.infrastructure.db.session import get_db
@@ -76,6 +77,13 @@ from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/integrations", tags=["integrations"])
 _LOGGER = logging.getLogger(__name__)
+
+_OPENAI_USAGE_WINDOWS = {
+    "weekly": timedelta(days=7),
+    "monthly": timedelta(days=30),
+    "quarterly": timedelta(days=90),
+    "annual": timedelta(days=365),
+}
 
 
 class OAuthBeginRequest(BaseModel):
@@ -109,6 +117,69 @@ class OpenAIModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = Field(min_length=1, max_length=128)
+
+
+@router.get("/openai/usage")
+def get_openai_usage(
+    period: Literal["weekly", "monthly", "quarterly", "annual"] = Query(default="monthly"),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> dict[str, Any]:
+    """Return workspace-scoped OpenAI calls and token usage observed by Corral."""
+
+    window_end = datetime.now(UTC)
+    window_start = window_end - _OPENAI_USAGE_WINDOWS[period]
+    events = session.scalars(
+        select(ProviderLifecycleAuditORM)
+        .where(
+            ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
+            ProviderLifecycleAuditORM.provider == "openai",
+            ProviderLifecycleAuditORM.action == "openai_api_usage",
+            ProviderLifecycleAuditORM.created_at >= window_start,
+            ProviderLifecycleAuditORM.created_at <= window_end,
+        )
+        .order_by(ProviderLifecycleAuditORM.created_at.desc())
+    ).all()
+
+    totals = {
+        "requests": len(events),
+        "successful_requests": 0,
+        "failed_requests": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+    models: dict[str, dict[str, int]] = {}
+    for event in events:
+        is_success = event.outcome == "success"
+        totals["successful_requests" if is_success else "failed_requests"] += 1
+        details = event.details if isinstance(event.details, dict) else {}
+        model = details.get("model")
+        model_name = model[:128] if isinstance(model, str) and model else "Unknown model"
+        model_totals = models.setdefault(model_name, {
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+        })
+        model_totals["requests"] += 1
+        for field in ("input_tokens", "output_tokens", "total_tokens"):
+            value = details.get(field)
+            count = value if isinstance(value, int) and value >= 0 else 0
+            totals[field] += count
+            model_totals[field] += count
+
+    return {
+        "period": period,
+        "starts_at": window_start,
+        "ends_at": window_end,
+        "timezone": "UTC",
+        **totals,
+        "models": [
+            {"model": model, **usage}
+            for model, usage in sorted(models.items(), key=lambda item: item[1]["total_tokens"], reverse=True)
+        ],
+    }
 
 
 class SlackChannelRequest(BaseModel):
