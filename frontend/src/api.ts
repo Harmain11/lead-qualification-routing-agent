@@ -103,7 +103,7 @@ function withWorkspace(headers?: HeadersInit): Headers {
   return result;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const method = options?.method?.toUpperCase() ?? "GET";
   const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
   if (key) {

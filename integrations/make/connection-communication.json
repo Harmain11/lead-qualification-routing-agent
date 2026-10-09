@@ -1,0 +1,16 @@
+{
+  "url": "https://{{parameters.host}}/v1/intake/public/{{parameters.intake_token}}/connection",
+  "method": "GET",
+  "response": {
+    "valid": "{{statusCode === 200 && body.connected}}",
+    "metadata": {
+      "type": "text",
+      "value": "{{body.workspace_name}}"
+    }
+  },
+  "log": {
+    "sanitize": [
+      "request.url"
+    ]
+  }
+}

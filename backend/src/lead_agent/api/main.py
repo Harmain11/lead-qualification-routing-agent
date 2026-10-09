@@ -10,14 +10,19 @@ from lead_agent.api.middleware import install_request_middleware
 from lead_agent.api.routes import (
     analytics,
     auth,
+    automations,
+    collaboration,
+    contact_records,
     crm,
     crm_inbound,
     email_templates,
     follow_up,
+    governance,
     health,
     icp,
     intake,
     integrations,
+    intelligence,
     leads,
     meetings,
     routing,
@@ -67,6 +72,13 @@ app.include_router(integrations.router)
 app.include_router(analytics.router)
 app.include_router(team.router)
 app.include_router(icp.router)
+app.include_router(contact_records.router)
+
+app.include_router(governance.router)
+app.include_router(intelligence.router)
+app.include_router(automations.router)
+app.include_router(collaboration.router)
+
 
 # Production uses one public origin so browser cookies, CSRF, and OAuth callback
 # handling do not depend on a Vite development proxy. The mount is conditional so

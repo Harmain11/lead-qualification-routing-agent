@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
-  createIcpDraft,
-  getCurrentIcp,
-  getSystemDefaultIcp,
-  listIcpVersions,
-  previewIcpDraft,
-  publishIcpDraft,
-  updateIcpDraft,
-  validateIcpDraft,
+createIcpDraft,
+getCurrentIcp,
+getSystemDefaultIcp,
+listIcpVersions,
+previewIcpDraft,
+publishIcpDraft,
+updateIcpDraft,
+validateIcpDraft,
 } from "../api";
-import type { IcpConfiguration, IcpPreview, IcpValidation, IcpVersion } from "../types";
+import type { IcpConfiguration,IcpPreview,IcpValidation,IcpVersion } from "../types";
 
 const SECTIONS = [
   "Company Profile",

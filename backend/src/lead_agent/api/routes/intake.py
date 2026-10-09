@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,11 @@ from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import LeadFollowUpEmailORM, WorkspacePublicIntakeORM
+from lead_agent.infrastructure.db.models import (
+    LeadFollowUpEmailORM,
+    WorkspaceORM,
+    WorkspacePublicIntakeORM,
+)
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.intake.adapters import (
     ClutchAdapter,
@@ -46,9 +50,22 @@ from lead_agent.settings.config import Settings, get_settings
 router = APIRouter(prefix="/v1/intake", tags=["intake"])
 
 _PUBLIC_FORM_FIELDS = {
-    "source_detail", "event_id", "external_id", "full_name", "email", "phone",
-    "job_title", "company_name", "industry", "employee_count", "annual_revenue",
-    "geography", "budget", "product_or_service", "message", "received_at",
+    "source_detail",
+    "event_id",
+    "external_id",
+    "full_name",
+    "email",
+    "phone",
+    "job_title",
+    "company_name",
+    "industry",
+    "employee_count",
+    "annual_revenue",
+    "geography",
+    "budget",
+    "product_or_service",
+    "message",
+    "received_at",
 }
 
 
@@ -170,6 +187,45 @@ def _public_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
     return payload
 
 
+class IntakeConnectionResponse(BaseModel):
+    workspace_id: str
+    workspace_name: str
+    connected: bool
+
+
+def public_connection(session: Session, token: str) -> WorkspacePublicIntakeORM:
+    from lead_agent.application.governance import OutreachBlocked, assert_residency
+
+    row = session.scalar(
+        select(WorkspacePublicIntakeORM).where(WorkspacePublicIntakeORM.public_token == token)
+    )
+    workspace = session.get(WorkspaceORM, row.workspace_id) if row else None
+    if row is None or workspace is None or workspace.status != "active":
+        raise HTTPException(404, "Intake connection not found")
+    try:
+        assert_residency(session, row.workspace_id)
+    except OutreachBlocked as error:
+        raise HTTPException(403, str(error)) from error
+    return row
+
+
+@router.get(
+    "/public/{token}/connection",
+    response_model=IntakeConnectionResponse,
+    dependencies=[Depends(rate_limit_dependency("agent"))],
+)
+def check_public_connection(
+    token: str, session: Session = Depends(get_db)
+) -> IntakeConnectionResponse:
+    row = public_connection(session, token)
+    workspace = session.get(WorkspaceORM, row.workspace_id)
+    return IntakeConnectionResponse(
+        workspace_id=str(row.workspace_id),
+        workspace_name=workspace.name if workspace else "Workspace",
+        connected=True,
+    )
+
+
 @router.post(
     "/public/{token}",
     response_model=LeadResponse,
@@ -183,17 +239,12 @@ async def public_website_intake(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
 ) -> LeadResponse:
-    row = session.scalar(
-        select(WorkspacePublicIntakeORM).where(WorkspacePublicIntakeORM.public_token == token)
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="website intake endpoint not found")
+    row = public_connection(session, token)
     content_type = request.headers.get("content-type", "").lower()
     if "application/json" in content_type:
         payload = _json_payload(await request.body())
     elif (
-        "application/x-www-form-urlencoded" in content_type
-        or "multipart/form-data" in content_type
+        "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type
     ):
         form = await request.form()
         payload = {key: value for key, value in form.multi_items() if isinstance(value, str)}

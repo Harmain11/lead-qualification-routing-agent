@@ -14,7 +14,7 @@ export type TourView =
   | "analytics"
   | "settings"
   | "team"
-  | "icp";
+  | "icp" | "accounts" | "intelligence" | "automations" | "policies" | "compliance" | "agency";
 
 type ProductTourProps = {
   open: boolean;

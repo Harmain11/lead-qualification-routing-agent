@@ -19,6 +19,18 @@ _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _LOGGER = logging.getLogger("lead_agent.http")
 
 
+def redact_intake_path(path: str) -> str:
+    return re.sub(r"(/v1/intake/public/)[^/]+", r"\1[redacted]", path)
+
+
+class IntakeAccessLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) == 5:
+            address, method, path, version, status = record.args
+            record.args = (address, method, redact_intake_path(str(path)), version, status)
+        return True
+
+
 def request_id_for(value: str | None) -> str:
     return value if value and _REQUEST_ID_PATTERN.fullmatch(value) else str(uuid4())
 
@@ -36,7 +48,11 @@ def apply_security_headers(response: Response, *, production: bool) -> None:
 
 
 def install_request_middleware(app: FastAPI, settings: Settings) -> None:
-    # Kept as a helper so all response headers and request logging share one boundary.
+    # Keep metadata logging while removing capability tokens from Uvicorn access records.
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, IntakeAccessLogFilter) for item in access.filters):
+        access.addFilter(IntakeAccessLogFilter())
+
     @app.middleware("http")
     async def correlate_and_secure(
         request: Request,
@@ -46,6 +62,7 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
         request.state.request_id = request_id
         token = set_request_id(request_id)
         started = time.perf_counter()
+        safe_path = redact_intake_path(request.url.path)
         try:
             response = await call_next(request)
             apply_security_headers(response, production=settings.app_env == "production")
@@ -56,7 +73,7 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
                     "fields": {
                         "request_id": request_id,
                         "method": request.method,
-                        "path": request.url.path,
+                        "path": safe_path,
                         "status": response.status_code,
                         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                         "workspace_id": getattr(request.state, "workspace_id", None),
@@ -72,7 +89,7 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
                     "fields": {
                         "request_id": request_id,
                         "method": request.method,
-                        "path": request.url.path,
+                        "path": safe_path,
                         "error_type": type(error).__name__,
                         "error_message": str(error)[:500],
                         "duration_ms": round((time.perf_counter() - started) * 1000, 2),

@@ -129,9 +129,7 @@ def _audit(
     )
 
 
-def _editable_configuration(
-    configuration: dict[str, Any], version_number: int
-) -> dict[str, Any]:
+def _editable_configuration(configuration: dict[str, Any], version_number: int) -> dict[str, Any]:
     draft = WorkspaceIcpDraftConfig.model_validate(configuration)
     return draft.model_copy(update={"profile_version": f"workspace-v{version_number}"}).model_dump(
         mode="json"
@@ -149,6 +147,7 @@ def create_draft(
     description: str = "",
     based_on_version_id: UUID | None = None,
     configuration: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> WorkspaceIcpVersionORM:
     latest = session.scalar(
         select(func.max(WorkspaceIcpVersionORM.version_number)).where(
@@ -190,7 +189,10 @@ def create_draft(
     )
     session.add(row)
     _audit(session, workspace_id, actor_user_id, "icp.draft_created", row)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(row)
     return row
 

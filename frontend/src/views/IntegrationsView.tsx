@@ -1,32 +1,32 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect,useRef,useState } from "react";
+import type { SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
-import type { SlackChannel } from "../api";
 import { createSlackRule } from "../slackRouting";
 
 import {
-  addIntegrationCredential,
-  apiUrl,
-  beginIntegration,
-  configureInboundSync,
-  disconnectIntegration,
-  getInboundSyncState,
-  getSlackNotificationConfig,
-  listIntegrations,
-  listSlackChannelMembers,
-  listSlackChannels,
-  reconnectIntegration,
-  selectSlackChannel,
-  sendSlackTestNotification,
-  runInboundSync,
-  testIntegration,
-  updateSlackNotificationConfig,
-  updateOpenAIModel,
+addIntegrationCredential,
+apiUrl,
+beginIntegration,
+configureInboundSync,
+disconnectIntegration,
+getInboundSyncState,
+getSlackNotificationConfig,
+listIntegrations,
+listSlackChannelMembers,
+listSlackChannels,
+reconnectIntegration,
+runInboundSync,
+selectSlackChannel,
+sendSlackTestNotification,
+testIntegration,
+updateOpenAIModel,
+updateSlackNotificationConfig,
 } from "../api";
-import { can } from "../permissions";
-import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
 import { OpenAIUsagePanel } from "../components/OpenAIUsagePanel";
-import type { CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
+import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
+import { can } from "../permissions";
+import type { CrmInboundSyncState,IntegrationCard,ProviderConnection,SlackNotificationConfig,SlackNotificationRule } from "../types";
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
 type ConnectionOperation = "connect" | "reconnect" | "disconnect";

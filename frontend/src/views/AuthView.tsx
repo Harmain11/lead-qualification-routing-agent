@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { useEffect,useState } from "react";
 
-import { getPasswordSignupStatus, resendVerification, signIn, signInWithWorkspaceCode, signUp, startDevelopmentSession, startGoogleAuth } from "../api";
+import { getPasswordSignupStatus,resendVerification,signIn,signInWithWorkspaceCode,signUp,startDevelopmentSession,startGoogleAuth } from "../api";
 import type { AuthSession } from "../types";
 
 const BRAND = "/asset/brand";

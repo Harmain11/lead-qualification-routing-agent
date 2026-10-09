@@ -1,0 +1,18 @@
+[
+  {
+    "name": "host",
+    "type": "text",
+    "label": "Corral HTTPS hostname",
+    "required": true,
+    "editable": true,
+    "help": "Hostname only, such as corral.yourcompany.com. HTTPS is used."
+  },
+  {
+    "name": "intake_token",
+    "type": "password",
+    "label": "Workspace intake token",
+    "required": true,
+    "editable": true,
+    "help": "Last segment of the public intake URL in Corral Integrations."
+  }
+]

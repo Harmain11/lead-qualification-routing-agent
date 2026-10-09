@@ -54,6 +54,7 @@ celery_app.conf.update(
     broker_transport_options={"visibility_timeout": 3600},
     result_backend_transport_options={"visibility_timeout": 3600},
     beat_schedule={
+        "workspace-operations": {"task": "lead_agent.workspace_operations", "schedule": 30},
         "dispatch-due-crm-inbound-syncs": {
             "task": "lead_agent.dispatch_due_crm_inbound_syncs",
             "schedule": settings.crm_inbound_scheduler_interval_seconds,
@@ -189,9 +190,7 @@ def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
         return run.status
 
 
-@celery_app.task(
-    name="lead_agent.process_pending_meeting_email_confirmations"
-)
+@celery_app.task(name="lead_agent.process_pending_meeting_email_confirmations")
 def process_pending_meeting_email_confirmations() -> int:
     from lead_agent.application.meeting_email import (
         process_pending_meeting_confirmations,
@@ -218,11 +217,15 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         if getattr(provider, "provider_name", "") != "openai":
             return "skipped: verified workspace OpenAI provider is unavailable"
-        openai_completed = select(AnalysisRunORM.id).where(
-            AnalysisRunORM.lead_id == LeadORM.id,
-            AnalysisRunORM.provider == "openai",
-            AnalysisRunORM.status == "completed",
-        ).exists()
+        openai_completed = (
+            select(AnalysisRunORM.id)
+            .where(
+                AnalysisRunORM.lead_id == LeadORM.id,
+                AnalysisRunORM.provider == "openai",
+                AnalysisRunORM.status == "completed",
+            )
+            .exists()
+        )
         lead_ids = list(
             session.scalars(
                 select(LeadORM.id)
@@ -256,9 +259,7 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
                     else lead.annual_revenue,
                     "geography": lead.geography,
                     "budget": (
-                        float(lead.budget)
-                        if isinstance(lead.budget, Decimal)
-                        else lead.budget
+                        float(lead.budget) if isinstance(lead.budget, Decimal) else lead.budget
                     ),
                     "product_or_service": lead.product_or_service,
                     "message": lead.message,
@@ -290,3 +291,11 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
                     },
                 )
         return f"completed: {processed} processed, {failed} failed"
+
+
+@celery_app.task(name="lead_agent.workspace_operations")
+def workspace_operations():
+    from lead_agent.application.automations import poll_operations_once
+
+    with get_session_factory()() as session:
+        return poll_operations_once(session)

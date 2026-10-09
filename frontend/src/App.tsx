@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -27,14 +36,69 @@ import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
-import { IntegrationsView } from "./views/IntegrationsView";
-import { IcpView } from "./views/IcpView";
-import { TeamView } from "./views/TeamView";
-import { ContactsView } from "./views/ContactsView";
-import { PinnedLeadNavigation, usePinnedLeadSections } from "./components/PinnedLeadNavigation";
+const IntegrationsView = lazy(() =>
+  import("./views/IntegrationsView").then((module) => ({
+    default: module.IntegrationsView,
+  })),
+);
+const IcpView = lazy(() =>
+  import("./views/IcpView").then((module) => ({ default: module.IcpView })),
+);
+const TeamView = lazy(() =>
+  import("./views/TeamView").then((module) => ({ default: module.TeamView })),
+);
+const RecordsView = lazy(() =>
+  import("./views/RecordsView").then((module) => ({
+    default: module.RecordsView,
+  })),
+);
+const PoliciesView = lazy(() =>
+  import("./views/PoliciesView").then((module) => ({
+    default: module.PoliciesView,
+  })),
+);
+const ComplianceView = lazy(() =>
+  import("./views/ComplianceView").then((module) => ({
+    default: module.ComplianceView,
+  })),
+);
+const AgencyView = lazy(() =>
+  import("./views/AgencyView").then((module) => ({
+    default: module.AgencyView,
+  })),
+);
+const IntelligenceView = lazy(() =>
+  import("./views/IntelligenceView").then((module) => ({
+    default: module.IntelligenceView,
+  })),
+);
+const AutomationsView = lazy(() =>
+  import("./views/AutomationsView").then((module) => ({
+    default: module.AutomationsView,
+  })),
+);
+const AdvancedAnalyticsPanel = lazy(() =>
+  import("./components/AdvancedAnalyticsPanel").then((module) => ({
+    default: module.AdvancedAnalyticsPanel,
+  })),
+);
+import { CommandPalette } from "./components/CommandPalette";
+import { opsGet } from "./operationsApi";
+import {
+  PinnedLeadNavigation,
+  usePinnedLeadSections,
+} from "./components/PinnedLeadNavigation";
 import { NavigationMenuItem } from "./components/NavigationMenuItem";
-import { navigationSections, pageFromSearch, sectionFromSearch } from "./appNavigation";
-import { leadSectionHref, parseLeadSection, type LeadDetailSection } from "./leadSections";
+import {
+  navigationSections,
+  pageFromSearch,
+  sectionFromSearch,
+} from "./appNavigation";
+import {
+  leadSectionHref,
+  parseLeadSection,
+  type LeadDetailSection,
+} from "./leadSections";
 import {
   AgentsView,
   AnalyticsView,
@@ -56,26 +120,43 @@ type View =
   | "integrations"
   | "team"
   | "review"
-  | "settings";
-  // Team administration is opened from Settings and keeps the primary rail calm.
+  | "settings"
+  | "accounts"
+  | "intelligence"
+  | "automations"
+  | "policies"
+  | "compliance"
+  | "agency";
+// Team administration is opened from Settings and keeps the primary rail calm.
 type AppView = View | "icp";
 type Theme = "light" | "dark";
 
 function savedTheme(): Theme {
-  try { return window.localStorage.getItem("corral-theme") === "dark" ? "dark" : "light"; }
-  catch { return "light"; }
+  try {
+    return window.localStorage.getItem("corral-theme") === "dark"
+      ? "dark"
+      : "light";
+  } catch {
+    return "light";
+  }
 }
 
 const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "dashboard", label: "Dashboard" },
   { id: "leads", label: "Leads" },
   { id: "contacts", label: "Contacts" },
+  { id: "accounts", label: "Companies" },
   { id: "pipeline", label: "Pipeline" },
   { id: "agents", label: "Agents / AI Activity" },
+  { id: "intelligence", label: "Research & Coaching" },
+  { id: "automations", label: "Sequences & Playbooks" },
   { id: "analytics", label: "Analytics" },
   { id: "review", label: "Manual Review", group: "Control" },
   { id: "integrations", label: "Integrations" },
   { id: "team", label: "Users" },
+  { id: "policies", label: "Territories & Capacity" },
+  { id: "compliance", label: "Consent & Governance" },
+  { id: "agency", label: "Agency & Branding" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -83,6 +164,12 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   dashboard: "analytics.view",
   leads: "leads.view",
   contacts: "leads.view",
+  accounts: "leads.view",
+  intelligence: "agents.view",
+  automations: "agents.view",
+  policies: "routing.view",
+  compliance: "workspace.manage",
+  agency: "analytics.view",
   pipeline: "analytics.view",
   agents: "agents.view",
   analytics: "analytics.view",
@@ -91,40 +178,124 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
 };
 
 function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
-  const permission = view === "team"
-    ? "members.view"
-    : view === "icp"
-      ? "icp.view"
-      : VIEW_PERMISSIONS[view as View];
+  const permission =
+    view === "team"
+      ? "members.view"
+      : view === "icp"
+        ? "icp.view"
+        : VIEW_PERMISSIONS[view as View];
   return !permission || can(permissions, permission);
 }
 
-function permissionsForWorkspace(session: AuthSession | null, workspaceId?: string) {
+function permissionsForWorkspace(
+  session: AuthSession | null,
+  workspaceId?: string,
+) {
   const workspace = session?.workspaces.find((item) => item.id === workspaceId);
   return new Set(workspace?.effective_permissions ?? []);
 }
 
 function NavIcon({ id }: { id: View }) {
-  const shared = { viewBox: "0 0 24 24", width: 19, height: 19, fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
+  const shared = {
+    viewBox: "0 0 24 24",
+    width: 19,
+    height: 19,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+  };
   switch (id) {
-    case "dashboard": return <svg {...shared}><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>;
-    case "leads": return <svg {...shared}><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20"/></svg>;
-    case "contacts": return <svg {...shared}><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.3"/><path d="M2.5 20v-1.3a5.5 5.5 0 0 1 11 0V20zM14.5 15a4.5 4.5 0 0 1 7 3.7V20"/></svg>;
-    case "pipeline": return <svg {...shared}><path d="M4 5v5a5 5 0 0 0 5 5h9M4 19v-4a5 5 0 0 1 5-5h9M15 6l4 4-4 4"/></svg>;
-    case "agents": return <svg {...shared}><path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z"/></svg>;
-    case "analytics": return <svg {...shared}><path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20"/></svg>;
-    case "review": return <svg {...shared}><path d="M4 4h16v11l-3 5H7l-3-5zM4 15h5l1.5 2h3L15 15h5M9 9l2 2 4-4"/></svg>;
-    case "integrations": return <svg {...shared}><path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5"/></svg>;
-    case "team": return <svg {...shared}><circle cx="9" cy="8" r="3"/><path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20"/></svg>;
-    case "settings": return <svg {...shared}><path d="M12 3l1.4 1.5 2-.2.8 1.8 2 .5v2l1.6 1.2-1 1.8 1 1.8-1.6 1.2v2l-2 .5-.8 1.8-2-.2L12 21l-1.4-1.5-2 .2-.8-1.8-2-.5v-2L4.2 14l1-1.8-1-1.8L5.8 9v-2l2-.5.8-1.8 2 .2z"/><circle cx="12" cy="12" r="3"/></svg>;
+    case "dashboard":
+      return (
+        <svg {...shared}>
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+      );
+    case "leads":
+      return (
+        <svg {...shared}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20" />
+        </svg>
+      );
+    case "contacts":
+      return (
+        <svg {...shared}>
+          <circle cx="8" cy="8" r="3" />
+          <circle cx="17" cy="9" r="2.3" />
+          <path d="M2.5 20v-1.3a5.5 5.5 0 0 1 11 0V20zM14.5 15a4.5 4.5 0 0 1 7 3.7V20" />
+        </svg>
+      );
+    case "pipeline":
+      return (
+        <svg {...shared}>
+          <path d="M4 5v5a5 5 0 0 0 5 5h9M4 19v-4a5 5 0 0 1 5-5h9M15 6l4 4-4 4" />
+        </svg>
+      );
+    case "agents":
+      return (
+        <svg {...shared}>
+          <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z" />
+        </svg>
+      );
+    case "analytics":
+      return (
+        <svg {...shared}>
+          <path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20" />
+        </svg>
+      );
+    case "review":
+      return (
+        <svg {...shared}>
+          <path d="M4 4h16v11l-3 5H7l-3-5zM4 15h5l1.5 2h3L15 15h5M9 9l2 2 4-4" />
+        </svg>
+      );
+    case "integrations":
+      return (
+        <svg {...shared}>
+          <path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5" />
+        </svg>
+      );
+    case "team":
+      return (
+        <svg {...shared}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...shared}>
+          <path d="M12 3l1.4 1.5 2-.2.8 1.8 2 .5v2l1.6 1.2-1 1.8 1 1.8-1.6 1.2v2l-2 .5-.8 1.8-2-.2L12 21l-1.4-1.5-2 .2-.8-1.8-2-.5v-2L4.2 14l1-1.8-1-1.8L5.8 9v-2l2-.5.8-1.8 2 .2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
   }
 }
 
 function App() {
+  const [branding, setBranding] = useState<{
+    name: string | null;
+    logo_url: string | null;
+    accent: string;
+  }>({ name: null, logo_url: null, accent: "#1e6b52" });
   const [auth, setAuth] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState<AppView>(() => pageFromSearch(window.location.search));
-  const [pageSection, setPageSection] = useState(() => sectionFromSearch(window.location.search, pageFromSearch(window.location.search)));
+  const [view, setView] = useState<AppView>(() =>
+    pageFromSearch(window.location.search),
+  );
+  const [pageSection, setPageSection] = useState(() =>
+    sectionFromSearch(
+      window.location.search,
+      pageFromSearch(window.location.search),
+    ),
+  );
   const [range, setRange] = useState<TimeRange>(() => {
     const saved = new URLSearchParams(window.location.search).get("range");
     return saved === "weekly" || saved === "annual" ? saved : "monthly";
@@ -133,15 +304,27 @@ function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadRevision, setLeadRevision] = useState(0);
   const [tourOpen, setTourOpen] = useState(false);
-  const [openaiSetupCard, setOpenaiSetupCard] = useState<IntegrationCard | null>(null);
+  const [openaiSetupCard, setOpenaiSetupCard] =
+    useState<IntegrationCard | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [leadSection, setLeadSection] = useState<LeadDetailSection>(() => parseLeadSection(new URLSearchParams(window.location.search).get("lead_tab")));
-  const pinnedSections = usePinnedLeadSections(auth?.user.id, auth?.current_workspace_id);
+  const [leadSection, setLeadSection] = useState<LeadDetailSection>(() =>
+    parseLeadSection(
+      new URLSearchParams(window.location.search).get("lead_tab"),
+    ),
+  );
+  const pinnedSections = usePinnedLeadSections(
+    auth?.user.id,
+    auth?.current_workspace_id,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [navOpen, setNavOpen] = useState(() => window.matchMedia("(min-width: 761px)").matches);
+  const [navOpen, setNavOpen] = useState(
+    () => window.matchMedia("(min-width: 761px)").matches,
+  );
   const [theme, setTheme] = useState<Theme>(savedTheme);
-  const activeWorkspace = auth?.workspaces.find((item) => item.id === auth.current_workspace_id);
+  const activeWorkspace = auth?.workspaces.find(
+    (item) => item.id === auth.current_workspace_id,
+  );
   const workspacePermissions = useMemo(
     () => new Set(activeWorkspace?.effective_permissions ?? []),
     [activeWorkspace],
@@ -158,7 +341,11 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    try { window.localStorage.setItem("corral-theme", theme); } catch { /* Appearance still works for this session. */ }
+    try {
+      window.localStorage.setItem("corral-theme", theme);
+    } catch {
+      /* Appearance still works for this session. */
+    }
   }, [theme]);
 
   useEffect(() => {
@@ -175,7 +362,11 @@ function App() {
 
   const closeTour = useCallback(() => {
     if (tourSeenKey) {
-      try { window.localStorage.setItem(tourSeenKey, "seen"); } catch { /* The guide remains available for this session. */ }
+      try {
+        window.localStorage.setItem(tourSeenKey, "seen");
+      } catch {
+        /* The guide remains available for this session. */
+      }
     }
     setTourOpen(false);
   }, [tourSeenKey]);
@@ -187,86 +378,152 @@ function App() {
     return () => media.removeEventListener("change", syncNavigation);
   }, []);
 
-  const refresh = useCallback(async (activeRange = range) => {
-    refreshController.current?.abort();
-    const controller = new AbortController();
-    refreshController.current = controller;
-    const requestVersion = ++refreshVersion.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const activePermissions = permissionsForWorkspace(auth, auth?.current_workspace_id);
-      const canViewAnalytics = can(activePermissions, "analytics.view");
-      const canViewAgents = can(activePermissions, "agents.view");
-      const canViewReview = can(activePermissions, "manual_review.view");
-      const canViewLeads = can(activePermissions, "leads.view");
-      const [dashboard, channels, pipeline, revenue, reps, series, agents, review, leadRows] =
-        await Promise.all([
-          canViewAnalytics ? getDashboard(activeRange, controller.signal) : Promise.resolve(null),
-          canViewAnalytics ? getChannelAnalytics(activeRange, controller.signal) : Promise.resolve(null),
-          canViewAnalytics ? getPipelineAnalytics(activeRange, controller.signal) : Promise.resolve(null),
-          canViewAnalytics ? getRevenueAnalytics(activeRange, controller.signal) : Promise.resolve(null),
-          canViewAnalytics ? getRepAnalytics(activeRange, controller.signal) : Promise.resolve(null),
-          canViewAnalytics ? getTimeSeriesAnalytics(activeRange, controller.signal) : Promise.resolve(null),
-          canViewAgents ? getAgentActivity(activeRange, controller.signal) : Promise.resolve(null),
-          canViewReview ? getManualReview(activeRange, controller.signal) : Promise.resolve(null),
-          canViewLeads ? listLeads({ limit: 1 }, controller.signal) : Promise.resolve(null),
+  const refresh = useCallback(
+    async (activeRange = range) => {
+      refreshController.current?.abort();
+      const controller = new AbortController();
+      refreshController.current = controller;
+      const requestVersion = ++refreshVersion.current;
+      setLoading(true);
+      setError(null);
+      try {
+        const activePermissions = permissionsForWorkspace(
+          auth,
+          auth?.current_workspace_id,
+        );
+        const canViewAnalytics = can(activePermissions, "analytics.view");
+        const canViewAgents = can(activePermissions, "agents.view");
+        const canViewReview = can(activePermissions, "manual_review.view");
+        const canViewLeads = can(activePermissions, "leads.view");
+        const [
+          dashboard,
+          channels,
+          pipeline,
+          revenue,
+          reps,
+          series,
+          agents,
+          review,
+          leadRows,
+        ] = await Promise.all([
+          canViewAnalytics
+            ? getDashboard(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getChannelAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getPipelineAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getRevenueAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getRepAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getTimeSeriesAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAgents
+            ? getAgentActivity(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewReview
+            ? getManualReview(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewLeads
+            ? listLeads({ limit: 1 }, controller.signal)
+            : Promise.resolve(null),
         ]);
-      if (requestVersion !== refreshVersion.current) return;
-      setData(
-        dashboard || channels || pipeline || revenue || reps || series || agents || review
-          ? { dashboard, channels, pipeline, revenue, reps, series, agents, review }
-          : null,
-      );
-      const nextLeads = leadRows?.items ?? [];
-      setLeads(nextLeads);
-      if (leadRows) {
-        const nextSignature = JSON.stringify([leadRows.total, nextLeads[0] ?? null]);
-        if (leadSignature.current !== null && leadSignature.current !== nextSignature) {
-          setLeadRevision((current) => current + 1);
+        if (requestVersion !== refreshVersion.current) return;
+        setData(
+          dashboard ||
+            channels ||
+            pipeline ||
+            revenue ||
+            reps ||
+            series ||
+            agents ||
+            review
+            ? {
+                dashboard,
+                channels,
+                pipeline,
+                revenue,
+                reps,
+                series,
+                agents,
+                review,
+              }
+            : null,
+        );
+        const nextLeads = leadRows?.items ?? [];
+        setLeads(nextLeads);
+        if (leadRows) {
+          const nextSignature = JSON.stringify([
+            leadRows.total,
+            nextLeads[0] ?? null,
+          ]);
+          if (
+            leadSignature.current !== null &&
+            leadSignature.current !== nextSignature
+          ) {
+            setLeadRevision((current) => current + 1);
+          }
+          leadSignature.current = nextSignature;
+        } else {
+          leadSignature.current = null;
         }
-        leadSignature.current = nextSignature;
-      } else {
-        leadSignature.current = null;
-      }
-    } catch (requestError) {
-      if (requestVersion === refreshVersion.current && !controller.signal.aborted) {
-        controller.abort();
+      } catch (requestError) {
         if (
-          requestError instanceof ApiError
-          && requestError.status === 403
-          && requestError.message === "workspace membership is required"
+          requestVersion === refreshVersion.current &&
+          !controller.signal.aborted
         ) {
-          try {
-            const session = await getSession();
-            if (requestVersion !== refreshVersion.current) return;
-            if (!session) {
-              setAuth(null);
-              return;
-            }
-            const workspaceChanged = session.current_workspace_id !== auth?.current_workspace_id
-              || session.current_workspace_id !== getActiveWorkspace();
-            if (workspaceChanged) {
-              setActiveWorkspace(session.current_workspace_id);
-              setAuth(session);
-              setData(null);
-              setError(null);
-            } else {
+          controller.abort();
+          if (
+            requestError instanceof ApiError &&
+            requestError.status === 403 &&
+            requestError.message === "workspace membership is required"
+          ) {
+            try {
+              const session = await getSession();
+              if (requestVersion !== refreshVersion.current) return;
+              if (!session) {
+                setAuth(null);
+                return;
+              }
+              const workspaceChanged =
+                session.current_workspace_id !== auth?.current_workspace_id ||
+                session.current_workspace_id !== getActiveWorkspace();
+              if (workspaceChanged) {
+                setActiveWorkspace(session.current_workspace_id);
+                setAuth(session);
+                setData(null);
+                setError(null);
+              } else {
+                setError(requestError.message);
+              }
+            } catch {
               setError(requestError.message);
             }
-          } catch {
-            setError(requestError.message);
+          } else if (
+            requestError instanceof ApiError &&
+            requestError.status === 401
+          ) {
+            setAuth(null);
+          } else {
+            setError(
+              requestError instanceof Error
+                ? requestError.message
+                : "Analytics service unavailable",
+            );
           }
-        } else if (requestError instanceof ApiError && requestError.status === 401) {
-          setAuth(null);
-        } else {
-          setError(requestError instanceof Error ? requestError.message : "Analytics service unavailable");
         }
+      } finally {
+        if (requestVersion === refreshVersion.current) setLoading(false);
       }
-    } finally {
-      if (requestVersion === refreshVersion.current) setLoading(false);
-    }
-  }, [range, auth?.current_workspace_id, auth?.workspaces]);
+    },
+    [range, auth?.current_workspace_id, auth?.workspaces],
+  );
 
   useEffect(() => {
     getSession()
@@ -290,9 +547,22 @@ function App() {
   }, [auth?.current_workspace_id, range, refresh]);
 
   useEffect(() => {
-    const permissions = permissionsForWorkspace(auth, auth?.current_workspace_id);
-    if (!auth || !(["leads.view", "analytics.view", "agents.view", "manual_review.view"] as const)
-      .some((permission) => can(permissions, permission))) return;
+    const permissions = permissionsForWorkspace(
+      auth,
+      auth?.current_workspace_id,
+    );
+    if (
+      !auth ||
+      !(
+        [
+          "leads.view",
+          "analytics.view",
+          "agents.view",
+          "manual_review.view",
+        ] as const
+      ).some((permission) => can(permissions, permission))
+    )
+      return;
     const canPollLeads = can(permissions, "leads.view");
     const controller = new AbortController();
     let inFlight = false;
@@ -301,20 +571,28 @@ function App() {
       if (document.visibilityState !== "visible" || inFlight) return;
       inFlight = true;
       try {
-        const result = canPollLeads ? await listLeads({ limit: 1 }, controller.signal) : null;
-        const nextSignature = result ? JSON.stringify([result.total, result.items[0] ?? null]) : null;
+        const result = canPollLeads
+          ? await listLeads({ limit: 1 }, controller.signal)
+          : null;
+        const nextSignature = result
+          ? JSON.stringify([result.total, result.items[0] ?? null])
+          : null;
         // New leads update quickly. Also refresh periodically even if the
         // newest lead/count is unchanged: replies, older qualifications,
         // delivery results and analytics can change independently.
-        if ((leadSignature.current !== null && leadSignature.current !== nextSignature)
-          || Date.now() - lastFullRefresh >= 30000) {
+        if (
+          (leadSignature.current !== null &&
+            leadSignature.current !== nextSignature) ||
+          Date.now() - lastFullRefresh >= 30000
+        ) {
           await refresh();
           lastFullRefresh = Date.now();
         } else if (leadSignature.current === null) {
           leadSignature.current = nextSignature;
         }
       } catch (pollError) {
-        if (pollError instanceof ApiError && pollError.status === 401) setAuth(null);
+        if (pollError instanceof ApiError && pollError.status === 401)
+          setAuth(null);
       } finally {
         inFlight = false;
       }
@@ -346,77 +624,147 @@ function App() {
 
   useEffect(() => {
     if (!auth) return;
-    const workspace = auth.workspaces.find((item) => item.id === auth.current_workspace_id);
+    const workspace = auth.workspaces.find(
+      (item) => item.id === auth.current_workspace_id,
+    );
     if (!workspace) return;
     const permissions = new Set(workspace.effective_permissions);
     if (hasViewPermission(view, permissions)) return;
-    const fallback = navigation.find((item) => hasViewPermission(item.id, permissions))?.id ?? "settings";
+    const fallback =
+      navigation.find((item) => hasViewPermission(item.id, permissions))?.id ??
+      "settings";
     setView(fallback);
   }, [auth?.current_workspace_id, auth?.workspaces, view]);
 
   useEffect(() => {
     if (!auth) return;
     setOpenaiSetupCard(null);
-    const workspace = auth.workspaces.find((item) => item.id === auth.current_workspace_id);
-    if (!workspace?.effective_permissions.includes("integrations.manage") ||
-        openaiPromptDismissed.current.has(auth.current_workspace_id)) return;
+    const workspace = auth.workspaces.find(
+      (item) => item.id === auth.current_workspace_id,
+    );
+    if (
+      !workspace?.effective_permissions.includes("integrations.manage") ||
+      openaiPromptDismissed.current.has(auth.current_workspace_id)
+    )
+      return;
     let active = true;
-    void listIntegrations().then((cards) => {
-      if (!active) return;
-      const openai = cards.find((card) => card.provider === "openai");
-      // A saved key can be `connected` before verification; only ask for a key when none is stored.
-      setOpenaiSetupCard(openai?.connection?.configured ? null : openai ?? null);
-    }).catch(() => { if (active) setOpenaiSetupCard(null); });
-    return () => { active = false; };
+    void listIntegrations()
+      .then((cards) => {
+        if (!active) return;
+        const openai = cards.find((card) => card.provider === "openai");
+        // A saved key can be `connected` before verification; only ask for a key when none is stored.
+        setOpenaiSetupCard(
+          openai?.connection?.configured ? null : (openai ?? null),
+        );
+      })
+      .catch(() => {
+        if (active) setOpenaiSetupCard(null);
+      });
+    return () => {
+      active = false;
+    };
   }, [auth?.user.id, auth?.current_workspace_id]);
 
-  useEffect(() => () => {
-    refreshController.current?.abort();
-    leadController.current?.abort();
-  }, []);
+  useEffect(
+    () => () => {
+      refreshController.current?.abort();
+      leadController.current?.abort();
+    },
+    [],
+  );
 
-  const inspectLead = useCallback(async (id: string) => {
-    if (!can(permissionsForWorkspace(auth, auth?.current_workspace_id), "leads.view")) return;
-    leadController.current?.abort();
-    const controller = new AbortController();
-    leadController.current = controller;
-    const requestVersion = ++leadRequestVersion.current;
-    setError(null);
-    try {
-      const lead = await getLead(id, controller.signal);
-      if (requestVersion === leadRequestVersion.current) setSelectedLead(lead);
-    } catch (requestError) {
-      if (requestVersion === leadRequestVersion.current && !controller.signal.aborted) {
-        if (requestError instanceof ApiError && requestError.status === 401) setAuth(null);
-        else setError(requestError instanceof Error ? requestError.message : "Unable to load lead");
+  const inspectLead = useCallback(
+    async (id: string) => {
+      if (
+        !can(
+          permissionsForWorkspace(auth, auth?.current_workspace_id),
+          "leads.view",
+        )
+      )
+        return;
+      leadController.current?.abort();
+      const controller = new AbortController();
+      leadController.current = controller;
+      const requestVersion = ++leadRequestVersion.current;
+      setError(null);
+      try {
+        const lead = await getLead(id, controller.signal);
+        if (requestVersion === leadRequestVersion.current)
+          setSelectedLead(lead);
+      } catch (requestError) {
+        if (
+          requestVersion === leadRequestVersion.current &&
+          !controller.signal.aborted
+        ) {
+          if (requestError instanceof ApiError && requestError.status === 401)
+            setAuth(null);
+          else
+            setError(
+              requestError instanceof Error
+                ? requestError.message
+                : "Unable to load lead",
+            );
+        }
       }
-    }
-  }, [auth?.current_workspace_id, auth?.workspaces]);
+    },
+    [auth?.current_workspace_id, auth?.workspaces],
+  );
 
-  const openLeadSection = useCallback((id: string, section: LeadDetailSection) => {
-    if (!can(permissionsForWorkspace(auth, auth?.current_workspace_id), "leads.view")) return;
-    window.history.replaceState({ ...window.history.state, corralView: view }, "", window.location.href);
-    window.history.pushState({ corralView: "leads" }, "", leadSectionHref(id, section));
-    setView("leads");
-    setLeadSection(section);
-    setSelectedLead((current) => current?.id === id ? current : null);
-    void inspectLead(id);
-    if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
-  }, [inspectLead, auth?.current_workspace_id, auth?.workspaces, view]);
+  const openLeadSection = useCallback(
+    (id: string, section: LeadDetailSection) => {
+      if (
+        !can(
+          permissionsForWorkspace(auth, auth?.current_workspace_id),
+          "leads.view",
+        )
+      )
+        return;
+      window.history.replaceState(
+        { ...window.history.state, corralView: view },
+        "",
+        window.location.href,
+      );
+      window.history.pushState(
+        { corralView: "leads" },
+        "",
+        leadSectionHref(id, section),
+      );
+      setView("leads");
+      setLeadSection(section);
+      setSelectedLead((current) => (current?.id === id ? current : null));
+      void inspectLead(id);
+      if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
+    },
+    [inspectLead, auth?.current_workspace_id, auth?.workspaces, view],
+  );
 
-  const handleInspectLead = useCallback((id: string) => openLeadSection(id, view === "leads" ? leadSection : "overview"), [openLeadSection, view, leadSection]);
+  const handleInspectLead = useCallback(
+    (id: string) =>
+      openLeadSection(id, view === "leads" ? leadSection : "overview"),
+    [openLeadSection, view, leadSection],
+  );
 
-  const changeLeadSection = useCallback((section: LeadDetailSection) => {
-    if (!selectedLead || section === leadSection) return;
-    window.history.pushState({ corralView: "leads" }, "", leadSectionHref(selectedLead.id, section));
-    setLeadSection(section);
-  }, [selectedLead, leadSection]);
+  const changeLeadSection = useCallback(
+    (section: LeadDetailSection) => {
+      if (!selectedLead || section === leadSection) return;
+      window.history.pushState(
+        { corralView: "leads" },
+        "",
+        leadSectionHref(selectedLead.id, section),
+      );
+      setLeadSection(section);
+    },
+    [selectedLead, leadSection],
+  );
 
   const closeLead = useCallback(() => {
     leadController.current?.abort();
     leadRequestVersion.current += 1;
     setSelectedLead(null);
-    if (new URLSearchParams(window.location.search).has("lead") || new URLSearchParams(window.location.search).has("lead_tab")) {
+    if (
+      new URLSearchParams(window.location.search).has("lead") ||
+      new URLSearchParams(window.location.search).has("lead_tab")
+    ) {
       const url = new URL(window.location.href);
       url.searchParams.delete("lead");
       window.history.replaceState({ corralView: "leads" }, "", url);
@@ -437,12 +785,20 @@ function App() {
       setView(restoredView);
       setPageSection(sectionFromSearch(window.location.search, restoredView));
       const restoredRange = params.get("range");
-      setRange(restoredRange === "weekly" || restoredRange === "annual" ? restoredRange : "monthly");
+      setRange(
+        restoredRange === "weekly" || restoredRange === "annual"
+          ? restoredRange
+          : "monthly",
+      );
       const id = params.get("lead");
       setLeadSection(parseLeadSection(params.get("lead_tab")));
-      if (id && /^[0-9a-f-]{36}$/i.test(id) && can(workspacePermissions, "leads.view")) {
+      if (
+        id &&
+        /^[0-9a-f-]{36}$/i.test(id) &&
+        can(workspacePermissions, "leads.view")
+      ) {
         setView("leads");
-        setSelectedLead((current) => current?.id === id ? current : null);
+        setSelectedLead((current) => (current?.id === id ? current : null));
         void inspectLead(id);
       } else {
         leadController.current?.abort();
@@ -459,13 +815,20 @@ function App() {
     const url = new URL(window.location.href);
     url.searchParams.set("view", view);
     url.searchParams.set("range", range);
-    if (pageSection && view !== "leads") url.searchParams.set("section", pageSection);
+    if (pageSection && view !== "leads")
+      url.searchParams.set("section", pageSection);
     else url.searchParams.delete("section");
     if (view === "leads") url.searchParams.set("lead_tab", leadSection);
-    window.history.replaceState({ ...window.history.state, corralView: view }, "", url);
+    window.history.replaceState(
+      { ...window.history.state, corralView: view },
+      "",
+      url,
+    );
   }, [authLoading, view, range, pageSection, leadSection]);
 
-  useEffect(() => { window.scrollTo({ top: 0, behavior: "instant" }); }, [view, pageSection]);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [view, pageSection]);
 
   function navigate(next: AppView, section = "") {
     if (next === "leads" && section && selectedLead) {
@@ -493,7 +856,10 @@ function App() {
   }
 
   function navigationChildren(id: AppView) {
-    return (navigationSections[id] ?? []).filter((child) => !child.permission || can(workspacePermissions, child.permission));
+    return (navigationSections[id] ?? []).filter(
+      (child) =>
+        !child.permission || can(workspacePermissions, child.permission),
+    );
   }
 
   function navigateChild(id: View, childId?: string) {
@@ -507,175 +873,659 @@ function App() {
       document.documentElement.dataset.theme = next;
       flushSync(() => setTheme(next));
     };
-    if (document.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (
+      document.startViewTransition &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
       const bounds = event?.currentTarget?.getBoundingClientRect();
       const x = bounds ? bounds.left + bounds.width / 2 : window.innerWidth / 2;
-      const y = bounds ? bounds.top + bounds.height / 2 : window.innerHeight / 2;
-      const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+      const y = bounds
+        ? bounds.top + bounds.height / 2
+        : window.innerHeight / 2;
+      const radius = Math.hypot(
+        Math.max(x, window.innerWidth - x),
+        Math.max(y, window.innerHeight - y),
+      );
       const transition = document.startViewTransition(apply);
-      void transition.ready.then(() => {
-        document.documentElement.animate(
-          { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-          { duration: 680, easing: "cubic-bezier(.16, 1, .3, 1)", pseudoElement: "::view-transition-new(root)" },
-        );
-      }).catch(() => { /* A cancelled transition still applies the chosen theme. */ });
+      void transition.ready
+        .then(() => {
+          document.documentElement.animate(
+            {
+              clipPath: [
+                `circle(0px at ${x}px ${y}px)`,
+                `circle(${radius}px at ${x}px ${y}px)`,
+              ],
+            },
+            {
+              duration: 680,
+              easing: "cubic-bezier(.16, 1, .3, 1)",
+              pseudoElement: "::view-transition-new(root)",
+            },
+          );
+        })
+        .catch(() => {
+          /* A cancelled transition still applies the chosen theme. */
+        });
     } else {
       apply();
     }
   }
 
-  const visibleNavigation = navigation.filter((item) => hasViewPermission(item.id, workspacePermissions));
+  const visibleNavigation = navigation.filter((item) =>
+    hasViewPermission(item.id, workspacePermissions),
+  );
   const metadata = data?.dashboard?.metadata;
+  useEffect(() => {
+    const controller = new AbortController();
+    setBranding({ name: null, logo_url: null, accent: "#1e6b52" });
+    if (
+      auth &&
+      can(
+        permissionsForWorkspace(auth, auth.current_workspace_id),
+        "leads.view",
+      )
+    ) {
+      void opsGet<typeof branding>("/v1/ops/branding", controller.signal)
+        .then((value) => {
+          if (!controller.signal.aborted) setBranding(value);
+        })
+        .catch(() => {});
+    }
+    return () => controller.abort();
+  }, [auth?.current_workspace_id]);
+  async function switchWorkspace(workspaceId: string) {
+    refreshController.current?.abort();
+    leadController.current?.abort();
+    closeLead();
+    const session = await changeWorkspace(workspaceId);
+    setData(null);
+    setSelectedLead(null);
+    setAuth(session);
+  }
+  const accentLuminance = branding.accent
+    .slice(1)
+    .match(/.{2}/g)
+    ?.map((value) => {
+      const channel = parseInt(value, 16) / 255;
+      return channel <= 0.04045
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4;
+    }) ?? [0, 0, 0];
+  const accentText =
+    0.2126 * accentLuminance[0] +
+      0.7152 * accentLuminance[1] +
+      0.0722 * accentLuminance[2] >
+    0.179
+      ? "#000000"
+      : "#ffffff";
   if (authLoading) return <LoadingState />;
   if (!auth) {
-    return <AuthView theme={theme} onToggleTheme={toggleTheme} onAuthenticated={(session) => {
-      setActiveWorkspace(session.current_workspace_id);
-      setAuth(session);
-    }} />;
+    return (
+      <AuthView
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onAuthenticated={(session) => {
+          setActiveWorkspace(session.current_workspace_id);
+          setAuth(session);
+        }}
+      />
+    );
   }
   return (
-    <div className={`app-shell ${navOpen ? "nav-expanded" : "nav-collapsed"}`}>
+    <div
+      className={`app-shell ${navOpen ? "nav-expanded" : "nav-collapsed"}`}
+      style={
+        {
+          "--workspace-accent": branding.accent,
+          "--workspace-accent-text": accentText,
+        } as CSSProperties
+      }
+    >
       <div className="app-ambient ambient-a" />
       <ActivityToasts />
       <div className="app-ambient ambient-b" />
-      <img className="app-twinkle app-twinkle-a" src="/asset/brand/twinkle-cap.svg" alt="" aria-hidden="true" />
-      <img className="app-twinkle app-twinkle-b" src="/asset/brand/twinkle-role.svg" alt="" aria-hidden="true" />
-      <aside id="corral-navigation" className={`side-rail ${navOpen ? "open" : ""}`} aria-label="Corral navigation" aria-hidden={!navOpen} inert={!navOpen}>
+      <img
+        className="app-twinkle app-twinkle-a"
+        src="/asset/brand/twinkle-cap.svg"
+        alt=""
+        aria-hidden="true"
+      />
+      <img
+        className="app-twinkle app-twinkle-b"
+        src="/asset/brand/twinkle-role.svg"
+        alt=""
+        aria-hidden="true"
+      />
+      <aside
+        id="corral-navigation"
+        className={`side-rail ${navOpen ? "open" : ""}`}
+        aria-label="Corral navigation"
+        aria-hidden={!navOpen}
+        inert={!navOpen}
+      >
         <div className="rail-brand-row">
-          <button className="brand-lockup" onClick={() => navigate("dashboard")} aria-label="Corral home">
-            <img src="/asset/brand/corral-mark.png" alt="" />
+          <button
+            className="brand-lockup"
+            onClick={() => navigate("dashboard")}
+            aria-label={(branding.name || "Corral") + " home"}
+          >
+            <img
+              src={branding.logo_url || "/asset/brand/corral-mark.png"}
+              alt=""
+            />
             <span>
-              <b>Corral</b>
+              <b>{branding.name || "Corral"}</b>
               <small className="rail-brand-tagline">
                 <span>Powered by</span>
                 <span>Ingenuity Systems</span>
               </small>
             </span>
           </button>
-          <button className="rail-close" onClick={() => setNavOpen(false)} aria-label="Collapse navigation" title="Collapse navigation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5-5 7 5 7" /></svg></button>
+          <button
+            className="rail-close"
+            onClick={() => setNavOpen(false)}
+            aria-label="Collapse navigation"
+            title="Collapse navigation"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m14.5 5-5 7 5 7" />
+            </svg>
+          </button>
         </div>
         <nav aria-label="Primary navigation">
           {visibleNavigation.map((item, index) => (
             <div key={item.id}>
               {item.group && <span className="nav-group">{item.group}</span>}
-              <NavigationMenuItem item={{ ...item, children: navigationChildren(item.id) }}
+              <NavigationMenuItem
+                item={{ ...item, children: navigationChildren(item.id) }}
                 enabled={navOpen}
-                icon={<NavIcon id={item.id} />} active={view === item.id || (item.id === "settings" && view === "icp")}
+                icon={<NavIcon id={item.id} />}
+                active={
+                  view === item.id || (item.id === "settings" && view === "icp")
+                }
                 activeChild={view === "leads" ? leadSection : pageSection}
                 badge={item.id === "review" ? data?.review?.total : undefined}
-                onNavigate={(child) => navigateChild(item.id, child)} />
+                onNavigate={(child) => navigateChild(item.id, child)}
+              />
               {index === 4 && <span className="nav-separator" />}
             </div>
           ))}
         </nav>
-        {can(workspacePermissions, "leads.view") && <PinnedLeadNavigation pins={pinnedSections.pins} notice={pinnedSections.notice} activeLeadId={view === "leads" ? selectedLead?.id : undefined} activeSection={leadSection} onOpen={(pin) => openLeadSection(pin.leadId, pin.section)} onRemove={pinnedSections.remove} />}
+        {can(workspacePermissions, "leads.view") && (
+          <PinnedLeadNavigation
+            pins={pinnedSections.pins}
+            notice={pinnedSections.notice}
+            activeLeadId={view === "leads" ? selectedLead?.id : undefined}
+            activeSection={leadSection}
+            onOpen={(pin) => openLeadSection(pin.leadId, pin.section)}
+            onRemove={pinnedSections.remove}
+          />
+        )}
         <div className="rail-foot">
           <div className="workspace-mark">
             <img src="/asset/brand/corral-mark.png" alt="" />
-            <WorkspaceSwitcher session={auth} onSelect={async (workspaceId) => {
+            <WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />
+          </div>
+          <span className="system-state">
+            <i /> Systems nominal
+          </span>
+          <button
+            className="signout-button"
+            onClick={() => {
               refreshController.current?.abort();
               leadController.current?.abort();
-              closeLead();
-              const session = await changeWorkspace(workspaceId);
-              setData(null);
-              setSelectedLead(null);
-              setAuth(session);
-            }} />
-          </div>
-          <span className="system-state"><i /> Systems nominal</span>
-          <button className="signout-button" onClick={() => {
-            refreshController.current?.abort();
-            leadController.current?.abort();
-            void signOut().finally(() => { setAuth(null); setData(null); setSelectedLead(null); });
-          }}>Sign out</button>
+              void signOut().finally(() => {
+                setAuth(null);
+                setData(null);
+                setSelectedLead(null);
+              });
+            }}
+          >
+            Sign out
+          </button>
         </div>
       </aside>
-      {!navOpen && <aside className="mini-rail" aria-label="Collapsed Corral navigation">
-        <button className="mini-rail-expand" onClick={() => setNavOpen(true)} aria-controls="corral-navigation" aria-expanded={false} aria-label="Expand navigation" title="Expand navigation">
-          <img src="/asset/brand/corral-mark.png" alt="" />
-          <span aria-hidden="true">›</span>
-        </button>
-        <nav className="mini-rail-nav" aria-label="Primary navigation">
-          {visibleNavigation.map((item) => {
-            const active = view === item.id || (item.id === "settings" && (view === "team" || view === "icp"));
-            return <NavigationMenuItem key={item.id} item={{ ...item, children: navigationChildren(item.id) }}
-              icon={<NavIcon id={item.id} />} active={active} collapsed
-              activeChild={view === "leads" ? leadSection : pageSection}
-              badge={item.id === "review" ? data?.review?.total : undefined}
-              onNavigate={(child) => navigateChild(item.id, child)} />;
-          })}
-        </nav>
-      </aside>}
+      {!navOpen && (
+        <aside className="mini-rail" aria-label="Collapsed Corral navigation">
+          <button
+            className="mini-rail-expand"
+            onClick={() => setNavOpen(true)}
+            aria-controls="corral-navigation"
+            aria-expanded={false}
+            aria-label="Expand navigation"
+            title="Expand navigation"
+          >
+            <img src="/asset/brand/corral-mark.png" alt="" />
+            <span aria-hidden="true">›</span>
+          </button>
+          <nav className="mini-rail-nav" aria-label="Primary navigation">
+            {visibleNavigation.map((item) => {
+              const active =
+                view === item.id ||
+                (item.id === "settings" && (view === "team" || view === "icp"));
+              return (
+                <NavigationMenuItem
+                  key={item.id}
+                  item={{ ...item, children: navigationChildren(item.id) }}
+                  icon={<NavIcon id={item.id} />}
+                  active={active}
+                  collapsed
+                  activeChild={view === "leads" ? leadSection : pageSection}
+                  badge={item.id === "review" ? data?.review?.total : undefined}
+                  onNavigate={(child) => navigateChild(item.id, child)}
+                />
+              );
+            })}
+          </nav>
+        </aside>
+      )}
       <main className="product-main">
         <header className="product-bar">
           <div className="bar-leading">
-            <button className="menu-button" onClick={() => setNavOpen(true)} aria-controls="corral-navigation" aria-expanded={navOpen} aria-label="Open navigation">☰</button>
-            <div className="breadcrumb"><span>Corral</span><i>/</i><b>{view === "team" ? "Users & Permissions" : view === "icp" ? "Ideal Customer Profile" : navigation.find((item) => item.id === view)?.label}</b></div>
+            <button
+              className="menu-button"
+              onClick={() => setNavOpen(true)}
+              aria-controls="corral-navigation"
+              aria-expanded={navOpen}
+              aria-label="Open navigation"
+            >
+              ☰
+            </button>
+            <div className="breadcrumb">
+              <span>{branding.name || "Corral"}</span>
+              <i>/</i>
+              <b>
+                {view === "team"
+                  ? "Users & Permissions"
+                  : view === "icp"
+                    ? "Ideal Customer Profile"
+                    : navigation.find((item) => item.id === view)?.label}
+              </b>
+            </div>
           </div>
           <div className="bar-actions">
+            <CommandPalette
+              key={auth.current_workspace_id}
+              pages={visibleNavigation}
+              canSearch={can(workspacePermissions, "leads.view")}
+              onNavigate={navigate}
+              onInspect={(id) => {
+                handleInspectLead(id);
+                setView("leads");
+              }}
+            />
             <RangePicker value={range} onChange={setRange} />
-            <span className={`mode-badge ${metadata?.data_mode || "live"}`}>{metadata?.data_mode === "demo" ? "ILLUSTRATIVE DATA" : "LIVE DATA"}</span>
-            <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh data">↻</button>
-            <button className="guide-launch" onClick={() => setTourOpen(true)} aria-haspopup="dialog" aria-label="Open Corral product guide" title="Open Corral product guide">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" /><path d="M7.8 7.4a2.3 2.3 0 1 1 3.8 1.7c-.9.8-1.6 1.1-1.6 2.3M10 14.2v.1" /></svg>
+            <span className={`mode-badge ${metadata?.data_mode || "live"}`}>
+              {metadata?.data_mode === "demo"
+                ? "ILLUSTRATIVE DATA"
+                : "LIVE DATA"}
+            </span>
+            <button
+              className="icon-button"
+              onClick={() => void refresh()}
+              aria-label="Refresh data"
+            >
+              ↻
+            </button>
+            <button
+              className="guide-launch"
+              onClick={() => setTourOpen(true)}
+              aria-haspopup="dialog"
+              aria-label="Open Corral product guide"
+              title="Open Corral product guide"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <circle cx="10" cy="10" r="7.5" />
+                <path d="M7.8 7.4a2.3 2.3 0 1 1 3.8 1.7c-.9.8-1.6 1.1-1.6 2.3M10 14.2v.1" />
+              </svg>
               <span>Guide</span>
             </button>
-            <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            >
+              <span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span>
+              <span className="theme-label">
+                {theme === "light" ? "Dark" : "Light"}
+              </span>
+            </button>
           </div>
         </header>
-        {error && <div className="api-error" role="alert"><div><b>Control plane unavailable</b><span>{error}</span></div><button onClick={() => void refresh()}>Retry</button></div>}
-        {!hasViewPermission(view, workspacePermissions) || (loading && !data && view !== "settings" && view !== "team" && view !== "icp") ? <ContentLoadingState /> : (
-          <div className="view-transition" key={view}>
-            {view === "dashboard" && <DashboardView key={auth?.user.id ?? "local"} data={data} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} userId={auth?.user.id ?? "local"} />}
-            {view === "leads" && <LeadsView selected={selectedLead} activeSection={leadSection} onSectionChange={changeLeadSection} isSectionPinned={pinnedSections.pins.some((pin) => pin.leadId === selectedLead?.id && pin.section === leadSection)} onTogglePin={() => { if (selectedLead) pinnedSections.toggle({ leadId: selectedLead.id, company: selectedLead.company_name, section: leadSection }); }} revision={leadRevision} onInspect={handleInspectLead} onClose={closeLead} canEdit={can(workspacePermissions, "leads.edit")} canExport={can(workspacePermissions, "leads.export")} canCrmSync={can(workspacePermissions, "crm.sync")} onUpdated={(lead) => { setSelectedLead(lead); setLeads((current) => current.map((item) => item.id === lead.id ? lead : item)); }} onDeleted={(leadId) => { closeLead(); pinnedSections.removeLead(leadId); setLeads((current) => current.filter((item) => item.id !== leadId)); void refresh(); }} onCreated={(lead) => { setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]); setSelectedLead(lead); setLeadSection("overview"); window.history.pushState({ corralView: "leads" }, "", leadSectionHref(lead.id, "overview")); void refresh(); }} />}
-            {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
-            {view === "analytics" && <AnalyticsView key={auth?.user.id ?? "local"} data={data} userId={auth?.user.id ?? "local"} selectedSection={pageSection} />}
-            {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "contacts" && <ContactsView onInspectLead={(id) => { handleInspectLead(id); setView("leads"); }} />}
-            {view === "integrations" && <IntegrationsView key={auth.current_workspace_id} permissions={workspacePermissions} selectedSection={pageSection} />}
-            {view === "settings" && <SettingsView metadata={metadata} selectedSection={pageSection} onIntegrations={() => navigate("integrations")} onTeam={() => navigate("team")} onIcp={() => navigate("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} canManageEmail={can(workspacePermissions, "integrations.manage")} />}
-            {view === "team" && <TeamView key={auth.current_workspace_id} auth={auth} workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"} onBack={() => setView("settings")} />}
-            {view === "icp" && <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />}
+        {error && (
+          <div className="api-error" role="alert">
+            <div>
+              <b>Control plane unavailable</b>
+              <span>{error}</span>
+            </div>
+            <button onClick={() => void refresh()}>Retry</button>
           </div>
         )}
+        {!hasViewPermission(view, workspacePermissions) ||
+        (loading &&
+          !data &&
+          view !== "settings" &&
+          view !== "team" &&
+          view !== "icp") ? (
+          <ContentLoadingState />
+        ) : (
+          <Suspense fallback={<ContentLoadingState />}>
+            <div
+              className="view-transition"
+              key={auth.current_workspace_id + view}
+            >
+              {view === "dashboard" && (
+                <DashboardView
+                  key={auth?.user.id ?? "local"}
+                  data={data}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                  userId={auth?.user.id ?? "local"}
+                />
+              )}
+              {view === "leads" && (
+                <LeadsView
+                  selected={selectedLead}
+                  activeSection={leadSection}
+                  onSectionChange={changeLeadSection}
+                  isSectionPinned={pinnedSections.pins.some(
+                    (pin) =>
+                      pin.leadId === selectedLead?.id &&
+                      pin.section === leadSection,
+                  )}
+                  onTogglePin={() => {
+                    if (selectedLead)
+                      pinnedSections.toggle({
+                        leadId: selectedLead.id,
+                        company: selectedLead.company_name,
+                        section: leadSection,
+                      });
+                  }}
+                  revision={leadRevision}
+                  onInspect={handleInspectLead}
+                  onClose={closeLead}
+                  canEdit={can(workspacePermissions, "leads.edit")}
+                  canExport={can(workspacePermissions, "leads.export")}
+                  canCrmSync={can(workspacePermissions, "crm.sync")}
+                  onUpdated={(lead) => {
+                    setSelectedLead(lead);
+                    setLeads((current) =>
+                      current.map((item) =>
+                        item.id === lead.id ? lead : item,
+                      ),
+                    );
+                  }}
+                  onDeleted={(leadId) => {
+                    closeLead();
+                    pinnedSections.removeLead(leadId);
+                    setLeads((current) =>
+                      current.filter((item) => item.id !== leadId),
+                    );
+                    void refresh();
+                  }}
+                  onCreated={(lead) => {
+                    setLeads((current) => [
+                      lead,
+                      ...current.filter((item) => item.id !== lead.id),
+                    ]);
+                    setSelectedLead(lead);
+                    setLeadSection("overview");
+                    window.history.pushState(
+                      { corralView: "leads" },
+                      "",
+                      leadSectionHref(lead.id, "overview"),
+                    );
+                    void refresh();
+                  }}
+                />
+              )}
+              {view === "pipeline" && (
+                <PipelineView
+                  data={data?.pipeline ?? null}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                />
+              )}
+              {view === "agents" && (
+                <AgentsView
+                  data={data?.agents ?? null}
+                  pipeline={data?.pipeline ?? null}
+                />
+              )}
+              {view === "analytics" && (
+                <>
+                  <AnalyticsView
+                    key={auth?.user.id ?? "local"}
+                    data={data}
+                    userId={auth?.user.id ?? "local"}
+                    selectedSection={pageSection}
+                  />
+                  <AdvancedAnalyticsPanel />
+                </>
+              )}
+              {view === "review" && (
+                <ManualReviewView
+                  data={data?.review ?? null}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                />
+              )}
+              {(view === "contacts" || view === "accounts") && (
+                <RecordsView
+                  mode={view === "contacts" ? "contacts" : "companies"}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                  canEdit={can(workspacePermissions, "leads.edit")}
+                  canResearch={can(workspacePermissions, "agents.execute")}
+                />
+              )}
+              {view === "policies" && (
+                <PoliciesView
+                  canManage={can(workspacePermissions, "workspace.manage")}
+                />
+              )}
+              {view === "compliance" && <ComplianceView />}
+              {view === "agency" && (
+                <AgencyView
+                  canManage={can(workspacePermissions, "workspace.manage")}
+                  onSwitch={switchWorkspace}
+                />
+              )}
+              {view === "intelligence" && (
+                <IntelligenceView
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                  onIcp={() => navigate("icp")}
+                  canExecute={can(workspacePermissions, "agents.execute")}
+                  canReview={can(workspacePermissions, "manual_review.manage")}
+                  canLearn={can(workspacePermissions, "icp.manage")}
+                />
+              )}
+              {view === "automations" && (
+                <AutomationsView
+                  canManage={can(workspacePermissions, "workspace.manage")}
+                  canEdit={can(workspacePermissions, "leads.edit")}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                />
+              )}
+              {view === "integrations" && (
+                <IntegrationsView
+                  key={auth.current_workspace_id}
+                  permissions={workspacePermissions}
+                  selectedSection={pageSection}
+                />
+              )}
+              {view === "settings" && (
+                <SettingsView
+                  metadata={metadata}
+                  selectedSection={pageSection}
+                  onIntegrations={() => navigate("integrations")}
+                  onTeam={() => navigate("team")}
+                  onIcp={() => navigate("icp")}
+                  canViewTeam={can(workspacePermissions, "members.view")}
+                  canViewIcp={can(workspacePermissions, "icp.view")}
+                  canViewRouting={can(workspacePermissions, "routing.view")}
+                  canManageRouting={can(workspacePermissions, "routing.manage")}
+                  canViewPublicIntake={can(
+                    workspacePermissions,
+                    "integrations.manage",
+                  )}
+                  canRotatePublicIntake={can(
+                    workspacePermissions,
+                    "integrations.manage",
+                  )}
+                  canManageEmail={can(
+                    workspacePermissions,
+                    "integrations.manage",
+                  )}
+                />
+              )}
+              {view === "team" && (
+                <TeamView
+                  key={auth.current_workspace_id}
+                  auth={auth}
+                  workspaceName={
+                    auth.workspaces.find(
+                      (workspace) => workspace.id === auth.current_workspace_id,
+                    )?.name ||
+                    metadata?.workspace_name ||
+                    "Current workspace"
+                  }
+                  onBack={() => setView("settings")}
+                />
+              )}
+              {view === "icp" && (
+                <IcpView
+                  key={auth.current_workspace_id}
+                  canManage={can(workspacePermissions, "icp.manage")}
+                  onBack={() => setView("settings")}
+                />
+              )}
+            </div>
+          </Suspense>
+        )}
         <footer className="product-footer">
-          <span>Corral · Powered by Ingenuity Systems</span>
+          <span>{branding.name || "Corral"} · Powered by Ingenuity Systems</span>
           <nav className="product-legal-links" aria-label="Legal information">
             <a href="/terms.html">Terms</a>
             <a href="/privacy.html">Privacy</a>
             <a href="mailto:harmainmughal8@gmail.com">Contact</a>
           </nav>
-          <span>Generated {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"} · Workspace {getActiveWorkspace().slice(0, 8)}</span>
+          <span>
+            Generated{" "}
+            {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"}{" "}
+            · Workspace {getActiveWorkspace().slice(0, 8)}
+          </span>
         </footer>
       </main>
-      {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}
-      {openaiSetupCard && !tourOpen && view === "dashboard" && <OpenAISetupPrompt card={openaiSetupCard} onVerified={() => { setOpenaiSetupCard(null); void refresh(); }} onLater={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); }} onSettings={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); setView("integrations"); }} />}
-      <ProductTour open={tourOpen} currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
+      {navOpen && (
+        <button
+          className="nav-scrim"
+          onClick={() => setNavOpen(false)}
+          aria-label="Close navigation"
+        />
+      )}
+      {openaiSetupCard && !tourOpen && view === "dashboard" && (
+        <OpenAISetupPrompt
+          card={openaiSetupCard}
+          onVerified={() => {
+            setOpenaiSetupCard(null);
+            void refresh();
+          }}
+          onLater={() => {
+            openaiPromptDismissed.current.add(auth.current_workspace_id);
+            setOpenaiSetupCard(null);
+          }}
+          onSettings={() => {
+            openaiPromptDismissed.current.add(auth.current_workspace_id);
+            setOpenaiSetupCard(null);
+            setView("integrations");
+          }}
+        />
+      )}
+      <ProductTour
+        open={tourOpen}
+        currentView={view}
+        onNavigate={navigate}
+        onDismiss={closeTour}
+        onComplete={closeTour}
+      />
     </div>
   );
 }
 
 function ContentLoadingState() {
-  return <div className="content-loading" aria-busy="true" aria-label="Loading workspace data">
-    <div className="skeleton-hero"><i /><i /><span /></div>
-    <div className="skeleton-metrics">{Array.from({ length: 4 }, (_, index) => <i key={index} />)}</div>
-    <div className="skeleton-content"><i /><i /></div>
-  </div>;
+  return (
+    <div
+      className="content-loading"
+      aria-busy="true"
+      aria-label="Loading workspace data"
+    >
+      <div className="skeleton-hero">
+        <i />
+        <i />
+        <span />
+      </div>
+      <div className="skeleton-metrics">
+        {Array.from({ length: 4 }, (_, index) => (
+          <i key={index} />
+        ))}
+      </div>
+      <div className="skeleton-content">
+        <i />
+        <i />
+      </div>
+    </div>
+  );
 }
 
-function RangePicker({ value, onChange }: { value: TimeRange; onChange: (value: TimeRange) => void }) {
+function RangePicker({
+  value,
+  onChange,
+}: {
+  value: TimeRange;
+  onChange: (value: TimeRange) => void;
+}) {
   return (
     <div className="range-picker" aria-label="Analytics time range">
       {(["weekly", "monthly", "annual"] as const).map((item) => (
-        <button className={value === item ? "active" : ""} onClick={() => onChange(item)} key={item}>{item.slice(0, 1).toUpperCase() + item.slice(1)}</button>
+        <button
+          className={value === item ? "active" : ""}
+          onClick={() => onChange(item)}
+          key={item}
+        >
+          {item.slice(0, 1).toUpperCase() + item.slice(1)}
+        </button>
       ))}
     </div>
   );
 }
 
 function LoadingState() {
-  return <div className="loading-state"><div className="loading-core"><i /><i /><i /></div><b>Synchronizing workspace intelligence</b><span>Loading analytics, pipeline and agent activity…</span></div>;
+  return (
+    <div className="loading-state">
+      <div className="loading-core">
+        <i />
+        <i />
+        <i />
+      </div>
+      <b>Synchronizing workspace intelligence</b>
+      <span>Loading analytics, pipeline and agent activity…</span>
+    </div>
+  );
 }
 
 export default App;

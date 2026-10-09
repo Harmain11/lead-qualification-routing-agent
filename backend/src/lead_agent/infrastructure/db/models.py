@@ -184,7 +184,9 @@ class WorkspaceMembershipORM(Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_workspace_membership"),
         Index("ix_workspace_memberships_user_status", "user_id", "status"),
-        Index("uq_member_slack_link", "workspace_id", "slack_team_id", "slack_member_id", unique=True),
+        Index(
+            "uq_member_slack_link", "workspace_id", "slack_team_id", "slack_member_id", unique=True
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -1032,3 +1034,6 @@ class LeadWinNotificationORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     outcome: Mapped[LeadOutcomeORM] = relationship(back_populates="win_notifications")
+
+
+from lead_agent.infrastructure.db import operations as operations_models  # noqa: E402,F401
