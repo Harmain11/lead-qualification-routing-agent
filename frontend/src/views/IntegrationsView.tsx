@@ -582,7 +582,9 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   return <div className={`page-view operational-page${selectedSection ? " focused-page" : ""}`} data-integration-page={selectedSection || "overview"}>
     <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{selectedSection ? ` / ${selectedSectionLabel}` : ""}</span><h1>{selectedSection ? selectedSectionLabel : <>Connect the systems<br /><em>your agents can trust.</em></>}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
     {notice && <div className="notice" role="status">{notice}</div>}
-    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
+    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">
+      {(!selectedSection || selectedSection === "ai" || isReasoningProvider(selectedSection)) && <OpenAIUsagePanel />}
+      {displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
       <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
        <div className="integration-grid">{section.providers.map((provider) => provider === AI_PROVIDER_GROUP
          ? cardByProvider.get(selectedAiProvider)
@@ -590,7 +592,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
        const connection = card.connection;
        const status = connection?.status ?? "not_connected";
        const comingSoon = section.id === "coming-soon";
-       const openAI = card.provider === "openai";
         const reasoningProvider = isReasoningProvider(card.provider);
         const cardGroupId = reasoningProvider ? AI_PROVIDER_GROUP : card.provider;
        const statusLabel = comingSoon
@@ -663,7 +664,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          </>}
         {!comingSoon && <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>}
          {reasoningProvider && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your {card.display_name} account</b></span><span>Analysis provider <b>{connection.is_active ? "Active" : "Available to select"}</b></span></div>}
-        {openAI && <OpenAIUsagePanel />}
         {!comingSoon && <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>}
