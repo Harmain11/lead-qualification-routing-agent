@@ -61,6 +61,7 @@ from lead_agent.infrastructure.provider_lifecycle import (
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.reasoning.configuration import (
+    REASONING_PROVIDERS,
     default_reasoning_model,
     supported_reasoning_models,
 )
@@ -85,11 +86,13 @@ _OPENAI_USAGE_WINDOWS = {
     "quarterly": timedelta(days=90),
     "annual": timedelta(days=365),
 }
-_REASONING_USAGE_PROVIDERS = ("openai", "gemini", "claude")
+_REASONING_USAGE_PROVIDERS = REASONING_PROVIDERS
 _REASONING_USAGE_ACTIONS = {
     "openai": "openai_api_usage",
     "gemini": "reasoning_api_usage",
     "claude": "reasoning_api_usage",
+    "deepseek": "reasoning_api_usage",
+    "xai": "reasoning_api_usage",
 }
 _USAGE_TOTAL_FIELDS = (
     "requests",
@@ -257,7 +260,11 @@ def get_reasoning_usage(
         model_usage[outcome_field] += 1
         for field in ("input_tokens", "output_tokens", "total_tokens"):
             value = details.get(field)
-            count = value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+            count = (
+                value
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                else 0
+            )
             provider_usage[field] += count
             model_usage[field] += count
 
@@ -373,11 +380,11 @@ def list_integrations(
             directionality=directionality_for(provider).model_dump(),
             supported_models=(
                 list(supported_reasoning_models(provider, settings))
-                if provider in {"openai", "gemini", "claude"} else []
+                if provider in REASONING_PROVIDERS else []
             ),
             default_model=(
                 default_reasoning_model(provider, settings)
-                if provider in {"openai", "gemini", "claude"} else None
+                if provider in REASONING_PROVIDERS else None
             ),
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
@@ -797,7 +804,7 @@ def backfill_openai_connection(
 ) -> dict[str, object]:
     connection = _connection_or_404(session, workspace.workspace_id, connection_id)
     if (
-        connection.provider_type not in {"openai", "gemini", "claude"}
+        connection.provider_type not in REASONING_PROVIDERS
         or connection.status != "verified"
         or not connection.is_active
     ):

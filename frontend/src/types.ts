@@ -702,7 +702,7 @@ export type ReasoningUsageModel = {
   total_tokens: number;
 };
 export type ReasoningUsageProvider = {
-  provider: "openai" | "gemini" | "claude";
+  provider: "openai" | "gemini" | "claude" | "deepseek" | "xai";
   requests: number;
   successful_requests: number;
   failed_requests: number;

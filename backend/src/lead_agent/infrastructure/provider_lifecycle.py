@@ -235,7 +235,7 @@ class WorkspaceAuthorizedConnectionResolver:
             reasoning_connection_probe = (
                 allow_unverified
                 and locked is not None
-                and locked.provider_type in {"openai", "gemini", "claude"}
+                and locked.provider_type in {"openai", "gemini", "claude", "deepseek", "xai"}
                 and locked.status in {"connected", "verified"}
             )
             if (
@@ -508,6 +508,12 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             ),
             "claude": StructuredAPIConnectionValidator(
                 provider="claude", timeout_seconds=settings.openai_timeout_seconds
+            ),
+            "deepseek": StructuredAPIConnectionValidator(
+                provider="deepseek", timeout_seconds=settings.openai_timeout_seconds
+            ),
+            "xai": StructuredAPIConnectionValidator(
+                provider="xai", timeout_seconds=settings.xai_timeout_seconds
             ),
         },
         DeferredProviderValidator(),

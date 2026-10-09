@@ -18,6 +18,8 @@ ProviderType = Literal[
     "openai",
     "gemini",
     "claude",
+    "deepseek",
+    "xai",
 ]
 ConnectionStatus = Literal[
     "configured",
@@ -284,6 +286,42 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         required_scopes=["Messages API access"],
         permission_reason="Run schema-constrained context and intent analysis.",
         documentation_url="https://docs.anthropic.com/en/api/getting-started",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "deepseek": ProviderSetupMetadata(
+        provider="deepseek",
+        display_name="DeepSeek",
+        category="AI analysis",
+        availability="available",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="DeepSeek Platform → API keys",
+        credential_help=(
+            "Connect a DeepSeek API key for this workspace. DeepSeek API usage is "
+            "billed directly to your DeepSeek account."
+        ),
+        required_scopes=["Chat Completions API access"],
+        permission_reason="Run JSON-constrained context and intent analysis.",
+        documentation_url="https://api-docs.deepseek.com/",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "xai": ProviderSetupMetadata(
+        provider="xai",
+        display_name="xAI",
+        category="AI analysis",
+        availability="available",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="xAI Console → API keys",
+        credential_help=(
+            "Connect an xAI API key for this workspace. xAI API usage is billed "
+            "directly to your xAI account."
+        ),
+        required_scopes=["Responses API access"],
+        permission_reason="Run schema-constrained context and intent analysis.",
+        documentation_url="https://docs.x.ai/overview",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),

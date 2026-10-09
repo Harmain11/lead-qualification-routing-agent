@@ -131,7 +131,11 @@ def resolve_workspace_reasoning_provider(
         provider=provider_name,
         api_key=api_key,
         model=model,
-        timeout_seconds=active.openai_timeout_seconds,
+        timeout_seconds=(
+            active.xai_timeout_seconds
+            if provider_name == "xai"
+            else active.openai_timeout_seconds
+        ),
         usage_recorder=usage_recorder,
     )
 

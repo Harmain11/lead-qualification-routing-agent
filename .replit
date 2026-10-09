@@ -56,3 +56,7 @@ externalPort = 3000
 EMAIL_PROVIDER = "gmail"
 REDIS_DEPLOYMENT_MODE = "local_vm"
 REDIS_URL = "redis://127.0.0.1:6380/0"
+
+[postMerge]
+path = "scripts/replit_build.sh"
+timeoutMs = 180000

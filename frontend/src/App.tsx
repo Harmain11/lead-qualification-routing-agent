@@ -364,7 +364,7 @@ function App() {
     void listIntegrations().then((cards) => {
       if (!active) return;
       const byProvider = new Map(cards.map((card) => [card.provider, card]));
-      const reasoningCards = ["openai", "gemini", "claude"]
+      const reasoningCards = ["openai", "gemini", "claude", "deepseek", "xai"]
         .map((provider) => byProvider.get(provider))
         .filter((card): card is IntegrationCard => Boolean(card));
       // A saved key can be `connected` before verification; only ask for a key when none is stored.

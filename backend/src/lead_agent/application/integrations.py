@@ -53,6 +53,8 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "openai": {"api_key"},
     "gemini": {"api_key"},
     "claude": {"api_key"},
+    "deepseek": {"api_key"},
+    "xai": {"api_key"},
 }
 
 

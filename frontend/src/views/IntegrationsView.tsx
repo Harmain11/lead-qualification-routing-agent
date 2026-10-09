@@ -31,7 +31,7 @@ import type { CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNot
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
 const AI_PROVIDER_GROUP = "ai-analysis";
-const AI_PROVIDER_IDS = ["openai", "gemini", "claude"] as const;
+const AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek", "xai"] as const;
 type ReasoningProviderId = typeof AI_PROVIDER_IDS[number];
 type ConnectionOperation = "connect" | "reconnect" | "disconnect";
 const operationProgress: Record<ConnectionOperation, string> = {

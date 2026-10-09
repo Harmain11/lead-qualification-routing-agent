@@ -36,11 +36,15 @@ def test_usage_is_measured_scoped_and_windowed(tmp_path):
             created_at=datetime.now(UTC) - timedelta(days=40),
         ))
         session.commit()
-        weekly = get_openai_usage(period="weekly", session=session, workspace=WorkspaceContext(workspace_id))
+        weekly = get_openai_usage(
+            period="weekly", session=session, workspace=WorkspaceContext(workspace_id)
+        )
         assert weekly["requests"] == 1
         assert weekly["input_tokens"] == 120
         assert weekly["total_tokens"] == 150
-        quarterly = get_openai_usage(period="quarterly", session=session, workspace=WorkspaceContext(workspace_id))
+        quarterly = get_openai_usage(
+            period="quarterly", session=session, workspace=WorkspaceContext(workspace_id)
+        )
         assert quarterly["requests"] == 2
         assert quarterly["total_tokens"] == 160
         row = session.query(ProviderLifecycleAuditORM).filter_by(correlation_id="operation-1").one()
@@ -93,6 +97,22 @@ def test_reasoning_usage_summarizes_each_provider_and_model_without_leaking_deta
             "output_tokens": 8,
             "total_tokens": 68,
         })
+        _workspace_usage_recorder(session, workspace_id, "deepseek")({
+            "operation_id": "deepseek-success",
+            "model": "deepseek-flash",
+            "outcome": "success",
+            "input_tokens": 40,
+            "output_tokens": 10,
+            "total_tokens": 50,
+        })
+        _workspace_usage_recorder(session, workspace_id, "xai")({
+            "operation_id": "xai-failure",
+            "model": "grok-4.7",
+            "outcome": "invalid_output",
+            "input_tokens": 30,
+            "output_tokens": 8,
+            "total_tokens": 38,
+        })
         _workspace_usage_recorder(session, other_id, "claude")({
             "operation_id": "other-workspace",
             "model": "claude-test",
@@ -110,7 +130,7 @@ def test_reasoning_usage_summarizes_each_provider_and_model_without_leaking_deta
         )
         by_provider = {item["provider"]: item for item in report["providers"]}
 
-        assert list(by_provider) == ["openai", "gemini", "claude"]
+        assert list(by_provider) == ["openai", "gemini", "claude", "deepseek", "xai"]
         assert by_provider["openai"]["requests"] == 2
         assert by_provider["openai"]["successful_requests"] == 1
         assert by_provider["openai"]["failed_requests"] == 1
@@ -132,6 +152,12 @@ def test_reasoning_usage_summarizes_each_provider_and_model_without_leaking_deta
         assert by_provider["claude"]["requests"] == 1
         assert by_provider["claude"]["failed_requests"] == 1
         assert by_provider["claude"]["total_tokens"] == 68
+        assert by_provider["deepseek"]["requests"] == 1
+        assert by_provider["deepseek"]["successful_requests"] == 1
+        assert by_provider["deepseek"]["models"][0]["model"] == "deepseek-flash"
+        assert by_provider["xai"]["requests"] == 1
+        assert by_provider["xai"]["failed_requests"] == 1
+        assert by_provider["xai"]["total_tokens"] == 38
 
         provider_fields = {
             "provider", "requests", "successful_requests", "failed_requests",
@@ -139,7 +165,12 @@ def test_reasoning_usage_summarizes_each_provider_and_model_without_leaking_deta
         }
         assert all(set(provider) == provider_fields for provider in report["providers"])
         serialized = str(report)
-        for private_value in ("private prompt", "private lead content", "private key", "other-workspace"):
+        for private_value in (
+            "private prompt",
+            "private lead content",
+            "private key",
+            "other-workspace",
+        ):
             assert private_value not in serialized
 
         empty_report = get_reasoning_usage(
@@ -147,7 +178,7 @@ def test_reasoning_usage_summarizes_each_provider_and_model_without_leaking_deta
             session=session,
             workspace=WorkspaceContext(empty_id),
         )
-        assert len(empty_report["providers"]) == 3
+        assert len(empty_report["providers"]) == 5
         assert all(provider["requests"] == 0 for provider in empty_report["providers"])
         assert all(provider["models"] == [] for provider in empty_report["providers"])
     engine.dispose()

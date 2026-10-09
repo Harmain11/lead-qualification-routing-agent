@@ -10,11 +10,15 @@ const periods: Array<{ value: ReasoningUsagePeriod; label: string }> = [
   { value: "annual", label: "Annual" },
 ];
 
-const providerOrder: ReasoningUsageProvider["provider"][] = ["openai", "gemini", "claude"];
+const providerOrder: ReasoningUsageProvider["provider"][] = [
+  "openai", "gemini", "claude", "deepseek", "xai",
+];
 const providerNames: Record<ReasoningUsageProvider["provider"], string> = {
   openai: "OpenAI",
   gemini: "Gemini",
   claude: "Claude",
+  deepseek: "DeepSeek",
+  xai: "xAI",
 };
 
 function formatNumber(value: number) {

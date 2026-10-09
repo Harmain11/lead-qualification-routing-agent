@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDERS
 
 
 class LeadCreateRequest(BaseModel):
@@ -449,7 +450,7 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         configured=row.credential_state == "configured" and row.secret_reference is not None,
         selected_model=(
             str(row.connection_metadata["selected_model"])
-            if row.provider_type in {"openai", "gemini", "claude"}
+            if row.provider_type in REASONING_PROVIDERS
             and isinstance(row.connection_metadata.get("selected_model"), str)
             else None
         ),
