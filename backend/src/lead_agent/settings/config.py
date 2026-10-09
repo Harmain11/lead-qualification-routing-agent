@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     openai_org_id: str = ""
     openai_supported_models: str = "gpt-4.1-mini,gpt-4.1"
     openai_default_model: str = "gpt-4.1-mini"
+    gemini_supported_models: str = "gemini-3.8-flash,gemini-2.5-flash"
+    gemini_default_model: str = "gemini-3.8-flash"
+    claude_supported_models: str = "claude-sonnet-4-6,claude-haiku-4-5"
+    claude_default_model: str = "claude-sonnet-4-6"
     openai_timeout_seconds: float = 30.0
     openai_max_retries: int = 2
     openai_store_responses: bool = False

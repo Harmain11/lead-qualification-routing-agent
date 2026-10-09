@@ -432,6 +432,14 @@ export function backfillOpenAI(connectionId: string): Promise<{ status: string; 
   return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-openai`, { method: "POST" });
 }
 
+export function backfillReasoning(connectionId: string): Promise<{ status: string; queued_count: number; message: string }> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-reasoning`, { method: "POST" });
+}
+
+export function activateReasoningProvider(connectionId: string): Promise<ProviderConnection> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/activate-reasoning`, { method: "POST" });
+}
+
 export type SlackChannel = { id: string; name: string; is_member: boolean; is_private: boolean };
 export function listSlackChannels(connectionId: string): Promise<SlackChannel[]> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels`);
@@ -489,6 +497,14 @@ export function reconnectIntegration(connectionId: string, credentials: Record<s
 
 export function updateOpenAIModel(connectionId: string, model: string): Promise<ProviderConnection> {
   return jsonRequest<ProviderConnection>(`/v1/integrations/connections/${connectionId}/openai-model`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+}
+
+export function updateReasoningModel(connectionId: string, model: string): Promise<ProviderConnection> {
+  return jsonRequest<ProviderConnection>(`/v1/integrations/connections/${connectionId}/reasoning-model`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model }),

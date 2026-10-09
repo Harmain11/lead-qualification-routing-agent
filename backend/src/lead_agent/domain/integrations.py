@@ -16,6 +16,8 @@ ProviderType = Literal[
     "calendly",
     "linkedin",
     "openai",
+    "gemini",
+    "claude",
 ]
 ConnectionStatus = Literal[
     "configured",
@@ -246,6 +248,42 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         required_scopes=["Responses API access"],
         permission_reason="Run schema-constrained context and intent analysis.",
         documentation_url="https://developers.openai.com/api/docs/quickstart",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "gemini": ProviderSetupMetadata(
+        provider="gemini",
+        display_name="Google Gemini",
+        category="AI analysis",
+        availability="available",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="Google AI Studio → API keys",
+        credential_help=(
+            "Connect a Google AI Studio API key for this workspace. Gemini API usage is "
+            "billed directly to your Google account."
+        ),
+        required_scopes=["Generative Language API access"],
+        permission_reason="Run schema-constrained context and intent analysis.",
+        documentation_url="https://ai.google.dev/gemini-api/docs/api-key",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "claude": ProviderSetupMetadata(
+        provider="claude",
+        display_name="Anthropic Claude",
+        category="AI analysis",
+        availability="available",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="Anthropic Console → API keys",
+        credential_help=(
+            "Connect an Anthropic API key for this workspace. Claude API usage is "
+            "billed directly to your Anthropic account."
+        ),
+        required_scopes=["Messages API access"],
+        permission_reason="Run schema-constrained context and intent analysis.",
+        documentation_url="https://docs.anthropic.com/en/api/getting-started",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),

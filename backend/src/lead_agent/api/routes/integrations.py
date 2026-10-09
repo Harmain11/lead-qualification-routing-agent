@@ -22,6 +22,7 @@ from lead_agent.api.schemas import (
 )
 from lead_agent.application.auth import membership_permissions, require_membership
 from lead_agent.application.integrations import (
+    activate_reasoning_provider,
     begin_oauth_connection,
     complete_oauth_connection,
     create_manual_connection,
@@ -60,8 +61,8 @@ from lead_agent.infrastructure.provider_lifecycle import (
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.reasoning.configuration import (
-    default_openai_model,
-    supported_openai_models,
+    default_reasoning_model,
+    supported_reasoning_models,
 )
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
@@ -177,7 +178,11 @@ def get_openai_usage(
         **totals,
         "models": [
             {"model": model, **usage}
-            for model, usage in sorted(models.items(), key=lambda item: item[1]["total_tokens"], reverse=True)
+            for model, usage in sorted(
+                models.items(),
+                key=lambda item: item[1]["total_tokens"],
+                reverse=True,
+            )
         ],
     }
 
@@ -270,9 +275,13 @@ def list_integrations(
             **setup.model_dump(),
             directionality=directionality_for(provider).model_dump(),
             supported_models=(
-                list(supported_openai_models(settings)) if provider == "openai" else []
+                list(supported_reasoning_models(provider, settings))
+                if provider in {"openai", "gemini", "claude"} else []
             ),
-            default_model=(default_openai_model(settings) if provider == "openai" else None),
+            default_model=(
+                default_reasoning_model(provider, settings)
+                if provider in {"openai", "gemini", "claude"} else None
+            ),
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
             ),
@@ -682,6 +691,7 @@ def test_connection(
 
 
 @router.post("/connections/{connection_id}/backfill-openai")
+@router.post("/connections/{connection_id}/backfill-reasoning")
 def backfill_openai_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
@@ -690,13 +700,13 @@ def backfill_openai_connection(
 ) -> dict[str, object]:
     connection = _connection_or_404(session, workspace.workspace_id, connection_id)
     if (
-        connection.provider_type != "openai"
+        connection.provider_type not in {"openai", "gemini", "claude"}
         or connection.status != "verified"
         or not connection.is_active
     ):
         raise HTTPException(
             status_code=409,
-            detail="Verify and activate the OpenAI connection before backfill",
+            detail="Verify and activate the AI provider before backfill",
         )
     count = session.scalar(
         select(func.count(LeadORM.id))
@@ -705,7 +715,7 @@ def backfill_openai_connection(
             ~select(AnalysisRunORM.id)
             .where(
                 AnalysisRunORM.lead_id == LeadORM.id,
-                AnalysisRunORM.provider == "openai",
+                AnalysisRunORM.provider == connection.provider_type,
                 AnalysisRunORM.status == "completed",
             )
             .exists(),
@@ -726,7 +736,7 @@ def backfill_openai_connection(
                 "status": "skipped",
                 "queued_count": 0,
                 "message": (
-                    "OpenAI is verified. Backfill will run when the local worker "
+                    "The AI provider is verified. Backfill will run when the local worker "
                     "and Redis are available."
                 ),
             }
@@ -746,7 +756,10 @@ def backfill_openai_connection(
     return {
         "status": "queued",
         "queued_count": int(count),
-        "message": "Existing leads will be reanalyzed with OpenAI in the background.",
+        "message": (
+            "Existing leads will be reanalyzed with "
+            f"{connection.provider_type.title()} in the background."
+        ),
     }
 
 
@@ -923,6 +936,10 @@ def reconnect(
     "/connections/{connection_id}/openai-model",
     response_model=ProviderConnectionResponse,
 )
+@router.put(
+    "/connections/{connection_id}/reasoning-model",
+    response_model=ProviderConnectionResponse,
+)
 def configure_openai_model(
     connection_id: UUID,
     request: OpenAIModelRequest,
@@ -941,4 +958,24 @@ def configure_openai_model(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    return provider_connection_response(row)
+
+
+@router.post(
+    "/connections/{connection_id}/activate-reasoning",
+    response_model=ProviderConnectionResponse,
+)
+def activate_reasoning_connection(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> ProviderConnectionResponse:
+    try:
+        row = activate_reasoning_provider(
+            session, workspace.workspace_id, connection_id, actor_id=workspace.actor_id
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return provider_connection_response(row)
