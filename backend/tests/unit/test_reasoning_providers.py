@@ -42,8 +42,15 @@ from lead_agent.settings.config import Settings
 _KEYS = {
     "gemini": "gemini-workspace-key-not-for-logs",
     "claude": "claude-workspace-key-not-for-logs",
+    "deepseek": "deepseek-workspace-key-not-for-logs",
+    "xai": "xai-workspace-key-not-for-logs",
 }
-_MODELS = {"gemini": "gemini-3.8-flash", "claude": "claude-sonnet-4-6"}
+_MODELS = {
+    "gemini": "gemini-3.8-flash",
+    "claude": "claude-sonnet-4-6",
+    "deepseek": "deepseek-flash",
+    "xai": "grok-4.7",
+}
 
 
 def _reasoning_output() -> dict[str, object]:
@@ -94,9 +101,21 @@ def _provider_payload(provider: str) -> dict[str, object]:
                 "totalTokenCount": 33,
             },
         }
+    if provider == "claude":
+        return {
+            "content": [{"type": "text", "text": text}],
+            "usage": {"input_tokens": 11, "output_tokens": 22},
+        }
+    if provider == "deepseek":
+        return {
+            "choices": [{"message": {"content": text}}],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 22, "total_tokens": 33},
+        }
     return {
-        "content": [{"type": "text", "text": text}],
-        "usage": {"input_tokens": 11, "output_tokens": 22},
+        "output": [
+            {"type": "message", "content": [{"type": "output_text", "text": text}]}
+        ],
+        "usage": {"input_tokens": 11, "output_tokens": 22, "total_tokens": 33},
     }
 
 
@@ -141,7 +160,7 @@ def _session_factory(tmp_path: Path) -> sessionmaker[Session]:
     return sessionmaker(engine, expire_on_commit=False)
 
 
-@pytest.mark.parametrize("provider", ["gemini", "claude"])
+@pytest.mark.parametrize("provider", ["gemini", "claude", "deepseek", "xai"])
 def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
     provider: str, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -168,21 +187,42 @@ def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
     assert _KEYS[provider] not in caplog.text
     assert isinstance(request["headers"], dict)
     headers = request["headers"]
-    assert headers.get("x-goog-api-key" if provider == "gemini" else "x-api-key") == _KEYS[provider]
+    auth_header = {
+        "gemini": "x-goog-api-key",
+        "claude": "x-api-key",
+        "deepseek": "Authorization",
+        "xai": "Authorization",
+    }[provider]
+    assert headers.get(auth_header) == (
+        f"Bearer {_KEYS[provider]}" if provider in {"deepseek", "xai"} else _KEYS[provider]
+    )
     body = request["json"]
     assert isinstance(body, dict)
     if provider == "gemini":
         assert str(request["url"]).endswith(f"{_MODELS[provider]}:generateContent")
         schema = body["generationConfig"]["responseSchema"]
-    else:
+    elif provider == "claude":
         assert request["url"] == "https://api.anthropic.com/v1/messages"
         assert body["model"] == _MODELS[provider]
         schema = body["output_config"]["format"]["schema"]
+    elif provider == "deepseek":
+        assert request["url"] == "https://api.deepseek.com/chat/completions"
+        assert body["model"] == _MODELS[provider]
+        assert body["response_format"] == {"type": "json_object"}
+        system_content = body["messages"][0]["content"]
+        assert "JSON Schema" in system_content
+        schema = json.loads(system_content.split("JSON Schema:\n", 1)[1])
+    else:
+        assert request["url"] == "https://api.x.ai/v1/responses"
+        assert body["model"] == _MODELS[provider]
+        assert body["store"] is False
+        assert body["text"]["format"]["strict"] is True
+        schema = body["text"]["format"]["schema"]
     assert schema["type"] == "object"
     assert "$defs" not in schema
 
 
-@pytest.mark.parametrize("provider", ["gemini", "claude"])
+@pytest.mark.parametrize("provider", ["gemini", "claude", "deepseek", "xai"])
 def test_structured_api_connection_validator_verifies_key_and_returns_no_secret(
     provider: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -190,14 +230,29 @@ def test_structured_api_connection_validator_verifies_key_and_returns_no_secret(
 
     def post(url: str, **kwargs: object) -> SimpleNamespace:
         seen.append({"url": url, **kwargs})
-        return SimpleNamespace(
-            status_code=200,
-            json=lambda: (
-                {"candidates": [{"content": {"parts": [{"text": '{"status":"ok"}'}]}}]}
-                if provider == "gemini"
-                else {"content": [{"type": "text", "text": '{"status":"ok"}'}]}
-            ),
-        )
+        response_text = '{"status":"ok"}'
+        if provider == "gemini":
+            response_payload = {
+                "candidates": [{"content": {"parts": [{"text": response_text}]}}]
+            }
+        elif provider == "claude":
+            response_payload = {"content": [{"type": "text", "text": response_text}]}
+        elif provider == "deepseek":
+            response_payload = {
+                "choices": [{"message": {"content": response_text}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7},
+            }
+        else:
+            response_payload = {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": response_text}],
+                    }
+                ],
+                "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7},
+            }
+        return SimpleNamespace(status_code=200, json=lambda: response_payload)
 
     monkeypatch.setattr(
         "lead_agent.infrastructure.reasoning.structured_api.httpx.post", post
@@ -214,14 +269,14 @@ def test_structured_api_connection_validator_verifies_key_and_returns_no_secret(
     assert _KEYS[provider] not in str(seen[0]["url"])
 
 
-@pytest.mark.parametrize("provider", ["gemini", "claude"])
+@pytest.mark.parametrize("provider", ["gemini", "claude", "deepseek", "xai"])
 def test_reasoning_model_allowlist_rejects_unconfigured_models(provider: str) -> None:
     assert validate_reasoning_model(provider, _MODELS[provider]) == _MODELS[provider]
     with pytest.raises(ValueError, match="not supported"):
         validate_reasoning_model(provider, "user-supplied-arbitrary-model")
 
 
-@pytest.mark.parametrize("provider", ["gemini", "claude"])
+@pytest.mark.parametrize("provider", ["gemini", "claude", "deepseek", "xai"])
 def test_connection_validator_does_not_echo_rejected_api_key(
     provider: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -99,7 +99,12 @@ class Settings(BaseSettings):
     gemini_default_model: str = "gemini-3.8-flash"
     claude_supported_models: str = "claude-sonnet-4-6,claude-haiku-4-5"
     claude_default_model: str = "claude-sonnet-4-6"
+    deepseek_supported_models: str = "deepseek-flash,deepseek-v4-pro"
+    deepseek_default_model: str = "deepseek-flash"
+    xai_supported_models: str = "grok-4.7"
+    xai_default_model: str = "grok-4.7"
     openai_timeout_seconds: float = 30.0
+    xai_timeout_seconds: float = 120.0
     openai_max_retries: int = 2
     openai_store_responses: bool = False
     crm_provider: str = "mock"

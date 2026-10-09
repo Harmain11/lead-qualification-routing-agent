@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_authenticated_identity, require_permission
@@ -61,6 +61,7 @@ from lead_agent.infrastructure.provider_lifecycle import (
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.reasoning.configuration import (
+    REASONING_PROVIDERS,
     default_reasoning_model,
     supported_reasoning_models,
 )
@@ -85,6 +86,22 @@ _OPENAI_USAGE_WINDOWS = {
     "quarterly": timedelta(days=90),
     "annual": timedelta(days=365),
 }
+_REASONING_USAGE_PROVIDERS = REASONING_PROVIDERS
+_REASONING_USAGE_ACTIONS = {
+    "openai": "openai_api_usage",
+    "gemini": "reasoning_api_usage",
+    "claude": "reasoning_api_usage",
+    "deepseek": "reasoning_api_usage",
+    "xai": "reasoning_api_usage",
+}
+_USAGE_TOTAL_FIELDS = (
+    "requests",
+    "successful_requests",
+    "failed_requests",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+)
 
 
 class OAuthBeginRequest(BaseModel):
@@ -186,7 +203,94 @@ def get_openai_usage(
         ],
     }
 
+@router.get("/reasoning/usage")
+def get_reasoning_usage(
+    period: Literal["weekly", "monthly", "quarterly", "annual"] = Query(default="monthly"),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> dict[str, Any]:
+    """Return safe, workspace-scoped usage totals across supported reasoning providers."""
 
+    window_end = datetime.now(UTC)
+    window_start = window_end - _OPENAI_USAGE_WINDOWS[period]
+    provider_filters = [
+        and_(
+            ProviderLifecycleAuditORM.provider == provider,
+            ProviderLifecycleAuditORM.action == _REASONING_USAGE_ACTIONS[provider],
+        )
+        for provider in _REASONING_USAGE_PROVIDERS
+    ]
+    events = session.scalars(
+        select(ProviderLifecycleAuditORM)
+        .where(
+            ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
+            ProviderLifecycleAuditORM.created_at >= window_start,
+            ProviderLifecycleAuditORM.created_at <= window_end,
+            or_(*provider_filters),
+        )
+        .order_by(ProviderLifecycleAuditORM.created_at.desc())
+    ).all()
+
+    providers: dict[str, dict[str, Any]] = {
+        provider: {
+            "provider": provider,
+            **{field: 0 for field in _USAGE_TOTAL_FIELDS},
+            "models": {},
+        }
+        for provider in _REASONING_USAGE_PROVIDERS
+    }
+    for event in events:
+        provider_usage = providers.get(event.provider)
+        if provider_usage is None:
+            continue
+        successful = event.outcome == "success"
+        outcome_field = "successful_requests" if successful else "failed_requests"
+        provider_usage["requests"] += 1
+        provider_usage[outcome_field] += 1
+
+        details = event.details if isinstance(event.details, dict) else {}
+        model = details.get("model")
+        model_name = model[:128].strip() if isinstance(model, str) else ""
+        model_name = model_name or "Unknown model"
+        models = provider_usage["models"]
+        model_usage = models.setdefault(model_name, {
+            **{field: 0 for field in _USAGE_TOTAL_FIELDS},
+        })
+        model_usage["requests"] += 1
+        model_usage[outcome_field] += 1
+        for field in ("input_tokens", "output_tokens", "total_tokens"):
+            value = details.get(field)
+            count = (
+                value
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                else 0
+            )
+            provider_usage[field] += count
+            model_usage[field] += count
+
+    return {
+        "period": period,
+        "starts_at": window_start,
+        "ends_at": window_end,
+        "timezone": "UTC",
+        "providers": [
+            {
+                **{
+                    field: value
+                    for field, value in provider_usage.items()
+                    if field != "models"
+                },
+                "models": [
+                    {"model": model, **usage}
+                    for model, usage in sorted(
+                        provider_usage["models"].items(),
+                        key=lambda item: (-item[1]["total_tokens"], item[0]),
+                    )
+                ],
+            }
+            for provider_usage in providers.values()
+        ],
+    }
 class SlackChannelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel_id: str = Field(min_length=3, max_length=255)
@@ -276,11 +380,11 @@ def list_integrations(
             directionality=directionality_for(provider).model_dump(),
             supported_models=(
                 list(supported_reasoning_models(provider, settings))
-                if provider in {"openai", "gemini", "claude"} else []
+                if provider in REASONING_PROVIDERS else []
             ),
             default_model=(
                 default_reasoning_model(provider, settings)
-                if provider in {"openai", "gemini", "claude"} else None
+                if provider in REASONING_PROVIDERS else None
             ),
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
@@ -700,7 +804,7 @@ def backfill_openai_connection(
 ) -> dict[str, object]:
     connection = _connection_or_404(session, workspace.workspace_id, connection_id)
     if (
-        connection.provider_type not in {"openai", "gemini", "claude"}
+        connection.provider_type not in REASONING_PROVIDERS
         or connection.status != "verified"
         or not connection.is_active
     ):

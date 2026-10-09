@@ -97,6 +97,8 @@ def test_provider_directionality_policy_is_explicit() -> None:
     assert directionality_for("openai").request_response is True
     assert directionality_for("gemini").request_response is True
     assert directionality_for("claude").request_response is True
+    assert directionality_for("deepseek").request_response is True
+    assert directionality_for("xai").request_response is True
 
 
 def test_integrations_catalog_loads_all_ai_provider_cards(tmp_path) -> None:
@@ -110,11 +112,13 @@ def test_integrations_catalog_loads_all_ai_provider_cards(tmp_path) -> None:
 
     reasoning_cards = {
         card.provider: card for card in cards
-        if card.provider in {"openai", "gemini", "claude"}
+        if card.provider in {"openai", "gemini", "claude", "deepseek", "xai"}
     }
-    assert set(reasoning_cards) == {"openai", "gemini", "claude"}
+    assert set(reasoning_cards) == {"openai", "gemini", "claude", "deepseek", "xai"}
     assert reasoning_cards["gemini"].supported_models
     assert reasoning_cards["claude"].supported_models
+    assert reasoning_cards["deepseek"].supported_models == ["deepseek-flash", "deepseek-v4-pro"]
+    assert reasoning_cards["xai"].supported_models == ["grok-4.7"]
 
 
 def test_release_provider_catalog_separates_available_managed_and_coming_soon() -> None:
@@ -131,6 +135,8 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
         "openai",
         "gemini",
         "claude",
+        "deepseek",
+        "xai",
         "google_calendar",
         "calendly",
     }

@@ -72,6 +72,8 @@ PROVIDER_DIRECTIONALITY: dict[str, IntegrationDirectionality] = {
     "openai": _ANALYSIS,
     "gemini": _ANALYSIS,
     "claude": _ANALYSIS,
+    "deepseek": _ANALYSIS,
+    "xai": _ANALYSIS,
     "linkedin": _INBOUND,
     "mock": _CRM,
 }

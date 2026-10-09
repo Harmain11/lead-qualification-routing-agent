@@ -26,8 +26,8 @@ import type {
   RoutingConfig,
   PublicIntakeConfig,
   TimeRange,
-  OpenAIUsage,
-  OpenAIUsagePeriod,
+  ReasoningUsage,
+  ReasoningUsagePeriod,
   TimeSeriesAnalytics,
   AuthSession,
   PermissionOverrides,
@@ -523,10 +523,9 @@ export function getLeadFollowUpHistory(leadId: string, signal?: AbortSignal): Pr
   return jsonRequest<FollowUpEmail[]>(`/v1/leads/${leadId}/follow-up/history`, { signal });
 }
 
-export function getOpenAIUsage(period: OpenAIUsagePeriod, signal?: AbortSignal): Promise<OpenAIUsage> {
-  return jsonRequest<OpenAIUsage>(`/v1/integrations/openai/usage?period=${period}`, { signal });
+export function getReasoningUsage(period: ReasoningUsagePeriod, signal?: AbortSignal): Promise<ReasoningUsage> {
+  return jsonRequest<ReasoningUsage>(`/v1/integrations/reasoning/usage?period=${period}`, { signal });
 }
-
 export function getLeadMomentum(leadId: string, signal?: AbortSignal): Promise<import("./types").LeadMomentum> {
   return jsonRequest<import("./types").LeadMomentum>(`/v1/leads/${leadId}/momentum`, { signal });
 }

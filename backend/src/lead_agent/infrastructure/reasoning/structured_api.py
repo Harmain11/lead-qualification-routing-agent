@@ -120,8 +120,9 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
 
         if provider == "gemini":
             result.pop("additionalProperties", None)
-        else:
+        elif provider in {"claude", "deepseek"}:
             # Anthropic's constrained schema API omits string/numeric bounds;
+            # DeepSeek uses JSON mode rather than accepting a JSON Schema.
             # Pydantic still enforces the original bounds on the response.
             for key in ("maximum", "maxLength", "minimum", "minLength", "maxItems", "minItems"):
                 result.pop(key, None)
@@ -134,11 +135,13 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
 
 
 class StructuredAPIReasoningProvider:
-    """Gemini or Claude provider using vendor-native JSON-schema output."""
+    """Reasoning provider using each vendor's native structured-output API."""
 
     _CONFIG: dict[str, tuple[str, str]] = {
         "gemini": ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/models"),
         "claude": ("Anthropic Claude", "https://api.anthropic.com/v1/messages"),
+        "deepseek": ("DeepSeek", "https://api.deepseek.com/chat/completions"),
+        "xai": ("xAI", "https://api.x.ai/v1/responses"),
     }
 
     def __init__(
@@ -274,7 +277,7 @@ class StructuredAPIReasoningProvider:
                     "maxOutputTokens": max_output_tokens,
                 },
             }
-        else:
+        elif self.provider_name == "claude":
             url = self._endpoint
             headers["x-api-key"] = self._api_key
             headers["anthropic-version"] = "2023-06-01"
@@ -285,6 +288,42 @@ class StructuredAPIReasoningProvider:
                 "messages": [{"role": "user", "content": prompt}],
                 "output_config": {
                     "format": {"type": "json_schema", "schema": schema},
+                },
+            }
+        elif self.provider_name == "deepseek":
+            url = self._endpoint
+            headers["Authorization"] = f"Bearer {self._api_key}"
+            json_system = (
+                f"{system}\nReturn only a valid json object matching this JSON Schema:\n"
+                f"{json.dumps(schema, ensure_ascii=False)}"
+            )
+            body = {
+                "model": self.model_name,
+                "max_tokens": max_output_tokens,
+                "messages": [
+                    {"role": "system", "content": json_system},
+                    {"role": "user", "content": prompt},
+                ],
+                "response_format": {"type": "json_object"},
+            }
+        else:
+            url = self._endpoint
+            headers["Authorization"] = f"Bearer {self._api_key}"
+            body = {
+                "model": self.model_name,
+                "input": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_output_tokens": max_output_tokens,
+                "store": False,
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": schema_model.__name__.lower(),
+                        "schema": schema,
+                        "strict": True,
+                    },
                 },
             }
 
@@ -324,7 +363,7 @@ class StructuredAPIReasoningProvider:
                 raise InvalidReasoningOutput(
                     "Gemini returned no structured content"
                 ) from None
-        else:
+        elif self.provider_name == "claude":
             try:
                 text = next(
                     block["text"] for block in payload["content"]
@@ -344,6 +383,38 @@ class StructuredAPIReasoningProvider:
             except (KeyError, StopIteration, TypeError):
                 raise InvalidReasoningOutput(
                     "Claude returned no structured content"
+                ) from None
+        elif self.provider_name == "deepseek":
+            try:
+                text = payload["choices"][0]["message"]["content"]
+                raw_usage = payload.get("usage", {})
+                usage = {
+                    "input_tokens": raw_usage.get("prompt_tokens"),
+                    "output_tokens": raw_usage.get("completion_tokens"),
+                    "total_tokens": raw_usage.get("total_tokens"),
+                }
+            except (KeyError, IndexError, TypeError):
+                raise InvalidReasoningOutput(
+                    "DeepSeek returned no JSON content"
+                ) from None
+        else:
+            try:
+                text = next(
+                    item["text"]
+                    for message in payload["output"]
+                    if message.get("type") == "message"
+                    for item in message.get("content", [])
+                    if item.get("type") == "output_text"
+                )
+                raw_usage = payload.get("usage", {})
+                usage = {
+                    "input_tokens": raw_usage.get("input_tokens"),
+                    "output_tokens": raw_usage.get("output_tokens"),
+                    "total_tokens": raw_usage.get("total_tokens"),
+                }
+            except (KeyError, StopIteration, TypeError):
+                raise InvalidReasoningOutput(
+                    "xAI returned no structured content"
                 ) from None
         try:
             decoded = json.loads(text)
@@ -392,7 +463,7 @@ class StructuredAPIReasoningProvider:
 
 
 class StructuredAPIConnectionValidator:
-    """Minimal credential, model-access, and schema-output check for Gemini or Claude."""
+    """Minimal credential, model-access, and schema-output check for structured APIs."""
 
     def __init__(self, provider: str, timeout_seconds: float) -> None:
         self.provider = provider

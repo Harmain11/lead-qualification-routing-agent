@@ -21,6 +21,7 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.db.session import get_session_factory
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.observability import configure_logging
+from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDERS
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.settings.config import get_settings
 
@@ -217,7 +218,7 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
         icp, routing = settings.load_policies()
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         provider_name = getattr(provider, "provider_name", "")
-        if provider_name not in {"openai", "gemini", "claude"}:
+        if provider_name not in REASONING_PROVIDERS:
             return "skipped: verified workspace reasoning provider is unavailable"
         provider_completed = select(AnalysisRunORM.id).where(
             AnalysisRunORM.lead_id == LeadORM.id,

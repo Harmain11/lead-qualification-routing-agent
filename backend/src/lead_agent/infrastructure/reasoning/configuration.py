@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from lead_agent.settings.config import Settings, get_settings
 
-REASONING_PROVIDERS = ("openai", "gemini", "claude")
+REASONING_PROVIDERS = ("openai", "gemini", "claude", "deepseek", "xai")
 _MODEL_SETTING_NAMES = {
     "openai": ("openai_supported_models", "openai_default_model"),
     "gemini": ("gemini_supported_models", "gemini_default_model"),
     "claude": ("claude_supported_models", "claude_default_model"),
+    "deepseek": ("deepseek_supported_models", "deepseek_default_model"),
+    "xai": ("xai_supported_models", "xai_default_model"),
+}
+_PROVIDER_NAMES = {
+    "openai": "OpenAI",
+    "gemini": "Gemini",
+    "claude": "Claude",
+    "deepseek": "DeepSeek",
+    "xai": "xAI",
 }
 
 
@@ -72,9 +81,10 @@ def default_reasoning_model(provider: str, settings: Settings | None = None) -> 
 def validate_reasoning_model(
     provider: str, model: object, settings: Settings | None = None
 ) -> str:
+    provider_name = _PROVIDER_NAMES.get(provider, provider.title())
     if not isinstance(model, str) or not model.strip():
-        raise ValueError(f"a {provider.title()} model selection is required")
+        raise ValueError(f"a {provider_name} model selection is required")
     selected = model.strip()
     if selected not in supported_reasoning_models(provider, settings):
-        raise ValueError(f"selected {provider.title()} model is not supported by this application")
+        raise ValueError(f"selected {provider_name} model is not supported by this application")
     return selected
