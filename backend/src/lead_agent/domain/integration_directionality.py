@@ -70,6 +70,8 @@ PROVIDER_DIRECTIONALITY: dict[str, IntegrationDirectionality] = {
     "calendly": _CALENDAR,
     "slack": _NOTIFICATION,
     "openai": _ANALYSIS,
+    "gemini": _ANALYSIS,
+    "claude": _ANALYSIS,
     "linkedin": _INBOUND,
     "mock": _CRM,
 }

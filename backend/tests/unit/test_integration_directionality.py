@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
+from lead_agent.api.routes.integrations import list_integrations
 from lead_agent.application.crm import manually_sync_lead_to_crm
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
@@ -18,6 +19,7 @@ from lead_agent.application.services import process_lead, reprocess_lead
 from lead_agent.domain.analysis import ReasoningProviderError
 from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import PROVIDER_SETUP
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.crm.factory import ConnectedCrmProvider
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.db import models  # noqa: F401
@@ -30,6 +32,7 @@ from lead_agent.infrastructure.db.models import (
     ProviderLifecycleAuditORM,
 )
 from lead_agent.infrastructure.repositories import ensure_workspace, get_current_routing
+from lead_agent.settings.config import get_settings
 
 
 def _session(tmp_path) -> Session:
@@ -92,6 +95,26 @@ def test_provider_directionality_policy_is_explicit() -> None:
         "Notifications are outbound delivery actions produced by routing policy."
     )
     assert directionality_for("openai").request_response is True
+    assert directionality_for("gemini").request_response is True
+    assert directionality_for("claude").request_response is True
+
+
+def test_integrations_catalog_loads_all_ai_provider_cards(tmp_path) -> None:
+    workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        cards = list_integrations(
+            session=session,
+            workspace=WorkspaceContext(workspace_id),
+            settings=get_settings(),
+        )
+
+    reasoning_cards = {
+        card.provider: card for card in cards
+        if card.provider in {"openai", "gemini", "claude"}
+    }
+    assert set(reasoning_cards) == {"openai", "gemini", "claude"}
+    assert reasoning_cards["gemini"].supported_models
+    assert reasoning_cards["claude"].supported_models
 
 
 def test_release_provider_catalog_separates_available_managed_and_coming_soon() -> None:
