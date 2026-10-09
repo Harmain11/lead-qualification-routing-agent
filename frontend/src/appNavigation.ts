@@ -19,6 +19,7 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "revenue-trajectory", label: "Revenue trajectory" },
   ],
   integrations: [
+    { id: "ai", label: "AI connections" },
     { id: "gmail", label: "Gmail" }, { id: "google_calendar", label: "Google Calendar" },
     { id: "slack", label: "Slack" }, { id: "salesforce", label: "Salesforce" },
     { id: "hubspot", label: "HubSpot" }, { id: "calendly", label: "Calendly" },
