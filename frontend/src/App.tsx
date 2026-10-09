@@ -133,7 +133,7 @@ function App() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadRevision, setLeadRevision] = useState(0);
   const [tourOpen, setTourOpen] = useState(false);
-  const [openaiSetupCard, setOpenaiSetupCard] = useState<IntegrationCard | null>(null);
+  const [reasoningSetupCards, setReasoningSetupCards] = useState<IntegrationCard[] | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadSection, setLeadSection] = useState<LeadDetailSection>(() => parseLeadSection(new URLSearchParams(window.location.search).get("lead_tab")));
   const pinnedSections = usePinnedLeadSections(auth?.user.id, auth?.current_workspace_id);
@@ -151,7 +151,7 @@ function App() {
   const leadRequestVersion = useRef(0);
   const leadController = useRef<AbortController | null>(null);
   const leadSignature = useRef<string | null>(null);
-  const openaiPromptDismissed = useRef(new Set<string>());
+  const reasoningPromptDismissed = useRef(new Set<string>());
   const tourSeenKey = auth?.current_workspace_id
     ? `corral-product-tour-seen:v1:${auth.current_workspace_id}`
     : null;
@@ -340,8 +340,8 @@ function App() {
 
   useEffect(() => {
     if (auth) return;
-    setOpenaiSetupCard(null);
-    openaiPromptDismissed.current.clear();
+    setReasoningSetupCards(null);
+    reasoningPromptDismissed.current.clear();
   }, [auth]);
 
   useEffect(() => {
@@ -356,17 +356,22 @@ function App() {
 
   useEffect(() => {
     if (!auth) return;
-    setOpenaiSetupCard(null);
+    setReasoningSetupCards(null);
     const workspace = auth.workspaces.find((item) => item.id === auth.current_workspace_id);
     if (!workspace?.effective_permissions.includes("integrations.manage") ||
-        openaiPromptDismissed.current.has(auth.current_workspace_id)) return;
+        reasoningPromptDismissed.current.has(auth.current_workspace_id)) return;
     let active = true;
     void listIntegrations().then((cards) => {
       if (!active) return;
-      const openai = cards.find((card) => card.provider === "openai");
+      const byProvider = new Map(cards.map((card) => [card.provider, card]));
+      const reasoningCards = ["openai", "gemini", "claude"]
+        .map((provider) => byProvider.get(provider))
+        .filter((card): card is IntegrationCard => Boolean(card));
       // A saved key can be `connected` before verification; only ask for a key when none is stored.
-      setOpenaiSetupCard(openai?.connection?.configured ? null : openai ?? null);
-    }).catch(() => { if (active) setOpenaiSetupCard(null); });
+      setReasoningSetupCards(
+        reasoningCards.some((card) => card.connection?.configured) ? null : reasoningCards,
+      );
+    }).catch(() => { if (active) setReasoningSetupCards(null); });
     return () => { active = false; };
   }, [auth?.user.id, auth?.current_workspace_id]);
 
@@ -650,7 +655,7 @@ function App() {
         </footer>
       </main>
       {navOpen && <button className="nav-scrim" onClick={() => setNavOpen(false)} aria-label="Close navigation" />}
-      {openaiSetupCard && !tourOpen && view === "dashboard" && <OpenAISetupPrompt card={openaiSetupCard} onVerified={() => { setOpenaiSetupCard(null); void refresh(); }} onLater={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); }} onSettings={() => { openaiPromptDismissed.current.add(auth.current_workspace_id); setOpenaiSetupCard(null); setView("integrations"); }} />}
+      {reasoningSetupCards?.length && !tourOpen && view === "dashboard" && <OpenAISetupPrompt cards={reasoningSetupCards} onVerified={() => { setReasoningSetupCards(null); void refresh(); }} onLater={() => { reasoningPromptDismissed.current.add(auth.current_workspace_id); setReasoningSetupCards(null); }} onSettings={() => { reasoningPromptDismissed.current.add(auth.current_workspace_id); setReasoningSetupCards(null); setView("integrations"); }} />}
       <ProductTour open={tourOpen} currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
     </div>
   );

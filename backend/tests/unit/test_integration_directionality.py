@@ -106,6 +106,8 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
         "hubspot",
         "slack",
         "openai",
+        "gemini",
+        "claude",
         "google_calendar",
         "calendly",
     }

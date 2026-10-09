@@ -36,7 +36,10 @@ from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
     record_provider_lifecycle_audit,
 )
-from lead_agent.infrastructure.reasoning.configuration import validate_openai_model
+from lead_agent.infrastructure.reasoning.configuration import (
+    REASONING_PROVIDERS,
+    validate_reasoning_model,
+)
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
     get_provider_connection,
@@ -48,6 +51,8 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "salesforce": {"client_id", "client_secret", "refresh_token"},
     "hubspot": {"access_token"},
     "openai": {"api_key"},
+    "gemini": {"api_key"},
+    "claude": {"api_key"},
 }
 
 
@@ -128,7 +133,11 @@ def _activate_connection(session: Session, connection: ProviderConnectionORM) ->
         update(ProviderConnectionORM)
         .where(
             ProviderConnectionORM.workspace_id == connection.workspace_id,
-            ProviderConnectionORM.provider_type == connection.provider_type,
+            ProviderConnectionORM.provider_type.in_(
+                REASONING_PROVIDERS
+                if connection.provider_type in REASONING_PROVIDERS
+                else [connection.provider_type]
+            ),
             ProviderConnectionORM.id != connection.id,
         )
         .values(is_active=False)
@@ -331,8 +340,12 @@ def create_manual_connection(
 ) -> ProviderConnectionORM:
     _validate_manual_credentials(provider, request.auth_type, request.credentials)
     metadata = _safe_metadata(request.metadata)
-    if provider == "openai":
-        metadata = {"selected_model": validate_openai_model(metadata.get("selected_model"))}
+    if provider in REASONING_PROVIDERS:
+        metadata = {
+            "selected_model": validate_reasoning_model(
+                provider, metadata.get("selected_model")
+            )
+        }
     ensure_workspace(session, workspace_id)
     session.commit()
     reference = secret_store.store(workspace_id, provider, request.credentials)
@@ -358,13 +371,17 @@ def create_manual_connection(
     )
     session.add(row)
     session.flush()
-    if request.activate:
+    if request.activate and provider not in REASONING_PROVIDERS:
         _activate_connection(session, row)
-    if provider == "openai":
+    elif request.activate and provider in REASONING_PROVIDERS:
+        # Permit a one-off verification probe without interrupting the current
+        # verified provider. Successful validation performs the actual switch.
+        row.is_active = True
+    if provider in REASONING_PROVIDERS:
         record_provider_lifecycle_audit(
             session,
             row,
-            action="openai_credential_configured",
+            action=f"{provider}_credential_configured",
             outcome="configured",
             actor_id=actor_id,
             details={"selected_model": metadata["selected_model"]},
@@ -770,20 +787,21 @@ def validate_connection(
         )
         return _persist_validation(session, row, validation, actor_id)
     validation_credentials = dict(resolved.credentials)
-    if row.provider_type == "openai":
+    if row.provider_type in REASONING_PROVIDERS:
         try:
-            validation_credentials["model"] = validate_openai_model(
-                row.connection_metadata.get("selected_model")
+            validation_credentials["model"] = validate_reasoning_model(
+                row.provider_type, row.connection_metadata.get("selected_model")
             )
         except ValueError:
+            display_name = PROVIDER_SETUP[row.provider_type].display_name
             validation = ConnectionValidation(
                 valid=False,
                 verified=False,
                 status="model_unavailable",
                 credential_state="configured",
-                message="The selected OpenAI model is not supported by this application.",
+                message=f"The selected {display_name} model is not supported by this application.",
                 retryable=False,
-                error_code="openai_model_not_supported",
+                error_code=f"{row.provider_type}_model_not_supported",
             )
             return _persist_validation(session, row, validation, actor_id)
     try:
@@ -835,7 +853,7 @@ def _persist_validation(
         row.status = "expired"
     elif validation.status in {"invalid_credentials", "revoked"}:
         row.status = "needs_reauthorization"
-    elif row.provider_type == "openai" and validation.status in {
+    elif row.provider_type in REASONING_PROVIDERS and validation.status in {
         "quota_exhausted",
         "model_unavailable",
         "temporarily_unavailable",
@@ -848,13 +866,18 @@ def _persist_validation(
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
+    if row.provider_type in REASONING_PROVIDERS:
+        if validation.verified and validation.status == "connected":
+            _activate_connection(session, row)
+        else:
+            row.is_active = False
     if row.provider_type in {
         "slack",
         "gmail",
         "outlook",
         "google_calendar",
         "calendly",
-        "openai",
+        *REASONING_PROVIDERS,
     } and validation.metadata:
         row.connection_metadata = {**row.connection_metadata, **validation.metadata}
         if isinstance(validation.metadata.get("slack_team_id"), str):
@@ -927,8 +950,8 @@ def _persist_validation(
         session,
         row,
         action=(
-            "openai_test_connection"
-            if row.provider_type == "openai"
+            f"{row.provider_type}_test_connection"
+            if row.provider_type in REASONING_PROVIDERS
             else
             ("gmail_verified" if validation.verified else "gmail_validation")
             if row.provider_type == "gmail"
@@ -945,11 +968,11 @@ def _persist_validation(
             "validation_status": validation.status,
         },
     )
-    if row.provider_type == "openai" and validation.verified:
+    if row.provider_type in REASONING_PROVIDERS and validation.verified:
         record_provider_lifecycle_audit(
             session,
             row,
-            action="openai_connection_verified",
+            action=f"{row.provider_type}_connection_verified",
             outcome="verified",
             actor_id=actor_id,
             details={"selected_model": row.connection_metadata.get("selected_model")},
@@ -1065,8 +1088,8 @@ def disconnect_connection(
         action=(
             "gmail_disconnect"
             if row.provider_type == "gmail"
-            else "openai_disconnected"
-            if row.provider_type == "openai"
+            else f"{row.provider_type}_disconnected"
+            if row.provider_type in REASONING_PROVIDERS
             else "disconnect"
         ),
         outcome="disconnected",
@@ -1106,12 +1129,17 @@ def reconnect_connection(
     row.last_validation_result = {"status": "not_verified"}
     row.disconnected_at = None
     row.updated_at = datetime.now(UTC)
-    _activate_connection(session, row)
-    if row.provider_type == "openai":
+    if row.provider_type in REASONING_PROVIDERS:
+        # Replacing a key never switches providers before the new credential
+        # has passed the provider-specific verification probe.
+        row.is_active = False
+    else:
+        _activate_connection(session, row)
+    if row.provider_type in REASONING_PROVIDERS:
         record_provider_lifecycle_audit(
             session,
             row,
-            action="openai_credential_replaced",
+            action=f"{row.provider_type}_credential_replaced",
             outcome="configured",
             actor_id=actor_id,
             details={"selected_model": row.connection_metadata.get("selected_model")},
@@ -1130,28 +1158,60 @@ def update_openai_model(
     actor_id: str = "system",
 ) -> ProviderConnectionORM:
     row = get_provider_connection(session, workspace_id, connection_id)
-    if row is None or row.provider_type != "openai":
-        raise LookupError("OpenAI connection not found")
-    selected_model = validate_openai_model(model)
+    if row is None or row.provider_type not in REASONING_PROVIDERS:
+        raise LookupError("AI provider connection not found")
+    selected_model = validate_reasoning_model(row.provider_type, model)
     previous_model = row.connection_metadata.get("selected_model")
     row.connection_metadata = {**row.connection_metadata, "selected_model": selected_model}
     if previous_model != selected_model:
         row.status = "connected"
         row.last_validation_result = {
             "status": "not_verified",
-            "message": "Model changed; test the OpenAI connection before workspace use.",
+            "message": "Model changed; test the connection before workspace use.",
         }
         row.updated_at = datetime.now(UTC)
         record_provider_lifecycle_audit(
             session,
             row,
-            action="openai_model_changed",
+            action=f"{row.provider_type}_model_changed",
             outcome="configured",
             actor_id=actor_id,
             details={"previous_model": previous_model, "selected_model": selected_model},
         )
         session.commit()
         session.refresh(row)
+    return row
+
+
+def activate_reasoning_provider(
+    session: Session,
+    workspace_id: UUID,
+    connection_id: UUID,
+    *,
+    actor_id: str = "system",
+) -> ProviderConnectionORM:
+    row = get_provider_connection(session, workspace_id, connection_id)
+    if row is None:
+        raise LookupError("AI provider connection not found")
+    if row.provider_type not in REASONING_PROVIDERS:
+        raise LookupError("AI provider connection not found")
+    if row.status != "verified" or not row.secret_reference:
+        raise ValueError("Verify the selected AI provider before making it active")
+    _activate_connection(session, row)
+    row.updated_at = datetime.now(UTC)
+    record_provider_lifecycle_audit(
+        session,
+        row,
+        action="reasoning_provider_selected",
+        outcome="selected",
+        actor_id=actor_id,
+        details={
+            "provider": row.provider_type,
+            "selected_model": row.connection_metadata.get("selected_model"),
+        },
+    )
+    session.commit()
+    session.refresh(row)
     return row
 
 

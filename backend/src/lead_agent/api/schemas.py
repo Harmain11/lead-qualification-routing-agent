@@ -449,7 +449,7 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         configured=row.credential_state == "configured" and row.secret_reference is not None,
         selected_model=(
             str(row.connection_metadata["selected_model"])
-            if row.provider_type == "openai"
+            if row.provider_type in {"openai", "gemini", "claude"}
             and isinstance(row.connection_metadata.get("selected_model"), str)
             else None
         ),

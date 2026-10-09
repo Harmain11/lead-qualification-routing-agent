@@ -209,18 +209,19 @@ def process_pending_meeting_email_confirmations() -> int:
     retry_jitter=True,
 )  # type: ignore[untyped-decorator]
 def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
-    """Apply a newly verified workspace OpenAI provider to older non-OpenAI leads."""
+    """Apply the selected workspace reasoning provider to leads not yet analyzed with it."""
 
     del self
     workspace_uuid = UUID(workspace_id)
     with get_session_factory()() as session:
         icp, routing = settings.load_policies()
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
-        if getattr(provider, "provider_name", "") != "openai":
-            return "skipped: verified workspace OpenAI provider is unavailable"
-        openai_completed = select(AnalysisRunORM.id).where(
+        provider_name = getattr(provider, "provider_name", "")
+        if provider_name not in {"openai", "gemini", "claude"}:
+            return "skipped: verified workspace reasoning provider is unavailable"
+        provider_completed = select(AnalysisRunORM.id).where(
             AnalysisRunORM.lead_id == LeadORM.id,
-            AnalysisRunORM.provider == "openai",
+            AnalysisRunORM.provider == provider_name,
             AnalysisRunORM.status == "completed",
         ).exists()
         lead_ids = list(
@@ -228,7 +229,7 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
                 select(LeadORM.id)
                 .where(
                     LeadORM.workspace_id == workspace_uuid,
-                    ~openai_completed,
+                    ~provider_completed,
                 )
                 .order_by(LeadORM.created_at.asc())
             )
@@ -273,14 +274,14 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
                     provider=provider,
                     notification_provider=get_notification_provider(),
                     send_notification=False,
-                    reroute_reason="Workspace OpenAI setup backfill.",
+                    reroute_reason=f"Workspace {provider_name.title()} setup backfill.",
                 )
                 processed += 1
             except Exception as error:
                 session.rollback()
                 failed += 1
                 _LOGGER.warning(
-                    "openai.backfill_lead_failed",
+                    "reasoning.backfill_lead_failed",
                     extra={
                         "fields": {
                             "workspace_id": workspace_id,
