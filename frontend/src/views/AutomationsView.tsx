@@ -219,7 +219,7 @@ export function AutomationsView({
           <div className="ops-actions">
             {(["sequence", "playbook"] as const).map((kind) => (
               <button
-                className="primary-button"
+                className={kind === "sequence" ? "primary-button" : "secondary-button"}
                 key={kind}
                 onClick={() => {
                   setError("");

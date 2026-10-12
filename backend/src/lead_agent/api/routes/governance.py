@@ -27,6 +27,7 @@ from lead_agent.application.governance import audit_operation, hosting_region, o
 from lead_agent.domain.auth import AuthenticatedIdentity
 from lead_agent.domain.operations import ConsentInput, OperationsPolicy, StrictModel
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
     LeadFollowUpEmailORM,
@@ -349,6 +350,7 @@ def audit_export(
         "follow_ups": select(LeadFollowUpEmailORM).where(LeadFollowUpEmailORM.lead_id == lead_id),
         "consent": select(ConsentEventORM).where(ConsentEventORM.email == lead.email.lower()),
         "notes": select(LeadNoteORM).where(LeadNoteORM.lead_id == lead_id),
+        "calls": select(CallRecordORM).where(CallRecordORM.lead_id == lead_id),
         "insights": select(AgentInsightORM).where(AgentInsightORM.lead_id == lead_id),
         "automations": select(AutomationRunORM).where(AutomationRunORM.lead_id == lead_id),
     }

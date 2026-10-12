@@ -1,3 +1,4 @@
+import { CallsPanel } from "./CallsPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AiStageAssessment } from "./AiStageAssessment";
@@ -10,7 +11,7 @@ import "./leadDetailTabs.css";
 import { leadDetailSections, leadSectionHref, type LeadDetailSection } from "../leadSections";
 
 const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-const crmProviderLabel = (provider: string) => provider === "hubspot" ? "HubSpot" : title(provider);
+const crmProviderLabel = (provider: string) => provider === "hubspot" ? "HubSpot" : provider === "gohighlevel" ? "GoHighLevel" : title(provider);
 
 export function LeadLifecycle({ lead }: { lead: Lead }) {
   const stages = [
@@ -58,6 +59,7 @@ type LeadDetailProps = {
   lead: Lead;
   canCrmSync?: boolean;
   canEdit?: boolean;
+  canCall?: boolean;
   onUpdated?: (lead: Lead) => void;
   onDeleted?: (leadId: string) => void;
   activeSection: LeadDetailSection;
@@ -66,7 +68,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall = false, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -178,9 +180,41 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, onUpdate
     </div>
     <div id="lead-panel-overview" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-overview" tabIndex={0} hidden={activeSection !== "overview"}>
       <LeadLifecycle lead={lead} />
-    <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
-    <section className="story-section"><div className="story-index">01</div><div><span className="eyebrow">Source / original inquiry</span><h3>{title(lead.source)} signal</h3><blockquote>{lead.message}</blockquote><div className="fact-grid"><Fact label="Received" value={new Date(lead.received_at).toLocaleString()} /><Fact label="Source detail" value={lead.source_detail || "Unspecified"} /><Fact label="External ID" value={lead.external_id || "Not supplied"} /></div></div></section>
-    <section className="story-section"><div className="story-index">02</div><div><span className="eyebrow">Normalized lead</span><h3>Canonical commercial profile</h3><div className="fact-grid"><Fact label="Contact" value={`${lead.full_name} · ${lead.email}`} /><Fact label="Company" value={lead.company_name} /><Fact label="Industry" value={lead.industry || "Unknown"} /><Fact label="Geography" value={lead.geography || "Unknown"} /><Fact label="Team size" value={lead.employee_count ? `${lead.employee_count} people` : "Unknown"} /><Fact label="Requested service" value={lead.product_or_service} /></div></div></section>
+      <div className="lead-overview-grid">
+        <section className="story-section">
+          <div>
+            <span className="eyebrow">{title(lead.source)} lead</span>
+            <h3>Original inquiry</h3>
+            <blockquote>{lead.message}</blockquote>
+            <p className="lead-received">Received {new Date(lead.received_at).toLocaleString()}</p>
+            <details className="lead-source-evidence">
+              <summary>View source details</summary>
+              <div className="fact-grid">
+                <Fact label="Source detail" value={lead.source_detail || "Unspecified"} />
+                <Fact label="External ID" value={lead.external_id || "Not supplied"} />
+              </div>
+            </details>
+          </div>
+        </section>
+        <section className="story-section">
+          <div>
+            <span className="eyebrow">Lead profile</span>
+            <h3>Contact & company</h3>
+            <div className="fact-grid">
+              <Fact label="Contact" value={lead.full_name} />
+              <Fact label="Email" value={lead.email} />
+              <Fact label="Company" value={lead.company_name} />
+              <Fact label="Phone" value={lead.phone || "Not supplied"} />
+              <Fact label="Industry" value={lead.industry || "Unknown"} />
+              <Fact label="Geography" value={lead.geography || "Unknown"} />
+              <Fact label="Team size" value={lead.employee_count ? `${lead.employee_count} people` : "Unknown"} />
+              <Fact label="Requested service" value={lead.product_or_service} />
+            </div>
+          </div>
+        </section>
+      </div>
+      <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
+      <CallsPanel leadId={lead.id} leadPhone={lead.phone} canEdit={canEdit} canCall={canCall} />
     </div>
     <div id="lead-panel-ai" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-ai" tabIndex={0} hidden={activeSection !== "ai"}>
       <LeadMomentumPanel lead={lead} />

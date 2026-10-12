@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from threading import Lock, RLock
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, update
@@ -30,6 +31,7 @@ from lead_agent.infrastructure.db.models import (
     LeadORM,
     ProviderConnectionORM,
 )
+from lead_agent.infrastructure.db.operations import ConsentEventORM
 from lead_agent.infrastructure.observability import (
     current_request_id,
     get_observability,
@@ -124,7 +126,14 @@ def configure_inbound_sync(
 ) -> CrmInboundSyncStateORM:
     """Deliberately enable or disable scheduled inbound acquisition."""
 
-    if connection.provider_type not in {"salesforce", "hubspot", "mock", "gmail", "outlook"}:
+    if connection.provider_type not in {
+        "salesforce",
+        "hubspot",
+        "gohighlevel",
+        "mock",
+        "gmail",
+        "outlook",
+    }:
         raise ValueError("provider does not support automatic inbound synchronization")
     if not connection.is_active or connection.status not in {"connected", "verified"}:
         raise ValueError("provider connection is inactive or unavailable")
@@ -192,18 +201,22 @@ def list_due_inbound_sync_states(
 def upgrade_default_mail_sync_intervals(session: Session, *, now: datetime | None = None) -> int:
     """Upgrade the old five-minute default without unpausing or resetting mail."""
     now = now or datetime.now(UTC)
-    states = list(session.scalars(
-        select(CrmInboundSyncStateORM)
-        .join(ProviderConnectionORM,
-              ProviderConnectionORM.id == CrmInboundSyncStateORM.connection_id)
-        .where(
-            CrmInboundSyncStateORM.provider.in_({"gmail", "outlook"}),
-            CrmInboundSyncStateORM.enabled.is_(True),
-            CrmInboundSyncStateORM.sync_interval_seconds == 300,
-            ProviderConnectionORM.is_active.is_(True),
-            ProviderConnectionORM.status == "verified",
+    states = list(
+        session.scalars(
+            select(CrmInboundSyncStateORM)
+            .join(
+                ProviderConnectionORM,
+                ProviderConnectionORM.id == CrmInboundSyncStateORM.connection_id,
+            )
+            .where(
+                CrmInboundSyncStateORM.provider.in_({"gmail", "outlook"}),
+                CrmInboundSyncStateORM.enabled.is_(True),
+                CrmInboundSyncStateORM.sync_interval_seconds == 300,
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
         )
-    ))
+    )
     for state in states:
         state.sync_interval_seconds = 60
         # A running sync still owns its lease. Do not discard its checkpoint.
@@ -389,6 +402,10 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "outlook_internet_message_id",
         "outlook_mailbox",
         "sender_email",
+        "location_id",
+        "dnd",
+        "dnd_call",
+        "dnd_email",
     }
     return {
         key: value
@@ -500,6 +517,32 @@ def _new_link(
     )
 
 
+def _contact_update_payload(
+    canonical: CanonicalInboundLead, lead: LeadORM, payload: dict[str, Any]
+) -> dict[str, Any]:
+    if canonical.provider != "gohighlevel":
+        return payload
+    # A contact-only source has no commercial inquiry or ICP enrichment fields.
+    # Do not erase a rep's existing evidence when its contact details change.
+    return {
+        **payload,
+        **{
+            field: getattr(lead, field)
+            for field in (
+                "job_title",
+                "industry",
+                "employee_count",
+                "annual_revenue",
+                "geography",
+                "budget",
+                "product_or_service",
+                "message",
+                "received_at",
+            )
+        },
+    }
+
+
 def _process_record(
     session: Session,
     connection: ProviderConnectionORM,
@@ -517,6 +560,37 @@ def _process_record(
     normalized_payload = _json_safe_payload(canonical.normalized_payload)
     link = _record_link(session, connection, canonical)
     now = datetime.now(UTC)
+    if canonical.provider == "gohighlevel":
+        email = str(normalized_payload.get("email") or "").strip().lower()
+        for channel, flag in (("all", "dnd"), ("call", "dnd_call"), ("email", "dnd_email")):
+            if not canonical.provider_metadata.get(flag):
+                continue
+            latest = session.scalar(
+                select(ConsentEventORM)
+                .where(
+                    ConsentEventORM.workspace_id == connection.workspace_id,
+                    ConsentEventORM.email == email,
+                    ConsentEventORM.channel == channel,
+                )
+                .order_by(ConsentEventORM.created_at.desc(), ConsentEventORM.id.desc())
+            )
+            if latest is None or latest.status not in {"denied", "withdrawn"}:
+                session.add(
+                    ConsentEventORM(
+                        workspace_id=connection.workspace_id,
+                        email=email,
+                        channel=channel,
+                        status="denied",
+                        basis="provider_opt_out",
+                        purpose="Do not contact",
+                        evidence=(
+                            f"HighLevel contact {canonical.provider_record_id} reports {flag}."
+                        ),
+                        actor_id=actor_id,
+                        created_at=now,
+                    )
+                )
+        session.flush()
     if canonical.deleted or canonical.archived:
         if link is not None:
             link.status = "provider_deleted" if canonical.deleted else "provider_archived"
@@ -599,12 +673,13 @@ def _process_record(
         reprocess_lead(
             session,
             lead,
-            normalized_payload,
+            _contact_update_payload(canonical, lead, normalized_payload),
             icp,
             routing,
             provider=reasoning_provider,
             notification_provider=notification_provider,
             send_confirmation_email=send_confirmation_email,
+            preserve_inquiry=canonical.provider == "gohighlevel",
         )
         link = _record_link(session, connection, canonical)
         if link is None:
@@ -631,12 +706,13 @@ def _process_record(
         reprocess_lead(
             session,
             lead,
-            normalized_payload,
+            _contact_update_payload(canonical, lead, normalized_payload),
             icp,
             routing,
             provider=reasoning_provider,
             notification_provider=notification_provider,
             send_confirmation_email=send_confirmation_email,
+            preserve_inquiry=canonical.provider == "gohighlevel",
         )
         strategy = "exact_email"
         outcome = "updated"

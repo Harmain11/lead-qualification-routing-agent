@@ -259,7 +259,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           <h1>Users &amp; permissions</h1>
           <p>Review each user’s role, edit their workspace permissions, and remove access when needed.</p>
         </div>
-        <div className="team-context-card"><span>Editing workspace</span><strong>{workspaceName}</strong><small>{auth.current_workspace_id}</small><i>Permissions are workspace-specific</i></div>
+        <div className="team-context-card"><span>Editing workspace</span><strong>{workspaceName}</strong><i>Permissions are workspace-specific</i></div>
       </header>
 
       {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message">×</button></div>}

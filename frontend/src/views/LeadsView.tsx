@@ -53,10 +53,11 @@ const LEAD_SOURCE_OPTIONS = [
   "clutch",
   "salesforce",
   "hubspot",
+  "gohighlevel",
 ];
 
 const crmOrigin = (lead: Lead) => {
-  const match = lead.source_detail?.match(/^crm-import:(salesforce|hubspot):/i);
+  const match = lead.source_detail?.match(/^crm-import:(salesforce|hubspot|gohighlevel):/i);
   return match ? pretty(match[1]) : null;
 };
 
@@ -75,6 +76,7 @@ export function LeadsView({
   canEdit = true,
   canExport = false,
   canCrmSync = false,
+  canCall = false,
 }: {
   selected: Lead | null;
   activeSection: LeadDetailSection;
@@ -90,6 +92,7 @@ export function LeadsView({
   canEdit?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
+  canCall?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [band, setBand] = useState("all");
@@ -255,7 +258,7 @@ export function LeadsView({
           <h1>{leadSubpageCopy[activeSection].title}</h1>
           <p>{leadSubpageCopy[activeSection].description}</p>
         </div>
-        <div className="lead-hero-actions">
+        <div className="lead-hero-actions" role="group" aria-label="Lead actions">
           {canExport && (
             <button
               className="secondary-button"
@@ -285,7 +288,7 @@ export function LeadsView({
       <section className="lead-browser panel" data-tour="leads">
         <div className="lead-toolbar">
           <label>
-            <span className="sr-only">Search leads</span>
+            <span>Search leads</span>
             <input
               type="search"
               placeholder="Search company, contact, service…"
@@ -293,6 +296,7 @@ export function LeadsView({
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
+          <label><span>Qualification band</span>
           <select
             aria-label="Qualification band"
             value={band}
@@ -307,6 +311,8 @@ export function LeadsView({
               ),
             )}
           </select>
+          </label>
+          <label><span>Lead source</span>
           <select
             aria-label="Lead source"
             value={source}
@@ -317,8 +323,9 @@ export function LeadsView({
               <option key={item}>{item}</option>
             ))}
           </select>
+          </label>
           <label className="date-filter">
-            <span className="sr-only">Received from</span>
+            <span>Received from</span>
             <input
               aria-label="Received from"
               type="date"
@@ -327,7 +334,7 @@ export function LeadsView({
             />
           </label>
           <label className="date-filter">
-            <span className="sr-only">Received to</span>
+            <span>Received to</span>
             <input
               aria-label="Received to"
               type="date"
@@ -335,10 +342,11 @@ export function LeadsView({
               onChange={(event) => setDateTo(event.target.value)}
             />
           </label>
-          <span className="live-feed-status">
+          <div className="lead-filter-summary"><span className="live-feed-status">
             <i />
             {total.toLocaleString()} records · live
-          </span>
+          </span>          {(search || band !== "all" || source !== "all" || dateFrom || dateTo) && <button type="button" className="button-quiet" onClick={() => { setSearch(""); setBand("all"); setSource("all"); setDateFrom(""); setDateTo(""); }}>Clear filters</button>}
+          </div>
         </div>
         {rows.length > 0 && (
           <div className="lead-selection-bar">
@@ -457,7 +465,7 @@ export function LeadsView({
           tabIndex={0}
           aria-busy={loading}
         >
-          <table className="lead-table">
+          {rows.length > 0 && <table className="lead-table">
             <thead>
               <tr>
                 <th aria-label="Select leads">Select</th>
@@ -482,7 +490,7 @@ export function LeadsView({
                 />
               ))}
             </tbody>
-          </table>
+          </table>}
           {loading && (
             <div className="table-state" role="status">
               Loading workspace leads…
@@ -561,6 +569,7 @@ export function LeadsView({
                 isSectionPinned={isSectionPinned}
                 onTogglePin={onTogglePin}
                 canCrmSync={canCrmSync}
+                canCall={canCall}
                 canEdit={canEdit}
                 onUpdated={(lead) => {
                   onUpdated(lead);
@@ -776,8 +785,8 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
     <form className="intake-form panel" onSubmit={submit}>
       <div className="section-heading">
         <div>
-          <span className="eyebrow">Manual / website intake</span>
-          <h2>Run a signal through the live pipeline</h2>
+          <span className="eyebrow">Lead intake</span>
+          <h2>Add a lead</h2>
         </div>
         <span className="flow-status">
           <i /> Deterministic safeguards active
@@ -847,7 +856,7 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
       </label>
       {error && <p className="form-error">{error}</p>}
       <button className="primary-button" disabled={busy}>
-        {busy ? "Processing signal…" : "Run intelligence pipeline →"}
+        {busy ? "Processing signal…" : "Create and qualify lead"}
       </button>
     </form>
   );

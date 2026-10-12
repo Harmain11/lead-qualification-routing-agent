@@ -1225,6 +1225,7 @@ function App() {
                   canEdit={can(workspacePermissions, "leads.edit")}
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
+                  canCall={can(workspacePermissions, "agents.execute") && can(workspacePermissions, "leads.edit")}
                   onUpdated={(lead) => {
                     setSelectedLead(lead);
                     setLeads((current) =>

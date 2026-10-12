@@ -368,7 +368,7 @@ function MetricCard({
         ? `${animated}%`
         : metric.key.includes("minutes")
           ? `${animated}m`
-          : String(animated);
+          : Math.round(animated).toLocaleString();
   return (
     <article
       className={`metric-card metric-${metric.key} ${featured ? "metric-featured" : ""}`}

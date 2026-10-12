@@ -78,3 +78,44 @@ The larger scale was checked against the responsive layouts. Theme changes apply
 The Zapier SDK package tests (4) and the isolated Corral connector API test (1)
 pass on 12 October. Account, installation and live-deployment requirements are
 clarified in integrations/README.md and in the Agency/Branding connection section.
+
+
+## Screenshot-driven final pass — 12 October 2026
+
+The screenshots supplied by the user were used as concrete failure cases:
+
+- Export and Submit lead share equal width and height (164 × 44 px on desktop).
+- Dashboard peer cards use equal columns and stretch to matching row heights.
+- Source insight headers use consistent title/description rows; their empty frames align.
+- Empty lead subpages have a padded state and omit the empty table header.
+- Sidebar keyboard focus rings remain within the scrolling navigation frame.
+- Body text, labels, controls, checkboxes and textareas use the shared readable scale.
+- Compact native export/invitation/record dialogs preserve focus trapping and restoration.
+- Search Corral uses a centered 640 px command window, fixed metadata/label columns,
+  15 px result labels, bounded vertical scrolling and Arrow/Enter/Tab/Escape navigation.
+  Mobile results have no internal horizontal scrolling. Actual lead search opens the
+  correct existing record.
+- Lead details use one content edge, separated cards, aligned header actions and responsive
+  tab grids. Qualification status remains visible on mobile. Inquiry, AI, follow-up,
+  closing and history sections were all checked.
+- All six new provider forms have visible labels, 44 px fields and masked secret inputs.
+  Connect focuses credential setup; it does not collapse the form. Store remains disabled
+  until all required fields are populated.
+
+The final main-route audit records 64 checks: 16 routes × light/dark × 390/1440 px.
+No page overflow, clipped action labels, action heights below 43 px, text below 13 px
+or API alerts were found in that set. Earlier 768/1024 checks and 46 inner-page checks
+are retained as additional evidence. Final lead/search/integration checks were repeated
+as those surfaces changed. This is practical visual and keyboard QA, not certification.
+
+Evidence is saved in the task visualization directory: corral-final-layout-audit.json,
+corral-search-desktop-final.jpg, corral-search-mobile-final.jpg,
+corral-lead-detail-final.jpg, corral-lead-mobile-final.jpg and the provider-form audit.
+No customer data, credentials or external transactions were saved during browser QA.
+The illustrative workspace's normal viewing-presence heartbeat was exercised.
+
+Final expanded-lead coverage records 22 checks across all five tabs, both themes,
+390/1440 px and tablet overview checks at 768/1024 px. Both lead overview cards
+measure 548 × 447.85 px at 1440 px and start on the same baseline. All 12 new
+provider form checks (six providers × 390/1440 px) pass. The final backend-focused
+suite passes 29 tests; the production frontend build and whitespace/lint checks pass.

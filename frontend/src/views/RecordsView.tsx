@@ -422,11 +422,12 @@ export function RecordsView({
       )}
       {form && (
         <OperationsDialog
-          title={mode === "contacts" ? "Edit contact" : "Edit company"}
+          title={mode === "contacts" ? "Contact details" : "Company details"}
+          className="record-editor-dialog"
           onClose={() => setForm(null)}
         >
           <form
-            className="ops-form"
+            className="ops-form record-editor-form"
             onSubmit={(event) => {
               event.preventDefault();
               void save();

@@ -11,6 +11,7 @@ from lead_agent.api.routes import (
     analytics,
     auth,
     automations,
+    calling,
     collaboration,
     contact_records,
     crm,
@@ -78,6 +79,7 @@ app.include_router(governance.router)
 app.include_router(intelligence.router)
 app.include_router(automations.router)
 app.include_router(collaboration.router)
+app.include_router(calling.router)
 
 
 # Production uses one public origin so browser cookies, CSRF, and OAuth callback

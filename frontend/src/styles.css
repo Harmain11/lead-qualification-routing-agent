@@ -2138,25 +2138,6 @@ body { font-size: 15px; line-height: 1.5; }
 .activity-list details > pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .activity-list details > p { line-height: 1.55; overflow-wrap: anywhere; }
 
-/* Substantial editors are full-page workspaces; compact confirmations stay compact. */
-.team-modal-backdrop:has(.team-modal:not(.openai-setup-prompt):not(.confirm-modal):not(.salesforce-guide)) {
-  padding: 0;
-  place-items: stretch;
-}
-.team-modal:not(.openai-setup-prompt):not(.confirm-modal):not(.salesforce-guide) {
-  width: 100%;
-  max-width: none;
-  height: 100dvh;
-  max-height: 100dvh;
-  overflow: auto;
-  padding: clamp(20px, 4vw, 52px);
-  border: 0;
-  border-radius: 0;
-  background: var(--surface-solid);
-  color: var(--text);
-  box-shadow: none;
-}
-
 /* Remove ornamental connector rules that read like stray gradient dividers. */
 .app-shell::before,
 .app-shell::after,

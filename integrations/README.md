@@ -62,3 +62,10 @@ References:
 - https://github.com/zapier/zapier-platform/blob/main/packages/cli/docs/cli.md
 - https://www.make.com/en/how-to-guides/build-custom-app-in-make
 - https://developers.make.com/custom-apps-documentation/create-your-first-app/app-visibility
+
+
+## GoHighLevel, dialers and voice agents
+
+Workspace setup and capability limits for GoHighLevel, Twilio, Aircall, RingCentral,
+Vapi and Retell AI are documented in [CALLING.md](CALLING.md). These are independent
+of the Zapier/Make custom-app registration and marketplace-publication steps above.

@@ -22,6 +22,10 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "gmail", label: "Gmail" }, { id: "google_calendar", label: "Google Calendar" },
     { id: "slack", label: "Slack" }, { id: "salesforce", label: "Salesforce" },
     { id: "hubspot", label: "HubSpot" }, { id: "calendly", label: "Calendly" },
+    { id: "outlook", label: "Outlook" }, { id: "gohighlevel", label: "GoHighLevel" },
+    { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" },
+    { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" },
+    { id: "retell", label: "Retell AI" },
   ],
   settings: [
     { id: "workspace", label: "Workspace" },

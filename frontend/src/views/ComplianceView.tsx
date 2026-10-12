@@ -134,7 +134,7 @@ export function ComplianceView() {
           even if one channel has a separate grant.
         </p>
         <form
-          className="ops-form"
+          className="ops-form ops-consent-form"
           onSubmit={(event) => {
             event.preventDefault();
             void action(
@@ -335,6 +335,7 @@ export function ComplianceView() {
               </tr>
             </thead>
             <tbody>
+              {!events.length && <tr><td colSpan={5}><div className="ops-empty-inline"><strong>No permissions recorded</strong><span>Recorded permissions and objections will appear here.</span></div></td></tr>}
               {events.map((event) => (
                 <tr key={event.id}>
                   <td>{event.email}</td>

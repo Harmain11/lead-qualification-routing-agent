@@ -198,10 +198,12 @@ class ProviderOAuthBroker:
             "redirect_uri": redirect_uri,
         }
         token_payload["code_verifier"] = code_verifier
-        response = self.client.post(
-            config.token_url,
-            data=token_payload,
-        )
+        request_auth = None
+        if provider == "calendly":
+            request_auth = httpx.BasicAuth(
+                token_payload.pop("client_id"), token_payload.pop("client_secret")
+            )
+        response = self.client.post(config.token_url, data=token_payload, auth=request_auth)
         if response.is_error:
             try:
                 error_payload = response.json()
@@ -227,15 +229,15 @@ class ProviderOAuthBroker:
 
     def refresh(self, provider: str, refresh_token: str) -> dict[str, str]:
         config = self._config(provider)
-        response = self.client.post(
-            config.token_url,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": config.client_id,
-                "client_secret": config.client_secret,
-            },
-        )
+        token_payload = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+        request_auth = None
+        if provider == "calendly":
+            request_auth = httpx.BasicAuth(config.client_id, config.client_secret)
+        else:
+            token_payload.update(
+                {"client_id": config.client_id, "client_secret": config.client_secret}
+            )
+        response = self.client.post(config.token_url, data=token_payload, auth=request_auth)
         response.raise_for_status()
         values = self._string_values(response.json())
         if not values.get("access_token"):

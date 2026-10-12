@@ -42,12 +42,16 @@ from lead_agent.infrastructure.repositories import (
     get_provider_connection,
 )
 
-CRM_PROVIDER_TYPES = {"mock", "salesforce", "hubspot"}
+CRM_PROVIDER_TYPES = {"mock", "salesforce", "hubspot", "gohighlevel"}
 SENSITIVE_METADATA_FRAGMENTS = ("secret", "token", "password", "credential", "api_key")
 REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "salesforce": {"client_id", "client_secret", "refresh_token"},
     "hubspot": {"access_token"},
     "openai": {"api_key"},
+    **{
+        key: set(PROVIDER_SETUP[key].manual_fields)
+        for key in ("gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell")
+    },
 }
 
 
@@ -218,16 +222,13 @@ def _rebind_mailbox_state(
         # Gmail history IDs are monotonically increasing decimal values. Keep
         # the furthest durable checkpoint if older duplicate logical states exist.
         cursors = [
-            state.last_successful_cursor
-            for state in all_states
-            if state.last_successful_cursor
+            state.last_successful_cursor for state in all_states if state.last_successful_cursor
         ]
         if cursors:
             numeric_cursors = [
                 (int(cursor["history_id"]), cursor)
                 for cursor in cursors
-                if isinstance(cursor.get("history_id"), str)
-                and cursor["history_id"].isdigit()
+                if isinstance(cursor.get("history_id"), str) and cursor["history_id"].isdigit()
             ]
             if numeric_cursors:
                 selected_state.last_successful_cursor = max(
@@ -603,12 +604,14 @@ def complete_oauth_connection(
         )
     except Exception as error:
         safe_error = (
-            error if isinstance(error, OAuthProviderError)
+            error
+            if isinstance(error, OAuthProviderError)
             else OAuthProviderError(row.provider_type, "oauth_exchange_failed")
         )
         logging.getLogger(__name__).warning(
             "OAuth token exchange failed for provider=%s reason=%s",
-            row.provider_type, safe_error.error_code,
+            row.provider_type,
+            safe_error.error_code,
         )
         row.status = "connection_failed"
         row.credential_state = "invalid"
@@ -848,14 +851,18 @@ def _persist_validation(
         row.status = "error"
     row.last_validation_at = now
     row.last_validation_result = validation.model_dump(mode="json")
-    if row.provider_type in {
-        "slack",
-        "gmail",
-        "outlook",
-        "google_calendar",
-        "calendly",
-        "openai",
-    } and validation.metadata:
+    if (
+        row.provider_type
+        in {
+            "slack",
+            "gmail",
+            "outlook",
+            "google_calendar",
+            "calendly",
+            "openai",
+        }
+        and validation.metadata
+    ):
         row.connection_metadata = {**row.connection_metadata, **validation.metadata}
         if isinstance(validation.metadata.get("slack_team_id"), str):
             row.external_account_id = str(validation.metadata["slack_team_id"])
@@ -890,6 +897,17 @@ def _persist_validation(
             row.external_account_id = str(
                 validation.metadata.get("calendly_user_uri") or calendly_email
             )
+    if (
+        row.provider_type in {"gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell"}
+        and validation.verified
+    ):
+        account_id = validation.metadata.get("verified_account_id")
+        account_name = validation.metadata.get("verified_account_name")
+        if isinstance(account_id, str):
+            row.external_account_id = account_id[:255]
+        if isinstance(account_name, str):
+            row.account_name = account_name[:255]
+        row.connection_metadata = {**row.connection_metadata, **validation.metadata}
     row.credential_state = validation.credential_state
     row.updated_at = now
     if row.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}:
@@ -929,8 +947,7 @@ def _persist_validation(
         action=(
             "openai_test_connection"
             if row.provider_type == "openai"
-            else
-            ("gmail_verified" if validation.verified else "gmail_validation")
+            else ("gmail_verified" if validation.verified else "gmail_validation")
             if row.provider_type == "gmail"
             else ("outlook_verified" if validation.verified else "outlook_validation")
             if row.provider_type == "outlook"
@@ -992,7 +1009,8 @@ def _persist_validation(
                 actor_id=actor_id,
                 initial_cursor=(
                     {"history_id": str(history_id)}
-                    if row.provider_type == "gmail" and history_id else None
+                    if row.provider_type == "gmail" and history_id
+                    else None
                 ),
             )
     return row, validation

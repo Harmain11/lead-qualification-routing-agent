@@ -19,13 +19,14 @@ function currencyFormatter(currency: string) {
   }
 }
 
-function InsightPanel({ eyebrow, title, detail, children }: {
+function InsightPanel({ eyebrow, title, detail, children, kind = "source" }: {
+  kind?: "source" | "revenue";
   eyebrow: string;
   title: string;
   detail: string;
   children: ReactNode;
 }) {
-  return <section className="dashboard-insight-panel">
+  return <section className={`dashboard-insight-panel insight-${kind}`}>
     <header><div><span>{eyebrow}</span><h2>{title}</h2></div><p>{detail}</p></header>
     {children}
   </section>;
@@ -62,6 +63,7 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
 
   return <div className="dashboard-insights">
     {visible.has("revenue-trend") && <InsightPanel
+      kind="revenue"
       eyebrow="Closed revenue · over time"
       title="Revenue trend"
       detail={revenue ? `${revenueStatus} data · ${revenue.currency}` : "Revenue data has not been provided"}

@@ -25,9 +25,9 @@ export function LeadSubpage({ section, rows, onInspect, loading }: {
       : section === "closing" ? [readable(lead.outcome?.pipeline_stage), lead.outcome?.closed_revenue != null ? `${lead.outcome.currency} ${lead.outcome.closed_revenue.toLocaleString()}` : "Not recorded", lead.outcome?.credited_name || "Not recorded"]
         : [date(lead.received_at), readable(lead.confirmation_email?.status), readable(lead.crm_sync?.status)];
   return <div className="lead-table-wrap lead-subpage-results" data-lead-subpage={section} aria-busy={loading} role="region" aria-label="Lead results table; scroll horizontally to view every column" tabIndex={0}>
-    {loading && rows.length === 0 && <p role="status">Loading workspace leads…</p>}
-    {!loading && rows.length === 0 && <p role="status">No leads match the current filters.</p>}
-    <table className="lead-table lead-subpage-table">
+    {loading && rows.length === 0 && <div className="table-state" role="status">Loading workspace leads…</div>}
+    {!loading && rows.length === 0 && <div className="table-state lead-results-empty" role="status"><strong>No leads match the current filters</strong><span>Try a different search or clear the filters to see more leads.</span></div>}
+    {rows.length > 0 && <table className="lead-table lead-subpage-table">
       <thead><tr><th>Lead</th>{headings.map((heading) => <th key={heading}>{heading}</th>)}<th>Open details</th></tr></thead>
       <tbody>{rows.map((lead) => <tr key={lead.id} tabIndex={0}
         onClick={(event) => { if (!(event.target as HTMLElement).closest("button")) onInspect(lead.id); }}
@@ -41,6 +41,6 @@ export function LeadSubpage({ section, rows, onInspect, loading }: {
         {values(lead).map((value, index) => <td key={headings[index]} data-label={headings[index]}>{value}</td>)}
         <td><button className="secondary-button" onClick={() => onInspect(lead.id)}>Open {section === "ai" ? "assessment" : section === "follow-ups" ? "follow-ups" : section === "closing" ? "comments & closing" : "history"}</button></td>
       </tr>)}</tbody>
-    </table>
+    </table>}
   </div>;
 }

@@ -1036,4 +1036,5 @@ class LeadWinNotificationORM(Base):
     outcome: Mapped[LeadOutcomeORM] = relationship(back_populates="win_notifications")
 
 
+from lead_agent.infrastructure.db import calling as calling_models  # noqa: E402,F401
 from lead_agent.infrastructure.db import operations as operations_models  # noqa: E402,F401

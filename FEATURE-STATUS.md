@@ -1,7 +1,7 @@
 # Corral feature status — 8 October 2026
 
 This is the implementation in the attached codex/corral-local-dev worktree,
-based on GitHub main 79f1f1c. The original voice/dialer scope remains deferred.
+based on GitHub main 79f1f1c. The user subsequently approved GoHighLevel, Twilio, Aircall, RingCentral, Vapi and Retell; their implemented capabilities are documented below.
 Open the running preview at http://localhost:5173.
 
 | Area | Ready in this checkout | Operation and limits |
@@ -53,3 +53,32 @@ The attached worktree remains available for further editing.
 
 The UI polish and Google sign-in logo changes are documented in [UI-QA.md](UI-QA.md).
 TypeScript and the production frontend build pass after this update.
+
+
+## Calling, contact integration and final UI update — 12 October 2026
+
+- GoHighLevel: location-scoped Private Integration verification, opt-in contact search/import,
+  fingerprint deduplication and explicit contact upsert/update through the existing CRM action.
+  Source do-not-contact settings become consent denials before processing. Imported contact
+  updates preserve existing commercial inquiry and ICP enrichment evidence. Qualification
+  custom-field writeback is not mapped.
+- Twilio, Aircall, RingCentral, Vapi and Retell: verified resource setup, rep-confirmed calling,
+  persisted request IDs, tenant/permission/consent checks and bounded recent call history.
+  Vapi/Retell transcripts and Aircall/Vapi/Retell recording links appear when provided.
+  Twilio/RingCentral private recordings and transcripts are not fetched by this release.
+- Calls are included in compliance exports and cascade with lead retention/deletion.
+  No automated dialing or voice-provider webhook registration is enabled.
+- All provider credentials stay in the workspace secret store. Manual-key disconnection
+  removes local access; remote revocation requires the provider's account dashboard.
+- UI now includes equal lead actions, symmetric dashboard grids, aligned source-card headers,
+  padded empty lead states, compact credential forms, a compact keyboard-search window and
+  a consistently spaced lead detail page with visible mobile qualification status.
+
+Validation: 534 backend regression checks passed with isolated test-cookie names; five
+upstream Bash/Replit startup checks were excluded on Windows (the existing harness cannot
+run its generated POSIX executables here). All 29 final focused calling/GoHighLevel tests pass and cover
+history ordering, retained source evidence and call-data deletion. The frontend production
+build, changed Python lint and new calling-module type checks pass. Fresh and existing
+SQLite databases reach 0035_lead_calls; the existing 12 leads are retained. No live provider
+calls, credentials, production deployment or marketplace submission were performed.
+See UI-QA.md and integrations/CALLING.md for the browser coverage and setup requirements.
