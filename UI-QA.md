@@ -119,3 +119,18 @@ Final expanded-lead coverage records 22 checks across all five tabs, both themes
 measure 548 × 447.85 px at 1440 px and start on the same baseline. All 12 new
 provider form checks (six providers × 390/1440 px) pass. The final backend-focused
 suite passes 29 tests; the production frontend build and whitespace/lint checks pass.
+
+
+Lead detail sizing and theme follow-up (2026-10-12):
+The normal desktop header now measures about 137 px high. Edit title and Delete
+lead measure 110 × 44 px; the title editor uses equal 44 px actions on phones
+and focuses the input when opened. Browser checks at 320/390/768/1440 px found
+no page overflow or clipped action labels. The mobile tab strip is one scrollable
+row, reveals the selected tab after selection or resizing, and keeps keyboard
+focus inside the tab boundary. Arrow-key navigation reached Comments and History.
+The Gmail scheduling panel now uses shared theme tokens for surfaces, text,
+status, loading, selection and booking feedback. Its disconnected-calendar state
+was checked in light and dark themes at desktop and phone sizes; the refresh
+control has a 44 px target. The frontend production build and git diff check pass.
+Evidence: corral-lead-header-compact.jpg and corral-lead-dark-sizing-fixed.jpg
+in the task visualization directory. No lead edits, messages or bookings were saved.

@@ -72,6 +72,22 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
+  const detailTabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const tabs = detailTabsRef.current;
+    if (!tabs) return;
+    const revealActiveTab = () => {
+      const active = tabs.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (!active || tabs.scrollWidth <= tabs.clientWidth) return;
+      const activeRect = active.getBoundingClientRect();
+      const tabsRect = tabs.getBoundingClientRect();
+      tabs.scrollLeft += activeRect.left - tabsRect.left - (tabs.clientWidth - activeRect.width) / 2;
+    };
+    revealActiveTab();
+    const observer = new ResizeObserver(revealActiveTab);
+    observer.observe(tabs);
+    return () => observer.disconnect();
+  }, [activeSection]);
   const [jobTitle, setJobTitle] = useState(lead.job_title || "");
   const [savingTitle, setSavingTitle] = useState(false);
   const [editNotice, setEditNotice] = useState<string | null>(null);
@@ -122,9 +138,47 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
   ] as const : [];
 
   return <article className="lead-story" data-active-section={activeSection}>
-    <header className="story-head"><div><span className="eyebrow">Complete decision trail</span><h2>{lead.company_name}</h2><p>{lead.full_name} · {lead.job_title || "Role not supplied"}</p>{canEdit && (editingTitle ? <form onSubmit={async (event) => { event.preventDefault(); setSavingTitle(true); setEditNotice(null); try { const updated = await updateLeadTitle(lead.id, jobTitle); onUpdated?.(updated); setEditingTitle(false); setEditNotice("Title saved locally. No CRM was changed."); } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to save title"); } finally { setSavingTitle(false); } }}><label>Job title <input aria-label="Job title" maxLength={255} required value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} /></label><button className="secondary-button" type="submit" disabled={savingTitle}>{savingTitle ? "Saving…" : "Save title"}</button><button className="button-quiet" type="button" onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(false); setEditNotice(null); }}>Cancel</button></form> : <button className="button-quiet" onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null); }}>Edit title</button>)}{editNotice && <div className="notice" role="status">{editNotice}</div>}</div><div className="story-head-side">{qualification && <div className={`score-orb band-${qualification.classification.toLowerCase().replaceAll("_", "-")}`}><strong>{qualification.total_score}</strong><span>{title(qualification.classification)}</span></div>}{canEdit && <button className="danger-button" type="button" onClick={async () => { if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return; try { await deleteLead(lead.id); onDeleted?.(lead.id); } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); } }}>Delete lead</button>}</div></header>
+    <header className="story-head">
+      <div className="story-head-main">
+        <span className="eyebrow">Complete decision trail</span>
+        <h2>{lead.company_name}</h2>
+        <p>{lead.full_name} · {lead.job_title || "Role not supplied"}</p>
+      </div>
+      {(qualification || canEdit) && <div className="story-head-side">
+        {qualification && <div className={`score-orb band-${qualification.classification.toLowerCase().replaceAll("_", "-")}`}>
+          <strong>{qualification.total_score}</strong>
+          <span>{title(qualification.classification)}</span>
+        </div>}
+        {canEdit && <div className="story-head-actions">
+          {!editingTitle && <button className="button-quiet" type="button" onClick={() => {
+            setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null);
+          }}>Edit title</button>}
+          <button className="danger-button" type="button" onClick={async () => {
+            if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
+            try { await deleteLead(lead.id); onDeleted?.(lead.id); }
+            catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); }
+          }}>Delete lead</button>
+        </div>}
+      </div>}
+      {canEdit && editingTitle && <form className="story-title-form" onSubmit={async (event) => {
+        event.preventDefault(); setSavingTitle(true); setEditNotice(null);
+        try {
+          const updated = await updateLeadTitle(lead.id, jobTitle);
+          onUpdated?.(updated); setEditingTitle(false);
+          setEditNotice("Title saved locally. No CRM was changed.");
+        } catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to save title"); }
+        finally { setSavingTitle(false); }
+      }}>
+        <label>Job title <input autoFocus aria-label="Job title" maxLength={255} required value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} /></label>
+        <button className="secondary-button" type="submit" disabled={savingTitle}>{savingTitle ? "Saving…" : "Save title"}</button>
+        <button className="button-quiet" type="button" onClick={() => {
+          setJobTitle(lead.job_title || ""); setEditingTitle(false); setEditNotice(null);
+        }}>Cancel</button>
+      </form>}
+      {editNotice && <div className="notice story-head-notice" role="status">{editNotice}</div>}
+    </header>
     <nav className="lead-detail-navigation" aria-label="Lead detail sections">
-      <div className="lead-detail-tabs" role="tablist" aria-label="Lead detail">
+      <div ref={detailTabsRef} className="lead-detail-tabs" role="tablist" aria-label="Lead detail">
         {leadDetailSections.map((section, index) => <a
           key={section.id}
           id={`lead-tab-${section.id}`}
