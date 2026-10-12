@@ -16,7 +16,7 @@
 .lead-browser .qualification-cell .badge { max-width: 100%; white-space: normal; }
 .lead-browser .lead-table th {
   font-family: inherit;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: .035em;
   line-height: 1.4;
@@ -29,7 +29,7 @@
   line-height: 1.5;
 }
 .lead-browser .lead-table td .lead-row-identity { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; margin: 0 !important; }
-.lead-row-identity > span { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.lead-row-identity > span { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .lead-browser .lead-subpage-name { display: block; padding: 0; margin: 0; border: 0; background: transparent; text-align: left; }
 .lead-browser .lead-table td b,
 .lead-browser .lead-table td strong,
@@ -43,7 +43,7 @@
   white-space: normal;
 }
 .lead-browser .lead-table td:nth-child(2) > span,
-.lead-browser .lead-table td:nth-child(3) > small { font-size: 12px; line-height: 1.5; }
+.lead-browser .lead-table td:nth-child(3) > small { font-size: 13px; line-height: 1.5; }
 .lead-browser .lead-subpage-table { width: 100%; min-width: 0; table-layout: fixed; }
 .lead-subpage-table th:first-child { width: 28%; }
 .lead-subpage-table th:nth-child(2),
@@ -60,8 +60,8 @@
 .team-performance-panel .performance-comparison-table th,
 .team-performance-panel .performance-comparison-table td { font-size: 13px; line-height: 1.5; }
 .lead-story .story-section small,
-.lead-story .story-section time { font-size: 11px; line-height: 1.5; }
-.lead-story .story-section .eyebrow { font-size: 10px; line-height: 1.5; }
+.lead-story .story-section time { font-size: 13px; line-height: 1.5; }
+.lead-story .story-section .eyebrow { font-size: 13px; line-height: 1.5; }
 @container (max-width: 720px) {
   .lead-browser .lead-table,
   .lead-browser .lead-table tbody { display: block; width: 100%; min-width: 0; }
@@ -79,7 +79,7 @@
     display: block;
     margin-bottom: 5px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     content: attr(data-label);
   }

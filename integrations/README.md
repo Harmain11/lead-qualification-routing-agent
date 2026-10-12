@@ -35,3 +35,30 @@ Official references:
 - https://github.com/zapier/zapier-platform/blob/main/packages/cli/docs/cli.md
 - https://developers.make.com/custom-apps-documentation/app-components/connections/basic-connection
 - https://developers.make.com/custom-apps-documentation/app-components/modules/action
+
+## Account setup and live readiness — verified 12 October 2026
+
+The token-based Corral connectors do not require a Corral OAuth client. You can use
+an existing Zapier/Make account; custom integrations still need registration and
+installation in the corresponding platform. This is separate from publishing a
+marketplace listing. A private app can be used before marketplace approval.
+
+If you use built-in HTTP/webhook modules, no custom Corral app registration is
+needed. You still need a publicly reachable HTTPS Corral deployment, an active
+workspace intake token and access to those modules under the vendor's account plan.
+The new Corral branch has not been deployed or published to either marketplace.
+
+Rechecked: four Zapier tests, including the official SDK schema, and the isolated
+Corral connection test covering token validation, tenant/residency boundaries and
+log redaction. Make's connection expression and communication structure match the
+official basic-connection documentation. Live scenarios, TLS/reverse-proxy behavior
+and vendor installations must still be tested against the actual public deployment.
+
+Google sign-in is a separate integration: production needs GOOGLE_CLIENT_ID,
+GOOGLE_CLIENT_SECRET and the corresponding authorized origins/redirect URLs.
+The local preview uses the development OAuth broker.
+
+References:
+- https://github.com/zapier/zapier-platform/blob/main/packages/cli/docs/cli.md
+- https://www.make.com/en/how-to-guides/build-custom-app-in-make
+- https://developers.make.com/custom-apps-documentation/create-your-first-app/app-visibility

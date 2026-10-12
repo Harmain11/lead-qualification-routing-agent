@@ -1,6 +1,6 @@
 .lead-subpage-name { display: grid; gap: 5px; padding: 6px 0; border: 0; background: transparent; text-align: left; color: var(--text); }
 .lead-subpage-name b { font-size: 14px; }
-.lead-subpage-name span { color: var(--muted); font-size: 12px; }
+.lead-subpage-name span { color: var(--muted); font-size: 13px; }
 .lead-subpage-results { overflow-x: auto; }
 .lead-subpage-table td { font-size: 13px; }
 .lead-table-wrap[hidden] { display: none; }

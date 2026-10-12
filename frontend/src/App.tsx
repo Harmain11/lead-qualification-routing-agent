@@ -9,7 +9,6 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { flushSync } from "react-dom";
 
 import {
   changeWorkspace,
@@ -875,48 +874,10 @@ function App() {
     navigate(child?.view ?? id, child?.view ? "" : childId);
   }
 
-  function toggleTheme(event?: React.MouseEvent<HTMLButtonElement>) {
+  function toggleTheme() {
     const next = theme === "light" ? "dark" : "light";
-    const apply = () => {
-      document.documentElement.dataset.theme = next;
-      flushSync(() => setTheme(next));
-    };
-    if (
-      document.startViewTransition &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      const bounds = event?.currentTarget?.getBoundingClientRect();
-      const x = bounds ? bounds.left + bounds.width / 2 : window.innerWidth / 2;
-      const y = bounds
-        ? bounds.top + bounds.height / 2
-        : window.innerHeight / 2;
-      const radius = Math.hypot(
-        Math.max(x, window.innerWidth - x),
-        Math.max(y, window.innerHeight - y),
-      );
-      const transition = document.startViewTransition(apply);
-      void transition.ready
-        .then(() => {
-          document.documentElement.animate(
-            {
-              clipPath: [
-                `circle(0px at ${x}px ${y}px)`,
-                `circle(${radius}px at ${x}px ${y}px)`,
-              ],
-            },
-            {
-              duration: 680,
-              easing: "cubic-bezier(.16, 1, .3, 1)",
-              pseudoElement: "::view-transition-new(root)",
-            },
-          );
-        })
-        .catch(() => {
-          /* A cancelled transition still applies the chosen theme. */
-        });
-    } else {
-      apply();
-    }
+    document.documentElement.dataset.theme = next;
+    setTheme(next);
   }
 
   const visibleNavigation = navigation.filter((item) =>

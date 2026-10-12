@@ -67,3 +67,14 @@ in this UI pass; the earlier backend regression results remain in FEATURE-STATUS
 
 Google asset source: https://developers.google.com/static/identity/images/g-logo.png
 Google button reference: https://developers.google.com/identity/branding-guidelines
+
+## Readability and integration follow-up
+
+The later readability pass removes the old 0.75em rule that shrank buttons and
+labels, raises small CSS and embedded-component text to a 13 px minimum, and uses
+16 px body/input text, 15 px navigation/action/table text and 14 px form labels.
+The larger scale was checked against the responsive layouts. Theme changes apply immediately so an animation cannot intercept navigation clicks.
+
+The Zapier SDK package tests (4) and the isolated Corral connector API test (1)
+pass on 12 October. Account, installation and live-deployment requirements are
+clarified in integrations/README.md and in the Agency/Branding connection section.

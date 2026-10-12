@@ -44,6 +44,10 @@
   --page-max: 1440px;
   --page-gutter: 32px;
   --section-gap: 24px;
+  --font-body: 16px;
+  --font-control: 15px;
+  --font-label: 14px;
+  --font-caption: 13px;
 }
 html {
   background: var(--bg-deep);

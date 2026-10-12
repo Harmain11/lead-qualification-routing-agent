@@ -78,7 +78,7 @@
 .team-performance-panel .performance-comparison thead th {
   background: var(--surface-high);
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
 }
 .team-performance-panel .performance-comparison tbody th { color: var(--muted); font-weight: 550; }
@@ -86,7 +86,7 @@
 .team-performance-panel .performance-comparison tbody tr:last-child td { border-bottom: 0; }
 .team-performance-panel .performance-profile-heading { align-items: end; gap: 14px; margin: 20px 0 12px; }
 .team-performance-panel .performance-profile-heading h3 { color: var(--text); font-size: 16px; line-height: 1.35; }
-.team-performance-panel .performance-profile-heading label { color: var(--muted); font-size: 12px; }
+.team-performance-panel .performance-profile-heading label { color: var(--muted); font-size: 13px; }
 .team-performance-panel .performance-profile-heading select {
   min-height: 40px;
   padding: 7px 10px;
@@ -108,9 +108,9 @@
   gap: 10px 16px;
   margin: 14px 0 6px;
 }
-.team-performance-panel .performance-profile dt { color: var(--muted); font-size: 12px; }
+.team-performance-panel .performance-profile dt { color: var(--muted); font-size: 13px; }
 .team-performance-panel .performance-profile dd { margin: 4px 0; color: var(--text); font-size: 20px; }
-.team-performance-panel .performance-profile small { color: var(--muted); font-size: 12px; }
+.team-performance-panel .performance-profile small { color: var(--muted); font-size: 13px; }
 .team-performance-panel .performance-empty {
   margin: 0 0 12px;
   border: 1px dashed var(--line-bright);
@@ -226,7 +226,7 @@ html[data-theme] .app-shell { background: var(--bg); }
 .app-shell .breadcrumb { font-size: 13px; }
 .app-shell .breadcrumb b { font-weight: 600; }
 .app-shell .range-picker { background: var(--surface-high); box-shadow: none; }
-html[data-theme] .app-shell .range-picker button { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+html[data-theme] .app-shell .range-picker button { min-height: 32px; padding: 6px 10px; font-size: 13px; }
 html[data-theme] .app-shell .range-picker button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .app-shell :is(.icon-button, .guide-launch, .theme-toggle) {
   min-height: 36px;
@@ -234,26 +234,26 @@ html[data-theme] .app-shell .range-picker button.active { background: var(--surf
   background: var(--surface);
   color: var(--muted);
   box-shadow: none;
-  font-size: 12px;
+  font-size: 13px;
   transform: none;
 }
 .app-shell .icon-button { width: 36px; }
 .app-shell :is(.icon-button, .guide-launch, .theme-toggle):hover { background: var(--surface-high); color: var(--text); transform: none; }
-.app-shell .mode-badge { font-size: 10px; line-height: 1.4; letter-spacing: .04em; white-space: nowrap; }
+.app-shell .mode-badge { font-size: 13px; line-height: 1.4; letter-spacing: .04em; white-space: nowrap; }
 .app-shell .side-rail, .app-shell .mini-rail { background: var(--surface); box-shadow: none; backdrop-filter: none; }
 .app-shell .side-rail { padding: 22px 14px 18px; }
 .app-shell .rail-brand-row { margin-bottom: 16px; }
 .app-shell .brand-lockup { gap: 10px; padding: 0 8px; }
-.app-shell .nav-group { font-family: inherit; font-size: 11px; letter-spacing: .08em; margin: 16px 12px 6px; }
+.app-shell .nav-group { font-family: inherit; font-size: 13px; letter-spacing: .08em; margin: 16px 12px 6px; }
 .app-shell .navigation-menu-trigger { min-height: 42px; }
 .app-shell .navigation-menu-label { font-size: 13px; font-weight: 500; }
 .app-shell .navigation-menu-item.is-active > .navigation-menu-trigger { background: var(--orange-soft); color: var(--orange-hot); border-color: transparent; }
 .app-shell .navigation-menu-item.is-active .navigation-menu-label { font-weight: 650; }
 .app-shell .nav-separator { margin-block: 12px 8px; }
 .app-shell .rail-foot { gap: 12px; }
-.app-shell .workspace-trigger strong { font-size: 12px; line-height: 1.4; }
-.app-shell .workspace-trigger-label, .app-shell .workspace-trigger-action, .app-shell .workspace-switcher > small { font-size: 11px; }
-.app-shell .system-state, .app-shell .signout-button { font-size: 11px; }
+.app-shell .workspace-trigger strong { font-size: 13px; line-height: 1.4; }
+.app-shell .workspace-trigger-label, .app-shell .workspace-trigger-action, .app-shell .workspace-switcher > small { font-size: 13px; }
+.app-shell .system-state, .app-shell .signout-button { font-size: 13px; }
 .app-shell .system-state { letter-spacing: .04em; }
 .app-shell .signout-button { min-height: 28px; }
 .app-shell .page-view, .app-shell .page-view.operational-page, .app-shell .contacts-view, .app-shell .page-view.ops-page {
@@ -287,7 +287,7 @@ html[data-theme] .app-shell .range-picker button.active { background: var(--surf
   overflow-wrap: anywhere;
 }
 .app-shell .page-hero p, .app-shell .ops-page-head p { max-width: 75ch; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
-.app-shell .eyebrow { font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1.5; letter-spacing: .08em; color: var(--orange-hot); }
+.app-shell .eyebrow { font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.5; letter-spacing: .08em; color: var(--orange-hot); }
 .app-shell .section-heading h2, .app-shell .ops-page h2, .ops-dialog h2 { font-family: inherit; font-size: 20px; font-weight: 600; line-height: 1.35; letter-spacing: -.02em; margin: 0 0 8px; }
 .app-shell .ops-page h3, .ops-dialog h3 { font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.4; letter-spacing: -.01em; margin: 0 0 8px; }
 html[data-theme] .app-shell :is(.panel, .ops-panel, .integration-card, .metric-card, .team-summary-card) {
@@ -305,23 +305,23 @@ html[data-theme] .app-shell :is(.panel, .integration-card, .metric-card):hover {
 .app-shell .hero-pulse > i { background: var(--surface-high); }
 .app-shell .metric-grid { gap: 14px; margin-bottom: 24px; }
 .app-shell .metric-card { min-height: 130px; padding: 18px; animation: none; }
-.app-shell .metric-card > span { font-size: 12px; }
+.app-shell .metric-card > span { font-size: 13px; }
 .app-shell .metric-card > strong { margin: 12px 0 8px; font-size: 28px; font-weight: 650; }
-.app-shell .metric-card > small { font-size: 11px; }
+.app-shell .metric-card > small { font-size: 13px; }
 .app-shell .metric-card > i { display: none; }
 .app-shell .dashboard-grid, .app-shell .analytics-grid, .app-shell .settings-grid, .app-shell .integration-grid { gap: 20px; }
 .app-shell .section-heading { align-items: center; margin-bottom: 18px; }
 .app-shell .section-heading .eyebrow { display: block; margin-bottom: 6px; }
 .app-shell .section-heading h2 { margin: 0; }
-.app-shell .panel-action { font-size: 12px; }
+.app-shell .panel-action { font-size: 13px; }
 .app-shell .section-picker { padding: 0; margin-bottom: 24px; }
 .section-picker-summary { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 14px 20px; color: var(--text); font-weight: 600; cursor: pointer; list-style: none; }
 .section-picker-summary::-webkit-details-marker { display: none; }
 .section-picker-summary::after { content: '+'; margin-left: auto; font-size: 20px; font-weight: 400; color: var(--muted); }
 .section-picker[open] .section-picker-summary::after { content: '−'; }
-.section-picker-summary small { font-size: 12px; color: var(--muted); font-weight: 400; }
+.section-picker-summary small { font-size: 13px; color: var(--muted); font-weight: 400; }
 .section-picker-content { padding: 20px; border-top: 1px solid var(--line); }
-.app-shell .section-picker-note { font-size: 12px; }
+.app-shell .section-picker-note { font-size: 13px; }
 .app-shell .ops-toolbar { justify-content: flex-start; align-items: flex-end; gap: 12px; }
 .app-shell .ops-toolbar > label { flex: 1 1 220px; max-width: 420px; }
 .app-shell .ops-toolbar > h2 { flex: 1 1 100%; }
@@ -340,7 +340,7 @@ html[data-theme] .app-shell :is(.panel, .integration-card, .metric-card):hover {
 .app-shell .ops-page label, .ops-dialog label { font-size: 13px; }
 .app-shell .ops-page .ops-check, .ops-dialog .ops-check { line-height: 1.6; }
 .app-shell .ops-page :is(th, td) { padding: 14px 16px; line-height: 1.5; overflow-wrap: anywhere; }
-.app-shell .ops-page th { font-size: 12px; white-space: nowrap; }
+.app-shell .ops-page th { font-size: 13px; white-space: nowrap; }
 .app-shell .ops-table-wrap { border: 1px solid var(--line); border-radius: var(--radius-sm); scrollbar-width: thin; }
 .app-shell .ops-table-wrap tbody tr:last-child td { border-bottom: 0; }
 .app-shell .ops-table-wrap td:has(.ops-empty-inline) { padding: 0; }
@@ -352,7 +352,7 @@ html[data-theme] .app-shell :is(.panel, .integration-card, .metric-card):hover {
 .ops-dialog-head h2 { margin: 0; }
 .ops-dialog .ops-panel { padding: 20px; }
 .ops-dialog .ops-actions { align-items: center; }
-.app-shell .product-footer { margin-top: auto; border-top: 1px solid var(--line); padding: 20px var(--page-gutter); background: var(--surface); color: var(--muted); font-size: 11px; gap: 16px; }
+.app-shell .product-footer { margin-top: auto; border-top: 1px solid var(--line); padding: 20px var(--page-gutter); background: var(--surface); color: var(--muted); font-size: 13px; gap: 16px; }
 html[data-theme] .app-shell :is(button, a, input, textarea, select, summary, [tabindex]):focus-visible,
 .ops-dialog :is(button, a, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--orange-hot); outline-offset: 3px; box-shadow: none; }
 body:has(.team-modal-backdrop, .lead-drawer-backdrop, dialog[open]) { overflow: hidden; }
@@ -402,23 +402,23 @@ html[data-theme] .app-shell .metric-card.metric-active_pipeline_value > small.ne
 .app-shell .donut { box-shadow: none; transform: none; animation: none; }
 .app-shell .donut::before { box-shadow: none; background: var(--surface); }
 .app-shell .donut > div { transform: none; }
-.app-shell .donut-legend { font-size: 12px; }
-.app-shell .bar-row > div, .app-shell .trend-labels, .app-shell .chart-empty { font-size: 12px; }
-.app-shell .bar-row small { font-size: 11px; }
+.app-shell .donut-legend { font-size: 13px; }
+.app-shell .bar-row > div, .app-shell .trend-labels, .app-shell .chart-empty { font-size: 13px; }
+.app-shell .bar-row small { font-size: 13px; }
 .app-shell .bar-row > i { height: 6px; background: var(--surface-high); }
 .app-shell .bar-row > i span { background: var(--orange); }
 .app-shell .team-field { font-size: 13px; color: var(--text); }
-.app-shell .team-field small { font-size: 12px; color: var(--muted); }
+.app-shell .team-field small { font-size: 13px; color: var(--muted); }
 .app-shell .team-modal-head p { font-size: 13px; line-height: 1.6; }
 .app-shell .team-summary strong { font-size: 26px; }
-.app-shell .team-summary span, .app-shell .team-summary small { font-size: 12px; }
+.app-shell .team-summary span, .app-shell .team-summary small { font-size: 13px; }
 .app-shell .team-context-card { background: var(--surface); border-color: var(--line); box-shadow: none; }
-.app-shell .team-context-card > small { font-size: 11px; overflow-wrap: anywhere; }
+.app-shell .team-context-card > small { font-size: 13px; overflow-wrap: anywhere; }
 .app-shell .team-modal-actions { gap: 10px; }
-.app-shell .team-audit-row small, .app-shell .permission-item small { font-size: 12px; }
+.app-shell .team-audit-row small, .app-shell .permission-item small { font-size: 13px; }
 html[data-theme] .app-shell .flow-node { background: var(--surface); color: var(--text); box-shadow: none; transform: none; }
-.app-shell .flow-node small { font-size: 11px; }
-.app-shell .flow-legend { font-size: 12px; }
+.app-shell .flow-node small { font-size: 13px; }
+.app-shell .flow-legend { font-size: 13px; }
 html[data-theme] .app-shell .icp-current-card { background: var(--surface-high); color: var(--text); border-color: var(--line); box-shadow: none; }
 html[data-theme] .app-shell .icp-current-card :is(p, small, span, dd) { color: var(--muted); }
 html[data-theme] .app-shell .icp-current-card :is(h2, strong, b) { color: var(--text); }
@@ -426,8 +426,8 @@ html[data-theme] .app-shell .team-modal-actions { background: var(--surface); }
 .auth-shell { background: var(--bg); color: var(--text); }
 html[data-theme] .auth-shell .auth-panel { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow); }
 .auth-shell .auth-story h1 { font-size: clamp(32px, 4vw, 52px); line-height: 1.15; }
-.auth-shell .auth-note { color: var(--muted); font-size: 12px; }
-.auth-shell .auth-footer { font-size: 12px; }
+.auth-shell .auth-note { color: var(--muted); font-size: 13px; }
+.auth-shell .auth-footer { font-size: 13px; }
 html[data-theme] .auth-shell .demo-session { background: var(--surface-high); color: var(--text); border: 1px solid var(--line-bright); box-shadow: none; }
 
 /* Legacy editors use the same native modal lifecycle as newer product screens. */
@@ -442,7 +442,7 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) :is(input:not([type=c
 html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) :is(input, textarea)::placeholder { color: var(--subtle); opacity: 1; }
 .ops-dialog .modal-close { flex: 0 0 auto; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 24px; }
 .ops-dialog .team-field { font-size: 14px; }
-.ops-dialog .openai-setup-fallback { margin-top: 16px; color: var(--muted); font-size: 12px; }
+.ops-dialog .openai-setup-fallback { margin-top: 16px; color: var(--muted); font-size: 13px; }
 @media (max-width: 760px) {
   html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select, textarea) { font-size: 16px; }
   .ops-dialog.team-modal { padding: 20px; }
@@ -460,7 +460,7 @@ html[data-theme] .app-shell .icp-mode-option { background: var(--surface); borde
 html[data-theme] .app-shell .icp-mode-option.active { background: var(--orange-soft); border-color: var(--orange); }
 .app-shell .icp-mode-intro p, .app-shell .icp-mode-option small { font-size: 13px; line-height: 1.5; }
 .app-shell .icp-mode-option b { font-size: 14px; }
-.app-shell .icp-field span, .app-shell .icp-field small, .app-shell .icp-total-bar { font-size: 12px; line-height: 1.5; }
+.app-shell .icp-field span, .app-shell .icp-field small, .app-shell .icp-total-bar { font-size: 13px; line-height: 1.5; }
 .app-shell .icp-field input:disabled, .app-shell .icp-field select:disabled { opacity: 1; background: var(--surface-high); }
 
 /* Reflow against the space left by the sidebar, including tablet-sized windows. */
@@ -494,3 +494,25 @@ html[data-theme] .auth-shell .google-auth-button {
 html[data-theme] .auth-shell .google-auth-button:hover:not(:disabled) { background: #f8f9fa; border-color: #747775; transform: none; }
 .google-auth-logo { display: block; width: 20px; height: 20px; flex: 0 0 20px; object-fit: contain; }
 html[data-theme] .auth-shell .google-auth-button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Readability scale: body 16px, controls 15px, labels 14px, captions at least 13px. */
+body { font-size: var(--font-body); line-height: 1.6; }
+.app-shell .navigation-menu-label, .navigation-menu-flyout .navigation-menu-child { font-size: var(--font-control); }
+.app-shell .breadcrumb, .app-shell .range-picker button { font-size: var(--font-label); }
+.app-shell .page-hero p, .app-shell .ops-page-head p, .app-shell .ops-page, .ops-dialog { font-size: var(--font-body); line-height: 1.65; }
+.app-shell .page-hero .eyebrow, .app-shell .section-heading .eyebrow { font-size: var(--font-caption); }
+.app-shell .ops-page label, .ops-dialog label, .app-shell .field span, .app-shell .team-field, .app-shell .icp-field span { font-size: var(--font-label); }
+html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select, textarea) { font-size: var(--font-body); }
+html[data-theme] body :is(.app-shell, .ops-dialog, .lead-drawer) button:is(.primary-button, .secondary-button, .button-quiet, .danger-button) { font-size: var(--font-control); }
+.app-shell .ops-page table, .app-shell .ops-page td, .lead-browser .lead-table td { font-size: var(--font-control); }
+.app-shell .ops-page th, .lead-browser .lead-table th { font-size: var(--font-caption); }
+.lead-browser .lead-table td b, .lead-browser .lead-table td strong { font-size: var(--font-body); }
+.app-shell .metric-card > span, .app-shell .metric-card > small, .app-shell .panel-action { font-size: var(--font-label); }
+.app-shell .empty-state b { font-size: var(--font-body); }
+.app-shell .empty-state span, .app-shell .ops-muted { font-size: var(--font-label); }
+.app-shell .workspace-trigger strong { font-size: var(--font-label); }
+.app-shell .workspace-trigger-label, .app-shell .workspace-trigger-action, .app-shell .system-state, .app-shell .signout-button, .app-shell .product-footer { font-size: var(--font-caption); }
+.lead-story .story-summary, .lead-story .story-section p { font-size: var(--font-body); line-height: 1.65; }
+.app-shell .ops-tag, .ops-dialog .ops-tag, .app-shell .badge { font-size: var(--font-caption); }
+.auth-shell .auth-tabs button, .auth-shell .auth-form label, .auth-shell .auth-copy p, .auth-shell .auth-submit, .auth-shell .demo-session { font-size: var(--font-control); }
+.auth-shell .auth-security, .auth-shell .auth-footer, .auth-shell .auth-note { font-size: var(--font-caption); }

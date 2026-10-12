@@ -6,7 +6,7 @@
 .performance-member-picker label:has(input:checked) { border-color: #40d7bd; background: rgba(64,215,189,.07); }
 .performance-member-picker input { accent-color: #40d7bd; }
 .performance-member-picker span { display: grid; gap: 3px; font-size: 13px; }
-.performance-member-picker small { color: var(--muted, #8b9bac); text-transform: capitalize; font-size: 11px; }
+.performance-member-picker small { color: var(--muted, #8b9bac); text-transform: capitalize; font-size: 13px; }
 .performance-table-scroll { overflow-x: auto; }
 .performance-comparison { border-collapse: collapse; min-width: 100%; font-size: 13px; }
 .performance-comparison caption { text-align: left; font-weight: 600; margin-bottom: 12px; }
@@ -16,13 +16,13 @@
 .performance-empty { padding: 16px; background: rgba(130,160,180,.06); border-radius: 10px; font-size: 13px; line-height: 1.6; }
 .performance-profile-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 26px 0 14px; }
 .performance-profile-heading h3 { font-size: 16px; margin: 0; }
-.performance-profile-heading label { display: grid; gap: 6px; font-size: 12px; min-width: 180px; }
+.performance-profile-heading label { display: grid; gap: 6px; font-size: 13px; min-width: 180px; }
 .performance-profile-heading select { width: 100%; }
 .performance-profile { padding: 20px; border: 1px solid rgba(64,215,189,.23); border-radius: 12px; background: rgba(64,215,189,.035); }
 .performance-profile h4 { font-size: 17px; margin: 0 0 8px; }
 .performance-profile p { color: var(--muted, #8b9bac); font-size: 13px; line-height: 1.7; }
 .performance-profile dl { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; margin: 20px 0 8px; }
-.performance-profile dt { color: var(--muted, #8b9bac); font-size: 12px; }
+.performance-profile dt { color: var(--muted, #8b9bac); font-size: 13px; }
 .performance-profile dd { margin: 7px 0; font-size: 23px; font-weight: 600; overflow-wrap: anywhere; }
 .performance-profile small { display: block; color: var(--muted, #8b9bac); margin-top: 8px; line-height: 1.5; }
 .performance-legacy { font-size: 13px; margin-top: 16px; }

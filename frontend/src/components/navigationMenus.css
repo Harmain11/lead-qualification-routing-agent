@@ -42,7 +42,7 @@
 .navigation-menu-icon { display: grid; width: 22px; place-items: center; color: inherit; font-style: normal; }
 .navigation-menu-icon svg { width: 19px; height: 19px; }
 .navigation-menu-label { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.navigation-menu-badge { min-width: 22px; padding: 3px 6px; border-radius: 12px; background: var(--orange); color: #fff; font-size: 10px; text-align: center; }
+.navigation-menu-badge { min-width: 22px; padding: 3px 6px; border-radius: 12px; background: var(--orange); color: #fff; font-size: 13px; text-align: center; }
 
 .navigation-menu-disclosure {
   position: relative;
@@ -110,7 +110,7 @@
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   text-align: left;
   white-space: normal;

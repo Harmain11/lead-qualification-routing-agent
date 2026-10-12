@@ -202,9 +202,9 @@ export function AgencyView({
       <section className="ops-panel">
         <h2>Zapier / Make connection</h2>
         <p>
-          Corral's API and signed intake can be used with HTTP modules.
-          Integration templates are in the development checkout. Marketplace
-          publication requires the vendor accounts and approval.
+          Connect using your public Corral HTTPS address and workspace intake token.
+          HTTP modules can use this directly. Custom Zapier and Make connectors
+          need installation in your vendor accounts; marketplace listings need review.
         </p>
         <a
           href={import.meta.env.DEV ? "http://localhost:8001/docs" : "/docs"}
