@@ -19,11 +19,7 @@ export function ManualReviewView({
       <header className="page-hero compact-hero">
         <div>
           <span className="eyebrow">Human judgment queue</span>
-          <h1>
-            Uncertainty made
-            <br />
-            <em>safe and inspectable.</em>
-          </h1>
+          <h1>Manual review</h1>
           <p>
             Provider failures, low confidence and contradictory evidence pause
             here. The system does not invent a resolution.

@@ -1,12 +1,18 @@
+import { trapFocus } from "./focusTrap";
 import { useEffect, useRef, type ReactNode } from "react";
+
 export function OperationsDialog({
   title,
   onClose,
   children,
+  className = "",
+  showHeader = true,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
+  showHeader?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -27,14 +33,15 @@ export function OperationsDialog({
   return (
     <dialog
       ref={dialog}
-      className="ops-dialog"
+      className={`ops-dialog ${className}`}
       aria-label={title}
+      onKeyDown={trapFocus}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
-      <div className="ops-dialog-head">
+      {showHeader && <div className="ops-dialog-head">
         <h2>{title}</h2>
         <button
           className="button-quiet"
@@ -43,7 +50,7 @@ export function OperationsDialog({
         >
           Close ×
         </button>
-      </div>
+      </div>}
       {children}
     </dialog>
   );

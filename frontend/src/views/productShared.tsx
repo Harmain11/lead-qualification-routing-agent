@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { memo } from "react";
+import { memo, useId } from "react";
 import type {
   AgentActivity,
   ChannelAnalytics,
@@ -71,6 +71,7 @@ export function SectionVisibilityPicker<T extends string>({
   onToggle: (id: T, checked: boolean) => void;
   onShowAll: () => void;
 }) {
+  const titleId = useId();
   const groups = Array.from(
     new Set(
       options
@@ -101,14 +102,16 @@ export function SectionVisibilityPicker<T extends string>({
   );
 
   return (
-    <section
-      className="section-picker panel"
-      aria-labelledby="section-picker-title"
-    >
+    <details className="section-picker panel">
+      <summary className="section-picker-summary">
+        <span>Customize view</span>
+        <small>{visible.size} of {options.length} cards shown</small>
+      </summary>
+      <div className="section-picker-content" aria-labelledby={titleId}>
       <div className="section-picker-heading">
         <div>
           <span className="eyebrow">Personal view</span>
-          <h2 id="section-picker-title">Choose what to see</h2>
+          <h2 id={titleId}>Choose what to see</h2>
           <p>{description}</p>
         </div>
         <button
@@ -138,7 +141,8 @@ export function SectionVisibilityPicker<T extends string>({
       <small className="section-picker-note">
         Your selection is saved for your account on this device.
       </small>
-    </section>
+      </div>
+    </details>
   );
 }
 

@@ -171,17 +171,11 @@ export function DashboardView({
       <header className="page-hero dashboard-hero" data-tour="dashboard">
         <div>
           <span className="eyebrow">
-            Executive signal field / {data.dashboard.metadata.range}
+            Workspace overview / {data.dashboard.metadata.range}
           </span>
-          <h1>
-            Revenue intelligence,
-            <br />
-            <em>in operational motion.</em>
-          </h1>
+          <h1>Dashboard</h1>
           <p>
-            Every metric resolves to workspace-owned lead, decision and delivery
-            evidence. No cross-workspace aggregation. No unverified revenue is
-            presented as live.
+            Follow lead volume, qualification, routing and recorded revenue for this workspace.
           </p>
         </div>
         {visibleWidgets.has("qualification-pulse") && (

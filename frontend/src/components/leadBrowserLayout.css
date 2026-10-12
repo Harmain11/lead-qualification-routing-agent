@@ -33,7 +33,7 @@
 .app-shell .panel::before,
 .app-shell .metric-card::before,
 .app-shell .integration-card::before { display: none; }
-@media (max-width: 760px) {
+@container (max-width: 720px) {
   .lead-browser .lead-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; gap: 10px; }
   .lead-browser .lead-toolbar > label:first-child,
   .lead-browser .live-feed-status { grid-column: 1 / -1; }

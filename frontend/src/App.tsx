@@ -1,3 +1,4 @@
+import { trapFocus } from "./components/focusTrap";
 import {
   lazy,
   Suspense,
@@ -370,6 +371,13 @@ function App() {
     }
     setTourOpen(false);
   }, [tourSeenKey]);
+
+  useEffect(() => {
+    if (!navOpen || !window.matchMedia("(max-width: 760px)").matches) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.querySelector<HTMLButtonElement>(".rail-close")?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, [navOpen]);
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 761px)");
@@ -1000,6 +1008,11 @@ function App() {
         id="corral-navigation"
         className={`side-rail ${navOpen ? "open" : ""}`}
         aria-label="Corral navigation"
+        onKeyDown={(event) => {
+          if (!window.matchMedia("(max-width: 760px)").matches) return;
+          if (event.key === "Escape") { event.preventDefault(); setNavOpen(false); }
+          else trapFocus(event);
+        }}
         aria-hidden={!navOpen}
         inert={!navOpen}
       >
@@ -1119,7 +1132,7 @@ function App() {
           </nav>
         </aside>
       )}
-      <main className="product-main">
+      <main className="product-main" inert={navOpen && window.matchMedia("(max-width: 760px)").matches}>
         <header className="product-bar">
           <div className="bar-leading">
             <button
@@ -1154,7 +1167,9 @@ function App() {
                 setView("leads");
               }}
             />
-            <RangePicker value={range} onChange={setRange} />
+            {["dashboard", "leads", "pipeline", "agents", "analytics", "review", "team"].includes(view) && (
+              <RangePicker value={range} onChange={setRange} />
+            )}
             <span className={`mode-badge ${metadata?.data_mode || "live"}`}>
               {metadata?.data_mode === "demo"
                 ? "ILLUSTRATIVE DATA"
@@ -1504,6 +1519,7 @@ function RangePicker({
       {(["weekly", "monthly", "annual"] as const).map((item) => (
         <button
           className={value === item ? "active" : ""}
+          aria-pressed={value === item}
           onClick={() => onChange(item)}
           key={item}
         >

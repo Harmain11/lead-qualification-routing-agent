@@ -15,11 +15,7 @@ export function AgentsView({
       <header className="page-hero compact-hero">
         <div>
           <span className="eyebrow">Agentic operations center</span>
-          <h1>
-            Autonomy with
-            <br />
-            <em>visible boundaries.</em>
-          </h1>
+          <h1>AI activity</h1>
           <p>
             Business-facing results, tool invocations and audit states—without
             exposing hidden model reasoning.

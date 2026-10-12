@@ -1,3 +1,4 @@
+import { OperationsDialog } from "./OperationsDialog";
 import { useState } from "react";
 import type { FormEvent } from "react";
 
@@ -69,8 +70,7 @@ export function OpenAISetupPrompt({
     }
   }
 
-  return <div className="team-modal-backdrop" role="presentation">
-    <section className="team-modal openai-setup-prompt" role="dialog" aria-modal="true" aria-labelledby="openai-setup-title">
+  return <OperationsDialog title="Analyze leads with OpenAI" className="team-modal openai-setup-prompt" showHeader={false} onClose={() => { if (!busy) onLater(); }}>
       <div className="team-modal-head"><div><span className="eyebrow">Optional workspace setup</span><h2 id="openai-setup-title">Analyze leads with OpenAI</h2><p>Add a project API key to use OpenAI for this workspace. The key is encrypted, never shown again, and API usage is billed to your OpenAI account.</p></div></div>
       <form onSubmit={(event) => void submit(event)}>
         <label>OpenAI project API key<input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} required aria-label="OpenAI project API key" /></label>
@@ -79,6 +79,5 @@ export function OpenAISetupPrompt({
         <div className="team-modal-actions"><button className="button-quiet" type="button" onClick={onLater} disabled={busy}>Not now</button><button className="button-quiet" type="button" onClick={onSettings} disabled={busy}>Integration settings</button><button className="primary-button" type="submit" disabled={busy || !apiKey.trim() || !model}>{phase === "saving" ? "Saving key…" : phase === "verifying" ? "Verifying with OpenAI…" : phase === "backfilling" ? "Applying to existing leads…" : "Save and verify key"}</button></div>
       </form>
       <p className="openai-setup-fallback">If you skip this, leads still receive deterministic analysis. A verified workspace key takes priority when you add one.</p>
-    </section>
-  </div>;
+  </OperationsDialog>;
 }

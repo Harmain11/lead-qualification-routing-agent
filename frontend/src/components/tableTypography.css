@@ -62,7 +62,7 @@
 .lead-story .story-section small,
 .lead-story .story-section time { font-size: 11px; line-height: 1.5; }
 .lead-story .story-section .eyebrow { font-size: 10px; line-height: 1.5; }
-@media (max-width: 760px) {
+@container (max-width: 720px) {
   .lead-browser .lead-table,
   .lead-browser .lead-table tbody { display: block; width: 100%; min-width: 0; }
   .lead-browser .lead-table thead { display: none; }

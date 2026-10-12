@@ -323,7 +323,7 @@ export function ComplianceView() {
             }}
           />
         </label>
-        <div className="ops-table-wrap">
+        <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
           <table className="ops-table">
             <thead>
               <tr>

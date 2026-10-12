@@ -1,3 +1,4 @@
+import { OperationsDialog } from "../components/OperationsDialog";
 import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
@@ -191,7 +192,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
 
   return <div className="page-view operational-page icp-page">
     <header className="page-hero compact-hero icp-hero">
-      <div><span className="eyebrow">Workspace qualification policy</span><h1>Ideal Customer<br /><em>Profile Builder.</em></h1><p>Define fit once, test it safely, then publish a deterministic 40-point ICP for this workspace.</p></div>
+      <div><span className="eyebrow">Workspace qualification policy</span><h1>Ideal customer profile</h1><p>Define fit once, test it safely, then publish a deterministic 40-point ICP for this workspace.</p></div>
       <div className="icp-current-card"><small>Current ICP</small><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "System default" : `Workspace v${current?.version_number}`} · {current?.status}</span><span>Last updated {current?.updated_at ? new Date(current.updated_at).toLocaleString() : "by system policy"}</span></div>
     </header>
     <div className="icp-toolbar">
@@ -227,11 +228,11 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
          </button>
        </div>
      </section>
-    {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message">×</button></div>}
     {notice && <div className="icp-notice" role="status">{notice}</div>}
      <div className="icp-layout">
       <aside className="panel icp-sections" aria-label="ICP builder sections">{SECTIONS.map((label, index) => <button key={label} className={section === index ? "active" : ""} onClick={() => setSection(index)}><i>{index + 1}</i><span>{label}</span></button>)}</aside>
-     <main className="panel icp-builder" data-tour="icp">
+     <section className="panel icp-builder" data-tour="icp">
         <div className="icp-builder-head"><div><span className="eyebrow">Step {section + 1} of 7</span><h2>{SECTIONS[section]}</h2></div>{!editable && <span className="read-only-badge">Read only</span>}</div>
         {section === 0 && <div className="icp-profile-meta"><label className="icp-field"><span>ICP name</span><input disabled={!editable} value={selected.name} onChange={(event) => { const name = event.target.value; setSelected((value) => value ? { ...value, name } : value); updateConfig((next) => { next.profile_name = name; }); }} /></label><label className="icp-field"><span>Description</span><input disabled={!editable} value={selected.description} onChange={(event) => { const description = event.target.value; setSelected((value) => value ? { ...value, description } : value); }} placeholder="Explain who this ICP is designed to identify" /></label></div>}
         {section === 0 && <CompanySection config={configuration} editable={editable} update={updateConfig} />}
@@ -242,10 +243,10 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
         {section === 5 && <WeightsSection config={configuration} editable={editable} update={updateConfig} total={total} />}
         {section === 6 && <ReviewSection selected={selected} total={total} validation={validation} preview={preview} editable={editable} busy={busy} runValidation={runValidation} runPreview={runPreview} openPublish={() => setPublishOpen(true)} />}
         <div className="icp-step-actions"><button className="button-quiet" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Previous</button><button className="secondary-button" disabled={section === 6} onClick={() => setSection((value) => Math.min(6, value + 1))}>Next section →</button></div>
-      </main>
+      </section>
        <aside className="panel icp-history"><div className="icp-history-head"><span className="eyebrow">Version history</span><h2>Workspace versions</h2></div>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>System</b><span>Default fallback</span><em>Published</em></button>}{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</aside>
     </div>
-    {publishOpen && <div className="modal-backdrop" role="presentation"><section className="team-modal icp-publish-modal" role="dialog" aria-modal="true" aria-labelledby="publish-title"><button className="modal-close" onClick={() => setPublishOpen(false)} aria-label="Close">×</button><span className="eyebrow">Deliberate policy change</span><h2 id="publish-title">Publish workspace ICP?</h2><p>New qualification runs will use this version. Existing lead scores and their ICP references will not be rewritten.</p><label><input type="checkbox" checked={confirmUse} onChange={(event) => setConfirmUse(event.target.checked)} /> I understand new leads will use this version.</label><label><input type="checkbox" checked={confirmHistory} onChange={(event) => setConfirmHistory(event.target.checked)} /> I understand historical results are preserved.</label>{exclusionsChanged && <label className="exclusion-confirm"><input type="checkbox" checked={confirmExclusions} onChange={(event) => setConfirmExclusions(event.target.checked)} /> I confirm the hard-disqualifier changes may force matching leads to Disqualified.</label>}<div className="team-modal-actions"><button className="button-quiet" onClick={() => setPublishOpen(false)}>Cancel</button><button className="primary-button" disabled={total !== 40 || !confirmUse || !confirmHistory || (exclusionsChanged && !confirmExclusions) || busy} onClick={() => void publish()}>Publish ICP</button></div></section></div>}
+    {publishOpen && <OperationsDialog title="Publish workspace ICP?" className="team-modal confirm-modal icp-publish-modal" showHeader={false} onClose={() => { if (!busy) setPublishOpen(false); }}><button className="modal-close" onClick={() => setPublishOpen(false)} aria-label="Close">×</button><span className="eyebrow">Deliberate policy change</span><h2 id="publish-title">Publish workspace ICP?</h2><p>New qualification runs will use this version. Existing lead scores and their ICP references will not be rewritten.</p><label><input type="checkbox" checked={confirmUse} onChange={(event) => setConfirmUse(event.target.checked)} /> I understand new leads will use this version.</label><label><input type="checkbox" checked={confirmHistory} onChange={(event) => setConfirmHistory(event.target.checked)} /> I understand historical results are preserved.</label>{exclusionsChanged && <label className="exclusion-confirm"><input type="checkbox" checked={confirmExclusions} onChange={(event) => setConfirmExclusions(event.target.checked)} /> I confirm the hard-disqualifier changes may force matching leads to Disqualified.</label>}<div className="team-modal-actions"><button className="button-quiet" onClick={() => setPublishOpen(false)}>Cancel</button><button className="primary-button" disabled={total !== 40 || !confirmUse || !confirmHistory || (exclusionsChanged && !confirmExclusions) || busy} onClick={() => void publish()}>Publish ICP</button></div></OperationsDialog>}
   </div>;
 }
 

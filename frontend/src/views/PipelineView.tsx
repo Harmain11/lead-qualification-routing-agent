@@ -21,11 +21,7 @@ export function PipelineView({
       <header className="page-hero compact-hero">
         <div>
           <span className="eyebrow">Commercial motion map</span>
-          <h1>
-            Pipeline, without
-            <br />
-            <em>the blind spots.</em>
-          </h1>
+          <h1>Pipeline</h1>
           <p>
             Inspect every stage and the qualification state that shaped
             progression.

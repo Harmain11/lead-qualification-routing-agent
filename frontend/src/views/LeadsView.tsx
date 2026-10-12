@@ -1,3 +1,4 @@
+import { OperationsDialog } from "../components/OperationsDialog";
 import type { FormEvent } from "react";
 import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -108,19 +109,6 @@ export function LeadsView({
   const [crmNotice, setCrmNotice] = useState<string | null>(null);
   const [crmProviders, setCrmProviders] = useState<string[]>([]);
   const [bulkProvider, setBulkProvider] = useState("");
-  useEffect(() => {
-    if (!selected) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [selected, onClose]);
   useEffect(() => {
     if (!canCrmSync) return;
     let active = true;
@@ -552,19 +540,7 @@ export function LeadsView({
       )}
       {selected &&
         createPortal(
-          <div
-            className="lead-drawer-backdrop"
-            role="presentation"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) onClose();
-            }}
-          >
-            <section
-              className="lead-drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${selected.company_name} lead details`}
-            >
+          <OperationsDialog title={`${selected.company_name} lead details`} className="lead-drawer" showHeader={false} onClose={onClose}>
               <div className="lead-drawer-toolbar">
                 <span>Lead details · {selected.source}</span>
                 <button
@@ -601,8 +577,7 @@ export function LeadsView({
                   setRefreshKey((value) => value + 1);
                 }}
               />
-            </section>
-          </div>,
+          </OperationsDialog>,
           document.body,
         )}
     </div>
@@ -676,19 +651,7 @@ function ExportDialog({
       ? "All permitted workspace leads"
       : `${scope === "selected" ? selectedCount : count} leads${filters.band !== "all" ? ` · ${qualificationLabel(filters.band)}` : ""}${filters.source !== "all" ? ` · ${pretty(filters.source)}` : ""}${filters.dateFrom || filters.dateTo ? ` · ${filters.dateFrom || "Any"} – ${filters.dateTo || "Any"}` : ""}`;
   return (
-    <div
-      className="team-modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        className="team-modal export-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="export-title"
-      >
+    <OperationsDialog title="Take leads with you" className="team-modal export-dialog" showHeader={false} onClose={() => { if (!busy) onClose(); }}>
         <div className="team-modal-head">
           <div>
             <span className="eyebrow">Secure workspace export</span>
@@ -781,8 +744,7 @@ function ExportDialog({
             {busy ? "Preparing…" : "Download export"}
           </button>
         </div>
-      </section>
-    </div>
+    </OperationsDialog>
   );
 }
 

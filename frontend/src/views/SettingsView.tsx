@@ -57,11 +57,7 @@ export function SettingsView({
             {selectedSection ? (
               pretty(selectedSection.replaceAll("-", "_"))
             ) : (
-              <>
-                Clear boundaries,
-                <br />
-                <em>durable context.</em>
-              </>
+              "Settings"
             )}
           </h1>
           <p>

@@ -40,7 +40,7 @@ export function TrendChart({ values, labels }: { values: number[]; labels: strin
   const animationKey = values.join("-");
   return <div className="trend-chart">
     <svg key={animationKey} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Time-series trend">
-      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#F48067" stopOpacity=".34" /><stop offset="1" stopColor="#E13511" stopOpacity="0" /></linearGradient></defs>
+      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--orange)" stopOpacity=".34" /><stop offset="1" stopColor="var(--orange)" stopOpacity="0" /></linearGradient></defs>
       <path className="trend-area" d={area} style={{ fill: `url(#${gradientId})` }} />
       <path className="trend-line" d={path} pathLength="1" />
       {points.map((point, index) => <g key={`${point.label}-${point.x}`}><circle cx={point.x} cy={point.y} r="5" style={{ "--point-order": index } as CSSProperties}><title>{point.label}: {point.value}</title></circle></g>)}
@@ -101,7 +101,7 @@ export function TimedAreaChart({
   const last = plotted.at(-1)!;
   return <div className="trend-chart timed-area-chart">
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#F48067" stopOpacity=".3" /><stop offset="1" stopColor="#F48067" stopOpacity=".025" /></linearGradient></defs>
+      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--orange)" stopOpacity=".3" /><stop offset="1" stopColor="var(--orange)" stopOpacity=".025" /></linearGradient></defs>
       <line className="timed-area-baseline" x1={inset.left} x2={width - inset.right} y1={baseline} y2={baseline} />
       {segments.map((items, segmentIndex) => {
         const line = makePath(items);
@@ -118,7 +118,7 @@ export function TimedAreaChart({
 export function Donut({ rows }: { rows: Array<{ label: string; value: number }> }) {
   const total = rows.reduce((sum, row) => sum + row.value, 0);
   let cursor = 0;
-  const colors = ["#E13511", "#F48067", "#f8c88c", "#8c918f", "#555b5a"];
+  const colors = ["#1e6b52", "#d79728", "#457a9e", "#8a98a3", "#b8524b"];
   const stops = rows.map((row, index) => {
     const start = total ? (cursor / total) * 100 : 0;
     cursor += row.value;
@@ -126,7 +126,7 @@ export function Donut({ rows }: { rows: Array<{ label: string; value: number }> 
     return `${colors[index % colors.length]} ${start}% ${end}%`;
   });
   return <div className="donut-wrap">
-    <div className="donut" key={stops.join("-")} style={{ background: total ? `conic-gradient(${stops.join(",")})` : "#252827" }}><div><strong>{total}</strong><span>leads</span></div></div>
+    <div className="donut" key={stops.join("-")} style={{ background: total ? `conic-gradient(${stops.join(",")})` : "var(--surface-high)" }}><div><strong>{total}</strong><span>leads</span></div></div>
     <div className="donut-legend">{rows.map((row, index) => <span key={row.label}><i style={{ background: colors[index % colors.length] }} />{row.label}<b>{row.value}</b></span>)}</div>
   </div>;
 }

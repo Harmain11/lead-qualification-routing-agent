@@ -90,11 +90,7 @@ export function AnalyticsView({
               analyticsPanelOptions.find((item) => item.id === selectedSection)
                 ?.label
             ) : (
-              <>
-                Quality, velocity
-                <br />
-                <em>and commercial value.</em>
-              </>
+              "Analytics"
             )}
           </h1>
           <p>

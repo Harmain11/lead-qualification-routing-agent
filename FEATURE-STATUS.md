@@ -17,7 +17,7 @@ Open the running preview at http://localhost:5173.
 | Coaching | Recorded-text scorecards, quoted objections and recorded responses, outcome context, weekly deduplicated digests | Based on acquired email/progress text. Digests require manager approval before rep visibility. Call/audio scoring remains part of the deferred voice work. |
 | Collaboration | Ctrl/Cmd+K palette, permission-filtered page/record search, teammate presence and shared notes | Presence refreshes every 15 seconds with a 45-second expiry. Version conflicts preserve the editor text for a manual merge. |
 | Governance | Immutable permission/objection ledger, global/channel DNC enforcement, strict consent option, complete per-lead audit export, residency guard and reviewed retention deletion | DNC blocks drafts, follow-up sends, confirmations and meeting emails at their delivery boundaries. Retention requires a current plan and explicit permanent-deletion confirmation; independent contacts/consent are retained. |
-| UI | Modular product screens, central light/dark tokens, shared responsive components, branded controls, dialog focus/restoration, canvas keyboard controls and page-based loading | Existing Corral visual identity is retained. Layout checks cover desktop and 390 px mobile widths, light/dark, labels, focus, Escape and horizontal overflow. |
+| UI | Modular product screens, central light/dark tokens, shared responsive components, branded controls, dialog focus/restoration, canvas keyboard controls and page-based loading | Existing Corral visual identity is retained. The 12 October UI pass covers all 17 screens at 390/768/1440 px in both themes, shared button/form styles, native dialogs and tablet reflow. See UI-QA.md for checks and limits. |
 | Agency / Branding | Permission-scoped client overview/switching, product name, logo, accent color and custom-domain setting | DNS, TLS and hosting setup remain external configuration. Workspace data stays permission-scoped. |
 | Zapier / Make | HTTPS Create Lead packages, password token fields, read-only connection validation, stable source IDs for retries and redacted intake logging | Local code is prepared and tested. Public hosting URL, vendor developer accounts, installation tests and marketplace review/submission are still needed. |
 
@@ -48,3 +48,8 @@ the same environment. New operations modules introduce no reported type errors.
 This implementation is published on the separate GitHub branch codex/corral-local-dev.
 GitHub main is unchanged. There has been no production deployment.
 The attached worktree remains available for further editing.
+
+## UI consistency update — 12 October 2026
+
+The UI polish and Google sign-in logo changes are documented in [UI-QA.md](UI-QA.md).
+TypeScript and the production frontend build pass after this update.

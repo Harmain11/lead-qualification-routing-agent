@@ -105,7 +105,7 @@ export function AdvancedAnalyticsPanel() {
               Costs and revenue use intake-source/month attribution. Unknown
               costs remain unknown.
             </p>
-            <div className="ops-table-wrap">
+            <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
               <table className="ops-table">
                 <thead>
                   <tr>
@@ -119,6 +119,7 @@ export function AdvancedAnalyticsPanel() {
                   </tr>
                 </thead>
                 <tbody>
+                  {!data.channels.length && <tr><td colSpan={7}><div className="ops-empty-inline"><strong>No channel results yet</strong><span>Channel costs and outcomes will appear as leads are recorded.</span></div></td></tr>}
                   {data.channels.map((row) => (
                     <tr key={row.source + row.month}>
                       <td>
@@ -151,7 +152,7 @@ export function AdvancedAnalyticsPanel() {
           <div className="ops-panel">
             <h3>Member comparison with context</h3>
             <p className="ops-muted">{data.fairness_method}</p>
-            <div className="ops-table-wrap">
+            <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
               <table className="ops-table">
                 <thead>
                   <tr>
@@ -163,6 +164,7 @@ export function AdvancedAnalyticsPanel() {
                   </tr>
                 </thead>
                 <tbody>
+                  {!data.members.length && <tr><td colSpan={5}><div className="ops-empty-inline"><strong>No member comparisons yet</strong><span>Comparisons become available when members have recorded outcomes.</span></div></td></tr>}
                   {data.members.map((row) => (
                     <tr key={row.user_id}>
                       <td>{row.name}</td>
@@ -184,7 +186,7 @@ export function AdvancedAnalyticsPanel() {
           </div>
           <div className="ops-panel">
             <h3>Intake cohorts to close</h3>
-            <div className="ops-table-wrap">
+            <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
               <table className="ops-table">
                 <thead>
                   <tr>
@@ -197,6 +199,7 @@ export function AdvancedAnalyticsPanel() {
                   </tr>
                 </thead>
                 <tbody>
+                  {!data.cohorts.length && <tr><td colSpan={6}><div className="ops-empty-inline"><strong>No cohorts yet</strong><span>Lead cohorts will appear when there are leads in this observation window.</span></div></td></tr>}
                   {data.cohorts.map((row) => (
                     <tr key={row.week + row.campaign}>
                       <td>{row.week}</td>

@@ -129,7 +129,7 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
           <p>{mode === "signin" ? "Sign in with your work email and password." : mode === "access" ? "Use the workspace ID and one-time code from your admin. Your work email is your username. New invitees set a password here for future sign-ins; existing accounts keep their current password." : "Workspace ownership keeps leads, analytics, and provider accounts isolated."}</p>
         </div>
         {mode !== "access" && <button type="button" className="google-auth-button" onClick={continueWithGoogle} disabled={busy}>
-          <span aria-hidden="true">G</span> Continue with Google
+          <img className="google-auth-logo" src={`${BRAND}/google-g.png`} width="20" height="20" alt="" aria-hidden="true" /> Continue with Google
         </button>}
         {mode !== "access" && <div className="auth-divider"><span>or</span></div>}
         {mode === "signup" && !passwordSignupEnabled ? (

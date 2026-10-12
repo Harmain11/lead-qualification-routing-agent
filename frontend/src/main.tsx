@@ -8,16 +8,15 @@ import "./components/usabilityFixes.css";
 import "./components/navigationLayout.css";
 import "./components/leadDetailPolish.css";
 import "./components/subpages.css";
-import "./components/layoutConsistency.css";
 import "./components/leadBrowserLayout.css";
 import "./components/tableTypography.css";
 import "./components/brandButtons.css";
 import "./components/integrationExpansion.css";
+import "./components/operations.css";
+import "./components/layoutConsistency.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
   </StrictMode>,
 );
-
-import "./components/operations.css";

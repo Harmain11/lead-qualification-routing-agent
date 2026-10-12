@@ -303,7 +303,7 @@ export function AutomationsView({
             Refresh runs
           </button>
         </div>
-        <div className="ops-table-wrap">
+        <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
           <table>
             <thead>
               <tr>
@@ -314,6 +314,7 @@ export function AutomationsView({
               </tr>
             </thead>
             <tbody>
+              {!runs.length && <tr><td colSpan={4}><div className="ops-empty-inline"><strong>No runs yet</strong><span>Enroll a lead in an active sequence or playbook to see its progress here.</span></div></td></tr>}
               {runs.map((run) => (
                 <tr key={run.id}>
                   <td>
@@ -406,19 +407,22 @@ export function AutomationsView({
             </tbody>
           </table>
         </div>
-        <div className="ops-actions">
-          <button
+        <div className="ops-pagination">
+          <span>{runs.length ? `${offset + 1}–${offset + runs.length}` : "0"} runs shown</span>
+          <div className="ops-actions">
+          <button className="button-quiet"
             disabled={!offset}
             onClick={() => setOffset(Math.max(0, offset - 50))}
           >
             Previous
           </button>
-          <button
+          <button className="button-quiet"
             disabled={runs.length < 50}
             onClick={() => setOffset(offset + 50)}
           >
             Next
           </button>
+          </div>
         </div>
       </section>
       {editor && (

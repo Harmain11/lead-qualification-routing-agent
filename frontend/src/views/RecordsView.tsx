@@ -211,7 +211,7 @@ export function RecordsView({
       <header className="ops-page-head">
         <div>
           <span className="eyebrow">People and companies</span>
-          <h1>{mode === "contacts" ? "Contacts" : "Accounts & companies"}</h1>
+          <h1>{mode === "contacts" ? "Contacts" : "Companies"}</h1>
           <p>
             {mode === "contacts"
               ? "Keep a person record across lead touches and channels."
@@ -310,7 +310,7 @@ export function RecordsView({
           </p>
         </section>
       ) : (
-        <div className="ops-table-wrap">
+        <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
           <table className="ops-table">
             <thead>
               <tr>
@@ -357,10 +357,11 @@ export function RecordsView({
           </table>
         </div>
       )}
-      <div className="ops-toolbar">
+      <div className="ops-pagination">
         <span>
           {total ? offset + 1 : 0}–{Math.min(offset + 50, total)} of {total}
         </span>
+        <div className="ops-actions">
         <button
           className="button-quiet"
           disabled={!offset}
@@ -375,6 +376,7 @@ export function RecordsView({
         >
           Next
         </button>
+        </div>
       </div>
       {duplicates.length > 0 && (
         <section className="ops-panel">
