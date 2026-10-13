@@ -1219,12 +1219,13 @@ function App() {
                   type="button"
                   className="header-shortcut-trigger"
                   onClick={shortcut.onClick}
+                  aria-label={shortcut.label}
                   aria-describedby={`header-shortcut-help-${shortcut.id}`}
                 >
                   {shortcut.icon === "dialer"
                     ? <span className="header-shortcut-icon" aria-hidden="true">☎</span>
                     : <span className="header-shortcut-icon" aria-hidden="true"><NavIcon id={shortcut.icon} /></span>}
-                  <span>{shortcut.label}</span>
+                  <span className="header-shortcut-label">{shortcut.label}</span>
                 </button>
                 <div className="header-shortcut-popover" id={`header-shortcut-help-${shortcut.id}`} role="tooltip">
                   <strong>{shortcut.label}</strong>
