@@ -247,7 +247,11 @@ html[data-theme] .app-shell .range-picker button.active { background: var(--surf
 .app-shell .nav-group { font-family: inherit; font-size: 13px; letter-spacing: .08em; margin: 16px 12px 6px; }
 .app-shell .navigation-menu-trigger { min-height: 42px; }
 .app-shell .navigation-menu-label { font-size: 13px; font-weight: 500; }
-.app-shell .navigation-menu-item.is-active > .navigation-menu-trigger { background: var(--orange-soft); color: var(--orange-hot); border-color: transparent; }
+.app-shell .navigation-menu-item.is-active > .navigation-menu-trigger,
+.app-shell .navigation-menu-item:hover > .navigation-menu-trigger,
+.app-shell .navigation-menu-item.is-open > .navigation-menu-trigger { background: transparent; color: var(--text); border-color: transparent; }
+.app-shell .navigation-menu-item:hover > .navigation-menu-disclosure,
+.app-shell .navigation-menu-item.is-open > .navigation-menu-disclosure { background: transparent; color: var(--text); }
 .app-shell .navigation-menu-item.is-active .navigation-menu-label { font-weight: 650; }
 .app-shell .nav-separator { margin-block: 12px 8px; }
 .app-shell .rail-foot { gap: 12px; }
