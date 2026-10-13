@@ -62,10 +62,12 @@ export function ManualReviewView({
             </article>
           ))
         ) : (
-          <Empty
-            title="Manual review is clear"
-            text="No leads need human judgment in this period."
-          />
+          <article className="review-card panel review-empty-card">
+            <Empty
+              title="Manual review is clear"
+              text="No leads need human judgment in this period."
+            />
+          </article>
         )}
       </section>
     </div>

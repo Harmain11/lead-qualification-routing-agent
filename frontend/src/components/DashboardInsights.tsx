@@ -86,7 +86,7 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
     {visible.has("source-qualification") && <InsightPanel
       eyebrow="Lead source · conversion signal"
       title="Qualification rate by source"
-       detail="Hot, Warm or Needs Qualifying leads ÷ total leads in this period × 100. Fixed 0–100% scale."
+       detail="Share of leads marked Hot, Warm or Needs Qualifying during this period. Scale: 0–100%."
     >
       {!channels ? <div className="insight-empty" role="status"><b>Source analytics unavailable</b><span>Qualification rates will appear when channel analytics are available.</span></div>
         : qualificationRows.length === 0 ? <div className="insight-empty" role="status"><b>No source has recorded lead volume</b><span>Sources without leads are excluded rather than shown as zero-rate results.</span></div>

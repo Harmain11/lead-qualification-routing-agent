@@ -88,7 +88,7 @@ export function AdvancedAnalyticsPanel() {
               <span>
                 <b>
                   {data.forecast.coverage !== null
-                    ? data.forecast.coverage + "×"
+                    ? data.forecast.coverage + " times"
                     : "No quota set"}
                 </b>
                 Pipeline coverage
@@ -109,12 +109,12 @@ export function AdvancedAnalyticsPanel() {
               <table className="ops-table">
                 <thead>
                   <tr>
-                    <th>Source / month</th>
-                    <th>Leads / qualified</th>
+                    <th>Source and month</th>
+                    <th>Leads and qualified</th>
                     <th>Wins</th>
                     <th>Cost</th>
                     <th>Closed revenue</th>
-                    <th>Cost / qualified</th>
+                    <th>Cost per qualified lead</th>
                     <th>ROI</th>
                   </tr>
                 </thead>
@@ -123,10 +123,10 @@ export function AdvancedAnalyticsPanel() {
                   {data.channels.map((row) => (
                     <tr key={row.source + row.month}>
                       <td>
-                        {row.source} / {row.month}
+                        {row.source} · {row.month}
                       </td>
                       <td>
-                        {row.leads} / {row.qualified}
+                        {row.leads} leads · {row.qualified} qualified
                       </td>
                       <td>{row.won}</td>
                       <td>
@@ -157,7 +157,7 @@ export function AdvancedAnalyticsPanel() {
                 <thead>
                   <tr>
                     <th>Member</th>
-                    <th>Closed / wins</th>
+                    <th>Closed and won</th>
                     <th>Comparable leads</th>
                     <th>Expected wins</th>
                     <th>Adjusted win index</th>
@@ -169,14 +169,14 @@ export function AdvancedAnalyticsPanel() {
                     <tr key={row.user_id}>
                       <td>{row.name}</td>
                       <td>
-                        {row.closed} / {row.wins}
+                        {row.closed} closed · {row.wins} won
                       </td>
                       <td>{row.comparable_leads}</td>
                       <td>{row.expected_wins}</td>
                       <td>
                         {row.adjusted_win_index === null
                           ? "Insufficient data"
-                          : row.adjusted_win_index + "×"}
+                          : row.adjusted_win_index + " times"}
                       </td>
                     </tr>
                   ))}

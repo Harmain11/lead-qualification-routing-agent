@@ -133,13 +133,13 @@ export function AnalyticsView({
             <div className="analytics-panel-wide">
               <Panel
                 title="Channel performance"
-                eyebrow="Volume × quality × conversion"
+                eyebrow="Channel quality and conversion"
               >
                 <div className="channel-table">
                   <div className="channel-head">
                     <span>Channel</span>
                     <span>Volume</span>
-                    <span>Qual.</span>
+                    <span>Qualified</span>
                     <span>SQL</span>
                     <span>Won</span>
                     <span>Revenue</span>
@@ -187,7 +187,7 @@ export function AnalyticsView({
           {displayedPanels.has("revenue-by-service") && (
             <Panel
               title="Revenue by service"
-              eyebrow="Closed / won attribution"
+              eyebrow="Closed-won attribution"
             >
               <Bars
                 rows={data.revenue.by_service.map((row) => ({
@@ -208,7 +208,7 @@ export function AnalyticsView({
             </div>
           )}
           {displayedPanels.has("revenue-trajectory") && (
-            <Panel title="Revenue trajectory" eyebrow="Closed / won over time">
+            <Panel title="Revenue trajectory" eyebrow="Closed-won over time">
               <TrendChart
                 values={data.revenue.over_time.map((point) => point.value)}
                 labels={data.revenue.over_time.map((point) => point.period)}
