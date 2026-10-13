@@ -63,25 +63,13 @@ export function AgentsView({
           ))}
         </div>
       </Panel>
-      <section className="agent-layout">
-        <Panel title="Capability registry" eyebrow="Implemented vs reserved">
-          <div className="capability-grid">
-            {data.capabilities.map((item) => (
-              <div className={item.status} key={item.name}>
-                <i /> <b>{item.name}</b>
-                <span>{item.status}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-        <Panel
-          title="Recent runs"
-          eyebrow="Workspace audit stream"
-          action={`${data.activity.length} events`}
-        >
-          <ActivityFeed data={data} />
-        </Panel>
-      </section>
+      <Panel
+        title="Recent runs"
+        eyebrow="Workspace audit stream"
+        action={`${data.activity.length} events`}
+      >
+        <ActivityFeed data={data} />
+      </Panel>
     </div>
   );
 }
