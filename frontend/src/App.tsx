@@ -148,15 +148,10 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "accounts", label: "Companies" },
   { id: "pipeline", label: "Pipeline" },
   { id: "agents", label: "Agents / AI Activity" },
-  { id: "intelligence", label: "Research & Coaching" },
-  { id: "automations", label: "Sequences & Playbooks" },
   { id: "analytics", label: "Analytics" },
   { id: "review", label: "Manual Review", group: "Control" },
   { id: "integrations", label: "Integrations" },
   { id: "team", label: "Users" },
-  { id: "policies", label: "Territories & Capacity" },
-  { id: "compliance", label: "Consent & Governance" },
-  { id: "agency", label: "Agency & Branding" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -925,6 +920,16 @@ function App() {
     );
   }
 
+  function navigationItemActive(item: { id: View }) {
+    return view === item.id || navigationChildren(item.id).some((child) => child.view === view);
+  }
+
+  function navigationActiveChild(id: View) {
+    if (view === "leads") return leadSection;
+    if (view === id) return pageSection;
+    return navigationChildren(id).some((child) => child.view === view) ? view : pageSection;
+  }
+
   function navigateChild(id: View, childId?: string) {
     const child = navigationChildren(id).find((item) => item.id === childId);
     navigate(child?.view ?? id, child?.view ? "" : childId);
@@ -1071,9 +1076,9 @@ function App() {
                 enabled={navOpen}
                 icon={<NavIcon id={item.id} />}
                 active={
-                  view === item.id || (item.id === "settings" && view === "icp")
+                  navigationItemActive(item) || (item.id === "settings" && view === "icp")
                 }
-                activeChild={view === "leads" ? leadSection : pageSection}
+                activeChild={navigationActiveChild(item.id)}
                 badge={item.id === "review" ? data?.review?.total : undefined}
                 onNavigate={(child) => navigateChild(item.id, child)}
               />
@@ -1097,7 +1102,7 @@ function App() {
             <WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />
           </div>
           <span className={`system-state ${error ? "is-offline" : "is-online"}`} aria-live="polite">
-            <i aria-hidden="true" /> {error ? "Offline" : "Online"}
+            <i aria-hidden="true" /> {error ? "System unavailable" : "System nominal"}
           </span>
           <button
             className="signout-button"
@@ -1131,7 +1136,7 @@ function App() {
           <nav className="mini-rail-nav" aria-label="Primary navigation">
             {visibleNavigation.map((item) => {
               const active =
-                view === item.id ||
+                navigationItemActive(item) ||
                 (item.id === "settings" && (view === "team" || view === "icp"));
               return (
                 <NavigationMenuItem
@@ -1140,7 +1145,7 @@ function App() {
                   icon={<NavIcon id={item.id} />}
                   active={active}
                   collapsed
-                  activeChild={view === "leads" ? leadSection : pageSection}
+                  activeChild={navigationActiveChild(item.id)}
                   badge={item.id === "review" ? data?.review?.total : undefined}
                   onNavigate={(child) => navigateChild(item.id, child)}
                 />

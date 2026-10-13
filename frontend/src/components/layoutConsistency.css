@@ -253,8 +253,8 @@ html[data-theme] .app-shell .range-picker button.active { background: var(--surf
 .app-shell .rail-foot { gap: 12px; }
 .app-shell .workspace-trigger strong { font-size: 13px; line-height: 1.4; }
 .app-shell .workspace-trigger-label, .app-shell .workspace-trigger-action, .app-shell .workspace-switcher > small { font-size: 13px; }
-.app-shell .system-state, .app-shell .signout-button { font-size: 13px; }
-.app-shell .system-state { letter-spacing: .04em; }
+.app-shell .system-state, .app-shell .signout-button { font-size: 12px; }
+.app-shell .system-state { font-family: inherit; font-weight: 600; letter-spacing: .02em; text-transform: none; }
 .app-shell .signout-button { min-height: 28px; }
 .app-shell .page-view, .app-shell .page-view.operational-page, .app-shell .contacts-view, .app-shell .page-view.ops-page {
   width: 100%;

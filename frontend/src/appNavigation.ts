@@ -18,6 +18,10 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "representatives", label: "Member performance" },
     { id: "revenue-trajectory", label: "Revenue trajectory" },
   ],
+  agents: [
+    { id: "intelligence", label: "Research & Coaching", view: "intelligence", permission: "agents.view" },
+    { id: "automations", label: "Sequences & Playbooks", view: "automations", permission: "agents.view" },
+  ],
   integrations: [
     { id: "gmail", label: "Gmail" }, { id: "google_calendar", label: "Google Calendar" },
     { id: "slack", label: "Slack" }, { id: "salesforce", label: "Salesforce" },
@@ -34,6 +38,9 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "email-templates", label: "Email templates", permission: "integrations.manage" },
     { id: "users", label: "Users & permissions", view: "team", permission: "members.view" },
     { id: "icp", label: "Ideal Customer Profile", view: "icp", permission: "icp.view" },
+    { id: "policies", label: "Territories & Capacity", view: "policies", permission: "routing.view" },
+    { id: "compliance", label: "Consent & Governance", view: "compliance", permission: "workspace.manage" },
+    { id: "agency", label: "Agency & Branding", view: "agency", permission: "analytics.view" },
   ],
 };
 
