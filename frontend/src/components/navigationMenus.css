@@ -142,12 +142,17 @@
   gap: 0;
   overflow: hidden;
 }
+.navigation-menu-flyout.is-integrations:not(.has-selection) {
+  width: 270px;
+  min-width: 270px;
+}
 .navigation-menu-mega {
   display: grid;
   grid-template-columns: minmax(150px, .9fr) minmax(190px, 1.1fr);
   min-height: 250px;
   max-height: min(560px, calc(100dvh - 24px));
 }
+.navigation-menu-mega:not(.has-selection) { grid-template-columns: 1fr; }
 .navigation-menu-mega-categories {
   display: grid;
   align-content: start;

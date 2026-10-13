@@ -58,7 +58,7 @@ export function NavigationMenuItem({
       })).filter((group) => group.children.length > 0)
     : [];
   const selectedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === integrationGroupId) ?? availableIntegrationGroups[0];
-  const displayedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === hoveredIntegrationGroupId) ?? selectedIntegrationGroup;
+  const displayedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === hoveredIntegrationGroupId);
   const visibleChildren = item.id === "integrations" ? (displayedIntegrationGroup?.children ?? []) : children;
   const enterMenu = () => {
     clearTimeout(leaveTimer.current);
@@ -194,7 +194,7 @@ export function NavigationMenuItem({
   const flyout = hasChildren && <div
     ref={flyoutRef}
     id={menuId}
-    className={`navigation-menu-flyout${item.id === "integrations" ? " is-integrations" : ""}${mobile ? " is-inline" : " is-portal"}`}
+    className={`navigation-menu-flyout${item.id === "integrations" ? ` is-integrations${displayedIntegrationGroup ? " has-selection" : ""}` : ""}${mobile ? " is-inline" : " is-portal"}`}
     data-navigation-owner={item.id}
     data-navigation-mode={collapsed ? "collapsed" : "expanded"}
     aria-label={`${item.label} subcategories`}
@@ -203,7 +203,7 @@ export function NavigationMenuItem({
     onMouseEnter={enterMenu}
     onMouseLeave={leaveMenu}
   >
-    {item.id === "integrations" ? <div className="navigation-menu-mega">
+    {item.id === "integrations" ? <div className={`navigation-menu-mega${displayedIntegrationGroup ? " has-selection" : ""}`}>
       <div className="navigation-menu-mega-categories" role="tablist" aria-label="Integration categories">
         {availableIntegrationGroups.map((group) => <button
           key={group.id}
@@ -212,16 +212,16 @@ export function NavigationMenuItem({
           aria-selected={selectedIntegrationGroup?.id === group.id}
           className={`${selectedIntegrationGroup?.id === group.id ? "is-active" : ""}${hoveredIntegrationGroupId === group.id ? " is-hovered" : ""}`}
           onMouseEnter={() => setHoveredIntegrationGroupId(group.id)}
-          onFocus={() => { setHoveredIntegrationGroupId(null); setIntegrationGroupId(group.id); }}
-          onClick={() => { setHoveredIntegrationGroupId(null); setIntegrationGroupId(group.id); }}
+          onFocus={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
+          onClick={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
         >
           <span>{group.label}</span>
           <b aria-hidden="true">›</b>
         </button>)}
       </div>
-      <div className="navigation-menu-mega-items" role="tabpanel" aria-label={`${selectedIntegrationGroup?.label ?? "Integration"} providers`}>
+      {displayedIntegrationGroup && <div className="navigation-menu-mega-items" role="tabpanel" aria-label={`${displayedIntegrationGroup.label} providers`}>
         {visibleChildren.map(renderChild)}
-      </div>
+      </div>}
     </div> : visibleChildren.map(renderChild)}
   </div>;
   return (
