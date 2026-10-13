@@ -988,6 +988,40 @@ function App() {
     0.179
       ? "#000000"
       : "#ffffff";
+  const headerShortcuts = [
+    {
+      id: "dialer",
+      label: "Dialer",
+      icon: "dialer" as const,
+      description: "Connect a calling provider to start confirmed calls from a lead.",
+      destination: "Open calling integrations →",
+      onClick: () => navigate("integrations", "twilio"),
+    },
+    {
+      id: "leads",
+      label: "Leads",
+      icon: "leads" as const,
+      description: "Review new leads, qualification signals and routing decisions.",
+      destination: "Open lead workspace →",
+      onClick: () => navigate("leads", "overview"),
+    },
+    {
+      id: "review",
+      label: "Review",
+      icon: "review" as const,
+      description: "Resolve leads that need human judgment before work continues.",
+      destination: "Open manual review →",
+      onClick: () => navigate("review"),
+    },
+    {
+      id: "reports",
+      label: "Reports",
+      icon: "analytics" as const,
+      description: "See channel, pipeline and revenue performance for this workspace.",
+      destination: "Open analytics →",
+      onClick: () => navigate("analytics"),
+    },
+  ] as const;
   if (authLoading) return <LoadingState />;
   if (!auth) {
     return (
@@ -1179,21 +1213,25 @@ function App() {
             </div>
           </div>
           <div className="bar-actions">
-            <div className="header-shortcut">
-              <button
-                type="button"
-                className="header-shortcut-trigger"
-                onClick={() => navigate("integrations", "twilio")}
-                aria-describedby="dialer-shortcut-help"
-              >
-                <span className="header-shortcut-icon" aria-hidden="true">☎</span>
-                <span>Dialer</span>
-              </button>
-              <div className="header-shortcut-popover" id="dialer-shortcut-help" role="tooltip">
-                <strong>Dialer &amp; voice calling</strong>
-                <p>Connect a calling provider to start confirmed calls from a lead.</p>
-                <span>Open calling integrations →</span>
-              </div>
+            <div className="header-shortcuts" aria-label="Quick shortcuts">
+              {headerShortcuts.map((shortcut) => <div className="header-shortcut" key={shortcut.id}>
+                <button
+                  type="button"
+                  className="header-shortcut-trigger"
+                  onClick={shortcut.onClick}
+                  aria-describedby={`header-shortcut-help-${shortcut.id}`}
+                >
+                  {shortcut.icon === "dialer"
+                    ? <span className="header-shortcut-icon" aria-hidden="true">☎</span>
+                    : <span className="header-shortcut-icon" aria-hidden="true"><NavIcon id={shortcut.icon} /></span>}
+                  <span>{shortcut.label}</span>
+                </button>
+                <div className="header-shortcut-popover" id={`header-shortcut-help-${shortcut.id}`} role="tooltip">
+                  <strong>{shortcut.label}</strong>
+                  <p>{shortcut.description}</p>
+                  <span>{shortcut.destination}</span>
+                </div>
+              </div>)}
             </div>
             <CommandPalette
               key={auth.current_workspace_id}

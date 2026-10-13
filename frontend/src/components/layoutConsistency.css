@@ -223,13 +223,17 @@ html[data-theme] .app-shell { background: var(--bg); }
 }
 .app-shell .bar-leading { min-width: 0; }
 .app-shell .bar-actions { gap: 8px; }
+.app-shell .header-shortcuts { display: flex; align-items: center; gap: 6px; }
 .app-shell .header-shortcut { position: relative; flex: 0 0 auto; }
 .app-shell .header-shortcut-trigger {
+  width: 92px;
+  height: 36px;
   min-height: 36px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  padding: 0 12px;
+  padding: 0 8px;
   border: 1px solid var(--blue-line);
   border-radius: 9px;
   background: var(--surface);
@@ -246,7 +250,8 @@ html[data-theme] .app-shell { background: var(--bg); }
   color: var(--green-deep);
   box-shadow: 0 5px 12px rgba(30, 107, 82, .12);
 }
-.app-shell .header-shortcut-icon { font-size: 16px; line-height: 1; }
+.app-shell .header-shortcut-icon { width: 16px; display: grid; place-items: center; font-size: 16px; line-height: 1; }
+.app-shell .header-shortcut-icon svg { width: 16px; height: 16px; }
 .app-shell .header-shortcut-popover {
   position: absolute;
   z-index: 90;
@@ -418,7 +423,8 @@ body:has(.team-modal-backdrop, .lead-drawer-backdrop, dialog[open]) { overflow: 
   .app-shell .bar-leading { flex: 1 1 100%; }
   .app-shell .bar-actions { flex: 1 1 100%; justify-content: flex-start; gap: 8px; }
   .app-shell .bar-actions .command-launch { min-width: 0; padding: 8px 12px; }
-  .app-shell .header-shortcut-trigger { padding-inline: 9px; }
+  .app-shell .header-shortcuts { width: 100%; overflow-x: auto; padding-bottom: 2px; }
+  .app-shell .header-shortcut-trigger { width: 92px; flex: 0 0 92px; }
   .app-shell .header-shortcut-popover { right: -8px; }
   .app-shell .mode-badge { margin-left: auto; }
   .app-shell .bar-actions .range-picker { order: 6; width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
