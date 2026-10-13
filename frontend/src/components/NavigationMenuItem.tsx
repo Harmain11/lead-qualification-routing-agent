@@ -47,6 +47,7 @@ export function NavigationMenuItem({
   const [focused, setFocused] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
   const [integrationGroupId, setIntegrationGroupId] = useState("email");
+  const [hoveredIntegrationGroupId, setHoveredIntegrationGroupId] = useState<string | null>(null);
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches);
   const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const open = enabled && hasChildren && (hovered || focused || pinnedOpen);
@@ -57,7 +58,8 @@ export function NavigationMenuItem({
       })).filter((group) => group.children.length > 0)
     : [];
   const selectedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === integrationGroupId) ?? availableIntegrationGroups[0];
-  const visibleChildren = item.id === "integrations" ? (selectedIntegrationGroup?.children ?? []) : children;
+  const displayedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === hoveredIntegrationGroupId) ?? selectedIntegrationGroup;
+  const visibleChildren = item.id === "integrations" ? (displayedIntegrationGroup?.children ?? []) : children;
   const enterMenu = () => {
     clearTimeout(leaveTimer.current);
     setHovered(true);
@@ -80,7 +82,11 @@ export function NavigationMenuItem({
     setHovered(false);
     setFocused(false);
     setPinnedOpen(false);
+    setHoveredIntegrationGroupId(null);
   }, [enabled]);
+  useEffect(() => {
+    if (!open) setHoveredIntegrationGroupId(null);
+  }, [open]);
   useEffect(() => {
     if (item.id !== "integrations" || !activeChild) return;
     const activeGroup = integrationGroups.find((group) => group.providers.includes(activeChild as never));
@@ -204,10 +210,10 @@ export function NavigationMenuItem({
           type="button"
           role="tab"
           aria-selected={selectedIntegrationGroup?.id === group.id}
-          className={selectedIntegrationGroup?.id === group.id ? "is-active" : ""}
-          onMouseEnter={() => setIntegrationGroupId(group.id)}
-          onFocus={() => setIntegrationGroupId(group.id)}
-          onClick={() => setIntegrationGroupId(group.id)}
+          className={`${selectedIntegrationGroup?.id === group.id ? "is-active" : ""}${hoveredIntegrationGroupId === group.id ? " is-hovered" : ""}`}
+          onMouseEnter={() => setHoveredIntegrationGroupId(group.id)}
+          onFocus={() => { setHoveredIntegrationGroupId(null); setIntegrationGroupId(group.id); }}
+          onClick={() => { setHoveredIntegrationGroupId(null); setIntegrationGroupId(group.id); }}
         >
           <span>{group.label}</span>
           <b aria-hidden="true">›</b>
