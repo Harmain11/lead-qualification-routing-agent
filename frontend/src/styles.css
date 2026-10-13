@@ -722,9 +722,10 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 
 .provider-head > b { display: inline-flex; align-items: center; gap: 5px; }
 .provider-head > b i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 9px currentColor; }
-.state-awaiting_authorization .provider-head > b, .state-validating .provider-head > b, .state-connecting .provider-head > b { color: var(--amber); }
-.state-connection_failed .provider-head > b, .state-needs_attention .provider-head > b, .state-authorization_expired .provider-head > b, .state-reconnect_required .provider-head > b { color: var(--red); }
-.state-connected .provider-head > b { color: var(--green); }
+.state-awaiting_authorization .provider-head > b, .state-validating .provider-head > b, .state-connecting .provider-head > b, .state-needs_reauthorization .provider-head > b { color: var(--amber); }
+.state-connection_failed .provider-head > b, .state-needs_attention .provider-head > b, .state-authorization_expired .provider-head > b, .state-reconnect_required .provider-head > b, .state-expired .provider-head > b, .state-error .provider-head > b { color: var(--red); }
+.state-connected .provider-head > b, .state-verified .provider-head > b, .state-configured .provider-head > b { color: var(--green); }
+.state-disconnected .provider-head > b { color: var(--muted); }
 
 @media (max-width: 1280px) {
   .metric-grid { grid-template-columns: repeat(3, 1fr); }

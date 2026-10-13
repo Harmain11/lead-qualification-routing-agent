@@ -64,6 +64,12 @@ function connectionStage(status?: string) {
   return 0;
 }
 
+function connectionStatusLabel(status?: string) {
+  if (!status || ["disconnected", "not_connected"].includes(status)) return "Not connected";
+  if (["verified", "connected", "configured", "validating"].includes(status)) return "Connected";
+  return "Needs authorization";
+}
+
 function oauthConnectFailureMessage(provider: string, message: string) {
   const settings: Record<string, { name: string; keys: [string, string] }> = {
     slack: { name: "Slack", keys: ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET"] },
@@ -593,17 +599,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
        const status = connection?.status ?? "not_connected";
        const comingSoon = section.id === "coming-soon";
        const openAI = card.provider === "openai";
-       const statusLabel = comingSoon
-         ? "Coming soon"
-         : openAI
-           ? !connection || status === "disconnected"
-             ? "Not connected"
-             : status === "verified"
-               ? "Connected — Verified"
-               : ["needs_attention", "needs_reauthorization", "error", "connection_failed"].includes(status)
-                 ? "Needs attention"
-                 : "Connected — Not verified"
-           : status.replaceAll("_", " ");
+       const statusLabel = comingSoon ? "Coming soon" : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};
       const open = expandedProviders.has(card.provider);
       const activeConnectionStage = connectionStage(connection?.status);
