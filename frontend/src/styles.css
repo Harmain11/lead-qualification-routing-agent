@@ -1023,6 +1023,7 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .team-summary strong { font-family: var(--font-display); font-size: 27px; font-weight: 500; }
 .team-summary small { color: var(--muted); font-size: 13px; }
 .team-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr); gap: 18px; align-items: start; }
+.team-layout.team-roster-layout { grid-template-columns: minmax(0, 1fr); }
 .team-main-column { display: grid; gap: 18px; min-width: 0; }
 .team-members-panel, .team-invitations-panel, .team-audit-panel { padding: 22px; }
 .team-heading-actions { display: flex; align-items: center; gap: 12px; }

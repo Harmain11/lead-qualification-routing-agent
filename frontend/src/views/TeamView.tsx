@@ -271,7 +271,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-summary panel"><span className="eyebrow">Pending invitations</span><strong>{invitations.filter((invitation) => invitation.status === "pending").length}</strong><small>Delivery is represented as pending</small></div>
             <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} effective permissions</small></div>
           </section>
-          <section className="team-layout">
+          <section className={`team-layout ${selected ? "member-detail-layout" : "team-roster-layout"}`}>
             {!selected && <div className="team-main-column">
               <div className="panel team-members-panel">
                 <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace users</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite user</button>}</div></div>
