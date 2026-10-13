@@ -10,6 +10,7 @@ const integrationGroups = [
   { id: "notifications", label: "Notifications", providers: ["slack"] },
   { id: "ai", label: "AI", providers: ["openai"] },
   { id: "calling", label: "Calling", providers: ["twilio", "aircall", "ringcentral", "vapi", "retell"] },
+  { id: "social", label: "Social", providers: ["instagram", "messenger", "whatsapp_business", "clutch"] },
   { id: "other", label: "Other", providers: ["linkedin"] },
 ] as const;
 

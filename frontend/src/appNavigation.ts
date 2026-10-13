@@ -30,6 +30,8 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" },
     { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" },
     { id: "retell", label: "Retell AI" }, { id: "linkedin", label: "LinkedIn" },
+    { id: "instagram", label: "Instagram" }, { id: "messenger", label: "Messenger" },
+    { id: "whatsapp_business", label: "WhatsApp Business" }, { id: "clutch", label: "Clutch" },
   ],
   settings: [
     { id: "workspace", label: "Workspace" },

@@ -42,6 +42,7 @@ const integrationCategoryOptions = [
   ["calling", "Calling"],
   ["calendar", "Calendar"],
   ["notifications", "Notifications"],
+  ["social", "Social"],
   ["other", "Other"],
 ] as const;
 type IntegrationCategory = (typeof integrationCategoryOptions)[number][0];
@@ -54,6 +55,7 @@ function integrationCategory(card: IntegrationCard): IntegrationCategory {
   if (category.includes("dialer") || category.includes("voice")) return "calling";
   if (category.includes("calendar")) return "calendar";
   if (category.includes("notification")) return "notifications";
+  if (category.includes("social")) return "social";
   return "other";
 }
 
@@ -558,6 +560,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       description: "Visible for planning only. Connection and setup actions remain unavailable.",
       providers: ["linkedin"],
     },
+    {
+      id: "social",
+      eyebrow: "Social & lead sources",
+      title: "Social Integrations",
+      description: "Bring approved leads from social and marketplace channels into the same workspace view.",
+      providers: ["instagram", "messenger", "whatsapp_business", "clutch"],
+    },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
   const categoryCounts = cards.reduce<Record<string, number>>((counts, card) => {
@@ -597,7 +606,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       <div className="integration-grid">{section.providers.map((provider) => cardByProvider.get(provider)).filter((card): card is IntegrationCard => Boolean(card)).map((card) => {
        const connection = card.connection;
        const status = connection?.status ?? "not_connected";
-       const comingSoon = section.id === "coming-soon";
+       const comingSoon = section.id === "coming-soon" || card.availability === "future";
        const openAI = card.provider === "openai";
        const statusLabel = comingSoon ? "Coming soon" : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};

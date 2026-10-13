@@ -71,6 +71,10 @@ PROVIDER_DIRECTIONALITY: dict[str, IntegrationDirectionality] = {
     "slack": _NOTIFICATION,
     "openai": _ANALYSIS,
     "linkedin": _INBOUND,
+    "instagram": _INBOUND,
+    "messenger": _INBOUND,
+    "whatsapp_business": _INBOUND,
+    "clutch": _INBOUND,
     "mock": _CRM,
     "gohighlevel": _CRM,
     **{
