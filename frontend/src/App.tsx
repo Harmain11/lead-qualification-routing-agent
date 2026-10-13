@@ -1179,6 +1179,22 @@ function App() {
             </div>
           </div>
           <div className="bar-actions">
+            <div className="header-shortcut">
+              <button
+                type="button"
+                className="header-shortcut-trigger"
+                onClick={() => navigate("integrations", "twilio")}
+                aria-describedby="dialer-shortcut-help"
+              >
+                <span className="header-shortcut-icon" aria-hidden="true">☎</span>
+                <span>Dialer</span>
+              </button>
+              <div className="header-shortcut-popover" id="dialer-shortcut-help" role="tooltip">
+                <strong>Dialer &amp; voice calling</strong>
+                <p>Connect a calling provider to start confirmed calls from a lead.</p>
+                <span>Open calling integrations →</span>
+              </div>
+            </div>
             <CommandPalette
               key={auth.current_workspace_id}
               pages={visibleNavigation}
