@@ -283,10 +283,12 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activeCategory, setActiveCategory] = useState<IntegrationCategory>("all");
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(() => new Set());
+  const callingSection = selectedSection === "calling";
+  const selectedProvider = !callingSection && selectedSection ? selectedSection : "";
   useEffect(() => {
-    if (!selectedSection) return;
-    setExpandedProviders((previous) => new Set([...previous, selectedSection]));
-  }, [selectedSection, cards.length]);
+    if (!selectedProvider) return;
+    setExpandedProviders((previous) => new Set([...previous, selectedProvider]));
+  }, [selectedProvider, cards.length]);
   const [salesforceSetupOpen, setSalesforceSetupOpen] = useState(false);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
@@ -574,21 +576,22 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     counts[category] = (counts[category] ?? 0) + 1;
     return counts;
   }, {});
-  const displayedSections = sections.filter((section) => !selectedSection || section.providers.includes(selectedSection))
+  const displayedSections = sections.filter((section) => (!selectedProvider || section.providers.includes(selectedProvider)) && (!callingSection || section.id === "calling"))
     .map((section) => ({
       ...section,
       providers: section.providers.filter((provider) => {
-        if (selectedSection && provider !== selectedSection) return false;
-        if (selectedSection || activeCategory === "all") return true;
+        if (selectedProvider && provider !== selectedProvider) return false;
+        if (selectedProvider || callingSection || activeCategory === "all") return true;
         const card = cardByProvider.get(provider);
         return card ? integrationCategory(card) === activeCategory : false;
       }),
     }))
     .filter((section) => section.providers.length > 0);
 
-  return <div className={`page-view operational-page${selectedSection ? " focused-page" : ""}`} data-integration-page={selectedSection || "overview"}>
-    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{selectedSection ? ` / ${cardByProvider.get(selectedSection)?.display_name || selectedSection}` : ""}</span><h1>{selectedSection ? cardByProvider.get(selectedSection)?.display_name || selectedSection : "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
-    {!selectedSection && cards.length > 0 && <div className="integration-category-filter">
+  const focusedLabel = selectedProvider ? cardByProvider.get(selectedProvider)?.display_name || selectedProvider : callingSection ? "All dialers" : "";
+  return <div className={`page-view operational-page${selectedProvider || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (callingSection ? "calling" : "overview")}>
+    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
+    {!selectedProvider && !callingSection && cards.length > 0 && <div className="integration-category-filter">
       <div className="integration-category-heading">
         <span className="eyebrow">Browse integrations</span>
         <strong>Choose a category</strong>

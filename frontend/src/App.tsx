@@ -988,7 +988,7 @@ function App() {
       icon: "dialer" as const,
       description: "Connect a calling provider to start confirmed calls from a lead.",
       destination: "Open calling integrations →",
-      onClick: () => navigate("integrations", "twilio"),
+      onClick: () => navigate("integrations", "calling"),
     },
     {
       id: "leads",
