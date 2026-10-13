@@ -734,6 +734,13 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
   border-color: var(--orange);
   color: #fff;
 }
+.app-shell .ops-page-head > .ops-actions > .primary-button {
+  --workspace-accent: var(--orange);
+  --workspace-accent-text: #fff;
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #fff;
+}
 .app-shell .lead-toolbar > label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
 .app-shell .lead-toolbar .live-feed-status { align-self: end; min-height: 44px; display: flex; align-items: center; }
 .app-shell .intake-form { display: grid; gap: 24px; margin: 0; padding: var(--card-padding); }
