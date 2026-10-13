@@ -103,7 +103,7 @@ export function CommandPalette({
         }}
         aria-haspopup="dialog"
       >
-        Search <kbd>Ctrl K</kbd>
+        Search
       </button>
       {open && (
         <OperationsDialog

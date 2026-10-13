@@ -318,7 +318,7 @@ html[data-theme] .app-shell :is(.panel, .integration-card, .metric-card):hover {
 .section-picker-summary { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 14px 20px; color: var(--text); font-weight: 600; cursor: pointer; list-style: none; }
 .section-picker-summary::-webkit-details-marker { display: none; }
 .section-picker-summary::after { content: '+'; margin-left: auto; font-size: 20px; font-weight: 400; color: var(--muted); }
-.section-picker[open] .section-picker-summary::after { content: 'âˆ’'; }
+.section-picker[open] .section-picker-summary::after { content: '-'; }
 .section-picker-summary small { font-size: 13px; color: var(--muted); font-weight: 400; }
 .section-picker-content { padding: 20px; border-top: 1px solid var(--line); }
 .app-shell .section-picker-note { font-size: 13px; }
@@ -677,6 +677,13 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
 .app-shell :is(.analytics-grid, .settings-grid) > .data-panel { height: 100%; }
 .app-shell .team-summary-grid > .panel { height: 100%; }
 .app-shell .lead-hero-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 340px; max-width: 100%; gap: 12px; align-self: flex-start; padding-top: 28px; }
+.app-shell .lead-hero-actions > .primary-button {
+  --workspace-accent: var(--orange);
+  --workspace-accent-text: #fff;
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #fff;
+}
 .app-shell .lead-hero-actions > button { width: 100%; height: 100%; min-width: 0; min-height: var(--control-height); white-space: normal; }
 .app-shell .lead-hero-actions:has(> button:only-child) { width: 164px; grid-template-columns: minmax(0, 1fr); }
 .app-shell .lead-toolbar > label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
