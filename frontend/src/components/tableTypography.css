@@ -50,9 +50,11 @@
 .lead-subpage-table th:nth-child(3),
 .lead-subpage-table th:nth-child(4),
 .lead-subpage-table th:nth-child(5) { width: auto; }
-.lead-browser .lead-subpage-table th:first-child { width: 24%; }
-.lead-browser .lead-subpage-table th:nth-child(2) { width: 12%; }
-.lead-browser .lead-subpage-table th:nth-child(3) { width: 18%; }
+.lead-browser .lead-subpage-table th:first-child { width: 60px; }
+.lead-browser .lead-subpage-table th:nth-child(2) { width: 24%; }
+.lead-browser .lead-subpage-table th:nth-child(3) { width: 12%; }
+.lead-browser .lead-subpage-table th:nth-child(4) { width: 14%; }
+.lead-browser .lead-subpage-table th:nth-child(5) { width: 20%; }
 .lead-browser .lead-subpage-table th:last-child { width: 144px; }
 .lead-browser .lead-subpage-table td:last-child { text-align: right; }
 .lead-browser .lead-subpage-table td:last-child button { max-width: 100%; white-space: normal; }

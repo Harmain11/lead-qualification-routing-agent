@@ -13,6 +13,7 @@ import {
 import { LeadDetail } from "../components/LeadDetail";
 import { LeadRowIdentity } from "../components/LeadRowIdentity";
 import { LeadSubpage, leadSubpageCopy } from "../components/LeadSubpage";
+import { SelectMenu } from "../components/SelectMenu";
 import type { LeadDetailSection } from "../leadSections";
 import type { Lead, LeadPayload } from "../types";
 import {
@@ -297,32 +298,20 @@ export function LeadsView({
             />
           </label>
           <label><span>Qualification band</span>
-          <select
+          <SelectMenu
             aria-label="Qualification band"
             value={band}
-            onChange={(event) => setBand(event.target.value)}
-          >
-            <option value="all">All qualification bands</option>
-            {["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map(
-              (item) => (
-                <option value={item} key={item}>
-                  {qualificationLabel(item)}
-                </option>
-              ),
-            )}
-          </select>
+            onChange={setBand}
+            options={[{ value: "all", label: "All qualification bands" }, ...["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => ({ value: item, label: qualificationLabel(item) }))]}
+          />
           </label>
           <label><span>Lead source</span>
-          <select
+          <SelectMenu
             aria-label="Lead source"
             value={source}
-            onChange={(event) => setSource(event.target.value)}
-          >
-            <option value="all">All channels</option>
-            {LEAD_SOURCE_OPTIONS.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
+            onChange={setSource}
+            options={[{ value: "all", label: "All channels" }, ...LEAD_SOURCE_OPTIONS.map((item) => ({ value: item, label: item }))]}
+          />
           </label>
           <label className="date-filter">
             <span>Received from</span>
@@ -363,18 +352,12 @@ export function LeadsView({
               <>
                 <label>
                   Transfer to{" "}
-                  <select
+                  <SelectMenu
                     aria-label="Bulk CRM provider"
                     value={bulkProvider}
-                    onChange={(event) => setBulkProvider(event.target.value)}
-                  >
-                    <option value="">Select CRM</option>
-                    {crmProviders.map((provider) => (
-                      <option key={provider} value={provider}>
-                        {provider === "hubspot" ? "HubSpot" : pretty(provider)}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setBulkProvider}
+                    options={[{ value: "", label: "Select CRM" }, ...crmProviders.map((provider) => ({ value: provider, label: provider === "hubspot" ? "HubSpot" : pretty(provider) }))]}
+                  />
                 </label>
                 <button
                   className="button-quiet"
@@ -453,6 +436,8 @@ export function LeadsView({
           <LeadSubpage
             section={activeSection}
             rows={rows}
+            selectedIds={selectedIds}
+            onToggleSelected={toggleSelected}
             onInspect={onInspect}
             loading={loading}
           />

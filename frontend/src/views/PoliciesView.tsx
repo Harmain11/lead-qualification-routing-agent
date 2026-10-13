@@ -3,7 +3,6 @@ import { createClientId } from "../clientIds";
 import {
   opsGet,
   opsSave,
-  type Capacity,
   type Policy,
   type PolicyResponse,
 } from "../operationsApi";
@@ -60,22 +59,6 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
       </div>
     );
   const config = data.configuration;
-  function updateCapacity(userId: string, patch: Partial<Capacity>) {
-    const existing = config.capacity.find(
-      (item) => item.user_id === userId,
-    ) || {
-      user_id: userId,
-      max_open_leads: 30,
-      available: true,
-      available_until: null,
-    };
-    change({
-      capacity: [
-        ...config.capacity.filter((item) => item.user_id !== userId),
-        { ...existing, ...patch },
-      ],
-    });
-  }
   return (
     <div className="page-view ops-page">
       <header className="ops-page-head">
@@ -325,67 +308,6 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
                 workload routing applies.
               </p>
             )}
-          </section>
-          <section className="ops-panel">
-            <h2>Representative capacity</h2>
-            <div className="ops-table-wrap">
-              <table className="ops-table">
-                <thead>
-                  <tr>
-                    <th>Member</th>
-                    <th>Open leads</th>
-                    <th>Maximum</th>
-                    <th>Available</th>
-                    <th>Check-in expiry</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.members.map((member) => {
-                    const state = config.capacity.find(
-                      (value) => value.user_id === member.user_id,
-                    );
-                    return (
-                      <tr key={member.user_id}>
-                        <td>{member.name}</td>
-                        <td>{member.open_leads}</td>
-                        <td>
-                          <input
-                            aria-label={member.name + " maximum open leads"}
-                            type="number"
-                            min={0}
-                            max={10000}
-                            value={state?.max_open_leads ?? 30}
-                            onChange={(event) =>
-                              updateCapacity(member.user_id, {
-                                max_open_leads: Number(event.target.value),
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            aria-label={member.name + " available"}
-                            type="checkbox"
-                            checked={state?.available ?? true}
-                            onChange={(event) =>
-                              updateCapacity(member.user_id, {
-                                available: event.target.checked,
-                                available_until: null,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          {state?.available_until
-                            ? new Date(state.available_until).toLocaleString()
-                            : "Manual setting"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
           </section>
           <section className="ops-panel">
             <h2>Agent approvals & monitoring</h2>

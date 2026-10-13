@@ -246,7 +246,9 @@ export function NavigationMenuItem({
         title={item.label}
       >
         <i className="navigation-menu-icon">{icon}</i>
-        <span className="navigation-menu-label">{item.label}</span>
+        <span className="navigation-menu-label">
+          {item.label}
+        </span>
         {typeof badge === "number" && badge > 0 && <b className="navigation-menu-badge">{badge}</b>}
       </button>
       {hasChildren && (

@@ -36,6 +36,7 @@ import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
+import { NativeSelectEnhancer } from "./components/NativeSelectEnhancer";
 const IntegrationsView = lazy(() =>
   import("./views/IntegrationsView").then((module) => ({
     default: module.IntegrationsView,
@@ -60,11 +61,6 @@ const PoliciesView = lazy(() =>
 const ComplianceView = lazy(() =>
   import("./views/ComplianceView").then((module) => ({
     default: module.ComplianceView,
-  })),
-);
-const AgencyView = lazy(() =>
-  import("./views/AgencyView").then((module) => ({
-    default: module.AgencyView,
   })),
 );
 const IntelligenceView = lazy(() =>
@@ -125,8 +121,7 @@ type View =
   | "intelligence"
   | "automations"
   | "policies"
-  | "compliance"
-  | "agency";
+  | "compliance";
 // Team administration is opened from Settings and keeps the primary rail calm.
 type AppView = View | "icp";
 type Theme = "light" | "dark";
@@ -164,7 +159,6 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   automations: "agents.view",
   policies: "routing.view",
   compliance: "workspace.manage",
-  agency: "analytics.view",
   pipeline: "analytics.view",
   agents: "agents.view",
   analytics: "analytics.view",
@@ -230,10 +224,8 @@ function NavIcon({ id }: { id: View }) {
     case "pipeline":
       return (
         <svg {...shared}>
-          <path d="M4 18h4v-4h4v-4h4V6h4" />
-          <path d="m17 6h3v3" />
-          <circle cx="4" cy="18" r="1.2" />
-          <circle cx="12" cy="10" r="1.2" />
+          <path d="M4 5h16l-6.5 7.2V19l-3 1v-7.8z" />
+          <path d="M8 8h8M9.5 10.5h5" />
         </svg>
       );
     case "accounts":
@@ -303,12 +295,6 @@ function NavIcon({ id }: { id: View }) {
         <svg {...shared}>
           <path d="M12 3 19 6v5c0 4.5-2.8 7.6-7 10-4.2-2.4-7-5.5-7-10V6z" />
           <path d="m8.5 12 2.2 2.2 4.8-5" />
-        </svg>
-      );
-    case "agency":
-      return (
-        <svg {...shared}>
-          <path d="M4 8h16v12H4zM8 8V5h8v3M8 13h8M12 13v7" />
         </svg>
       );
     case "settings":
@@ -921,7 +907,14 @@ function App() {
   }
 
   function navigationItemActive(item: { id: View }) {
-    return view === item.id || navigationChildren(item.id).some((child) => child.view === view);
+    if (view === item.id) return true;
+    const childView = navigationChildren(item.id).find((child) => child.view === view);
+    // Keep a standalone top-level destination (for example Users) as the sole
+    // active item when it is also linked from a settings submenu.
+    return Boolean(
+      childView &&
+        !navigation.some((entry) => entry.id === childView.view),
+    );
   }
 
   function navigationActiveChild(id: View) {
@@ -1047,6 +1040,7 @@ function App() {
     >
       <div className="app-ambient ambient-a" />
       <ActivityToasts />
+      <NativeSelectEnhancer />
       <div className="app-ambient ambient-b" />
       <img
         className="app-twinkle app-twinkle-a"
@@ -1421,12 +1415,6 @@ function App() {
                 />
               )}
               {view === "compliance" && <ComplianceView />}
-              {view === "agency" && (
-                <AgencyView
-                  canManage={can(workspacePermissions, "workspace.manage")}
-                  onSwitch={switchWorkspace}
-                />
-              )}
               {view === "intelligence" && (
                 <IntelligenceView
                   onInspect={(id) => {

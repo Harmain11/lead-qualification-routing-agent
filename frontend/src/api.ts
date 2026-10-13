@@ -188,7 +188,10 @@ export const saveEmailTemplate = (kind: WorkspaceEmailTemplate["kind"], template
   });
 export const generateEmailTemplate = (
   kind: WorkspaceEmailTemplate["kind"],
-  sample: Pick<WorkspaceEmailTemplate, "subject" | "body">,
+  sample: Partial<Pick<WorkspaceEmailTemplate, "subject" | "body">> & {
+    generation_mode?: "style" | "fresh";
+    important_context?: string;
+  },
 ) =>
   request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}/generate`, {
     method: "POST",

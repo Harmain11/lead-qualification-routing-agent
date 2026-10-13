@@ -26,7 +26,12 @@
   padding-top: 14px;
   gap: 12px;
 }
-.app-shell .side-rail [data-navigation-id="agents"] .navigation-menu-label { white-space: normal; line-height: 1.3; }
+.app-shell .side-rail [data-navigation-id="agents"] .navigation-menu-label {
+  white-space: normal;
+  line-height: 1.25;
+  overflow: visible;
+  text-overflow: clip;
+}
 .navigation-menu-flyout.is-portal {
   position: fixed;
   z-index: 80;

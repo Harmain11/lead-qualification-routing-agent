@@ -68,6 +68,53 @@ flowchart LR
 
 The dashboard mirrors this pipeline: inspect the lead, understand the evidence behind its score, adjust routing context when needed, and send a lead-specific follow-up only after a human approves it.
 
+## Interactive demo walkthrough
+
+Start the API and dashboard, seed the active development workspace, then use these links while the Vite server is running:
+
+```powershell
+uv run --project backend python -m lead_agent.seed --demo --workspace-id <your-workspace-id>
+```
+
+<table>
+  <tr>
+    <th>Try</th>
+    <th>What to verify</th>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=dashboard&amp;range=monthly">Dashboard</a></td>
+    <td>Qualification pulse, pipeline movement, channel performance, and revenue trend.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=leads&amp;range=monthly&amp;lead_tab=overview">Leads</a></td>
+    <td>Search, filter, select records, export, inspect a lead, and open its decision trail.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=leads&amp;range=monthly&amp;lead_tab=ai">AI &amp; qualification</a></td>
+    <td>Review score evidence and classification for every seeded lead.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=pipeline&amp;range=monthly">Pipeline</a></td>
+    <td>Compare received, qualified, routed, opportunity, and closed stages.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=review&amp;range=monthly">Manual review</a></td>
+    <td>Open the seeded low-confidence case and inspect the evidence that needs a human decision.</td>
+  </tr>
+</table>
+
+<details>
+  <summary><strong>Feature check list</strong></summary>
+
+  - [ ] Change the dashboard range between Weekly, Monthly, and Annual.
+  - [ ] Select leads from each Leads tab and confirm the bulk action bar stays aligned.
+  - [ ] Open a lead and move through Overview, AI, Follow-ups, Comments &amp; closing, and History.
+  - [ ] Adjust routing percentages and representative capacity in Settings.
+  - [ ] Review integration cards before adding provider credentials.
+  - [ ] Create a workflow draft and verify that sending still requires a human action.
+
+</details>
+
 ## Release status
 
 | Area | Status | Notes |

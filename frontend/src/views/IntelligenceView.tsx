@@ -7,6 +7,7 @@ import {
   type PolicyResponse,
 } from "../operationsApi";
 import type { Lead } from "../types";
+import { SelectMenu } from "../components/SelectMenu";
 export function IntelligenceView({
   onInspect,
   onIcp,
@@ -111,17 +112,7 @@ export function IntelligenceView({
           </label>
           <label>
             Lead
-            <select
-              value={leadId}
-              onChange={(event) => setLeadId(event.target.value)}
-            >
-              <option value="">Choose a lead</option>
-              {leads.map((lead) => (
-                <option key={lead.id} value={lead.id}>
-                  {lead.full_name} · {lead.company_name}
-                </option>
-              ))}
-            </select>
+            <SelectMenu ariaLabel="Lead" value={leadId} onChange={setLeadId} options={[{ value: "", label: "Choose a lead" }, ...leads.map((lead) => ({ value: lead.id, label: `${lead.full_name} · ${lead.company_name}` }))]} />
           </label>
         </div>
         <div className="ops-toolbar">
@@ -170,17 +161,7 @@ export function IntelligenceView({
           <div className="ops-toolbar">
             <label>
               Weekly coaching recipient
-              <select
-                value={memberId}
-                onChange={(event) => setMemberId(event.target.value)}
-              >
-                <option value="">Choose a member</option>
-                {members.map((member) => (
-                  <option key={member.user_id} value={member.user_id}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
+              <SelectMenu ariaLabel="Weekly coaching recipient" value={memberId} onChange={setMemberId} options={[{ value: "", label: "Choose a member" }, ...members.map((member) => ({ value: member.user_id, label: member.name }))]} />
             </label>
             <button
               className="secondary-button"
@@ -199,16 +180,7 @@ export function IntelligenceView({
       <div className="ops-toolbar">
         <label>
           Report type
-          <select
-            value={kind}
-            onChange={(event) => setKind(event.target.value)}
-          >
-            {["all", "research", "coach", "learning", "digest", "watcher"].map(
-              (value) => (
-                <option key={value}>{value}</option>
-              ),
-            )}
-          </select>
+          <SelectMenu ariaLabel="Report type" value={kind} onChange={setKind} options={["all", "research", "coach", "learning", "digest", "watcher"].map((value) => ({ value, label: value }))} />
         </label>
         <label>
           Search reports

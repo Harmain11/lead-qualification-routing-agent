@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bars, TrendChart } from "../components/Charts";
+import { Bars, Donut, TrendChart } from "../components/Charts";
 import { TeamPerformancePanel } from "../components/TeamPerformancePanel";
 import type { AnalyticsBundle } from "./productShared";
 import {
@@ -21,6 +21,8 @@ const analyticsPanelOptions = [
   { id: "revenue-by-service", label: "Revenue by service" },
   { id: "representatives", label: "Team member performance" },
   { id: "revenue-trajectory", label: "Revenue trajectory" },
+  { id: "qualification-mix", label: "Qualification mix" },
+  { id: "revenue-by-representative", label: "Revenue by representative" },
 ] as const;
 
 type AnalyticsPanelId = (typeof analyticsPanelOptions)[number]["id"];
@@ -56,6 +58,7 @@ export function AnalyticsView({
   if (
     !data?.dashboard ||
     !data.channels ||
+    !data.pipeline ||
     !data.series ||
     !data.revenue ||
     !data.reps
@@ -212,6 +215,27 @@ export function AnalyticsView({
               <TrendChart
                 values={data.revenue.over_time.map((point) => point.value)}
                 labels={data.revenue.over_time.map((point) => point.period)}
+              />
+            </Panel>
+          )}
+          {displayedPanels.has("qualification-mix") && (
+            <Panel title="Qualification mix" eyebrow="Decision bands across leads">
+              <Donut
+                rows={data.pipeline.bands.map((row) => ({
+                  label: pretty(row.band),
+                  value: row.count,
+                }))}
+              />
+            </Panel>
+          )}
+          {displayedPanels.has("revenue-by-representative") && (
+            <Panel title="Revenue by representative" eyebrow="Closed-won attribution">
+              <Bars
+                rows={data.revenue.by_rep.map((row) => ({
+                  label: row.label,
+                  value: row.value,
+                }))}
+                formatter={money}
               />
             </Panel>
           )}

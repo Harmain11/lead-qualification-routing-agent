@@ -8,6 +8,12 @@ import {
   saveEmailTemplate,
   updateRoutingConfig,
 } from "../api";
+import {
+  opsGet,
+  opsSave,
+  type Capacity,
+  type PolicyResponse,
+} from "../operationsApi";
 import { AccountProfilePanel } from "../components/AccountProfilePanel";
 import type {
   AnalyticsMetadata,
@@ -43,8 +49,9 @@ export function SettingsView({
   canRotatePublicIntake: boolean;
   canManageEmail: boolean;
 }) {
+  const overview = !selectedSection || selectedSection === "overview";
   const show = (section: string) =>
-    !selectedSection || selectedSection === section;
+    overview || selectedSection === section;
   return (
     <div
       className={`page-view operational-page${selectedSection ? " focused-page" : ""}`}
@@ -68,7 +75,7 @@ export function SettingsView({
         </div>
       </header>
       <section className="settings-grid" data-tour="settings">
-        {!selectedSection && <AccountProfilePanel />}
+        {overview && <AccountProfilePanel />}
         {show("workspace") && (
           <Panel title="Workspace" eyebrow="Tenant boundary">
             <div className="settings-facts">
@@ -95,7 +102,7 @@ export function SettingsView({
             </div>
           </Panel>
         )}
-        {!selectedSection && (
+        {overview && (
           <Panel title="External systems" eyebrow="Provider connections">
             <p className="panel-copy">
               Manage workspace-owned email, CRM and notification connections.
@@ -106,7 +113,7 @@ export function SettingsView({
             </button>
           </Panel>
         )}
-        <Panel title="Users & permissions" eyebrow="Workspace access">
+        {overview && <Panel title="Users & permissions" eyebrow="Workspace access">
           <p className="panel-copy">
             Invite users, review roles and make deliberate per-person permission
             changes. Backend authorization remains the source of truth for every
@@ -119,7 +126,7 @@ export function SettingsView({
           >
             {canViewTeam ? "Open Users →" : "Members view permission required"}
           </button>
-        </Panel>
+        </Panel>}
         {show("routing-distribution") && (
           <RoutingWeightsPanel
             canView={canViewRouting}
@@ -170,6 +177,9 @@ export function SettingsView({
 
 function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
   const [templates, setTemplates] = useState<WorkspaceEmailTemplate[]>([]);
+  const [importantContext, setImportantContext] = useState<
+    Record<WorkspaceEmailTemplate["kind"], string>
+  >({ confirmation: "", follow_up: "" });
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
@@ -220,18 +230,30 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
   const generate = async (kind: WorkspaceEmailTemplate["kind"]) => {
     const sample = templates.find((item) => item.kind === kind);
     if (!sample) return;
+    const generateFromScratch = sample.generation_method === "ai_full";
     setBusy(`${kind}-ai`);
     setNotice(null);
     try {
-      const generated = await generateEmailTemplate(kind, {
-        subject: sample.subject,
-        body: sample.body,
-      });
+      const generated = await generateEmailTemplate(
+        kind,
+        generateFromScratch
+          ? {
+              generation_mode: "fresh",
+              important_context: importantContext[kind].trim() || undefined,
+            }
+          : {
+              subject: sample.subject,
+              body: sample.body,
+              generation_mode: "style",
+            },
+      );
       setTemplates((current) =>
         current.map((item) => (item.kind === kind ? generated : item)),
       );
       setNotice(
-        "Fresh AI copy generated in your sample’s style. Review it, then save to use it.",
+        generateFromScratch
+          ? "A fresh AI email was generated from the essential context. Review it, then save to use it."
+          : "Fresh AI copy generated in your sample’s style. Review it, then save to use it.",
       );
     } catch (error) {
       setNotice(
@@ -261,11 +283,11 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
   return (
     <Panel title="Email templates" eyebrow="Workspace messaging">
       <p className="panel-copy">
-        Edit sample emails here. AI uses the current sample for tone and voice,
-        then writes fresh wording while preserving its merge fields. Generated
-        copy is a draft until you save it. Confirmation is sent automatically
-        when a new lead arrives. Follow-up is never sent automatically; a
-        teammate reviews the lead-specific draft and clicks Send in Corral.
+        Edit sample emails here, or let AI create a fresh reusable email from
+        the essential context alone. Generated copy is a draft until you save
+        it. Confirmation is sent automatically when a new lead arrives.
+        Follow-up is never sent automatically; a teammate reviews the
+        lead-specific draft and clicks Send in Corral.
       </p>
       <div className="email-template-grid">
         {templates.map((template) => {
@@ -326,8 +348,26 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
                   >
                     <option value="manual">Use my saved sample</option>
                     <option value="ai">AI draft in my saved style</option>
+                    <option value="ai_full">Generate fully with AI (no format needed)</option>
                   </select>
                 </label>
+                {template.generation_method === "ai_full" && (
+                  <label className="email-template-field email-template-context">
+                    Important info (optional)
+                    <textarea
+                      rows={3}
+                      value={importantContext[template.kind]}
+                      onChange={(event) =>
+                        setImportantContext((current) => ({
+                          ...current,
+                          [template.kind]: event.target.value,
+                        }))
+                      }
+                      disabled={busy !== null}
+                      placeholder="Add only the key goal, offer, audience, or details AI should know. No format needed."
+                    />
+                  </label>
+                )}
                 <button
                   className="button-quiet"
                   disabled={busy !== null}
@@ -335,7 +375,9 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
                 >
                   {busy === `${template.kind}-ai`
                     ? "Generating…"
-                    : "Generate sample with AI"}
+                    : template.generation_method === "ai_full"
+                      ? "Generate with AI"
+                      : "Generate sample with AI"}
                 </button>
                 <button
                   className="primary-button"
@@ -397,6 +439,9 @@ function RoutingWeightsPanel({
   const [percentages, setPercentages] = useState<Record<string, number>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [policy, setPolicy] = useState<PolicyResponse | null>(null);
+  const [capacityBusy, setCapacityBusy] = useState(false);
+  const [capacityNotice, setCapacityNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!canView) return;
     void getRoutingConfig()
@@ -409,6 +454,13 @@ function RoutingWeightsPanel({
           error instanceof Error
             ? error.message
             : "Unable to load routing distribution",
+        ),
+      );
+    void opsGet<PolicyResponse>("/v1/ops/policy")
+      .then(setPolicy)
+      .catch((error) =>
+        setCapacityNotice(
+          error instanceof Error ? error.message : "Unable to load capacity settings",
         ),
       );
   }, [canView]);
@@ -444,6 +496,46 @@ function RoutingWeightsPanel({
       );
     } finally {
       setBusy(false);
+    }
+  };
+  const updateCapacity = (userId: string, patch: Partial<Capacity>) => {
+    setPolicy((current) => {
+      if (!current) return current;
+      const existing = current.configuration.capacity.find((item) => item.user_id === userId) || {
+        user_id: userId,
+        max_open_leads: 30,
+        available: true,
+        available_until: null,
+      };
+      return {
+        ...current,
+        configuration: {
+          ...current.configuration,
+          capacity: [
+            ...current.configuration.capacity.filter((item) => item.user_id !== userId),
+            { ...existing, ...patch },
+          ],
+        },
+      };
+    });
+    setCapacityNotice(null);
+  };
+  const saveCapacity = async () => {
+    if (!policy) return;
+    setCapacityBusy(true);
+    setCapacityNotice(null);
+    try {
+      const saved = await opsSave<{ configuration: PolicyResponse["configuration"]; version: number }>(
+        "/v1/ops/policy",
+        { configuration: policy.configuration, version: policy.version },
+        "PUT",
+      );
+      setPolicy((current) => current ? { ...current, ...saved } : current);
+      setCapacityNotice("Capacity settings saved.");
+    } catch (error) {
+      setCapacityNotice(error instanceof Error ? error.message : "Unable to save capacity settings");
+    } finally {
+      setCapacityBusy(false);
     }
   };
   if (!canView)
@@ -525,6 +617,33 @@ function RoutingWeightsPanel({
       {notice && (
         <div className="notice" role="status">
           {notice}
+        </div>
+      )}
+      {policy && (
+        <div className="routing-capacity-block">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">Availability guardrails</span>
+              <h3>Representative capacity</h3>
+            </div>
+          </div>
+          <p className="panel-copy">Limit open assignments and pause a member from receiving new leads while keeping routing shares in one place.</p>
+          <div className="ops-table-wrap">
+            <table className="ops-table routing-capacity-table">
+              <thead><tr><th>Member</th><th>Open leads</th><th>Maximum</th><th>Available</th><th>Check-in expiry</th></tr></thead>
+              <tbody>{policy.members.map((member) => {
+                const state = policy.configuration.capacity.find((value) => value.user_id === member.user_id);
+                return <tr key={member.user_id}>
+                  <td data-label="Member">{member.name}</td><td data-label="Open leads">{member.open_leads}</td>
+                  <td data-label="Maximum"><input aria-label={`${member.name} maximum open leads`} type="number" min={0} max={10000} value={state?.max_open_leads ?? 30} disabled={!canManage || capacityBusy} onChange={(event) => updateCapacity(member.user_id, { max_open_leads: Number(event.target.value) })} /></td>
+                  <td data-label="Available"><input aria-label={`${member.name} available`} type="checkbox" checked={state?.available ?? true} disabled={!canManage || capacityBusy} onChange={(event) => updateCapacity(member.user_id, { available: event.target.checked, available_until: null })} /></td>
+                  <td data-label="Check-in expiry">{state?.available_until ? new Date(state.available_until).toLocaleString() : "Manual setting"}</td>
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+          {canManage && <button className="primary-button" disabled={capacityBusy} onClick={() => void saveCapacity()}>{capacityBusy ? "Saving…" : "Save capacity"}</button>}
+          {capacityNotice && <div className="notice" role="status">{capacityNotice}</div>}
         </div>
       )}
     </Panel>
@@ -646,19 +765,21 @@ function PublicIntakePanel({
             readOnly
             value={embedCode}
           />
-          <button className="button-quiet" onClick={() => void copyEmbed()}>
-            Copy form HTML
-          </button>
+          <div className="public-intake-actions">
+            <button className="button-quiet" onClick={() => void copyEmbed()}>
+              Copy form HTML
+            </button>
+            {canRotate && (
+              <button
+                className="button-quiet"
+                disabled={busy}
+                onClick={() => void rotate()}
+              >
+                {busy ? "Rotating…" : "Rotate URL"}
+              </button>
+            )}
+          </div>
         </>
-      )}
-      {canRotate && (
-        <button
-          className="button-quiet"
-          disabled={busy}
-          onClick={() => void rotate()}
-        >
-          {busy ? "Rotating…" : "Rotate URL"}
-        </button>
       )}
       {notice && (
         <div className="notice" role="status">

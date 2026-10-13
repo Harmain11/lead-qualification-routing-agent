@@ -163,6 +163,16 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .lead-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) 180px 140px 145px 145px auto; align-items: center; gap: 9px; padding: 13px; border-bottom: 1px solid var(--line); }
 .lead-toolbar input, .lead-toolbar select, .field input, .field textarea, .manual-credential input { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--text); }
 .lead-toolbar input, .lead-toolbar select { height: 38px; padding: 0 12px; font-size: 13px; }
+.select-menu-trigger { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--text); font-size: 13px; text-align: left; }
+.select-menu-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-menu-trigger i { flex: 0 0 auto; display: grid; place-items: center; width: 16px; height: 16px; color: var(--muted); font-style: normal; line-height: 1; }
+.select-menu-trigger i svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.select-menu-trigger:disabled { cursor: not-allowed; opacity: .6; }
+.select-menu-popover { position: fixed; z-index: 1000; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid var(--blue-line); border-radius: 9px; background: #fff; box-shadow: 0 14px 32px rgba(28,43,61,.18); }
+.select-menu-popover button { display: block; width: 100%; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 13px; text-align: left; white-space: nowrap; }
+.select-menu-popover button:hover, .select-menu-popover button.selected { background: var(--blue-soft); color: var(--blue-deep); }
+.select-menu-popover button.selected::after { float: right; content: "✓"; color: var(--green); }
+.workspace-mark .select-menu-trigger { min-height: 22px; padding: 0; border: 0; background: transparent; font-size: 13px; font-weight: 650; }
 .live-feed-status { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--green); font-size: 13px; white-space: nowrap; }
 .live-feed-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 9px rgba(112,199,156,.8); }
 .lead-toolbar > span { color: var(--muted); font-size: 13px; text-align: right; }
@@ -450,10 +460,45 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .routing-percent-total > b { color: var(--green); font-size: 13px; }
 .routing-percent-total > small { margin-left: auto; color: var(--muted); font-size: 13px; }
 .routing-percent-total.invalid > b { color: var(--red); }
+.routing-capacity-block { display: grid; gap: 16px; margin-top: 28px; padding: 28px 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+html[data-theme] .app-shell .routing-capacity-block .section-heading { margin-bottom: 0; }
+.routing-capacity-block .section-heading h3 { margin: 0; font-size: 20px; line-height: 1.35; }
+.routing-capacity-block .panel-copy { max-width: 66ch; margin: 0; }
+.routing-capacity-table { width: 100%; min-width: 760px !important; table-layout: fixed; border-collapse: collapse; }
+.routing-capacity-table th:nth-child(1), .routing-capacity-table td:nth-child(1) { width: 32%; }
+.routing-capacity-table th:nth-child(2), .routing-capacity-table td:nth-child(2) { width: 14%; }
+.routing-capacity-table th:nth-child(3), .routing-capacity-table td:nth-child(3) { width: 16%; }
+.routing-capacity-table th:nth-child(4), .routing-capacity-table td:nth-child(4) { width: 14%; }
+.routing-capacity-table th:nth-child(5), .routing-capacity-table td:nth-child(5) { width: 24%; }
+.routing-capacity-table :is(th, td) { padding: 14px 16px; text-align: left; line-height: 1.5; }
+.routing-capacity-table th { white-space: normal; }
+.routing-capacity-table td { vertical-align: middle !important; border-bottom: 1px solid var(--line); }
+.routing-capacity-table tbody tr:last-child td { border-bottom: 0; }
+.routing-capacity-table td:first-child { font-weight: 600; }
+.routing-capacity-table input[type="number"] { width: 100%; max-width: 138px; }
+.routing-capacity-block > .primary-button { justify-self: start; margin-top: 0; }
+html[data-theme="dark"] .app-shell .routing-capacity-block { background: transparent; }
+@media (max-width: 760px) {
+  .routing-capacity-block { padding: 24px 0 0; }
+  .routing-capacity-table { min-width: 0 !important; table-layout: auto; }
+  .routing-capacity-table thead { display: none; }
+  .routing-capacity-table, .routing-capacity-table tbody, .routing-capacity-table tr, .routing-capacity-table td { display: block; width: auto !important; }
+  .routing-capacity-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 16px; padding: 14px; }
+  .routing-capacity-table td { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 !important; border: 0; }
+  .routing-capacity-table td::before { content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 600; }
+  .routing-capacity-table td:first-child, .routing-capacity-table td:last-child { grid-column: 1 / -1; }
+  .routing-capacity-table td:first-child { display: block; font-size: 14px; }
+  .routing-capacity-table td:first-child::before { display: block; margin-bottom: 4px; }
+  .routing-capacity-table td:last-child { display: block; }
+  .routing-capacity-table td:last-child::before { display: block; margin-bottom: 4px; }
+  .routing-capacity-table input[type="number"] { width: 84px; }
+}
 .public-intake-url { display: flex; min-width: 0; gap: 8px; margin: 15px 0 10px; }
 .public-intake-url input { min-width: 0; flex: 1 1 auto; min-height: 38px; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--line); border-radius: 7px; background: rgba(2,4,9,.55); color: var(--muted); font: 13px var(--font-mono); }
 .public-intake-url button { flex: 0 0 auto; white-space: nowrap; }
 .embed-code { display: block; width: 100%; min-width: 0; min-height: 118px; margin: 14px 0 8px; padding: 12px; resize: vertical; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 9px; background: rgba(2,4,9,.7); color: var(--muted); font: 13px/1.55 var(--font-mono); }
+.public-intake-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.public-intake-actions button { margin: 0; }
 .panel-copy code { color: var(--orange-hot); font-family: var(--font-mono); font-size: var(--font-caption); }
 .settings-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .panel-copy { color: var(--muted); font-size: 13px; line-height: 1.7; }
@@ -862,10 +907,11 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .icp-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr) 250px; gap: 14px; align-items: start; }
 .icp-sections, .icp-history { padding: 10px; overflow: visible; }
 .icp-sections { position: sticky; top: 74px; }
-.icp-sections button { width: 100%; display: grid; grid-template-columns: 25px 1fr; align-items: center; gap: 8px; padding: 10px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; text-align: left; }
-.icp-sections button i { width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--subtle); font: 13px var(--font-mono); font-style: normal; }
+.icp-sections button { width: 100%; min-height: 54px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 8px; padding: 9px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; line-height: 1.35; text-align: left; }
+.icp-sections button i { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--blue-line); border-radius: 50%; background: #fff; color: var(--blue-mid); font: 13px var(--font-mono); font-style: normal; }
 .icp-sections button.active { border-color: rgba(30,107,82,.2); background: var(--orange-soft); color: var(--text); }
-.icp-sections button.active i { border-color: var(--brand-coral); color: var(--brand-coral); }
+.icp-sections button:hover { border-color: rgba(30,107,82,.22); background: rgba(30,107,82,.06); color: var(--text); }
+.icp-sections button.active i { border-color: #1E6B52; background: #1E6B52; color: #fff; box-shadow: 0 5px 12px rgba(30,107,82,.2); }
 .icp-builder { min-height: 660px; padding: 25px; }
 .icp-builder-head { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 19px; border-bottom: 1px solid var(--line); }
 .icp-builder-head h2, .icp-history h2 { margin: 5px 0 0; font-family: var(--font-display); font-size: 25px; font-weight: 500; }
@@ -1813,6 +1859,33 @@ html[data-theme="dark"] .lead-drawer .momentum-evidence time,
 html[data-theme="dark"] .lead-drawer .momentum-delivery time { color: #9EC9AF; }
 html[data-theme="dark"] .lead-drawer .momentum-delivery article.needs-attention { background: linear-gradient(145deg, #3A321E, #242617); }
 
+/* Settings and operations use the same green action treatment as lead intake. */
+.app-shell button.primary-button,
+.app-shell .team-modal-actions button.primary-button,
+.app-shell .team-heading-actions button.primary-button,
+.app-shell .settings-grid button.primary-button,
+.app-shell .ops-page button.primary-button {
+  border-color: #1E6B52;
+  background: linear-gradient(135deg, #1E6B52, #155640);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(30,107,82,.17);
+}
+.app-shell button.secondary-button,
+.app-shell .team-modal-actions button.secondary-button {
+  border-color: rgba(30,107,82,.35);
+  background: rgba(30,107,82,.09);
+  color: #1E6B52;
+}
+.app-shell .icp-toolbar button.secondary-button,
+.app-shell .icp-step-actions button.secondary-button,
+.app-shell .review-actions button.secondary-button,
+.app-shell .ops-page button.secondary-button {
+  border-color: #1E6B52;
+  background: linear-gradient(135deg, #1E6B52, #155640);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(30,107,82,.17);
+}
+
 @media (max-width: 760px) {
   .agent-insight-grid { grid-template-columns: minmax(0, 1fr); }
   .momentum-summary, .momentum-columns { grid-template-columns: 1fr; }
@@ -2252,4 +2325,70 @@ body { font-size: 15px; line-height: 1.5; }
   .lead-drawer .story-head-side { width: 100%; flex-direction: row; justify-content: space-between; }
   .activity-list summary { grid-template-columns: 23px 7px minmax(0, 1fr); }
   .activity-list summary em { grid-column: 3; justify-self: start; max-width: none; }
+}
+
+/* Final settings action override: keep primary workflow buttons green after theme layers. */
+html[data-theme] body .app-shell .icp-toolbar button.secondary-button,
+html[data-theme] body .app-shell .icp-step-actions button.secondary-button,
+html[data-theme] body .app-shell .review-actions button.secondary-button,
+html[data-theme] body .app-shell .ops-page button.secondary-button {
+  border-color: #1E6B52;
+  background: linear-gradient(135deg, #1E6B52, #155640);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(30,107,82,.17);
+}
+
+/* Keep ICP labels, status pills, and step numbers on the shared site font. */
+html[data-theme] .app-shell .icp-page :is(
+  .icp-current-card small,
+  .icp-current-card span,
+  .icp-status,
+  .weight-pill,
+  .read-only-badge,
+  .icp-history > button em,
+  .weight-total span,
+  .icp-sections button i
+) {
+  font-family: inherit;
+}
+
+html[data-theme] .app-shell .icp-page .icp-sections button i {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+/* Settings actions always use the Corral green, including workspace-config forms. */
+html[data-theme] body .app-shell [data-settings-page] button.primary-button {
+  border-color: #1E6B52 !important;
+  background: linear-gradient(135deg, #1E6B52, #155640) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 22px rgba(30,107,82,.17) !important;
+}
+
+html[data-theme] body .app-shell [data-settings-page] button.primary-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #247d60, #1E6B52) !important;
+  border-color: #1E6B52 !important;
+}
+
+/* Operational settings tabs (including Compliance) use the same action color. */
+html[data-theme] body .app-shell .ops-page button.primary-button {
+  border-color: #1E6B52 !important;
+  background: linear-gradient(135deg, #1E6B52, #155640) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 22px rgba(30,107,82,.17) !important;
+}
+
+/* Team actions stay on the shared Corral green even when a workspace has a custom accent. */
+html[data-theme] body .app-shell .team-heading-actions button.primary-button,
+html[data-theme] body .app-shell .team-modal-actions button.primary-button {
+  border-color: #1E6B52 !important;
+  background: linear-gradient(135deg, #1E6B52, #155640) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 22px rgba(30,107,82,.17) !important;
+}
+
+html[data-theme] body .app-shell .team-heading-actions button.primary-button:hover:not(:disabled),
+html[data-theme] body .app-shell .team-modal-actions button.primary-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #247d60, #1E6B52) !important;
+  border-color: #1E6B52 !important;
 }
