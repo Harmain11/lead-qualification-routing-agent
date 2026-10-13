@@ -171,6 +171,7 @@
   font: inherit;
   font-size: 14px;
   text-align: left;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 .navigation-menu-mega-categories button:hover,
 .navigation-menu-mega-categories button:focus-visible { border-color: var(--line); background: var(--surface); color: var(--text); }

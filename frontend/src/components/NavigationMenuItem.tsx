@@ -205,6 +205,8 @@ export function NavigationMenuItem({
           role="tab"
           aria-selected={selectedIntegrationGroup?.id === group.id}
           className={selectedIntegrationGroup?.id === group.id ? "is-active" : ""}
+          onMouseEnter={() => setIntegrationGroupId(group.id)}
+          onFocus={() => setIntegrationGroupId(group.id)}
           onClick={() => setIntegrationGroupId(group.id)}
         >
           <span>{group.label}</span>
