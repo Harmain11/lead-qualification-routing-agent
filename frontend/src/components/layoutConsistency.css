@@ -550,6 +550,12 @@ html { scrollbar-gutter: stable; }
 .app-shell .ops-metrics { gap: var(--space-6); }
 .app-shell .ops-metrics > span { gap: var(--space-1); flex: 1 1 150px; }
 .app-shell .ops-metrics b { font-size: 24px; }
+.app-shell .ops-metrics b.ops-metric-unavailable {
+  font-size: 22px;
+  line-height: 1.35;
+  letter-spacing: -.02em;
+  white-space: nowrap;
+}
 .app-shell .ops-panel .ops-check { min-height: 32px; gap: var(--space-2); }
 .app-shell .ops-table :is(th, td) { vertical-align: middle; }
 .app-shell .ops-table-wrap + .ops-toolbar { align-items: center; }

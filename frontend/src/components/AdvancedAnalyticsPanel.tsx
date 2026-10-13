@@ -82,7 +82,9 @@ export function AdvancedAnalyticsPanel() {
                 pipeline
               </span>
               <span>
-                <b>{amount(data.forecast.expected_open_pipeline_usd)}</b>
+                <b className={data.forecast.expected_open_pipeline_usd === null ? "ops-metric-unavailable" : undefined}>
+                  {amount(data.forecast.expected_open_pipeline_usd)}
+                </b>
                 Expected pipeline value
               </span>
               <span>
