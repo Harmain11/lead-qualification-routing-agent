@@ -272,18 +272,20 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} effective permissions</small></div>
           </section>
           <section className="team-layout">
-            <div className="team-main-column">
+            {!selected && <div className="team-main-column">
               <div className="panel team-members-panel">
                 <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace users</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite user</button>}</div></div>
-                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <button type="button" className={`team-member-row ${selected?.id === member.id ? "selected" : ""}`} key={member.id} onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><i className="member-chevron">→</i></button>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
+                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <div className="team-member-row" key={member.id}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><span className="member-row-actions"><button type="button" className="button-quiet" onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}>Edit</button>{canManage && member.role !== "owner" && member.user_id !== auth.user.id && <button type="button" className="button-quiet danger-text" onClick={() => requestConfirmation({ title: "Remove from workspace?", detail: `${member.display_name} will lose access to this workspace. Their account and other workspace memberships will remain.`, confirmLabel: "Remove from workspace", danger: true, action: async () => { await removeMember(member.id); } })}>Delete</button>}</span><i className="member-chevron">→</i></div>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
               </div>
               <div className="panel team-invitations-panel">
                 <div className="section-heading"><div><span className="eyebrow">Pending access</span><h2>Invitations</h2></div><span className="panel-action">One-time staff codes</span></div>
                 {loading ? <div className="team-invite-skeleton" /> : invitations.filter((invitation) => invitation.status === "pending").length ? <div className="invitation-list">{invitations.filter((invitation) => invitation.status === "pending").map((invitation) => <div className="invitation-row" key={invitation.id}><span className="invitation-icon">✉</span><span><b>{invitation.email}</b><small>{roleLabel(invitation.role)} · Expires {formatDate(invitation.expires_at)}</small></span><span className="invitation-status">Code ready</span>{canManage && <span className="invitation-actions"><button onClick={() => requestConfirmation({ title: "Resend access code?", detail: `The old code for ${invitation.email} will stop working and a fresh code will be created.`, confirmLabel: "Resend code", action: async () => { const next = await resendInvitation(invitation.id); setGeneratedInvite(next); } })}>Resend code</button><button className="danger-text" onClick={() => requestConfirmation({ title: "Revoke invitation?", detail: `${invitation.email} will no longer be able to join from this invitation.`, confirmLabel: "Revoke invitation", danger: true, action: async () => { await revokeInvitation(invitation.id); } })}>Revoke</button></span>}</div>)}</div> : <div className="empty-state compact-empty"><b>No pending invitations</b><span>Invite staff to generate a private workspace ID and one-time access code.</span></div>}
               </div>
               <div className="panel team-audit-panel"><div className="section-heading"><div><span className="eyebrow">Durable administration trail</span><h2>Recent activity</h2></div><span className="panel-action">Last {Math.min(audit.length, 6)} events</span></div>{audit.length ? <ul className="team-audit-list">{audit.slice(0, 6).map((event) => <AuditLine key={event.id} event={event} members={members} />)}</ul> : <div className="compact-empty"><span>No administration activity recorded yet.</span></div>}</div>
-            </div>
-            <MemberDetail
+            </div>}
+            {selected && <div className="team-detail-page">
+              <button className="team-back" type="button" onClick={() => setSelectedId(null)}>← Back to members</button>
+              <MemberDetail
               member={selected}
               actor={actor}
               canManage={canManage}
@@ -325,7 +327,8 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
                 danger: true,
                 action: async () => { await removeMember(selected.id); },
               })}
-            />
+              />
+            </div>}
           </section>
         </>
       )}

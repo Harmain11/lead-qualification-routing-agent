@@ -1029,7 +1029,7 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .team-heading-actions .primary-button { margin: 0; }
 .inline-loading { color: var(--muted); font: 13px var(--font-mono); text-transform: uppercase; letter-spacing: .1em; }
 .team-member-list { display: grid; gap: 5px; }
-.team-member-row { width: 100%; min-height: 70px; display: grid; grid-template-columns: 35px minmax(160px, 1.5fr) minmax(110px, .75fr) 92px 105px 18px; gap: 12px; align-items: center; padding: 9px 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(255,255,255,.018); text-align: left; transition: background var(--fast), border-color var(--fast), transform var(--fast); }
+.team-member-row { width: 100%; min-height: 70px; display: grid; grid-template-columns: 35px minmax(160px, 1.5fr) minmax(110px, .75fr) 92px 105px auto 18px; gap: 12px; align-items: center; padding: 9px 10px; border: 1px solid transparent; border-radius: 10px; background: rgba(255,255,255,.018); text-align: left; transition: background var(--fast), border-color var(--fast), transform var(--fast); }
 .team-member-row:hover, .team-member-row.selected { border-color: rgba(30,107,82,.28); background: linear-gradient(90deg, rgba(30,107,82,.09), rgba(255,255,255,.025)); transform: translateX(2px); }
 .member-avatar { width: 33px; height: 33px; display: grid; place-items: center; border: 1px solid rgba(242,165,65,.32); border-radius: 50%; background: var(--orange-soft); color: var(--orange-hot); font-family: var(--font-display); font-size: 13px; }
 .member-avatar.large { width: 48px; height: 48px; font-size: 18px; }
@@ -1049,6 +1049,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .status-suspended { color: var(--red); border-color: rgba(238,118,110,.22); }
 .status-revoked { color: var(--subtle); }
 .member-permission-count { color: var(--subtle); font: 13px var(--font-mono); }
+.member-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.member-row-actions button { min-height: 29px; padding-inline: 8px; }
 .member-chevron { color: var(--subtle); font-style: normal; transition: color var(--fast), transform var(--fast); }
 .team-member-row:hover .member-chevron, .team-member-row.selected .member-chevron { color: var(--orange-hot); transform: translateX(3px); }
 .team-invitations-panel { min-height: 160px; }
@@ -1070,6 +1072,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .team-audit-list b { font-size: 13px; font-weight: 600; }
 .team-audit-list small { margin-top: 4px; color: var(--subtle); font-size: 13px; }
 .team-detail { position: sticky; top: 88px; padding: 22px; }
+.team-detail-page { grid-column: 1 / -1; display: grid; gap: 14px; }
+.team-detail-page > .team-detail { position: static; width: 100%; }
 .team-detail-empty { min-height: 340px; display: grid; align-content: center; gap: 9px; }
 .team-detail-empty h2 { margin: 0; font-size: 21px; font-weight: 500; }
 .team-detail-empty p { max-width: 270px; color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -1142,8 +1146,9 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 }
 
 @media (max-width: 920px) {
-  .team-member-row { grid-template-columns: 35px minmax(0, 1fr) 18px; gap: 9px; }
+  .team-member-row { grid-template-columns: 35px minmax(0, 1fr) auto; gap: 9px; }
   .team-member-row > .team-role, .team-member-row > .team-status, .team-member-row > .member-permission-count { display: none; }
+  .team-member-row > .member-chevron { display: none; }
 }
 
 @media (max-width: 760px) {
@@ -1152,7 +1157,7 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
   .team-summary-grid { grid-template-columns: 1fr 1fr; }
   .team-summary:last-child { grid-column: 1 / -1; }
   .team-members-panel, .team-invitations-panel, .team-audit-panel, .team-detail { padding: 17px; }
-  .team-member-row { grid-template-columns: 35px minmax(0, 1fr) 18px; gap: 9px; }
+  .team-member-row { grid-template-columns: 35px minmax(0, 1fr) auto; gap: 9px; }
   .team-member-row > .team-role, .team-member-row > .team-status, .member-permission-count { display: none; }
   .invitation-row { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; }
   .invitation-status { grid-column: 2; }.invitation-actions { grid-column: 2; }
