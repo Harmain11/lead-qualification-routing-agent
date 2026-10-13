@@ -163,18 +163,19 @@
   background: color-mix(in srgb, var(--surface-high) 76%, var(--surface));
 }
 .navigation-menu-mega-categories button {
-  min-height: 42px;
+  min-height: 39px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 11px;
+  padding: 7px 10px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.35;
   text-align: left;
   transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
@@ -182,7 +183,7 @@
 .navigation-menu-mega-categories button:hover,
 .navigation-menu-mega-categories button:focus-visible,
 .navigation-menu-mega-categories button.is-hovered { border-color: var(--line); background: var(--surface); color: var(--text); }
-.navigation-menu-mega-categories button b { color: currentColor; font-size: 22px; font-weight: 400; line-height: 1; }
+.navigation-menu-mega-categories button b { color: currentColor; font-size: 18px; font-weight: 400; line-height: 1; }
 .navigation-menu-mega-items {
   display: grid;
   align-content: start;
@@ -191,7 +192,7 @@
   overflow-y: auto;
   background: var(--surface);
 }
-.navigation-menu-mega-items .navigation-menu-child { min-height: 42px; padding: 8px 10px; font-size: 14px; }
+.navigation-menu-mega-items .navigation-menu-child { min-height: 39px; padding: 7px 10px; font-size: 13px; line-height: 1.35; }
 
 /* Outrank the legacy primary-nav button rules while this component is adopted. */
 .side-rail nav .navigation-menu-item > .navigation-menu-trigger {
