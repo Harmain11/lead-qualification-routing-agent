@@ -1224,7 +1224,13 @@ function App() {
                 <div className="header-shortcut-popover" id={`header-shortcut-help-${shortcut.id}`} role="tooltip">
                   <strong>{shortcut.label}</strong>
                   <p>{shortcut.description}</p>
-                  <span>{shortcut.destination}</span>
+                  <button
+                    type="button"
+                    className="header-shortcut-destination"
+                    onClick={shortcut.onClick}
+                  >
+                    {shortcut.destination}
+                  </button>
                 </div>
               </div>)}
             </div>

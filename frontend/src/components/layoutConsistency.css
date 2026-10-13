@@ -285,7 +285,8 @@ html[data-theme] .app-shell { background: var(--bg); }
 .app-shell .header-shortcut:focus-within .header-shortcut-popover { opacity: 1; pointer-events: auto; transform: translateY(0); visibility: visible; }
 .app-shell .header-shortcut-popover strong { display: block; margin-bottom: 5px; color: var(--text); font-size: 13px; }
 .app-shell .header-shortcut-popover p { margin: 0 0 8px; font-size: 12px; line-height: 1.45; }
-.app-shell .header-shortcut-popover span { color: var(--green-deep); font-size: 12px; font-weight: 650; }
+.app-shell .header-shortcut-destination { padding: 0; border: 0; background: transparent; color: var(--green-deep); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.app-shell .header-shortcut-destination:hover, .app-shell .header-shortcut-destination:focus-visible { color: var(--text); text-decoration: underline; }
 .app-shell .breadcrumb { font-size: 13px; }
 .app-shell .breadcrumb b { font-weight: 600; }
 .app-shell .range-picker { background: var(--surface-high); box-shadow: none; }
