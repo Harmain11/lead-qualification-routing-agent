@@ -30,21 +30,19 @@
 }
 
 .navigation-menu-trigger:hover,
-.navigation-menu-item.is-open .navigation-menu-trigger,
 .navigation-menu-item:hover .navigation-menu-trigger {
   color: var(--text);
   background: transparent;
 }
 
-.navigation-menu-item:hover,
-.navigation-menu-item.is-open {
+.navigation-menu-item:hover {
   color: var(--text);
   background: var(--surface-high);
 }
 
 .navigation-menu-item.is-active {
   color: var(--text);
-  background: linear-gradient(90deg, rgba(30, 107, 82, .12), rgba(30, 107, 82, .025));
+  background: transparent;
 }
 
 .navigation-menu-item.is-active > .navigation-menu-trigger {
@@ -76,8 +74,7 @@
 
 .navigation-menu-disclosure:hover,
 .navigation-menu-disclosure:focus-visible,
-.navigation-menu-item:hover > .navigation-menu-disclosure,
-.navigation-menu-item.is-open > .navigation-menu-disclosure { color: var(--text); background: transparent; }
+.navigation-menu-item:hover > .navigation-menu-disclosure { color: var(--text); background: transparent; }
 .navigation-menu-disclosure svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .navigation-menu-item.is-open > .navigation-menu-disclosure svg { transform: rotate(90deg); }
 
