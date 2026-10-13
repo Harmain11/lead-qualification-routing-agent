@@ -223,7 +223,15 @@ html[data-theme] .app-shell { background: var(--bg); }
 }
 .app-shell .bar-leading { min-width: 0; }
 .app-shell .bar-actions { gap: 8px; }
-.app-shell .header-shortcuts { display: flex; align-items: center; gap: 6px; }
+.app-shell .header-shortcuts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-high);
+}
 .app-shell .header-shortcut { position: relative; flex: 0 0 auto; }
 .app-shell .header-shortcut-trigger {
   width: 92px;
@@ -234,9 +242,9 @@ html[data-theme] .app-shell { background: var(--bg); }
   justify-content: center;
   gap: 7px;
   padding: 0 8px;
-  border: 1px solid var(--blue-line);
-  border-radius: 9px;
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
   color: var(--muted);
   font-size: 13px;
   font-weight: 650;
@@ -245,10 +253,10 @@ html[data-theme] .app-shell { background: var(--bg); }
 }
 .app-shell .header-shortcut-trigger:hover,
 .app-shell .header-shortcut:focus-within .header-shortcut-trigger {
-  border-color: var(--green);
-  background: var(--green-soft);
+  border-color: var(--line-bright);
+  background: var(--surface);
   color: var(--green-deep);
-  box-shadow: 0 5px 12px rgba(30, 107, 82, .12);
+  box-shadow: 0 2px 6px rgba(30, 107, 82, .1);
 }
 .app-shell .header-shortcut-icon { width: 16px; display: grid; place-items: center; font-size: 16px; line-height: 1; }
 .app-shell .header-shortcut-icon svg { width: 16px; height: 16px; }
