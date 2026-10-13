@@ -77,5 +77,11 @@
   border-right: 0;
   border-bottom: 1px solid var(--line-bright);
 }
-.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-categories button { flex: 0 0 auto; }
+.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-categories button {
+  min-height: 42px;
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-categories button b { font-size: 18px; }
 .navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-items { overflow: visible; }
