@@ -1102,7 +1102,7 @@ function App() {
             <WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />
           </div>
           <span className={`system-state ${error ? "is-offline" : "is-online"}`} aria-live="polite">
-            <i aria-hidden="true" /> {error ? "System unavailable" : "System nominal"}
+            <i aria-hidden="true" /> {error ? "Offline" : "Online"}
           </span>
           <button
             className="signout-button"
