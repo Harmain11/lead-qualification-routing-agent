@@ -1247,11 +1247,6 @@ function App() {
             {["dashboard", "leads", "pipeline", "agents", "analytics", "review", "team"].includes(view) && (
               <RangePicker value={range} onChange={setRange} />
             )}
-            <span className={`mode-badge ${metadata?.data_mode || "live"}`}>
-              {metadata?.data_mode === "demo"
-                ? "ILLUSTRATIVE DATA"
-                : "LIVE DATA"}
-            </span>
             <button
               className="icon-button"
               onClick={() => void refresh()}
