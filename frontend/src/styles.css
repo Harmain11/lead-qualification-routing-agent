@@ -475,8 +475,35 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .integration-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .integration-section-heading h2 { margin: 5px 0 0; font: 22px var(--font-display); }
 .integration-section-heading > p { max-width: 470px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: right; }
+.integration-category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.integration-category-tabs button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.integration-category-tabs button:hover,
+.integration-category-tabs button:focus-visible { border-color: var(--line-bright); color: var(--text); background: var(--surface-high); }
+.integration-category-tabs button.active { border-color: rgba(30,107,82,.28); background: var(--orange-soft); color: var(--text); }
+.integration-category-tabs button span { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: var(--surface-high); color: var(--subtle); font-size: 12px; text-align: center; }
 .integration-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-.integration-card { position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(28,31,30,.9), rgba(13,15,15,.96)); transition: border-color var(--fast), transform var(--fast); }
+.integration-card { position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(28,31,30,.9), rgba(13,15,15,.96)); scroll-margin-top: 82px; transition: border-color var(--fast), transform var(--fast); }
 .integration-card:hover { transform: translateY(-3px); border-color: var(--line-bright); }
 .integration-card.state-connected { border-color: rgba(112,199,156,.2); }
 .integration-card.provider-slack { border-color: rgba(112,199,156,.34); background: linear-gradient(145deg, rgba(22,35,31,.94), rgba(13,15,15,.98)); }
@@ -2009,19 +2036,57 @@ body { font-size: 15px; line-height: 1.5; }
   font-weight: 500;
   line-height: 1;
   transition: border-color var(--fast), color var(--fast), background var(--fast), transform var(--fast);
+  justify-self: end;
+  margin-right: 4px;
 }
 .provider-collapse-toggle:hover { border-color: var(--orange); color: var(--text); background: var(--orange-soft); transform: translateY(-1px); }
 .provider-collapse-toggle span { font-size: 19px; line-height: 1; }
+.integration-card.is-collapsed .provider-head > b {
+  max-width: 175px;
+  min-width: 0;
+  justify-content: center;
+  overflow: hidden;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
 .provider-details > p { min-height: 43px; margin: 18px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .provider-details[hidden] { display: none !important; }
 .integration-card.is-collapsed { height: 106px; padding: 13px 16px; }
 .integration-card.is-collapsed:hover { transform: none; }
 .integration-card.is-collapsed .provider-head { min-height: 78px; }
 
+/* Keep expanded integrations easy to scan without forcing a long first viewport. */
+.app-shell .integration-card:not(.is-collapsed) {
+  padding: 18px 20px;
+}
+.app-shell .integration-card:not(.is-collapsed) .provider-details {
+  gap: 12px;
+}
+.app-shell .integration-card:not(.is-collapsed) .provider-details > p {
+  min-height: 0;
+  margin: 8px 0;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide {
+  gap: 12px;
+  margin-top: 4px;
+}
+.app-shell .integration-card:not(.is-collapsed) .connection-facts {
+  gap: 10px;
+}
+.app-shell .integration-card:not(.is-collapsed) .connection-state-path {
+  margin: 10px 0 0;
+}
+.app-shell .integration-card:not(.is-collapsed) .card-actions {
+  margin-top: 10px;
+}
+
 @media (max-width: 650px) {
   .provider-head { grid-template-columns: 38px minmax(0, 1fr) 38px; gap: 9px; }
   .provider-head > b { grid-column: 2; justify-self: start; max-width: 100%; }
   .provider-collapse-toggle { grid-column: 3; grid-row: 1 / span 2; }
+  .integration-card.is-collapsed .provider-head > b { max-width: 100%; }
   .integration-card.is-collapsed { height: 126px; padding: 10px 12px; }
   .integration-card.is-collapsed .provider-head { min-height: 104px; }
 }

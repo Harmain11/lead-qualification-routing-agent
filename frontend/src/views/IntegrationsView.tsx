@@ -34,6 +34,29 @@ const operationProgress: Record<ConnectionOperation, string> = {
   connect: "Connecting…", reconnect: "Reconnecting…", disconnect: "Disconnecting…",
 };
 
+const integrationCategoryOptions = [
+  ["all", "All integrations"],
+  ["email", "Email"],
+  ["crm", "CRM"],
+  ["ai", "AI"],
+  ["calling", "Calling"],
+  ["calendar", "Calendar"],
+  ["notifications", "Notifications"],
+  ["other", "Other"],
+] as const;
+type IntegrationCategory = (typeof integrationCategoryOptions)[number][0];
+
+function integrationCategory(card: IntegrationCard): IntegrationCategory {
+  const category = card.category.toLowerCase();
+  if (category.includes("email")) return "email";
+  if (category.includes("crm")) return "crm";
+  if (category.includes("ai")) return "ai";
+  if (category.includes("dialer") || category.includes("voice")) return "calling";
+  if (category.includes("calendar")) return "calendar";
+  if (category.includes("notification")) return "notifications";
+  return "other";
+}
+
 function connectionStage(status?: string) {
   if (status === "verified") return 3;
   if (["configured", "connected", "validating", "needs_attention", "connection_failed", "authorization_expired", "reconnect_required", "expired", "needs_reauthorization", "error"].includes(status ?? "")) return 2;
@@ -250,6 +273,7 @@ function SlackRoutingEditor({
 
 export function IntegrationsView({ permissions, selectedSection = "" }: { permissions: ReadonlySet<string>; selectedSection?: string }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
+  const [activeCategory, setActiveCategory] = useState<IntegrationCategory>("all");
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (!selectedSection) return;
@@ -284,12 +308,16 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const canSync = can(permissions, "crm.sync");
   const canInboundSync = canSync;
   function toggleProviderExpanded(provider: string) {
+    const opening = !expandedProviders.has(provider);
     setExpandedProviders((current) => {
       const next = new Set(current);
       if (next.has(provider)) next.delete(provider);
       else next.add(provider);
       return next;
     });
+    if (opening) {
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(`.integration-card.provider-${provider}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    }
   }
   function showCredentialSetup(provider: string) {
     setExpanded(provider);
@@ -526,11 +554,39 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
+  const categoryCounts = cards.reduce<Record<string, number>>((counts, card) => {
+    const category = integrationCategory(card);
+    counts[category] = (counts[category] ?? 0) + 1;
+    return counts;
+  }, {});
   const displayedSections = sections.filter((section) => !selectedSection || section.providers.includes(selectedSection))
-    .map((section) => ({ ...section, providers: section.providers.filter((provider) => !selectedSection || provider === selectedSection) }));
+    .map((section) => ({
+      ...section,
+      providers: section.providers.filter((provider) => {
+        if (selectedSection && provider !== selectedSection) return false;
+        if (selectedSection || activeCategory === "all") return true;
+        const card = cardByProvider.get(provider);
+        return card ? integrationCategory(card) === activeCategory : false;
+      }),
+    }))
+    .filter((section) => section.providers.length > 0);
 
   return <div className={`page-view operational-page${selectedSection ? " focused-page" : ""}`} data-integration-page={selectedSection || "overview"}>
     <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{selectedSection ? ` / ${cardByProvider.get(selectedSection)?.display_name || selectedSection}` : ""}</span><h1>{selectedSection ? cardByProvider.get(selectedSection)?.display_name || selectedSection : "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
+    {!selectedSection && cards.length > 0 && <nav className="integration-category-tabs" aria-label="Integration categories">
+      {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => (
+        <button
+          type="button"
+          key={id}
+          className={activeCategory === id ? "active" : ""}
+          aria-pressed={activeCategory === id}
+          onClick={() => setActiveCategory(id)}
+        >
+          {label}
+          {id !== "all" && <span>{categoryCounts[id]}</span>}
+        </button>
+      ))}
+    </nav>}
     {notice && <div className="notice" role="status">{notice}</div>}
     {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
       <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
