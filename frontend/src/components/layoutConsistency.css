@@ -558,6 +558,26 @@ html { scrollbar-gutter: stable; }
 /* Match action and field baselines; textareas keep room for readable prose. */
 html[data-theme] body :is(.app-shell, .ops-dialog, .lead-drawer) button:is(.primary-button, .secondary-button, .button-quiet, .danger-button) { min-height: var(--control-height); padding: 10px 16px; }
 html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]), select) { height: var(--control-height); min-height: var(--control-height); padding: 9px 12px; line-height: 24px; }
+/* Keep native select chevrons clear of the edge on every theme and control width. */
+html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 11px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+.app-shell .workspace-mark select {
+  appearance: auto;
+  -webkit-appearance: auto;
+  padding-right: 0 !important;
+  background-image: none;
+}
 html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) textarea { min-height: 120px; padding: 12px; line-height: 1.5; }
 .app-shell .ops-page input[type=color] { width: 100%; height: var(--control-height); padding: 6px; border: 1px solid var(--line-bright); border-radius: var(--radius-sm); background: var(--surface); }
 .app-shell .lead-selection-bar select { height: var(--control-height); }
