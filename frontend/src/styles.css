@@ -477,33 +477,24 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .integration-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .integration-section-heading h2 { margin: 5px 0 0; font: 22px var(--font-display); }
 .integration-section-heading > p { max-width: 470px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: right; }
-.integration-category-tabs {
+.integration-category-filter {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
-.integration-category-tabs button {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 650;
-  white-space: nowrap;
+.integration-category-heading { display: grid; gap: 2px; }
+.integration-category-heading strong { color: var(--text); font-size: 14px; }
+.integration-category-filter label { min-width: min(280px, 100%); }
+.integration-category-filter select { width: 100%; }
+@media (max-width: 560px) {
+  .integration-category-filter { align-items: stretch; flex-direction: column; }
+  .integration-category-filter label { min-width: 0; }
 }
-.integration-category-tabs button:hover,
-.integration-category-tabs button:focus-visible { border-color: var(--line-bright); color: var(--text); background: var(--surface-high); }
-.integration-category-tabs button.active { border-color: rgba(30,107,82,.28); background: var(--orange-soft); color: var(--text); }
-.integration-category-tabs button span { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: var(--surface-high); color: var(--subtle); font-size: 12px; text-align: center; }
 .integration-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .integration-card { position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(28,31,30,.9), rgba(13,15,15,.96)); scroll-margin-top: 82px; transition: border-color var(--fast), transform var(--fast); }
 .integration-card:hover { transform: translateY(-3px); border-color: var(--line-bright); }

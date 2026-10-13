@@ -59,11 +59,4 @@
   padding: 10px 12px;
   font-size: 13px;
 }
-.navigation-menu-flyout.is-inline .navigation-menu-categories {
-  margin: 0 0 6px;
-}
-.navigation-menu-flyout.is-inline .navigation-menu-categories button {
-  min-height: 34px;
-  padding: 7px 9px;
-  font-size: 12px;
-}
+.navigation-menu-flyout.is-inline .navigation-menu-subheading { margin: 0 0 6px; }

@@ -3,26 +3,6 @@ import { createPortal, flushSync } from "react-dom";
 
 export type NavigationMenuChild = { id: string; label: string };
 
-const integrationChildCategories = [
-  ["all", "All"],
-  ["email", "Email"],
-  ["crm", "CRM"],
-  ["ai", "AI"],
-  ["calling", "Calling"],
-  ["calendar", "Calendar"],
-  ["notifications", "Notifications"],
-] as const;
-
-function integrationChildCategory(child: NavigationMenuChild) {
-  if (["gmail", "outlook"].includes(child.id)) return "email";
-  if (["salesforce", "hubspot", "gohighlevel"].includes(child.id)) return "crm";
-  if (child.id === "openai") return "ai";
-  if (["twilio", "aircall", "ringcentral", "vapi", "retell"].includes(child.id)) return "calling";
-  if (["google_calendar", "calendly"].includes(child.id)) return "calendar";
-  if (child.id === "slack") return "notifications";
-  return "other";
-}
-
 export type NavigationMenuItemProps = {
   item: { id: string; label: string; children?: NavigationMenuChild[] };
   icon: ReactNode;
@@ -56,13 +36,9 @@ export function NavigationMenuItem({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
-  const [integrationCategory, setIntegrationCategory] = useState("all");
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches);
   const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const open = enabled && hasChildren && (hovered || focused || pinnedOpen);
-  const visibleChildren = item.id === "integrations" && integrationCategory !== "all"
-    ? children.filter((child) => integrationChildCategory(child) === integrationCategory)
-    : children;
   const enterMenu = () => {
     clearTimeout(leaveTimer.current);
     setHovered(true);
@@ -122,12 +98,12 @@ export function NavigationMenuItem({
   }, [open]);
 
   const focusChild = (index: number) => {
-    if (!visibleChildren.length) return;
+    if (!children.length) return;
     flushSync(() => {
       setHovered(false);
       setPinnedOpen(true);
     });
-    childRefs.current[(index + visibleChildren.length) % visibleChildren.length]?.focus();
+    childRefs.current[(index + children.length) % children.length]?.focus();
   };
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
@@ -180,21 +156,8 @@ export function NavigationMenuItem({
     onMouseEnter={enterMenu}
     onMouseLeave={leaveMenu}
   >
-    {item.id === "integrations" && <div className="navigation-menu-categories" role="tablist" aria-label="Integration categories">
-      {integrationChildCategories.map(([id, label]) => {
-        const count = id === "all" ? children.length : children.filter((child) => integrationChildCategory(child) === id).length;
-        if (!count) return null;
-        return <button
-          type="button"
-          role="tab"
-          aria-selected={integrationCategory === id}
-          className={integrationCategory === id ? "is-active" : ""}
-          key={id}
-          onClick={() => setIntegrationCategory(id)}
-        >{label}<span>{count}</span></button>;
-      })}
-    </div>}
-    {visibleChildren.map((child, index) => <button
+    {item.id === "integrations" && <div className="navigation-menu-subheading">Integration providers</div>}
+    {children.map((child, index) => <button
       key={child.id}
       ref={(node) => { childRefs.current[index] = node; }}
       type="button"

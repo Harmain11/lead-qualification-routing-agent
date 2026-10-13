@@ -573,20 +573,18 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   return <div className={`page-view operational-page${selectedSection ? " focused-page" : ""}`} data-integration-page={selectedSection || "overview"}>
     <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{selectedSection ? ` / ${cardByProvider.get(selectedSection)?.display_name || selectedSection}` : ""}</span><h1>{selectedSection ? cardByProvider.get(selectedSection)?.display_name || selectedSection : "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
-    {!selectedSection && cards.length > 0 && <nav className="integration-category-tabs" aria-label="Integration categories">
-      {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => (
-        <button
-          type="button"
-          key={id}
-          className={activeCategory === id ? "active" : ""}
-          aria-pressed={activeCategory === id}
-          onClick={() => setActiveCategory(id)}
-        >
-          {label}
-          {id !== "all" && <span>{categoryCounts[id]}</span>}
-        </button>
-      ))}
-    </nav>}
+    {!selectedSection && cards.length > 0 && <div className="integration-category-filter">
+      <div className="integration-category-heading">
+        <span className="eyebrow">Browse integrations</span>
+        <strong>Choose a category</strong>
+      </div>
+      <label>
+        <span className="sr-only">Integration category</span>
+        <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value as IntegrationCategory)}>
+          {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => <option value={id} key={id}>{label}</option>)}
+        </select>
+      </label>
+    </div>}
     {notice && <div className="notice" role="status">{notice}</div>}
     {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
       <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
