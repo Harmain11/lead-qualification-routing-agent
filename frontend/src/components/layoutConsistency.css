@@ -686,6 +686,24 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
 }
 .app-shell .lead-hero-actions > button { width: 100%; height: 100%; min-width: 0; min-height: var(--control-height); white-space: normal; }
 .app-shell .lead-hero-actions:has(> button:only-child) { width: 164px; grid-template-columns: minmax(0, 1fr); }
+.app-shell .records-header-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 164px;
+  max-width: 100%;
+  align-self: flex-start;
+  padding-top: 28px;
+}
+.app-shell .records-header-actions > .primary-button {
+  --workspace-accent: var(--orange);
+  --workspace-accent-text: #fff;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #fff;
+}
 .app-shell .lead-toolbar > label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
 .app-shell .lead-toolbar .live-feed-status { align-self: end; min-height: 44px; display: flex; align-items: center; }
 .app-shell .intake-form { display: grid; gap: 24px; margin: 0; padding: var(--card-padding); }
@@ -693,6 +711,7 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
 .app-shell .intake-form > button { justify-self: start; }
 @container (max-width: 850px) {
   .app-shell .lead-hero-actions { padding-top: 0; }
+  .app-shell .records-header-actions { padding-top: 0; }
   .app-shell :is(.dashboard-grid, .dashboard-command-grid, .dashboard-insights) { grid-template-columns: minmax(0, 1fr); }
   .app-shell :is(.dashboard-grid, .dashboard-command-grid) > .panel > .section-heading { min-height: 0; }
   .app-shell .intake-form .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -703,6 +722,7 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
 @media (max-width: 760px) {
   html { scrollbar-gutter: auto; }
   .app-shell .lead-hero-actions { width: 100%; padding-top: 0; }
+  .app-shell .records-header-actions { width: 100%; padding-top: 0; }
   html[data-theme] .app-shell .range-picker button { min-height: 44px; }
 }
 /* Lead records use the product palette rather than a separate legacy theme. */

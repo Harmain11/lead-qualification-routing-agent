@@ -219,15 +219,21 @@ export function RecordsView({
           </p>
         </div>
         {canEdit && (
-          <button
-            className="primary-button"
-            onClick={() => {
-              setError("");
-              setForm(blank());
-            }}
+          <div
+            className="records-header-actions"
+            role="group"
+            aria-label={`${mode === "contacts" ? "Contact" : "Company"} actions`}
           >
-            Add {mode === "contacts" ? "contact" : "company"}
-          </button>
+            <button
+              className="primary-button"
+              onClick={() => {
+                setError("");
+                setForm(blank());
+              }}
+            >
+              Add {mode === "contacts" ? "contact" : "company"}
+            </button>
+          </div>
         )}
       </header>
       {error && (
