@@ -47,6 +47,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .workspace-mark small { color: var(--muted); font-size: 13px; }
 .system-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .11em; }
 .system-state i, .flow-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+.system-state.is-offline { color: var(--red); }
+.system-state.is-offline i { background: var(--red); box-shadow: 0 0 10px var(--red); }
 .signout-button { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--subtle); font-size: 13px; transition: color var(--fast); }
 .signout-button:hover { color: var(--brand-coral); }
 

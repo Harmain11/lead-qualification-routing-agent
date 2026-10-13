@@ -3,6 +3,16 @@ import { createPortal, flushSync } from "react-dom";
 
 export type NavigationMenuChild = { id: string; label: string };
 
+const integrationGroups = [
+  { id: "email", label: "Email", providers: ["gmail", "outlook"] },
+  { id: "calendar", label: "Calendar", providers: ["google_calendar", "calendly"] },
+  { id: "crm", label: "CRM", providers: ["salesforce", "hubspot", "gohighlevel"] },
+  { id: "notifications", label: "Notifications", providers: ["slack"] },
+  { id: "ai", label: "AI", providers: ["openai"] },
+  { id: "calling", label: "Calling", providers: ["twilio", "aircall", "ringcentral", "vapi", "retell"] },
+  { id: "other", label: "Other", providers: ["linkedin"] },
+] as const;
+
 export type NavigationMenuItemProps = {
   item: { id: string; label: string; children?: NavigationMenuChild[] };
   icon: ReactNode;
@@ -39,6 +49,13 @@ export function NavigationMenuItem({
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches);
   const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const open = enabled && hasChildren && (hovered || focused || pinnedOpen);
+  const flyoutGroups = item.id === "integrations"
+    ? integrationGroups.map((group) => ({
+        ...group,
+        children: children.filter((child) => group.providers.includes(child.id as never)),
+      })).filter((group) => group.children.length > 0)
+    : [{ id: "all", label: "", providers: [], children }];
+  const visibleChildren = flyoutGroups.flatMap((group) => group.children);
   const enterMenu = () => {
     clearTimeout(leaveTimer.current);
     setHovered(true);
@@ -98,12 +115,12 @@ export function NavigationMenuItem({
   }, [open]);
 
   const focusChild = (index: number) => {
-    if (!children.length) return;
+    if (!visibleChildren.length) return;
     flushSync(() => {
       setHovered(false);
       setPinnedOpen(true);
     });
-    childRefs.current[(index + children.length) % children.length]?.focus();
+    childRefs.current[(index + visibleChildren.length) % visibleChildren.length]?.focus();
   };
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
@@ -135,7 +152,7 @@ export function NavigationMenuItem({
     const childIndex = childRefs.current.findIndex((node) => node === target);
     if (childIndex < 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
-      focusChild(event.key === "ArrowDown" ? 0 : children.length - 1);
+      focusChild(event.key === "ArrowDown" ? 0 : visibleChildren.length - 1);
       return;
     }
     if (childIndex >= 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -156,23 +173,29 @@ export function NavigationMenuItem({
     onMouseEnter={enterMenu}
     onMouseLeave={leaveMenu}
   >
-    {item.id === "integrations" && <div className="navigation-menu-subheading">Integration providers</div>}
-    {children.map((child, index) => <button
-      key={child.id}
-      ref={(node) => { childRefs.current[index] = node; }}
-      type="button"
-      className={`navigation-menu-child${activeChild === child.id ? " is-active" : ""}`}
-      aria-current={activeChild === child.id ? "page" : undefined}
-      onClick={() => {
-        setPinnedOpen(false);
-        setHovered(false);
-        setFocused(false);
-        onNavigate(child.id);
-      }}
-    >
-      <span>{child.label}</span>
-      {activeChild === child.id && <i aria-hidden="true" />}
-    </button>)}
+    {item.id === "integrations" && <div className="navigation-menu-subheading navigation-menu-subheading-root">Integration providers</div>}
+    {flyoutGroups.map((group) => <div className="navigation-menu-group" key={group.id}>
+      {group.label && <div className="navigation-menu-subheading">{group.label}</div>}
+      {group.children.map((child) => {
+        const index = visibleChildren.indexOf(child);
+        return <button
+          key={child.id}
+          ref={(node) => { childRefs.current[index] = node; }}
+          type="button"
+          className={`navigation-menu-child${activeChild === child.id ? " is-active" : ""}`}
+          aria-current={activeChild === child.id ? "page" : undefined}
+          onClick={() => {
+            setPinnedOpen(false);
+            setHovered(false);
+            setFocused(false);
+            onNavigate(child.id);
+          }}
+        >
+          <span>{child.label}</span>
+          {activeChild === child.id && <i aria-hidden="true" />}
+        </button>;
+      })}
+    </div>)}
   </div>;
   return (
     <div

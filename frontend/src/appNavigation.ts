@@ -25,7 +25,7 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "outlook", label: "Outlook" }, { id: "gohighlevel", label: "GoHighLevel" }, { id: "openai", label: "OpenAI" },
     { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" },
     { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" },
-    { id: "retell", label: "Retell AI" },
+    { id: "retell", label: "Retell AI" }, { id: "linkedin", label: "LinkedIn" },
   ],
   settings: [
     { id: "workspace", label: "Workspace" },

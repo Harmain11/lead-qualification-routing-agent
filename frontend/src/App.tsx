@@ -1096,8 +1096,8 @@ function App() {
             <img src="/asset/brand/corral-mark.png" alt="" />
             <WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />
           </div>
-          <span className="system-state">
-            <i /> Systems nominal
+          <span className={`system-state ${error ? "is-offline" : "is-online"}`} aria-live="polite">
+            <i aria-hidden="true" /> {error ? "Offline" : "Online"}
           </span>
           <button
             className="signout-button"

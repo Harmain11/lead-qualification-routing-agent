@@ -132,6 +132,7 @@
   letter-spacing: .08em;
   text-transform: uppercase;
 }
+.navigation-menu-subheading-root { margin-bottom: 3px; font-size: 12px; }
 
 /* Outrank the legacy primary-nav button rules while this component is adopted. */
 .side-rail nav .navigation-menu-item > .navigation-menu-trigger {
