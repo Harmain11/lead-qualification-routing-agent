@@ -21,7 +21,7 @@ const dashboardWidgetOptions = [
   {
     id: "qualification-pulse",
     label: "Qualification pulse",
-    group: "Overview",
+    group: "Key metrics",
   },
   { id: "total_leads", label: "Total leads", group: "Key metrics" },
   {
