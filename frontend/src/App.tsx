@@ -1399,8 +1399,7 @@ function App() {
                 <ManualReviewView
                   data={data?.review ?? null}
                   onInspect={(id) => {
-                    handleInspectLead(id);
-                    setView("leads");
+                    openLeadSection(id, "ai");
                   }}
                 />
               )}
