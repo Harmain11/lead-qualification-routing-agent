@@ -1075,6 +1075,9 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .team-detail { position: sticky; top: 88px; padding: 22px; }
 .team-detail-page { grid-column: 1 / -1; display: grid; gap: 14px; }
 .team-detail-page > .team-detail { position: static; width: 100%; }
+.team-member-drawer-backdrop { position: fixed; z-index: 40; inset: 0; display: flex; justify-content: flex-end; padding: 18px; background: rgba(15, 27, 45, .38); backdrop-filter: blur(3px); }
+.team-member-drawer { width: min(620px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-solid, #fff); box-shadow: -18px 20px 55px rgba(15, 27, 45, .2); }
+.team-member-drawer > .team-detail { position: static; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .team-detail-empty { min-height: 340px; display: grid; align-content: center; gap: 9px; }
 .team-detail-empty h2 { margin: 0; font-size: 21px; font-weight: 500; }
 .team-detail-empty p { max-width: 270px; color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -1168,6 +1171,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
   .team-detail-facts div { display: grid; grid-template-columns: 90px 1fr; align-items: baseline; }
   .team-modal-backdrop { padding: 10px; place-items: end center; }
   .team-modal { max-height: 93vh; border-radius: 18px 18px 8px 8px; padding: 20px; }
+  .team-member-drawer-backdrop { padding: 0; align-items: stretch; }
+  .team-member-drawer { width: 100%; max-height: 100vh; border-radius: 0; border: 0; padding: 17px; }
 }
 
 @media (max-width: 430px) {
