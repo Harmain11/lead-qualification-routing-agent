@@ -60,3 +60,22 @@
   font-size: 13px;
 }
 .navigation-menu-flyout.is-inline .navigation-menu-subheading { margin: 0 0 6px; }
+.navigation-menu-flyout.is-inline.is-integrations {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  overflow: visible;
+}
+.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega {
+  grid-template-columns: 1fr;
+  max-height: none;
+}
+.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-categories {
+  display: flex;
+  overflow-x: auto;
+  border-right: 0;
+  border-bottom: 1px solid var(--line-bright);
+}
+.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-categories button { flex: 0 0 auto; }
+.navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-items { overflow: visible; }

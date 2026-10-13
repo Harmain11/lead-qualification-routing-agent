@@ -46,16 +46,18 @@ export function NavigationMenuItem({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [integrationGroupId, setIntegrationGroupId] = useState("email");
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches);
   const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const open = enabled && hasChildren && (hovered || focused || pinnedOpen);
-  const flyoutGroups = item.id === "integrations"
+  const availableIntegrationGroups = integrationGroups
     ? integrationGroups.map((group) => ({
         ...group,
         children: children.filter((child) => group.providers.includes(child.id as never)),
       })).filter((group) => group.children.length > 0)
-    : [{ id: "all", label: "", providers: [], children }];
-  const visibleChildren = flyoutGroups.flatMap((group) => group.children);
+    : [];
+  const selectedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === integrationGroupId) ?? availableIntegrationGroups[0];
+  const visibleChildren = item.id === "integrations" ? (selectedIntegrationGroup?.children ?? []) : children;
   const enterMenu = () => {
     clearTimeout(leaveTimer.current);
     setHovered(true);
@@ -79,6 +81,11 @@ export function NavigationMenuItem({
     setFocused(false);
     setPinnedOpen(false);
   }, [enabled]);
+  useEffect(() => {
+    if (item.id !== "integrations" || !activeChild) return;
+    const activeGroup = integrationGroups.find((group) => group.providers.includes(activeChild as never));
+    if (activeGroup) setIntegrationGroupId(activeGroup.id);
+  }, [activeChild, item.id]);
   useLayoutEffect(() => {
     if (!open || mobile) return;
     const locate = () => {
@@ -161,10 +168,27 @@ export function NavigationMenuItem({
     }
   };
 
+  const renderChild = (child: NavigationMenuChild, index: number) => <button
+    key={child.id}
+    ref={(node) => { childRefs.current[index] = node; }}
+    type="button"
+    className={`navigation-menu-child${activeChild === child.id ? " is-active" : ""}`}
+    aria-current={activeChild === child.id ? "page" : undefined}
+    onClick={() => {
+      setPinnedOpen(false);
+      setHovered(false);
+      setFocused(false);
+      onNavigate(child.id);
+    }}
+  >
+    <span>{child.label}</span>
+    {activeChild === child.id && <i aria-hidden="true" />}
+  </button>;
+
   const flyout = hasChildren && <div
     ref={flyoutRef}
     id={menuId}
-    className={`navigation-menu-flyout${mobile ? " is-inline" : " is-portal"}`}
+    className={`navigation-menu-flyout${item.id === "integrations" ? " is-integrations" : ""}${mobile ? " is-inline" : " is-portal"}`}
     data-navigation-owner={item.id}
     data-navigation-mode={collapsed ? "collapsed" : "expanded"}
     aria-label={`${item.label} subcategories`}
@@ -173,29 +197,24 @@ export function NavigationMenuItem({
     onMouseEnter={enterMenu}
     onMouseLeave={leaveMenu}
   >
-    {item.id === "integrations" && <div className="navigation-menu-subheading navigation-menu-subheading-root">Integration providers</div>}
-    {flyoutGroups.map((group) => <div className="navigation-menu-group" key={group.id}>
-      {group.label && <div className="navigation-menu-subheading">{group.label}</div>}
-      {group.children.map((child) => {
-        const index = visibleChildren.indexOf(child);
-        return <button
-          key={child.id}
-          ref={(node) => { childRefs.current[index] = node; }}
+    {item.id === "integrations" ? <div className="navigation-menu-mega">
+      <div className="navigation-menu-mega-categories" role="tablist" aria-label="Integration categories">
+        {availableIntegrationGroups.map((group) => <button
+          key={group.id}
           type="button"
-          className={`navigation-menu-child${activeChild === child.id ? " is-active" : ""}`}
-          aria-current={activeChild === child.id ? "page" : undefined}
-          onClick={() => {
-            setPinnedOpen(false);
-            setHovered(false);
-            setFocused(false);
-            onNavigate(child.id);
-          }}
+          role="tab"
+          aria-selected={selectedIntegrationGroup?.id === group.id}
+          className={selectedIntegrationGroup?.id === group.id ? "is-active" : ""}
+          onClick={() => setIntegrationGroupId(group.id)}
         >
-          <span>{child.label}</span>
-          {activeChild === child.id && <i aria-hidden="true" />}
-        </button>;
-      })}
-    </div>)}
+          <span>{group.label}</span>
+          <b aria-hidden="true">›</b>
+        </button>)}
+      </div>
+      <div className="navigation-menu-mega-items" role="tabpanel" aria-label={`${selectedIntegrationGroup?.label ?? "Integration"} providers`}>
+        {visibleChildren.map(renderChild)}
+      </div>
+    </div> : visibleChildren.map(renderChild)}
   </div>;
   return (
     <div
