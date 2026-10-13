@@ -50,7 +50,10 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "openai": {"api_key"},
     **{
         key: set(PROVIDER_SETUP[key].manual_fields)
-        for key in ("gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell")
+        for key in (
+            "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell",
+            "instagram", "messenger", "whatsapp_business", "clutch",
+        )
     },
 }
 

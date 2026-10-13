@@ -470,6 +470,7 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
     from lead_agent.infrastructure.outlook import OutlookConnectionValidator
     from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
+    from lead_agent.infrastructure.social import SocialConnectionValidator
     from lead_agent.infrastructure.slack import SlackConnectionValidator
 
     settings = get_settings()
@@ -497,6 +498,10 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
                 for key in ("gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell")
             },
             "openai": OpenAIConnectionValidator(timeout_seconds=settings.openai_timeout_seconds),
+            **{
+                provider: SocialConnectionValidator()
+                for provider in ("instagram", "messenger", "whatsapp_business", "clutch")
+            },
         },
         DeferredProviderValidator(),
     )
@@ -529,6 +534,10 @@ def get_provider_revoker() -> ProviderRevoker:
                     "ringcentral",
                     "vapi",
                     "retell",
+                    "instagram",
+                    "messenger",
+                    "whatsapp_business",
+                    "clutch",
                 )
             },
         },
