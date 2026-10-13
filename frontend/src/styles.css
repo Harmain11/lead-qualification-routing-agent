@@ -1623,7 +1623,8 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .app-shell .pipeline-track, .app-shell .team-member-row { background: #F7FAF7; }
 .app-shell .pipeline-track button.active { border-color: #8FBBA2; background: linear-gradient(145deg, #EAF5EC, #DDEEE2); box-shadow: 0 8px 17px rgba(12,53,38,.12), inset 0 1px #fff; }
 .app-shell .pipeline-track button.active > strong { color: #1E6B52; }
-.app-shell .team-member-row:hover, .app-shell .team-member-row.selected { border-color: #8FBBA2; background: linear-gradient(90deg, #E9F4EB, #fff); }
+.app-shell .team-member-row:hover, .app-shell .team-member-row.selected { border-color: transparent; background: #F7FAF7; box-shadow: none; transform: none; }
+.app-shell .team-member-row.selected .member-chevron { color: var(--subtle); transform: none; }
 .app-shell .icp-current-card { border-color: #1E6B52; background: radial-gradient(circle at 100% 0%, rgba(242,165,65,.22), transparent 48%), linear-gradient(145deg, #1E6B52, #0F1B2D); box-shadow: 0 17px 34px rgba(12,53,38,.2), inset 0 1px rgba(255,255,255,.2); }
 .app-shell .button-quiet, .app-shell .secondary-button, .app-shell .invitation-actions button { border-color: var(--blue-line); background: linear-gradient(180deg, #fff, #EDF5EE); color: #1E6B52; }
 .app-shell .button-quiet:hover, .app-shell .secondary-button:hover, .app-shell .invitation-actions button:hover { border-color: #80AE94; background: #E7F3E9; color: #155640; }
