@@ -1824,7 +1824,7 @@ html[data-theme="dark"] .lead-drawer .button-quiet:hover,
 html[data-theme="dark"] .lead-drawer .secondary-button:hover { border-color: rgba(135,212,168,.45); background: #294635; color: #F5F7F4; }
 
 /* Evidence-first lead momentum: a readable decision and delivery ledger. */
-.momentum-panel { background: linear-gradient(105deg, rgba(64,129,177,.065), transparent 54%), transparent; }
+.momentum-panel { background: transparent; }
 .momentum-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .momentum-summary > div, .momentum-evidence article, .momentum-delivery article, .next-human-action { border: 1px solid var(--blue-line); border-radius: 11px; background: linear-gradient(145deg, #fff, #F3F8FC); box-shadow: 0 5px 13px rgba(25,66,103,.045), inset 0 1px rgba(255,255,255,.92); }
 .momentum-summary > div { min-height: 95px; padding: 13px; }
@@ -1832,10 +1832,10 @@ html[data-theme="dark"] .lead-drawer .secondary-button:hover { border-color: rgb
 .momentum-summary b { display: block; margin: 7px 0 5px; color: var(--blue-deep); font-size: 14px; }
 .momentum-summary small { display: block; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .momentum-state { position: relative; overflow: hidden; }
-.momentum-state::after { content: ""; position: absolute; right: -18px; bottom: -26px; width: 82px; height: 82px; border-radius: 50%; background: radial-gradient(circle, rgba(30,107,82,.21), transparent 68%); }
-.momentum-state.state-warming { border-color: rgba(30,107,82,.42); }
-.momentum-state.state-cooling { border-color: rgba(183,77,69,.36); }
-.momentum-state.state-awaiting_review { border-color: rgba(242,165,65,.52); }
+.momentum-state::after { display: none; }
+.momentum-state.state-warming,
+.momentum-state.state-cooling,
+.momentum-state.state-awaiting_review { border-color: var(--blue-line); }
 .next-human-action { display: grid; gap: 6px; margin-top: 13px; padding: 15px; border-left: 3px solid #4A8DBD; }
 .next-human-action > span { color: #2E6E9D; }
 .next-human-action b { color: var(--text); font-size: 13px; line-height: 1.5; }
