@@ -197,7 +197,7 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .lead-table th:nth-child(6) { width: 14%; }
 .lead-table th:nth-child(7) { width: 10%; }
 .lead-table th:nth-child(8) { width: 10%; }
-.lead-table td { padding: 14px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.lead-table td { padding: 14px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; vertical-align: top; overflow-wrap: anywhere; }
 .lead-table tbody tr { cursor: pointer; transition: background var(--fast); }
 .lead-table tbody tr:hover, .lead-table tbody tr.selected { background: rgba(30,107,82,.045); }
 .lead-table td.lead-select-cell { text-align: center; vertical-align: middle; }
