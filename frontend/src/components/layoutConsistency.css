@@ -410,7 +410,7 @@ html[data-theme] .app-shell :is(.panel, .integration-card, .metric-card):hover {
 .app-shell .ops-table-wrap { border: 1px solid var(--line); border-radius: var(--radius-sm); scrollbar-width: thin; }
 .app-shell .ops-table-wrap tbody tr:last-child td { border-bottom: 0; }
 .app-shell .ops-table-wrap td:has(.ops-empty-inline) { padding: 0; }
-.app-shell .ops-page .ops-metrics b { font-size: 28px; line-height: 1.35; }
+.app-shell .ops-page .ops-metrics b { display: block; min-height: 38px; font-size: 28px; line-height: 38px; letter-spacing: -.025em; white-space: nowrap; }
 .app-shell .ops-page .ops-tag { margin-bottom: 12px; }
 .ops-dialog { width: min(960px, calc(100vw - 48px)); border-radius: var(--radius-lg); font-size: 14px; padding: 24px; box-shadow: 0 24px 80px rgba(0,0,0,.2); }
 .ops-dialog:has(.ops-builder) { width: min(1200px, calc(100vw - 48px)); }
@@ -616,19 +616,22 @@ html { scrollbar-gutter: stable; }
 .app-shell .ops-empty { display: grid; gap: var(--space-2); padding: var(--space-6); border: 1px dashed var(--line-bright); }
 .app-shell .ops-empty > :is(h3, p) { margin: 0; }
 .app-shell .ops-empty p { max-width: 72ch; color: var(--muted); }
-.app-shell .ops-metrics { gap: var(--space-6); }
-.app-shell .ops-metrics > span { gap: var(--space-1); flex: 1 1 150px; }
-.app-shell .ops-metrics b { font-size: 24px; }
-.app-shell .ops-metrics b.ops-metric-unavailable {
-  font-size: 22px;
-  line-height: 1.35;
-  letter-spacing: -.02em;
-  white-space: nowrap;
-}
+.app-shell .ops-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+.app-shell .ops-metrics > span { gap: var(--space-1); min-width: 0; }
+.app-shell .ops-metrics b { display: block; min-height: 38px; font-size: 28px; line-height: 38px; letter-spacing: -.025em; white-space: nowrap; }
+.app-shell .ops-metrics > span > small { display: block; color: var(--muted); font-size: 14px; line-height: 22px; }
 .app-shell .ops-panel .ops-check { min-height: 32px; gap: var(--space-2); }
 .app-shell .ops-table :is(th, td) { vertical-align: middle; }
 .app-shell .ops-table-wrap + .ops-toolbar { align-items: center; }
 .app-shell .ops-pagination { padding-top: 0; }
+
+@media (max-width: 900px) {
+  .app-shell .ops-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .app-shell .ops-metrics { grid-template-columns: 1fr; }
+}
 
 /* Match action and field baselines; textareas keep room for readable prose. */
 html[data-theme] body :is(.app-shell, .ops-dialog, .lead-drawer) button:is(.primary-button, .secondary-button, .button-quiet, .danger-button) { min-height: var(--control-height); padding: 10px 16px; }

@@ -26,6 +26,10 @@ ProviderType = Literal[
     "whatsapp_business",
     "clutch",
     "openai",
+    "gemini",
+    "claude",
+    "deepseek",
+    "xai",
 ]
 ConnectionStatus = Literal[
     "configured",
@@ -250,10 +254,11 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         supported_auth=["oauth2", "private_token"],
         dashboard_path="Meta Developer app · Corral Social Leads Visual",
         credential_help=(
-            "Sign in with Meta to choose the Instagram account and grant the approved lead-intake permissions. "
+            "Sign in with Meta to choose the Instagram account and grant the approved "
+            "lead-intake permissions. "
             "A workspace admin can use a page or account token as a secure fallback."
         ),
-        required_scopes=["instagram_basic", "instagram_manage_messages", "pages_show_list"],
+        required_scopes=["instagram_business_basic", "instagram_business_manage_messages"],
         permission_reason="Receive lead data only through officially approved Instagram access.",
         documentation_url="https://developers.facebook.com/docs/instagram-api/",
         manual_fields=["access_token", "account_id"],
@@ -267,10 +272,15 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         supported_auth=["oauth2", "private_token"],
         dashboard_path="Meta Developer app · Corral Social Leads Inbox",
         credential_help=(
-            "Sign in with Meta to choose the Facebook Page and grant the approved Messenger permissions. "
+            "Sign in with Meta to choose the Facebook Page and grant the approved "
+            "Messenger permissions. "
             "A workspace admin can use a page access token as a secure fallback."
         ),
-        required_scopes=["pages_show_list", "pages_read_engagement", "pages_manage_metadata", "pages_messaging"],
+        required_scopes=[
+            "pages_show_list",
+            "pages_manage_metadata",
+            "pages_messaging",
+        ],
         permission_reason="Receive lead data only through officially approved Messenger access.",
         documentation_url="https://developers.facebook.com/docs/messenger-platform/",
         manual_fields=["page_access_token", "page_id"],
@@ -284,11 +294,18 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         supported_auth=["oauth2", "private_token"],
         dashboard_path="Meta Developer app · Corral Social Leads Business",
         credential_help=(
-            "Sign in with Meta to select the WhatsApp Business account and grant the approved messaging permissions. "
+            "Sign in with Meta to select the WhatsApp Business account and grant the "
+            "approved messaging permissions. "
             "A workspace admin can use a Cloud API token as a secure fallback."
         ),
-        required_scopes=["business_management", "whatsapp_business_management", "whatsapp_business_messaging"],
-        permission_reason="Receive lead data only through officially approved WhatsApp Business access.",
+        required_scopes=[
+            "business_management",
+            "whatsapp_business_management",
+            "whatsapp_business_messaging",
+        ],
+        permission_reason=(
+            "Receive lead data only through officially approved WhatsApp Business access."
+        ),
         documentation_url="https://developers.facebook.com/docs/whatsapp/",
         manual_fields=["access_token", "business_account_id", "phone_number_id"],
     ),
@@ -321,6 +338,78 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         required_scopes=["Responses API access"],
         permission_reason="Run schema-constrained context and intent analysis.",
         documentation_url="https://developers.openai.com/api/docs/quickstart",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "gemini": ProviderSetupMetadata(
+        provider="gemini",
+        display_name="Gemini",
+        category="AI analysis",
+        availability="foundation",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="Google AI Studio → API keys",
+        credential_help=(
+            "Connect a Google AI Studio API key for this workspace. Keep the key restricted "
+            "to the projects and models used by Corral."
+        ),
+        required_scopes=["Gemini API access"],
+        permission_reason="Run bounded context and intent analysis through Gemini.",
+        documentation_url="https://ai.google.dev/gemini-api/docs/api-key",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "claude": ProviderSetupMetadata(
+        provider="claude",
+        display_name="Claude",
+        category="AI analysis",
+        availability="foundation",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="Anthropic Console → API keys",
+        credential_help=(
+            "Connect an Anthropic API key for this workspace. Use a key with only the access "
+            "needed for Corral analysis."
+        ),
+        required_scopes=["Anthropic API access"],
+        permission_reason="Run bounded context and intent analysis through Claude.",
+        documentation_url="https://docs.anthropic.com/en/docs/initial-setup",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "deepseek": ProviderSetupMetadata(
+        provider="deepseek",
+        display_name="DeepSeek",
+        category="AI analysis",
+        availability="foundation",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="DeepSeek Platform → API keys",
+        credential_help=(
+            "Connect a DeepSeek API key for this workspace. Set account limits before using "
+            "the key for lead analysis."
+        ),
+        required_scopes=["DeepSeek API access"],
+        permission_reason="Run bounded context and intent analysis through DeepSeek.",
+        documentation_url="https://api-docs.deepseek.com/",
+        manual_fields=["api_key"],
+        connection_mode="workspace",
+    ),
+    "xai": ProviderSetupMetadata(
+        provider="xai",
+        display_name="xAI / Grok",
+        category="AI analysis",
+        availability="foundation",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="xAI Console → API keys",
+        credential_help=(
+            "Connect an xAI API key for this workspace. Configure model and spending limits "
+            "in the xAI console before use."
+        ),
+        required_scopes=["xAI API access"],
+        permission_reason="Run bounded context and intent analysis through xAI.",
+        documentation_url="https://docs.x.ai/docs/overview",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),

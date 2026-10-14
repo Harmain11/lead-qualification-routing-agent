@@ -73,6 +73,9 @@ const AutomationsView = lazy(() =>
     default: module.AutomationsView,
   })),
 );
+const DialerView = lazy(() =>
+  import("./views/DialerView").then((module) => ({ default: module.DialerView })),
+);
 const AdvancedAnalyticsPanel = lazy(() =>
   import("./components/AdvancedAnalyticsPanel").then((module) => ({
     default: module.AdvancedAnalyticsPanel,
@@ -114,6 +117,7 @@ type View =
   | "agents"
   | "analytics"
   | "integrations"
+  | "dialer"
   | "team"
   | "review"
   | "settings"
@@ -146,6 +150,7 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "analytics", label: "Analytics" },
   { id: "review", label: "Manual Review", group: "Control" },
   { id: "integrations", label: "Integrations" },
+  { id: "dialer", label: "Dialer" },
   { id: "team", label: "Users" },
   { id: "settings", label: "Settings" },
 ];
@@ -164,6 +169,7 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   analytics: "analytics.view",
   review: "manual_review.view",
   integrations: "integrations.view",
+  dialer: "integrations.view",
 };
 
 function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
@@ -258,6 +264,13 @@ function NavIcon({ id }: { id: View }) {
           <path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5" />
         </svg>
       );
+    case "dialer":
+      return (
+        <svg {...shared}>
+          <path d="M7.5 4.5 5 6c-.7.4-.9 1.3-.6 2.1 2 5.3 6.2 9.5 11.5 11.5.8.3 1.7.1 2.1-.6l1.5-2.5-4-2-1.4 1.4a14.2 14.2 0 0 1-5.5-5.5L10 9.2z" />
+          <path d="M15.5 4.5a5 5 0 0 1 4 4M15.5 1.5a8 8 0 0 1 7 7" />
+        </svg>
+      );
     case "team":
       return (
         <svg {...shared}>
@@ -343,6 +356,7 @@ function App() {
   const [tourOpen, setTourOpen] = useState(false);
   const [openaiSetupCard, setOpenaiSetupCard] =
     useState<IntegrationCard | null>(null);
+  const [aiSetupCards, setAiSetupCards] = useState<IntegrationCard[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadSection, setLeadSection] = useState<LeadDetailSection>(() =>
     parseLeadSection(
@@ -663,6 +677,7 @@ function App() {
   useEffect(() => {
     if (auth) return;
     setOpenaiSetupCard(null);
+    setAiSetupCards([]);
     openaiPromptDismissed.current.clear();
   }, [auth]);
 
@@ -695,6 +710,7 @@ function App() {
     void listIntegrations()
       .then((cards) => {
         if (!active) return;
+        setAiSetupCards(cards.filter((card) => card.category.toLowerCase().includes("ai analysis")));
         const openai = cards.find((card) => card.provider === "openai");
         // A saved key can be `connected` before verification; only ask for a key when none is stored.
         setOpenaiSetupCard(
@@ -988,7 +1004,7 @@ function App() {
       icon: "dialer" as const,
       description: "Connect a calling provider to start confirmed calls from a lead.",
       destination: "Open calling integrations →",
-      onClick: () => navigate("integrations", "calling"),
+      onClick: () => navigate("dialer"),
     },
     {
       id: "leads",
@@ -1449,6 +1465,9 @@ function App() {
                   selectedSection={pageSection}
                 />
               )}
+              {view === "dialer" && (
+                <DialerView selectedSection={pageSection} onOpenIntegrations={() => navigate("integrations", "calling")} />
+              )}
               {view === "settings" && (
                 <SettingsView
                   metadata={metadata}
@@ -1522,6 +1541,7 @@ function App() {
       {openaiSetupCard && !tourOpen && view === "dashboard" && (
         <OpenAISetupPrompt
           card={openaiSetupCard}
+          cards={aiSetupCards}
           onVerified={() => {
             setOpenaiSetupCard(null);
             void refresh();

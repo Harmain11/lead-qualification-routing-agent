@@ -44,6 +44,9 @@ import type {
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
 const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_agent_csrf";
+// Keep the standard server cookie as a fallback. This lets local previews
+// recover when a stale Vite environment overrides the frontend cookie name.
+const CSRF_COOKIE_NAMES = Array.from(new Set(["lead_agent_csrf", CSRF_COOKIE_NAME]));
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
 const inFlightGets = new Map<string, Promise<unknown>>();
@@ -88,11 +91,14 @@ export function apiUrl(path: string) {
 }
 
 function csrfToken(): string | null {
-  const value = document.cookie
-    .split("; ")
-    .find((item) => item.startsWith(`${CSRF_COOKIE_NAME}=`))
-    ?.split("=", 2)[1];
-  return value ? decodeURIComponent(value) : null;
+  for (const cookieName of CSRF_COOKIE_NAMES) {
+    const value = document.cookie
+      .split("; ")
+      .find((item) => item.startsWith(`${cookieName}=`))
+      ?.split("=", 2)[1];
+    if (value) return decodeURIComponent(value);
+  }
+  return null;
 }
 
 function withWorkspace(headers?: HeadersInit): Headers {

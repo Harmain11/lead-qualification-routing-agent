@@ -15,3 +15,4 @@
 .openai-model-usage td, .openai-model-usage th { padding: 8px 3px; border-bottom: 1px solid var(--line); }
 .openai-model-usage td:not(:first-child), .openai-model-usage th:not(:first-child) { text-align: right; }
 .openai-usage .openai-usage-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.ai-usage-unavailable { color: var(--muted); font-size: 12px; }

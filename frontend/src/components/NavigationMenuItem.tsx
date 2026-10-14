@@ -8,7 +8,7 @@ const integrationGroups = [
   { id: "calendar", label: "Calendar", providers: ["google_calendar", "calendly"] },
   { id: "crm", label: "CRM", providers: ["salesforce", "hubspot", "gohighlevel"] },
   { id: "notifications", label: "Notifications", providers: ["slack"] },
-  { id: "ai", label: "AI", providers: ["openai"] },
+  { id: "ai", label: "AI", providers: ["ai"] },
   { id: "calling", label: "Calling", providers: ["twilio", "aircall", "ringcentral", "vapi", "retell"] },
   { id: "social", label: "Social", providers: ["instagram", "messenger", "whatsapp_business", "clutch"] },
   { id: "other", label: "Other", providers: ["linkedin"] },

@@ -14,7 +14,6 @@ from lead_agent.domain.integrations import OAuthBroker
 from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.settings.config import Settings, get_settings
 
-
 _META_PROVIDERS = frozenset({"instagram", "messenger", "whatsapp_business"})
 
 
@@ -24,6 +23,7 @@ class OAuthProviderConfig:
     client_secret: str
     authorize_url: str
     token_url: str
+    supports_pkce: bool = True
 
 
 class DevelopmentOAuthBroker:
@@ -147,8 +147,9 @@ class ProviderOAuthBroker:
             "instagram": OAuthProviderConfig(
                 self.settings.meta_instagram_client_id,
                 self.settings.meta_instagram_client_secret,
-                "https://www.facebook.com/v20.0/dialog/oauth",
-                "https://graph.facebook.com/v20.0/oauth/access_token",
+                "https://www.instagram.com/oauth/authorize",
+                "https://api.instagram.com/oauth/access_token",
+                supports_pkce=False,
             ),
             "messenger": OAuthProviderConfig(
                 self.settings.meta_messenger_client_id,
@@ -191,12 +192,15 @@ class ProviderOAuthBroker:
             if provider == "slack" or provider in {"instagram", "messenger", "whatsapp_business"}
             else " ".join(scopes),
         }
-        query.update(
-            {
-                "code_challenge": code_challenge,
-                "code_challenge_method": "S256",
-            }
-        )
+        if config.supports_pkce:
+            query.update(
+                {
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": "S256",
+                }
+            )
+        if provider == "instagram":
+            query["enable_fb_login"] = "0"
         if provider in {"gmail", "google_calendar"}:
             query.update({"access_type": "offline", "prompt": "consent select_account"})
         elif provider == "salesforce":
@@ -227,7 +231,8 @@ class ProviderOAuthBroker:
             "client_secret": config.client_secret,
             "redirect_uri": redirect_uri,
         }
-        token_payload["code_verifier"] = code_verifier
+        if config.supports_pkce:
+            token_payload["code_verifier"] = code_verifier
         request_auth = None
         if provider == "calendly":
             request_auth = httpx.BasicAuth(

@@ -61,13 +61,16 @@ def test_meta_oauth_uses_the_channel_app_and_comma_delimited_permissions(tmp_pat
 
     parsed = urlparse(started.authorization_url)
     params = parse_qs(parsed.query)
-    assert row.scopes == ["instagram_basic", "instagram_manage_messages", "pages_show_list"]
+    assert row.scopes == ["instagram_business_basic", "instagram_business_manage_messages"]
     assert params["client_id"] == ["instagram-app-id"]
-    assert params["scope"] == ["instagram_basic,instagram_manage_messages,pages_show_list"]
+    assert params["scope"] == ["instagram_business_basic,instagram_business_manage_messages"]
     assert params["redirect_uri"] == [
         "https://api.example.test/v1/integrations/instagram/oauth/callback"
     ]
-    assert params["code_challenge_method"] == ["S256"]
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "www.instagram.com"
+    assert params["enable_fb_login"] == ["0"]
+    assert "code_challenge_method" not in params
 
 
 def test_meta_token_exchange_uses_graph_endpoint() -> None:

@@ -74,18 +74,18 @@ export function AdvancedAnalyticsPanel() {
             <p className="ops-muted">{data.forecast.scope}</p>
             <div className="ops-metrics">
               <span>
-                <b>{amount(data.forecast.closed_usd_this_month)}</b>Closed this
-                month
+                <b>{amount(data.forecast.closed_usd_this_month)}</b>
+                <small>Closed this month</small>
               </span>
               <span>
-                <b>{amount(data.forecast.open_pipeline_usd)}</b>Recorded open
-                pipeline
+                <b>{amount(data.forecast.open_pipeline_usd)}</b>
+                <small>Recorded open pipeline</small>
               </span>
               <span>
-                <b className={data.forecast.expected_open_pipeline_usd === null ? "ops-metric-unavailable" : undefined}>
+                <b>
                   {amount(data.forecast.expected_open_pipeline_usd)}
                 </b>
-                Expected pipeline value
+                <small>Expected pipeline value</small>
               </span>
               <span>
                 <b>
@@ -93,7 +93,7 @@ export function AdvancedAnalyticsPanel() {
                     ? data.forecast.coverage + " times"
                     : "No quota set"}
                 </b>
-                Pipeline coverage
+                <small>Pipeline coverage</small>
               </span>
             </div>
             <p className="ops-muted">
@@ -193,7 +193,6 @@ export function AdvancedAnalyticsPanel() {
                 <thead>
                   <tr>
                     <th>Intake week</th>
-                    <th>Campaign</th>
                     <th>Leads</th>
                     <th>Qualified</th>
                     <th>Won</th>
@@ -201,11 +200,10 @@ export function AdvancedAnalyticsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {!data.cohorts.length && <tr><td colSpan={6}><div className="ops-empty-inline"><strong>No cohorts yet</strong><span>Lead cohorts will appear when there are leads in this observation window.</span></div></td></tr>}
+                  {!data.cohorts.length && <tr><td colSpan={5}><div className="ops-empty-inline"><strong>No cohorts yet</strong><span>Lead cohorts will appear when there are leads in this observation window.</span></div></td></tr>}
                   {data.cohorts.map((row) => (
                     <tr key={row.week + row.campaign}>
                       <td>{row.week}</td>
-                      <td>{row.campaign}</td>
                       <td>{row.leads}</td>
                       <td>{row.qualified}</td>
                       <td>{row.won}</td>

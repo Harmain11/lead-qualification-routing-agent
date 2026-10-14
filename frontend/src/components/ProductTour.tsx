@@ -11,6 +11,7 @@ export type TourView =
   | "agents"
   | "review"
   | "integrations"
+  | "dialer"
   | "analytics"
   | "settings"
   | "team"

@@ -470,8 +470,8 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
     from lead_agent.infrastructure.outlook import OutlookConnectionValidator
     from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
-    from lead_agent.infrastructure.social import SocialConnectionValidator
     from lead_agent.infrastructure.slack import SlackConnectionValidator
+    from lead_agent.infrastructure.social import SocialConnectionValidator
 
     settings = get_settings()
     return ProviderConnectionValidatorRegistry(
@@ -538,6 +538,10 @@ def get_provider_revoker() -> ProviderRevoker:
                     "messenger",
                     "whatsapp_business",
                     "clutch",
+                    "gemini",
+                    "claude",
+                    "deepseek",
+                    "xai",
                 )
             },
         },

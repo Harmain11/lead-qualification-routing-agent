@@ -47,7 +47,10 @@ SENSITIVE_METADATA_FRAGMENTS = ("secret", "token", "password", "credential", "ap
 REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     "salesforce": {"client_id", "client_secret", "refresh_token"},
     "hubspot": {"access_token"},
-    "openai": {"api_key"},
+    **{
+        provider: {"api_key"}
+        for provider in ("openai", "gemini", "claude", "deepseek", "xai")
+    },
     **{
         key: set(PROVIDER_SETUP[key].manual_fields)
         for key in (
@@ -650,6 +653,8 @@ def complete_oauth_connection(
     row.status = "connected"
     row.account_name = values.get("account_name", row.account_name)
     row.external_account_id = values.get("external_account_id", row.external_account_id)
+    if row.provider_type == "instagram" and not row.external_account_id:
+        row.external_account_id = values.get("user_id", row.external_account_id)
     row.updated_at = datetime.now(UTC)
     row.last_validation_at = datetime.now(UTC)
     row.last_validation_result = {

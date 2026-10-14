@@ -1,4 +1,4 @@
-export const appPages = ["dashboard", "leads", "contacts", "pipeline", "agents", "analytics", "integrations", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
+export const appPages = ["dashboard", "leads", "contacts", "pipeline", "agents", "analytics", "integrations", "dialer", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
 export type AppPage = typeof appPages[number];
 export type NavigationSection = { id: string; label: string; permission?: string; view?: AppPage };
 
@@ -29,13 +29,19 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "gmail", label: "Gmail" }, { id: "google_calendar", label: "Google Calendar" },
     { id: "slack", label: "Slack" }, { id: "salesforce", label: "Salesforce" },
     { id: "hubspot", label: "HubSpot" }, { id: "calendly", label: "Calendly" },
-    { id: "outlook", label: "Outlook" }, { id: "gohighlevel", label: "GoHighLevel" }, { id: "openai", label: "OpenAI" },
+    { id: "outlook", label: "Outlook" }, { id: "gohighlevel", label: "GoHighLevel" },
+    { id: "ai", label: "AI connection" },
     { id: "calling", label: "All dialers" },
     { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" },
     { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" },
     { id: "retell", label: "Retell AI" }, { id: "linkedin", label: "LinkedIn" },
     { id: "instagram", label: "Instagram" }, { id: "messenger", label: "Messenger" },
     { id: "whatsapp_business", label: "WhatsApp Business" }, { id: "clutch", label: "Clutch" },
+  ],
+  dialer: [
+    { id: "overview", label: "Overview" },
+    { id: "history", label: "Call history" },
+    { id: "analysis", label: "Transcript analysis" },
   ],
   settings: [
     { id: "overview", label: "Overview" },

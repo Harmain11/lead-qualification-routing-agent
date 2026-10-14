@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClientId } from "../clientIds";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave, type Company, type Contact } from "../operationsApi";
+import "./RecordsView.css";
 type Touch = {
   id: string;
   source: string;
@@ -79,6 +80,17 @@ export function RecordsView({
     }[]
   >([]);
   const [sort, setSort] = useState("name");
+  const [viewMode, setViewMode] = useState<"board" | "table">(
+    mode === "companies" ? "board" : "table",
+  );
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [savedView, setSavedView] = useState<"all" | "mine">("all");
+  const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setViewMode(mode === "companies" ? "board" : "table");
+    setSavedView("all");
+    setExpandedColumns({});
+  }, [mode]);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -206,44 +218,142 @@ export function RecordsView({
       setDetail(null);
     });
   }
+  const companyById = useMemo(
+    () => new Map(companies.map((company) => [company.id, company])),
+    [companies],
+  );
+  const boardColumns = useMemo(() => {
+    if (mode === "companies") {
+      const companiesInView = items as Company[];
+      return [
+        {
+          key: "reviewed",
+          label: "Reviewed",
+          description: "Approved company pages",
+          items: companiesInView.filter((item) => item.website_reviewed),
+        },
+        {
+          key: "needs-review",
+          label: "Needs review",
+          description: "Has a website to verify",
+          items: companiesInView.filter(
+            (item) => !item.website_reviewed && Boolean(item.website),
+          ),
+        },
+        {
+          key: "needs-enrichment",
+          label: "Needs enrichment",
+          description: "Add domain or industry",
+          items: companiesInView.filter(
+            (item) => !item.website_reviewed && !item.website,
+          ),
+        },
+      ];
+    }
+    const contactsInView = items as Contact[];
+    return [
+      {
+        key: "linked",
+        label: "Linked",
+        description: "Connected to a company",
+        items: contactsInView.filter((item) => Boolean(item.company_id)),
+      },
+      {
+        key: "needs-company",
+        label: "Needs company",
+        description: "Link a company record",
+        items: contactsInView.filter((item) => !item.company_id),
+      },
+    ];
+  }, [items, mode]);
+  const recordLabel = mode === "contacts" ? "contact" : "company";
+  const recordLabelPlural = mode === "contacts" ? "contacts" : "companies";
+  function initials(name: string) {
+    return name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("");
+  }
+  function renderBoardCard(item: Contact | Company) {
+    const contact = "email" in item ? item : null;
+    const company = contact
+      ? companyById.get(contact.company_id || "")
+      : (item as Company);
+    const companyItem = item as Company;
+    return (
+      <article className="records-card" key={item.id}>
+        <div className="records-card-topline">
+          <span className="records-avatar" aria-hidden="true">{initials(item.name)}</span>
+          <button className="records-card-name" onClick={() => void open(item.id)}>
+            {item.name}
+          </button>
+          {canEdit && (
+            <button className="records-card-menu" aria-label={`Edit ${item.name}`} onClick={() => edit(item)}>•••</button>
+          )}
+        </div>
+        <div className="records-card-meta">
+          {contact ? (
+            <>
+              <span>{contact.job_title || "Contact"}</span>
+              <span>{contact.email || "No email"}</span>
+              <span>{contact.phone || "No phone"}</span>
+              <span>{company?.name || "Unlinked"}</span>
+            </>
+          ) : (
+            <>
+              <span>{companyItem.domain || "No domain"}</span>
+              <span>{companyItem.industry || "Industry not set"}</span>
+              <span className={companyItem.website_reviewed ? "records-status is-good" : "records-status"}>
+                {companyItem.website_reviewed ? "Website reviewed" : "Needs review"}
+              </span>
+            </>
+          )}
+        </div>
+        <button className="records-card-footer" onClick={() => void open(item.id)}>
+          View {recordLabel} <span aria-hidden="true">→</span>
+        </button>
+      </article>
+    );
+  }
   return (
-    <div className="page-view ops-page">
-      <header className="ops-page-head">
-        <div>
+    <div className="page-view ops-page records-view">
+      <header className="records-head">
+        <div className="records-head-copy">
           <span className="eyebrow">People and companies</span>
           <h1>{mode === "contacts" ? "Contacts" : "Companies"}</h1>
           <p>
             {mode === "contacts"
-              ? "Keep a person record across lead touches and channels."
-              : "Bring every linked contact, lead and recorded win into one company view."}
+              ? "Keep every person, conversation and lead touch in one focused workspace."
+              : "Bring every linked contact, lead and recorded win into one company workspace."}
           </p>
         </div>
         {canEdit && (
-          <div
-            className="records-header-actions"
-            role="group"
-            aria-label={`${mode === "contacts" ? "Contact" : "Company"} actions`}
-          >
-            <button
-              className="primary-button"
-              onClick={() => {
-                setError("");
-                setForm(blank());
-              }}
-            >
-              Add {mode === "contacts" ? "contact" : "company"}
+          <div className="records-head-actions" role="group" aria-label={`${recordLabel} actions`}>
+            <button className="records-add-button" onClick={() => { setError(""); setForm(blank()); }}>
+              Add {recordLabel} <span aria-hidden="true">+</span>
             </button>
           </div>
         )}
       </header>
+      <nav className="records-view-tabs" aria-label={`${recordLabelPlural} views`}>
+        <button className={savedView === "all" ? "is-active" : ""} onClick={() => setSavedView("all")} aria-pressed={savedView === "all"}>
+          <span aria-hidden="true">▦</span> All {recordLabelPlural} <strong>{total}</strong>
+        </button>
+        <button className={savedView === "mine" ? "is-active" : ""} onClick={() => setSavedView("mine")} aria-pressed={savedView === "mine"}>
+          <span aria-hidden="true">▧</span> My {recordLabelPlural}
+        </button>
+        <button className="records-add-view" aria-label="Create saved view" title="Create saved view">+</button>
+      </nav>
       {error && (
         <p role="alert" className="team-alert">
           {error}
         </p>
       )}
-      <div className="ops-toolbar">
-        <label>
-          Search
+      <div className="records-toolbar">
+        <label className="records-search">
+          <span className="sr-only">Search {recordLabelPlural}</span>
           <input
             value={search}
             onChange={(event) => {
@@ -251,60 +361,37 @@ export function RecordsView({
               setOffset(0);
             }}
             placeholder={
-              mode === "contacts" ? "Name or email" : "Company or domain"
+              mode === "contacts" ? "Search name, email or phone" : "Search company or domain"
             }
           />
         </label>
-        {mode === "contacts" && (
+        <button className={`records-filter-button ${filtersOpen ? "is-active" : ""}`} onClick={() => setFiltersOpen((value) => !value)}>
+          <span aria-hidden="true">☷</span> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
+        </button>
+        <button className="records-filter-button" onClick={() => setFiltersOpen(true)}>
+          <span aria-hidden="true">↕</span> Sort by
+        </button>
+        <div className="records-toolbar-spacer" />
+        <div className="records-view-switcher" role="group" aria-label="View mode">
+          <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}>▦ Board</button>
+          <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}>▤ Table</button>
+        </div>
+        <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}>↻</button>
+      </div>
+      {filtersOpen && (
+        <div className="records-filter-panel">
           <label>
-            Sort
-            <select
-              value={sort}
-              onChange={(event) => {
-                setSort(event.target.value);
-                setOffset(0);
-              }}
-            >
+            Sort records
+            <select value={sort} onChange={(event) => { setSort(event.target.value); setOffset(0); }}>
               <option value="name">Name</option>
-              <option value="recent">Recently updated</option>
-              <option value="company">Company</option>
+              {mode === "contacts" && <><option value="recent">Recently updated</option><option value="company">Company</option></>}
             </select>
           </label>
-        )}
-        <button
-          className="button-quiet"
-          onClick={() => setRevision((value) => value + 1)}
-        >
-          Refresh
-        </button>
-        {canEdit && (
-          <button
-            className="button-quiet"
-            disabled={busy}
-            onClick={() => void act(() => opsSave("/v1/records/backfill", {}))}
-          >
-            Link existing lead touches
-          </button>
-        )}
-        {mode === "contacts" && (
-          <button
-            className="secondary-button"
-            onClick={() =>
-              void act(async () =>
-                setDuplicates(
-                  (
-                    await opsGet<{ items: typeof duplicates }>(
-                      "/v1/records/duplicates",
-                    )
-                  ).items,
-                ),
-              )
-            }
-          >
-            Review duplicates
-          </button>
-        )}
-      </div>
+          {canEdit && <button className="button-quiet" disabled={busy} onClick={() => void act(() => opsSave("/v1/records/backfill", {}))}>Link existing lead touches</button>}
+          {mode === "contacts" && <button className="secondary-button" onClick={() => void act(async () => setDuplicates((await opsGet<{ items: typeof duplicates }>("/v1/records/duplicates")).items))}>Review duplicates</button>}
+          <button className="records-filter-close" onClick={() => setFiltersOpen(false)}>Done</button>
+        </div>
+      )}
       {loading ? (
         <p role="status">Loading records…</p>
       ) : !items.length ? (
@@ -315,6 +402,33 @@ export function RecordsView({
             your existing lead touches.
           </p>
         </section>
+      ) : viewMode === "board" ? (
+        <section className="records-board" aria-label={`${recordLabelPlural} board`}>
+          {boardColumns.map((column) => (
+            <div className="records-column" key={column.key}>
+              <div className="records-column-head">
+                <div><h2>{column.label}</h2><p>{column.description}</p></div>
+                <span>{column.items.length}</span>
+              </div>
+              <div className="records-column-body">
+                {(expandedColumns[column.key] ? column.items : column.items.slice(0, 3)).map((item) => renderBoardCard(item))}
+                {column.items.length > 3 && (
+                  <button
+                    className="records-see-more"
+                    onClick={() => setExpandedColumns((current) => ({ ...current, [column.key]: !current[column.key] }))}
+                    aria-expanded={Boolean(expandedColumns[column.key])}
+                  >
+                    {expandedColumns[column.key]
+                      ? "Show less"
+                      : `See more (${column.items.length - 3})`}
+                    <span aria-hidden="true">{expandedColumns[column.key] ? "↑" : "↓"}</span>
+                  </button>
+                )}
+                {canEdit && <button className="records-add-inline" onClick={() => { setError(""); setForm(blank()); }}>+ {mode === "contacts" ? "Contact" : "Company"}</button>}
+              </div>
+            </div>
+          ))}
+        </section>
       ) : (
         <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
           <table className="ops-table">
@@ -322,6 +436,7 @@ export function RecordsView({
               <tr>
                 <th>Name</th>
                 <th>{mode === "contacts" ? "Email" : "Domain"}</th>
+                {mode === "contacts" && <th>Phone</th>}
                 <th>{mode === "contacts" ? "Company" : "Industry"}</th>
                 <th>Actions</th>
               </tr>
@@ -340,6 +455,7 @@ export function RecordsView({
                   <td>
                     {"email" in item ? item.email || "—" : item.domain || "—"}
                   </td>
+                  {mode === "contacts" && <td>{"email" in item ? item.phone || "—" : "—"}</td>}
                   <td>
                     {"email" in item
                       ? companies.find(
