@@ -33,6 +33,7 @@ type ConnectionOperation = "connect" | "reconnect" | "disconnect";
 const operationProgress: Record<ConnectionOperation, string> = {
   connect: "Connecting…", reconnect: "Reconnecting…", disconnect: "Disconnecting…",
 };
+const adminOnlyProviders = new Set(["instagram", "messenger", "whatsapp_business"]);
 
 const integrationCategoryOptions = [
   ["all", "All integrations"],
@@ -487,7 +488,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   }
 
   function connectOAuth(provider: string) {
-    if (!canConnect || (provider === "slack" && !canManage) || busy) return;
+    if (!canConnect || (adminOnlyProviders.has(provider) && !canManage) || (provider === "slack" && !canManage) || busy) return;
     const connection = cards.find((card) => card.provider === provider)?.connection;
     oauthIntent.current = connection && connection.status !== "disconnected" ? "reconnect" : "connect";
     if (provider === "calendly") {
@@ -510,6 +511,12 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   async function authorizeOAuth(provider: string) {
     if (!canConnect || busy || runningProvider.current) return;
+    if (adminOnlyProviders.has(provider) && !canManage) {
+      const message = "Only workspace admins can connect social integrations.";
+      setActionErrors((current) => ({ ...current, [provider]: message }));
+      setNotice(message);
+      return;
+    }
     if (provider === "slack" && !canManage) {
       const message = "Integration management permission is required to connect Slack.";
       setActionErrors((current) => ({ ...current, [provider]: message }));
@@ -627,7 +634,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       const mailDirection = gmailDirection || outlookDirection;
       const canConnectProvider = openAI
         ? canManage
-        : canConnect && (card.provider !== "slack" || canManage);
+        : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage);
        const slackConnections = card.provider === "slack"
          ? (card.connections.length ? card.connections : connection ? [connection] : [])
            .filter((item) => item.is_active && item.status === "verified" && item.credential_state === "configured")
@@ -712,7 +719,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </>}
           <div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div>
           <a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation →</a>
-          {card.supported_auth.includes("oauth2") && canConnect && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}
+          {card.supported_auth.includes("oauth2") && canConnectProvider && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}
           {card.manual_fields.length > 0 && canManage && <div className="manual-credential">
             <span>Secure credential setup</span>
             {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}

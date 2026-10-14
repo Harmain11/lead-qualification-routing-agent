@@ -85,6 +85,11 @@ _OPENAI_USAGE_WINDOWS = {
     "annual": timedelta(days=365),
 }
 
+# Social lead sources are workspace-owned business channels. Only workspace
+# admins/owners may authorize or replace them; ordinary members can view the
+# resulting connection status but cannot grant or rotate provider access.
+_ADMIN_ONLY_PROVIDERS = frozenset({"instagram", "messenger", "whatsapp_business"})
+
 
 class OAuthBeginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -454,6 +459,11 @@ def begin_connection(
         raise HTTPException(
             status_code=403, detail="permission required: integrations.manage"
         )
+    if provider in _ADMIN_ONLY_PROVIDERS and "integrations.manage" not in workspace.permissions:
+        raise HTTPException(
+            status_code=403,
+            detail="Only workspace admins can connect social integrations.",
+        )
     try:
         row, started = begin_oauth_connection(
             session,
@@ -515,6 +525,11 @@ def browser_connection_callback(
         membership = require_membership(session, identity.user_id, connection.workspace_id)
         if "integrations.connect" not in membership_permissions(membership):
             raise AuthorizationError("permission required: integrations.connect")
+        if (
+            provider in _ADMIN_ONLY_PROVIDERS
+            and "integrations.manage" not in membership_permissions(membership)
+        ):
+            raise AuthorizationError("Only workspace admins can connect social integrations.")
         if provider == "slack" and "integrations.manage" not in membership_permissions(membership):
             raise AuthorizationError("permission required: integrations.manage")
         if connection.provider_type != provider:
@@ -626,6 +641,11 @@ def connection_callback(
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
 ) -> ProviderConnectionResponse:
+    if provider in _ADMIN_ONLY_PROVIDERS and "integrations.manage" not in workspace.permissions:
+        raise HTTPException(
+            status_code=403,
+            detail="Only workspace admins can complete social integrations.",
+        )
     connection = _connection_or_404(session, workspace.workspace_id, request.connection_id)
     if connection.provider_type != provider:
         raise HTTPException(status_code=404, detail="Provider connection not found")
