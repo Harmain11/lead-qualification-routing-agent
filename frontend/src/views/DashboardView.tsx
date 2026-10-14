@@ -4,7 +4,6 @@ import { DashboardInsights } from "../components/DashboardInsights";
 import type { DashboardAnalytics } from "../types";
 import type { AnalyticsBundle } from "./productShared";
 import {
-  ActivityFeed,
   Empty,
   LeadRow,
   Panel,
@@ -40,11 +39,6 @@ const dashboardWidgetOptions = [
     id: "average_routing_velocity_minutes",
     label: "Routing velocity",
     group: "Key metrics",
-  },
-  {
-    id: "live-activity",
-    label: "Live operational activity",
-    group: "Dashboard panels",
   },
   {
     id: "attention-queue",
@@ -148,9 +142,7 @@ export function DashboardView({
   );
   const qualificationRate = metricValue(data.dashboard, "qualification_rate");
   const totalLeads = metricValue(data.dashboard, "total_leads");
-  const hasCommandWidgets =
-    visibleWidgets.has("live-activity") ||
-    visibleWidgets.has("attention-queue");
+  const hasCommandWidgets = visibleWidgets.has("attention-queue");
   const hasTrendWidgets =
     visibleWidgets.has("signal-velocity") ||
     visibleWidgets.has("qualification-mix");
@@ -222,26 +214,6 @@ export function DashboardView({
           )}
           {hasCommandWidgets && (
             <section className="dashboard-command-grid">
-              {visibleWidgets.has("live-activity") &&
-                (data.agents ? (
-                  <Panel
-                    title="Live operational activity"
-                    eyebrow="Audited agent events"
-                    action={`${data.agents.activity.length} in range`}
-                  >
-                    <ActivityFeed data={data.agents} compact />
-                  </Panel>
-                ) : (
-                  <Panel
-                    title="Live operational activity"
-                    eyebrow="Audited agent events"
-                  >
-                    <Empty
-                      title="Not available"
-                      text="Your workspace role does not include agent activity access."
-                    />
-                  </Panel>
-                ))}
               {visibleWidgets.has("attention-queue") &&
                 (data.review ? (
                   <Panel
