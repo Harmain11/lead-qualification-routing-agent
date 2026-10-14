@@ -42,6 +42,22 @@ const emptyLead: LeadPayload = {
 
 const LEAD_PAGE_SIZE = 50;
 
+type LeadFilterState = {
+  search: string;
+  band: string;
+  source: string;
+  dateFrom: string;
+  dateTo: string;
+};
+
+const emptyLeadFilters = (): LeadFilterState => ({
+  search: "",
+  band: "all",
+  source: "all",
+  dateFrom: "",
+  dateTo: "",
+});
+
 const LEAD_SOURCE_OPTIONS = [
   "email",
   "website",
@@ -100,6 +116,9 @@ export function LeadsView({
   const [source, setSource] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [appliedFilters, setAppliedFilters] = useState<LeadFilterState>(
+    emptyLeadFilters,
+  );
   const [rows, setRows] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -147,7 +166,13 @@ export function LeadsView({
   useEffect(() => {
     setPage(0);
     setSelectedIds(new Set());
-  }, [search, band, source, dateFrom, dateTo]);
+  }, [
+    appliedFilters.search,
+    appliedFilters.band,
+    appliedFilters.source,
+    appliedFilters.dateFrom,
+    appliedFilters.dateTo,
+  ]);
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible")
@@ -165,11 +190,13 @@ export function LeadsView({
         {
           limit: LEAD_PAGE_SIZE,
           offset: page * LEAD_PAGE_SIZE,
-          search: search.trim() || undefined,
-          source: source === "all" ? undefined : source,
-          qualification_band: band === "all" ? undefined : band,
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
+          search: appliedFilters.search.trim() || undefined,
+          source:
+            appliedFilters.source === "all" ? undefined : appliedFilters.source,
+          qualification_band:
+            appliedFilters.band === "all" ? undefined : appliedFilters.band,
+          date_from: appliedFilters.dateFrom || undefined,
+          date_to: appliedFilters.dateTo || undefined,
         },
         controller.signal,
       )
@@ -195,7 +222,7 @@ export function LeadsView({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [search, band, source, dateFrom, dateTo, page, refreshKey, revision]);
+  }, [appliedFilters, page, refreshKey, revision]);
 
   const visibleSelected = rows.filter((lead) =>
     selectedIds.has(lead.id),
@@ -219,8 +246,29 @@ export function LeadsView({
   const firstRecord = total === 0 ? 0 : page * LEAD_PAGE_SIZE + 1;
   const lastRecord = Math.min((page + 1) * LEAD_PAGE_SIZE, total);
   const hasFilters = Boolean(
-    search.trim() || band !== "all" || source !== "all" || dateFrom || dateTo,
+    appliedFilters.search.trim() ||
+      appliedFilters.band !== "all" ||
+      appliedFilters.source !== "all" ||
+      appliedFilters.dateFrom ||
+      appliedFilters.dateTo,
   );
+  const hasDraftChanges =
+    search !== appliedFilters.search ||
+    band !== appliedFilters.band ||
+    source !== appliedFilters.source ||
+    dateFrom !== appliedFilters.dateFrom ||
+    dateTo !== appliedFilters.dateTo;
+  const applyFilters = () =>
+    setAppliedFilters({ search, band, source, dateFrom, dateTo });
+  const clearFilters = () => {
+    const empty = emptyLeadFilters();
+    setSearch(empty.search);
+    setBand(empty.band);
+    setSource(empty.source);
+    setDateFrom(empty.dateFrom);
+    setDateTo(empty.dateTo);
+    setAppliedFilters(empty);
+  };
   const deleteSelected = async () => {
     if (
       !selectedIds.size ||
@@ -331,10 +379,29 @@ export function LeadsView({
               onChange={(event) => setDateTo(event.target.value)}
             />
           </label>
-          <div className="lead-filter-summary"><span className="live-feed-status">
-            <i />
-            {total.toLocaleString()} records · live
-          </span>          {(search || band !== "all" || source !== "all" || dateFrom || dateTo) && <button type="button" className="button-quiet" onClick={() => { setSearch(""); setBand("all"); setSource("all"); setDateFrom(""); setDateTo(""); }}>Clear filters</button>}
+          <div className="lead-filter-summary">
+            <span className="live-feed-status">
+              <i />
+              {total.toLocaleString()} records · live
+            </span>
+            <div className="lead-filter-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!hasDraftChanges}
+                onClick={applyFilters}
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                className="button-quiet"
+                disabled={!hasDraftChanges && !hasFilters}
+                onClick={clearFilters}
+              >
+                Clear filters
+              </button>
+            </div>
           </div>
         </div>
         {rows.length > 0 && (
@@ -526,7 +593,7 @@ export function LeadsView({
         <ExportDialog
           count={total}
           selectedCount={selectedIds.size}
-          filters={{ search, band, source, dateFrom, dateTo }}
+          filters={appliedFilters}
           onClose={() => setShowExport(false)}
           selectedIds={[...selectedIds]}
         />

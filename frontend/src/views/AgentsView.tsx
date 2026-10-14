@@ -1,6 +1,6 @@
 import { AgentFlow } from "../components/AgentFlow";
 import type { AgentActivity, PipelineAnalytics } from "../types";
-import { ActivityFeed, Panel, Unavailable } from "./productShared";
+import { Panel, Unavailable } from "./productShared";
 
 export function AgentsView({
   data,
@@ -62,13 +62,6 @@ export function AgentsView({
             </article>
           ))}
         </div>
-      </Panel>
-      <Panel
-        title="Recent runs"
-        eyebrow="Workspace audit stream"
-        action={`${data.activity.length} events`}
-      >
-        <ActivityFeed data={data} />
       </Panel>
     </div>
   );

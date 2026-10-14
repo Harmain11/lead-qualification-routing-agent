@@ -854,6 +854,7 @@ html[data-theme] .ops-dialog.lead-drawer .story-section blockquote { font-size: 
 .app-shell .lead-results-empty strong { color: var(--text); font-size: 16px; }
 .app-shell .lead-results-empty span { color: var(--muted); font-size: 14px; line-height: 1.5; }
 .app-shell .lead-filter-summary { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 12px; min-height: 44px; align-self: end; }
+.app-shell .lead-filter-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 @container (max-width: 720px) {
   .app-shell .lead-filter-summary { grid-column: 1 / -1; justify-content: flex-start; }
 }
