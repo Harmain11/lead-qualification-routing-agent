@@ -272,7 +272,7 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .detail-lifecycle { display: grid; grid-template-columns: repeat(7, 1fr); padding: 20px 34px; border-bottom: 1px solid var(--line); }
 .detail-lifecycle > div { position: relative; display: flex; align-items: center; gap: 7px; color: var(--subtle); font-size: 13px; }
 .detail-lifecycle > div:not(:last-child)::after { content: ""; flex: 1; height: 1px; margin-right: 8px; background: var(--line); }
-.detail-lifecycle i { width: 20px; height: 20px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 50%; font-size: 13px; font-style: normal; }
+.detail-lifecycle i { width: 20px; height: 20px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 50%; color: var(--muted); font: 600 12px/1 var(--font-mono); font-style: normal; }
 .detail-lifecycle .complete { color: var(--text); }
 .detail-lifecycle .complete i { border-color: rgba(30,107,82,.4); background: var(--orange-soft); color: var(--orange-hot); }
 .story-section { display: grid; grid-template-columns: 55px 1fr; gap: 15px; padding: 30px 34px; border-bottom: 1px solid var(--line); }

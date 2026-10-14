@@ -24,7 +24,7 @@ export function LeadLifecycle({ lead }: { lead: Lead }) {
     ["Email", lead.confirmation_email?.status === "sent"],
     ["CRM", Boolean(lead.crm_sync)],
   ] as const;
-  return <div className="detail-lifecycle" aria-label="Lead lifecycle">{stages.map(([stage, complete], index) => <div className={complete ? "complete" : "waiting"} key={stage}><i>{complete ? "✓" : index + 1}</i><span>{stage}</span></div>)}</div>;
+  return <div className="detail-lifecycle" aria-label="Lead lifecycle">{stages.map(([stage, complete], index) => <div className={complete ? "complete" : "waiting"} key={stage}><i aria-hidden="true">{complete ? "✓" : String(index + 1).padStart(2, "0")}</i><span>{stage}</span></div>)}</div>;
 }
 
 function LeadMomentumPanel({ lead }: { lead: Lead }) {
