@@ -39,6 +39,10 @@
   align-self: end;
   min-height: var(--control-height);
 }
+.lead-browser .lead-selection-bar > button {
+  align-self: end;
+  white-space: nowrap;
+}
 .lead-browser .lead-selection-bar select {
   min-height: 38px;
   min-width: 120px;
