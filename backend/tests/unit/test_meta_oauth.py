@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import httpx
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -11,7 +12,7 @@ from lead_agent.application.integrations import begin_oauth_connection
 from lead_agent.domain.integrations import PROVIDER_SETUP
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
-from lead_agent.infrastructure.oauth import ProviderOAuthBroker
+from lead_agent.infrastructure.oauth import DevelopmentOAuthBroker, ProviderOAuthBroker
 from lead_agent.infrastructure.secrets import DevelopmentSecretStore
 from lead_agent.settings.config import Settings
 
@@ -31,6 +32,12 @@ def test_meta_social_cards_are_oauth_first() -> None:
     assert PROVIDER_SETUP["whatsapp_business"].preferred_auth == "oauth2"
     for provider in ("instagram", "messenger", "whatsapp_business"):
         assert "oauth2" in PROVIDER_SETUP[provider].supported_auth
+
+
+def test_development_broker_does_not_fake_meta_authorization() -> None:
+    broker = DevelopmentOAuthBroker()
+    with pytest.raises(ValueError, match="real provider OAuth credentials"):
+        broker.begin("instagram", uuid4(), "state", "challenge", "http://localhost/callback", [])
 
 
 def test_meta_oauth_uses_the_channel_app_and_comma_delimited_permissions(tmp_path) -> None:

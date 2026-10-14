@@ -85,7 +85,7 @@ function oauthConnectFailureMessage(provider: string, message: string) {
     whatsapp_business: { name: "WhatsApp Business", keys: ["META_WHATSAPP_CLIENT_ID", "META_WHATSAPP_CLIENT_SECRET"] },
   };
   const providerSettings = settings[provider];
-  if (providerSettings && /OAuth application credentials are not configured/i.test(message)) {
+  if (providerSettings && /OAuth application credentials are not configured|Meta social connections require real provider OAuth credentials/i.test(message)) {
     return `${providerSettings.name} can't connect yet. Add ${providerSettings.keys.join(" and ")} to Replit Secrets, then try again.`;
   }
   return message;

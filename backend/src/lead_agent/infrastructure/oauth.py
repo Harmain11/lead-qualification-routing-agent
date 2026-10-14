@@ -15,6 +15,9 @@ from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.settings.config import Settings, get_settings
 
 
+_META_PROVIDERS = frozenset({"instagram", "messenger", "whatsapp_business"})
+
+
 @dataclass(frozen=True)
 class OAuthProviderConfig:
     client_id: str
@@ -35,6 +38,11 @@ class DevelopmentOAuthBroker:
         redirect_uri: str,
         scopes: list[str],
     ) -> str:
+        if provider in _META_PROVIDERS:
+            raise ValueError(
+                "Meta social connections require real provider OAuth credentials. "
+                "Set OAUTH_BROKER=provider and the matching META_* client ID and secret."
+            )
         query = urlencode(
             {
                 "connection_id": str(connection_id),

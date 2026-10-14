@@ -155,9 +155,10 @@ Configure these server-side secrets:
 
 For each Meta app, add the matching callback URL:
 `{INTEGRATION_PUBLIC_BASE_URL}/v1/integrations/{provider}/oauth/callback`.
-The provider must use the same HTTPS public base URL configured in deployment. Local development can
-use the deterministic OAuth broker; production requires `OAUTH_BROKER=provider` and the managed
-secret store.
+The provider must use the same HTTPS public base URL configured in deployment. Meta social
+connections never use the deterministic development broker: configure `OAUTH_BROKER=provider`,
+the Meta client secrets, and the managed secret store before enabling Connect. Production requires
+the same provider broker and managed secret store.
 
 The Corral cards request the minimum channel permissions currently needed for the connection:
 Instagram (`instagram_basic`, `instagram_manage_messages`, `pages_show_list`), Messenger
