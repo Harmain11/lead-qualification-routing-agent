@@ -417,8 +417,8 @@ export function LeadsView({
             <span>{selectedIds.size} selected</span>
             {canCrmSync && (
               <>
-                <label>
-                  Transfer to{" "}
+                <label className="lead-transfer-control">
+                  <span>Transfer to</span>
                   <SelectMenu
                     aria-label="Bulk CRM provider"
                     value={bulkProvider}

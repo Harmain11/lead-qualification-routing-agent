@@ -20,6 +20,25 @@
 .lead-browser .lead-selection-bar > label:first-child { margin-right: auto; }
 .lead-browser .lead-selection-bar > span { margin-left: 0; }
 .lead-browser .lead-selection-bar input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; accent-color: #1E6B52; }
+.lead-browser .lead-selection-bar .lead-transfer-control {
+  display: grid;
+  flex: 0 1 260px;
+  align-items: stretch;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.lead-browser .lead-selection-bar .lead-transfer-control .select-menu-trigger {
+  width: 100%;
+  min-height: var(--control-height);
+  border-color: var(--line-bright);
+  background: var(--surface);
+  font-size: var(--font-control);
+}
+.lead-browser .lead-selection-bar .lead-transfer-control + button {
+  align-self: end;
+  min-height: var(--control-height);
+}
 .lead-browser .lead-selection-bar select {
   min-height: 38px;
   min-width: 120px;
