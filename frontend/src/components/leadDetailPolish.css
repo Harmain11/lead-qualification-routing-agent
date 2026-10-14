@@ -112,8 +112,8 @@
 }
 .lead-drawer .lead-detail-tab::after,
 .lead-story .lead-detail-tab::after { right: 10px; left: 10px; }
-.lead-drawer .lead-section-pin,
-.lead-story .lead-section-pin { margin: 0; white-space: nowrap; }
+.lead-drawer .lead-section-pin { margin: 0; white-space: nowrap; }
+.lead-story .lead-section-pin { margin: 0 0 6px; white-space: nowrap; }
 
 .lead-drawer .story-section,
 .lead-story .story-section {
