@@ -85,7 +85,7 @@
   align-items: center;
   gap: 14px;
   margin: 0;
-  padding: 8px clamp(18px, 2.5vw, 32px);
+  padding: 8px clamp(18px, 2.5vw, 32px) 18px;
   border-bottom: 1px solid var(--line);
 }
 .lead-drawer .lead-detail-tabs,
@@ -113,7 +113,7 @@
 .lead-drawer .lead-detail-tab::after,
 .lead-story .lead-detail-tab::after { right: 10px; left: 10px; }
 .lead-drawer .lead-section-pin { margin: 0; white-space: nowrap; }
-.lead-story .lead-section-pin { margin: 0 0 12px; white-space: nowrap; }
+.lead-story .lead-section-pin { margin: 0; white-space: nowrap; }
 
 .lead-drawer .story-section,
 .lead-story .story-section {
