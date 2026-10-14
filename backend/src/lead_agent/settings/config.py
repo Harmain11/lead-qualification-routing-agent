@@ -124,6 +124,14 @@ class Settings(BaseSettings):
     hubspot_oauth_api_version: str = "2026-09"
     linkedin_client_id: str = ""
     linkedin_client_secret: str = ""
+    # Each Meta social channel uses its own operator-owned app so customers
+    # can sign in and grant only the channel permissions they selected.
+    meta_instagram_client_id: str = ""
+    meta_instagram_client_secret: str = ""
+    meta_messenger_client_id: str = ""
+    meta_messenger_client_secret: str = ""
+    meta_whatsapp_client_id: str = ""
+    meta_whatsapp_client_secret: str = ""
     salesforce_client_id: str = ""
     salesforce_client_secret: str = ""
     salesforce_refresh_token: str = ""

@@ -246,11 +246,14 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         display_name="Instagram",
         category="Social",
         availability="foundation",
-        preferred_auth="private_token",
-        supported_auth=["private_token"],
-        dashboard_path="Meta Business Suite → Instagram accounts",
-        credential_help="Paste a Meta access token and the Instagram account ID used for lead intake.",
-        required_scopes=["Instagram lead access"],
+        preferred_auth="oauth2",
+        supported_auth=["oauth2", "private_token"],
+        dashboard_path="Meta Developer app · Corral Social Leads Visual",
+        credential_help=(
+            "Sign in with Meta to choose the Instagram account and grant the approved lead-intake permissions. "
+            "A workspace admin can use a page or account token as a secure fallback."
+        ),
+        required_scopes=["instagram_basic", "instagram_manage_messages", "pages_show_list"],
         permission_reason="Receive lead data only through officially approved Instagram access.",
         documentation_url="https://developers.facebook.com/docs/instagram-api/",
         manual_fields=["access_token", "account_id"],
@@ -260,11 +263,14 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         display_name="Messenger",
         category="Social",
         availability="foundation",
-        preferred_auth="private_token",
-        supported_auth=["private_token"],
-        dashboard_path="Meta Business Suite → Messenger",
-        credential_help="Paste a Meta page access token and the Facebook Page ID used for lead intake.",
-        required_scopes=["Messenger lead access"],
+        preferred_auth="oauth2",
+        supported_auth=["oauth2", "private_token"],
+        dashboard_path="Meta Developer app · Corral Social Leads Inbox",
+        credential_help=(
+            "Sign in with Meta to choose the Facebook Page and grant the approved Messenger permissions. "
+            "A workspace admin can use a page access token as a secure fallback."
+        ),
+        required_scopes=["pages_show_list", "pages_read_engagement", "pages_manage_metadata", "pages_messaging"],
         permission_reason="Receive lead data only through officially approved Messenger access.",
         documentation_url="https://developers.facebook.com/docs/messenger-platform/",
         manual_fields=["page_access_token", "page_id"],
@@ -274,11 +280,14 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         display_name="WhatsApp Business",
         category="Social",
         availability="foundation",
-        preferred_auth="private_token",
-        supported_auth=["private_token"],
-        dashboard_path="Meta Business Suite → WhatsApp Business",
-        credential_help="Paste a WhatsApp Cloud API token, business account ID, and phone number ID.",
-        required_scopes=["WhatsApp Business lead access"],
+        preferred_auth="oauth2",
+        supported_auth=["oauth2", "private_token"],
+        dashboard_path="Meta Developer app · Corral Social Leads Business",
+        credential_help=(
+            "Sign in with Meta to select the WhatsApp Business account and grant the approved messaging permissions. "
+            "A workspace admin can use a Cloud API token as a secure fallback."
+        ),
+        required_scopes=["business_management", "whatsapp_business_management", "whatsapp_business_messaging"],
         permission_reason="Receive lead data only through officially approved WhatsApp Business access.",
         documentation_url="https://developers.facebook.com/docs/whatsapp/",
         manual_fields=["access_token", "business_account_id", "phone_number_id"],

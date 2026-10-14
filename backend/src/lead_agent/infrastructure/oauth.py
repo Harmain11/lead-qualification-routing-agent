@@ -136,6 +136,24 @@ class ProviderOAuthBroker:
                 "https://www.linkedin.com/oauth/v2/authorization",
                 "https://www.linkedin.com/oauth/v2/accessToken",
             ),
+            "instagram": OAuthProviderConfig(
+                self.settings.meta_instagram_client_id,
+                self.settings.meta_instagram_client_secret,
+                "https://www.facebook.com/v20.0/dialog/oauth",
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+            ),
+            "messenger": OAuthProviderConfig(
+                self.settings.meta_messenger_client_id,
+                self.settings.meta_messenger_client_secret,
+                "https://www.facebook.com/v20.0/dialog/oauth",
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+            ),
+            "whatsapp_business": OAuthProviderConfig(
+                self.settings.meta_whatsapp_client_id,
+                self.settings.meta_whatsapp_client_secret,
+                "https://www.facebook.com/v20.0/dialog/oauth",
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+            ),
         }
         config = configs.get(provider)
         if config is None:
@@ -159,7 +177,11 @@ class ProviderOAuthBroker:
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "state": state,
-            "scope": ",".join(scopes) if provider == "slack" else " ".join(scopes),
+            # Meta's dialog expects comma-delimited permissions. Slack has the
+            # same requirement, while the remaining providers use spaces.
+            "scope": ",".join(scopes)
+            if provider == "slack" or provider in {"instagram", "messenger", "whatsapp_business"}
+            else " ".join(scopes),
         }
         query.update(
             {

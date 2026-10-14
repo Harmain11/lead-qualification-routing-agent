@@ -79,6 +79,9 @@ function oauthConnectFailureMessage(provider: string, message: string) {
     hubspot: { name: "HubSpot", keys: ["HUBSPOT_CLIENT_ID", "HUBSPOT_CLIENT_SECRET"] },
     google_calendar: { name: "Google Calendar", keys: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] },
     calendly: { name: "Calendly", keys: ["CALENDLY_CLIENT_ID", "CALENDLY_CLIENT_SECRET"] },
+    instagram: { name: "Instagram", keys: ["META_INSTAGRAM_CLIENT_ID", "META_INSTAGRAM_CLIENT_SECRET"] },
+    messenger: { name: "Messenger", keys: ["META_MESSENGER_CLIENT_ID", "META_MESSENGER_CLIENT_SECRET"] },
+    whatsapp_business: { name: "WhatsApp Business", keys: ["META_WHATSAPP_CLIENT_ID", "META_WHATSAPP_CLIENT_SECRET"] },
   };
   const providerSettings = settings[provider];
   if (providerSettings && /OAuth application credentials are not configured/i.test(message)) {
