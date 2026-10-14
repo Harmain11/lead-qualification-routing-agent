@@ -526,7 +526,6 @@ export function LeadsView({
                 <th>Score</th>
                 <th>Routing</th>
                 <th>Representative</th>
-                <th>CRM</th>
                 <th>Received</th>
               </tr>
             </thead>
@@ -979,11 +978,6 @@ const LeadTableRow = memo(function LeadTableRow({
       </td>
       <td data-label="Representative">
         {lead.routing?.assigned_rep_name || "Unassigned"}
-      </td>
-      <td data-label="CRM">
-        <span className={`state-dot state-${lead.crm_sync?.status || "none"}`}>
-          {pretty(lead.crm_sync?.status || "Not synced")}
-        </span>
       </td>
       <td data-label="Received">
         {new Date(lead.received_at).toLocaleDateString()}
