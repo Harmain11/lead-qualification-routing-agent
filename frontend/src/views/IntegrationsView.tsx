@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CloudTalkAgent, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
+import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { SlackSetupGuide } from "../components/SlackSetupGuide";
 import { createSlackRule } from "../slackRouting";
@@ -32,6 +33,27 @@ import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
 import { can } from "../permissions";
 import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
 import type { CrmInboundSyncState,IntegrationCard,ProviderConnection,SlackNotificationConfig,SlackNotificationRule } from "../types";
+
+function ProviderDetailsPanel({
+  provider,
+  open,
+  onClose,
+  id,
+  children,
+}: {
+  provider: string;
+  open: boolean;
+  onClose: () => void;
+  id: string;
+  children: ReactNode;
+}) {
+  if (provider === "slack") {
+    return open ? <OperationsDialog id={id} title="Slack connection" onClose={onClose} className="slack-connection-dialog">
+      <div className="provider-details slack-provider-details">{children}</div>
+    </OperationsDialog> : null;
+  }
+  return <div className="provider-details" id={id} hidden={!open}>{children}</div>;
+}
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
 const AI_PROVIDER_GROUP = "ai-analysis";
@@ -301,6 +323,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [selectedAIProvider, setSelectedAIProvider] = useState("openai");
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(() => new Set());
   const [slackGuideOpen, setSlackGuideOpen] = useState(false);
+  const [slackPanelOpen, setSlackPanelOpen] = useState(false);
   const callingSection = selectedSection === "calling";
   const aiSection = selectedSection === "ai";
   const selectedProvider = !callingSection && !aiSection && selectedSection ? selectedSection : "";
@@ -370,16 +393,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     if (opening) {
       requestAnimationFrame(() => document.querySelector<HTMLElement>(`.integration-card.provider-${provider}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
     }
-  }
-  function openSlackSetupGuide() {
-    setExpandedProviders((current) => new Set([...current, "slack"]));
-    setSlackGuideOpen(true);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(".slack-setup-guide")?.scrollIntoView({
-        block: "center",
-        behavior: "smooth",
-      });
-    }));
   }
   function showCredentialSetup(provider: string) {
     setExpanded(provider);
@@ -867,13 +880,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          : [];
        const selectedReasoningModel = modelSelections[card.provider] ?? connection?.selected_model ?? card.default_model ?? card.supported_models[0] ?? "";
        const selectedOpenAIModel = selectedReasoningModel;
+        const detailsOpen = card.provider === "slack" ? slackPanelOpen : open;
       const oauthConnected =
         (card.provider === "instagram" || card.provider === "messenger") &&
         connection &&
         ["connected", "verified"].includes(connection.status);
-        return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${!open ? " is-collapsed" : ""}`} key={card.provider}>
-           <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${open ? "Collapse" : "Expand"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={open} aria-controls={`integration-details-${card.provider}`} onClick={() => toggleProviderExpanded(card.provider)}><span aria-hidden="true">{open ? "−" : "+"}</span></button></div>
-          <div className="provider-details" id={`integration-details-${card.provider}`} hidden={!open}>
+         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : ""}`} key={card.provider}>
+           <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${detailsOpen ? "Close" : "Open"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}><span aria-hidden="true">{detailsOpen ? "−" : "+"}</span></button></div>
+          <ProviderDetailsPanel provider={card.provider} open={detailsOpen} onClose={() => setSlackPanelOpen(false)} id={`integration-details-${card.provider}`}>
          {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
           <p>{card.credential_help}</p>
           {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
@@ -927,7 +941,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         </div>}
         {!comingSoon && <div className="card-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
-           <button className={card.provider === "slack" ? "slack-guide-cta slack-guide-cta-footer" : "button-quiet"} onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : card.provider === "slack" ? openSlackSetupGuide() : toggleProviderExpanded(card.provider)}>{card.provider === "slack" ? "How to connect Slack" : "Setup guide"}</button>
+            {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
         </div>}
         {card.provider === "calendly" && accountChoiceProvider === card.provider && <IntegrationAccountChoice
           key={card.provider} provider={card.provider} accountName={connection?.account_name}
@@ -955,7 +969,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                  await selectCloudTalkAgent(connection.id, cloudTalkAgentSelections[connection.id]);
                }, "CloudTalk agent saved. Verify the connection before placing calls.")}>Save agent</button>
              </>}
-           </div>
+            </div>
            {typeof connection.metadata.cloudtalk_agent_name === "string" && <small>Selected: {connection.metadata.cloudtalk_agent_name} · Verify the connection to enable calling.</small>}
          </div>}
          {reasoningProvider && connection && canManage && <div className="integration-guide reasoning-model-config"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedReasoningModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button className="button-quiet" onClick={() => void act(card.provider, () => updateReasoningModel(connection.id, selectedReasoningModel), `${card.display_name} model saved. Test the connection before use.`)} disabled={busy === card.provider || !selectedReasoningModel}>Save model</button></div>}
@@ -972,7 +986,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             {syncFeedback[connection.id] && <div className={`notice integration-sync-feedback sync-feedback-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">{syncFeedback[connection.id].message}</div>}
           </div>}
         </div>}
-         {!comingSoon && open && <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
+          {!comingSoon && (open || card.provider === "slack") && <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
           <span className="eyebrow">Connection briefing</span>
           <strong>{card.dashboard_path}</strong>
           <p>{card.permission_reason}</p>
@@ -1018,7 +1032,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         </div>}
         {operationFeedback[card.provider] && <div className={`notice notice-${operationFeedback[card.provider].state} integration-operation-feedback operation-${operationFeedback[card.provider].state}`} role={operationFeedback[card.provider].state === "error" ? "alert" : "status"} aria-live="polite" aria-busy={operationFeedback[card.provider].state === "running"}>{operationFeedback[card.provider].message}</div>}
         {actionErrors[card.provider] && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
-          </div>
+          </ProviderDetailsPanel>
        </article>;
     })}</div>
     </section>)}</div>}
