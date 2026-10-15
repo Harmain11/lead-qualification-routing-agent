@@ -12,6 +12,8 @@ from sqlalchemy.pool import StaticPool
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.api.routes import calling
+from lead_agent.api.routes import integrations as integration_routes
+from lead_agent.application.integrations import _validate_manual_credentials
 from lead_agent.application.services import process_lead
 from lead_agent.domain.provider_errors import provider_timeout_error
 from lead_agent.domain.rbac import role_permissions
@@ -282,6 +284,41 @@ def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
     assert transcript_offsets == ["0", "1000"]
 
 
+def test_cloudtalk_agent_picker_can_load_agents_before_an_id_is_selected():
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "responseData": {
+                    "data": [
+                        {"id": 7, "name": "Jordan Rep", "email": "private@example.com"},
+                        {"id": "invalid", "name": "Invalid Agent"},
+                    ]
+                }
+            },
+        )
+
+    credentials = {
+        "access_key_id": "key-id",
+        "access_key_secret": "key-secret",
+    }
+    _validate_manual_credentials("cloudtalk", "private_token", credentials)
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        agents = CommunicationsClient(
+            "cloudtalk", credentials, client=client
+        ).list_cloudtalk_agents()
+
+    assert agents == [{"id": "7", "name": "Jordan Rep"}]
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/api/agents/index.json"
+    assert seen[0].headers["authorization"].startswith("Basic ")
+    assert "email" not in str(agents)
+
+
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
 def test_bad_credentials_and_errors_are_secret_safe(status):
     with httpx.Client(
@@ -423,6 +460,81 @@ def request(connection):
         "confirmed": True,
         "rep_phone": REP,
     }
+
+
+def test_cloudtalk_agent_picker_routes_store_only_selected_agent_id(calls, monkeypatch):
+    from lead_agent.application.integrations import create_manual_connection
+    from lead_agent.domain.integrations import (
+        PROVIDER_SETUP,
+        ManualConnectionInput,
+    )
+    from lead_agent.infrastructure.provider_lifecycle import WorkspaceAuthorizedConnectionResolver
+    from lead_agent.infrastructure.secrets import get_secret_store
+
+    session, client, workspace, _, _, other_connection, *_ = calls
+    store = get_secret_store()
+    setup = PROVIDER_SETUP["cloudtalk"]
+    credentials = {"access_key_id": "key-id", "access_key_secret": "key-secret"}
+    connection = create_manual_connection(
+        session,
+        workspace.workspace_id,
+        "cloudtalk",
+        ManualConnectionInput(
+            account_name="CloudTalk test",
+            auth_type="private_token",
+            scopes=setup.required_scopes,
+            credentials=credentials,
+        ),
+        store,
+        workspace.actor_id,
+    )
+
+    class FakeCloudTalkClient:
+        def __init__(self, provider, values):
+            assert provider == "cloudtalk"
+            assert values == credentials
+
+        def list_cloudtalk_agents(self):
+            return [{"id": "8", "name": "Jordan Rep"}]
+
+    monkeypatch.setattr(integration_routes, "CommunicationsClient", FakeCloudTalkClient)
+    monkeypatch.setattr(
+        integration_routes,
+        "get_workspace_connection_resolver",
+        lambda: WorkspaceAuthorizedConnectionResolver(store),
+    )
+
+    listed = client.get(
+        f"/v1/integrations/connections/{connection.id}/cloudtalk-agents"
+    )
+    assert listed.status_code == 200
+    assert listed.json() == {
+        "agents": [{"id": "8", "name": "Jordan Rep"}],
+        "selected_agent_id": None,
+    }
+    wrong_workspace = client.get(
+        f"/v1/integrations/connections/{other_connection.id}/cloudtalk-agents"
+    )
+    assert wrong_workspace.status_code == 404
+    invalid = client.put(
+        f"/v1/integrations/connections/{connection.id}/cloudtalk-agent",
+        json={"agent_id": "999"},
+    )
+    assert invalid.status_code == 422
+    assert store.retrieve_for_workspace(
+        workspace.workspace_id, "cloudtalk", connection.secret_reference
+    ) == credentials
+    saved = client.put(
+        f"/v1/integrations/connections/{connection.id}/cloudtalk-agent",
+        json={"agent_id": "8"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["metadata"]["cloudtalk_agent_name"] == "Jordan Rep"
+    assert saved.json()["status"] == "connected"
+    stored = store.retrieve_for_workspace(
+        workspace.workspace_id, "cloudtalk", connection.secret_reference
+    )
+    assert stored == {**credentials, "agent_id": "8"}
 
 
 def test_call_is_confirmed_and_duplicate_request_never_redials(calls):

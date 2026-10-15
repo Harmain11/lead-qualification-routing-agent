@@ -44,8 +44,10 @@ from lead_agent.domain.integrations import (
     SecretStore,
 )
 from lead_agent.domain.oauth_errors import OAuthProviderError
+from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.communications import CommunicationsClient
 from lead_agent.infrastructure.db.models import (
     AnalysisRunORM,
     LeadORM,
@@ -58,6 +60,7 @@ from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import (
     get_provider_connection_validator,
     get_provider_revoker,
+    get_workspace_connection_resolver,
     record_provider_lifecycle_audit,
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
@@ -135,6 +138,17 @@ class ReconnectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     credentials: dict[str, str]
+
+
+class CloudTalkAgentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=1, max_length=128, pattern=r"^[0-9]+$")
+
+
+class CloudTalkAgentResponse(BaseModel):
+    id: str
+    name: str
 
 
 class OpenAIModelRequest(BaseModel):
@@ -1208,6 +1222,124 @@ def reconnect(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return provider_connection_response(row)
+
+
+@router.get(
+    "/connections/{connection_id}/cloudtalk-agents",
+    response_model=dict[str, Any],
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def list_cloudtalk_agents(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> dict[str, Any]:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(status_code=404, detail="CloudTalk connection not found")
+    resolved = get_workspace_connection_resolver().resolve_connection(
+        session,
+        workspace.workspace_id,
+        connection_id,
+        actor_id=workspace.actor_id,
+        allow_unverified=True,
+    )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409, detail="Store CloudTalk credentials before loading agents."
+        )
+    client = CommunicationsClient("cloudtalk", resolved.credentials)
+    try:
+        agents = client.list_cloudtalk_agents()
+    except (ProviderOperationError, ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=502,
+            detail="CloudTalk agents could not be loaded. Check the stored Access Key credentials.",
+        ) from None
+    return {
+        "agents": [CloudTalkAgentResponse(**agent) for agent in agents],
+        "selected_agent_id": resolved.credentials.get("agent_id"),
+    }
+
+
+@router.put(
+    "/connections/{connection_id}/cloudtalk-agent",
+    response_model=ProviderConnectionResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def select_cloudtalk_agent(
+    connection_id: UUID,
+    request: CloudTalkAgentRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    secret_store: SecretStore = Depends(get_secret_store),
+) -> ProviderConnectionResponse:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(status_code=404, detail="CloudTalk connection not found")
+    resolved = get_workspace_connection_resolver().resolve_connection(
+        session,
+        workspace.workspace_id,
+        connection_id,
+        actor_id=workspace.actor_id,
+        allow_unverified=True,
+    )
+    if resolved is None or not connection.secret_reference:
+        raise HTTPException(
+            status_code=409, detail="Store CloudTalk credentials before selecting an agent."
+        )
+    client = CommunicationsClient("cloudtalk", resolved.credentials)
+    try:
+        agents = client.list_cloudtalk_agents()
+    except (ProviderOperationError, ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "CloudTalk agents could not be verified. "
+                "Check the stored Access Key credentials."
+            ),
+        ) from None
+    selected = next((agent for agent in agents if agent["id"] == request.agent_id), None)
+    if selected is None:
+        raise HTTPException(
+            status_code=422, detail="Choose an agent listed in this CloudTalk account."
+        )
+    credentials = {**resolved.credentials, "agent_id": request.agent_id}
+    try:
+        connection.secret_reference = secret_store.replace_for_workspace(
+            workspace.workspace_id,
+            "cloudtalk",
+            connection.secret_reference,
+            credentials,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="The CloudTalk agent selection could not be saved."
+        ) from None
+    connection.connection_metadata = {
+        **connection.connection_metadata,
+        "cloudtalk_agent_id": selected["id"],
+        "cloudtalk_agent_name": selected["name"],
+    }
+    connection.status = "connected"
+    connection.credential_state = "configured"
+    connection.last_validation_at = None
+    connection.last_validation_result = {
+        "status": "not_verified",
+        "message": "CloudTalk agent selected; verify the connection before calling.",
+    }
+    connection.updated_at = datetime.now(UTC)
+    record_provider_lifecycle_audit(
+        session,
+        connection,
+        action="cloudtalk_agent_selected",
+        outcome="configured",
+        actor_id=workspace.actor_id,
+        details={"agent_id": selected["id"]},
+    )
+    session.commit()
+    session.refresh(connection)
+    return provider_connection_response(connection)
 
 
 @router.put(

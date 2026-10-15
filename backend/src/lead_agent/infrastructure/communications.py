@@ -170,6 +170,31 @@ class CommunicationsClient:
     def ringcentral_token(self) -> str:
         if self._token and self._token_until > time.monotonic():
             return self._token
+
+    def list_cloudtalk_agents(self) -> list[dict[str, str]]:
+        if self.provider != "cloudtalk":
+            raise ValueError("This provider does not have a CloudTalk agent list.")
+        result = self.request(
+            "GET", "/api/agents/index.json", params={"limit": 1000, "page": 1}
+        )
+        response_data = result.get("responseData", {})
+        items = response_data.get("data", []) if isinstance(response_data, dict) else []
+        if not isinstance(items, list):
+            raise ValueError("CloudTalk returned an invalid agent list.")
+        agents = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            agent_id = str(item.get("id", ""))
+            if not agent_id.isdigit():
+                continue
+            agents.append(
+                {
+                    "id": agent_id,
+                    "name": str(item.get("name") or f"Agent {agent_id}")[:255],
+                }
+            )
+        return agents
         result = self.request(
             "POST",
             "/restapi/oauth/token",

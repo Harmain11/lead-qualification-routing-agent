@@ -57,10 +57,11 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     **{
         key: set(PROVIDER_SETUP[key].manual_fields)
         for key in (
-            "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk",
+            "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell",
             "instagram", "messenger", "whatsapp_business", "clutch",
         )
     },
+    "cloudtalk": {"access_key_id", "access_key_secret"},
 }
 
 
@@ -123,7 +124,12 @@ def _validate_manual_credentials(
     missing = sorted(REQUIRED_MANUAL_CREDENTIALS.get(provider, set()) - credentials.keys())
     if missing:
         raise ValueError(f"missing credential fields: {', '.join(missing)}")
-    unexpected = sorted(credentials.keys() - REQUIRED_MANUAL_CREDENTIALS.get(provider, set()))
+    allowed = set(REQUIRED_MANUAL_CREDENTIALS.get(provider, set()))
+    if provider == "cloudtalk":
+        allowed.add("agent_id")
+        if "agent_id" in credentials and not credentials["agent_id"].isdigit():
+            raise ValueError("CloudTalk agent ID must be numeric.")
+    unexpected = sorted(credentials.keys() - allowed)
     if unexpected:
         raise ValueError(f"unsupported credential fields: {', '.join(unexpected)}")
 
@@ -1158,6 +1164,12 @@ def reconnect_connection(
     row.credential_state = "configured"
     row.status = "connected"
     row.last_validation_result = {"status": "not_verified"}
+    if row.provider_type == "cloudtalk":
+        row.connection_metadata = {
+            key: value
+            for key, value in row.connection_metadata.items()
+            if key not in {"cloudtalk_agent_id", "cloudtalk_agent_name"}
+        }
     row.disconnected_at = None
     row.updated_at = datetime.now(UTC)
     if row.provider_type in REASONING_PROVIDERS:
