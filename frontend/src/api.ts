@@ -469,6 +469,21 @@ export function listSlackChannels(connectionId: string): Promise<SlackChannel[]>
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels`);
 }
 
+export type CloudTalkAgent = { id: string; name: string };
+export function listCloudTalkAgents(connectionId: string): Promise<{
+  agents: CloudTalkAgent[];
+  selected_agent_id: string | null;
+}> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/cloudtalk-agents`);
+}
+export function selectCloudTalkAgent(connectionId: string, agentId: string): Promise<ProviderConnection> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/cloudtalk-agent`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_id: agentId }),
+  });
+}
+
 export type SlackMember = { id: string; name: string };
 export function listSlackChannelMembers(connectionId: string, channelId: string): Promise<SlackMember[]> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels/${encodeURIComponent(channelId)}/members`);

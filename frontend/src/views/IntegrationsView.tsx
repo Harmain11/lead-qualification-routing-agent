@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SlackChannel } from "../api";
+import type { CloudTalkAgent, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { createSlackRule } from "../slackRouting";
@@ -13,11 +13,13 @@ disconnectIntegration,
 getInboundSyncState,
 getSlackNotificationConfig,
 listIntegrations,
+  listCloudTalkAgents,
 listSlackChannelMembers,
 listSlackChannels,
 reconnectIntegration,
 runInboundSync,
 selectSlackChannel,
+  selectCloudTalkAgent,
 sendSlackTestNotification,
 testIntegration,
 updateReasoningModel,
@@ -306,6 +308,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [salesforceSetupOpen, setSalesforceSetupOpen] = useState(false);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
+  const [cloudTalkAgents, setCloudTalkAgents] = useState<Record<string, CloudTalkAgent[]>>({});
+  const [cloudTalkAgentSelections, setCloudTalkAgentSelections] = useState<Record<string, string>>({});
   const [modelSelections, setModelSelections] = useState<Record<string, string>>({});
   const aiProviderSelectionInitialized = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -396,6 +400,17 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         }
       }
       setCards(nextCards);
+      setCloudTalkAgentSelections((current) => {
+        const next = { ...current };
+        for (const card of nextCards) {
+          const connection = card.provider === "cloudtalk" ? card.connection : null;
+          const selected = connection?.metadata.cloudtalk_agent_id;
+          if (connection && typeof selected === "string" && !next[connection.id]) {
+            next[connection.id] = selected;
+          }
+        }
+        return next;
+      });
       try {
         setSlackRouting(await getSlackNotificationConfig());
         setSlackRoutingLoadError(null);
@@ -807,6 +822,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
        const status = connection?.status ?? "not_connected";
        const comingSoon = section.id === "coming-soon" || card.availability === "future";
        const openAI = card.provider === "openai";
+        const cloudTalk = card.provider === "cloudtalk";
+        const requiredManualFields = cloudTalk
+          ? ["access_key_id", "access_key_secret"]
+          : card.manual_fields;
         const reasoningProvider = isReasoningProvider(card.provider);
        const statusLabel = comingSoon ? "Coming soon" : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};
@@ -893,7 +912,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>}
         {!comingSoon && <div className="card-actions">
-           {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
+            {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
           <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>
         </div>}
         {card.provider === "calendly" && accountChoiceProvider === card.provider && <IntegrationAccountChoice
@@ -902,6 +921,29 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           onContinue={() => void authorizeOAuth(card.provider)}
           onCancel={() => setAccountChoiceProvider(null)}
         />}
+         {cloudTalk && connection && canManage && <div className="integration-guide cloudtalk-agent-picker">
+           <span className="eyebrow">CloudTalk calling agent</span>
+           <p>Store the Access Key ID and Secret first. Loading this list only reads agent names and IDs; it never places a call.</p>
+           <div className="card-actions">
+             <button type="button" className="button-quiet" disabled={Boolean(busy)} onClick={() => void act(card.provider, async () => {
+               const result = await listCloudTalkAgents(connection.id);
+               setCloudTalkAgents((current) => ({ ...current, [connection.id]: result.agents }));
+               if (result.selected_agent_id) {
+                 setCloudTalkAgentSelections((current) => ({ ...current, [connection.id]: result.selected_agent_id! }));
+               }
+             }, "CloudTalk agents loaded.")}>{busy === card.provider ? "Loading agents…" : "Load agents"}</button>
+             {cloudTalkAgents[connection.id] && <>
+               <label>Agent<select value={cloudTalkAgentSelections[connection.id] ?? ""} onChange={(event) => setCloudTalkAgentSelections((current) => ({ ...current, [connection.id]: event.target.value }))}>
+                 <option value="">Choose a CloudTalk agent</option>
+                 {cloudTalkAgents[connection.id].map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · ID {agent.id}</option>)}
+               </select></label>
+               <button type="button" disabled={Boolean(busy) || !cloudTalkAgentSelections[connection.id]} onClick={() => void act(card.provider, async () => {
+                 await selectCloudTalkAgent(connection.id, cloudTalkAgentSelections[connection.id]);
+               }, "CloudTalk agent saved. Verify the connection before placing calls.")}>Save agent</button>
+             </>}
+           </div>
+           {typeof connection.metadata.cloudtalk_agent_name === "string" && <small>Selected: {connection.metadata.cloudtalk_agent_name} · Verify the connection to enable calling.</small>}
+         </div>}
          {reasoningProvider && connection && canManage && <div className="integration-guide reasoning-model-config"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedReasoningModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button className="button-quiet" onClick={() => void act(card.provider, () => updateReasoningModel(connection.id, selectedReasoningModel), `${card.display_name} model saved. Test the connection before use.`)} disabled={busy === card.provider || !selectedReasoningModel}>Save model</button></div>}
         {!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified" && <div className="integration-guide">
           <span className="eyebrow">{mailDirection ? "Automatic inbound email acquisition" : "Inbound CRM synchronization"}</span>
@@ -932,7 +974,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             <span>Secure credential setup</span>
             {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}
             {openAI && !connection && <label>Model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label>}
-            {card.manual_fields.map((field) => {
+            {card.manual_fields.filter((field) => !cloudTalk || field !== "agent_id").map((field) => {
               const secret = /token|secret|jwt|api_key/.test(field);
               const label = field === "from_number" ? "Phone number (+country code)" : field.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
               const inputProps = {
@@ -946,7 +988,17 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                 : <input type={field === "from_number" ? "tel" : "text"} autoComplete="off" {...inputProps} />}
               </label>;
             })}
-            <button disabled={Boolean(busy) || card.manual_fields.some((field) => !providerCredentials[field]?.trim())} onClick={() => void act(card.provider, () => connection ? reconnectIntegration(connection.id, providerCredentials) : addIntegrationCredential(card.provider, accountNames[card.provider] || (openAI ? "OpenAI project" : `${card.display_name} account`), card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials, openAI ? { selected_model: selectedOpenAIModel } : {}), `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace Key" : "Store credentials"}</button>
+            <button disabled={Boolean(busy) || requiredManualFields.some((field) => !providerCredentials[field]?.trim())} onClick={() => void act(card.provider, async () => {
+              if (connection) {
+                await reconnectIntegration(connection.id, providerCredentials);
+                if (cloudTalk) {
+                  setCloudTalkAgents((current) => ({ ...current, [connection.id]: [] }));
+                  setCloudTalkAgentSelections((current) => ({ ...current, [connection.id]: "" }));
+                }
+              } else {
+                await addIntegrationCredential(card.provider, accountNames[card.provider] || (openAI ? "OpenAI project" : `${card.display_name} account`), card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials, openAI ? { selected_model: selectedOpenAIModel } : {});
+              }
+            }, `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace Key" : connection ? "Replace credentials" : "Store credentials"}</button>
             <small>The key is sent only to the backend, encrypted by the configured secret service, cleared from this form after success, and never returned.</small>
           </div>}
         </div>}
