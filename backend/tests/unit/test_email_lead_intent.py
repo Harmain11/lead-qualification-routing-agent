@@ -29,6 +29,36 @@ def test_explicit_buying_inquiries_remain_candidates(subject, body):
     ) is None
 
 
+def test_forwarded_inquiry_uses_the_forwarded_contact_as_the_lead():
+    body = (
+        "Please follow up with this prospect.\n\n"
+        "---------- Forwarded message ---------\n"
+        "From: Mira Example <mira@client.example>\n"
+        "Subject: Pricing request\n\n"
+        "Could you send pricing for our team?"
+    )
+    assert candidate_reason(
+        {"from": "Sales Rep <rep@agency.example>", "subject": "Fwd: lead"},
+        body,
+        "sales@corral.test",
+    ) is None
+
+
+def test_forwarded_historical_or_non_inquiry_content_is_not_a_lead():
+    body = (
+        "FYI only.\n\n"
+        "---------- Forwarded message ---------\n"
+        "From: Mira Example <mira@client.example>\n"
+        "Subject: Team update\n\n"
+        "We finished the project yesterday."
+    )
+    assert candidate_reason(
+        {"from": "Sales Rep <rep@agency.example>", "subject": "Fwd: update"},
+        body,
+        "sales@corral.test",
+    ) == "no_inquiry_signal"
+
+
 @pytest.mark.parametrize("header,value,reason", [
     ("list-id", "weekly-news", "bulk_or_transactional"),
     ("list-unsubscribe", "<https://example.com/remove>", "bulk_or_transactional"),

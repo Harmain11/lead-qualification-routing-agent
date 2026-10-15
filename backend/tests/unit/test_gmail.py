@@ -465,6 +465,37 @@ def test_gmail_normalization_preserves_provider_and_message_thread_provenance() 
     assert canonical.normalized_payload["reply_to"] == "sales@client.example"
 
 
+def test_gmail_forwarded_lead_keeps_forwarded_contact_identity_and_provenance() -> None:
+    provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="forward-1",
+        values={
+            "thread_id": "thread-shared",
+            "headers": {
+                "from": "Sales Rep <rep@agency.example>",
+                "subject": "Fwd: lead",
+            },
+            "body": (
+                "Please follow up.\n\n"
+                "---------- Forwarded message ---------\n"
+                "From: Mira Example <mira@client.example>\n"
+                "Subject: Pricing request\n\n"
+                "Could you send pricing for our team?"
+            ),
+        },
+        modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    canonical = provider.normalize_record(record)
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.normalized_payload["full_name"] == "Mira Example"
+    assert canonical.normalized_payload["company_name"] == "Client Example"
+    assert canonical.provider_metadata["forwarded_lead"] is True
+    assert canonical.provider_metadata["original_sender_email"] == "rep@agency.example"
+    assert "Forwarded message from" in canonical.normalized_payload["message"]
+
+
 class _CanonicalGmailProvider:
     provider_name = "gmail"
 

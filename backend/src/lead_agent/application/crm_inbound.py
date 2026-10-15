@@ -402,6 +402,8 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "outlook_internet_message_id",
         "outlook_mailbox",
         "sender_email",
+        "original_sender_email",
+        "forwarded_lead",
         "location_id",
         "dnd",
         "dnd_call",

@@ -383,12 +383,41 @@ def _authored_email_text(text: str) -> str:
     return "\n".join(lines)[:8000]
 
 
+def _forwarded_lead(text: str) -> tuple[str, str, str, str] | None:
+    """Return the identity and authored content of an explicitly forwarded email."""
+    marker = re.search(
+        r"(?im)^(?:-{2,}\s*(?:original|forwarded) message\s*-*|begin forwarded message:)\s*$",
+        text,
+    )
+    if marker is None:
+        return None
+    forwarded = text[marker.end():]
+    header_block, separator, body = forwarded.partition("\n\n")
+    headers: dict[str, str] = {}
+    for line in header_block.splitlines():
+        key, colon, value = line.partition(":")
+        if colon and key.strip().lower() in {"from", "subject", "date", "to"}:
+            headers[key.strip().lower()] = value.strip()
+    name, address = parseaddr(headers.get("from", ""))
+    address = address.strip().lower()
+    authored = _authored_email_text(body if separator else "")
+    if not address or not authored:
+        return None
+    return name.strip(), address, headers.get("subject", ""), authored
+
+
 def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) -> str | None:
     sender_name, sender_email = parseaddr(headers.get("from", ""))
     sender_email = sender_email.strip().lower()
-    subject = headers.get("subject", "")
+    forwarded = _forwarded_lead(snippet)
+    if forwarded is not None:
+        _forwarded_name, sender_email, forwarded_subject, forwarded_body = forwarded
+        subject = forwarded_subject
+        authored = forwarded_body
+    else:
+        subject = headers.get("subject", "")
+        authored = _authored_email_text(snippet)
     reply_to = parseaddr(headers.get("reply-to", ""))[1].strip().lower()
-    authored = _authored_email_text(snippet)
     is_reply = bool(headers.get("in-reply-to")) or bool(
         re.match(r"(?i)^\s*(?:re|fw|fwd)\s*:", subject)
     )
@@ -396,8 +425,8 @@ def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) 
     text = authored if is_reply else f"{subject}\n{authored}"
     if (
         not sender_email
-        or sender_email == mailbox_email.strip().lower()
-        or reply_to == mailbox_email.strip().lower()
+        or (forwarded is None and sender_email == mailbox_email.strip().lower())
+        or (forwarded is None and reply_to == mailbox_email.strip().lower())
     ):
         return "own_or_missing_sender"
     local = sender_email.split("@", 1)[0]
@@ -774,7 +803,25 @@ class GmailInboundProvider:
             .replace(".", " ")
             .title()
         )
-        content = f"Subject: {subject}\n\n{_authored_email_text(body)}"[:_MAX_BODY_CHARS]
+        forwarded = _forwarded_lead(body)
+        if forwarded is not None:
+            sender_name, email, forwarded_subject, forwarded_body = forwarded
+            subject = forwarded_subject or subject
+            email = email.strip().lower()
+            display = sender_name.strip() or email.split("@", 1)[0]
+            local_domain = email.split("@")[-1]
+            company = (
+                re.sub(r"\.(com|net|org|co|io|ai|biz|uk|us)$", "", local_domain, flags=re.I)
+                .replace(".", " ")
+                .title()
+            )
+            content = (
+                f"Forwarded message from {sender_name or email} <{email}>:\n"
+                f"Subject: {subject}\n\n{forwarded_body}"
+            )[:_MAX_BODY_CHARS]
+        else:
+            content = f"Subject: {subject}\n\n{_authored_email_text(body)}"[:_MAX_BODY_CHARS]
+        email = email.strip().lower()
         payload = {
             "source": "email",
             "source_detail": "Gmail",
@@ -789,6 +836,8 @@ class GmailInboundProvider:
             "gmail_thread_id": str(values.get("thread_id", "")),
             "gmail_mailbox": self.mailbox_email,
             "sender_display_name": sender_name[:255],
+            "original_sender_email": parseaddr(str(headers.get("from", "")))[1].strip().lower(),
+            "forwarded_lead": forwarded is not None,
             "reply_to": parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
         }
         fingerprint = hashlib.sha256(f"{record.record_id}\0{content}".encode()).hexdigest()
@@ -806,6 +855,8 @@ class GmailInboundProvider:
                 "gmail_message_id": record.record_id,
                 "gmail_mailbox": self.mailbox_email,
                 "sender_email": email,
+                "forwarded_lead": forwarded is not None,
+                "original_sender_email": parseaddr(str(headers.get("from", "")))[1].strip().lower(),
             },
             enrichment_fingerprint=None,
         )
