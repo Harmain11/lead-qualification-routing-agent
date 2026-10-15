@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CloudTalkAgent, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
+import { SlackSetupGuide } from "../components/SlackSetupGuide";
 import { createSlackRule } from "../slackRouting";
 
 import {
@@ -285,6 +286,7 @@ function SlackRoutingEditor({
             <SlackMultiSelect label="Queues" values={rule.queues} options={slackQueueOptions} onChange={(values) => updateRule(rule.id, { queues: values })} hint="Choose one or more; empty means all." />
           </div>
           <div className="slack-rule-destination"><label><span>Send to workspace</span><select value={rule.connection_id} onChange={(event) => { const connectionId = event.target.value; const connection = verified.find((item) => item.id === connectionId); updateRule(rule.id, { connection_id: connectionId, channel_id: typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : null }); }}>{verified.map((item) => <option value={item.id} key={item.id}>{item.account_name}</option>)}</select></label><label><span>Destination type</span><select value={rule.destination_type ?? "channel"} onChange={(event) => { const destinationType = event.target.value as "channel" | "direct_message"; const connection = verified.find((item) => item.id === rule.connection_id); updateRule(rule.id, { destination_type: destinationType, channel_id: destinationType === "channel" && typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : null }); }}><option value="channel">Slack channel</option><option value="direct_message">Direct message</option></select></label>{(rule.destination_type ?? "channel") === "direct_message" ? <label><span>Slack member ID</span><input placeholder="U0123456789" value={rule.channel_id ?? ""} onChange={(event) => updateRule(rule.id, { channel_id: event.target.value.trim() || null })} /><small>Paste the member ID from Slack.</small></label> : <label><span>Send to channel</span><select value={rule.channel_id ?? ""} onChange={(event) => updateRule(rule.id, { channel_id: event.target.value || null })}><option value="">Use workspace default channel</option>{channelOptions(rule).map((channel) => <option value={channel.id} key={channel.id}>#{channel.name}</option>)}</select></label>}{(rule.destination_type ?? "channel") === "channel" && (channels[rule.connection_id] ?? []).length === 0 && <button className="button-quiet" type="button" onClick={() => onLoadChannels(rule.connection_id)}>Load channels</button>}<label className="slack-weight"><span>Weight</span><input aria-label={`Weight for ${rule.name}`} type="number" min="0.01" max="100" step="0.25" value={rule.weight ?? 1} onChange={(event) => updateRule(rule.id, { weight: Number(event.target.value) || 1 })} /></label></div>
+          {rule.destination_type === "direct_message" && <label className="slack-fallback-toggle"><input type="checkbox" checked={rule.fallback_to_channel ?? false} onChange={(event) => updateRule(rule.id, { fallback_to_channel: event.target.checked })} /><span>Only if this DM fails, fall back to the configured workspace channel</span></label>}
           <div className="slack-rule-preview"><span>↳</span><small>Send {rule.sources.length ? `${rule.sources.map((source) => source.replaceAll("_", " ")).join(", ")} leads` : "all matching leads"} {rule.qualification_bands.length ? `that are ${rule.qualification_bands.map(qualificationBandLabel).join(", ")}` : ""} to {rule.destination_type === "direct_message" ? "the selected Slack member by direct message" : "the selected Slack channel"}.</small></div>
         </div>)}
       </div>
@@ -875,6 +877,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
+            <SlackSetupGuide />
            {slackConnections.map((slackConnection) => {
              const channelId = typeof slackConnection.metadata.slack_channel_id === "string" ? slackConnection.metadata.slack_channel_id : "";
              const memberKey = `${slackConnection.id}:${channelId}`;
@@ -976,7 +979,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             {openAI && !connection && <label>Model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label>}
             {card.manual_fields.filter((field) => !cloudTalk || field !== "agent_id").map((field) => {
               const secret = /token|secret|jwt|api_key/.test(field);
-              const label = field === "from_number" ? "Phone number (+country code)" : field.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+              const label = field === "bot_token" ? "Bot User OAuth Token (secure)" : field === "from_number" ? "Phone number (+country code)" : field.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
               const inputProps = {
                 spellCheck: false,
                 placeholder: openAI ? "OpenAI project API key" : field === "from_number" ? "+14155550123" : undefined,

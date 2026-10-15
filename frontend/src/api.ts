@@ -571,7 +571,7 @@ export function getLeadMomentum(leadId: string, signal?: AbortSignal): Promise<i
 
 export function updateLeadProgress(leadId: string, input: {
   stage: string; note: string; conversion_type?: "project" | "sale";
-  closed_revenue?: number | null; credited_user_id?: string | null;
+  closed_revenue?: number | null; credited_user_id?: string | null; send_direct_message?: boolean;
 }): Promise<LeadProgressResult & { outcome?: import("./types").LeadOutcome | null }> {
   return jsonRequest<LeadProgressResult>(`/v1/leads/${leadId}/progress`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
