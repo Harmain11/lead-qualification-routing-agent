@@ -433,16 +433,31 @@ export function addIntegrationCredential(provider: string, accountName: string, 
   });
 }
 
-export function testIntegration(connectionId: string): Promise<{ connection: ProviderConnection; valid: boolean; verified: boolean; status: string; message: string; retryable: boolean; error_code: string | null }> {
+export function testIntegration(connectionId: string): Promise<{ connection: ProviderConnection; valid: boolean; verified: boolean; status: string; message: string; retryable: boolean; error_code: string | null; backfill_job_id?: string | null }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/test`, { method: "POST" });
 }
 
-export function backfillOpenAI(connectionId: string): Promise<{ status: string; queued_count: number; message: string }> {
+export function backfillOpenAI(connectionId: string): Promise<{ status: string; job_id: string; queued_count: number; message: string }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-openai`, { method: "POST" });
 }
 
-export function backfillReasoning(connectionId: string): Promise<{ status: string; queued_count: number; message: string }> {
+export type ReasoningBackfillStatus = {
+  job_id: string;
+  status: "queued" | "running" | "completed" | "partial_failure" | "failed" | "no_eligible_leads" | string;
+  total: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+  provider: string;
+  model: string;
+};
+
+export function backfillReasoning(connectionId: string): Promise<{ status: string; job_id: string; queued_count: number; message: string }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-reasoning`, { method: "POST" });
+}
+
+export function getReasoningBackfillStatus(connectionId: string, jobId: string): Promise<ReasoningBackfillStatus> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-reasoning/${encodeURIComponent(jobId)}`);
 }
 
 export function activateReasoningProvider(connectionId: string): Promise<ProviderConnection> {

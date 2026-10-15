@@ -7,7 +7,12 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from lead_agent.api.routes.integrations import list_integrations
+from lead_agent.api.routes import integrations as integrations_api
+from lead_agent.api.routes.integrations import (
+    _enqueue_reasoning_backfill,
+    list_integrations,
+    reasoning_backfill_status,
+)
 from lead_agent.application.crm import manually_sync_lead_to_crm
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
@@ -16,7 +21,7 @@ from lead_agent.application.crm_inbound import (
     list_due_inbound_sync_states,
 )
 from lead_agent.application.services import process_lead, reprocess_lead
-from lead_agent.domain.analysis import ReasoningProviderError
+from lead_agent.domain.analysis import ReasoningProviderError, ReasoningProviderTimeout
 from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import PROVIDER_SETUP
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -213,6 +218,225 @@ def test_analysis_backfill_keeps_existing_result_when_provider_fails(
             )
         session.refresh(lead.analysis)
         assert lead.analysis.status == previous_status
+
+
+def test_new_and_materially_updated_leads_enqueue_background_reasoning(
+    tmp_path, icp, routing, monkeypatch
+) -> None:
+    class FailingProvider:
+        provider_name = "openai"
+        model_name = "test-model"
+        prompt_version = "test-prompt"
+
+        def analyze(self, lead, configuration):
+            del lead, configuration
+            raise RuntimeError("temporary provider failure")
+
+    queued: list[tuple[object, object]] = []
+    monkeypatch.setattr(
+        "lead_agent.application.services.resolve_workspace_reasoning_provider",
+        lambda session, workspace_id: FailingProvider(),
+    )
+    monkeypatch.setattr(
+        "lead_agent.application.services._queue_reasoning_analysis",
+        lambda workspace_id, lead_id: queued.append((workspace_id, lead_id)),
+    )
+    workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        _, _, lead = process_lead(
+            session, _payload(), icp, routing, workspace_id=workspace_id
+        )
+        reprocess_lead(
+            session, lead, _payload("updated-source"), icp, routing
+        )
+    assert [item[1] for item in queued] == [lead.id, lead.id]
+
+
+def test_reasoning_backfill_persists_no_eligible_state_and_exposes_status(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeRedis:
+        values: dict[str, str] = {}
+
+        @classmethod
+        def from_url(cls, *_args, **_kwargs):
+            return cls()
+
+        def ping(self):
+            return True
+
+        def get(self, key):
+            return self.values.get(key)
+
+        def set(self, key, value, nx=False, ex=None):
+            del ex
+            if nx and key in self.values:
+                return False
+            self.values[key] = value
+            return True
+
+        def eval(self, _script, _count, key, job_id):
+            if self.values.get(key) == job_id:
+                del self.values[key]
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("lead_agent.api.routes.integrations.Redis", FakeRedis)
+    monkeypatch.setattr(
+        "lead_agent.api.routes.integrations._reasoning_backfill_snapshot",
+        lambda *_args: ("openai", "test-model", "openai|test-model|prompt-v1"),
+    )
+    workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        connection = _connection(session, workspace_id, "openai")
+        result = _enqueue_reasoning_backfill(session, connection, get_settings())
+        assert result["status"] == "no_eligible_leads"
+        status_result = reasoning_backfill_status(
+            connection.id,
+            str(result["job_id"]),
+            session=session,
+            workspace=WorkspaceContext(workspace_id),
+        )
+        assert status_result == {
+            "job_id": result["job_id"],
+            "status": "no_eligible_leads",
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "provider": "openai",
+            "model": "test-model",
+        }
+
+
+def test_verified_reasoning_connection_automatically_enqueues_backfill(
+    tmp_path, monkeypatch
+) -> None:
+    from lead_agent.domain.integrations import ConnectionValidation
+
+    workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        connection = _connection(session, workspace_id, "openai")
+        validation = ConnectionValidation(
+            valid=True,
+            verified=True,
+            status="connected",
+            credential_state="configured",
+            message="Verified",
+        )
+        monkeypatch.setattr(
+            "lead_agent.api.routes.integrations.validate_connection",
+            lambda *_args: (connection, validation),
+        )
+        monkeypatch.setattr(
+            "lead_agent.api.routes.integrations._enqueue_reasoning_backfill",
+            lambda *_args: {"job_id": "job-123", "status": "queued", "queued_count": 1},
+        )
+        response = integrations_api.test_connection(
+            connection.id,
+            session=session,
+            workspace=WorkspaceContext(workspace_id),
+            secret_store=None,
+            broker=None,
+            validator=None,
+            settings=get_settings(),
+        )
+        assert response.verified is True
+        assert response.backfill_job_id == "job-123"
+
+
+def test_reasoning_backfill_deduplicates_an_active_configuration(
+    tmp_path, icp, routing, monkeypatch
+) -> None:
+    class FakeRedis:
+        values: dict[str, str] = {}
+
+        @classmethod
+        def from_url(cls, *_args, **_kwargs):
+            return cls()
+
+        def ping(self):
+            return True
+
+        def get(self, key):
+            return self.values.get(key)
+
+        def set(self, key, value, nx=False, ex=None):
+            del ex
+            if nx and key in self.values:
+                return False
+            self.values[key] = value
+            return True
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("lead_agent.api.routes.integrations.Redis", FakeRedis)
+    monkeypatch.setattr(
+        "lead_agent.api.routes.integrations._reasoning_backfill_snapshot",
+        lambda *_args: ("openai", "test-model", "openai|test-model|prompt-v1"),
+    )
+    queued: list[tuple[str, ...]] = []
+    from lead_agent.worker.celery_app import reanalyze_workspace_leads
+
+    monkeypatch.setattr(reanalyze_workspace_leads, "delay", lambda *args: queued.append(args))
+    workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        connection = _connection(session, workspace_id, "openai")
+        process_lead(session, _payload(), icp, routing, workspace_id=workspace_id)
+        first = _enqueue_reasoning_backfill(session, connection, get_settings())
+        second = _enqueue_reasoning_backfill(session, connection, get_settings())
+        assert first["status"] == "queued"
+        assert second["status"] == "already_queued"
+        assert first["job_id"] == second["job_id"]
+        assert len(queued) == 1
+
+
+def test_background_analysis_retries_provider_failure_and_remembers_completion(
+    tmp_path, icp, routing, monkeypatch
+) -> None:
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import lead_agent.worker.celery_app as worker
+
+    class Provider:
+        provider_name = "openai"
+        model_name = "test-model"
+        prompt_version = "prompt-v1"
+
+    workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        _connection(session, workspace_id, "openai")
+        _, _, lead = process_lead(
+            session, _payload(), icp, routing, workspace_id=workspace_id
+        )
+        monkeypatch.setattr(
+            worker, "get_session_factory", lambda: lambda: nullcontext(session)
+        )
+        monkeypatch.setattr(
+            worker, "resolve_workspace_reasoning_provider", lambda *_args: Provider()
+        )
+        monkeypatch.setattr(
+            worker, "settings", SimpleNamespace(load_policies=lambda: (icp, routing))
+        )
+        attempts = 0
+
+        def flaky_reprocess(*_args, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise ReasoningProviderTimeout("temporary provider failure")
+
+        monkeypatch.setattr(worker, "reprocess_lead", flaky_reprocess)
+        result = worker.analyze_workspace_lead.run(str(workspace_id), str(lead.id))
+        assert result == "completed"
+        assert attempts == 3
+        assert worker.analyze_workspace_lead.run(str(workspace_id), str(lead.id)).startswith(
+            "skipped:"
+        )
+        assert attempts == 3
 
 
 def test_new_connection_is_disabled_until_deliberately_enabled(tmp_path) -> None:

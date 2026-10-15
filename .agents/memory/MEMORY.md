@@ -16,3 +16,4 @@
 - [Browser save feedback](browser-save-feedback.md) — embedded-browser ID support and optional notifications must not turn a successful save into an apparent failure.
 - [Browser harness compatibility](browser-harness-compatibility.md) — debugger support differs between the shell Chromium wrapper and installed native Playwright browsers.
 - [Production query results](production-query-results.md) — transaction-only SQL output is not an empty result set, even if the callback reports success.
+- [Reasoning backfill progress](reasoning-backfill-progress.md) — provider lifecycle audit events persist backfill status and per-configuration completion receipts.
