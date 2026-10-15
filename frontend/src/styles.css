@@ -556,9 +556,6 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .integration-card { position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(145deg, rgba(28,31,30,.9), rgba(13,15,15,.96)); scroll-margin-top: 82px; transition: border-color var(--fast), transform var(--fast); }
 .integration-card:hover { transform: translateY(-3px); border-color: var(--line-bright); }
 .integration-card.state-connected { border-color: rgba(112,199,156,.2); }
-.integration-card.provider-slack { border-color: rgba(112,199,156,.34); background: linear-gradient(145deg, rgba(22,35,31,.94), rgba(13,15,15,.98)); }
-.integration-card.provider-slack .provider-glyph { border-color: rgba(112,199,156,.35); background: rgba(112,199,156,.1); color: var(--green); }
-.integration-card.provider-slack .provider-head > b { background: rgba(112,199,156,.1); color: var(--green); }
 .provider-head { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; }
 .provider-glyph { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid rgba(30,107,82,.2); border-radius: 11px; background: var(--orange-soft); color: var(--orange-hot); font-family: var(--font-display); }
 .provider-head span { color: var(--subtle); font-size: 13px; text-transform: uppercase; }
@@ -607,10 +604,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-section-label { color: var(--orange-hot); font: 13px var(--font-mono); letter-spacing: .13em; text-transform: uppercase; }
 .slack-destination-copy strong, .slack-rules-toolbar strong { font-size: 13px; }
 .slack-destination-copy small { color: var(--muted); font-size: 13px; }
-.slack-guide-cta { display: inline-flex; align-items: center; gap: 8px; width: fit-content; margin-top: 8px; padding: 7px 10px; border: 1px solid rgba(112,199,156,.45); border-radius: 8px; background: rgba(112,199,156,.12); color: var(--green); font-size: 12px; font-weight: 700; cursor: pointer; }
-.slack-guide-cta:hover { border-color: var(--green); background: rgba(112,199,156,.2); }
-.slack-guide-cta span { color: var(--text); }
-.slack-guide-cta-footer { margin-top: 0; }
+.ops-dialog.slack-connection-dialog { width: min(1040px, calc(100vw - 32px)); max-height: min(90dvh, 900px); overflow-y: auto; }
+.slack-connection-dialog .slack-provider-details { display: flex; flex-direction: column; gap: 12px; }
 .slack-setup-guide { margin-top: 18px; padding: 17px; border: 1px solid rgba(112,199,156,.45); border-left: 3px solid var(--green); border-radius: 11px; background: rgba(112,199,156,.07); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
 .slack-setup-guide > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); cursor: pointer; font-weight: 650; list-style: none; }
 .slack-setup-guide > summary::-webkit-details-marker { display: none; }
@@ -2217,8 +2212,6 @@ body { font-size: 15px; line-height: 1.5; }
 .integration-card.is-collapsed { height: 106px; padding: 13px 16px; }
 .integration-card.is-collapsed:hover { transform: none; }
 .integration-card.is-collapsed .provider-head { min-height: 78px; }
-.integration-card.provider-slack.is-collapsed { height: auto; min-height: 142px; }
-.integration-card.provider-slack.is-collapsed .provider-head { min-height: 114px; }
 
 /* Keep expanded integrations easy to scan without forcing a long first viewport. */
 .app-shell .integration-card:not(.is-collapsed) {
@@ -2261,8 +2254,6 @@ body { font-size: 15px; line-height: 1.5; }
   .integration-card.is-collapsed .provider-head > b { max-width: 100%; }
   .integration-card.is-collapsed { height: 126px; padding: 10px 12px; }
   .integration-card.is-collapsed .provider-head { min-height: 104px; }
-  .integration-card.provider-slack.is-collapsed { height: auto; min-height: 170px; }
-  .integration-card.provider-slack.is-collapsed .provider-head { min-height: 148px; }
 }
 
 /* Full-page lead workspace: keep the complete decision trail in one scroll context. */
