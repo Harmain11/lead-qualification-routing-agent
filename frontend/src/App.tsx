@@ -142,17 +142,17 @@ function savedTheme(): Theme {
 }
 
 const navigation: Array<{ id: View; label: string; group?: string }> = [
-  { id: "dashboard", label: "Dashboard" },
+  { id: "dashboard", label: "Dashboard", group: "Workspace" },
   { id: "leads", label: "Leads" },
   { id: "contacts", label: "Contacts" },
   { id: "accounts", label: "Companies" },
   { id: "pipeline", label: "Pipeline" },
   { id: "agents", label: "Agents / AI Activity" },
   { id: "analytics", label: "Analytics" },
-  { id: "review", label: "Manual Review", group: "Control" },
+  { id: "review", label: "Manual Review", group: "Operations" },
   { id: "integrations", label: "Integrations" },
   { id: "dialer", label: "Dialer" },
-  { id: "team", label: "Users" },
+  { id: "team", label: "Users", group: "Administration" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -374,9 +374,7 @@ function App() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [navOpen, setNavOpen] = useState(
-    () => window.matchMedia("(min-width: 761px)").matches,
-  );
+  const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(savedTheme);
   const activeWorkspace = auth?.workspaces.find(
     (item) => item.id === auth.current_workspace_id,
@@ -436,7 +434,9 @@ function App() {
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 761px)");
-    const syncNavigation = () => setNavOpen(media.matches);
+    const syncNavigation = () => {
+      if (!media.matches) setNavOpen(false);
+    };
     media.addEventListener("change", syncNavigation);
     return () => media.removeEventListener("change", syncNavigation);
   }, []);
@@ -1118,6 +1118,8 @@ function App() {
             onClick={() => setNavOpen(false)}
             aria-label="Collapse navigation"
             title="Collapse navigation"
+            aria-controls="corral-navigation"
+            aria-expanded={navOpen}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="m14.5 5-5 7 5 7" />
@@ -1127,7 +1129,12 @@ function App() {
         <nav aria-label="Primary navigation">
           {visibleNavigation.map((item, index) => (
             <div key={item.id}>
-              {item.group && <span className="nav-group">{item.group}</span>}
+              {item.group && (
+                <>
+                  {index > 0 && <span className="nav-separator" aria-hidden="true" />}
+                  <span className="nav-group">{item.group}</span>
+                </>
+              )}
               <NavigationMenuItem
                 item={{ ...item, children: navigationChildren(item.id) }}
                 enabled={navOpen}
@@ -1139,7 +1146,6 @@ function App() {
                 badge={item.id === "review" ? data?.review?.total : undefined}
                 onNavigate={(child) => navigateChild(item.id, child)}
               />
-              {index === 4 && <span className="nav-separator" />}
             </div>
           ))}
         </nav>
@@ -1191,21 +1197,25 @@ function App() {
             <span aria-hidden="true">›</span>
           </button>
           <nav className="mini-rail-nav" aria-label="Primary navigation">
-            {visibleNavigation.map((item) => {
+            {visibleNavigation.map((item, index) => {
               const active =
                 navigationItemActive(item) ||
                 (item.id === "settings" && (view === "team" || view === "icp"));
               return (
-                <NavigationMenuItem
-                  key={item.id}
-                  item={{ ...item, children: navigationChildren(item.id) }}
-                  icon={<NavIcon id={item.id} />}
-                  active={active}
-                  collapsed
-                  activeChild={navigationActiveChild(item.id)}
-                  badge={item.id === "review" ? data?.review?.total : undefined}
-                  onNavigate={(child) => navigateChild(item.id, child)}
-                />
+                <div className="mini-rail-entry" key={item.id}>
+                  {item.group && index > 0 && (
+                    <span className="mini-rail-separator" aria-hidden="true" />
+                  )}
+                  <NavigationMenuItem
+                    item={{ ...item, children: navigationChildren(item.id) }}
+                    icon={<NavIcon id={item.id} />}
+                    active={active}
+                    collapsed
+                    activeChild={navigationActiveChild(item.id)}
+                    badge={item.id === "review" ? data?.review?.total : undefined}
+                    onNavigate={(child) => navigateChild(item.id, child)}
+                  />
+                </div>
               );
             })}
           </nav>
