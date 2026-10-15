@@ -642,8 +642,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-rule-heading .danger:hover { color: var(--red); }
 .slack-condition-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 9px; }
 .slack-condition-grid small { color: var(--subtle); font-size: 13px; }
-.slack-rule-destination { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 88px; gap: 9px; align-items: end; padding-top: 12px; border-top: 1px solid var(--line); }
-.slack-rule-destination > .button-quiet { min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; }
+.slack-rule-destination { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 88px; gap: 9px; align-items: start; padding-top: 12px; border-top: 1px solid var(--line); }
+.slack-rule-destination > .button-quiet { align-self: end; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; }
 .slack-rule-destination > .button-quiet + .slack-weight { grid-column: 4; }
 .slack-weight input { text-align: center; }
 .slack-rule-preview { display: flex; align-items: flex-start; gap: 7px; padding-top: 2px; color: var(--muted); }
