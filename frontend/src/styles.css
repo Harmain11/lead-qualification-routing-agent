@@ -614,7 +614,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-multi-select { position: relative; min-width: 0; }
 .slack-multi-trigger { display: flex; align-items: center; justify-content: space-between; gap: 7px; width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(2,4,9,.62); color: var(--text); font-size: 13px; text-align: left; }
 .slack-multi-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slack-multi-trigger b { color: var(--orange-hot); font-size: 13px; font-weight: 500; }
+.slack-multi-trigger > i { flex: 0 0 auto; display: grid; place-items: center; width: 16px; height: 16px; color: var(--muted); font-style: normal; line-height: 1; }
+.slack-multi-trigger > i svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .slack-multi-trigger.open { border-color: rgba(242,165,65,.7); box-shadow: 0 0 0 3px rgba(30,107,82,.08); }
 .slack-multi-menu { position: absolute; z-index: 5; top: 100%; right: 0; left: 0; display: grid; max-height: 220px; overflow-y: auto; margin-top: 4px; padding: 5px; border: 1px solid rgba(242,165,65,.38); border-radius: 9px; background: #171a1c; box-shadow: 0 16px 28px rgba(0,0,0,.35); }
 .slack-multi-all, .slack-multi-option { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 7px; border-radius: 6px; color: var(--text); font-size: 13px; text-align: left; }
