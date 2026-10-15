@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { opsGet, opsSave } from "../operationsApi";
 import { createClientId } from "../clientIds";
+import { CallInsights, type CallInsightsData } from "./CallInsights";
 
 const providerNames: Record<string, string> = { twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI", cloudtalk: "CloudTalk" };
-type CallRecord = { id: string; provider: string; external_id: string | null; status: string; direction: string; customer_phone: string; started_at: string | null; created_at: string; duration_seconds: number | null; transcript: string | null; recording_url: string | null; message: string | null };
+type CallRecord = { id: string; provider: string; external_id: string | null; status: string; direction: string; customer_phone: string; started_at: string | null; created_at: string; duration_seconds: number | null; transcript: string | null; recording_url: string | null; message: string | null; insights: CallInsightsData };
 type Activity = { connections: { id: string; provider: string; account_name: string }[]; records: CallRecord[]; outreach_allowed: boolean; outreach_reason: string };
 
 export function CallsPanel({ leadId, leadPhone, canCall, canEdit }: { leadId: string; leadPhone?: string | null; canCall: boolean; canEdit: boolean }) {
@@ -73,7 +74,7 @@ export function CallsPanel({ leadId, leadPhone, canCall, canEdit }: { leadId: st
         {!canCall && <p>Your workspace role can view call history. Calling requires lead editing and agent action permissions.</p>}
       </form>
     </>}
-    {data && <div className="calls-history"><h4>Recent activity</h4>{data.records.length ? data.records.map((call) => <article className="call-record" key={call.id}><div className="ops-toolbar"><div><strong>{providerNames[call.provider] || call.provider}</strong><p>{new Date(call.started_at || call.created_at).toLocaleString()} · {call.direction.replaceAll("_", " ")}{call.duration_seconds !== null ? ` · ${call.duration_seconds}s` : ""}</p></div><span className="call-status">{call.status.replaceAll("_", " ")}</span></div>{call.message && <p>{call.message}</p>}{call.recording_url && <a href={call.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording ↗</a>}{call.transcript && <details><summary>View transcript</summary><pre>{call.transcript}</pre></details>}{!call.transcript && !call.recording_url && <small>Transcripts and recordings appear only when provided by the connected service.</small>}</article>) : <p className="ops-empty">No call activity recorded for this lead.</p>}</div>}
+     {data && <div className="calls-history"><h4>Recent activity</h4>{data.records.length ? data.records.map((call) => <article className="call-record" key={call.id}><div className="ops-toolbar"><div><strong>{providerNames[call.provider] || call.provider}</strong><p>{new Date(call.started_at || call.created_at).toLocaleString()} · {call.direction.replaceAll("_", " ")}{call.duration_seconds !== null ? ` · ${call.duration_seconds}s` : ""}</p></div><span className="call-status">{call.status.replaceAll("_", " ")}</span></div>{call.message && <p>{call.message}</p>}{call.provider === "cloudtalk" && <CallInsights insights={call.insights ?? null} />}{call.recording_url && <a href={call.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording ↗</a>}{call.transcript && <details><summary>View transcript</summary><pre>{call.transcript}</pre></details>}{!call.transcript && !call.recording_url && <small>Transcripts and recordings appear only when provided by the connected service.</small>}</article>) : <p className="ops-empty">No call activity recorded for this lead.</p>}</div>}
     <small>History sync reads recent provider calls that match this lead number. Calls always require confirmation and pass consent checks.</small>
   </section>;
 }

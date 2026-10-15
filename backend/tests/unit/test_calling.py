@@ -211,16 +211,65 @@ def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio(
                     }
                 },
             )
-        return httpx.Response(
-            200,
-            json={
-                "data": {
-                    "callId": 12345,
-                    "segments": [{"text": "Hello"}, {"text": "I am interested."}],
+        if request.url.path.endswith("/transcription"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "callId": 12345,
+                        "segments": [{"text": "Hello"}, {"text": "I am interested."}],
+                    },
+                    "pagination": {"limit": 1000, "offset": 0, "total": 2},
                 },
-                "pagination": {"limit": 1000, "offset": 0, "total": 2},
-            },
-        )
+            )
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(
+                200, json={"callId": 12345, "summary": "Buyer asked for pricing."}
+            )
+        if request.url.path.endswith("/overall-sentiment"):
+            return httpx.Response(200, json={"callId": 12345, "overallSentiment": "positive"})
+        if request.url.path.endswith("/topics"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "topics": [{"topic": "Pricing", "weight": 0.8}],
+                        "callers": [],
+                    },
+                    "pagination": {"limit": 1, "offset": 0, "total": 1},
+                },
+            )
+        if request.url.path.endswith("/smart-notes"):
+            return httpx.Response(
+                200,
+                json={
+                    "smartNotes": {
+                        "actionItems": ["Send a quote"],
+                        "decisionsMade": ["Review pricing"],
+                        "openQuestions": ["Preferred start date"],
+                        "importantDatesAndDeadlines": [
+                            {"dateMention": "Friday", "eventDescription": "Send the quote"}
+                        ],
+                        "risksAndIssues": ["Budget not confirmed"],
+                        "customerFeedback": ["Interested in the product"],
+                    }
+                },
+            )
+        if request.url.path.endswith("/talk-listen-ratio"):
+            return httpx.Response(
+                200,
+                json={
+                    "talkListenRatio": [
+                        {"caller": "caller1", "talkingTime": 120, "ratio": 60},
+                        {"caller": "caller2", "talkingTime": 80, "ratio": 40},
+                    ],
+                    "callers": [
+                        {"type": "contact", "localIdentifier": "caller1"},
+                        {"type": "agent", "localIdentifier": "caller2"},
+                    ],
+                },
+            )
+        raise AssertionError(f"Unexpected CloudTalk request: {request.url}")
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         calls = CommunicationsClient("cloudtalk", CREDENTIALS["cloudtalk"], client=client)
@@ -230,7 +279,37 @@ def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio(
     assert records[0].external_id == "12345"
     assert records[0].transcript == "Hello I am interested."
     assert records[0].recording_url == "https://my.cloudtalk.io/calls/12345"
-    assert [request.url.host for request in seen] == ["my.cloudtalk.io", "api.cloudtalk.io"]
+    assert [request.url.host for request in seen] == [
+        "my.cloudtalk.io",
+        *["api.cloudtalk.io"] * 6,
+    ]
+    assert records[0].insights == {
+        "summary": "Buyer asked for pricing.",
+        "overall_sentiment": "positive",
+        "topics": [{"topic": "Pricing", "weight": 0.8}],
+        "smart_notes": {
+            "action_items": ["Send a quote"],
+            "decisions_made": ["Review pricing"],
+            "open_questions": ["Preferred start date"],
+            "important_dates_and_deadlines": [
+                {"date_mention": "Friday", "event_description": "Send the quote"}
+            ],
+            "risks_and_issues": ["Budget not confirmed"],
+            "customer_feedback": ["Interested in the product"],
+        },
+        "talk_listen_ratio": [
+            {"caller": "contact", "talking_time": 120.0, "ratio": 60.0},
+            {"caller": "agent", "talking_time": 80.0, "ratio": 40.0},
+        ],
+    }
+    assert {request.url.path.rsplit("/", 1)[-1] for request in seen[1:]} == {
+        "transcription",
+        "summary",
+        "overall-sentiment",
+        "topics",
+        "smart-notes",
+        "talk-listen-ratio",
+    }
     assert all("recording" not in request.url.path for request in seen)
 
 
@@ -258,14 +337,18 @@ def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
             )
         if request.url.path.endswith("/details-link"):
             return httpx.Response(200, json={"link": "https://my.cloudtalk.io/calls/12346"})
-        offset = int(request.url.params.get("offset", "0"))
-        return httpx.Response(
-            200,
-            json={
-                "data": {"segments": [{"text": "hello" if offset == 0 else "world"}]},
-                "pagination": {"limit": 1000, "offset": offset, "total": 1001},
-            },
-        )
+        if request.url.path.endswith("/transcription"):
+            offset = int(request.url.params.get("offset", "0"))
+            return httpx.Response(
+                200,
+                json={
+                    "data": {"segments": [{"text": "hello" if offset == 0 else "world"}]},
+                    "pagination": {"limit": 1000, "offset": offset, "total": 1001},
+                },
+            )
+        if request.url.path.endswith("/overall-sentiment"):
+            return httpx.Response(403, json={"message": "Not available"})
+        return httpx.Response(404, json={"message": "Unavailable"})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         records = CommunicationsClient(
@@ -275,6 +358,20 @@ def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
     assert len(records) == 1
     assert records[0].transcript == "hello world"
     assert records[0].recording_url == "https://my.cloudtalk.io/calls/12346"
+    assert records[0].insights == {
+        "summary": None,
+        "overall_sentiment": None,
+        "topics": [],
+        "smart_notes": {
+            "action_items": [],
+            "decisions_made": [],
+            "open_questions": [],
+            "important_dates_and_deadlines": [],
+            "risks_and_issues": [],
+            "customer_feedback": [],
+        },
+        "talk_listen_ratio": [],
+    }
     assert any(request.url.path.endswith("/details-link") for request in seen)
     transcript_offsets = [
         request.url.params.get("offset")
@@ -628,6 +725,30 @@ def test_tenant_permissions_and_unverified_connections_block(calls):
 
 def test_history_is_deduplicated_and_compliance_export_contains_calls(calls):
     session, client, _, lead, connection, _, adapter = calls
+    insights = {
+        "summary": "Lead requested a proposal.",
+        "overall_sentiment": "positive",
+        "topics": [{"topic": "Pricing", "weight": 0.7}],
+        "smart_notes": {
+            "action_items": [],
+            "decisions_made": [],
+            "open_questions": [],
+            "important_dates_and_deadlines": [],
+            "risks_and_issues": [],
+            "customer_feedback": [],
+        },
+        "talk_listen_ratio": [],
+    }
+    adapter.recent_calls = lambda target: [
+        CallSnapshot(
+            external_id="CA123",
+            customer_phone=target,
+            status="completed",
+            transcript="Lead requested a proposal.",
+            duration_seconds=10,
+            insights=insights,
+        )
+    ]
     assert (
         client.post(f"/v1/calling/leads/{lead.id}/start", json=request(connection)).status_code
         == 200
@@ -638,6 +759,7 @@ def test_history_is_deduplicated_and_compliance_export_contains_calls(calls):
     data = client.get(f"/v1/calling/leads/{lead.id}").json()
     assert len(data["records"]) == 1 and data["records"][0]["status"] == "completed"
     assert data["records"][0]["transcript"] == "Lead requested a proposal."
+    assert data["records"][0]["insights"] == insights
     export = client.get(f"/v1/ops/leads/{lead.id}/audit-export")
     assert export.status_code == 200, export.text
     assert export.json()["calls"][0]["transcript"] == "Lead requested a proposal."

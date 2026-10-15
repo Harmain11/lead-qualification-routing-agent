@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listIntegrations, listLeads } from "../api";
 import { opsGet } from "../operationsApi";
 import type { IntegrationCard, Lead } from "../types";
+import { CallInsights, type CallInsightsData } from "../components/CallInsights";
 import "./DialerView.css";
 
 type CallRecord = {
@@ -16,6 +17,7 @@ type CallRecord = {
   transcript: string | null;
   recording_url: string | null;
   message: string | null;
+  insights: CallInsightsData;
 };
 
 type CallActivity = {
@@ -142,7 +144,7 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
             {!selectedLead ? <p className="dialer-empty">Choose a lead to review its call activity.</p> : !activity?.records.length ? <p className="dialer-empty">No provider call activity is recorded for {selectedLeadRecord?.full_name || "this lead"} yet.</p> : <div className="dialer-record-list">
               {activity.records.map((record) => <article className="dialer-record" key={record.id}>
                 <div className="dialer-record-head"><div><strong>{providerLabel[record.provider] || record.provider}</strong><span>{new Date(record.started_at || record.created_at).toLocaleString()} · {record.direction.replaceAll("_", " ")}{record.duration_seconds !== null ? ` · ${record.duration_seconds}s` : ""}</span></div><b>{statusLabel(record.status)}</b></div>
-                {tab === "analysis" ? <div className="dialer-analysis-row"><span className={record.transcript ? "dialer-analysis-good" : ""}>{record.transcript ? "Transcript ready" : "Transcript unavailable"}</span><span>{record.recording_url ? "Recording or call details available" : "No recording or call details link"}</span><span>{record.message || "Provider returned no additional message."}</span></div> : <>{record.message && <p>{record.message}</p>}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}{!record.transcript && !record.recording_url && <small>Transcripts and recordings appear when the connected provider supplies them.</small>}</>}
+                {tab === "analysis" ? <><div className="dialer-analysis-row"><span className={record.transcript ? "dialer-analysis-good" : ""}>{record.transcript ? "Transcript ready" : "Transcript unavailable"}</span><span>{record.recording_url ? "Recording or call details available" : "No recording or call details link"}</span><span>{record.message || "Provider returned no additional message."}</span></div>{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}</> : <>{record.message && <p>{record.message}</p>}{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}{!record.transcript && !record.recording_url && <small>Transcripts and recordings appear when the connected provider supplies them.</small>}</>}
               </article>)}
             </div>}
           </section>}
