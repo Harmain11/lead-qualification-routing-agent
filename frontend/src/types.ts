@@ -309,6 +309,7 @@ export type Lead = {
 export type LeadOutcome = {
   pipeline_stage: string;
   conversion_type: "project" | "sale" | null;
+  send_direct_message: boolean;
   credited_user_id: string | null;
   credited_name: string | null;
   closed_revenue: number | null;
@@ -644,6 +645,7 @@ export type SlackNotificationRule = {
   connection_id: string;
   destination_type: "channel" | "direct_message";
   channel_id: string | null;
+  fallback_to_channel: boolean;
   queues: string[];
   qualification_bands: string[];
   sources: string[];

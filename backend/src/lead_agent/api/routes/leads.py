@@ -127,6 +127,7 @@ class LeadProgressUpdate(BaseModel):
     conversion_type: Literal["project", "sale"] | None = None
     closed_revenue: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     credited_user_id: UUID | None = None
+    send_direct_message: bool = False
 
     @model_validator(mode="after")
     def validate_closing_fields(self) -> LeadProgressUpdate:
@@ -140,6 +141,8 @@ class LeadProgressUpdate(BaseModel):
             )
         if self.stage not in {"converted", "lost"} and self.credited_user_id is not None:
             raise ValueError("Member credit is only allowed when closing a lead.")
+        if self.send_direct_message and self.stage != "converted":
+            raise ValueError("Direct Slack congratulations are only available for successful conversions.")
         return self
 
 
@@ -796,6 +799,7 @@ def update_lead_progress(
             outcome = record_outcome(
                 session, row, stage=request.stage, conversion_type=request.conversion_type,
                 revenue=request.closed_revenue, credited_user_id=request.credited_user_id,
+                send_direct_message=request.send_direct_message,
             )
         except ValueError as error:
             session.rollback()

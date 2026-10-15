@@ -303,11 +303,17 @@ class SlackNotificationProvider:
         *,
         connection: ResolvedProviderConnection,
         channel_id: str,
+        destination_type: str = "channel",
+        fallback_to_channel: bool = False,
+        fallback_channel_id: str | None = None,
         client: httpx.Client | None = None,
     ) -> None:
         self.connection_id = connection.connection_id
         self.workspace_id = connection.workspace_id
         self.channel_id = channel_id
+        self.destination_type = destination_type
+        self.fallback_to_channel = fallback_to_channel
+        self.fallback_channel_id = fallback_channel_id
         self._api = SlackWebApi(
             connection.credentials.get("access_token")
             or connection.credentials.get("bot_token", ""),
@@ -317,10 +323,42 @@ class SlackNotificationProvider:
     def send(self, message: Any, *, channel_id: str | None = None) -> Any:
         from lead_agent.domain.routing import NotificationDelivery
 
+        if self.destination_type == "direct_message" and channel_id is None:
+            direct = self.send_direct(self.channel_id, message)
+            if (
+                direct.state in {"sent", "retryable"}
+                or not self.fallback_to_channel
+                or not self.fallback_channel_id
+            ):
+                return direct
+            fallback = self._send_to_channel(message, self.fallback_channel_id)
+            if fallback.state == "sent":
+                return NotificationDelivery(
+                    state="sent",
+                    external_id=fallback.external_id,
+                    error_message=(
+                        f"Direct message could not be delivered ({direct.error_message or 'Slack rejected it'}); "
+                        "sent to the configured fallback channel instead."
+                    ),
+                )
+            return NotificationDelivery(
+                state=fallback.state,
+                error_message=(
+                    f"Direct message could not be delivered ({direct.error_message or 'Slack rejected it'}); "
+                    f"channel fallback also failed: {fallback.error_message or 'Slack rejected it'}."
+                ),
+                retryable=fallback.retryable,
+                retry_after_seconds=fallback.retry_after_seconds,
+            )
+        return self._send_to_channel(message, channel_id or self.channel_id)
+
+    def _send_to_channel(self, message: Any, channel_id: str) -> Any:
+        from lead_agent.domain.routing import NotificationDelivery
+
         try:
             payload, _ = self._api.call(
                 "chat.postMessage",
-                channel=channel_id or self.channel_id,
+                channel=channel_id,
                 text=message.text,
                 # Slack uses this stable client id to make a retry after a
                 # worker crash safe when the first request was accepted.
@@ -346,8 +384,36 @@ class SlackNotificationProvider:
             )
 
     def send_direct(self, member_id: str, message: Any) -> Any:
-        # A user ID addresses the app's DM with that user using chat:write.
-        return self.send(message, channel_id=member_id)
+        from lead_agent.domain.routing import NotificationDelivery
+
+        try:
+            opened, _ = self._api.call("conversations.open", users=member_id)
+            conversation = opened.get("channel")
+            dm_channel_id = conversation.get("id") if isinstance(conversation, dict) else None
+            if not isinstance(dm_channel_id, str) or not dm_channel_id:
+                return NotificationDelivery(
+                    state="failed",
+                    error_message=(
+                        "Slack did not open a direct conversation for this member. "
+                        "Check the member ID and grant im:write if direct messages are intended."
+                    ),
+                )
+            return self._send_to_channel(message, dm_channel_id)
+        except ProviderOperationError as error:
+            retry_after = error.metadata.get("retry_after_seconds")
+            return NotificationDelivery(
+                state="retryable" if error.retryable else "failed",
+                error_message=(
+                    f"Could not open or send the Slack direct message: {error}. "
+                    "Verify the member ID and optional im:write scope."
+                ),
+                retryable=error.retryable,
+                retry_after_seconds=(
+                    retry_after
+                    if isinstance(retry_after, int) and not isinstance(retry_after, bool)
+                    else None
+                ),
+            )
 
 
 class WorkspaceSlackNotificationResolver:
@@ -444,6 +510,8 @@ class WorkspaceSlackNotificationResolver:
                             target.id,
                             actor_id,
                             channel_id=self._rule_channel_id(raw_rule),
+                            destination_type=str(raw_rule.get("destination_type", "channel")),
+                            fallback_to_channel=raw_rule.get("fallback_to_channel") is True,
                         )
                 return self.provider_for_connection(
                     session,
@@ -451,6 +519,8 @@ class WorkspaceSlackNotificationResolver:
                     matching_rules[-1][1].id,
                     actor_id,
                     channel_id=self._rule_channel_id(matching_rules[-1][0]),
+                    destination_type=str(matching_rules[-1][0].get("destination_type", "channel")),
+                    fallback_to_channel=matching_rules[-1][0].get("fallback_to_channel") is True,
                 )
             if config.default_slack_connection_id in by_id:
                 return self.provider_for_connection(
@@ -532,13 +602,24 @@ class WorkspaceSlackNotificationResolver:
         connection_id: UUID,
         actor_id: str = "system",
         channel_id: str | None = None,
+        destination_type: str = "channel",
+        fallback_to_channel: bool = False,
     ) -> SlackNotificationProvider | None:
         row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
         selected_channel_id = channel_id or row.connection_metadata.get("slack_channel_id")
         if not isinstance(selected_channel_id, str) or not selected_channel_id:
             return None
         return SlackNotificationProvider(
-            connection=resolved, channel_id=selected_channel_id, client=self.client
+            connection=resolved,
+            channel_id=selected_channel_id,
+            destination_type=destination_type,
+            fallback_to_channel=fallback_to_channel,
+            fallback_channel_id=(
+                row.connection_metadata.get("slack_channel_id")
+                if destination_type == "direct_message" and fallback_to_channel
+                else None
+            ),
+            client=self.client,
         )
 
     def select_channel(

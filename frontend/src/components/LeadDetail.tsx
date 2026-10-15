@@ -307,10 +307,12 @@ function LeadProgressEditor({
   const [conversionType, setConversionType] = useState<"project" | "sale">(lead.outcome?.conversion_type ?? "project");
   const [value, setValue] = useState(lead.outcome?.closed_revenue?.toString() ?? "");
   const [creditedId, setCreditedId] = useState(lead.outcome?.credited_user_id ?? lead.routing?.assigned_rep_id ?? "");
+  const [sendDirectMessage, setSendDirectMessage] = useState(lead.outcome?.send_direct_message ?? false);
   const [members, setMembers] = useState<Awaited<ReturnType<typeof getLeadClosingOptions>>>([]);
   const [outcome, setOutcome] = useState<LeadOutcome | null>(lead.outcome ?? null);
   useEffect(() => {
     setOutcome(lead.outcome ?? null);
+    setSendDirectMessage(lead.outcome?.send_direct_message ?? false);
   }, [lead.outcome]);
   useEffect(() => {
     if (!canEdit) return;
@@ -371,6 +373,7 @@ function LeadProgressEditor({
         stage, note,
         ...(stage === "converted" ? { conversion_type: conversionType, closed_revenue: value === "" ? null : Number(value) } : {}),
         ...(closing ? { credited_user_id: creditedId || null } : {}),
+        ...(stage === "converted" ? { send_direct_message: sendDirectMessage } : {}),
       });
       setNote("");
       if (closing) {
@@ -409,7 +412,8 @@ function LeadProgressEditor({
         <label className="follow-up-field">Successful outcome<select value={conversionType} onChange={(event) => setConversionType(event.target.value as "project" | "sale")}><option value="project">Project</option><option value="sale">Sale</option></select></label>
         <label className="follow-up-field">Recorded value (USD, optional)<input type="number" min="0" step="0.01" max="999999999999.99" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Leave blank if unknown" /></label>
       </div>}
-      {(stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. Slack DMs require their member link in Users & permissions." : "Uses the assigned workspace member when linked. Otherwise the win is uncredited; choose a member for individual analytics and a direct congratulations."}</small></label>}
+      {(stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. A direct message is sent only if you explicitly select the option below and link their Slack member ID." : "Uses the assigned member if linked; otherwise this win is uncredited."}</small></label>}
+      {stage === "converted" && <label className="follow-up-field slack-win-dm-opt-in"><input type="checkbox" checked={sendDirectMessage} onChange={(event) => setSendDirectMessage(event.target.checked)} disabled={!creditedId} />Also send a private Slack congratulations to the credited member <small>Off by default. Requires the member’s Slack ID and the optional im:write scope. No channel fallback is used for this direct message.</small></label>}
       <label className="follow-up-field">Comments · verified update<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder="Example: Replied asking for a proposal by Friday; timeline is now this quarter." required /></label>
       {outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
       <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save progress & re-check lead"}</button>

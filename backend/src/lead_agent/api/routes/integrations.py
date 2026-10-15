@@ -336,6 +336,7 @@ class SlackNotificationRuleRequest(BaseModel):
     connection_id: UUID
     destination_type: Literal["channel", "direct_message"] = "channel"
     channel_id: str | None = Field(default=None, min_length=3, max_length=255)
+    fallback_to_channel: bool = False
     queues: list[str] = Field(default_factory=list, max_length=10)
     qualification_bands: list[str] = Field(default_factory=list, max_length=10)
     sources: list[str] = Field(default_factory=list, max_length=10)

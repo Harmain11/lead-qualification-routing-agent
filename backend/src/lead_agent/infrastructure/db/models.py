@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -1046,6 +1047,7 @@ class LeadOutcomeORM(Base):
     )
     pipeline_stage: Mapped[str] = mapped_column(String(64), nullable=False)
     conversion_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    send_direct_message: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     credited_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
