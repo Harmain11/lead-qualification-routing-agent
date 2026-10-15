@@ -161,7 +161,7 @@ function SlackMultiSelect({
   return <div className="slack-multi-select">
     <span className="slack-field-label">{label}</span>
     <button type="button" className={`slack-multi-trigger${open ? " open" : ""}`} onClick={() => setOpen((current) => !current)} aria-expanded={open}>
-      <span>{selected.length ? selected.map(([, optionLabel]) => optionLabel).join(", ") : `Any ${label.toLowerCase()}`}</span><b>⌄</b>
+      <span>{selected.length ? selected.map(([, optionLabel]) => optionLabel).join(", ") : `Any ${label.toLowerCase()}`}</span><i aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg></i>
     </button>
     {open && <div className="slack-multi-menu" role="listbox" aria-label={label}>
       <button type="button" className="slack-multi-all" onClick={() => onChange([])}><span className={!values.length ? "selected" : ""}>✓</span> Any / all</button>
