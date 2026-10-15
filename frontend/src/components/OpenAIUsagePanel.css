@@ -127,7 +127,7 @@
 
 .reasoning-usage-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-3);
   min-width: 0;
 }
@@ -220,7 +220,7 @@
   text-align: left;
 }
 
-.reasoning-provider-table { min-width: 700px; }
+.reasoning-provider-table { min-width: 860px; }
 
 .reasoning-provider-table thead th,
 .provider-model-table-wrap th {
@@ -314,7 +314,7 @@
 }
 
 .provider-model-table-wrap { margin-top: var(--space-3); overflow-x: auto; }
-.provider-model-table-wrap table { min-width: 640px; }
+.provider-model-table-wrap table { min-width: 840px; }
 .provider-model-table-wrap caption {
   margin-bottom: var(--space-2);
   color: var(--muted);
