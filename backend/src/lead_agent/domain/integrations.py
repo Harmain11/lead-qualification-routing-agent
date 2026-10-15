@@ -223,11 +223,14 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         provider="outlook",
         display_name="Microsoft Outlook",
         category="Email",
-        availability="available",
+        availability="future",
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Microsoft Entra application",
-        credential_help="Sign in with Microsoft and approve read-only access to the Outlook Inbox.",
+        credential_help=(
+            "Microsoft Outlook inbox sync is planned. Connection controls will be enabled in a "
+            "future release."
+        ),
         required_scopes=["openid", "profile", "email", "offline_access", "Mail.Read"],
         permission_reason="Read approved inbound lead messages through Microsoft Graph.",
         documentation_url="https://learn.microsoft.com/graph/auth-v2-user",
