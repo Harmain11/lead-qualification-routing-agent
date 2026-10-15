@@ -122,6 +122,13 @@ class ProviderConnectionValidatorRegistry:
         )
 
 
+class ManualCredentialRevoker:
+    """Removing a local secret does not revoke a key at an external provider."""
+
+    def revoke(self, provider: str, values: dict[str, str]) -> RevocationResult:
+        return RevocationResult(status="unsupported")
+
+
 class OAuthBrokerRevoker:
     def __init__(self, broker: OAuthBroker) -> None:
         self._broker = broker
@@ -228,8 +235,7 @@ class WorkspaceAuthorizedConnectionResolver:
             unverified_mailbox_probe = (
                 allow_unverified
                 and locked is not None
-                and locked.provider_type
-                in {"gmail", "outlook", "google_calendar", "calendly"}
+                and locked.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}
                 and locked.status == "connected"
             )
             if (
@@ -460,10 +466,12 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
         CalendlyConnectionValidator,
         GoogleCalendarConnectionValidator,
     )
+    from lead_agent.infrastructure.communications import CommunicationsValidator
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
     from lead_agent.infrastructure.outlook import OutlookConnectionValidator
     from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
     from lead_agent.infrastructure.slack import SlackConnectionValidator
+    from lead_agent.infrastructure.social import SocialConnectionValidator
 
     settings = get_settings()
     return ProviderConnectionValidatorRegistry(
@@ -484,12 +492,16 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             "google_calendar": GoogleCalendarConnectionValidator(
                 timeout_seconds=settings.crm_timeout_seconds
             ),
-            "calendly": CalendlyConnectionValidator(
-                timeout_seconds=settings.crm_timeout_seconds
-            ),
-            "openai": OpenAIConnectionValidator(
-                timeout_seconds=settings.openai_timeout_seconds
-            ),
+            "calendly": CalendlyConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
+            **{
+                key: CommunicationsValidator()
+                for key in ("gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell")
+            },
+            "openai": OpenAIConnectionValidator(timeout_seconds=settings.openai_timeout_seconds),
+            **{
+                provider: SocialConnectionValidator()
+                for provider in ("instagram", "messenger", "whatsapp_business", "clutch")
+            },
         },
         DeferredProviderValidator(),
     )
@@ -513,6 +525,25 @@ def get_provider_revoker() -> ProviderRevoker:
                 client_secret=settings.hubspot_client_secret,
             ),
             "slack": SlackProviderRevoker(),
+            **{
+                provider: ManualCredentialRevoker()
+                for provider in (
+                    "gohighlevel",
+                    "twilio",
+                    "aircall",
+                    "ringcentral",
+                    "vapi",
+                    "retell",
+                    "instagram",
+                    "messenger",
+                    "whatsapp_business",
+                    "clutch",
+                    "gemini",
+                    "claude",
+                    "deepseek",
+                    "xai",
+                )
+            },
         },
         OAuthBrokerRevoker(get_oauth_broker()),
     )

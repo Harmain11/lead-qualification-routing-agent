@@ -21,11 +21,15 @@ from lead_agent.settings.config import Settings
     "provider,status,payload,expected",
     [
         (
-            "salesforce", 400,
-            {"error": "invalid_grant", "error_description": "private details"}, "invalid_grant",
+            "salesforce",
+            400,
+            {"error": "invalid_grant", "error_description": "private details"},
+            "invalid_grant",
         ),
         (
-            "slack", 200, {"ok": False, "error": "invalid_team_for_non_distributed_app"},
+            "slack",
+            200,
+            {"ok": False, "error": "invalid_team_for_non_distributed_app"},
             "invalid_team_for_non_distributed_app",
         ),
         ("salesforce", 401, {"error": "secret-looking-unknown-value"}, "oauth_provider_error"),
@@ -37,14 +41,17 @@ from lead_agent.settings.config import Settings
     ],
 )
 def test_exchange_errors_are_actionable_and_redacted(provider, status, payload, expected):
-    client = httpx.Client(transport=httpx.MockTransport(
-        lambda request: httpx.Response(status, json=payload)
-    ))
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, json=payload))
+    )
     broker = ProviderOAuthBroker(
         Settings(
-            salesforce_client_id="test-client", salesforce_client_secret="test-secret",
-            slack_client_id="test-client", slack_client_secret="test-secret",
-        ), client,
+            salesforce_client_id="test-client",
+            salesforce_client_secret="test-secret",
+            slack_client_id="test-client",
+            slack_client_secret="test-secret",
+        ),
+        client,
     )
     with pytest.raises(OAuthProviderError) as raised:
         broker.exchange(provider, "private-code", "private-verifier", "https://app.test/callback")
@@ -55,11 +62,14 @@ def test_exchange_errors_are_actionable_and_redacted(provider, status, payload, 
     client.close()
 
 
-@pytest.mark.parametrize("provider,code", [
-    ("salesforce", "access_denied"),
-    ("salesforce", "invalid_app_access"),
-    ("slack", "invalid_team_for_non_distributed_app"),
-])
+@pytest.mark.parametrize(
+    "provider,code",
+    [
+        ("salesforce", "access_denied"),
+        ("salesforce", "invalid_app_access"),
+        ("slack", "invalid_team_for_non_distributed_app"),
+    ],
+)
 def test_rejected_callback_requires_valid_state_and_cleans_pending_secret(tmp_path, provider, code):
     engine = create_engine(f"sqlite:///{tmp_path / 'oauth.db'}")
     Base.metadata.create_all(engine)
@@ -67,23 +77,48 @@ def test_rejected_callback_requires_valid_state_and_cleans_pending_secret(tmp_pa
     workspace = uuid4()
     with Session(engine) as session:
         row, started = begin_oauth_connection(
-            session, workspace, provider, "Pending", [], DevelopmentOAuthBroker(),
-            store, "https://app.test", "actor",
+            session,
+            workspace,
+            provider,
+            "Pending",
+            [],
+            DevelopmentOAuthBroker(),
+            store,
+            "https://app.test",
+            "actor",
         )
         reference = row.secret_reference
         error = OAuthProviderError(provider, code)
         with pytest.raises(ValueError, match="state validation"):
             reject_oauth_connection(
-                session, workspace, row.id, started.state + "-forged", store, "actor", error,
+                session,
+                workspace,
+                row.id,
+                started.state + "-forged",
+                store,
+                "actor",
+                error,
             )
         assert row.status == "awaiting_authorization"
         assert store.retrieve(reference) is not None
         with pytest.raises(ValueError, match="different actor"):
             reject_oauth_connection(
-                session, workspace, row.id, started.state, store, "other-actor", error,
+                session,
+                workspace,
+                row.id,
+                started.state,
+                store,
+                "other-actor",
+                error,
             )
         reject_oauth_connection(
-            session, workspace, row.id, started.state, store, "actor", error,
+            session,
+            workspace,
+            row.id,
+            started.state,
+            store,
+            "actor",
+            error,
         )
         assert row.status == "connection_failed"
         assert row.last_validation_result["error_code"] == code
@@ -91,7 +126,13 @@ def test_rejected_callback_requires_valid_state_and_cleans_pending_secret(tmp_pa
         assert store.retrieve(reference) is None
         with pytest.raises(ValueError, match="pending connection"):
             reject_oauth_connection(
-                session, workspace, row.id, started.state, store, "actor", error,
+                session,
+                workspace,
+                row.id,
+                started.state,
+                store,
+                "actor",
+                error,
             )
 
 
@@ -110,13 +151,26 @@ def test_exchange_failure_is_persisted_without_raw_provider_details(tmp_path, ty
     with Session(engine) as session:
         broker = FailingBroker()
         row, started = begin_oauth_connection(
-            session, workspace, "salesforce", "Pending", [], broker,
-            store, "https://app.test", "actor",
+            session,
+            workspace,
+            "salesforce",
+            "Pending",
+            [],
+            broker,
+            store,
+            "https://app.test",
+            "actor",
         )
         with pytest.raises(OAuthProviderError):
             complete_oauth_connection(
-                session, workspace, row.id, started.state, "private-code", store,
-                broker, "actor",
+                session,
+                workspace,
+                row.id,
+                started.state,
+                "private-code",
+                store,
+                broker,
+                "actor",
             )
         assert row.status == "connection_failed"
         assert row.secret_reference is None
@@ -148,3 +202,27 @@ def test_salesforce_specific_errors_have_static_actionable_messages(code, messag
     error = OAuthProviderError("salesforce", code)
     assert error.error_code == code
     assert message in str(error)
+
+
+@pytest.mark.parametrize("grant", ["exchange", "refresh"])
+def test_calendly_web_client_uses_basic_authorization_for_both_grants(grant):
+    from urllib.parse import parse_qs
+
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        return httpx.Response(200, json={"access_token": "new-token", "refresh_token": "refresh"})
+
+    settings = Settings(calendly_client_id="client-id", calendly_client_secret="client-secret")
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        broker = ProviderOAuthBroker(settings, client=client)
+        result = (
+            broker.exchange("calendly", "code", "verifier", "https://example.com/callback")
+            if grant == "exchange"
+            else broker.refresh("calendly", "refresh")
+        )
+    assert result["access_token"] == "new-token"
+    assert seen[0].headers["authorization"].startswith("Basic ")
+    body = parse_qs(seen[0].content.decode())
+    assert "client_id" not in body and "client_secret" not in body

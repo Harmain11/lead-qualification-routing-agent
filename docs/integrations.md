@@ -10,7 +10,7 @@ Provider SDKs and OAuth clients remain deferred except for the Phase 4 Slack not
 | Direct email | Gmail API or Microsoft Graph mail API; mailbox polling or push notifications | OAuth client, refresh token, mailbox access, least-privilege read scope | `MAILBOX_PROVIDER`, `GOOGLE_*`, `MICROSOFT_*` |
 | Clutch v1 recommendation | Parse Clutch inquiry notification emails through the mailbox boundary | Mailbox access and a provider-specific parser fixture | Mailbox variables; no Clutch API key assumed |
 | LinkedIn | Official permitted API path, preferably lead forms or approved inbound message access | LinkedIn app, approved products/scopes, access token, webhook verification if applicable | `LINKEDIN_*` |
-| Optional social | Platform-owned webhook/API for DMs or comments | App credentials, webhook verification, approved scopes | `SOCIAL_*` |
+| Meta social | Separate Instagram, Messenger, and WhatsApp Business apps using Meta OAuth and Graph API | One operator-owned Meta app per channel, approved use cases/scopes, webhook verification when inbound events are enabled | `META_*_CLIENT_ID`, `META_*_CLIENT_SECRET` |
 | Salesforce | OAuth plus Salesforce REST API for Lead/Contact and custom fields | External Client App, client ID/secret, refresh token, sandbox or production login URL | `SALESFORCE_*` |
 | HubSpot | OAuth or private-app CRM API for Contact/Deal properties | App credentials or private-app token, scopes for CRM objects and properties | `HUBSPOT_ACCESS_TOKEN` and future OAuth variables if needed |
 | Slack | Slack Web API behind `NotificationProvider`; interactive review actions remain optional | Bot token and channel ID; signing secret only if receiving interactions | `NOTIFICATION_PROVIDER=slack`, `SLACK_*` |
@@ -79,7 +79,7 @@ The complete placeholder contract is in [`.env.example`](../.env.example). Varia
 - CRM selection and provider credentials;
 - Slack notification credentials;
 - Gmail/Microsoft mailbox credentials;
-- LinkedIn and optional social credentials;
+- Meta social credentials and LinkedIn credentials;
 - webhook security, demo-data mode, and telemetry.
 
 The current safe defaults are `LLM_PROVIDER=deterministic`, `NOTIFICATION_PROVIDER=mock`, `CRM_PROVIDER=mock`, `MAILBOX_PROVIDER=none`, `SOCIAL_PROVIDER=none`, and `DEMO_DATA_ENABLED=false`.
@@ -140,6 +140,31 @@ or upserts Contacts only; legacy optional Company/Deal outbound mappings remain 
 The development secret store and OAuth broker are intentionally process-local and rejected by production configuration. Production resolves a deployment-owned, cloud-neutral managed-secret backend through the common `SecretStore` lifecycle and configures operator-owned OAuth applications. Authorization state is hashed, expiring, actor/workspace/provider bound, and atomically single-use; PKCE uses S256, and token expiry/refresh/reconnect/disconnect paths stay behind provider ports.
 
 The frontend setup catalog describes where credentials originate, minimum scopes, why they are needed, and links to official documentation. It never embeds or displays a user's values.
+
+### Meta social connection setup
+
+Corral keeps Instagram, Messenger, and WhatsApp Business as separate workspace connections. Each
+provider uses its own Meta developer app and OAuth client credentials; customer access tokens are
+stored through the workspace secret store and never returned to the browser.
+
+Configure these server-side secrets:
+
+- `META_INSTAGRAM_CLIENT_ID` / `META_INSTAGRAM_CLIENT_SECRET` for **Corral Social Leads Visual**;
+- `META_MESSENGER_CLIENT_ID` / `META_MESSENGER_CLIENT_SECRET` for **Corral Social Leads Inbox**;
+- `META_WHATSAPP_CLIENT_ID` / `META_WHATSAPP_CLIENT_SECRET` for **Corral Social Leads Business**.
+
+For each Meta app, add the matching callback URL:
+`{INTEGRATION_PUBLIC_BASE_URL}/v1/integrations/{provider}/oauth/callback`.
+The provider must use the same HTTPS public base URL configured in deployment. Meta social
+connections never use the deterministic development broker: configure `OAUTH_BROKER=provider`,
+the Meta client secrets, and the managed secret store before enabling Connect. Production requires
+the same provider broker and managed secret store.
+
+The Corral cards request the minimum channel permissions currently needed for the connection:
+Instagram (`instagram_basic`, `instagram_manage_messages`, `pages_show_list`), Messenger
+(`pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_messaging`), and
+WhatsApp Business (`whatsapp_business_management`, `whatsapp_business_messaging`). Meta may require app review and Business Portfolio verification
+before customer accounts outside the app roles can grant these permissions.
 
 ### Phase 6.5 connection experience
 

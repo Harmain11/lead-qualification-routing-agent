@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -333,19 +333,24 @@ def seed_database(session: Session) -> None:
         process_lead(session, payload, icp, routing)
 
 
-def seed_demo_database(session: Session) -> None:
-    """Seed an explicit, isolated demo workspace for the Phase 6 product experience."""
+def seed_demo_database(session: Session, workspace_id: UUID = DEMO_WORKSPACE_ID) -> None:
+    """Seed representative demo records into the requested non-production workspace."""
     settings = get_settings()
     if settings.app_env == "production":
         raise RuntimeError("demo seed commands are disabled in production")
     icp, routing = settings.load_policies()
     workspace = ensure_workspace(
         session,
-        DEMO_WORKSPACE_ID,
-        name="Ingenuity Revenue Operations Demo",
-        is_demo=True,
+        workspace_id,
+        name=(
+            "Ingenuity Revenue Operations Demo"
+            if workspace_id == DEMO_WORKSPACE_ID
+            else "Default Workspace"
+        ),
+        is_demo=workspace_id == DEMO_WORKSPACE_ID,
     )
-    workspace.is_demo = True
+    if workspace_id == DEMO_WORKSPACE_ID:
+        workspace.is_demo = True
     session.commit()
     now = datetime.now(UTC)
     for index, profile in enumerate(DEMO_PROFILES):
@@ -354,11 +359,16 @@ def seed_demo_database(session: Session) -> None:
             select(LeadOutcomeORM)
             .join(LeadOutcomeORM.lead)
             .where(
-                LeadOutcomeORM.workspace_id == DEMO_WORKSPACE_ID,
-                LeadOutcomeORM.lead.has(external_id=external_id),
+                LeadOutcomeORM.lead.has(
+                    workspace_id=workspace_id,
+                    external_id=external_id,
+                ),
             )
         )
         if existing is not None:
+            if existing.workspace_id != workspace_id:
+                existing.workspace_id = workspace_id
+                session.commit()
             continue
         received_at = now - timedelta(days=int(profile["days_ago"]), hours=index % 5)
         payload: dict[str, object] = {
@@ -383,11 +393,11 @@ def seed_demo_database(session: Session) -> None:
             payload,
             icp,
             routing,
-            workspace_id=DEMO_WORKSPACE_ID,
+            workspace_id=workspace_id,
         )
         row.outcome = LeadOutcomeORM(
             id=uuid4(),
-            workspace_id=DEMO_WORKSPACE_ID,
+            workspace_id=workspace_id,
             lead_id=row.id,
             pipeline_stage=str(profile["stage"]),
             opportunity_value=float(profile["value"]),
@@ -428,11 +438,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--demo", action="store_true", help="Seed the isolated Phase 6 demo workspace"
     )
+    parser.add_argument(
+        "--workspace-id",
+        type=UUID,
+        help="Seed the illustrative records into this development workspace",
+    )
     arguments = parser.parse_args()
     factory = build_session_factory()
     with factory() as session:
         if arguments.demo:
-            seed_demo_database(session)
+            seed_demo_database(session, arguments.workspace_id or DEMO_WORKSPACE_ID)
         else:
             seed_database(session)
     count = len(DEMO_PROFILES) if arguments.demo else len(SEED_LEADS)

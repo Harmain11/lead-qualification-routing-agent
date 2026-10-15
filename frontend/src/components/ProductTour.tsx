@@ -11,10 +11,11 @@ export type TourView =
   | "agents"
   | "review"
   | "integrations"
+  | "dialer"
   | "analytics"
   | "settings"
   | "team"
-  | "icp";
+  | "icp" | "accounts" | "intelligence" | "automations" | "policies" | "compliance";
 
 type ProductTourProps = {
   open: boolean;

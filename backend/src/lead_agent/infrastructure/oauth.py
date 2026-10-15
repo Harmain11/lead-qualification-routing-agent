@@ -14,6 +14,8 @@ from lead_agent.domain.integrations import OAuthBroker
 from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.settings.config import Settings, get_settings
 
+_META_PROVIDERS = frozenset({"instagram", "messenger", "whatsapp_business"})
+
 
 @dataclass(frozen=True)
 class OAuthProviderConfig:
@@ -21,6 +23,7 @@ class OAuthProviderConfig:
     client_secret: str
     authorize_url: str
     token_url: str
+    supports_pkce: bool = True
 
 
 class DevelopmentOAuthBroker:
@@ -35,6 +38,11 @@ class DevelopmentOAuthBroker:
         redirect_uri: str,
         scopes: list[str],
     ) -> str:
+        if provider in _META_PROVIDERS:
+            raise ValueError(
+                "Meta social connections require real provider OAuth credentials. "
+                "Set OAUTH_BROKER=provider and the matching META_* client ID and secret."
+            )
         query = urlencode(
             {
                 "connection_id": str(connection_id),
@@ -136,6 +144,25 @@ class ProviderOAuthBroker:
                 "https://www.linkedin.com/oauth/v2/authorization",
                 "https://www.linkedin.com/oauth/v2/accessToken",
             ),
+            "instagram": OAuthProviderConfig(
+                self.settings.meta_instagram_client_id,
+                self.settings.meta_instagram_client_secret,
+                "https://www.instagram.com/oauth/authorize",
+                "https://api.instagram.com/oauth/access_token",
+                supports_pkce=False,
+            ),
+            "messenger": OAuthProviderConfig(
+                self.settings.meta_messenger_client_id,
+                self.settings.meta_messenger_client_secret,
+                "https://www.facebook.com/v20.0/dialog/oauth",
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+            ),
+            "whatsapp_business": OAuthProviderConfig(
+                self.settings.meta_whatsapp_client_id,
+                self.settings.meta_whatsapp_client_secret,
+                "https://www.facebook.com/v20.0/dialog/oauth",
+                "https://graph.facebook.com/v20.0/oauth/access_token",
+            ),
         }
         config = configs.get(provider)
         if config is None:
@@ -159,14 +186,21 @@ class ProviderOAuthBroker:
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "state": state,
-            "scope": ",".join(scopes) if provider == "slack" else " ".join(scopes),
+            # Meta's dialog expects comma-delimited permissions. Slack has the
+            # same requirement, while the remaining providers use spaces.
+            "scope": ",".join(scopes)
+            if provider == "slack" or provider in {"instagram", "messenger", "whatsapp_business"}
+            else " ".join(scopes),
         }
-        query.update(
-            {
-                "code_challenge": code_challenge,
-                "code_challenge_method": "S256",
-            }
-        )
+        if config.supports_pkce:
+            query.update(
+                {
+                    "code_challenge": code_challenge,
+                    "code_challenge_method": "S256",
+                }
+            )
+        if provider == "instagram":
+            query["enable_fb_login"] = "0"
         if provider in {"gmail", "google_calendar"}:
             query.update({"access_type": "offline", "prompt": "consent select_account"})
         elif provider == "salesforce":
@@ -197,11 +231,14 @@ class ProviderOAuthBroker:
             "client_secret": config.client_secret,
             "redirect_uri": redirect_uri,
         }
-        token_payload["code_verifier"] = code_verifier
-        response = self.client.post(
-            config.token_url,
-            data=token_payload,
-        )
+        if config.supports_pkce:
+            token_payload["code_verifier"] = code_verifier
+        request_auth = None
+        if provider == "calendly":
+            request_auth = httpx.BasicAuth(
+                token_payload.pop("client_id"), token_payload.pop("client_secret")
+            )
+        response = self.client.post(config.token_url, data=token_payload, auth=request_auth)
         if response.is_error:
             try:
                 error_payload = response.json()
@@ -227,15 +264,15 @@ class ProviderOAuthBroker:
 
     def refresh(self, provider: str, refresh_token: str) -> dict[str, str]:
         config = self._config(provider)
-        response = self.client.post(
-            config.token_url,
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "client_id": config.client_id,
-                "client_secret": config.client_secret,
-            },
-        )
+        token_payload = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+        request_auth = None
+        if provider == "calendly":
+            request_auth = httpx.BasicAuth(config.client_id, config.client_secret)
+        else:
+            token_payload.update(
+                {"client_id": config.client_id, "client_secret": config.client_secret}
+            )
+        response = self.client.post(config.token_url, data=token_payload, auth=request_auth)
         response.raise_for_status()
         values = self._string_values(response.json())
         if not values.get("access_token"):

@@ -13,6 +13,6 @@ uv run --project backend alembic -c backend/alembic.ini upgrade head
 uv run --project backend uvicorn lead_agent.api.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-Use `uv run --project backend python -m lead_agent.seed` to load the five illustrative records. Intake fixture adapters live under `src/lead_agent/infrastructure/intake`; provider SDKs are intentionally absent. Run `uv run --project backend pytest backend/tests` for backend tests, `uv run --project backend ruff check backend/src backend/tests` for linting, and `uv run --project backend mypy backend/src` for type checking.
+Use `uv run --project backend python -m lead_agent.seed` to load the five illustrative records. Use `uv run --project backend python -m lead_agent.seed --demo` for the isolated 12-lead demo workspace, or add `--workspace-id <uuid>` to seed the same illustrative records into a development workspace you are testing. Intake fixture adapters live under `src/lead_agent/infrastructure/intake`; provider SDKs are intentionally absent. Run `uv run --project backend pytest backend/tests` for backend tests, `uv run --project backend ruff check backend/src backend/tests` for linting, and `uv run --project backend mypy backend/src` for type checking.
 
 Lead exports are synchronous and bounded by `EXPORT_SYNC_LIMIT` (default 5,000 records). Requests above the limit are rejected with a safe message and an audit event; the export service keeps the query/render boundary suitable for a future asynchronous job without introducing a queue in this phase.

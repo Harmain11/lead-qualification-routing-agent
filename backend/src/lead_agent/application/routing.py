@@ -331,6 +331,11 @@ def _choose_workspace_rep(
             .group_by(RoutingDecisionORM.assigned_rep_id)
         ).all()
     )
+    from lead_agent.application.territories import capacity_candidates
+
+    candidates, capacity_reason = capacity_candidates(session, lead, candidates, counts)
+    if not candidates:
+        return None, capacity_reason
     config = session.get(WorkspaceRoutingConfigORM, lead.workspace_id)
     raw_weights = config.member_weights if config is not None else {}
     weights = {
@@ -351,7 +356,7 @@ def _choose_workspace_rep(
         f"Assigned active workspace {normalize_role(candidates[0][0].role).replace('_', ' ')} "
         f"{selected.display_name or selected.email} with {load} open assigned lead(s), "
         f"the lowest weighted load among {len(candidates)} eligible peer(s) "
-        f"(routing weight {weight:g}).",
+        f"(routing weight {weight:g}). {capacity_reason}",
     )
 
 
@@ -441,9 +446,7 @@ def notify_routing_decision(
     selected_provider = provider or MockNotificationProvider()
     resolver = getattr(selected_provider, "resolve_for_lead", None)
     if callable(resolver):
-        active_provider = resolver(
-            session, lead.workspace_id, lead, decision, actor_id="system"
-        )
+        active_provider = resolver(session, lead.workspace_id, lead, decision, actor_id="system")
     else:
         resolver = getattr(selected_provider, "resolve_for_workspace", None)
         active_provider = (
@@ -710,6 +713,11 @@ def route_and_notify(
         else _action_for(routing, action_key).sla_hours
     )
     now = datetime.now(UTC)
+    from lead_agent.application.territories import lead_territory
+
+    territory = lead_territory(session, lead)
+    if territory:
+        sla_hours = territory.sla_hours
     sla_target = now + timedelta(hours=sla_hours) if sla_hours is not None else None
     qualification_id = lead.qualification.id if lead.qualification else "none"
     idempotency_key = f"{lead.id}:{qualification_id}"

@@ -20,6 +20,30 @@
 .lead-browser .lead-selection-bar > label:first-child { margin-right: auto; }
 .lead-browser .lead-selection-bar > span { margin-left: 0; }
 .lead-browser .lead-selection-bar input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; accent-color: #1E6B52; }
+.lead-browser .lead-selection-bar .lead-transfer-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.lead-browser .lead-selection-bar .lead-transfer-control .select-menu-trigger {
+  width: 260px;
+  min-height: var(--control-height);
+  border-color: var(--line-bright);
+  background: var(--surface);
+  font-size: var(--font-control);
+}
+.lead-browser .lead-selection-bar .lead-transfer-control + button {
+  align-self: center;
+  min-height: var(--control-height);
+}
+.lead-browser .lead-selection-bar > button {
+  align-self: center;
+  white-space: nowrap;
+}
 .lead-browser .lead-selection-bar select {
   min-height: 38px;
   min-width: 120px;
@@ -33,12 +57,14 @@
 .app-shell .panel::before,
 .app-shell .metric-card::before,
 .app-shell .integration-card::before { display: none; }
-@media (max-width: 760px) {
+@container (max-width: 720px) {
   .lead-browser .lead-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; gap: 10px; }
   .lead-browser .lead-toolbar > label:first-child,
   .lead-browser .live-feed-status { grid-column: 1 / -1; }
   .lead-browser .live-feed-status { justify-self: start; }
   .lead-browser .lead-selection-bar { padding: 14px; }
+  .lead-browser .lead-selection-bar .lead-transfer-control { flex: 1 1 100%; }
+  .lead-browser .lead-selection-bar .lead-transfer-control .select-menu-trigger { flex: 1; width: auto; }
   .product-bar .range-picker { min-width: 174px; }
   .product-bar .range-picker button { min-width: 54px; padding-inline: 8px; }
 }

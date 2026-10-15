@@ -7,11 +7,12 @@
 .openai-usage-periods button[aria-pressed="true"] { color: var(--green); border-color: var(--green); background: var(--orange-soft); }
 .openai-usage-totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .openai-usage-totals > div { display: grid; gap: 5px; }
-.openai-usage-totals span, .openai-usage small { color: var(--muted); font-size: 12px; }
+.openai-usage-totals span, .openai-usage small { color: var(--muted); font-size: 13px; }
 .openai-usage-totals strong { font-size: 22px; letter-spacing: -.04em; }
 .openai-model-usage { overflow-x: auto; }
-.openai-model-usage table { width: 100%; text-align: left; border-collapse: collapse; font-size: 12px; }
+.openai-model-usage table { width: 100%; text-align: left; border-collapse: collapse; font-size: 13px; }
 .openai-model-usage caption { text-align: left; font-weight: 650; padding-bottom: 8px; }
 .openai-model-usage td, .openai-model-usage th { padding: 8px 3px; border-bottom: 1px solid var(--line); }
 .openai-model-usage td:not(:first-child), .openai-model-usage th:not(:first-child) { text-align: right; }
-.openai-usage .openai-usage-note { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.openai-usage .openai-usage-note { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.ai-usage-unavailable { color: var(--muted); font-size: 12px; }

@@ -19,13 +19,14 @@ function currencyFormatter(currency: string) {
   }
 }
 
-function InsightPanel({ eyebrow, title, detail, children }: {
+function InsightPanel({ eyebrow, title, detail, children, kind = "source" }: {
+  kind?: "source" | "revenue";
   eyebrow: string;
   title: string;
   detail: string;
   children: ReactNode;
 }) {
-  return <section className="dashboard-insight-panel">
+  return <section className={`dashboard-insight-panel insight-${kind}`}>
     <header><div><span>{eyebrow}</span><h2>{title}</h2></div><p>{detail}</p></header>
     {children}
   </section>;
@@ -62,6 +63,7 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
 
   return <div className="dashboard-insights">
     {visible.has("revenue-trend") && <InsightPanel
+      kind="revenue"
       eyebrow="Closed revenue · over time"
       title="Revenue trend"
       detail={revenue ? `${revenueStatus} data · ${revenue.currency}` : "Revenue data has not been provided"}
@@ -84,7 +86,7 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
     {visible.has("source-qualification") && <InsightPanel
       eyebrow="Lead source · conversion signal"
       title="Qualification rate by source"
-       detail="Hot, Warm or Needs Qualifying leads ÷ total leads in this period × 100. Fixed 0–100% scale."
+       detail="Share of leads marked Hot, Warm or Needs Qualifying during this period. Scale: 0–100%."
     >
       {!channels ? <div className="insight-empty" role="status"><b>Source analytics unavailable</b><span>Qualification rates will appear when channel analytics are available.</span></div>
         : qualificationRows.length === 0 ? <div className="insight-empty" role="status"><b>No source has recorded lead volume</b><span>Sources without leads are excluded rather than shown as zero-rate results.</span></div>

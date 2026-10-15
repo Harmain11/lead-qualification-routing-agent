@@ -88,6 +88,18 @@ def get_csrf_authenticated_identity(
     return identity
 
 
+def _check_residency(request: Request, session: Session, workspace_id: UUID) -> None:
+    from lead_agent.application.governance import OutreachBlocked, assert_residency
+
+    # Keep policy repair available when an operator moves the deployment to a different region.
+    if request.url.path == "/v1/ops/policy":
+        return
+    try:
+        assert_residency(session, workspace_id)
+    except OutreachBlocked as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
+
 def get_workspace_context(
     request: Request,
     session: Session = Depends(get_db),
@@ -117,6 +129,7 @@ def get_workspace_context(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
         except ValueError as error:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+        _check_residency(request, session, workspace_id)
         request.state.workspace_id = str(workspace_id)
         request.state.actor_id = str(identity.user_id)
         return WorkspaceContext(
@@ -142,6 +155,7 @@ def get_workspace_context(
         workspace_id = UUID(x_workspace_id) if x_workspace_id else DEFAULT_WORKSPACE_ID
     except ValueError as error:
         raise HTTPException(status_code=400, detail="X-Workspace-ID must be a UUID") from error
+    _check_residency(request, session, workspace_id)
     request.state.workspace_id = str(workspace_id)
     request.state.actor_id = (x_actor_id or "development-user")[:255]
     return WorkspaceContext(

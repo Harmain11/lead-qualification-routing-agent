@@ -1,26 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { OperationsDialog } from "../components/OperationsDialog";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
-  inviteMember,
-  listInvitations,
-  listMemberAuditEvents,
-  listMembers,
-  reactivateMember,
-  removeMember,
-  resendInvitation,
-  revokeInvitation,
-  suspendMember,
-  updateMemberPermissions,
-  updateMemberRole,
-  updateMemberSlackLink,
+inviteMember,
+listInvitations,
+listMemberAuditEvents,
+listMembers,
+reactivateMember,
+removeMember,
+resendInvitation,
+revokeInvitation,
+suspendMember,
+updateMemberPermissions,
+updateMemberRole,
+updateMemberSlackLink,
 } from "../api";
-import { can, defaultPermissionsForRole, PERMISSION_GROUPS, ROLE_LABELS, ROLE_OPTIONS, roleLabel, statusLabel } from "../permissions";
+import { can,defaultPermissionsForRole,PERMISSION_GROUPS,ROLE_LABELS,ROLE_OPTIONS,roleLabel,statusLabel } from "../permissions";
 import type {
-  AuthSession,
-  PermissionOverrides,
-  WorkspaceAuditEvent,
-  WorkspaceInvitation,
-  WorkspaceMember,
+AuthSession,
+PermissionOverrides,
+WorkspaceAuditEvent,
+WorkspaceInvitation,
+WorkspaceMember,
 } from "../types";
 
 type TeamViewProps = {
@@ -255,10 +256,10 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
         <div>
           <button className="team-back" onClick={onBack}>← Settings</button>
           <span className="eyebrow">Workspace users</span>
-          <h1>Users &amp; <em>permissions.</em></h1>
+          <h1>Users &amp; permissions</h1>
           <p>Review each user’s role, edit their workspace permissions, and remove access when needed.</p>
         </div>
-        <div className="team-context-card"><span>Editing workspace</span><strong>{workspaceName}</strong><small>{auth.current_workspace_id}</small><i>Permissions are workspace-specific</i></div>
+        <div className="team-context-card"><span>Editing workspace</span><strong>{workspaceName}</strong><i>Permissions are workspace-specific</i></div>
       </header>
 
       {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message">×</button></div>}
@@ -270,11 +271,11 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-summary panel"><span className="eyebrow">Pending invitations</span><strong>{invitations.filter((invitation) => invitation.status === "pending").length}</strong><small>Delivery is represented as pending</small></div>
             <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} effective permissions</small></div>
           </section>
-          <section className="team-layout">
+          <section className="team-layout team-roster-layout">
             <div className="team-main-column">
               <div className="panel team-members-panel">
                 <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace users</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite user</button>}</div></div>
-                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <button type="button" className={`team-member-row ${selected?.id === member.id ? "selected" : ""}`} key={member.id} onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><i className="member-chevron">→</i></button>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
+                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <div className="team-member-row" key={member.id}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><span className="member-row-actions"><button type="button" className="button-quiet" onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}>Edit</button>{canManage && member.role !== "owner" && member.user_id !== auth.user.id && <button type="button" className="button-quiet danger-text" onClick={() => requestConfirmation({ title: "Remove from workspace?", detail: `${member.display_name} will lose access to this workspace. Their account and other workspace memberships will remain.`, confirmLabel: "Remove from workspace", danger: true, action: async () => { await removeMember(member.id); } })}>Delete</button>}</span><i className="member-chevron">→</i></div>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
               </div>
               <div className="panel team-invitations-panel">
                 <div className="section-heading"><div><span className="eyebrow">Pending access</span><h2>Invitations</h2></div><span className="panel-action">One-time staff codes</span></div>
@@ -282,7 +283,11 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
               </div>
               <div className="panel team-audit-panel"><div className="section-heading"><div><span className="eyebrow">Durable administration trail</span><h2>Recent activity</h2></div><span className="panel-action">Last {Math.min(audit.length, 6)} events</span></div>{audit.length ? <ul className="team-audit-list">{audit.slice(0, 6).map((event) => <AuditLine key={event.id} event={event} members={members} />)}</ul> : <div className="compact-empty"><span>No administration activity recorded yet.</span></div>}</div>
             </div>
-            <MemberDetail
+          </section>
+          {selected && <div className="team-member-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null); }}>
+            <section className="team-member-drawer" role="dialog" aria-modal="true" aria-label={`Edit ${selected.display_name}`}>
+              <button className="team-back" type="button" onClick={() => setSelectedId(null)}>← Back to members</button>
+              <MemberDetail
               member={selected}
               actor={actor}
               canManage={canManage}
@@ -324,8 +329,9 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
                 danger: true,
                 action: async () => { await removeMember(selected.id); },
               })}
-            />
-          </section>
+              />
+            </section>
+          </div>}
         </>
       )}
       {inviteOpen && <InviteDialog email={inviteEmail} role={inviteRole} overrides={inviteOverrides} busy={inviteBusy} onEmail={setInviteEmail} onRole={setInviteRole} onOverrides={setInviteOverrides} onClose={() => setInviteOpen(false)} onSubmit={submitInvitation} />}
@@ -476,7 +482,7 @@ function InviteDialog({
     event.preventDefault();
     setStep("review");
   }
-  return <div className="team-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="team-modal panel" role="dialog" aria-modal="true" aria-labelledby="invite-title"><div className="team-modal-head"><div><span className="eyebrow">Add workspace staff · {step === "details" ? "01 Details" : "02 Review"}</span><h2 id="invite-title">Invite team member</h2><p>{step === "details" ? "Choose an email, role and any deliberate permission exceptions." : "Review the access package before creating the pending invitation."}</p></div><button className="modal-close" onClick={onClose} aria-label="Close invitation dialog">×</button></div><form onSubmit={step === "details" ? review : onSubmit}>{step === "details" ? <><label className="team-field"><span>Work email</span><input required type="email" value={email} onChange={(event) => onEmail(event.target.value)} placeholder="name@company.com" autoFocus /></label><label className="team-field"><span>Workspace role</span><select value={role} onChange={(event) => onRole(event.target.value)}>{ROLE_OPTIONS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><small>{roleInfo.description}</small></label><div className="invite-permission-custom"><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Permission overrides</h3></div><span className="panel-action">Tap to cycle: grant · deny · reset</span></div><PermissionEditor overrides={overrides} effective={defaultPermissionsForRole(role)} onChange={onOverrides} /></div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={onClose}>Cancel</button><button className="primary-button">Review invitation →</button></div></> : <><div className="invite-review-card"><span className="member-avatar large">{email.slice(0, 1).toUpperCase()}</span><div><b>{email}</b><RolePill role={role} /><p>{roleInfo.description}</p></div></div><div className="invite-review-facts"><span>Custom grants <b>{overrides.grants.length}</b></span><span>Explicit denies <b>{overrides.denies.length}</b></span><span>Access <b>One-time code</b></span></div><div className="notice">The code is shown once after creation. Share it privately with the invited staff member; resending invalidates the previous code.</div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setStep("details")} disabled={busy}>← Edit details</button><button className="primary-button" disabled={busy}>{busy ? "Creating…" : "Create access code"}</button></div></>}</form></section></div>;
+  return <OperationsDialog title="Invite team member" className="team-modal panel" showHeader={false} onClose={() => { if (!busy) onClose(); }}><div className="team-modal-head"><div><span className="eyebrow">Add workspace staff · {step === "details" ? "01 Details" : "02 Review"}</span><h2 id="invite-title">Invite team member</h2><p>{step === "details" ? "Choose an email, role and any deliberate permission exceptions." : "Review the access package before creating the pending invitation."}</p></div><button className="modal-close" onClick={onClose} aria-label="Close invitation dialog">×</button></div><form onSubmit={step === "details" ? review : onSubmit}>{step === "details" ? <><label className="team-field"><span>Work email</span><input required type="email" value={email} onChange={(event) => onEmail(event.target.value)} placeholder="name@company.com" autoFocus /></label><label className="team-field"><span>Workspace role</span><select value={role} onChange={(event) => onRole(event.target.value)}>{ROLE_OPTIONS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><small>{roleInfo.description}</small></label><div className="invite-permission-custom"><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Permission overrides</h3></div><span className="panel-action">Tap to cycle: grant · deny · reset</span></div><PermissionEditor overrides={overrides} effective={defaultPermissionsForRole(role)} onChange={onOverrides} /></div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={onClose}>Cancel</button><button className="primary-button">Review invitation →</button></div></> : <><div className="invite-review-card"><span className="member-avatar large">{email.slice(0, 1).toUpperCase()}</span><div><b>{email}</b><RolePill role={role} /><p>{roleInfo.description}</p></div></div><div className="invite-review-facts"><span>Custom grants <b>{overrides.grants.length}</b></span><span>Explicit denies <b>{overrides.denies.length}</b></span><span>Access <b>One-time code</b></span></div><div className="notice">The code is shown once after creation. Share it privately with the invited staff member; resending invalidates the previous code.</div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setStep("details")} disabled={busy}>← Edit details</button><button className="primary-button" disabled={busy}>{busy ? "Creating…" : "Create access code"}</button></div></>}</form></OperationsDialog>;
 }
 
 function InviteCodeDialog({ invitation, workspaceId, onClose }: { invitation: WorkspaceInvitation; workspaceId: string; onClose: () => void }) {
@@ -484,11 +490,11 @@ function InviteCodeDialog({ invitation, workspaceId, onClose }: { invitation: Wo
   async function copy(value: string) {
     await navigator.clipboard?.writeText(value);
   }
-  return <div className="team-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="team-modal panel" role="dialog" aria-modal="true" aria-labelledby="access-code-title"><div className="team-modal-head"><div><span className="eyebrow">Staff portal access</span><h2 id="access-code-title">Access code ready</h2><p>Send these details privately to {invitation.email}. The code expires {formatDate(invitation.expires_at)} and can be used once.</p></div><button className="modal-close" onClick={onClose} aria-label="Close access code dialog">×</button></div><div className="access-code-fields"><label>Workspace ID<div><code>{workspaceId}</code><button type="button" className="button-quiet" onClick={() => void copy(workspaceId)}>Copy</button></div></label><label>Staff access code<div><code>{code}</code><button type="button" className="button-quiet" onClick={() => void copy(code)}>Copy</button></div></label></div><div className="notice">Staff select <b>Staff access</b> on the portal, enter the workspace ID, this code and their invited email, then enter their name. New accounts must create a password of at least 10 characters; their email is their username for future sign-ins. Existing accounts keep their current password. Admins and owners are the only roles that can create or rotate codes.</div><div className="team-modal-actions"><button className="primary-button" onClick={onClose}>Done</button></div></section></div>;
+  return <OperationsDialog title="Access code ready" className="team-modal panel" showHeader={false} onClose={onClose}><div className="team-modal-head"><div><span className="eyebrow">Staff portal access</span><h2 id="access-code-title">Access code ready</h2><p>Send these details privately to {invitation.email}. The code expires {formatDate(invitation.expires_at)} and can be used once.</p></div><button className="modal-close" onClick={onClose} aria-label="Close access code dialog">×</button></div><div className="access-code-fields"><label>Workspace ID<div><code>{workspaceId}</code><button type="button" className="button-quiet" onClick={() => void copy(workspaceId)}>Copy</button></div></label><label>Staff access code<div><code>{code}</code><button type="button" className="button-quiet" onClick={() => void copy(code)}>Copy</button></div></label></div><div className="notice">Staff select <b>Staff access</b> on the portal, enter the workspace ID, this code and their invited email, then enter their name. New accounts must create a password of at least 10 characters; their email is their username for future sign-ins. Existing accounts keep their current password. Admins and owners are the only roles that can create or rotate codes.</div><div className="team-modal-actions"><button className="primary-button" onClick={onClose}>Done</button></div></OperationsDialog>;
 }
 
 function ConfirmDialog({ confirmation, busy, onClose, onConfirm }: { confirmation: Confirmation; busy: boolean; onClose: () => void; onConfirm: () => void }) {
-  return <div className="team-modal-backdrop" role="presentation"><section className="team-modal confirm-modal panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><div className="team-modal-head"><div><span className="eyebrow">Confirm sensitive action</span><h2 id="confirm-title">{confirmation.title}</h2><p>{confirmation.detail}</p></div><button className="modal-close" onClick={onClose} disabled={busy} aria-label="Close confirmation dialog">×</button></div><div className="team-modal-actions"><button className="button-quiet" onClick={onClose} disabled={busy}>Cancel</button><button className={confirmation.danger ? "danger-button" : "primary-button"} onClick={onConfirm} disabled={busy}>{busy ? "Working…" : confirmation.confirmLabel}</button></div></section></div>;
+  return <OperationsDialog title={confirmation.title} className="team-modal confirm-modal panel" showHeader={false} onClose={() => { if (!busy) onClose(); }}><div className="team-modal-head"><div><span className="eyebrow">Confirm sensitive action</span><h2 id="confirm-title">{confirmation.title}</h2><p>{confirmation.detail}</p></div><button className="modal-close" onClick={onClose} disabled={busy} aria-label="Close confirmation dialog">×</button></div><div className="team-modal-actions"><button className="button-quiet" onClick={onClose} disabled={busy}>Cancel</button><button className={confirmation.danger ? "danger-button" : "primary-button"} onClick={onConfirm} disabled={busy}>{busy ? "Working…" : confirmation.confirmLabel}</button></div></OperationsDialog>;
 }
 
 function TeamListSkeleton() {

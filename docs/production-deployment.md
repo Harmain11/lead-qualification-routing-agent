@@ -80,8 +80,20 @@ Gmail remains a separate workspace integration with its own callback:
 
 `https://<production-origin>/v1/integrations/gmail/oauth/callback`
 
-Only that Gmail connection requests `https://www.googleapis.com/auth/gmail.readonly`. The two flows
-have separate database state, PKCE verifiers, rate limits, and callback paths.
+That Gmail connection requests `https://www.googleapis.com/auth/gmail.readonly` and
+`https://www.googleapis.com/auth/gmail.send`. Google sign-in and Gmail have separate database
+state, PKCE verifiers, rate limits, and callback paths.
+
+Google Calendar and Calendly are separate workspace integrations. Configure their operator-owned
+OAuth credentials and register these callbacks:
+
+`https://<production-origin>/v1/integrations/google_calendar/oauth/callback`
+
+`https://<production-origin>/v1/integrations/calendly/oauth/callback`
+
+Google Calendar reuses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Calendly uses
+`CALENDLY_CLIENT_ID` and `CALENDLY_CLIENT_SECRET`. Availability is read on demand, and the app
+creates a meeting only after an authorized workspace user confirms a slot.
 
 Password signup records submitted email addresses as unverified. Before production launch, enable
 `AUTH_REQUIRE_EMAIL_VERIFICATION=true` together with the operator's transactional verification-mail

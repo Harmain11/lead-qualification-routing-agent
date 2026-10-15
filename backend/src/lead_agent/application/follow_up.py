@@ -8,9 +8,10 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from lead_agent.application.email_templates import get_email_template
+from lead_agent.application.governance import OutreachBlocked, assert_outreach_allowed
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.provider_errors import ProviderOperationError
-from lead_agent.application.email_templates import get_email_template
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
     LeadORM,
@@ -30,7 +31,8 @@ def _current_email(
     session: Session, lead_id: UUID, workspace_id: UUID
 ) -> LeadFollowUpEmailORM | None:
     return session.scalar(
-        select(LeadFollowUpEmailORM).where(
+        select(LeadFollowUpEmailORM)
+        .where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace_id,
             or_(
@@ -45,6 +47,10 @@ def _current_email(
 def generate_follow_up_draft(
     session: Session, lead: LeadORM, *, actor_id: str
 ) -> LeadFollowUpEmailORM:
+    try:
+        assert_outreach_allowed(session, lead.workspace_id, lead.email)
+    except OutreachBlocked as error:
+        raise FollowUpNotEligible(str(error)) from error
     route = session.scalar(
         select(RoutingDecisionORM).where(
             RoutingDecisionORM.lead_id == lead.id,
@@ -188,6 +194,10 @@ def send_approved_follow_up(
         raise FollowUpNotEligible("Save a complete draft before sending it from connected Gmail.")
     if row.workspace_id != workspace_id:
         raise FollowUpNotEligible("Follow-up draft not found.")
+    try:
+        assert_outreach_allowed(session, workspace_id, row.recipient)
+    except OutreachBlocked as error:
+        raise FollowUpNotEligible(str(error)) from error
     connection = session.scalar(
         select(ProviderConnectionORM)
         .where(
@@ -208,7 +218,9 @@ def send_approved_follow_up(
     token = resolved.credentials.get("access_token") if resolved else None
     mailbox = str(connection.connection_metadata.get("gmail_email") or connection.account_name)
     if not token or "@" not in mailbox:
-        raise FollowUpNotEligible("The verified Gmail mailbox is unavailable. Reconnect Gmail and retry.")
+        raise FollowUpNotEligible(
+            "The verified Gmail mailbox is unavailable. Reconnect Gmail and retry."
+        )
 
     now = datetime.now(UTC)
     claimed = cast(
@@ -233,7 +245,9 @@ def send_approved_follow_up(
     )
     if claimed.rowcount != 1:
         session.rollback()
-        raise FollowUpNotEligible("This follow-up was already sent or is being sent. Refresh its status.")
+        raise FollowUpNotEligible(
+            "This follow-up was already sent or is being sent. Refresh its status."
+        )
     session.commit()
     session.refresh(row)
     try:
@@ -249,7 +263,9 @@ def send_approved_follow_up(
         )
     except Exception:
         row.status = "delivery_uncertain"
-        row.error_message = "Gmail delivery could not be confirmed. Check the Sent folder before retrying."
+        row.error_message = (
+            "Gmail delivery could not be confirmed. Check the Sent folder before retrying."
+        )
     else:
         row.status = "sent"
         row.external_message_id = message_id
