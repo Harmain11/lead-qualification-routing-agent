@@ -299,7 +299,6 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
             "A workspace admin can use a Cloud API token as a secure fallback."
         ),
         required_scopes=[
-            "business_management",
             "whatsapp_business_management",
             "whatsapp_business_messaging",
         ],

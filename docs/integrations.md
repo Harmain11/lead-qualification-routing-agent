@@ -163,8 +163,7 @@ the same provider broker and managed secret store.
 The Corral cards request the minimum channel permissions currently needed for the connection:
 Instagram (`instagram_basic`, `instagram_manage_messages`, `pages_show_list`), Messenger
 (`pages_show_list`, `pages_read_engagement`, `pages_manage_metadata`, `pages_messaging`), and
-WhatsApp Business (`business_management`, `whatsapp_business_management`,
-`whatsapp_business_messaging`). Meta may require app review and Business Portfolio verification
+WhatsApp Business (`whatsapp_business_management`, `whatsapp_business_messaging`). Meta may require app review and Business Portfolio verification
 before customer accounts outside the app roles can grant these permissions.
 
 ### Phase 6.5 connection experience
