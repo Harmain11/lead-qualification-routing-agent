@@ -118,13 +118,9 @@ def _thread_offer(
     )
     for event in events:
         details = event.details if isinstance(event.details, dict) else {}
-        if (
-            details.get("thread_id") == thread_id
-            and (
-                gmail_connection_id is None
-                or str(details.get("gmail_connection_id") or "")
-                == gmail_connection_id
-            )
+        if details.get("thread_id") == thread_id and (
+            gmail_connection_id is None
+            or str(details.get("gmail_connection_id") or "") == gmail_connection_id
         ):
             return event
     return None
@@ -162,11 +158,7 @@ def record_gmail_thread_messages(
     for message in messages:
         message_id = str(message.get("message_id") or "")
         scoped_id = (str(gmail_connection_id), message_id)
-        if (
-            not message_id
-            or scoped_id in known_ids_by_connection
-            or message_id in legacy_known_ids
-        ):
+        if not message_id or scoped_id in known_ids_by_connection or message_id in legacy_known_ids:
             continue
         details = dict(message)
         details["gmail_connection_id"] = str(gmail_connection_id)
@@ -218,13 +210,10 @@ def _offer_email(
     options = "\n".join(_format_slot(index, slot) for index, slot in enumerate(slots, 1))
     requested_text = source.get("excerpt", "")
     reference = _parse_datetime(source.get("sent_at"))
-    requested_date = requested_meeting_date(
-        requested_text, reference=reference
-    )
+    requested_date = requested_meeting_date(requested_text, reference=reference)
     if requested_date is not None and requested_meeting_time(requested_text) is not None:
         introduction = (
-            "I couldn't confirm the exact time you requested. Here are the "
-            "available options:"
+            "I couldn't confirm the exact time you requested. Here are the available options:"
         )
     elif requested_date is not None:
         offered_dates = set()
@@ -242,8 +231,7 @@ def _offer_email(
             introduction = f"Here are the available times for {date_label}:"
         else:
             introduction = (
-                f"There are no open times on {date_label}. Here are the next "
-                "available options:"
+                f"There are no open times on {date_label}. Here are the next available options:"
             )
     else:
         introduction = "Thanks for asking to meet. Here are some available times:"
@@ -276,9 +264,7 @@ def _calendar_options(
         if connection is None:
             continue
         try:
-            credentials = _authorized_credentials(
-                session, workspace_id, connection, actor_id
-            )
+            credentials = _authorized_credentials(session, workspace_id, connection, actor_id)
             if provider_name == "google_calendar":
                 client = GoogleCalendarClient(credentials["access_token"])
                 slots = recommend_google_calendar_slots(
@@ -365,9 +351,7 @@ def _attempt_requested_time_booking(
         if connection is None:
             continue
         try:
-            credentials = _authorized_credentials(
-                session, workspace_id, connection, actor_id
-            )
+            credentials = _authorized_credentials(session, workspace_id, connection, actor_id)
             event_type_uri: str | None = None
             event_type_name: str | None = None
             if provider_name == "google_calendar":
@@ -416,10 +400,7 @@ def _attempt_requested_time_booking(
                             raise
                         continue
                     matching = any(
-                        (
-                            slot_start := _parse_datetime(slot.get("start_time"))
-                        )
-                        is not None
+                        (slot_start := _parse_datetime(slot.get("start_time"))) is not None
                         and slot_start.astimezone(UTC) == start_at.astimezone(UTC)
                         for slot in available
                     )
@@ -494,15 +475,12 @@ def _send_options(
     existing_offer = _thread_offer(
         session, workspace_id, lead.id, thread_id, str(gmail_connection.id)
     )
-    existing_details = (
-        existing_offer.details if existing_offer is not None else {}
-    )
+    existing_details = existing_offer.details if existing_offer is not None else {}
     if (
         existing_offer is not None
         and isinstance(existing_details, dict)
         and existing_details.get("source_message_id") == source["message_id"]
-        and existing_offer.status
-        in {"sending", _OFFER_PENDING, "booking", "booked"}
+        and existing_offer.status in {"sending", _OFFER_PENDING, "booking", "booked"}
     ):
         return "already_offered"
     sent_at = _parse_datetime(source.get("sent_at"))
@@ -532,11 +510,7 @@ def _send_options(
             "calendar_connection_id": str(calendar_connection.id),
             "options": slots,
             "created_at": now.isoformat(),
-            **(
-                {"error_code": "gmail_send_scope_missing"}
-                if send_scope_missing
-                else {}
-            ),
+            **({"error_code": "gmail_send_scope_missing"} if send_scope_missing else {}),
         },
         created_at=now,
     )
@@ -546,9 +520,7 @@ def _send_options(
         return "needs_attention"
 
     try:
-        credentials = _authorized_credentials(
-            session, workspace_id, gmail_connection, actor_id
-        )
+        credentials = _authorized_credentials(session, workspace_id, gmail_connection, actor_id)
         mailbox = gmail_connection.account_name
         metadata = (
             gmail_connection.connection_metadata
@@ -557,6 +529,9 @@ def _send_options(
         )
         mailbox = str(metadata.get("gmail_email") or mailbox)
         subject, body = _offer_email(lead, source, provider, slots)
+        from lead_agent.application.governance import assert_outreach_allowed
+
+        assert_outreach_allowed(session, workspace_id, lead.email)
         source_rfc_message_id = source.get("rfc_message_id") or ""
         message_id = GmailOutboundProvider(
             gmail_connection.id,
@@ -631,9 +606,7 @@ def _book_selected_option(
             provider=str(selected["provider"]),
             connection_id=UUID(str(selected["connection_id"])),
             source_message_id=str(details["source_message_id"]),
-            source_gmail_connection_id=selected.get(
-                "source_gmail_connection_id"
-            )
+            source_gmail_connection_id=selected.get("source_gmail_connection_id")
             or details.get("gmail_connection_id"),
             start_at=datetime.fromisoformat(str(selected["start_at"])),
             end_at=datetime.fromisoformat(str(selected["end_at"])),
@@ -654,9 +627,7 @@ def _book_selected_option(
         )
     except HTTPException as error:
         details["booking_error"] = str(error.detail)[:500]
-        offer.status = (
-            _OFFER_PENDING if error.status_code >= 500 else "needs_attention"
-        )
+        offer.status = _OFFER_PENDING if error.status_code >= 500 else "needs_attention"
         offer.details = details
         session.commit()
         _LOGGER.warning(
@@ -721,9 +692,7 @@ def _confirmed_booking_retry(
             if str(message.get("message_id") or "") == reply_message_id
             and message.get("direction") == "inbound"
             and message.get("sender", "").strip().lower() == lead_email.strip().lower()
-            and match_confirmed_meeting_option(
-                message.get("body", ""), len(options)
-            )
+            and match_confirmed_meeting_option(message.get("body", ""), len(options))
             == selected_option
             and not meeting_reply_requests_other_times(message.get("body", ""))
         ),
@@ -777,17 +746,13 @@ def process_gmail_meeting_thread(
     if messages:
         session.flush()
     thread_ids = {
-        str(message.get("thread_id") or "")
-        for message in messages
-        if message.get("thread_id")
+        str(message.get("thread_id") or "") for message in messages if message.get("thread_id")
     }
     if len(thread_ids) != 1:
         return "no_single_thread"
     thread_id = next(iter(thread_ids))
 
-    offer = _thread_offer(
-        session, workspace_id, lead.id, thread_id, str(gmail_connection.id)
-    )
+    offer = _thread_offer(session, workspace_id, lead.id, thread_id, str(gmail_connection.id))
     if offer is not None and offer.status == "needs_attention":
         details = offer.details if isinstance(offer.details, dict) else {}
         retry = _confirmed_booking_retry(details, messages, lead.email)
@@ -808,9 +773,7 @@ def process_gmail_meeting_thread(
             if isinstance(gmail_connection.connection_metadata, dict)
             else {}
         )
-        mailbox = str(
-            metadata.get("gmail_email") or gmail_connection.account_name
-        ).strip().lower()
+        mailbox = str(metadata.get("gmail_email") or gmail_connection.account_name).strip().lower()
         created_at = _parse_datetime(details.get("created_at"))
         sent_offer = None
         if created_at is not None:
@@ -821,8 +784,7 @@ def process_gmail_meeting_thread(
                     and message.get("sender", "").strip().lower() == mailbox
                     and sent_at is not None
                     and sent_at > created_at
-                    and "reply with the option number"
-                    in message.get("body", "").lower()
+                    and "reply with the option number" in message.get("body", "").lower()
                 ):
                     sent_offer = message
                     break
@@ -860,7 +822,8 @@ def process_gmail_meeting_thread(
             if (
                 message.get("direction") != "inbound"
                 or message.get("sender", "").strip().lower() != lead.email.strip().lower()
-                or message.get("message_id") in {
+                or message.get("message_id")
+                in {
                     str(details.get("source_message_id") or ""),
                     str(details.get("outbound_message_id") or ""),
                 }
@@ -872,9 +835,7 @@ def process_gmail_meeting_thread(
             options = details.get("options", [])
             if not isinstance(options, list):
                 continue
-            option_number = match_confirmed_meeting_option(
-                message.get("body", ""), len(options)
-            )
+            option_number = match_confirmed_meeting_option(message.get("body", ""), len(options))
             if option_number is not None:
                 return _book_selected_option(
                     session,
@@ -897,9 +858,7 @@ def process_gmail_meeting_thread(
             )
             if (
                 source is not None
-                and requested_meeting_date(
-                    request_text, reference=sent_at
-                ) is not None
+                and requested_meeting_date(request_text, reference=sent_at) is not None
                 and requested_meeting_time(request_text) is not None
             ):
                 if _attempt_requested_time_booking(
@@ -933,9 +892,7 @@ def process_gmail_meeting_thread(
                     "excerpt": request_text[:320],
                     "sent_at": str(message.get("sent_at") or ""),
                     "rfc_message_id": str(
-                        message.get("rfc_message_id")
-                        or source.get("rfc_message_id")
-                        or ""
+                        message.get("rfc_message_id") or source.get("rfc_message_id") or ""
                     ),
                 }
                 return _send_options(
@@ -997,18 +954,12 @@ def process_gmail_meeting_thread(
     if gmail_connection_id and gmail_connection_id != str(gmail_connection.id):
         return "wrong_gmail_connection"
     source_sent_at = _parse_datetime(source.get("sent_at"))
-    request_is_fresh = (
-        source_sent_at is not None
-        and datetime.now(UTC) - _MAX_REQUEST_AGE
-        <= source_sent_at
-        <= datetime.now(UTC) + timedelta(minutes=5)
-    )
+    request_is_fresh = source_sent_at is not None and datetime.now(
+        UTC
+    ) - _MAX_REQUEST_AGE <= source_sent_at <= datetime.now(UTC) + timedelta(minutes=5)
     if (
         request_is_fresh
-        and requested_meeting_date(
-            source.get("excerpt", ""), reference=source_sent_at
-        )
-        is not None
+        and requested_meeting_date(source.get("excerpt", ""), reference=source_sent_at) is not None
         and requested_meeting_time(source.get("excerpt", "")) is not None
         and _attempt_requested_time_booking(
             session,
@@ -1065,9 +1016,7 @@ def process_recent_gmail_imports(
     except ProviderOperationError:
         return 0
     metadata = (
-        connection.connection_metadata
-        if isinstance(connection.connection_metadata, dict)
-        else {}
+        connection.connection_metadata if isinstance(connection.connection_metadata, dict) else {}
     )
     mailbox = str(metadata.get("gmail_email") or connection.account_name)
     provider = GmailInboundProvider(

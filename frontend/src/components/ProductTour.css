@@ -61,7 +61,7 @@
   align-items: center;
   gap: 9px;
   color: var(--ct-green);
-  font: 750 10px/1.2 var(--font-mono, monospace);
+  font: 750 13px/1.2 var(--font-mono, monospace);
   letter-spacing: .095em;
 }
 
@@ -114,7 +114,7 @@
   display: block;
   margin: 0 0 9px;
   color: var(--ct-green);
-  font: 700 9px/1.4 var(--font-mono, monospace);
+  font: 700 13px/1.4 var(--font-mono, monospace);
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -162,7 +162,7 @@
   justify-items: center;
   gap: 7px;
   color: #456052;
-  font: 650 9px/1.2 var(--font-mono, monospace);
+  font: 650 13px/1.2 var(--font-mono, monospace);
   text-align: center;
   text-transform: uppercase;
   letter-spacing: .035em;
@@ -178,7 +178,7 @@
   border-radius: 9px;
   background: #fbfdfb;
   color: var(--ct-green);
-  font: 700 10px/1 var(--font-mono, monospace);
+  font: 700 13px/1 var(--font-mono, monospace);
   box-shadow: 0 3px 8px rgba(12,53,38,.08);
 }
 
@@ -189,7 +189,7 @@
   gap: 14px;
   margin: 0 0 9px;
   color: #61756a;
-  font: 650 9px/1.3 var(--font-mono, monospace);
+  font: 650 13px/1.3 var(--font-mono, monospace);
   letter-spacing: .075em;
   text-transform: uppercase;
 }
@@ -227,14 +227,14 @@
   border-radius: 0 9px 9px 0;
   background: rgba(242,165,65,.09);
   color: #526459;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .ct-tour-note b {
   flex: 0 0 auto;
   color: #866126;
-  font: 700 9px/1.5 var(--font-mono, monospace);
+  font: 700 13px/1.5 var(--font-mono, monospace);
   letter-spacing: .045em;
   text-transform: uppercase;
 }
@@ -258,7 +258,7 @@
   padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 10px;
-  font: 700 11px/1 var(--font-display, "Segoe UI Variable", system-ui, sans-serif);
+  font: 700 13px/1 var(--font-display, "Segoe UI Variable", system-ui, sans-serif);
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
 }

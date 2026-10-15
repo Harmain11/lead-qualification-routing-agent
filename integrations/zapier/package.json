@@ -1,0 +1,15 @@
+{
+  "name": "corral-zapier",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test.js"
+  },
+  "dependencies": {
+    "zapier-platform-core": "19.2.0"
+  }
+}

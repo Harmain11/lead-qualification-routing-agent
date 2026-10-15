@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ProviderType = Literal[
     "mock",
+    "gohighlevel",
+    "twilio",
+    "aircall",
+    "ringcentral",
+    "vapi",
+    "retell",
     "salesforce",
     "hubspot",
     "slack",
@@ -15,6 +21,10 @@ ProviderType = Literal[
     "google_calendar",
     "calendly",
     "linkedin",
+    "instagram",
+    "messenger",
+    "whatsapp_business",
+    "clutch",
     "openai",
     "gemini",
     "claude",
@@ -235,6 +245,83 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         permission_reason="Receive lead data only through officially approved LinkedIn access.",
         documentation_url="https://learn.microsoft.com/linkedin/",
     ),
+    "instagram": ProviderSetupMetadata(
+        provider="instagram",
+        display_name="Instagram",
+        category="Social",
+        availability="foundation",
+        preferred_auth="oauth2",
+        supported_auth=["oauth2", "private_token"],
+        dashboard_path="Meta Developer app · Corral Social Leads Visual",
+        credential_help=(
+            "Sign in with Meta to choose the Instagram account and grant the approved "
+            "lead-intake permissions. "
+            "A workspace admin can use a page or account token as a secure fallback."
+        ),
+        required_scopes=["instagram_business_basic", "instagram_business_manage_messages"],
+        permission_reason="Receive lead data only through officially approved Instagram access.",
+        documentation_url="https://developers.facebook.com/docs/instagram-api/",
+        manual_fields=["access_token", "account_id"],
+    ),
+    "messenger": ProviderSetupMetadata(
+        provider="messenger",
+        display_name="Messenger",
+        category="Social",
+        availability="foundation",
+        preferred_auth="oauth2",
+        supported_auth=["oauth2", "private_token"],
+        dashboard_path="Meta Developer app · Corral Social Leads Inbox",
+        credential_help=(
+            "Sign in with Meta to choose the Facebook Page and grant the approved "
+            "Messenger permissions. "
+            "A workspace admin can use a page access token as a secure fallback."
+        ),
+        required_scopes=[
+            "pages_show_list",
+            "pages_manage_metadata",
+            "pages_messaging",
+        ],
+        permission_reason="Receive lead data only through officially approved Messenger access.",
+        documentation_url="https://developers.facebook.com/docs/messenger-platform/",
+        manual_fields=["page_access_token", "page_id"],
+    ),
+    "whatsapp_business": ProviderSetupMetadata(
+        provider="whatsapp_business",
+        display_name="WhatsApp Business",
+        category="Social",
+        availability="foundation",
+        preferred_auth="oauth2",
+        supported_auth=["oauth2", "private_token"],
+        dashboard_path="Meta Developer app · Corral Social Leads Business",
+        credential_help=(
+            "Sign in with Meta to select the WhatsApp Business account and grant the "
+            "approved messaging permissions. "
+            "A workspace admin can use a Cloud API token as a secure fallback."
+        ),
+        required_scopes=[
+            "whatsapp_business_management",
+            "whatsapp_business_messaging",
+        ],
+        permission_reason=(
+            "Receive lead data only through officially approved WhatsApp Business access."
+        ),
+        documentation_url="https://developers.facebook.com/docs/whatsapp/",
+        manual_fields=["access_token", "business_account_id", "phone_number_id"],
+    ),
+    "clutch": ProviderSetupMetadata(
+        provider="clutch",
+        display_name="Clutch",
+        category="Social",
+        availability="foundation",
+        preferred_auth="api_key",
+        supported_auth=["api_key"],
+        dashboard_path="Clutch account settings",
+        credential_help="Paste the Clutch API key and workspace account ID used for lead intake.",
+        required_scopes=["Clutch lead access"],
+        permission_reason="Receive lead data only through officially approved Clutch access.",
+        documentation_url="https://help.clutch.co/",
+        manual_fields=["api_key", "account_id"],
+    ),
     "openai": ProviderSetupMetadata(
         provider="openai",
         display_name="OpenAI",
@@ -326,6 +413,114 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         connection_mode="workspace",
     ),
 }
+
+
+# These private connections use workspace-owned credentials. A shared SaaS OAuth
+# application is not required; vendor API access and account permissions still are.
+_COMMUNICATION_SETUP = {
+    "gohighlevel": (
+        "GoHighLevel",
+        "CRM",
+        "private_token",
+        ["access_token", "location_id"],
+        ["contacts.readonly", "contacts.write", "locations.readonly"],
+        "https://marketplace.gohighlevel.com/docs/2021-07-28/Authorization/PrivateIntegrationsToken/index.html",
+        (
+            "Create a sub-account Private Integration token with contact and location "
+            "permissions. Enter its location ID. Contact import is opt-in; writes require your "
+            "explicit action. Contact writeback sends contact details; qualification custom "
+            "fields are not mapped."
+        ),
+    ),
+    "twilio": (
+        "Twilio",
+        "Dialer",
+        "private_token",
+        ["account_sid", "auth_token", "from_number"],
+        ["Voice calls"],
+        "https://www.twilio.com/docs/voice/api/call-resource",
+        (
+            "Use your Twilio Account SID, Auth Token and a voice-enabled number in "
+            "international +country-code format. Calls ring your rep number first and bridge "
+            "to the lead after you answer."
+        ),
+    ),
+    "aircall": (
+        "Aircall",
+        "Dialer",
+        "private_token",
+        ["api_id", "api_token", "user_id", "number_id"],
+        ["Calls", "Users", "Numbers"],
+        "https://developers.aircall.io/api-references",
+        (
+            "Create API credentials in Aircall, then enter the user ID and number ID used to "
+            "call. The selected user must be available in Aircall Workspace."
+        ),
+    ),
+    "ringcentral": (
+        "RingCentral",
+        "Dialer",
+        "private_token",
+        ["client_id", "client_secret", "jwt", "from_number"],
+        ["RingOut", "ReadCallLog", "ReadAccounts"],
+        "https://developers.ringcentral.com/guide/voice/quick-start",
+        (
+            "Create a private RingCentral REST app with JWT authentication, RingOut, "
+            "ReadCallLog and ReadAccounts permissions. Enter its client credentials, your user "
+            "JWT and the rep number to ring first."
+        ),
+    ),
+    "vapi": (
+        "Vapi",
+        "Voice agent",
+        "api_key",
+        ["api_key", "assistant_id", "phone_number_id"],
+        ["Calls", "Assistants", "Phone numbers"],
+        "https://docs.vapi.ai/calls/outbound-calling",
+        (
+            "Use a private Vapi API key, a configured assistant ID and a Vapi phone-number ID. "
+            "This starts the saved voice agent only after a rep confirms a call."
+        ),
+    ),
+    "retell": (
+        "Retell AI",
+        "Voice agent",
+        "api_key",
+        ["api_key", "agent_id", "from_number"],
+        ["Calls", "Agents", "Phone numbers"],
+        "https://docs.retellai.com/api-references/create-phone-call",
+        (
+            "Use your Retell API key, a published voice-agent ID and an owned/imported phone "
+            "number. Calls require explicit rep confirmation."
+        ),
+    ),
+}
+for _provider, (
+    _name,
+    _category,
+    _auth,
+    _fields,
+    _scopes,
+    _docs,
+    _help,
+) in _COMMUNICATION_SETUP.items():
+    PROVIDER_SETUP[_provider] = ProviderSetupMetadata(
+        provider=_provider,
+        display_name=_name,
+        category=_category,
+        availability="available",
+        preferred_auth=_auth,
+        supported_auth=[_auth],
+        dashboard_path=f"{_name} account settings",
+        credential_help=_help,
+        required_scopes=_scopes,
+        permission_reason=(
+            "Read approved account data; every outgoing call or CRM write requires an "
+            "authorized user action."
+        ),
+        documentation_url=_docs,
+        manual_fields=_fields,
+    )
 
 
 class SecretStore(Protocol):

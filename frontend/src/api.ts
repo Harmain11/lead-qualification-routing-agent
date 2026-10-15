@@ -44,6 +44,9 @@ import type {
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
 const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_agent_csrf";
+// Keep the standard server cookie as a fallback. This lets local previews
+// recover when a stale Vite environment overrides the frontend cookie name.
+const CSRF_COOKIE_NAMES = Array.from(new Set(["lead_agent_csrf", CSRF_COOKIE_NAME]));
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
 const inFlightGets = new Map<string, Promise<unknown>>();
@@ -88,11 +91,14 @@ export function apiUrl(path: string) {
 }
 
 function csrfToken(): string | null {
-  const value = document.cookie
-    .split("; ")
-    .find((item) => item.startsWith(`${CSRF_COOKIE_NAME}=`))
-    ?.split("=", 2)[1];
-  return value ? decodeURIComponent(value) : null;
+  for (const cookieName of CSRF_COOKIE_NAMES) {
+    const value = document.cookie
+      .split("; ")
+      .find((item) => item.startsWith(`${cookieName}=`))
+      ?.split("=", 2)[1];
+    if (value) return decodeURIComponent(value);
+  }
+  return null;
 }
 
 function withWorkspace(headers?: HeadersInit): Headers {
@@ -103,7 +109,7 @@ function withWorkspace(headers?: HeadersInit): Headers {
   return result;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const method = options?.method?.toUpperCase() ?? "GET";
   const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
   if (key) {
@@ -188,7 +194,10 @@ export const saveEmailTemplate = (kind: WorkspaceEmailTemplate["kind"], template
   });
 export const generateEmailTemplate = (
   kind: WorkspaceEmailTemplate["kind"],
-  sample: Pick<WorkspaceEmailTemplate, "subject" | "body">,
+  sample: Partial<Pick<WorkspaceEmailTemplate, "subject" | "body">> & {
+    generation_mode?: "style" | "fresh";
+    important_context?: string;
+  },
 ) =>
   request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}/generate`, {
     method: "POST",
@@ -341,7 +350,7 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
 }
 
 export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {
-  const objectType = provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead";
+  const objectType = ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead";
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state?object_type=${objectType}`);
 }
 
@@ -354,7 +363,7 @@ export function configureInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, object_type: provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", interval_seconds: intervalSeconds }),
+    body: JSON.stringify({ enabled, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", interval_seconds: intervalSeconds }),
   });
 }
 
@@ -366,7 +375,7 @@ export function runInboundSync(
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: provider === "hubspot" ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
+    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
   });
 }
 

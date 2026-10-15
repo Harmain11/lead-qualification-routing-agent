@@ -54,6 +54,8 @@ INTEGRATION_PUBLIC_BASE_URL
 OAUTH_BROKER
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
+CALENDLY_CLIENT_ID
+CALENDLY_CLIENT_SECRET
 SLACK_CLIENT_ID
 SLACK_CLIENT_SECRET
 SALESFORCE_CLIENT_ID
@@ -118,15 +120,18 @@ CORS_ALLOWED_ORIGINS=https://<app-subdomain>.replit.app
 The exact callback pattern is:
 
 ```text
+https://<app-subdomain>.replit.app/v1/auth/google/callback
 https://<app-subdomain>.replit.app/v1/integrations/gmail/oauth/callback
+https://<app-subdomain>.replit.app/v1/integrations/google_calendar/oauth/callback
+https://<app-subdomain>.replit.app/v1/integrations/calendly/oauth/callback
 https://<app-subdomain>.replit.app/v1/integrations/slack/oauth/callback
 https://<app-subdomain>.replit.app/v1/integrations/salesforce/oauth/callback
 https://<app-subdomain>.replit.app/v1/integrations/hubspot/oauth/callback
 ```
 
-A human with provider-console access must add these callbacks while retaining working local development callbacks where supported. Preserve current scopes: Gmail `gmail.readonly`; Slack `chat:write` and `channels:read`; Salesforce current PKCE/API/refresh-token settings; HubSpot `oauth`, `crm.objects.contacts.read`, and `crm.objects.contacts.write`. Do not add `chat:write.public`.
+A human with provider-console access must add these callbacks while retaining working local development callbacks where supported. Preserve current scopes: Google sign-in `openid`, `email`, and `profile`; Gmail `gmail.readonly` and `gmail.send`; Google Calendar `calendar.events`, `calendar.events.freebusy`, and `calendar.calendars.readonly`; Calendly `users:read`, `event_types:read`, `availability:read`, `scheduled_events:read`, and `scheduled_events:write`; Slack `chat:write` and `channels:read`; Salesforce current PKCE/API/refresh-token settings; HubSpot `oauth`, `crm.objects.contacts.read`, and `crm.objects.contacts.write`. Do not add `chat:write.public`.
 
-Google OAuth consent is currently a release dependency: the Gmail app is in Testing mode and Google may require consent-screen publishing, verification, or restricted-scope security review before normal production users can connect. Do not claim Gmail production availability until the Google console permits the intended users and scope.
+Google OAuth consent is currently a release dependency: the Google app is in Testing mode and Google may require consent-screen publishing, verification, or restricted-scope security review before normal production users can sign in or connect Gmail and Google Calendar. Do not claim those integrations are production-ready until the Google console permits the intended users and scopes. Calendly OAuth also requires the exact callback URI above and direct booking requires a Calendly Standard plan or higher.
 
 ## Deployment and redeploy procedure
 

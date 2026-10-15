@@ -362,6 +362,25 @@ def verify_csrf(session: Session, session_id: UUID, csrf_token: str | None) -> N
         raise AuthorizationError("CSRF validation failed")
 
 
+def csrf_token_matches(session: Session, session_id: UUID, csrf_token: str | None) -> bool:
+    row = session.get(AuthSessionORM, session_id)
+    return bool(
+        row
+        and csrf_token
+        and hmac.compare_digest(row.csrf_token_hash, _digest(csrf_token))
+    )
+
+
+def rotate_csrf_token(session: Session, session_id: UUID) -> str:
+    row = session.get(AuthSessionORM, session_id)
+    if row is None:
+        raise AuthenticationError("session is missing, expired, or invalid")
+    csrf_token = secrets.token_urlsafe(32)
+    row.csrf_token_hash = _digest(csrf_token)
+    session.commit()
+    return csrf_token
+
+
 def require_membership(
     session: Session, user_id: UUID, workspace_id: UUID
 ) -> WorkspaceMembershipORM:

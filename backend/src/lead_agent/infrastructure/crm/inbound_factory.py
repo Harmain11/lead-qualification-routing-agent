@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from lead_agent.domain.crm_inbound import CrmInboundProvider
 from lead_agent.domain.integrations import SecretStore
 from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.infrastructure.crm.gohighlevel import GoHighLevelCrmProvider
 from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceInboundCrmProvider
 from lead_agent.infrastructure.db.models import ProviderConnectionORM
@@ -56,6 +57,8 @@ class WorkspaceInboundCrmProviderResolver:
                 category="configuration",
                 retryable=False,
             )
+        if resolved.provider == "gohighlevel":
+            return GoHighLevelCrmProvider(resolved.connection_id, resolved.credentials)
         if resolved.provider == "hubspot":
             return HubSpotInboundCrmProvider(
                 connection_id=resolved.connection_id,

@@ -1,0 +1,385 @@
+/* Shared workspace components use the application's existing theme tokens. */
+.ops-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  font-size: 15px;
+  line-height: 1.6;
+  min-width: 0;
+  padding: 28px;
+}
+.ops-page h1 {
+  font-size: clamp(28px, 3vw, 40px);
+  margin-bottom: 8px;
+}
+.ops-page h2,
+.ops-dialog h2 {
+  font-size: 23px;
+}
+.ops-page h3,
+.ops-dialog h3 {
+  font-size: 18px;
+}
+.ops-page p,
+.ops-dialog p {
+  max-width: 100ch;
+  overflow-wrap: anywhere;
+  margin-bottom: 12px;
+}
+.ops-page-head,
+.ops-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.ops-page-head h2 {
+  margin: 0;
+}
+.ops-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ops-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(310px, 100%), 1fr));
+  gap: 18px;
+}
+.ops-panel,
+.ops-empty {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 24px;
+  background: var(--surface);
+  min-width: 0;
+}
+.ops-page label,
+.ops-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.ops-page input,
+.ops-page textarea,
+.ops-page select,
+.ops-dialog input,
+.ops-dialog textarea,
+.ops-dialog select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  padding: 11px 12px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 15px;
+  font-weight: 400;
+}
+.ops-page textarea,
+.ops-dialog textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+.ops-check {
+  flex-direction: row !important;
+  align-items: center;
+}
+.ops-check input {
+  width: 18px !important;
+  height: 18px;
+  flex-shrink: 0;
+}
+.ops-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ops-form-grid,
+.ops-policy-fieldset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 18px;
+}
+.ops-policy-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.ops-policy-fieldset > section,
+.ops-policy-fieldset > p,
+.ops-policy-fieldset > .ops-panel {
+  grid-column: 1/-1;
+}
+.ops-muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+.ops-tag {
+  display: inline-block;
+  font-size: 13px;
+  padding: 4px 10px;
+  background: var(--surface-high);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+}
+.ops-metrics {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.ops-metrics span {
+  display: flex;
+  flex-direction: column;
+  color: var(--muted);
+  font-size: 14px;
+}
+.ops-metrics b {
+  font-size: 26px;
+  color: var(--text);
+}
+.ops-note {
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+.ops-note blockquote {
+  border-left: 3px solid var(--line-bright);
+  margin: 12px 0;
+  padding: 8px 16px;
+  color: var(--muted);
+}
+.ops-link,
+.text-link {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-align: left;
+}
+.ops-table-wrap {
+  max-width: 100%;
+  overflow: auto;
+}
+.ops-page table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+  min-width: 580px;
+}
+.ops-page th {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface-high);
+}
+.ops-page td,
+.ops-page th {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.ops-page td small {
+  display: block;
+}
+.ops-dialog {
+  width: min(1200px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: var(--shadow);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.ops-dialog::backdrop {
+  background: rgba(4, 15, 12, 0.55);
+  backdrop-filter: blur(5px);
+}
+.ops-dialog-head {
+  position: sticky;
+  top: -28px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface);
+  padding: 10px 0 18px;
+}
+.ops-dialog-head h2 {
+  margin: 0;
+}
+.ops-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+.ops-result-list button {
+  text-align: left;
+  justify-content: flex-start;
+}
+.ops-result-list span {
+  color: var(--muted);
+  font-size: 13px;
+  width: 70px;
+  flex-shrink: 0;
+}
+.ops-builder {
+  height: 400px;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius);
+  background: var(--surface-high);
+}
+.ops-canvas {
+  position: relative;
+  width: 2050px;
+  height: 1350px;
+  background-image: radial-gradient(var(--line-bright) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.ops-canvas svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ops-canvas path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2.5;
+}
+.ops-canvas .false-branch {
+  stroke-dasharray: 6;
+}
+.ops-canvas text {
+  fill: var(--text);
+  font-size: 13px;
+}
+.ops-node {
+  position: absolute;
+  width: 170px;
+  height: 70px;
+  padding: 10px 16px;
+  border: 1px solid var(--line-bright);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  text-transform: capitalize;
+  touch-action: none;
+}
+.ops-node.selected {
+  border: 2px solid var(--workspace-accent, var(--orange));
+}
+.ops-node small {
+  font-size: 13px;
+  color: var(--muted);
+}
+.ops-page button,
+.ops-dialog button {
+  min-height: 40px;
+}
+.ops-page .primary-button,
+.ops-dialog .primary-button {
+  background: var(--workspace-accent, var(--orange));
+  color: var(--workspace-accent-text, white);
+}
+.command-launch kbd {
+  font-size: 13px;
+  opacity: 0.8;
+  margin-left: 8px;
+}
+.side-rail nav,
+.mini-rail-nav {
+  overflow: auto;
+  min-height: 0;
+}
+.rail-foot {
+  flex-shrink: 0;
+}
+@media (max-width: 700px) {
+  .ops-page {
+    padding: 18px;
+    gap: 18px;
+  }
+  .ops-panel {
+    padding: 18px;
+  }
+  .ops-dialog {
+    padding: 18px;
+    border-radius: 16px;
+  }
+  .ops-dialog-head {
+    top: -18px;
+  }
+  .ops-metrics {
+    gap: 18px;
+  }
+  .ops-toolbar > label {
+    width: 100%;
+  }
+  .command-launch kbd {
+    display: none;
+  }
+  .ops-builder {
+    height: 320px;
+  }
+  .bar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .ops-page input,
+  .ops-page select,
+  .ops-dialog input,
+  .ops-dialog select {
+    font-size: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Shared focus and brand treatment applies across the modular product screens. */
+.app-shell :is(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+html[data-theme] .app-shell .primary-button {
+  background: var(--workspace-accent, var(--orange));
+  color: var(--workspace-accent-text, white);
+}
+
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+.ops-dialog {
+  overscroll-behavior: contain;
+}
+.ops-node.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}

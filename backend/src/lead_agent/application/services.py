@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.email_templates import get_email_template, render_email_template
+from lead_agent.application.governance import assert_outreach_allowed
+from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
@@ -95,6 +96,7 @@ def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     recipient = (row.email or "").strip().lower()
     if "@" not in recipient:
         return
+    assert_outreach_allowed(session, row.workspace_id, recipient)
     connection = session.scalar(
         select(ProviderConnectionORM)
         .where(
@@ -186,9 +188,9 @@ def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
     existing.updated_at = now
     session.commit()
     try:
-        message_id = GmailOutboundProvider(
-            connection_id, access_token, mailbox
-        ).send_email(recipient=recipient, subject=subject, body=body)
+        message_id = GmailOutboundProvider(connection_id, access_token, mailbox).send_email(
+            recipient=recipient, subject=subject, body=body
+        )
     except Exception as error:  # Do not fail lead ingestion because confirmation mail failed.
         existing.status = "retryable" if getattr(error, "retryable", False) else "failed"
         existing.error_message = str(error)[:1000]
@@ -314,6 +316,9 @@ def process_lead(
     notification_provider: NotificationProvider | None = None,
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
+    from lead_agent.application.governance import assert_residency
+
+    assert_residency(session, workspace_id)
     resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
     active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
@@ -351,6 +356,9 @@ def process_source_event(
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
+    from lead_agent.application.governance import assert_residency
+
+    assert_residency(session, workspace_id)
     source_event = get_source_event(session, event.channel, event.external_id, workspace_id)
     if source_event and source_event.status in {"processed", "manual_review"}:
         existing_lead = source_event.lead
@@ -382,9 +390,7 @@ def process_source_event(
     try:
         resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
         lead = normalize_lead(event.normalized_payload, uuid4())
-        active_provider = provider or resolve_workspace_reasoning_provider(
-            session, workspace_id
-        )
+        active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
         analysis, result = _analyze_and_qualify(
             lead, resolved_icp.configuration, routing, active_provider
         )
@@ -403,9 +409,7 @@ def process_source_event(
             # the initial read. The unique source-event boundary makes that
             # race safe; continue with the committed canonical lead.
             session.rollback()
-            source_event = get_source_event(
-                session, event.channel, event.external_id, workspace_id
-            )
+            source_event = get_source_event(session, event.channel, event.external_id, workspace_id)
             if source_event is None or source_event.lead is None:
                 raise
             row = source_event.lead
@@ -449,14 +453,16 @@ def reprocess_lead(
     reroute_reason: str = "Meaningful CRM source fields changed.",
     require_provider_success: bool = False,
     send_confirmation_email: bool = True,
+    preserve_inquiry: bool = False,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     """Run a meaningful source update through the canonical qualification pipeline."""
 
+    from lead_agent.application.governance import assert_residency
+
+    assert_residency(session, row.workspace_id)
     resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
     normalized = normalize_lead(payload, row.id)
-    active_provider = provider or resolve_workspace_reasoning_provider(
-        session, row.workspace_id
-    )
+    active_provider = provider or resolve_workspace_reasoning_provider(session, row.workspace_id)
     analysis, result = _analyze_and_qualify(
         normalized, resolved_icp.configuration, routing, active_provider
     )
@@ -473,7 +479,9 @@ def reprocess_lead(
         if row.qualification is not None
         else None
     )
-    row = update_lead_with_result(session, row, normalized, result, analysis)
+    row = update_lead_with_result(
+        session, row, normalized, result, analysis, preserve_inquiry=preserve_inquiry
+    )
     record_pipeline_event(
         session,
         row.id,

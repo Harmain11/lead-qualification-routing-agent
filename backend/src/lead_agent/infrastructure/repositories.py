@@ -167,6 +167,10 @@ def create_lead_with_result(
             created_at=now,
         )
     )
+    session.flush()
+    from lead_agent.application.contacts import attach_contact
+
+    attach_contact(session, row)
     session.commit()
     return get_lead(session, lead.id, workspace_id)  # type: ignore[return-value]
 
@@ -185,6 +189,7 @@ def update_lead_with_result(
     if row.id != lead.id:
         raise ValueError("normalized lead identity does not match the persisted lead")
     now = datetime.now(UTC)
+    email_changed = row.email != lead.email
     row.source = lead.source
     row.source_detail = lead.source_detail
     row.external_id = lead.external_id
@@ -195,9 +200,7 @@ def update_lead_with_result(
     row.company_name = lead.company_name
     row.industry = lead.industry
     row.employee_count = lead.employee_count
-    row.annual_revenue = (
-        float(lead.annual_revenue) if lead.annual_revenue is not None else None
-    )
+    row.annual_revenue = float(lead.annual_revenue) if lead.annual_revenue is not None else None
     row.geography = lead.geography
     row.budget = float(lead.budget) if lead.budget is not None else None
     row.product_or_service = lead.product_or_service
@@ -259,6 +262,9 @@ def update_lead_with_result(
             created_at=now,
         )
     )
+    from lead_agent.application.contacts import attach_contact
+
+    attach_contact(session, row, relink=email_changed)
     session.commit()
     return get_lead(session, row.id, row.workspace_id)  # type: ignore[return-value]
 

@@ -68,6 +68,53 @@ flowchart LR
 
 The dashboard mirrors this pipeline: inspect the lead, understand the evidence behind its score, adjust routing context when needed, and send a lead-specific follow-up only after a human approves it.
 
+## Interactive demo walkthrough
+
+Start the API and dashboard, seed the active development workspace, then use these links while the Vite server is running:
+
+```powershell
+uv run --project backend python -m lead_agent.seed --demo --workspace-id <your-workspace-id>
+```
+
+<table>
+  <tr>
+    <th>Try</th>
+    <th>What to verify</th>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=dashboard&amp;range=monthly">Dashboard</a></td>
+    <td>Qualification pulse, pipeline movement, channel performance, and revenue trend.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=leads&amp;range=monthly&amp;lead_tab=overview">Leads</a></td>
+    <td>Search, filter, select records, export, inspect a lead, and open its decision trail.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=leads&amp;range=monthly&amp;lead_tab=ai">AI &amp; qualification</a></td>
+    <td>Review score evidence and classification for every seeded lead.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=pipeline&amp;range=monthly">Pipeline</a></td>
+    <td>Compare received, qualified, routed, opportunity, and closed stages.</td>
+  </tr>
+  <tr>
+    <td><a href="http://localhost:5173/?view=review&amp;range=monthly">Manual review</a></td>
+    <td>Open the seeded low-confidence case and inspect the evidence that needs a human decision.</td>
+  </tr>
+</table>
+
+<details>
+  <summary><strong>Feature check list</strong></summary>
+
+  - [ ] Change the dashboard range between Weekly, Monthly, and Annual.
+  - [ ] Select leads from each Leads tab and confirm the bulk action bar stays aligned.
+  - [ ] Open a lead and move through Overview, AI, Follow-ups, Comments &amp; closing, and History.
+  - [ ] Adjust routing percentages and representative capacity in Settings.
+  - [ ] Review integration cards before adding provider credentials.
+  - [ ] Create a workflow draft and verify that sending still requires a human action.
+
+</details>
+
 ## Release status
 
 | Area | Status | Notes |
@@ -269,40 +316,3 @@ See [`docs/implementation-plan.md`](docs/implementation-plan.md), [`docs/archite
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | Delivery phases and engineering work breakdown |
 | [`docs/integrations.md`](docs/integrations.md) | Provider setup, directionality, scopes, and failure handling |
 | [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md) | Replit services, secrets, callbacks, smoke tests, and rollback |
-
-The original build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>).
-
-## Phase 6 analytics and product experience
-
-Analytics is aggregated on the server and every response includes generated-at, workspace, time-window, and demo/live provenance metadata. Revenue facts remain separate from qualification evidence and are labeled `crm`, `demo`, `mixed`, or `unavailable`; seeded revenue is never represented as production data.
-
-After sign-in, the frontend derives the active workspace from the authenticated session. `VITE_WORKSPACE_ID` is used only by the explicit local development-session path, whose default is the reserved demo workspace (`00000000-0000-0000-0000-000000000006`). The demo seed command never inserts records into the default/live workspace.
-
-The product shell provides Dashboard, Leads, Pipeline, Agents / AI Activity, Analytics, Integrations, Manual Review, and Settings. Its signature lead-intelligence network is one lazy-loaded React Three Fiber canvas backed by actual lead state. Mobile, reduced-motion, hidden-tab, and WebGL-unavailable paths use an accessible DOM/CSS topology.
-
-## Phase 6.5 authentication and account linking
-
-- `POST /v1/auth/signup`, `/signin`, `/signout`, and `/development-session` manage opaque sessions; `GET /v1/auth/session` returns safe identity and membership metadata.
-- `POST /v1/auth/workspace` changes the current workspace only after membership verification.
-- Cookie-authenticated mutations require CSRF validation. Passwords use salted `scrypt`; session and CSRF token digests, not raw tokens, are persisted.
-- Migration `0010_production_authentication` adds users, memberships, and revocable/expiring sessions.
-- `OAUTH_BROKER=provider` enables operator-owned OAuth applications. Customers only click Connect, sign in, and approve scopes.
-- OAuth state expires after ten minutes, is single-use, and is bound to a PKCE verifier stored through `SecretStore`. Provider tokens never enter frontend code or connection API responses.
-- `OAUTH_BROKER=development` remains a deterministic local callback loop for tests.
-
-## Phase 7A1 production configuration and security
-
-- `APP_ENV` is explicitly `development`, `test`, or `production`. Production startup rejects development authentication, insecure cookies, wildcard/non-HTTPS CORS, deterministic/mock providers, demo mode, local secret storage, development OAuth, placeholder security secrets, and implicit local persistence endpoints.
-- `DevelopmentSecretStore` remains process-local for tests and standalone local runs. The Replit preview selects the encrypted database-backed secret store with `SECRET_STORE_PROVIDER=managed`, `MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend`, and a dedicated `SECRET_STORE_ENCRYPTION_KEY`; production uses its configured deployment-owned backend. Only opaque references and safe status metadata are persisted.
-- Session cookies have bounded expiry, configurable SameSite behavior, Secure/HttpOnly production enforcement, authentication-time rotation, revocation, and CSRF protection. Passwords use uniquely salted `scrypt` at the current OWASP-equivalent minimum, and revoked memberships cannot restore or access their workspace.
-- OAuth state is high entropy, hashed, expiring, single-use, atomically claimed, and bound to workspace, provider, callback, and actor. PKCE uses S256 and its verifier is replaced by provider credentials after exchange.
-- Provider disconnect deactivates the local connection before remote revocation. Failed or unsupported remote revocation is recorded as safe metadata and cannot leave the connection usable.
-- The frontend uses optional public `VITE_API_BASE_URL`; server credentials must never use the `VITE_*` namespace. Seed commands are disabled in production, and demo records remain isolated to the reserved demo workspace.
-
-## Phase 7A2 operations and deployment readiness
-
-- API rate limits use shared Redis in production and a deterministic in-memory adapter for development/tests. Named policy groups and limits are configured through environment variables.
-- Request IDs are validated/generated for every request and returned in `X-Request-ID`. Production logs use JSON and shared structured redaction; security headers include anti-framing policy and HSTS in production.
-- Readiness checks PostgreSQL and required Redis without exposing connection information or depending on optional providers. Database pool/TLS and Redis timeout/retry settings are explicit.
-- `uv run --project backend production-check` validates production settings without printing secret values. See [`docs/production-deployment.md`](docs/production-deployment.md) for topology and deployment checklist.
-- Celery has bounded reliability defaults, but application flows remain synchronous and no task or outbox dispatcher is currently registered. Durable CRM and notification state is committed before provider calls.

@@ -355,7 +355,7 @@ export type WorkspaceEmailTemplate = {
   kind: "confirmation" | "follow_up";
   subject: string;
   body: string;
-  generation_method: "manual" | "ai";
+  generation_method: "manual" | "ai" | "ai_full";
 };
 
 export type LeadPipelineEvent = {

@@ -12,7 +12,7 @@
 .contacts-filters { display: grid; gap: 10px; padding: 15px 16px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-high); }
 .contacts-filter-grid { display: grid; grid-template-columns: repeat(6, minmax(125px, 1fr)); gap: 10px; }
 .contacts-filter-grid label { display: grid; min-width: 0; gap: 6px; }
-.contacts-filter-grid label > span { color: var(--muted); font-size: 12px; font-weight: 650; }
+.contacts-filter-grid label > span { color: var(--muted); font-size: 13px; font-weight: 650; }
 .contacts-filter-grid select, .contacts-filter-grid input { width: 100%; }
 .contacts-filter-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 28px; color: var(--muted); font-size: 13px; }
 .contacts-filter-meta button { padding: 5px 0; border: 0; color: var(--orange-hot); background: transparent; font: inherit; font-weight: 650; }
@@ -25,7 +25,7 @@
 .contact-row:hover, .contact-row.selected { background: var(--surface-high); }
 .contact-row > span { min-width: 0; display: grid; gap: 4px; }
 .contact-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.contact-row small, .contact-row time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.contact-row small, .contact-row time { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13px; }
 .contact-row time { text-align: right; }
 .contact-profile { padding: 20px; }
 .contact-profile-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
@@ -43,7 +43,7 @@
 .contact-timeline { list-style: none; margin: 14px 0 0; padding: 0 0 0 13px; border-left: 1px solid var(--line); display: grid; gap: 17px; }
 .contact-timeline li { position: relative; display: grid; gap: 6px; font-size: 14px; }
 .contact-timeline li::before { content: ""; position: absolute; left: -17px; top: 5px; width: 7px; height: 7px; border: 2px solid var(--orange); background: var(--surface); border-radius: 50%; }
-.contact-timeline time { color: var(--muted); font-size: 12px; }
+.contact-timeline time { color: var(--muted); font-size: 13px; }
 .contact-timeline p { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .contact-timeline button { justify-self: start; border: 0; padding: 3px 0; color: var(--orange-hot); background: transparent; font: inherit; font-weight: 650; cursor: pointer; }
 .contact-profile-empty, .contacts-empty { min-height: 160px; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 20px; text-align: center; color: var(--muted); }
@@ -59,19 +59,19 @@
   .contacts-heading { align-items: start; }
   .contacts-heading h1 { font-size: 30px; }
   .contacts-heading p { max-width: 34ch; font-size: 14px; }
-  .contacts-count { font-size: 12px; }
+  .contacts-count { font-size: 13px; }
   .contacts-count strong { font-size: 23px; }
   .contacts-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .contacts-filter-grid label > span { font-size: 11px; }
+  .contacts-filter-grid label > span { font-size: 13px; }
   .contacts-filter-grid select, .contacts-filter-grid input { min-height: 42px; font-size: 13px; }
   .contact-row { grid-template-columns: minmax(0, 1fr) auto; gap: 9px 12px; }
   .contact-row > span:nth-child(3) { grid-column: 1; }
   .contact-row time { grid-column: 2; grid-row: 2; }
   .contact-row { padding: 13px 12px; }
   .contact-row strong { font-size: 13px; }
-  .contact-row small, .contact-row time { font-size: 11px; }
+  .contact-row small, .contact-row time { font-size: 13px; }
   .contact-profile { padding: 16px; }
-  .contact-facts > div { grid-template-columns: 92px minmax(0, 1fr); font-size: 12px; }
+  .contact-facts > div { grid-template-columns: 92px minmax(0, 1fr); font-size: 13px; }
   .contact-section-title { align-items: flex-start; flex-direction: column; }
   .contacts-error, .contact-history-error { align-items: flex-start; flex-direction: column; }
 }

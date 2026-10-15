@@ -1,0 +1,226 @@
+import { useEffect, useState } from "react";
+import { opsGet, opsSave, type AdvancedAnalytics } from "../operationsApi";
+const amount = (value: number | null) =>
+  value === null
+    ? "Insufficient data"
+    : new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      }).format(value);
+export function AdvancedAnalyticsPanel() {
+  const [data, setData] = useState<AdvancedAnalytics | null>(null);
+  const [months, setMonths] = useState(6);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    opsGet<AdvancedAnalytics>(
+      `/v1/intelligence/analytics?months=${months}`,
+      controller.signal,
+    )
+      .then(setData)
+      .catch((reason) => {
+        if (!controller.signal.aborted) setError(reason.message);
+      });
+    return () => controller.abort();
+  }, [months]);
+  return (
+    <section className="ops-page">
+      <div className="ops-toolbar">
+        <h2>Forecasts, ROI & cohorts</h2>
+        <label>
+          Observation window
+          <select
+            value={months}
+            onChange={(event) => setMonths(Number(event.target.value))}
+          >
+            <option value={3}>3 months</option>
+            <option value={6}>6 months</option>
+            <option value={12}>12 months</option>
+            <option value={24}>24 months</option>
+          </select>
+        </label>
+        <button
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setError("");
+            void opsSave<AdvancedAnalytics>(
+              `/v1/intelligence/analytics/narrate?months=${months}`,
+              {},
+            )
+              .then(setData)
+              .catch((reason) => setError(reason.message))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Narrate recorded forecast
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="team-alert">
+          {error}
+        </p>
+      )}
+      {!data ? (
+        <p role="status">Loading analytics…</p>
+      ) : (
+        <>
+          <div className="ops-panel">
+            <h3>{data.summary_method}</h3>
+            <p>{data.summary}</p>
+            <p className="ops-muted">{data.forecast.scope}</p>
+            <div className="ops-metrics">
+              <span>
+                <b>{amount(data.forecast.closed_usd_this_month)}</b>
+                <small>Closed this month</small>
+              </span>
+              <span>
+                <b>{amount(data.forecast.open_pipeline_usd)}</b>
+                <small>Recorded open pipeline</small>
+              </span>
+              <span>
+                <b>
+                  {amount(data.forecast.expected_open_pipeline_usd)}
+                </b>
+                <small>Expected pipeline value</small>
+              </span>
+              <span>
+                <b>
+                  {data.forecast.coverage !== null
+                    ? data.forecast.coverage + " times"
+                    : "No quota set"}
+                </b>
+                <small>Pipeline coverage</small>
+              </span>
+            </div>
+            <p className="ops-muted">
+              {data.forecast.method} {data.forecast.unvalued_open_leads} open
+              leads have no recorded value.
+            </p>
+          </div>
+          <div className="ops-panel">
+            <h3>Channel ROI</h3>
+            <p>
+              Costs and revenue use intake-source/month attribution. Unknown
+              costs remain unknown.
+            </p>
+            <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
+              <table className="ops-table">
+                <thead>
+                  <tr>
+                    <th>Source and month</th>
+                    <th>Leads and qualified</th>
+                    <th>Wins</th>
+                    <th>Cost</th>
+                    <th>Closed revenue</th>
+                    <th>Cost per qualified lead</th>
+                    <th>ROI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!data.channels.length && <tr><td colSpan={7}><div className="ops-empty-inline"><strong>No channel results yet</strong><span>Channel costs and outcomes will appear as leads are recorded.</span></div></td></tr>}
+                  {data.channels.map((row) => (
+                    <tr key={row.source + row.month}>
+                      <td>
+                        {row.source} · {row.month}
+                      </td>
+                      <td>
+                        {row.leads} leads · {row.qualified} qualified
+                      </td>
+                      <td>{row.won}</td>
+                      <td>
+                        {row.cost_usd === null
+                          ? "Unknown"
+                          : amount(row.cost_usd)}
+                      </td>
+                      <td>{amount(row.closed_usd)}</td>
+                      <td>
+                        {row.cost_per_qualified === null
+                          ? "—"
+                          : amount(row.cost_per_qualified)}
+                      </td>
+                      <td>
+                        {row.roi_percent === null ? "—" : row.roi_percent + "%"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="ops-panel">
+            <h3>Member comparison with context</h3>
+            <p className="ops-muted">{data.fairness_method}</p>
+            <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
+              <table className="ops-table">
+                <thead>
+                  <tr>
+                    <th>Member</th>
+                    <th>Closed and won</th>
+                    <th>Comparable leads</th>
+                    <th>Expected wins</th>
+                    <th>Adjusted win index</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!data.members.length && <tr><td colSpan={5}><div className="ops-empty-inline"><strong>No member comparisons yet</strong><span>Comparisons become available when members have recorded outcomes.</span></div></td></tr>}
+                  {data.members.map((row) => (
+                    <tr key={row.user_id}>
+                      <td>{row.name}</td>
+                      <td>
+                        {row.closed} closed · {row.wins} won
+                      </td>
+                      <td>{row.comparable_leads}</td>
+                      <td>{row.expected_wins}</td>
+                      <td>
+                        {row.adjusted_win_index === null
+                          ? "Insufficient data"
+                          : row.adjusted_win_index + " times"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="ops-panel">
+            <h3>Intake cohorts to close</h3>
+            <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
+              <table className="ops-table">
+                <thead>
+                  <tr>
+                    <th>Intake week</th>
+                    <th>Leads</th>
+                    <th>Qualified</th>
+                    <th>Won</th>
+                    <th>Lost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!data.cohorts.length && <tr><td colSpan={5}><div className="ops-empty-inline"><strong>No cohorts yet</strong><span>Lead cohorts will appear when there are leads in this observation window.</span></div></td></tr>}
+                  {data.cohorts.map((row) => (
+                    <tr key={row.week + row.campaign}>
+                      <td>{row.week}</td>
+                      <td>{row.leads}</td>
+                      <td>{row.qualified}</td>
+                      <td>{row.won}</td>
+                      <td>{row.lost}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {data.truncated && (
+            <p className="ops-muted">
+              Analysis is limited to the latest 5,000 leads in this window.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

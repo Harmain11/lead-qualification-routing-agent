@@ -1,4 +1,4 @@
-export const appPages = ["dashboard", "leads", "contacts", "pipeline", "agents", "analytics", "integrations", "team", "review", "settings", "icp"] as const;
+export const appPages = ["dashboard", "leads", "contacts", "pipeline", "agents", "analytics", "integrations", "dialer", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
 export type AppPage = typeof appPages[number];
 export type NavigationSection = { id: string; label: string; permission?: string; view?: AppPage };
 
@@ -17,20 +17,43 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "revenue-by-service", label: "Revenue by service" },
     { id: "representatives", label: "Member performance" },
     { id: "revenue-trajectory", label: "Revenue trajectory" },
+    { id: "qualification-mix", label: "Qualification mix" },
+    { id: "revenue-by-representative", label: "Revenue by representative" },
+  ],
+  agents: [
+    { id: "overview", label: "Overview" },
+    { id: "intelligence", label: "AI Research & Coaching", view: "intelligence", permission: "agents.view" },
+    { id: "automations", label: "Workflows & Automations", view: "automations", permission: "agents.view" },
   ],
   integrations: [
     { id: "ai", label: "AI connections" },
     { id: "gmail", label: "Gmail" }, { id: "google_calendar", label: "Google Calendar" },
     { id: "slack", label: "Slack" }, { id: "salesforce", label: "Salesforce" },
     { id: "hubspot", label: "HubSpot" }, { id: "calendly", label: "Calendly" },
+    { id: "outlook", label: "Outlook" }, { id: "gohighlevel", label: "GoHighLevel" },
+    { id: "ai", label: "AI connection" },
+    { id: "calling", label: "All dialers" },
+    { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" },
+    { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" },
+    { id: "retell", label: "Retell AI" }, { id: "linkedin", label: "LinkedIn" },
+    { id: "instagram", label: "Instagram" }, { id: "messenger", label: "Messenger" },
+    { id: "whatsapp_business", label: "WhatsApp Business" }, { id: "clutch", label: "Clutch" },
+  ],
+  dialer: [
+    { id: "overview", label: "Overview" },
+    { id: "history", label: "Call history" },
+    { id: "analysis", label: "Transcript analysis" },
   ],
   settings: [
+    { id: "overview", label: "Overview" },
     { id: "workspace", label: "Workspace" },
     { id: "routing-distribution", label: "Routing distribution", permission: "routing.view" },
     { id: "website-lead-form", label: "Website lead form", permission: "integrations.manage" },
     { id: "email-templates", label: "Email templates", permission: "integrations.manage" },
     { id: "users", label: "Users & permissions", view: "team", permission: "members.view" },
     { id: "icp", label: "Ideal Customer Profile", view: "icp", permission: "icp.view" },
+    { id: "policies", label: "Segmenting & Routing", view: "policies", permission: "routing.view" },
+    { id: "compliance", label: "Privacy & Compliance", view: "compliance", permission: "workspace.manage" },
   ],
 };
 

@@ -15,6 +15,7 @@ from lead_agent.domain.crm import (
 )
 from lead_agent.domain.integrations import SecretStore
 from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.infrastructure.crm.gohighlevel import GoHighLevelCrmProvider
 from lead_agent.infrastructure.crm.hubspot import HubSpotCrmProvider
 from lead_agent.infrastructure.crm.mock import MockCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceCrmProvider
@@ -106,6 +107,8 @@ def build_connected_crm_provider(
             config=config.salesforce,
             timeout_seconds=settings.crm_timeout_seconds,
         )
+    if provider_type == "gohighlevel":
+        return GoHighLevelCrmProvider(None, credentials)
     if provider_type == "hubspot":
         return HubSpotCrmProvider(
             access_token=credentials.get("access_token", ""),
@@ -139,9 +142,9 @@ class WorkspaceCrmProviderResolver:
         provider_type: str | None = None,
     ) -> CrmProvider:
         provider_types = (
-            {"salesforce", "hubspot"}
+            {"salesforce", "hubspot", "gohighlevel"}
             if self.settings.app_env == "production"
-            else {"mock", "salesforce", "hubspot"}
+            else {"mock", "salesforce", "hubspot", "gohighlevel"}
         )
         if provider_type is not None:
             if provider_type not in provider_types:

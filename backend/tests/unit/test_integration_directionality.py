@@ -139,6 +139,12 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
         "xai",
         "google_calendar",
         "calendly",
+        "gohighlevel",
+        "twilio",
+        "aircall",
+        "ringcentral",
+        "vapi",
+        "retell",
     }
     assert PROVIDER_SETUP["openai"].display_name == "OpenAI"
     assert PROVIDER_SETUP["openai"].connection_mode == "workspace"

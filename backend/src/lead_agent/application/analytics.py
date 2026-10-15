@@ -476,6 +476,10 @@ class AnalyticsService:
             "routed": "Routing Agent",
             "notified": "Notification Tool",
             "crm": "CRM Tool",
+            "coach": "Coach Agent",
+            "watcher": "Watcher Agent",
+            "research": "Researcher Agent",
+            "automation": "Playbook Agent",
         }
         activity: list[dict[str, Any]] = [
             {
@@ -521,6 +525,10 @@ class AnalyticsService:
             {"name": "Follow-up Agent", "status": "implemented"},
             {"name": "Enrichment Agent", "status": "implemented"},
             {"name": "Analytics Agent", "status": "implemented"},
+            {"name": "Researcher Agent", "status": "implemented"},
+            {"name": "Coach Agent", "status": "implemented"},
+            {"name": "Watcher Agent", "status": "implemented"},
+            {"name": "Playbook Agent", "status": "implemented"},
         ]
         return {
             "metadata": self.metadata(window),
