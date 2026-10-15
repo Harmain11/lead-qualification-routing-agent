@@ -937,6 +937,11 @@ def _persist_validation(
             _activate_connection(session, row)
         else:
             row.is_active = False
+    if row.provider_type in {"instagram", "messenger", "whatsapp_business"} and validation.metadata:
+        row.connection_metadata = {**row.connection_metadata, **validation.metadata}
+        verified_account_id = validation.metadata.get("verified_account_id")
+        if validation.verified and isinstance(verified_account_id, str):
+            row.external_account_id = verified_account_id[:255]
     row.credential_state = validation.credential_state
     row.updated_at = now
     if row.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}:

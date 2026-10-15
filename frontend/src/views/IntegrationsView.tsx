@@ -818,6 +818,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       const outlookDirection = card.provider === "outlook";
        const googleCalendarDirection = card.provider === "google_calendar";
        const calendlyDirection = card.provider === "calendly";
+       const metaWebhookSubscription = card.provider === "instagram"
+         ? "Instagram object · messages"
+         : card.provider === "messenger"
+           ? "Page object · messages"
+           : card.provider === "whatsapp_business"
+             ? "WhatsApp Business Account object · messages"
+             : null;
       const mailDirection = gmailDirection || outlookDirection;
        const canConnectProvider = reasoningProvider
         ? canManage
@@ -836,7 +843,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${open ? "Collapse" : "Expand"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={open} aria-controls={`integration-details-${card.provider}`} onClick={() => toggleProviderExpanded(card.provider)}><span aria-hidden="true">{open ? "−" : "+"}</span></button></div>
           <div className="provider-details" id={`integration-details-${card.provider}`} hidden={!open}>
          {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
-         <p>{card.credential_help}</p>
+          <p>{card.credential_help}</p>
+          {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
+            <span className="eyebrow">Meta inbound message setup</span>
+            <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>
+            <p><strong>Subscribe</strong><br />{metaWebhookSubscription}</p>
+            <p>Use the configured <code>WEBHOOK_SIGNING_SECRET</code> as Meta’s verify token. POST signatures are checked with this provider’s existing Meta app secret.</p>
+            <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
+          </div>}
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
          {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">Choose your account or organization at provider sign-in. Only one account per provider remains active after verification.</p>}
          <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
