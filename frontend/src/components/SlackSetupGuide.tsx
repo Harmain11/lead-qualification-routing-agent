@@ -18,9 +18,7 @@ export function SlackSetupGuide({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [completed, setCompleted] = useState<boolean[]>(steps.map(() => false));
   const [copied, setCopied] = useState<string | null>(null);
-  const done = completed.filter(Boolean).length;
 
   async function copySafeValue(label: string, value: string) {
     try {
@@ -37,16 +35,13 @@ export function SlackSetupGuide({
       onOpenChange(!open);
     }}>
       <span className="slack-guide-summary-title"><i aria-hidden="true">↗</i><span><strong>How to connect Slack</strong><small>Step-by-step setup, scopes, and safe token handling</small></span></span>
-      <span className="slack-guide-progress">{done}/{steps.length} complete</span>
     </summary>
     <div className="slack-guide-content">
       <p>Follow these steps to connect Corral to Slack.</p>
       <ol className="slack-setup-checklist">
         {steps.map((step, index) => <li className={index === 5 ? "slack-private-channel-step" : undefined} key={step}>
-          <div className="slack-check-row">
-            <input id={`slack-setup-step-${index}`} type="checkbox" checked={completed[index]} onChange={(event) => setCompleted((current) => current.map((value, item) => item === index ? event.target.checked : value))} />
-            <label htmlFor={`slack-setup-step-${index}`}>{step}</label>
-          </div>
+          <span className="slack-step-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+          <p className="slack-step-text">{step}</p>
           {index === 2 && <div className="slack-scope-copy"><span><b>Minimum required bot scopes</b><code>chat:write, channels:read</code></span><button type="button" className="button-quiet" onClick={() => void copySafeValue("Required scopes", "chat:write, channels:read")}>Copy scopes</button></div>}
           {index === 3 && <div className="slack-scope-copy optional"><span><b>Optional · direct messages only</b><code>im:write</code></span><button type="button" className="button-quiet" onClick={() => void copySafeValue("Optional scope", "im:write")}>Copy scope</button></div>}
         </li>)}

@@ -621,16 +621,15 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-guide-summary-title > span { display: grid; gap: 3px; }
 .slack-guide-summary-title strong { font-size: 15px; }
 .slack-guide-summary-title small { color: var(--muted); font-size: 12px; font-weight: 400; }
-.slack-guide-progress { margin-left: auto; color: var(--green); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .slack-guide-content { display: grid; gap: 12px; padding-top: 14px; }
 .slack-guide-content > p, .slack-delivery-explainer p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .slack-setup-checklist { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; counter-reset: slack-step; }
-.slack-setup-checklist > li { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; counter-increment: slack-step; }
+.slack-setup-checklist > li { display: grid; grid-template-columns: 25px minmax(0,1fr); align-items: start; gap: 7px 9px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; counter-increment: slack-step; }
 .slack-setup-checklist > li.slack-private-channel-step { padding: 12px; border-color: rgba(112,199,156,.52); background: rgba(112,199,156,.075); box-shadow: inset 3px 0 0 var(--green); }
-.slack-private-channel-step .slack-check-row label { font-weight: 550; }
-.slack-check-row { display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: start; gap: 9px; color: var(--text); font-size: 13px; line-height: 1.5; }
-.slack-check-row input { accent-color: var(--green); margin: 3px 0 0; }
-.slack-scope-copy { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-left: 27px; padding: 9px 10px; border-radius: 7px; background: rgba(112,199,156,.06); }
+.slack-step-number { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; background: rgba(255,255,255,.06); color: var(--muted); font-size: 11px; font-weight: 700; }
+.slack-step-text { grid-column: 2; margin: 2px 0 0; color: var(--text); font-size: 13px; line-height: 1.5; }
+.slack-private-channel-step .slack-step-number { background: rgba(112,199,156,.18); color: var(--green); }
+.slack-scope-copy { grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-left: 0; padding: 9px 10px; border-radius: 7px; background: rgba(112,199,156,.06); }
 .slack-scope-copy > span { display: grid; gap: 4px; }
 .slack-scope-copy b { color: var(--green); font-size: 12px; }
 .slack-scope-copy code, .slack-token-warning code, .slack-delivery-explainer code { color: var(--text); font-size: 12px; }
@@ -648,9 +647,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-delivery-explainer { display: grid; gap: 8px; }
 .slack-delivery-explainer > strong { color: var(--text); font-size: 13px; }
 @media (max-width: 560px) {
-  .slack-scope-copy { align-items: flex-start; flex-direction: column; margin-left: 27px; }
+  .slack-scope-copy { align-items: flex-start; flex-direction: column; }
   .slack-setup-guide > summary { align-items: flex-start; flex-wrap: wrap; }
-  .slack-guide-progress { margin-left: 45px; }
 }
 .slack-default-destination label, .slack-condition-grid label, .slack-rule-destination label, .slack-multi-select { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
 .slack-default-destination label > span, .slack-condition-grid label > span, .slack-rule-destination label > span, .slack-field-label { color: var(--muted); font: 13px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }
@@ -2219,6 +2217,8 @@ body { font-size: 15px; line-height: 1.5; }
 .integration-card.is-collapsed { height: 106px; padding: 13px 16px; }
 .integration-card.is-collapsed:hover { transform: none; }
 .integration-card.is-collapsed .provider-head { min-height: 78px; }
+.integration-card.provider-slack.is-collapsed { height: auto; min-height: 142px; }
+.integration-card.provider-slack.is-collapsed .provider-head { min-height: 114px; }
 
 /* Keep expanded integrations easy to scan without forcing a long first viewport. */
 .app-shell .integration-card:not(.is-collapsed) {
@@ -2261,6 +2261,8 @@ body { font-size: 15px; line-height: 1.5; }
   .integration-card.is-collapsed .provider-head > b { max-width: 100%; }
   .integration-card.is-collapsed { height: 126px; padding: 10px 12px; }
   .integration-card.is-collapsed .provider-head { min-height: 104px; }
+  .integration-card.provider-slack.is-collapsed { height: auto; min-height: 170px; }
+  .integration-card.provider-slack.is-collapsed .provider-head { min-height: 148px; }
 }
 
 /* Full-page lead workspace: keep the complete decision trail in one scroll context. */
