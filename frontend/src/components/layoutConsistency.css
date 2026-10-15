@@ -650,6 +650,13 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) select {
   background-size: 6px 6px, 6px 6px;
   background-repeat: no-repeat;
 }
+/* Dialogs live in the browser top layer; keep their native menus usable. */
+html[data-theme] .ops-dialog select {
+  appearance: auto;
+  -webkit-appearance: auto;
+  padding-right: 12px !important;
+  background-image: none;
+}
 .app-shell .workspace-mark select {
   appearance: auto;
   -webkit-appearance: auto;

@@ -57,6 +57,10 @@ export function NativeSelectEnhancer() {
       const target = event.target as Element | null;
       const select = target?.closest("select") as HTMLSelectElement | null;
       if (select) {
+        // Native dialogs are rendered in the browser's top layer. A custom
+        // menu appended to document.body would sit behind the dialog backdrop
+        // and appear to do nothing, so let the browser handle those selects.
+        if (select.closest("dialog")) return;
         if (!select.disabled) {
           event.preventDefault();
           event.stopPropagation();
@@ -69,6 +73,7 @@ export function NativeSelectEnhancer() {
     const onKeyDown = (event: KeyboardEvent) => {
       const select = event.target instanceof HTMLSelectElement ? event.target : null;
       if (!select || select.disabled) return;
+      if (select.closest("dialog")) return;
       if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
         event.preventDefault();
         open(select);
