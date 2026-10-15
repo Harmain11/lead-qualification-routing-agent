@@ -13,6 +13,7 @@ ProviderType = Literal[
     "ringcentral",
     "vapi",
     "retell",
+    "cloudtalk",
     "salesforce",
     "hubspot",
     "slack",
@@ -492,6 +493,20 @@ _COMMUNICATION_SETUP = {
         (
             "Use your Retell API key, a published voice-agent ID and an owned/imported phone "
             "number. Calls require explicit rep confirmation."
+        ),
+    ),
+    "cloudtalk": (
+        "CloudTalk",
+        "Dialer",
+        "private_token",
+        ["access_key_id", "access_key_secret", "agent_id"],
+        ["Agents", "Calls", "Call history", "Conversation Intelligence"],
+        "https://developers.cloudtalk.io/api-reference/calls/make-a-call",
+        (
+            "Enter your CloudTalk Access Key ID and Access Key Secret, plus the numeric agent "
+            "ID that should place calls. Verification only reads that agent; calls are submitted "
+            "only after a rep confirms them. Call history and Conversation Intelligence use "
+            "CloudTalk's official API endpoints."
         ),
     ),
 }

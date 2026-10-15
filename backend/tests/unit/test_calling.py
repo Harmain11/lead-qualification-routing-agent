@@ -46,6 +46,11 @@ CREDENTIALS = {
     },
     "vapi": {"api_key": "secret", "assistant_id": "assistant1", "phone_number_id": "number1"},
     "retell": {"api_key": "secret", "agent_id": "agent1", "from_number": FROM},
+    "cloudtalk": {
+        "access_key_id": "key-id",
+        "access_key_secret": "secret",
+        "agent_id": "7",
+    },
 }
 
 
@@ -89,6 +94,8 @@ def test_connection_verification_never_calls_customer(provider, calls):
                 if "/assistant/" in path
                 else {"id": "number1", "orgId": "org"}
             )
+        elif provider == "cloudtalk":
+            body = {"responseData": {"data": [{"id": 7, "name": "Rep"}]}}
         else:
             body = {"agent_id": "agent1"} if "/get-agent/" in path else {"phone_number": FROM}
         return httpx.Response(200, json=body)
@@ -137,7 +144,9 @@ def test_connection_verification_never_calls_customer(provider, calls):
     assert "secret" not in result.model_dump_json()
 
 
-@pytest.mark.parametrize("provider", ["twilio", "aircall", "ringcentral", "vapi", "retell"])
+@pytest.mark.parametrize(
+    "provider", ["twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"]
+)
 def test_explicit_call_payload_and_provider_auth(provider):
     seen = []
 
@@ -157,8 +166,8 @@ def test_explicit_call_payload_and_provider_auth(provider):
     assert (
         TARGET in request.content.decode() or TARGET.replace("+", "%2B") in request.content.decode()
     )
-    assert status == ("requested" if provider == "aircall" else "queued")
-    if provider in {"aircall", "twilio"}:
+    assert status == ("requested" if provider in {"aircall", "cloudtalk"} else "queued")
+    if provider in {"aircall", "twilio", "cloudtalk"}:
         assert request.headers["authorization"].startswith("Basic ")
     else:
         assert request.headers["authorization"].startswith("Bearer ")
@@ -167,8 +176,110 @@ def test_explicit_call_payload_and_provider_auth(provider):
             REP.replace("+", "%2B") in request.content.decode()
             and "Twiml=" in request.content.decode()
         )
-    if provider == "aircall":
+    if provider in {"aircall", "cloudtalk"}:
         assert result is None
+    if provider == "cloudtalk":
+        assert request.url.host == "my.cloudtalk.io"
+        assert request.url.path == "/api/calls/create.json"
+        assert request.content == b'{"agent_id":7,"callee_number":"+14155550111"}'
+
+
+def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio():
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        if request.url.host == "my.cloudtalk.io":
+            return httpx.Response(
+                200,
+                json={
+                    "responseData": {
+                        "data": [
+                            {
+                                "Cdr": {
+                                    "id": 12345,
+                                    "public_external": "14155550111",
+                                    "type": "outgoing",
+                                    "started_at": "2026-10-15 12:00:00",
+                                    "talking_time": 42,
+                                    "recording_link": "https://my.cloudtalk.io/calls/12345",
+                                }
+                            }
+                        ]
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "callId": 12345,
+                    "segments": [{"text": "Hello"}, {"text": "I am interested."}],
+                },
+                "pagination": {"limit": 1000, "offset": 0, "total": 2},
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        calls = CommunicationsClient("cloudtalk", CREDENTIALS["cloudtalk"], client=client)
+        records = calls.recent_calls(TARGET)
+
+    assert len(records) == 1
+    assert records[0].external_id == "12345"
+    assert records[0].transcript == "Hello I am interested."
+    assert records[0].recording_url == "https://my.cloudtalk.io/calls/12345"
+    assert [request.url.host for request in seen] == ["my.cloudtalk.io", "api.cloudtalk.io"]
+    assert all("recording" not in request.url.path for request in seen)
+
+
+def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        if request.url.host == "my.cloudtalk.io":
+            return httpx.Response(
+                200,
+                json={
+                    "responseData": {
+                        "data": [
+                            {
+                                "Cdr": {
+                                    "id": 12346,
+                                    "public_external": "14155550111",
+                                    "type": "incoming",
+                                }
+                            }
+                        ]
+                    }
+                },
+            )
+        if request.url.path.endswith("/details-link"):
+            return httpx.Response(200, json={"link": "https://my.cloudtalk.io/calls/12346"})
+        offset = int(request.url.params.get("offset", "0"))
+        return httpx.Response(
+            200,
+            json={
+                "data": {"segments": [{"text": "hello" if offset == 0 else "world"}]},
+                "pagination": {"limit": 1000, "offset": offset, "total": 1001},
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        records = CommunicationsClient(
+            "cloudtalk", CREDENTIALS["cloudtalk"], client=client
+        ).recent_calls(TARGET)
+
+    assert len(records) == 1
+    assert records[0].transcript == "hello world"
+    assert records[0].recording_url == "https://my.cloudtalk.io/calls/12346"
+    assert any(request.url.path.endswith("/details-link") for request in seen)
+    transcript_offsets = [
+        request.url.params.get("offset")
+        for request in seen
+        if "transcription" in request.url.path
+    ]
+    assert transcript_offsets == ["0", "1000"]
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 500])

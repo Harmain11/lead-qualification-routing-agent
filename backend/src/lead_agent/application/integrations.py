@@ -57,7 +57,7 @@ REQUIRED_MANUAL_CREDENTIALS: dict[str, set[str]] = {
     **{
         key: set(PROVIDER_SETUP[key].manual_fields)
         for key in (
-            "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell",
+            "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk",
             "instagram", "messenger", "whatsapp_business", "clutch",
         )
     },
@@ -922,7 +922,9 @@ def _persist_validation(
                 validation.metadata.get("calendly_user_uri") or calendly_email
             )
     if (
-        row.provider_type in {"gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell"}
+        row.provider_type in {
+            "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"
+        }
         and validation.verified
     ):
         account_id = validation.metadata.get("verified_account_id")

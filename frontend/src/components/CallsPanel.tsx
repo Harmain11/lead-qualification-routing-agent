@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { opsGet, opsSave } from "../operationsApi";
 import { createClientId } from "../clientIds";
 
-const providerNames: Record<string, string> = { twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI" };
+const providerNames: Record<string, string> = { twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI", cloudtalk: "CloudTalk" };
 type CallRecord = { id: string; provider: string; external_id: string | null; status: string; direction: string; customer_phone: string; started_at: string | null; created_at: string; duration_seconds: number | null; transcript: string | null; recording_url: string | null; message: string | null };
 type Activity = { connections: { id: string; provider: string; account_name: string }[]; records: CallRecord[]; outreach_allowed: boolean; outreach_reason: string };
 
@@ -68,7 +68,7 @@ export function CallsPanel({ leadId, leadPhone, canCall, canEdit }: { leadId: st
           <label>Calling provider<select value={connectionId} disabled={busy || Boolean(requestId)} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); }}><option value="">Choose a verified provider</option>{data.connections.map((item) => <option value={item.id} key={item.id}>{providerNames[item.provider]} · {item.account_name}</option>)}</select></label>
           {selected && ["twilio", "ringcentral"].includes(selected.provider) && <label>Your rep number{needsRep ? " (required)" : " (optional override)"}<input type="tel" placeholder="+14155550123" value={repPhone} required={needsRep} disabled={busy || Boolean(requestId)} onChange={(event) => { setRepPhone(event.target.value); setConfirmed(false); }} autoComplete="tel" /><small>{needsRep ? "Twilio rings you first, then connects the lead." : "Leave blank to ring the rep number saved in Integrations."}</small></label>}
         </div>
-        {selected && <p>{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : "Answer your rep phone to connect to the lead."}</p>}
+         {selected && <p>{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : selected.provider === "cloudtalk" ? "CloudTalk rings the configured agent first, then connects the lead once the agent answers." : "Answer your rep phone to connect to the lead."}</p>}
         {canCall && <><label className="ops-check"><input type="checkbox" checked={confirmed} disabled={busy || !data.outreach_allowed || !leadPhone || !selected} onChange={(event) => setConfirmed(event.target.checked)} /><span>I confirm this individual {voiceAgent ? "voice-agent " : ""}call to the lead.</span></label><button type="submit" disabled={busy || !selected || !confirmed || !leadPhone || !data.outreach_allowed || (needsRep && !repPhone)}>{busy ? "Submitting…" : requestId ? "Check existing call request" : voiceAgent ? "Start voice-agent call" : "Call lead"}</button></>}
         {!canCall && <p>Your workspace role can view call history. Calling requires lead editing and agent action permissions.</p>}
       </form>
