@@ -1146,6 +1146,14 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .team-modal-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(3,4,8,.72); backdrop-filter: blur(8px); animation: team-modal-in 220ms var(--ease) both; }
 .team-modal { width: min(700px, 100%); max-height: min(88vh, 820px); overflow: auto; padding: 25px; background: linear-gradient(145deg, rgba(27,30,29,.98), rgba(12,15,18,.99)); }
 .openai-setup-prompt { width: min(540px, 100%); }
+.reasoning-backfill-modal { width: min(560px, 100%); }
+.backfill-live-status, .backfill-note, .backfill-cost-note { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.backfill-progress { margin: 24px 0; }
+.backfill-progress-track { height: 8px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.1); }
+.backfill-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s ease; }
+.backfill-counts { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 13px; }
+.backfill-counts strong { color: var(--text); }
+.backfill-cost-note { padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
 .openai-setup-prompt form { display: grid; gap: 16px; }
 .openai-setup-prompt form > label { display: grid; gap: 7px; color: var(--muted); font-size: 13px; }
 .openai-setup-prompt input, .openai-setup-prompt select { width: 100%; min-height: 42px; padding: 8px 11px; }

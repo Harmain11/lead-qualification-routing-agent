@@ -717,9 +717,17 @@ function App() {
         if (!active) return;
         setAiSetupCards(cards.filter((card) => card.category.toLowerCase().includes("ai analysis")));
         const openai = cards.find((card) => card.provider === "openai");
+        const resume = cards.find((card) => {
+          const connectionId = card.connection?.id;
+          return (
+            card.category.toLowerCase().includes("ai analysis") &&
+            connectionId !== undefined &&
+            window.localStorage.getItem(`corral:reasoning-backfill:${connectionId}`) !== null
+          );
+        });
         // A saved key can be `connected` before verification; only ask for a key when none is stored.
         setOpenaiSetupCard(
-          openai?.connection?.configured ? null : (openai ?? null),
+          resume ?? (openai?.connection?.configured ? null : (openai ?? null)),
         );
       })
       .catch(() => {
@@ -1548,9 +1556,9 @@ function App() {
           card={openaiSetupCard}
           cards={aiSetupCards}
           onVerified={() => {
-            setOpenaiSetupCard(null);
             void refresh();
           }}
+          onClose={() => setOpenaiSetupCard(null)}
           onLater={() => {
             reasoningPromptDismissed.current.add(auth.current_workspace_id);
             setOpenaiSetupCard(null);

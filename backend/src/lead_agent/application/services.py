@@ -18,6 +18,8 @@ from lead_agent.domain.analysis import (
     ReasoningOutput,
     ReasoningProvider,
     ReasoningProviderError,
+    ReasoningProviderTimeout,
+    ReasoningProviderUnavailable,
 )
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.intake import SourceEvent
@@ -307,6 +309,19 @@ def _analyze_and_qualify(
     return analysis.model_copy(update={"summary": summary}), result
 
 
+def _queue_reasoning_analysis(workspace_id: UUID, lead_id: UUID) -> None:
+    """Queue a post-commit idempotent check for the active workspace model."""
+    try:
+        from lead_agent.worker.celery_app import analyze_workspace_lead
+
+        analyze_workspace_lead.delay(str(workspace_id), str(lead_id))
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "reasoning.analysis_enqueue_failed",
+            extra={"fields": {"workspace_id": str(workspace_id), "lead_id": str(lead_id)}},
+        )
+
+
 def process_lead(
     session: Session,
     payload: dict[str, object],
@@ -341,6 +356,10 @@ def process_lead(
         row.source_event.processed_at = datetime.now(UTC)
         row.source_event.updated_at = datetime.now(UTC)
         session.commit()
+    if provider is None and getattr(active_provider, "provider_name", "") not in {
+        "", "deterministic-safeguard", "deterministic"
+    }:
+        _queue_reasoning_analysis(workspace_id, row.id)
     return lead, result, row
 
 
@@ -427,6 +446,10 @@ def process_source_event(
         # work is temporarily locked or unavailable.
         if send_confirmation_email:
             _send_lead_confirmation_email(session, row)
+        if provider is None and getattr(active_provider, "provider_name", "") not in {
+            "", "deterministic-safeguard", "deterministic"
+        }:
+            _queue_reasoning_analysis(workspace_id, row.id)
         return IntakeResult(str(source_event.id), source_event.status, row)
     except Exception as error:
         session.rollback()
@@ -467,6 +490,14 @@ def reprocess_lead(
         normalized, resolved_icp.configuration, routing, active_provider
     )
     if require_provider_success and analysis.status == "provider_error":
+        if analysis.error_code == ReasoningProviderTimeout.code:
+            raise ReasoningProviderTimeout(
+                analysis.error_message or "Workspace reasoning provider timed out"
+            )
+        if analysis.error_code == ReasoningProviderUnavailable.code:
+            raise ReasoningProviderUnavailable(
+                analysis.error_message or "Workspace reasoning provider is unavailable"
+            )
         raise ReasoningProviderError(
             analysis.error_message or "Workspace reasoning provider failed"
         )
@@ -506,6 +537,10 @@ def reprocess_lead(
     )
     if send_confirmation_email:
         _send_lead_confirmation_email(session, row)
+    if provider is None and getattr(active_provider, "provider_name", "") not in {
+        "", "deterministic-safeguard", "deterministic"
+    }:
+        _queue_reasoning_analysis(row.workspace_id, row.id)
     return normalized, result, row
 
 
