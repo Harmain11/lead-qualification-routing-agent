@@ -599,6 +599,61 @@ class SourceEventORM(Base):
     lead: Mapped[LeadORM | None] = relationship(back_populates="source_event", uselist=False)
 
 
+class SocialConversationORM(Base):
+    __tablename__ = "social_conversations"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "provider", "connection_id", "external_account_id",
+            "participant_id", "conversation_identity", name="uq_social_conversation_identity",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    external_account_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    participant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    conversation_identity: Mapped[str] = mapped_column(String(255), nullable=False)
+    lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SocialMessageORM(Base):
+    __tablename__ = "social_messages"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "provider_event_id", name="uq_social_message_replay"),
+        Index("ix_social_messages_conversation_event", "conversation_id", "event_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("social_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class LeadORM(Base):
     __tablename__ = "leads"
     __table_args__ = (

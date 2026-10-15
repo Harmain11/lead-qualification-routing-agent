@@ -26,6 +26,7 @@ from lead_agent.api.routes import (
     intelligence,
     leads,
     meetings,
+    meta_webhooks,
     routing,
     team,
 )
@@ -70,6 +71,7 @@ app.include_router(intake.router)
 app.include_router(crm.router)
 app.include_router(crm_inbound.router)
 app.include_router(integrations.router)
+app.include_router(meta_webhooks.router)
 app.include_router(analytics.router)
 app.include_router(team.router)
 app.include_router(icp.router)
