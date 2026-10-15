@@ -25,7 +25,7 @@
 .lead-browser .lead-table td {
   padding: 14px 10px;
   border-top: 1px solid var(--line);
-  vertical-align: top;
+  vertical-align: middle;
   font-size: 13px;
   line-height: 1.5;
 }

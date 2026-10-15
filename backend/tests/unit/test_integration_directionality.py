@@ -128,7 +128,6 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
         if setup.availability == "available" and setup.connection_mode == "workspace"
     } == {
         "gmail",
-        "outlook",
         "salesforce",
         "hubspot",
         "slack",
@@ -150,7 +149,7 @@ def test_release_provider_catalog_separates_available_managed_and_coming_soon() 
     assert PROVIDER_SETUP["openai"].connection_mode == "workspace"
     assert PROVIDER_SETUP["openai"].manual_fields == ["api_key"]
     assert PROVIDER_SETUP["outlook"].display_name == "Microsoft Outlook"
-    assert PROVIDER_SETUP["outlook"].availability == "available"
+    assert PROVIDER_SETUP["outlook"].availability == "future"
     assert PROVIDER_SETUP["linkedin"].availability == "future"
 
 
