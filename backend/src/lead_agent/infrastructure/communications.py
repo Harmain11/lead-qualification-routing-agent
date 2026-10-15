@@ -6,6 +6,7 @@ import re
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from math import isfinite
 from typing import Any, cast
 from urllib.parse import quote, urlsplit
 
@@ -82,6 +83,7 @@ class CallSnapshot(BaseModel):
     duration_seconds: int | None = None
     transcript: str | None = None
     recording_url: str | None = None
+    insights: dict[str, Any] | None = None
 
 
 class CommunicationsClient:
@@ -442,8 +444,105 @@ class CommunicationsClient:
                 result.append(call)
         return result
 
+    def _cloudtalk_ci_request(self, path: str) -> dict[str, Any]:
+        try:
+            result = self.request(
+                "GET", path, base_url="https://api.cloudtalk.io"
+            )
+        except ProviderOperationError as error:
+            if error.category in {"not_found", "invalid_request", "insufficient_permissions"}:
+                return {}
+            raise
+        return result if isinstance(result, dict) else {}
+
+    def _cloudtalk_insights(self, ci_path: str) -> dict[str, Any]:
+        summary = self._cloudtalk_ci_request(ci_path + "/summary")
+        sentiment = self._cloudtalk_ci_request(ci_path + "/overall-sentiment")
+        topics_result = self._cloudtalk_ci_request(ci_path + "/topics")
+        notes_result = self._cloudtalk_ci_request(ci_path + "/smart-notes")
+        ratio_result = self._cloudtalk_ci_request(ci_path + "/talk-listen-ratio")
+
+        def clean_text(value: Any, limit: int = 2000) -> str | None:
+            if not isinstance(value, str):
+                return None
+            value = value.strip()
+            return value[:limit] or None
+
+        def clean_number(value: Any) -> float | None:
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                return None
+            number = float(value)
+            return number if isfinite(number) else None
+
+        topic_data = topics_result.get("data", topics_result)
+        topic_rows = topic_data.get("topics", []) if isinstance(topic_data, dict) else []
+        topics = [
+            {"topic": text, "weight": clean_number(row.get("weight"))}
+            for row in topic_rows[:50]
+            if isinstance(row, dict) and (text := clean_text(row.get("topic"), 255))
+        ] if isinstance(topic_rows, list) else []
+
+        notes_data = notes_result.get("smartNotes", {})
+        if not isinstance(notes_data, dict):
+            notes_data = {}
+
+        def clean_text_list(value: Any) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [
+                text
+                for item in value[:50]
+                if (text := clean_text(item)) is not None
+            ]
+
+        date_rows = notes_data.get("importantDatesAndDeadlines", [])
+        important_dates = [
+            {
+                "date_mention": clean_text(row.get("dateMention"), 255),
+                "event_description": description,
+            }
+            for row in date_rows[:50]
+            if isinstance(row, dict)
+            and (description := clean_text(row.get("eventDescription"))) is not None
+        ] if isinstance(date_rows, list) else []
+
+        ratio_data = ratio_result.get("talkListenRatio", [])
+        callers_data = ratio_result.get("callers", [])
+        caller_types = {
+            str(row.get("localIdentifier")): str(row.get("type"))
+            for row in callers_data
+            if isinstance(row, dict) and row.get("localIdentifier") and row.get("type")
+        } if isinstance(callers_data, list) else {}
+        talk_listen_ratio = [
+            {
+                "caller": caller_types.get(
+                    str(row.get("caller")), str(row.get("caller") or "Unknown")
+                ),
+                "talking_time": clean_number(row.get("talkingTime")),
+                "ratio": clean_number(row.get("ratio")),
+            }
+            for row in ratio_data[:10]
+            if isinstance(row, dict)
+        ] if isinstance(ratio_data, list) else []
+
+        return {
+            "summary": clean_text(summary.get("summary"), 10000),
+            "overall_sentiment": clean_text(sentiment.get("overallSentiment"), 100),
+            "topics": topics,
+            "smart_notes": {
+                "action_items": clean_text_list(notes_data.get("actionItems")),
+                "decisions_made": clean_text_list(notes_data.get("decisionsMade")),
+                "open_questions": clean_text_list(notes_data.get("openQuestions")),
+                "important_dates_and_deadlines": important_dates,
+                "risks_and_issues": clean_text_list(notes_data.get("risksAndIssues")),
+                "customer_feedback": clean_text_list(notes_data.get("customerFeedback")),
+            },
+            "talk_listen_ratio": talk_listen_ratio,
+        }
+
     def normalize_call(self, item: dict[str, Any], target: str) -> CallSnapshot | None:
         p = self.provider
+        insights = None
         if p == "twilio":
             numbers = [item.get("to"), item.get("from")]
             call_id, status, start, duration = (
@@ -548,10 +647,15 @@ class CommunicationsClient:
             except ProviderOperationError as error:
                 # Missing CI data is normal for calls without transcription;
                 # authentication and service failures must still surface.
-                if error.category not in {"not_found", "invalid_request"}:
+                if error.category not in {
+                    "not_found",
+                    "invalid_request",
+                    "insufficient_permissions",
+                }:
                     raise
             except (ValueError, TypeError, AttributeError):
                 transcript = None
+            insights = self._cloudtalk_insights(ci_path)
             if not recording:
                 try:
                     details = self.request(
@@ -561,7 +665,11 @@ class CommunicationsClient:
                     )
                     recording = details.get("link")
                 except ProviderOperationError as error:
-                    if error.category not in {"not_found", "invalid_request"}:
+                    if error.category not in {
+                        "not_found",
+                        "invalid_request",
+                        "insufficient_permissions",
+                    }:
                         raise
         else:
             numbers = [item.get("from_number"), item.get("to_number")]
@@ -574,6 +682,7 @@ class CommunicationsClient:
                 int(item["duration_ms"] / 1000) if item.get("duration_ms") is not None else None
             )
             transcript, recording = item.get("transcript"), item.get("recording_url")
+            insights = None
         matches = []
         for number in numbers:
             if p == "cloudtalk":
@@ -596,6 +705,7 @@ class CommunicationsClient:
             duration_seconds=max(0, min(int(duration), 86400)) if duration is not None else None,
             transcript=transcript[:100000] if isinstance(transcript, str) else None,
             recording_url=recording_link(recording),
+            insights=insights,
         )
 
 

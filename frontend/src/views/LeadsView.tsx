@@ -1,7 +1,6 @@
 import { OperationsDialog } from "../components/OperationsDialog";
 import type { FormEvent } from "react";
 import { memo, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   bulkDeleteLeads,
   bulkSendLeadsToCrm,
@@ -299,6 +298,48 @@ export function LeadsView({
       className="page-view operational-page focused-page"
       data-lead-page={activeSection}
     >
+      {selected ? (
+        <section className="lead-full-page lead-drawer" aria-label="Lead details">
+          <div className="lead-drawer-toolbar">
+            <span>Lead details · {selected.source}</span>
+            <button
+              className="lead-drawer-close"
+              type="button"
+              autoFocus
+              aria-label="Back to leads"
+              onClick={onClose}
+            >
+              <span aria-hidden="true">←</span> Back to leads
+            </button>
+          </div>
+          <LeadDetail
+            key={selected.id}
+            lead={selected}
+            activeSection={activeSection}
+            onSectionChange={onSectionChange}
+            isSectionPinned={isSectionPinned}
+            onTogglePin={onTogglePin}
+            canCrmSync={canCrmSync}
+            canCall={canCall}
+            canEdit={canEdit}
+            onUpdated={(lead) => {
+              onUpdated(lead);
+              setRows((current) =>
+                current.map((item) => (item.id === lead.id ? lead : item)),
+              );
+            }}
+            onDeleted={(leadId) => {
+              onDeleted(leadId);
+              setRows((current) =>
+                current.filter((item) => item.id !== leadId),
+              );
+              onClose();
+              setRefreshKey((value) => value + 1);
+            }}
+          />
+        </section>
+      ) : (
+        <>
       <header className="page-hero compact-hero">
         <div>
           <span className="eyebrow">
@@ -534,7 +575,7 @@ export function LeadsView({
                 <LeadTableRow
                   key={lead.id}
                   lead={lead}
-                  selected={selected?.id === lead.id}
+                  selected={false}
                   checked={selectedIds.has(lead.id)}
                   onToggle={toggleSelected}
                   onInspect={onInspect}
@@ -597,49 +638,8 @@ export function LeadsView({
           selectedIds={[...selectedIds]}
         />
       )}
-      {selected &&
-        createPortal(
-          <OperationsDialog title={`${selected.company_name} lead details`} className="lead-drawer" showHeader={false} onClose={onClose}>
-              <div className="lead-drawer-toolbar">
-                <span>Lead details · {selected.source}</span>
-                <button
-                  className="lead-drawer-close"
-                  type="button"
-                  autoFocus
-                  aria-label="Close lead details and return to leads"
-                  onClick={onClose}
-                >
-                  <span aria-hidden="true">←</span> Back to leads
-                </button>
-              </div>
-              <LeadDetail
-                key={selected.id}
-                lead={selected}
-                activeSection={activeSection}
-                onSectionChange={onSectionChange}
-                isSectionPinned={isSectionPinned}
-                onTogglePin={onTogglePin}
-                canCrmSync={canCrmSync}
-                canCall={canCall}
-                canEdit={canEdit}
-                onUpdated={(lead) => {
-                  onUpdated(lead);
-                  setRows((current) =>
-                    current.map((item) => (item.id === lead.id ? lead : item)),
-                  );
-                }}
-                onDeleted={(leadId) => {
-                  onDeleted(leadId);
-                  setRows((current) =>
-                    current.filter((item) => item.id !== leadId),
-                  );
-                  onClose();
-                  setRefreshKey((value) => value + 1);
-                }}
-              />
-          </OperationsDialog>,
-          document.body,
-        )}
+        </>
+      )}
     </div>
   );
 }

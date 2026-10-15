@@ -51,6 +51,7 @@ class CallRecord(BaseModel):
     duration_seconds: int | None
     transcript: str | None
     recording_url: str | None
+    insights: dict[str, Any] | None
     message: str | None
     created_at: datetime
     updated_at: datetime
