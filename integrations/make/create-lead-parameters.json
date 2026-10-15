@@ -1,0 +1,75 @@
+[
+  {
+    "name": "external_id",
+    "type": "text",
+    "label": "External Id",
+    "required": true,
+    "help": "Stable source record ID; retries must reuse it."
+  },
+  {
+    "name": "full_name",
+    "type": "text",
+    "label": "Full Name",
+    "required": true
+  },
+  {
+    "name": "email",
+    "type": "email",
+    "label": "Email",
+    "required": true
+  },
+  {
+    "name": "company_name",
+    "type": "text",
+    "label": "Company Name",
+    "required": true
+  },
+  {
+    "name": "product_or_service",
+    "type": "text",
+    "label": "Product Or Service",
+    "required": true
+  },
+  {
+    "name": "message",
+    "type": "text",
+    "label": "Message",
+    "required": true
+  },
+  {
+    "name": "phone",
+    "type": "text",
+    "label": "Phone",
+    "required": false
+  },
+  {
+    "name": "job_title",
+    "type": "text",
+    "label": "Job Title",
+    "required": false
+  },
+  {
+    "name": "industry",
+    "type": "text",
+    "label": "Industry",
+    "required": false
+  },
+  {
+    "name": "geography",
+    "type": "text",
+    "label": "Geography",
+    "required": false
+  },
+  {
+    "name": "budget",
+    "type": "number",
+    "label": "Budget",
+    "required": false
+  },
+  {
+    "name": "employee_count",
+    "type": "integer",
+    "label": "Employee Count",
+    "required": false
+  }
+]

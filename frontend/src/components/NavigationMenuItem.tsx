@@ -3,6 +3,17 @@ import { createPortal, flushSync } from "react-dom";
 
 export type NavigationMenuChild = { id: string; label: string };
 
+const integrationGroups = [
+  { id: "email", label: "Email", providers: ["gmail", "outlook"] },
+  { id: "calendar", label: "Calendar", providers: ["google_calendar", "calendly"] },
+  { id: "crm", label: "CRM", providers: ["salesforce", "hubspot", "gohighlevel"] },
+  { id: "notifications", label: "Notifications", providers: ["slack"] },
+  { id: "ai", label: "AI", providers: ["ai"] },
+  { id: "calling", label: "Calling", providers: ["twilio", "aircall", "ringcentral", "vapi", "retell"] },
+  { id: "social", label: "Social", providers: ["instagram", "messenger", "whatsapp_business", "clutch"] },
+  { id: "other", label: "Other", providers: ["linkedin"] },
+] as const;
+
 export type NavigationMenuItemProps = {
   item: { id: string; label: string; children?: NavigationMenuChild[] };
   icon: ReactNode;
@@ -36,9 +47,20 @@ export function NavigationMenuItem({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [integrationGroupId, setIntegrationGroupId] = useState("email");
+  const [hoveredIntegrationGroupId, setHoveredIntegrationGroupId] = useState<string | null>(null);
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches);
   const [position, setPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const open = enabled && hasChildren && (hovered || focused || pinnedOpen);
+  const availableIntegrationGroups = integrationGroups
+    ? integrationGroups.map((group) => ({
+        ...group,
+        children: children.filter((child) => group.providers.includes(child.id as never)),
+      })).filter((group) => group.children.length > 0)
+    : [];
+  const selectedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === integrationGroupId) ?? availableIntegrationGroups[0];
+  const displayedIntegrationGroup = availableIntegrationGroups.find((group) => group.id === hoveredIntegrationGroupId);
+  const visibleChildren = item.id === "integrations" ? (displayedIntegrationGroup?.children ?? []) : children;
   const enterMenu = () => {
     clearTimeout(leaveTimer.current);
     setHovered(true);
@@ -61,7 +83,16 @@ export function NavigationMenuItem({
     setHovered(false);
     setFocused(false);
     setPinnedOpen(false);
+    setHoveredIntegrationGroupId(null);
   }, [enabled]);
+  useEffect(() => {
+    if (!open) setHoveredIntegrationGroupId(null);
+  }, [open]);
+  useEffect(() => {
+    if (item.id !== "integrations" || !activeChild) return;
+    const activeGroup = integrationGroups.find((group) => group.providers.includes(activeChild as never));
+    if (activeGroup) setIntegrationGroupId(activeGroup.id);
+  }, [activeChild, item.id]);
   useLayoutEffect(() => {
     if (!open || mobile) return;
     const locate = () => {
@@ -98,12 +129,12 @@ export function NavigationMenuItem({
   }, [open]);
 
   const focusChild = (index: number) => {
-    if (!hasChildren) return;
+    if (!visibleChildren.length) return;
     flushSync(() => {
       setHovered(false);
       setPinnedOpen(true);
     });
-    childRefs.current[(index + children.length) % children.length]?.focus();
+    childRefs.current[(index + visibleChildren.length) % visibleChildren.length]?.focus();
   };
 
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
@@ -135,7 +166,7 @@ export function NavigationMenuItem({
     const childIndex = childRefs.current.findIndex((node) => node === target);
     if (childIndex < 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
-      focusChild(event.key === "ArrowDown" ? 0 : children.length - 1);
+      focusChild(event.key === "ArrowDown" ? 0 : visibleChildren.length - 1);
       return;
     }
     if (childIndex >= 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
@@ -144,10 +175,27 @@ export function NavigationMenuItem({
     }
   };
 
+  const renderChild = (child: NavigationMenuChild, index: number) => <button
+    key={child.id}
+    ref={(node) => { childRefs.current[index] = node; }}
+    type="button"
+    className={`navigation-menu-child${activeChild === child.id ? " is-active" : ""}`}
+    aria-current={activeChild === child.id ? "page" : undefined}
+    onClick={() => {
+      setPinnedOpen(false);
+      setHovered(false);
+      setFocused(false);
+      onNavigate(child.id);
+    }}
+  >
+    <span>{child.label}</span>
+    {activeChild === child.id && <i aria-hidden="true" />}
+  </button>;
+
   const flyout = hasChildren && <div
     ref={flyoutRef}
     id={menuId}
-    className={`navigation-menu-flyout${mobile ? " is-inline" : " is-portal"}`}
+    className={`navigation-menu-flyout${item.id === "integrations" ? ` is-integrations${displayedIntegrationGroup ? " has-selection" : ""}` : ""}${mobile ? " is-inline" : " is-portal"}`}
     data-navigation-owner={item.id}
     data-navigation-mode={collapsed ? "collapsed" : "expanded"}
     aria-label={`${item.label} subcategories`}
@@ -156,22 +204,26 @@ export function NavigationMenuItem({
     onMouseEnter={enterMenu}
     onMouseLeave={leaveMenu}
   >
-    {children.map((child, index) => <button
-      key={child.id}
-      ref={(node) => { childRefs.current[index] = node; }}
-      type="button"
-      className={`navigation-menu-child${activeChild === child.id ? " is-active" : ""}`}
-      aria-current={activeChild === child.id ? "page" : undefined}
-      onClick={() => {
-        setPinnedOpen(false);
-        setHovered(false);
-        setFocused(false);
-        onNavigate(child.id);
-      }}
-    >
-      <span>{child.label}</span>
-      {activeChild === child.id && <i aria-hidden="true" />}
-    </button>)}
+    {item.id === "integrations" ? <div className={`navigation-menu-mega${displayedIntegrationGroup ? " has-selection" : ""}`}>
+      <div className="navigation-menu-mega-categories" role="tablist" aria-label="Integration categories">
+        {availableIntegrationGroups.map((group) => <button
+          key={group.id}
+          type="button"
+          role="tab"
+          aria-selected={selectedIntegrationGroup?.id === group.id}
+          className={`${selectedIntegrationGroup?.id === group.id ? "is-active" : ""}${hoveredIntegrationGroupId === group.id ? " is-hovered" : ""}`}
+          onMouseEnter={() => setHoveredIntegrationGroupId(group.id)}
+          onFocus={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
+          onClick={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
+        >
+          <span>{group.label}</span>
+          <b aria-hidden="true">›</b>
+        </button>)}
+      </div>
+      {displayedIntegrationGroup && <div className="navigation-menu-mega-items" role="tabpanel" aria-label={`${displayedIntegrationGroup.label} providers`}>
+        {visibleChildren.map(renderChild)}
+      </div>}
+    </div> : visibleChildren.map(renderChild)}
   </div>;
   return (
     <div
@@ -194,7 +246,9 @@ export function NavigationMenuItem({
         title={item.label}
       >
         <i className="navigation-menu-icon">{icon}</i>
-        <span className="navigation-menu-label">{item.label}</span>
+        <span className="navigation-menu-label">
+          {item.label}
+        </span>
         {typeof badge === "number" && badge > 0 && <b className="navigation-menu-badge">{badge}</b>}
       </button>
       {hasChildren && (

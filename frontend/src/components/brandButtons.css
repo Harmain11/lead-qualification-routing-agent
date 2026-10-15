@@ -1,25 +1,80 @@
+/* One control scale for every product screen and editor. */
 .primary-button,
 .app-shell .primary-button,
-.lead-drawer .primary-button {
-  background: #1E6B52;
-  border: 1px solid #1E6B52;
-  color: #fff;
-  box-shadow: 0 2px 5px rgba(12, 53, 38, .12);
+.lead-drawer .primary-button,
+.ops-dialog .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 9px 16px;
+  margin: 0;
+  border: 1px solid var(--workspace-accent, #1e6b52);
+  border-radius: var(--radius-sm);
+  background: var(--workspace-accent, #1e6b52);
+  color: var(--workspace-accent-text, #fff);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: none;
+  transform: none;
 }
 .primary-button:hover:not(:disabled),
 .app-shell .primary-button:hover:not(:disabled),
-.lead-drawer .primary-button:hover:not(:disabled) {
-  background: #155640;
-  border-color: #155640;
-  color: #fff;
+.lead-drawer .primary-button:hover:not(:disabled),
+.ops-dialog .primary-button:hover:not(:disabled) {
+  background: var(--workspace-accent, #1e6b52);
+  border-color: var(--workspace-accent, #1e6b52);
+  color: var(--workspace-accent-text, #fff);
+  filter: brightness(.92);
+  box-shadow: none;
+  transform: none;
 }
-.primary-button:focus-visible { outline: 3px solid rgba(30, 107, 82, .35); outline-offset: 3px; }
 .primary-button:disabled,
 .app-shell .primary-button:disabled,
-.lead-drawer .primary-button:disabled {
-  background: #1E6B52;
-  border-color: #1E6B52;
+.lead-drawer .primary-button:disabled,
+.ops-dialog .primary-button:disabled {
   opacity: .5;
   box-shadow: none;
   cursor: not-allowed;
+}
+html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-button, .button-quiet, .invitation-actions button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  max-width: 100%;
+  padding: 9px 14px;
+  margin: 0;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: none;
+  transform: none;
+}
+html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-button, .button-quiet, .invitation-actions button):hover:not(:disabled) {
+  border-color: var(--orange);
+  background: var(--surface-high);
+  color: var(--text);
+  box-shadow: none;
+  transform: none;
+}
+button:disabled { cursor: not-allowed; }
+:is(.secondary-button, .button-quiet):disabled { opacity: .48; }
+html[data-theme] .danger-button {
+  min-height: 40px;
+  padding: 9px 14px;
+  border-color: var(--red);
+  background: var(--surface);
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 600;
 }

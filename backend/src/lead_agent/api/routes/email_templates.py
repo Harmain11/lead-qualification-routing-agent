@@ -19,12 +19,13 @@ from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reason
 
 router = APIRouter(prefix="/v1/settings/email-templates", tags=["email templates"])
 TemplateKind = Literal["confirmation", "follow_up"]
+GenerationMode = Literal["style", "fresh"]
 
 class EmailTemplateEdit(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     subject: str = Field(min_length=1, max_length=180)
     body: str = Field(min_length=10, max_length=5000)
-    generation_method: Literal["manual", "ai"] = "manual"
+    generation_method: Literal["manual", "ai", "ai_full"] = "manual"
 
     @field_validator("subject", "body")
     @classmethod
@@ -38,6 +39,8 @@ class EmailTemplateGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     subject: str | None = Field(default=None, min_length=1, max_length=180)
     body: str | None = Field(default=None, min_length=10, max_length=5000)
+    generation_mode: GenerationMode = "style"
+    important_context: str | None = Field(default=None, max_length=1200)
 
 
 def _response(kind: str, row: WorkspaceEmailTemplateORM | None) -> dict[str, str]:
@@ -118,12 +121,14 @@ def generate_email_template(
             detail="Configure an AI drafting provider to generate a template.",
         )
     current = _response(kind, _load(session, workspace.workspace_id, kind))
-    sample_subject = (
+    generation_mode = request.generation_mode if request is not None else "style"
+    generate_from_scratch = generation_mode == "fresh"
+    sample_subject = "" if generate_from_scratch else (
         request.subject
         if request is not None and request.subject is not None
         else current["subject"]
     )
-    sample_body = (
+    sample_body = "" if generate_from_scratch else (
         request.body if request is not None and request.body is not None else current["body"]
     )
     supported_placeholders = (
@@ -132,15 +137,25 @@ def generate_email_template(
         "{{product_or_service}}",
         "{{job_title}}",
     )
-    required_placeholders = [
-        placeholder
-        for placeholder in supported_placeholders
-        if placeholder in f"{sample_subject}\n{sample_body}"
-    ]
+    required_placeholders = (
+        list(supported_placeholders[:3])
+        if generate_from_scratch
+        else [
+            placeholder
+            for placeholder in supported_placeholders
+            if placeholder in f"{sample_subject}\n{sample_body}"
+        ]
+    )
     facts = {
         "template_generation": True,
         "email_purpose": kind,
-        "style_reference": {"subject": sample_subject, "body": sample_body},
+        "generation_mode": generation_mode,
+        "style_reference": None
+        if generate_from_scratch
+        else {"subject": sample_subject, "body": sample_body},
+        "important_context": (request.important_context or "").strip()
+        if request is not None
+        else "",
         "required_placeholders": required_placeholders,
         "lead_name": "{{lead_name}}",
         "company": "{{company_name}}",
@@ -165,7 +180,7 @@ def generate_email_template(
             status_code=502,
             detail="AI did not preserve all merge fields from the sample. Try again.",
         )
-    if " ".join(content.body.split()).casefold() == " ".join(sample_body.split()).casefold():
+    if not generate_from_scratch and " ".join(content.body.split()).casefold() == " ".join(sample_body.split()).casefold():
         raise HTTPException(
             status_code=502,
             detail="AI returned the sample unchanged. Try generating it again.",
@@ -174,5 +189,5 @@ def generate_email_template(
         "kind": kind,
         "subject": content.subject,
         "body": content.body,
-        "generation_method": "ai",
+        "generation_method": "ai_full" if generate_from_scratch else "ai",
     }

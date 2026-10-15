@@ -5,6 +5,8 @@
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   isolation: isolate;
+  border-radius: 10px;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
 }
 
 .navigation-menu-item.is-open { z-index: 40; }
@@ -28,21 +30,31 @@
 }
 
 .navigation-menu-trigger:hover,
-.navigation-menu-item.is-open .navigation-menu-trigger {
+.navigation-menu-item:hover .navigation-menu-trigger {
+  color: var(--text);
+  background: transparent;
+}
+
+.navigation-menu-item:hover {
   color: var(--text);
   background: var(--surface-high);
 }
 
+.navigation-menu-item.is-active {
+  color: var(--text);
+  background: transparent;
+}
+
 .navigation-menu-item.is-active > .navigation-menu-trigger {
   color: var(--text);
-  border-color: var(--blue-line, var(--line));
-  background: linear-gradient(90deg, rgba(30, 107, 82, .12), rgba(30, 107, 82, .025));
+  border-color: transparent;
 }
 
 .navigation-menu-icon { display: grid; width: 22px; place-items: center; color: inherit; font-style: normal; }
 .navigation-menu-icon svg { width: 19px; height: 19px; }
-.navigation-menu-label { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.navigation-menu-badge { min-width: 22px; padding: 3px 6px; border-radius: 12px; background: var(--orange); color: #fff; font-size: 10px; text-align: center; }
+.navigation-menu-label { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.navigation-menu-item.is-active > .navigation-menu-trigger > .navigation-menu-label { font-weight: 650; }
+.navigation-menu-badge { min-width: 22px; padding: 3px 6px; border-radius: 12px; background: var(--orange); color: #fff; font-size: 13px; text-align: center; }
 
 .navigation-menu-disclosure {
   position: relative;
@@ -62,7 +74,8 @@
 }
 
 .navigation-menu-disclosure:hover,
-.navigation-menu-disclosure:focus-visible { color: var(--text); background: var(--surface-high); }
+.navigation-menu-disclosure:focus-visible,
+.navigation-menu-item:hover > .navigation-menu-disclosure { color: var(--text); background: transparent; }
 .navigation-menu-disclosure svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .navigation-menu-item.is-open > .navigation-menu-disclosure svg { transform: rotate(90deg); }
 
@@ -110,7 +123,7 @@
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   text-align: left;
   white-space: normal;
@@ -122,6 +135,77 @@
 .navigation-menu-child.is-active { color: var(--text); background: var(--orange-soft); }
 .navigation-menu-child > span { min-width: 0; }
 .navigation-menu-child > i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--orange); }
+
+.navigation-menu-subheading {
+  padding: 6px 10px 5px;
+  border-bottom: 1px solid var(--line);
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.navigation-menu-subheading-root { margin-bottom: 3px; font-size: 12px; }
+
+.navigation-menu-flyout.is-integrations {
+  width: min(520px, calc(100vw - 24px));
+  min-width: 420px;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+.navigation-menu-flyout.is-integrations:not(.has-selection) {
+  width: 270px;
+  min-width: 270px;
+}
+.navigation-menu-mega {
+  display: grid;
+  grid-template-columns: minmax(150px, .9fr) minmax(190px, 1.1fr);
+  min-height: 250px;
+  max-height: min(560px, calc(100dvh - 24px));
+}
+.navigation-menu-mega:not(.has-selection) { grid-template-columns: 1fr; }
+.navigation-menu-mega-categories {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line-bright);
+  background: color-mix(in srgb, var(--surface-high) 76%, var(--surface));
+}
+.navigation-menu-mega-categories button {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+.navigation-menu-mega-categories button.is-active { border-color: transparent; background: transparent; color: var(--text); }
+.navigation-menu-mega-categories button:hover,
+.navigation-menu-mega-categories button:focus-visible,
+.navigation-menu-mega-categories button.is-hovered { border-color: var(--line); background: var(--surface); color: var(--text); }
+.navigation-menu-mega-categories button b { color: currentColor; font-size: 18px; font-weight: 400; line-height: 1; }
+.navigation-menu-mega-items {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 10px;
+  overflow-y: auto;
+  background: var(--surface);
+}
+.navigation-menu-mega-items .navigation-menu-child { min-height: 39px; padding: 7px 10px; font-size: 13px; line-height: 1.35; }
 
 /* Outrank the legacy primary-nav button rules while this component is adopted. */
 .side-rail nav .navigation-menu-item > .navigation-menu-trigger {
@@ -142,6 +226,10 @@
 .side-rail nav .navigation-menu-item > .navigation-menu-trigger > .navigation-menu-label {
   display: block;
   overflow: hidden;
+}
+.side-rail nav .navigation-menu-item[data-navigation-id="agents"] > .navigation-menu-trigger > .navigation-menu-label {
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger {
   width: 42px;

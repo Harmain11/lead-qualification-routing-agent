@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import secrets
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
@@ -24,6 +23,7 @@ from lead_agent.application.auth import (
     begin_google_auth,
     complete_google_login,
     consume_google_auth_state,
+    csrf_token_matches,
     hash_password,
     issue_session,
     list_memberships,
@@ -33,6 +33,7 @@ from lead_agent.application.auth import (
     resend_email_verification,
     revoke_session,
     revoke_session_token,
+    rotate_csrf_token,
     select_workspace,
     sign_in,
     verify_email_token,
@@ -668,6 +669,26 @@ def session_status(
             display_name=identity.display_name,
             session_id=identity.session_id,
             current_workspace_id=fallback_workspace_id,
+        )
+    session_row = session.get(AuthSessionORM, identity.session_id)
+    if session_row is not None and not csrf_token_matches(
+        session, identity.session_id, request.cookies.get(settings.auth_csrf_cookie_name)
+    ):
+        csrf_token = rotate_csrf_token(session, identity.session_id)
+        expires_at = (
+            session_row.expires_at.astimezone(UTC)
+            if session_row.expires_at.tzinfo
+            else session_row.expires_at.replace(tzinfo=UTC)
+        )
+        response.set_cookie(
+            settings.auth_csrf_cookie_name,
+            csrf_token,
+            max_age=settings.auth_session_hours * 3600,
+            expires=expires_at,
+            secure=settings.auth_cookie_secure,
+            httponly=False,
+            samesite=settings.auth_cookie_samesite,
+            path="/",
         )
     return _session_response(session, identity)
 

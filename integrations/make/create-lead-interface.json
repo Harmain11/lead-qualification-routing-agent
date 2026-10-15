@@ -1,0 +1,32 @@
+[
+  {
+    "name": "id",
+    "type": "text",
+    "label": "Id"
+  },
+  {
+    "name": "full_name",
+    "type": "text",
+    "label": "Full Name"
+  },
+  {
+    "name": "email",
+    "type": "text",
+    "label": "Email"
+  },
+  {
+    "name": "company_name",
+    "type": "text",
+    "label": "Company Name"
+  },
+  {
+    "name": "source",
+    "type": "text",
+    "label": "Source"
+  },
+  {
+    "name": "source_detail",
+    "type": "text",
+    "label": "Source Detail"
+  }
+]

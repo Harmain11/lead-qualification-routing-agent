@@ -75,7 +75,23 @@ PROVIDER_DIRECTIONALITY: dict[str, IntegrationDirectionality] = {
     "deepseek": _ANALYSIS,
     "xai": _ANALYSIS,
     "linkedin": _INBOUND,
+    "instagram": _INBOUND,
+    "messenger": _INBOUND,
+    "whatsapp_business": _INBOUND,
+    "clutch": _INBOUND,
     "mock": _CRM,
+    "gohighlevel": _CRM,
+    **{
+        key: IntegrationDirectionality(
+            request_response=True,
+            outbound_action=True,
+            description=(
+                "Read call history on request. Outgoing calls require explicit rep "
+                "confirmation and pass contact-permission checks."
+            ),
+        )
+        for key in ("twilio", "aircall", "ringcentral", "vapi", "retell")
+    },
 }
 
 

@@ -1,0 +1,30 @@
+{
+  "url": "https://{{connection.host}}/v1/intake/public/{{connection.intake_token}}",
+  "method": "POST",
+  "type": "json",
+  "body": {
+    "external_id": "{{parameters.external_id}}",
+    "full_name": "{{parameters.full_name}}",
+    "email": "{{parameters.email}}",
+    "company_name": "{{parameters.company_name}}",
+    "product_or_service": "{{parameters.product_or_service}}",
+    "message": "{{parameters.message}}",
+    "phone": "{{parameters.phone}}",
+    "job_title": "{{parameters.job_title}}",
+    "industry": "{{parameters.industry}}",
+    "geography": "{{parameters.geography}}",
+    "budget": "{{parameters.budget}}",
+    "employee_count": "{{parameters.employee_count}}",
+    "source_detail": "make"
+  },
+  "response": {
+    "output": "{{body}}"
+  },
+  "log": {
+    "sanitize": [
+      "request.url",
+      "request.body",
+      "response.body"
+    ]
+  }
+}
