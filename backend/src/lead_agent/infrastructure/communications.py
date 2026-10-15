@@ -19,7 +19,7 @@ from lead_agent.domain.provider_errors import (
     provider_timeout_error,
 )
 
-DIALERS = frozenset({"twilio", "aircall", "ringcentral", "vapi", "retell"})
+DIALERS = frozenset({"twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"})
 BASE_URLS = {
     "gohighlevel": "https://services.leadconnectorhq.com",
     "twilio": "https://api.twilio.com",
@@ -27,6 +27,7 @@ BASE_URLS = {
     "ringcentral": "https://platform.ringcentral.com",
     "vapi": "https://api.vapi.ai",
     "retell": "https://api.retellai.com",
+    "cloudtalk": "https://my.cloudtalk.io",
 }
 
 
@@ -105,6 +106,7 @@ class CommunicationsClient:
         params: dict[str, Any] | None = None,
         payload: Any = None,
         form: Any = None,
+        base_url: str | None = None,
     ) -> Any:
         headers: dict[str, str] = {"Accept": "application/json"}
         auth = None
@@ -113,6 +115,8 @@ class CommunicationsClient:
             auth = httpx.BasicAuth(c["account_sid"], c["auth_token"])
         elif self.provider == "aircall":
             auth = httpx.BasicAuth(c["api_id"], c["api_token"])
+        elif self.provider == "cloudtalk":
+            auth = httpx.BasicAuth(c["access_key_id"], c["access_key_secret"])
         elif self.provider == "ringcentral" and path == "/restapi/oauth/token":
             auth = httpx.BasicAuth(c["client_id"], c["client_secret"])
         else:
@@ -129,7 +133,7 @@ class CommunicationsClient:
             try:
                 response = transport.request(
                     method,
-                    BASE_URLS[self.provider] + path,
+                    (base_url or BASE_URLS[self.provider]) + path,
                     headers=headers,
                     auth=auth,
                     params=params,
@@ -247,6 +251,28 @@ class CommunicationsClient:
                     "Verify the assistant and phone number in the same Vapi organization."
                 )
             return agent_id, str(data.get("name") or "Vapi assistant")[:255]
+        if p == "cloudtalk":
+            agent_id = identifier(c["agent_id"])
+            if not agent_id.isdigit():
+                raise ValueError("CloudTalk agent ID must be numeric.")
+            result = self.request(
+                "GET",
+                "/api/agents/index.json",
+                params={"id": agent_id, "limit": 100, "page": 1},
+            )
+            response_data = result.get("responseData", {})
+            agents = response_data.get("data", []) if isinstance(response_data, dict) else []
+            agent = next(
+                (
+                    item
+                    for item in agents
+                    if isinstance(item, dict) and str(item.get("id")) == agent_id
+                ),
+                None,
+            )
+            if agent is None:
+                raise ValueError("CloudTalk agent could not be verified for this account.")
+            return agent_id, str(agent.get("name") or "CloudTalk agent")[:255]
         agent_id = identifier(c["agent_id"])
         data = self.request("GET", "/get-agent/" + agent_id)
         number = self.request("GET", "/get-phone-number/" + quote(phone(c["from_number"]), safe=""))
@@ -296,6 +322,18 @@ class CommunicationsClient:
                 },
             )
             result = data.get("id")
+        elif p == "cloudtalk":
+            agent_id = identifier(c["agent_id"])
+            if not agent_id.isdigit():
+                raise ValueError("CloudTalk agent ID must be numeric.")
+            self.request(
+                "POST",
+                "/api/calls/create.json",
+                payload={"agent_id": int(agent_id), "callee_number": target},
+            )
+            # CloudTalk accepts the request but does not return a call ID. The
+            # durable local request receipt prevents retrying this POST.
+            return None, "requested"
         elif p == "vapi":
             data = self.request(
                 "POST",
@@ -354,6 +392,15 @@ class CommunicationsClient:
             items = self.request(
                 "POST", "/v2/list-calls", payload={"limit": 50, "sort_order": "descending"}
             )
+        elif p == "cloudtalk":
+            digits = re.sub(r"\D", "", target)
+            result = self.request(
+                "GET",
+                "/api/calls/index.json",
+                params={"public_external": digits, "limit": 25, "page": 1},
+            )
+            response_data = result.get("responseData", {})
+            items = response_data.get("data", []) if isinstance(response_data, dict) else []
         else:
             raise ValueError("This provider has no call history.")
         if not isinstance(items, list):
@@ -416,6 +463,81 @@ class CommunicationsClient:
                 item.get("transcript") or artifact.get("transcript"),
                 item.get("recordingUrl") or artifact.get("recordingUrl"),
             )
+        elif p == "cloudtalk":
+            cdr = item.get("Cdr") or item.get("cdr") or item
+            contact = item.get("Contact") or item.get("contact") or {}
+            call_number = item.get("CallNumber") or item.get("call_number") or {}
+            numbers = [
+                cdr.get("public_external"),
+                cdr.get("external_number"),
+                contact.get("phone"),
+                call_number.get("number"),
+            ]
+            target_digits = re.sub(r"\D", "", target)
+            if not any(
+                re.sub(r"\D", "", str(number or "")) == target_digits
+                for number in numbers
+            ):
+                return None
+            call_id = cdr.get("id") or item.get("id")
+            status = cdr.get("status") or cdr.get("call_status") or "completed"
+            start = cdr.get("started_at") or cdr.get("start_time")
+            duration = cdr.get("talking_time") or cdr.get("duration")
+            transcript, recording = None, cdr.get("recording_link")
+            if not call_id:
+                return None
+            try:
+                call_id = identifier(str(call_id))
+            except ValueError:
+                return None
+            ci_path = f"/v1/ai/calls/{quote(str(call_id), safe='')}"
+            try:
+                chunks: list[str] = []
+                offset, total = 0, 0
+                while offset < total or offset == 0:
+                    transcription = self.request(
+                        "GET",
+                        ci_path + "/transcription",
+                        params={"limit": 1000, "offset": offset},
+                        base_url="https://api.cloudtalk.io",
+                    )
+                    transcript_data = transcription.get("data", {})
+                    segments = (
+                        transcript_data.get("segments", [])
+                        if isinstance(transcript_data, dict)
+                        else []
+                    )
+                    chunks.extend(
+                        str(segment.get("text", "")).strip()
+                        for segment in segments
+                        if isinstance(segment, dict) and segment.get("text")
+                    )
+                    pagination = transcription.get("pagination", {})
+                    total = int(pagination.get("total", len(segments))) if isinstance(
+                        pagination, dict
+                    ) else len(segments)
+                    if not segments or offset + 1000 >= total:
+                        break
+                    offset += 1000
+                transcript = " ".join(chunks)[:100000] or None
+            except ProviderOperationError as error:
+                # Missing CI data is normal for calls without transcription;
+                # authentication and service failures must still surface.
+                if error.category not in {"not_found", "invalid_request"}:
+                    raise
+            except (ValueError, TypeError, AttributeError):
+                transcript = None
+            if not recording:
+                try:
+                    details = self.request(
+                        "GET",
+                        ci_path + "/details-link",
+                        base_url="https://api.cloudtalk.io",
+                    )
+                    recording = details.get("link")
+                except ProviderOperationError as error:
+                    if error.category not in {"not_found", "invalid_request"}:
+                        raise
         else:
             numbers = [item.get("from_number"), item.get("to_number")]
             call_id, status, start = (
@@ -429,6 +551,11 @@ class CommunicationsClient:
             transcript, recording = item.get("transcript"), item.get("recording_url")
         matches = []
         for number in numbers:
+            if p == "cloudtalk":
+                matches.append(
+                    re.sub(r"\D", "", str(number or "")) == re.sub(r"\D", "", target)
+                )
+                continue
             try:
                 matches.append(phone(number or "") == target)
             except ValueError:

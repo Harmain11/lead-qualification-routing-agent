@@ -90,7 +90,7 @@ PROVIDER_DIRECTIONALITY: dict[str, IntegrationDirectionality] = {
                 "confirmation and pass contact-permission checks."
             ),
         )
-        for key in ("twilio", "aircall", "ringcentral", "vapi", "retell")
+        for key in ("twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk")
     },
 }
 

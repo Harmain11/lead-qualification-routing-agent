@@ -508,7 +508,9 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             "calendly": CalendlyConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             **{
                 key: CommunicationsValidator()
-                for key in ("gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell")
+                for key in (
+                    "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"
+                )
             },
             "openai": OpenAIConnectionValidator(timeout_seconds=settings.openai_timeout_seconds),
             **{
@@ -558,6 +560,7 @@ def get_provider_revoker() -> ProviderRevoker:
                     "ringcentral",
                     "vapi",
                     "retell",
+                    "cloudtalk",
                     "instagram",
                     "messenger",
                     "whatsapp_business",
