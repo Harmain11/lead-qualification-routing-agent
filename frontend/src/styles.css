@@ -607,12 +607,21 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-section-label { color: var(--orange-hot); font: 13px var(--font-mono); letter-spacing: .13em; text-transform: uppercase; }
 .slack-destination-copy strong, .slack-rules-toolbar strong { font-size: 13px; }
 .slack-destination-copy small { color: var(--muted); font-size: 13px; }
-.slack-setup-guide { margin-top: 18px; padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.025); }
+.slack-guide-cta { display: inline-flex; align-items: center; gap: 8px; width: fit-content; margin-top: 8px; padding: 7px 10px; border: 1px solid rgba(112,199,156,.45); border-radius: 8px; background: rgba(112,199,156,.12); color: var(--green); font-size: 12px; font-weight: 700; cursor: pointer; }
+.slack-guide-cta:hover { border-color: var(--green); background: rgba(112,199,156,.2); }
+.slack-guide-cta span { color: var(--text); }
+.slack-guide-cta-footer { margin-top: 0; }
+.slack-setup-guide { margin-top: 18px; padding: 17px; border: 1px solid rgba(112,199,156,.45); border-left: 3px solid var(--green); border-radius: 11px; background: rgba(112,199,156,.07); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
 .slack-setup-guide > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--text); cursor: pointer; font-weight: 650; list-style: none; }
 .slack-setup-guide > summary::-webkit-details-marker { display: none; }
-.slack-setup-guide > summary::after { content: "+"; color: var(--orange-hot); font-size: 18px; }
+.slack-setup-guide > summary::after { content: "＋"; color: var(--green); font-size: 18px; }
 .slack-setup-guide[open] > summary::after { content: "−"; }
-.slack-setup-guide > summary span { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 500; }
+.slack-guide-summary-title { display: flex; align-items: center; gap: 11px; }
+.slack-guide-summary-title > i { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: rgba(112,199,156,.15); color: var(--green); font-style: normal; }
+.slack-guide-summary-title > span { display: grid; gap: 3px; }
+.slack-guide-summary-title strong { font-size: 15px; }
+.slack-guide-summary-title small { color: var(--muted); font-size: 12px; font-weight: 400; }
+.slack-guide-progress { margin-left: auto; color: var(--green); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .slack-guide-content { display: grid; gap: 12px; padding-top: 14px; }
 .slack-guide-content > p, .slack-delivery-explainer p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .slack-setup-checklist { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; counter-reset: slack-step; }
@@ -638,6 +647,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-delivery-explainer > strong { color: var(--text); font-size: 13px; }
 @media (max-width: 560px) {
   .slack-scope-copy { align-items: flex-start; flex-direction: column; margin-left: 27px; }
+  .slack-setup-guide > summary { align-items: flex-start; flex-wrap: wrap; }
+  .slack-guide-progress { margin-left: 45px; }
 }
 .slack-default-destination label, .slack-condition-grid label, .slack-rule-destination label, .slack-multi-select { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
 .slack-default-destination label > span, .slack-condition-grid label > span, .slack-rule-destination label > span, .slack-field-label { color: var(--muted); font: 13px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }

@@ -10,7 +10,13 @@ const steps = [
   "Select a destination channel, invite the bot to any private channel, then use Verify connection.",
 ];
 
-export function SlackSetupGuide() {
+export function SlackSetupGuide({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [completed, setCompleted] = useState<boolean[]>(steps.map(() => false));
   const [copied, setCopied] = useState<string | null>(null);
   const done = completed.filter(Boolean).length;
@@ -24,8 +30,14 @@ export function SlackSetupGuide() {
     }
   }
 
-  return <details className="integration-guide slack-setup-guide">
-    <summary>How to connect Slack <span>{done}/{steps.length} complete</span></summary>
+  return <details open={open} className="integration-guide slack-setup-guide">
+    <summary aria-expanded={open} onClick={(event) => {
+      event.preventDefault();
+      onOpenChange(!open);
+    }}>
+      <span className="slack-guide-summary-title"><i aria-hidden="true">↗</i><span><strong>How to connect Slack</strong><small>Step-by-step setup, scopes, and safe token handling</small></span></span>
+      <span className="slack-guide-progress">{done}/{steps.length} complete</span>
+    </summary>
     <div className="slack-guide-content">
       <p>Set up a Slack app, then connect its bot token to Corral. Check off each step as you go.</p>
       <ol className="slack-setup-checklist">
