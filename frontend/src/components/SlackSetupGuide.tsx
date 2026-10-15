@@ -1,13 +1,14 @@
 import { useState } from "react";
 
 const steps = [
-  "Create or select a Slack app for the chosen workspace.",
-  "Enable a bot user for the app.",
-  "Under OAuth & Permissions, add the minimum bot scopes: chat:write and channels:read.",
-  "Add im:write only if the team wants Corral to start direct messages.",
-  "Install or reinstall the app to the chosen workspace after changing scopes.",
+  "Create or choose a Slack app for your workspace.",
+  "Turn on a bot user for the app.",
+  "Add the required permissions: chat:write and channels:read.",
+  "Add im:write only if your team wants Corral to start direct messages.",
+  "Install or reinstall the app in your workspace after changing permissions.",
+  "Installing Corral gives it workspace access. Invite the Corral bot to each private channel it should use; Slack does not grant private-channel access automatically.",
   "Copy the Bot User OAuth Token into Corral’s secure Slack token field.",
-  "Select a destination channel, invite the bot to any private channel, then use Verify connection.",
+  "Choose a destination channel, then select Verify connection.",
 ];
 
 export function SlackSetupGuide({
@@ -39,9 +40,9 @@ export function SlackSetupGuide({
       <span className="slack-guide-progress">{done}/{steps.length} complete</span>
     </summary>
     <div className="slack-guide-content">
-      <p>Set up a Slack app, then connect its bot token to Corral. Check off each step as you go.</p>
+      <p>Follow these steps to connect Corral to Slack.</p>
       <ol className="slack-setup-checklist">
-        {steps.map((step, index) => <li key={step}>
+        {steps.map((step, index) => <li className={index === 5 ? "slack-private-channel-step" : undefined} key={step}>
           <div className="slack-check-row">
             <input id={`slack-setup-step-${index}`} type="checkbox" checked={completed[index]} onChange={(event) => setCompleted((current) => current.map((value, item) => item === index ? event.target.checked : value))} />
             <label htmlFor={`slack-setup-step-${index}`}>{step}</label>

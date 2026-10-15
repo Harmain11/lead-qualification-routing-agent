@@ -626,6 +626,8 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .slack-guide-content > p, .slack-delivery-explainer p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .slack-setup-checklist { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; counter-reset: slack-step; }
 .slack-setup-checklist > li { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; counter-increment: slack-step; }
+.slack-setup-checklist > li.slack-private-channel-step { padding: 12px; border-color: rgba(112,199,156,.52); background: rgba(112,199,156,.075); box-shadow: inset 3px 0 0 var(--green); }
+.slack-private-channel-step .slack-check-row label { font-weight: 550; }
 .slack-check-row { display: grid; grid-template-columns: 18px minmax(0,1fr); align-items: start; gap: 9px; color: var(--text); font-size: 13px; line-height: 1.5; }
 .slack-check-row input { accent-color: var(--green); margin: 3px 0 0; }
 .slack-scope-copy { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-left: 27px; padding: 9px 10px; border-radius: 7px; background: rgba(112,199,156,.06); }
