@@ -25,12 +25,15 @@
 .lead-browser .lead-table td {
   padding: 14px 10px;
   border-top: 1px solid var(--line);
-  vertical-align: top;
+  /* Every lead row combines single-value cells with two-line identity and source
+     cells. Center all of them against the row so the main table and every
+     subsection share one clear horizontal rhythm. */
+  vertical-align: middle;
   font-size: 13px;
   line-height: 1.5;
 }
 .lead-browser .lead-table td.lead-select-cell { vertical-align: middle; }
-.lead-browser .lead-table td:nth-child(4) { vertical-align: middle; }
+.lead-browser .lead-subpage-table td:last-child { vertical-align: middle; }
 .lead-browser .lead-table td .lead-row-identity { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; margin: 0 !important; }
 .lead-row-identity > span { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .lead-browser .lead-subpage-name { display: block; padding: 0; margin: 0; border: 0; background: transparent; text-align: left; }
