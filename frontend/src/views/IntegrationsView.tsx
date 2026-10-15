@@ -27,6 +27,7 @@ import { OpenAIUsagePanel } from "../components/OpenAIUsagePanel";
 import { AiUsagePanel } from "../components/AiUsagePanel";
 import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
 import { can } from "../permissions";
+import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
 import type { CrmInboundSyncState,IntegrationCard,ProviderConnection,SlackNotificationConfig,SlackNotificationRule } from "../types";
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
@@ -314,6 +315,12 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [busyAction, setBusyAction] = useState<ConnectionOperation | null>(null);
   const [operationFeedback, setOperationFeedback] = useState<Record<string, { state: "running" | "success" | "error"; message: string }>>({});
   const runningProvider = useRef<string | null>(null);
+  const oauthPopupRef = useRef<{
+    provider: string;
+    popup: Window;
+    pollId: number;
+    timeoutId: number;
+  } | null>(null);
   const oauthIntent = useRef<ConnectionOperation>("connect");
   const slackVerificationAttempts = useRef(new Set<string>());
   const slackChannelLoads = useRef(new Set<string>());
@@ -408,6 +415,72 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setNotice(error instanceof Error ? error.message : "Integrations could not be loaded");
     }
   };
+  function finishOAuthPopup(provider: string, status: "connected" | "failed", callbackMessage?: string) {
+    const attempt = oauthPopupRef.current;
+    if (!attempt || attempt.provider !== provider) return;
+    window.clearInterval(attempt.pollId);
+    window.clearTimeout(attempt.timeoutId);
+    if (!attempt.popup.closed) attempt.popup.close();
+    oauthPopupRef.current = null;
+    setBusy(null);
+    setBusyAction(null);
+    runningProvider.current = null;
+
+    const displayName = cards.find((card) => card.provider === provider)?.display_name
+      ?? provider.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    const message = status === "connected"
+      ? `${displayName} connected successfully.`
+      : callbackMessage || `${displayName} authorization was cancelled or failed. Reconnect to try again.`;
+    setNotice(message);
+    setActionErrors((current) => {
+      const next = { ...current };
+      if (status === "connected") delete next[provider];
+      else next[provider] = message;
+      return next;
+    });
+    setOperationFeedback((current) => ({
+      ...current,
+      [provider]: { state: status === "connected" ? "success" : "error", message },
+    }));
+    void refresh();
+  }
+
+  function finishClosedOAuthPopup(provider: string, message: string) {
+    const attempt = oauthPopupRef.current;
+    if (!attempt || attempt.provider !== provider) return;
+    finishOAuthPopup(provider, "failed", message);
+  }
+
+  useEffect(() => {
+    const onResult = (value: unknown) => {
+      if (isOAuthPopupResult(value)) {
+        finishOAuthPopup(value.provider, value.status, value.message);
+      }
+    };
+    const onWindowMessage = (event: MessageEvent) => {
+      if (event.origin === window.location.origin) onResult(event.data);
+    };
+    window.addEventListener("message", onWindowMessage);
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel(OAUTH_RESULT_CHANNEL);
+      channel.onmessage = (event: MessageEvent<unknown>) => onResult(event.data);
+    }
+    return () => {
+      window.removeEventListener("message", onWindowMessage);
+      channel?.close();
+    };
+  }, [cards]);
+
+  useEffect(() => () => {
+    const attempt = oauthPopupRef.current;
+    if (!attempt) return;
+    window.clearInterval(attempt.pollId);
+    window.clearTimeout(attempt.timeoutId);
+    if (!attempt.popup.closed) attempt.popup.close();
+    oauthPopupRef.current = null;
+  }, []);
+
   useEffect(() => { if (canView) void refresh(); }, [canView]);
   useEffect(() => {
     const aiProviders = cards.filter((card) => integrationCategory(card) === "ai").map((card) => card.provider);
@@ -560,6 +633,19 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setNotice(message);
       return;
     }
+    const popup = window.open(
+      "about:blank",
+      "_blank",
+      "popup,width=620,height=760,resizable=yes,scrollbars=yes",
+    );
+    if (!popup) {
+      const message = "The sign-in window was blocked. Allow pop-ups for this site, then try again.";
+      setActionErrors((current) => ({ ...current, [provider]: message }));
+      setNotice(message);
+      setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
+      return;
+    }
+    popup.name = `corral-oauth-${provider}-${Date.now()}`;
     runningProvider.current = provider;
     setBusy(provider);
     setBusyAction(oauthIntent.current);
@@ -570,20 +656,43 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       delete next[provider];
       return next;
     });
+    const attempt = {
+      provider,
+      popup,
+      pollId: 0,
+      timeoutId: 0,
+    };
+    oauthPopupRef.current = attempt;
+    attempt.pollId = window.setInterval(() => {
+      if (popup.closed) {
+        finishClosedOAuthPopup(
+          provider,
+          `${cards.find((card) => card.provider === provider)?.display_name ?? "Provider"} sign-in window closed before completion. Reconnect to try again.`,
+        );
+      }
+    }, 400);
+    attempt.timeoutId = window.setTimeout(() => {
+      finishClosedOAuthPopup(
+        provider,
+        `${cards.find((card) => card.provider === provider)?.display_name ?? "Provider"} sign-in timed out. Reconnect to try again.`,
+      );
+    }, 5 * 60 * 1000);
     try {
       const started = await beginIntegration(provider);
-      window.location.assign(apiUrl(started.authorization_url));
+      if (popup.closed) {
+        finishClosedOAuthPopup(
+          provider,
+          `${cards.find((card) => card.provider === provider)?.display_name ?? "Provider"} sign-in window closed before completion. Reconnect to try again.`,
+        );
+        return;
+      }
+      popup.location.href = apiUrl(started.authorization_url);
     } catch (actionError) {
       const message = oauthConnectFailureMessage(
         provider,
         actionError instanceof Error ? actionError.message : "Authorization could not begin",
       );
-      setActionErrors((current) => ({ ...current, [provider]: message }));
-      setNotice(message);
-      setBusy(null);
-      setBusyAction(null);
-      runningProvider.current = null;
-      setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
+      finishOAuthPopup(provider, "failed", message);
     }
   }
 

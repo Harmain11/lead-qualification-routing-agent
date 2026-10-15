@@ -83,6 +83,7 @@ const AdvancedAnalyticsPanel = lazy(() =>
 );
 import { CommandPalette } from "./components/CommandPalette";
 import { opsGet } from "./operationsApi";
+import { relayOAuthCallbackFromPopup } from "./oauthPopup";
 import {
   PinnedLeadNavigation,
   usePinnedLeadSections,
@@ -330,6 +331,10 @@ function NavIcon({ id }: { id: View }) {
 }
 
 function App() {
+  useEffect(() => {
+    relayOAuthCallbackFromPopup();
+  }, []);
+
   const [branding, setBranding] = useState<{
     name: string | null;
     logo_url: string | null;

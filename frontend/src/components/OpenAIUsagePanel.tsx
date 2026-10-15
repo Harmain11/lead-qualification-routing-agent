@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getReasoningUsage } from "../api";
 import type { ReasoningUsage, ReasoningUsagePeriod, ReasoningUsageProvider } from "../types";
+import { estimateModelCostUsd } from "./aiUsagePricing";
 import "./OpenAIUsagePanel.css";
 
 const periods: Array<{ value: ReasoningUsagePeriod; label: string }> = [
@@ -23,6 +24,17 @@ const providerNames: Record<ReasoningUsageProvider["provider"], string> = {
 
 function formatNumber(value: number) {
   return Number(value || 0).toLocaleString();
+}
+
+function formatUsd(value: number | null) {
+  if (value === null) return "—";
+  const fractionDigits = value > 0 && value < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: 4,
+  }).format(value);
 }
 
 function formatDateRange(usage: ReasoningUsage) {
@@ -87,6 +99,23 @@ export function OpenAIUsagePanel() {
     output_tokens: 0,
     total_tokens: 0,
   }), [providers]);
+  const providerCosts = useMemo(() => providers.map((provider) => {
+    const modelCosts = provider.models.map((model) => ({
+      model,
+      cost: estimateModelCostUsd(provider.provider, model.model, model.input_tokens, model.output_tokens),
+    }));
+    const hasUnpricedUsage = modelCosts.some(({ model, cost }) =>
+      cost === null && (model.requests > 0 || model.input_tokens > 0 || model.output_tokens > 0),
+    );
+    return {
+      provider,
+      cost: hasUnpricedUsage ? null : modelCosts.reduce((total, item) => total + (item.cost ?? 0), 0),
+      modelCosts: new Map(modelCosts.map((item) => [item.model.model, item.cost])),
+    };
+  }), [providers]);
+  const estimatedTotalCost = providerCosts.some(({ cost }) => cost === null)
+    ? null
+    : providerCosts.reduce((total, item) => total + (item.cost ?? 0), 0);
 
   return <section className="openai-usage reasoning-usage" aria-label="Workspace AI usage">
     <header className="reasoning-usage-header">
@@ -134,6 +163,10 @@ export function OpenAIUsagePanel() {
         <article className="reasoning-usage-metric"><span>Total tokens</span><strong>{formatNumber(totals.total_tokens)}</strong></article>
         <article className="reasoning-usage-metric"><span>Input tokens</span><strong>{formatNumber(totals.input_tokens)}</strong></article>
         <article className="reasoning-usage-metric"><span>Output tokens</span><strong>{formatNumber(totals.output_tokens)}</strong></article>
+        <article className="reasoning-usage-metric estimated-cost-metric">
+          <span>Estimated cost</span>
+          <strong title={estimatedTotalCost === null ? "Pricing unavailable for one or more models." : "Estimate based on recorded tokens and configured published rates."}>{formatUsd(estimatedTotalCost)}</strong>
+        </article>
       </div>
 
       <div className="reasoning-provider-report">
@@ -150,10 +183,13 @@ export function OpenAIUsagePanel() {
               <th scope="col">Input tokens</th>
               <th scope="col">Output tokens</th>
               <th scope="col">Total tokens</th>
+              <th scope="col">Estimated cost</th>
             </tr></thead>
             <tbody>
-              {providers.length === 0 && <tr className="provider-empty-row"><td className="provider-empty-state" colSpan={5}>No provider usage is available for this period.</td></tr>}
-              {providers.map((provider) => <Fragment key={provider.provider}>
+              {providers.length === 0 && <tr className="provider-empty-row"><td className="provider-empty-state" colSpan={6}>No provider usage is available for this period.</td></tr>}
+              {providers.map((provider) => {
+                const pricing = providerCosts.find((item) => item.provider.provider === provider.provider);
+                return <Fragment key={provider.provider}>
                 <tr className={`reasoning-provider-row reasoning-provider-${provider.provider}`}>
                   <th scope="row" className="reasoning-provider-name" data-label="Provider">
                     <strong>{providerNames[provider.provider]}</strong>
@@ -163,15 +199,16 @@ export function OpenAIUsagePanel() {
                   <td className="provider-metric" data-label="Input tokens">{formatNumber(provider.input_tokens)}</td>
                   <td className="provider-metric" data-label="Output tokens">{formatNumber(provider.output_tokens)}</td>
                   <td className="provider-metric provider-total-count" data-label="Total tokens">{formatNumber(provider.total_tokens)}</td>
+                  <td className="provider-metric estimated-cost-cell" data-label="Estimated cost" title={pricing?.cost === null ? "Pricing unavailable for one or more models." : undefined}>{formatUsd(pricing ? pricing.cost : null)}</td>
                 </tr>
-                {provider.requests === 0 && <tr className="provider-empty-row"><td colSpan={5}><p className="provider-no-usage">No recorded usage for {providerNames[provider.provider]} in this period.</p></td></tr>}
-                {provider.models.length > 0 && <tr className="provider-model-row"><td colSpan={5}>
+                {provider.requests === 0 && <tr className="provider-empty-row"><td colSpan={6}><p className="provider-no-usage">No recorded usage for {providerNames[provider.provider]} in this period.</p></td></tr>}
+                {provider.models.length > 0 && <tr className="provider-model-row"><td colSpan={6}>
                   <details className="provider-model-details">
                     <summary>View {provider.models.length} model{provider.models.length === 1 ? "" : "s"}</summary>
                     <div className="provider-model-table-wrap">
                       <table>
                         <caption>{providerNames[provider.provider]} usage by model</caption>
-                        <thead><tr><th scope="col">Model</th><th scope="col">Requests</th><th scope="col">Successful / failed</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th><th scope="col">Total tokens</th></tr></thead>
+                        <thead><tr><th scope="col">Model</th><th scope="col">Requests</th><th scope="col">Successful / failed</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th><th scope="col">Total tokens</th><th scope="col">Estimated cost</th></tr></thead>
                         <tbody>{provider.models.map((model) => <tr key={model.model}>
                           <th scope="row">{model.model}</th>
                           <td>{formatNumber(model.requests)}</td>
@@ -179,17 +216,19 @@ export function OpenAIUsagePanel() {
                           <td>{formatNumber(model.input_tokens)}</td>
                           <td>{formatNumber(model.output_tokens)}</td>
                           <td>{formatNumber(model.total_tokens)}</td>
+                          <td title={pricing?.modelCosts.get(model.model) === null ? "Pricing unavailable for this model." : undefined}>{formatUsd(pricing?.modelCosts.get(model.model) ?? null)}</td>
                         </tr>)}</tbody>
                       </table>
                     </div>
                   </details>
                 </td></tr>}
-              </Fragment>)}
+              </Fragment>;
+              })}
             </tbody>
           </table>
         </div>
       </div>
-      <p className="reasoning-usage-note">Workspace aggregates only. No credentials, prompts, lead details, or raw requests are included. This is usage visibility, not account-wide billing or a charge estimate.</p>
+      <p className="reasoning-usage-note">Workspace aggregates only; no credentials, prompts, lead details, or raw requests are included. Estimated cost uses configured published per-token rates and recorded input/output tokens, and may differ from actual billing due to caching, discounts, or provider adjustments. Provider invoices are authoritative. “—” means pricing is unavailable for one or more models.</p>
     </>}
   </section>;
 }
