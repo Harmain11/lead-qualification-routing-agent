@@ -2632,3 +2632,70 @@ html[data-theme="dark"] .mini-rail-separator { background: var(--line); }
     overflow-wrap: anywhere;
   }
 }
+
+/* Keep Slack's multi-select options in the same row and surface style as site menus. */
+.app-shell .slack-multi-menu {
+  padding: 4px;
+  border: 1px solid var(--blue-line);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(28, 43, 61, .18);
+}
+.app-shell .slack-multi-menu .slack-multi-all,
+.app-shell .slack-multi-menu .slack-multi-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  text-transform: none;
+}
+.app-shell .slack-multi-menu .slack-multi-all:hover,
+.app-shell .slack-multi-menu .slack-multi-option:hover {
+  background: var(--blue-soft);
+  color: var(--blue-deep);
+}
+.app-shell .slack-multi-menu .slack-multi-all > span {
+  display: grid;
+  flex: 0 0 16px;
+  place-items: center;
+  width: 16px;
+  color: var(--green);
+}
+.app-shell .slack-multi-menu .slack-multi-option > span {
+  color: inherit;
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.app-shell .slack-multi-menu .slack-multi-option input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line-bright);
+  border-radius: 4px;
+  accent-color: var(--green);
+  background: #fff;
+}
+html[data-theme="dark"] .app-shell .slack-multi-menu {
+  border-color: var(--line);
+  background: #1C3026;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, .27);
+}
+html[data-theme="dark"] .app-shell .slack-multi-menu .slack-multi-all:hover,
+html[data-theme="dark"] .app-shell .slack-multi-menu .slack-multi-option:hover {
+  background: #254434;
+  color: var(--text);
+}
