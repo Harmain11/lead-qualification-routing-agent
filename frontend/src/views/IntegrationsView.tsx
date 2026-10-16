@@ -102,7 +102,8 @@ function connectionStage(status?: string) {
 
 function connectionStatusLabel(status?: string) {
   if (!status || ["disconnected", "not_connected"].includes(status)) return "Not connected";
-  if (["verified", "connected", "configured", "validating"].includes(status)) return "Connected";
+  if (status === "verified") return "Verified";
+  if (["connected", "configured", "validating"].includes(status)) return "Needs verification";
   return "Needs authorization";
 }
 
@@ -861,7 +862,9 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           ? ["access_key_id", "access_key_secret"]
           : card.manual_fields;
         const reasoningProvider = isReasoningProvider(card.provider);
-       const statusLabel = comingSoon ? "Coming soon" : connectionStatusLabel(connection?.status);
+       const statusLabel = comingSoon ? "Coming soon" : cloudTalk && connection?.status === "connected" && !connection.metadata.cloudtalk_agent_id
+         ? "Select an agent"
+         : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};
        const open = expandedProviders.has(card.provider);
       const activeConnectionStage = connectionStage(connection?.status);

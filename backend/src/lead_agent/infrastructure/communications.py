@@ -21,6 +21,7 @@ from lead_agent.domain.provider_errors import (
 )
 
 DIALERS = frozenset({"twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"})
+MAX_CLOUDTALK_PAGES = 100
 BASE_URLS = {
     "gohighlevel": "https://services.leadconnectorhq.com",
     "twilio": "https://api.twilio.com",
@@ -172,31 +173,6 @@ class CommunicationsClient:
     def ringcentral_token(self) -> str:
         if self._token and self._token_until > time.monotonic():
             return self._token
-
-    def list_cloudtalk_agents(self) -> list[dict[str, str]]:
-        if self.provider != "cloudtalk":
-            raise ValueError("This provider does not have a CloudTalk agent list.")
-        result = self.request(
-            "GET", "/api/agents/index.json", params={"limit": 1000, "page": 1}
-        )
-        response_data = result.get("responseData", {})
-        items = response_data.get("data", []) if isinstance(response_data, dict) else []
-        if not isinstance(items, list):
-            raise ValueError("CloudTalk returned an invalid agent list.")
-        agents = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            agent_id = str(item.get("id", ""))
-            if not agent_id.isdigit():
-                continue
-            agents.append(
-                {
-                    "id": agent_id,
-                    "name": str(item.get("name") or f"Agent {agent_id}")[:255],
-                }
-            )
-        return agents
         result = self.request(
             "POST",
             "/restapi/oauth/token",
@@ -213,6 +189,83 @@ class CommunicationsClient:
             time.monotonic() + max(1, min(int(result.get("expires_in", 3600)), 3600) - 60),
         )
         return token
+
+    def list_cloudtalk_agents(self) -> list[dict[str, str]]:
+        if self.provider != "cloudtalk":
+            raise ValueError("This provider does not have a CloudTalk agent list.")
+        agents = []
+        page, limit = 1, 1000
+        while page <= MAX_CLOUDTALK_PAGES:
+            response_data = self._cloudtalk_collection(
+                "/api/agents/index.json", {"limit": limit, "page": page}
+            )
+            items = response_data.get("data", [])
+            if not isinstance(items, list):
+                raise ValueError("CloudTalk returned an invalid agent list.")
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                agent = item.get("Agent") or item.get("agent") or item
+                if not isinstance(agent, dict):
+                    continue
+                agent_id = str(agent.get("id", ""))
+                if not agent_id.isdigit():
+                    continue
+                agent_name = agent.get("fullname") or agent.get("name") or f"Agent {agent_id}"
+                agents.append({"id": agent_id, "name": str(agent_name)[:255]})
+            page_count = response_data.get("pageCount")
+            if isinstance(page_count, int):
+                if page >= page_count:
+                    break
+                if page_count > MAX_CLOUDTALK_PAGES:
+                    raise ValueError("CloudTalk agent list exceeds the supported page limit.")
+            elif len(items) < limit:
+                break
+            page += 1
+        else:
+            raise ValueError("CloudTalk agent list exceeds the supported page limit.")
+        return agents
+
+    def _cloudtalk_collection(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
+        result = self.request("GET", path, params=params)
+        response_data = result.get("responseData") if isinstance(result, dict) else None
+        if not isinstance(response_data, dict):
+            raise ValueError("CloudTalk returned an invalid collection response.")
+        return response_data
+
+    @staticmethod
+    def _cloudtalk_call_error(status: int) -> ProviderOperationError:
+        safe_messages = {
+            403: (
+                "CloudTalk agent is offline or cannot place outbound calls.",
+                "conflict",
+                False,
+            ),
+            404: ("CloudTalk could not find the selected agent.", "not_found", False),
+            406: (
+                "CloudTalk rejected the destination or call request fields.",
+                "invalid_request",
+                False,
+            ),
+            409: ("CloudTalk agent is already handling a call.", "conflict", False),
+            429: ("CloudTalk rate limit was reached.", "rate_limited", True),
+        }
+        message, category, retryable = safe_messages.get(
+            status,
+            (
+                "CloudTalk is temporarily unavailable.",
+                "temporarily_unavailable" if status >= 500 else "unknown",
+                status >= 500,
+            ),
+        )
+        return ProviderOperationError(
+            message,
+            provider="cloudtalk",
+            code=f"cloudtalk_call_{status}",
+            category=category,  # type: ignore[arg-type]
+            retryable=retryable,
+            status_code=status,
+        )
 
     def verify(self) -> tuple[str, str]:
         c, p = self.credentials, self.provider
@@ -282,24 +335,23 @@ class CommunicationsClient:
             agent_id = identifier(c["agent_id"])
             if not agent_id.isdigit():
                 raise ValueError("CloudTalk agent ID must be numeric.")
-            result = self.request(
-                "GET",
-                "/api/agents/index.json",
-                params={"id": agent_id, "limit": 100, "page": 1},
+            response_data = self._cloudtalk_collection(
+                "/api/agents/index.json", {"id": int(agent_id), "limit": 1, "page": 1}
             )
-            response_data = result.get("responseData", {})
-            agents = response_data.get("data", []) if isinstance(response_data, dict) else []
-            agent = next(
-                (
-                    item
-                    for item in agents
-                    if isinstance(item, dict) and str(item.get("id")) == agent_id
-                ),
-                None,
-            )
+            items = response_data.get("data", [])
+            agent = None
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    candidate = item.get("Agent") or item.get("agent") or item
+                    if isinstance(candidate, dict) and str(candidate.get("id")) == agent_id:
+                        agent = candidate
+                        break
             if agent is None:
                 raise ValueError("CloudTalk agent could not be verified for this account.")
-            return agent_id, str(agent.get("name") or "CloudTalk agent")[:255]
+            name = agent.get("fullname") or agent.get("name") or "CloudTalk agent"
+            return agent_id, str(name)[:255]
         agent_id = identifier(c["agent_id"])
         data = self.request("GET", "/get-agent/" + agent_id)
         number = self.request("GET", "/get-phone-number/" + quote(phone(c["from_number"]), safe=""))
@@ -353,14 +405,31 @@ class CommunicationsClient:
             agent_id = identifier(c["agent_id"])
             if not agent_id.isdigit():
                 raise ValueError("CloudTalk agent ID must be numeric.")
-            self.request(
+            response = self.request(
                 "POST",
                 "/api/calls/create.json",
                 payload={"agent_id": int(agent_id), "callee_number": target},
             )
-            # CloudTalk accepts the request but does not return a call ID. The
-            # durable local request receipt prevents retrying this POST.
-            return None, "requested"
+            response_data = response.get("responseData") if isinstance(response, dict) else None
+            if not isinstance(response_data, dict):
+                raise ValueError("CloudTalk returned an invalid call request receipt.")
+            provider_status = response_data.get("status")
+            if not isinstance(provider_status, int) or isinstance(provider_status, bool):
+                raise ValueError("CloudTalk returned an invalid call request status.")
+            if isinstance(provider_status, int) and not 200 <= provider_status < 300:
+                raise self._cloudtalk_call_error(provider_status)
+            # The documented endpoint returns responseData.status, not a call ID.
+            # Save a provider ID if one is supplied; otherwise the durable local
+            # request UUID is the receipt and prevents a duplicate submission.
+            result = next(
+                (
+                    str(response_data[key])
+                    for key in ("call_id", "id", "request_id", "uuid")
+                    if response_data.get(key) is not None
+                ),
+                None,
+            )
+            return result, "requested"
         elif p == "vapi":
             data = self.request(
                 "POST",
@@ -421,13 +490,28 @@ class CommunicationsClient:
             )
         elif p == "cloudtalk":
             digits = re.sub(r"\D", "", target)
-            result = self.request(
-                "GET",
-                "/api/calls/index.json",
-                params={"public_external": digits, "limit": 25, "page": 1},
-            )
-            response_data = result.get("responseData", {})
-            items = response_data.get("data", []) if isinstance(response_data, dict) else []
+            items = []
+            page, limit = 1, 1000
+            while page <= MAX_CLOUDTALK_PAGES:
+                response_data = self._cloudtalk_collection(
+                    "/api/calls/index.json",
+                    {"public_external": digits, "limit": limit, "page": page},
+                )
+                page_items = response_data.get("data", [])
+                if not isinstance(page_items, list):
+                    raise ValueError("CloudTalk returned an invalid call-history page.")
+                items.extend(page_items)
+                page_count = response_data.get("pageCount")
+                if isinstance(page_count, int):
+                    if page >= page_count:
+                        break
+                    if page_count > MAX_CLOUDTALK_PAGES:
+                        raise ValueError("CloudTalk call history exceeds the supported page limit.")
+                elif len(page_items) < limit:
+                    break
+                page += 1
+            else:
+                raise ValueError("CloudTalk call history exceeds the supported page limit.")
         else:
             raise ValueError("This provider has no call history.")
         if not isinstance(items, list):
@@ -591,11 +675,13 @@ class CommunicationsClient:
             cdr = item.get("Cdr") or item.get("cdr") or item
             contact = item.get("Contact") or item.get("contact") or {}
             call_number = item.get("CallNumber") or item.get("call_number") or {}
+            contact_numbers = contact.get("contact_numbers", [])
             numbers = [
                 cdr.get("public_external"),
                 cdr.get("external_number"),
                 contact.get("phone"),
                 call_number.get("number"),
+                *(contact_numbers if isinstance(contact_numbers, list) else []),
             ]
             target_digits = re.sub(r"\D", "", target)
             if not any(
@@ -604,9 +690,18 @@ class CommunicationsClient:
             ):
                 return None
             call_id = cdr.get("id") or item.get("id")
-            status = cdr.get("status") or cdr.get("call_status") or "completed"
-            start = cdr.get("started_at") or cdr.get("start_time")
-            duration = cdr.get("talking_time") or cdr.get("duration")
+            duration = cdr.get("talking_time")
+            if duration is None:
+                duration = cdr.get("duration", cdr.get("billsec"))
+            status = cdr.get("status") or cdr.get("call_status")
+            if not status:
+                try:
+                    status = (
+                        "completed" if duration is not None and int(duration) > 0 else "unknown"
+                    )
+                except (TypeError, ValueError):
+                    status = "unknown"
+            start = cdr.get("started_at") or cdr.get("start_time") or cdr.get("date")
             transcript, recording = None, cdr.get("recording_link")
             if not call_id:
                 return None
