@@ -26,6 +26,7 @@ from lead_agent.domain.crm_inbound import (
     InboundCursor,
     InboundSyncMode,
 )
+from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationDelivery, NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -259,6 +260,14 @@ def test_gmail_initial_sync_is_bounded_to_recent_query_and_has_checkpoint() -> N
     assert page.checkpoint == {"history_id": "500"}
     assert "newer_than%3A30d" in requests[-1]
     assert "maxResults=25" in requests[-1]
+    review_page = provider.list_records(
+        object_type="message",
+        cursor={"history_id": "100", "initial": False, "review_recent": True},
+        limit=25,
+    )
+    assert [item.record_id for item in review_page.records] == ["m1"]
+    assert requests[-1].split("?", 1)[0].endswith("/messages")
+    assert "newer_than%3A30d" in requests[-1]
 
 
 def test_gmail_contact_thread_search_and_sync_includes_both_directions() -> None:
@@ -496,12 +505,146 @@ def test_gmail_forwarded_lead_keeps_forwarded_contact_identity_and_provenance() 
     assert "Forwarded message from" in canonical.normalized_payload["message"]
 
 
+def test_gmail_ai_recovers_candidate_without_deterministic_inquiry_signal() -> None:
+    body = "We are looking for event support for Acme Group."
+    headers = {
+        "from": "Mira Example <mira@client.example>",
+        "subject": "Question",
+    }
+    assert candidate_reason(headers, body, "inbox@example.test") == "no_inquiry_signal"
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="The sender is actively seeking a service.",
+        inquiry_evidence="We are looking for event support",
+        full_name="Mira Example",
+        email="mira@client.example",
+        company_name="Acme Group",
+        requested_service="event support",
+        evidence=[
+            GmailEvidence(field="full_name", source="from_header", excerpt="Mira Example"),
+            GmailEvidence(field="email", source="from_header", excerpt="mira@client.example"),
+            GmailEvidence(field="company_name", source="body", excerpt="Acme Group"),
+            GmailEvidence(field="requested_service", source="body", excerpt="event support"),
+        ],
+    )
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test",
+        lead_extractor=lambda **_kwargs: extraction,
+    )
+    canonical = provider.normalize_record(ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="ai-positive",
+        values={"thread_id": "thread-ai", "headers": headers, "body": body},
+        modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+    ))
+    assert canonical.normalized_payload["full_name"] == "Mira Example"
+    assert canonical.normalized_payload["company_name"] == "Acme Group"
+    assert canonical.normalized_payload["product_or_service"] == "event support"
+    assert canonical.provider_metadata["gmail_ai_method"] == "openai"
+
+
+def test_gmail_ai_negative_excludes_message_even_if_heuristic_candidate() -> None:
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test",
+        lead_extractor=lambda **_kwargs: GmailLeadExtraction(
+            is_genuine_inquiry=False, reason="Automated update, no buying intent."
+        ),
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="ai-negative",
+        values={
+            "headers": {"from": "Mira <mira@client.example>", "subject": "Pricing request"},
+            "body": "Please send pricing for our project.",
+        },
+    )
+    with pytest.raises(ValueError, match="ai_classified_not_a_genuine_inquiry"):
+        provider.normalize_record(record)
+    assert record.values["gmail_ai_method"] == "openai"
+
+
+def test_gmail_openai_failure_falls_back_and_records_reason() -> None:
+    def fail(**_kwargs):
+        raise RuntimeError("provider unavailable")
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test", lead_extractor=fail
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="ai-fallback",
+        values={
+            "headers": {
+                "from": "Mira <mira@client.example>",
+                "subject": "Pricing request",
+            },
+            "body": "Could you send pricing for our project?",
+        },
+        modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    canonical = provider.normalize_record(record)
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.provider_metadata["gmail_ai_method"] == "deterministic"
+    assert canonical.provider_metadata["gmail_ai_fallback_reason"] == (
+        "openai_extraction_failed:RuntimeError"
+    )
+
+
+def test_gmail_ai_uses_forwarded_message_identity_and_content() -> None:
+    body = (
+        "Please follow up.\n\n---------- Forwarded message ---------\n"
+        "From: Mira Example <mira@client.example>\n"
+        "Subject: Question\n\nWe are looking for event support for Acme Group."
+    )
+    observed: list[str] = []
+
+    def extract(*, headers, subject, body):
+        observed.append(body)
+        return GmailLeadExtraction(
+            is_genuine_inquiry=True,
+            reason="The forwarded sender requested a service.",
+            inquiry_evidence="We are looking for event support",
+            full_name="Mira Example",
+            email="mira@client.example",
+            company_name="Acme Group",
+            requested_service="event support",
+            evidence=[
+                GmailEvidence(field="full_name", source="from_header", excerpt="Mira Example"),
+                GmailEvidence(field="email", source="from_header", excerpt="mira@client.example"),
+                GmailEvidence(field="company_name", source="body", excerpt="Acme Group"),
+                GmailEvidence(field="requested_service", source="body", excerpt="event support"),
+            ],
+        )
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test", lead_extractor=extract
+    )
+    canonical = provider.normalize_record(ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="forwarded-ai",
+        values={
+            "thread_id": "thread-forwarded",
+            "headers": {"from": "Rep <rep@agency.example>", "subject": "Fwd: lead"},
+            "body": body,
+        },
+        modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+    ))
+    assert observed == ["We are looking for event support for Acme Group."]
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.provider_metadata["forwarded_lead"] is True
+
+
 class _CanonicalGmailProvider:
     provider_name = "gmail"
 
     def __init__(self, connection_id: UUID, messages: list[ExternalCrmRecord]) -> None:
         self.connection_id = connection_id
         self.messages = messages
+        self.normalize_count = 0
 
     def list_records(
         self, *, object_type: str, cursor: InboundCursor | None, limit: int
@@ -517,6 +660,7 @@ class _CanonicalGmailProvider:
         return next(message for message in self.messages if message.record_id == record_id)
 
     def normalize_record(self, record: ExternalCrmRecord) -> CanonicalInboundLead:
+        self.normalize_count += 1
         values = record.values
         content = str(values["body"])
         payload = {
@@ -692,6 +836,17 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         assert confirmation_calls == []
         assert len(delivery_correlations) == 2
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
+        review_provider = _CanonicalGmailProvider(
+            connection.id,
+            [
+                message("m1", "We need a demo for our team."),
+                message("m2", "Please schedule a demo next week for our team."),
+            ],
+        )
+        review = run(review_provider, "review_recent")
+        assert review.records_fetched == 2
+        assert review.records_unchanged == 2
+        assert review_provider.normalize_count == 0
         assert (
             session.scalar(select(func.count()).select_from(models.RoutingDecisionORM))
             == first_decisions + 1

@@ -18,6 +18,7 @@ from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
     get_workspace_connection_resolver,
 )
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.secrets import get_secret_store
 from lead_agent.settings.config import Settings, get_settings
 
@@ -78,11 +79,29 @@ class WorkspaceInboundCrmProviderResolver:
                     category="configuration",
                     retryable=False,
                 )
+            extractor = None
+            fallback_reason = "verified_workspace_openai_unavailable"
+            try:
+                workspace_reasoning = resolve_workspace_reasoning_provider(
+                    session,
+                    workspace_id,
+                    settings=self.settings,
+                    secret_store=self.secret_store,
+                )
+                if getattr(workspace_reasoning, "provider_name", "") == "openai":
+                    extractor = getattr(workspace_reasoning, "extract_gmail_lead", None)
+                    fallback_reason = (
+                        "" if callable(extractor) else "workspace_openai_extractor_unavailable"
+                    )
+            except Exception:
+                fallback_reason = "workspace_openai_resolution_failed"
             return GmailInboundProvider(
                 connection_id=resolved.connection_id,
                 access_token=resolved.credentials.get("access_token", ""),
                 mailbox_email=mailbox,
                 timeout_seconds=self.settings.crm_timeout_seconds,
+                lead_extractor=extractor,
+                ai_fallback_reason=fallback_reason or "workspace_openai_extractor_unavailable",
             )
         if resolved.provider == "outlook":
             connection = session.get(ProviderConnectionORM, resolved.connection_id)

@@ -607,7 +607,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     } finally { setBusy(null); setBusyAction(null); runningProvider.current = null; }
   }
 
-  async function syncInbound(connectionId: string, provider: string, mode: "initial" | "manual") {
+  async function syncInbound(
+    connectionId: string,
+    provider: string,
+    mode: "initial" | "manual" | "review_recent",
+  ) {
     setBusy(provider);
     setSyncingProvider(provider);
     setNotice(null);
@@ -617,11 +621,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }));
     try {
       const result = await runInboundSync(connectionId, mode, provider);
-      const summary = `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
+      const summary = mode === "review_recent"
+        ? `Review complete: ${result.records_fetched} scanned, ${result.records_created + result.records_updated} classified as leads, ${result.records_skipped} skipped, ${result.records_unchanged} duplicates, ${result.records_failed} failures.`
+        : `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
       setSyncFeedback((current) => ({
         ...current,
         [connectionId]: {
-          kind: result.status === "completed" ? "success" : "error",
+          kind: result.status.startsWith("completed") ? "success" : "error",
           message: summary,
         },
       }));
@@ -993,7 +999,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
           {(canInboundSync || canManage) && <div className="card-actions">
             {canManage && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${mailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (mailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (mailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
-            {syncState?.enabled && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
+            {syncState?.enabled && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : card.provider === "gmail" ? "Sync Gmail" : "Sync now"}</button>}
+            {syncState?.enabled && card.provider === "gmail" && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Reviewing…" : "Review missed Gmail messages with AI"}</button>}
             {syncFeedback[connection.id] && <div className={`notice integration-sync-feedback sync-feedback-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">{syncFeedback[connection.id].message}</div>}
           </div>}
         </div>}

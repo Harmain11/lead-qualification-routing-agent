@@ -682,7 +682,7 @@ export type CrmInboundSyncState = {
 export type CrmInboundSyncRun = {
   id: string;
   status: string;
-  mode: "initial" | "incremental" | "manual";
+  mode: "initial" | "incremental" | "manual" | "review_recent";
   records_fetched: number;
   records_created: number;
   records_updated: number;

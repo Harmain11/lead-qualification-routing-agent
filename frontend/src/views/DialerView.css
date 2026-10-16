@@ -28,6 +28,14 @@
 .dialer-empty { margin:20px 0 2px; color:var(--muted); }
 .dialer-record-list { display:flex; flex-direction:column; gap:10px; }.dialer-record { padding:15px; border:1px solid var(--line); border-radius:11px; background:var(--surface-high); }
 .dialer-record-head { display:flex; justify-content:space-between; gap:14px; }.dialer-record-head strong { display:block; }.dialer-record-head span { display:block; margin-top:3px; color:var(--muted); font-size:13px; }.dialer-record-head b { color:var(--workspace-accent,var(--orange)); font-size:12px; text-transform:capitalize; }
+.dialer-linked-lead { color:var(--workspace-accent,var(--orange)) !important; font-size:13px; font-weight:700; }
+.dialer-lead-assessment { display:flex; flex-direction:column; gap:3px; margin-top:14px; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
+.dialer-lead-assessment strong { font-size:13px; }.dialer-lead-assessment span { color:var(--muted); font-size:13px; line-height:1.45; }
+.dialer-add-lead { margin-top:12px; }.dialer-add-lead form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; max-width:720px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.dialer-add-lead form > strong,.dialer-add-lead form > label:nth-of-type(5),.dialer-add-lead form > .team-alert { grid-column:1 / -1; }
+.dialer-add-lead label { display:grid; gap:5px; color:var(--muted); font-size:13px; font-weight:700; }
+.dialer-add-lead input,.dialer-add-lead textarea { width:100%; min-width:0; border:1px solid var(--line-bright); border-radius:7px; padding:9px 10px; color:var(--text); background:var(--surface-high); font:inherit; }
+.dialer-add-lead form button { justify-self:start; }
 .dialer-record p { margin:12px 0 8px; color:var(--muted); }.dialer-record a { color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record details { margin-top:12px; }.dialer-record summary { cursor:pointer; color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record pre { max-height:260px; margin:10px 0 0; overflow:auto; padding:12px; border-radius:8px; background:var(--surface); color:var(--text); font:13px/1.55 ui-monospace,monospace; white-space:pre-wrap; }
 .dialer-analysis-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }.dialer-analysis-row span { padding:5px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:12px; }.dialer-analysis-row .dialer-analysis-good { color:var(--workspace-accent,var(--orange)); border-color:color-mix(in srgb,var(--workspace-accent,var(--orange)) 35%,var(--line)); }
 .call-insights { display:grid; gap:14px; margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }

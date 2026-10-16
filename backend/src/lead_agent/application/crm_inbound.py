@@ -404,6 +404,9 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "sender_email",
         "original_sender_email",
         "forwarded_lead",
+        "gmail_ai_method",
+        "gmail_ai_fallback_reason",
+        "gmail_ai_reason",
         "location_id",
         "dnd",
         "dnd_call",
@@ -794,12 +797,16 @@ def _process_record(
                 "message_id": canonical.provider_record_id,
                 "thread_id": canonical.provider_metadata.get("gmail_thread_id"),
                 "lead_id": str(lead.id),
+                "ai_method": canonical.provider_metadata.get("gmail_ai_method"),
+                "ai_fallback_reason": canonical.provider_metadata.get("gmail_ai_fallback_reason"),
             },
         )
     return outcome
 
 
 def _start_cursor(state: CrmInboundSyncStateORM, mode: InboundSyncMode) -> InboundCursor | None:
+    if mode == "review_recent":
+        return {"initial": True, "review_recent": True}
     if state.resume_cursor:
         return dict(state.resume_cursor)
     if mode in {"incremental", "manual"}:
@@ -996,6 +1003,19 @@ def run_inbound_sync(
             session.commit()
             for record in page.records:
                 try:
+                    if mode == "review_recent" and connection.provider_type == "gmail":
+                        existing_link = session.scalar(
+                            select(CrmProviderRecordLinkORM.id).where(
+                                CrmProviderRecordLinkORM.connection_id == connection.id,
+                                CrmProviderRecordLinkORM.provider == "gmail",
+                                CrmProviderRecordLinkORM.object_type == object_type,
+                                CrmProviderRecordLinkORM.provider_record_id == record.record_id,
+                            )
+                        )
+                        if existing_link is not None:
+                            run.records_unchanged += 1
+                            session.commit()
+                            continue
                     canonical = provider.normalize_record(record)
                     outcome = _process_record(
                         session,
@@ -1034,6 +1054,9 @@ def run_inbound_sync(
                             details={
                                 "message_id": record.record_id,
                                 "reason": str(error)[:128],
+                                "ai_fallback_reason": str(
+                                    record.values.get("gmail_ai_fallback_reason") or ""
+                                )[:128],
                             },
                         )
                     session.commit()
@@ -1056,7 +1079,8 @@ def run_inbound_sync(
             run.checkpoint = final_checkpoint
             state = session.get(CrmInboundSyncStateORM, state.id) or state
             _renew_sync_lease(session, state.id, str(run.id), datetime.now(UTC))
-            state.resume_cursor = cursor
+            if mode != "review_recent":
+                state.resume_cursor = cursor
             state.records_processed += len(page.records)
             state.updated_at = datetime.now(UTC)
             record_provider_lifecycle_audit(
@@ -1092,12 +1116,14 @@ def run_inbound_sync(
         state.status = "ready"
         state.lease_owner = None
         state.lease_expires_at = None
-        state.last_successful_cursor = final_checkpoint
-        state.resume_cursor = cursor if bounded else None
-        state.last_successful_sync_at = now
+        if mode != "review_recent":
+            state.last_successful_cursor = final_checkpoint
+            state.resume_cursor = cursor if bounded else None
+            state.last_successful_sync_at = now
         if mode == "initial" and not bounded:
             state.initial_import_completed = True
-        state.next_sync_at = now + timedelta(seconds=state.sync_interval_seconds)
+        if mode != "review_recent":
+            state.next_sync_at = now + timedelta(seconds=state.sync_interval_seconds)
         state.error_category = None
         state.error_code = None
         state.last_error = None

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -101,6 +101,74 @@ def _target(lead: LeadORM) -> str:
         return phone(lead.phone or "")
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
+
+
+@router.get("/cloudtalk/recent")
+def recent_cloudtalk_calls(
+    page: int = Query(default=1, ge=1),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> Any:
+    connections = list(
+        session.scalars(
+            select(ProviderConnectionORM)
+            .where(
+                ProviderConnectionORM.workspace_id == workspace.workspace_id,
+                ProviderConnectionORM.provider_type == "cloudtalk",
+                ProviderConnectionORM.status == "verified",
+                ProviderConnectionORM.is_active.is_(True),
+            )
+            .order_by(ProviderConnectionORM.account_name)
+        )
+    )
+    if not connections:
+        return {"connections": [], "records": [], "page": page, "has_more": False}
+    connection = connections[0]
+    client = _client(session, workspace, connection, resolver)
+    try:
+        recent = client.recent_calls(None, page=page)
+    except (ProviderOperationError, ValueError) as error:
+        raise HTTPException(502, str(error)) from None
+
+    leads = list(
+        session.execute(
+            select(LeadORM.id, LeadORM.full_name, LeadORM.phone).where(
+                LeadORM.workspace_id == workspace.workspace_id,
+                LeadORM.phone.is_not(None),
+            )
+        )
+    )
+    by_phone = {
+        "".join(character for character in (phone_number or "") if character.isdigit()):
+        (str(lead_id), full_name)
+        for lead_id, full_name, phone_number in leads
+    }
+    records = []
+    for call in recent:
+        digits = "".join(character for character in call.customer_phone if character.isdigit())
+        lead = by_phone.get(digits)
+        record = call.model_dump(mode="json")
+        call_created_at = (
+            call.started_at.isoformat() if call.started_at else datetime.now(UTC).isoformat()
+        )
+        record.update(
+            id=call.external_id,
+            provider="cloudtalk",
+            created_at=call_created_at,
+            message=None,
+            lead_id=lead[0] if lead else None,
+            lead_name=lead[1] if lead else None,
+        )
+        records.append(record)
+    return {
+        "connections": [
+            {"id": connection.id, "provider": "cloudtalk", "account_name": connection.account_name}
+        ],
+        "records": records,
+        "page": page,
+        "has_more": len(recent) == 100,
+    }
 
 
 @router.get("/leads/{lead_id}")
