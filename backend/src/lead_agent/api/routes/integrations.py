@@ -568,7 +568,14 @@ def list_integrations(
     connections = list_provider_connections(session, workspace.workspace_id)
     latest: dict[str, Any] = {}
     for row in connections:
-        latest.setdefault(row.provider_type, row)
+        current = latest.get(row.provider_type)
+        if current is None or (
+            row.is_active and row.status == "verified"
+            and not (current.is_active and current.status == "verified")
+        ) or (
+            row.is_active and not current.is_active
+        ):
+            latest[row.provider_type] = row
     return [
         IntegrationCardResponse(
             **setup.model_dump(),

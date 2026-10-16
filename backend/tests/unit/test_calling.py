@@ -15,7 +15,7 @@ from lead_agent.api.routes import calling
 from lead_agent.api.routes import integrations as integration_routes
 from lead_agent.application.integrations import _validate_manual_credentials
 from lead_agent.application.services import process_lead
-from lead_agent.domain.provider_errors import provider_timeout_error
+from lead_agent.domain.provider_errors import ProviderOperationError, provider_timeout_error
 from lead_agent.domain.rbac import role_permissions
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.communications import (
@@ -158,6 +158,8 @@ def test_explicit_call_payload_and_provider_auth(provider):
             return httpx.Response(200, json={"access_token": "token"})
         if provider == "aircall":
             return httpx.Response(204)
+        if provider == "cloudtalk":
+            return httpx.Response(200, json={"responseData": {"status": 200}})
         return httpx.Response(201, json={"sid": "CA123", "id": "call123", "call_id": "call123"})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as http:
@@ -184,6 +186,33 @@ def test_explicit_call_payload_and_provider_auth(provider):
         assert request.url.host == "my.cloudtalk.io"
         assert request.url.path == "/api/calls/create.json"
         assert request.content == b'{"agent_id":7,"callee_number":"+14155550111"}'
+        assert result is None
+
+
+def test_cloudtalk_call_creation_maps_response_envelope_errors():
+    def transport(request):
+        return httpx.Response(
+            200, json={"responseData": {"status": 403, "message": "Agent is not online."}}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        adapter = CommunicationsClient("cloudtalk", CREDENTIALS["cloudtalk"], client=client)
+        with pytest.raises(ProviderOperationError, match="offline"):
+            adapter.start_call(TARGET, REP, "stable-request-id")
+
+
+def test_cloudtalk_call_creation_keeps_provider_request_id_if_returned():
+    def transport(request):
+        return httpx.Response(
+            200, json={"responseData": {"status": 200, "request_id": "provider-request-123"}}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        result, status = CommunicationsClient(
+            "cloudtalk", CREDENTIALS["cloudtalk"], client=client
+        ).start_call(TARGET, REP, "corral-request-id")
+    assert result == "provider-request-123"
+    assert status == "requested"
 
 
 def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio():
@@ -379,6 +408,62 @@ def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
         if "transcription" in request.url.path
     ]
     assert transcript_offsets == ["0", "1000"]
+
+
+def test_cloudtalk_history_paginates_and_matches_lead_numbers():
+    requests = []
+
+    def transport(request):
+        requests.append(request)
+        if request.url.host == "api.cloudtalk.io":
+            return httpx.Response(404, json={"statusCode": 404, "message": "No CI data"})
+        page = int(request.url.params["page"])
+        rows = (
+            [{
+                "Cdr": {
+                    "id": "100",
+                    "public_external": "+1 (415) 555-0111",
+                    "type": "outgoing",
+                    "started_at": "2026-10-15T12:00:00Z",
+                    "talking_time": "0",
+                    "recording_link": "https://my.cloudtalk.io/calls/100",
+                }
+            }]
+            if page == 1
+            else [
+                {
+                    "Cdr": {
+                        "id": "101",
+                        "public_external": "14155550111",
+                        "type": "incoming",
+                        "started_at": "2026-10-16T12:00:00Z",
+                        "talking_time": "41",
+                    },
+                    "Contact": {"contact_numbers": ["+14155550111"]},
+                },
+                {"Cdr": {"id": "102", "public_external": "14155550999"}},
+            ]
+        )
+        return httpx.Response(200, json={
+            "responseData": {"pageNumber": page, "pageCount": 2, "limit": 1000, "data": rows}
+        })
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        records = CommunicationsClient(
+            "cloudtalk", CREDENTIALS["cloudtalk"], client=client
+        ).recent_calls(TARGET)
+
+    assert [record.external_id for record in records] == ["100", "101"]
+    assert records[0].status == "unknown"
+    assert records[0].recording_url == "https://my.cloudtalk.io/calls/100"
+    assert records[1].status == "completed"
+    assert records[1].duration_seconds == 41
+    history_requests = [request for request in requests if request.url.host == "my.cloudtalk.io"]
+    assert [request.url.params["page"] for request in history_requests] == ["1", "2"]
+    assert all(
+        request.url.params["public_external"] == "14155550111"
+        for request in history_requests
+    )
 
 
 def test_cloudtalk_agent_picker_can_load_agents_before_an_id_is_selected():

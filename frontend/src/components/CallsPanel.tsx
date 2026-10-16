@@ -39,9 +39,9 @@ export function CallsPanel({ leadId, leadPhone, canCall, canEdit }: { leadId: st
       const result = await opsSave<CallRecord>(`/v1/calling/leads/${leadId}/start`, { connection_id: connectionId, request_id: id, confirmed: true, rep_phone: repPhone || null });
       setNotice(result.message || "Call request recorded.");
       setConfirmed(false);
-      // A completed receipt permits a new explicitly confirmed request. Unknown
-      // network outcomes keep their ID so a retry cannot call the lead twice.
-      setRequestId("");
+      // Keep the same id for an unresolved submission; this button then reads
+      // the durable receipt rather than creating a second provider call.
+      if (!["submitting", "uncertain"].includes(result.status)) setRequestId("");
       await refresh();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Call request could not be confirmed. Check your provider before placing another call."); }
     finally { setBusy(false); }
@@ -61,7 +61,7 @@ export function CallsPanel({ leadId, leadPhone, canCall, canEdit }: { leadId: st
     {error && <p className="notice" role="alert">{error}</p>}
     {notice && <p className="notice" role="status">{notice}</p>}
     {!data && !error && <p role="status">Loading call activity…</p>}
-    {data && data.connections.length === 0 && <div className="ops-empty"><strong>No calling provider connected</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi or Retell AI in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
+     {data && data.connections.length === 0 && <div className="ops-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
     {data && data.connections.length > 0 && <>
       {!data.outreach_allowed && <p className="notice" role="status">{data.outreach_reason}</p>}
       <form onSubmit={(event) => void start(event)} className="calls-form">
@@ -74,7 +74,7 @@ export function CallsPanel({ leadId, leadPhone, canCall, canEdit }: { leadId: st
         {!canCall && <p>Your workspace role can view call history. Calling requires lead editing and agent action permissions.</p>}
       </form>
     </>}
-     {data && <div className="calls-history"><h4>Recent activity</h4>{data.records.length ? data.records.map((call) => <article className="call-record" key={call.id}><div className="ops-toolbar"><div><strong>{providerNames[call.provider] || call.provider}</strong><p>{new Date(call.started_at || call.created_at).toLocaleString()} · {call.direction.replaceAll("_", " ")}{call.duration_seconds !== null ? ` · ${call.duration_seconds}s` : ""}</p></div><span className="call-status">{call.status.replaceAll("_", " ")}</span></div>{call.message && <p>{call.message}</p>}{call.provider === "cloudtalk" && <CallInsights insights={call.insights ?? null} />}{call.recording_url && <a href={call.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording ↗</a>}{call.transcript && <details><summary>View transcript</summary><pre>{call.transcript}</pre></details>}{!call.transcript && !call.recording_url && <small>Transcripts and recordings appear only when provided by the connected service.</small>}</article>) : <p className="ops-empty">No call activity recorded for this lead.</p>}</div>}
+     {data && <div className="calls-history"><h4>Recent activity</h4>{data.records.length ? data.records.map((call) => <article className="call-record" key={call.id}><div className="ops-toolbar"><div><strong>{providerNames[call.provider] || call.provider}</strong><p>{new Date(call.started_at || call.created_at).toLocaleString()} · {call.direction.replaceAll("_", " ")}{call.duration_seconds !== null ? ` · ${call.duration_seconds}s` : ""}</p></div><span className="call-status">{call.status.replaceAll("_", " ")}</span></div>{call.message && <p>{call.message}</p>}{call.provider === "cloudtalk" && <CallInsights insights={call.insights ?? null} />}{call.recording_url && <a href={call.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{call.transcript && <details><summary>View transcript</summary><pre>{call.transcript}</pre></details>}{!call.transcript && call.provider === "cloudtalk" && <small>CloudTalk did not provide a transcript for this call.{call.recording_url ? " Use the call details link above." : " No recording or call details link is available."}</small>}{!call.transcript && !call.recording_url && call.provider !== "cloudtalk" && <small>Transcripts and recordings appear only when provided by the connected service.</small>}</article>) : <p className="ops-empty">No call activity recorded for this lead. Use Sync recent calls to import matching provider history.</p>}</div>}
     <small>History sync reads recent provider calls that match this lead number. Calls always require confirmation and pass consent checks.</small>
   </section>;
 }
