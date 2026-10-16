@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node ./node_modules/vite/bin/vite.js --configLoader runner",
     "build": "node ./node_modules/typescript/bin/tsc -p ./tsconfig.app.json --noEmit && node ./node_modules/vite/bin/vite.js build --configLoader runner",
-    "typecheck": "node ./node_modules/typescript/bin/tsc -p ./tsconfig.app.json --noEmit"
+    "typecheck": "node ./node_modules/typescript/bin/tsc -p ./tsconfig.app.json --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "@types/react": "19.1.10",
