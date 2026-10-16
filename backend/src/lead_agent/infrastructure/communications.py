@@ -464,7 +464,13 @@ class CommunicationsClient:
             )
         return str(result)[:255], "queued"
 
-    def recent_calls(self, target: str | None, *, page: int = 1) -> list[CallSnapshot]:
+    def recent_calls(
+        self,
+        target: str | None,
+        *,
+        page: int = 1,
+        details_for_call_id: str | None = None,
+    ) -> list[CallSnapshot]:
         if target is None and self.provider != "cloudtalk":
             raise ValueError("Workspace-wide call history is only available for CloudTalk.")
         if page < 1:
@@ -535,7 +541,22 @@ class CommunicationsClient:
             if not isinstance(item, dict):
                 continue
             try:
-                call = self.normalize_call(item, target)
+                call_id = str(
+                    (item.get("Cdr") or item.get("cdr") or item).get("id", "")
+                ) if self.provider == "cloudtalk" else ""
+                call = self.normalize_call(
+                    item,
+                    target,
+                    include_cloudtalk_details=(
+                        self.provider != "cloudtalk"
+                        or call_id == details_for_call_id
+                        or (
+                            target is not None
+                            and details_for_call_id is None
+                            and not result
+                        )
+                    ),
+                )
             except (ValueError, TypeError, KeyError, AttributeError):
                 continue
             if call:
@@ -638,7 +659,13 @@ class CommunicationsClient:
             "talk_listen_ratio": talk_listen_ratio,
         }
 
-    def normalize_call(self, item: dict[str, Any], target: str | None) -> CallSnapshot | None:
+    def normalize_call(
+        self,
+        item: dict[str, Any],
+        target: str | None,
+        *,
+        include_cloudtalk_details: bool = True,
+    ) -> CallSnapshot | None:
         p = self.provider
         insights = None
         if p == "twilio":
@@ -730,63 +757,63 @@ class CommunicationsClient:
                 call_id = identifier(str(call_id))
             except ValueError:
                 return None
-            ci_path = f"/v1/ai/calls/{quote(str(call_id), safe='')}"
-            try:
-                chunks: list[str] = []
-                offset, total = 0, 0
-                while offset < total or offset == 0:
-                    transcription = self.request(
-                        "GET",
-                        ci_path + "/transcription",
-                        params={"limit": 1000, "offset": offset},
-                        base_url="https://api.cloudtalk.io",
-                    )
-                    transcript_data = transcription.get("data", {})
-                    segments = (
-                        transcript_data.get("segments", [])
-                        if isinstance(transcript_data, dict)
-                        else []
-                    )
-                    chunks.extend(
-                        str(segment.get("text", "")).strip()
-                        for segment in segments
-                        if isinstance(segment, dict) and segment.get("text")
-                    )
-                    pagination = transcription.get("pagination", {})
-                    total = int(pagination.get("total", len(segments))) if isinstance(
-                        pagination, dict
-                    ) else len(segments)
-                    if not segments or offset + 1000 >= total:
-                        break
-                    offset += 1000
-                transcript = " ".join(chunks)[:100000] or None
-            except ProviderOperationError as error:
-                # Missing CI data is normal for calls without transcription;
-                # authentication and service failures must still surface.
-                if error.category not in {
-                    "not_found",
-                    "invalid_request",
-                    "insufficient_permissions",
-                }:
-                    raise
-            except (ValueError, TypeError, AttributeError):
-                transcript = None
-            insights = self._cloudtalk_insights(ci_path)
-            if not recording:
+            if include_cloudtalk_details:
+                ci_path = f"/v1/ai/calls/{quote(str(call_id), safe='')}"
                 try:
-                    details = self.request(
-                        "GET",
-                        ci_path + "/details-link",
-                        base_url="https://api.cloudtalk.io",
-                    )
-                    recording = details.get("link")
+                    chunks: list[str] = []
+                    offset, total = 0, 0
+                    while offset < total or offset == 0:
+                        transcription = self.request(
+                            "GET",
+                            ci_path + "/transcription",
+                            params={"limit": 1000, "offset": offset},
+                            base_url="https://api.cloudtalk.io",
+                        )
+                        transcript_data = transcription.get("data", {})
+                        segments = (
+                            transcript_data.get("segments", [])
+                            if isinstance(transcript_data, dict)
+                            else []
+                        )
+                        chunks.extend(
+                            str(segment.get("text", "")).strip()
+                            for segment in segments
+                            if isinstance(segment, dict) and segment.get("text")
+                        )
+                        pagination = transcription.get("pagination", {})
+                        total = int(pagination.get("total", len(segments))) if isinstance(
+                            pagination, dict
+                        ) else len(segments)
+                        if not segments or offset + 1000 >= total:
+                            break
+                        offset += 1000
+                    transcript = " ".join(chunks)[:100000] or None
                 except ProviderOperationError as error:
+                    # Calls without CI data are normal; service failures still surface.
                     if error.category not in {
                         "not_found",
                         "invalid_request",
                         "insufficient_permissions",
                     }:
                         raise
+                except (ValueError, TypeError, AttributeError):
+                    transcript = None
+                insights = self._cloudtalk_insights(ci_path)
+                if not recording:
+                    try:
+                        details = self.request(
+                            "GET",
+                            ci_path + "/details-link",
+                            base_url="https://api.cloudtalk.io",
+                        )
+                        recording = details.get("link")
+                    except ProviderOperationError as error:
+                        if error.category not in {
+                            "not_found",
+                            "invalid_request",
+                            "insufficient_permissions",
+                        }:
+                            raise
         else:
             numbers = [item.get("from_number"), item.get("to_number")]
             call_id, status, start = (
