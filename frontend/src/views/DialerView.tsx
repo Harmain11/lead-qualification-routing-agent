@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { createLead, listIntegrations } from "../api";
 import { opsGet } from "../operationsApi";
 import type { IntegrationCard, Lead, LeadPayload } from "../types";
-import { CallInsights, type CallInsightsData } from "../components/CallInsights";
+import { CallInsights, hasCallInsightData, type CallInsightsData } from "../components/CallInsights";
 import "./DialerView.css";
 
 type CallRecord = {
@@ -20,6 +20,8 @@ type CallRecord = {
   insights: CallInsightsData | null;
   lead_id: string | null;
   lead_name: string | null;
+  company_name: string | null;
+  representative_name: string | null;
   history_page?: number;
 };
 
@@ -57,7 +59,7 @@ function assessLeadPotential(record: CallRecord) {
   return { label: "Review manually", detail: "The available call content does not show a clear buying signal either way." };
 }
 
-export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpenIntegrations: () => void; selectedSection?: string }) {
+export function DialerView({ onOpenIntegrations, onOpenLead, selectedSection = "" }: { onOpenIntegrations: () => void; onOpenLead: (leadId: string) => void; selectedSection?: string }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activity, setActivity] = useState<CallActivity | null>(null);
   const [tab, setTab] = useState<"overview" | "history" | "analysis">("overview");
@@ -218,14 +220,25 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
             <div className="dialer-panel-head"><div><span className="eyebrow">CloudTalk activity</span><h2>{tab === "history" ? "Recent calls" : "Call analysis"}</h2></div>
               <button className="button-quiet" onClick={() => void refreshCalls()} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh calls"}</button>
             </div>
-            {!activity?.connections.length ? <p className="dialer-empty">Connect and verify a CloudTalk account to view its recent calls.</p> : !activity.records.length ? <p className="dialer-empty">No recent CloudTalk calls were returned for this account.</p> : <div className="dialer-record-list">
-              {activity.records.map((record) => <article className="dialer-record" key={record.id}>
-                <div className="dialer-record-head"><div><strong>{record.lead_name || record.customer_phone || providerLabel[record.provider] || record.provider}</strong><span>{new Date(record.started_at || record.created_at).toLocaleString()} · {record.direction.replaceAll("_", " ")}{record.duration_seconds !== null ? ` · ${record.duration_seconds}s` : ""}</span></div><b>{statusLabel(record.status)}</b></div>
-                {record.lead_id && <p className="dialer-linked-lead">Matched to existing lead: {record.lead_name}</p>}
-                {record.provider === "cloudtalk" && !loadedDetails[record.id] && <button className="button-quiet" onClick={() => void loadCloudTalkDetails(record)} disabled={loadingDetails !== null}>{loadingDetails === record.id ? "Loading analysis…" : "Load transcript & AI insights"}</button>}
-                {tab === "analysis" ? <><div className="dialer-analysis-row"><span className={record.transcript ? "dialer-analysis-good" : ""}>{record.transcript ? "Transcript ready" : "Transcript not loaded"}</span><span>{record.recording_url ? "Recording or call details available" : "No recording or call details link"}</span><span>{record.message || "Provider returned no additional message."}</span></div>{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}</> : <>{record.message && <p>{record.message}</p>}{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}{!record.transcript && !record.recording_url && <small>Load analysis to check for transcripts and call details.</small>}</>}
-                <div className="dialer-lead-assessment"><strong>{assessLeadPotential(record).label}</strong><span>{assessLeadPotential(record).detail}</span></div>
-                {!record.lead_id && <AddLeadForm record={record} onCreated={(lead: Lead) => {
+            {!activity?.connections.length ? <p className="dialer-empty">Connect and verify a CloudTalk account to view its recent calls.</p> : !activity.records.length ? <p className="dialer-empty">No recent CloudTalk calls were returned for this account.</p> : <div className="lead-table-wrap lead-browser call-table-wrap">
+              <table className="lead-table call-history-table">
+                <thead><tr><th>Lead / contact</th><th>Source</th><th>Duration</th><th>Status</th><th>Representative</th><th>Received</th><th>Actions</th></tr></thead>
+                <tbody>{activity.records.map((record) => {
+                const detailsLoaded = Boolean(loadedDetails[record.id]);
+                const hasInsights = hasCallInsightData(record.insights);
+                const hasTranscript = Boolean(record.transcript?.trim());
+                return <Fragment key={record.id}>
+                  <tr>
+                    <td className="lead-identity-cell" data-label="Lead / contact"><b>{record.lead_name || "Unknown contact"}</b><span>{record.company_name || record.customer_phone} · {statusLabel(record.direction)}</span></td>
+                    <td data-label="Source">{providerLabel[record.provider] || statusLabel(record.provider)}</td>
+                    <td data-label="Duration">{record.duration_seconds !== null ? `${record.duration_seconds}s` : "—"}</td>
+                    <td data-label="Status"><span className="call-status">{statusLabel(record.status)}</span></td>
+                    <td data-label="Representative">{record.representative_name || "Unassigned"}</td>
+                    <td data-label="Received">{new Date(record.started_at || record.created_at).toLocaleString()}</td>
+                    <td data-label="Actions"><div className="call-row-actions">
+                      {record.lead_id && <button className="button-quiet" onClick={() => onOpenLead(record.lead_id!)}>Open lead to call</button>}
+                      {!detailsLoaded && <button className="button-quiet" onClick={() => void loadCloudTalkDetails(record)} disabled={loadingDetails !== null}>{loadingDetails === record.id ? "Loading…" : "Load AI insights"}</button>}
+                      {!record.lead_id && <AddLeadForm record={record} onCreated={(lead: Lead) => {
                   setActivity((current) => current ? {
                     ...current,
                     records: current.records.map((item) => item.id === record.id
@@ -233,7 +246,20 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
                       : item),
                   } : current);
                 }} />}
-              </article>)}
+                    </div></td>
+                  </tr>
+                  {loadingDetails === record.id && <tr className="call-detail-row"><td colSpan={7}><p className="call-detail-note" role="status">Loading transcript and call insights…</p></td></tr>}
+                  {detailsLoaded && <tr className="call-detail-row"><td colSpan={7} className="call-detail-cell">
+                    {!hasTranscript && !hasInsights && <p className="call-detail-note">No transcript or AI findings are available for this call.</p>}
+                    {!hasTranscript && hasInsights && <p className="call-detail-note">No transcript is available; showing provider-generated insights.</p>}
+                    {hasInsights && <CallInsights insights={record.insights} />}
+                    {record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details</a>}
+                    {hasTranscript && <details className="dialer-transcript"><summary>View transcript</summary><pre>{record.transcript}</pre></details>}
+                    {(hasTranscript || hasInsights) && <div className="dialer-lead-assessment"><strong>{assessLeadPotential(record).label}</strong><span>{assessLeadPotential(record).detail}</span></div>}
+                  </td></tr>}
+                </Fragment>;
+              })}</tbody>
+              </table>
               {activity.has_more && <button className="button-quiet" onClick={() => void loadMoreCalls()} disabled={refreshing}>{refreshing ? "Loading…" : "Load older calls"}</button>}
             </div>}
           </section>}

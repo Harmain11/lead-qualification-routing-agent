@@ -61,6 +61,24 @@
 .lead-browser .lead-subpage-table th:last-child { width: 144px; }
 .lead-browser .lead-subpage-table td:last-child { text-align: right; }
 .lead-browser .lead-subpage-table td:last-child button { max-width: 100%; white-space: normal; }
+.call-history-table { min-width: 960px; }
+.call-history-table th:first-child { width: 23%; }
+.call-history-table th:nth-child(2) { width: 10%; }
+.call-history-table th:nth-child(3) { width: 9%; }
+.call-history-table th:nth-child(4) { width: 11%; }
+.call-history-table th:nth-child(5) { width: 15%; }
+.call-history-table th:nth-child(6) { width: 18%; }
+.call-history-table th:last-child { width: 14%; }
+.call-history-table td { vertical-align: middle; }
+.call-history-table td.lead-identity-cell b,
+.call-history-table td.lead-identity-cell span { display: block; }
+.call-history-table td.lead-identity-cell b { color: var(--text); font-size: 14px; font-weight: 650; line-height: 1.5; }
+.call-history-table td.lead-identity-cell span { margin-top: 3px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.call-history-table .call-status { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; line-height: 1.3; white-space: nowrap; }
+.call-row-actions { display: grid; justify-items: start; gap: 5px; }
+.call-row-actions button { min-height: 30px; padding: 4px 8px; font-size: 12px; }
+.call-detail-cell { padding: 14px 18px !important; background: var(--surface-high); }
+.call-detail-row td { grid-column: 1 / -1; }
 .contacts-page .contact-person strong { font-size: 14px; line-height: 1.5; word-break: normal; overflow-wrap: normal; }
 .team-performance-panel .performance-comparison-table th,
 .team-performance-panel .performance-comparison-table td { font-size: 13px; line-height: 1.5; }

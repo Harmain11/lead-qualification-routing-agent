@@ -352,7 +352,7 @@ def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio(
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         calls = CommunicationsClient("cloudtalk", CREDENTIALS["cloudtalk"], client=client)
-        records = calls.recent_calls(TARGET)
+        records = calls.recent_calls(TARGET, details_for_call_id="12345")
 
     assert len(records) == 1
     assert records[0].external_id == "12345"
@@ -456,7 +456,7 @@ def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         records = CommunicationsClient(
             "cloudtalk", CREDENTIALS["cloudtalk"], client=client
-        ).recent_calls(TARGET)
+        ).recent_calls(TARGET, details_for_call_id="12346")
 
     assert len(records) == 1
     assert records[0].transcript == "hello world"
@@ -525,7 +525,7 @@ def test_cloudtalk_history_paginates_and_matches_lead_numbers():
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
         records = CommunicationsClient(
             "cloudtalk", CREDENTIALS["cloudtalk"], client=client
-        ).recent_calls(TARGET)
+        ).recent_calls(TARGET, details_for_call_id="12346")
 
     assert [record.external_id for record in records] == ["100", "101"]
     assert records[0].status == "unknown"
@@ -898,7 +898,7 @@ def test_history_is_deduplicated_and_compliance_export_contains_calls(calls):
         },
         "talk_listen_ratio": [],
     }
-    adapter.recent_calls = lambda target: [
+    adapter.recent_calls = lambda target, **kwargs: [
         CallSnapshot(
             external_id="CA123",
             customer_phone=target,
@@ -917,8 +917,14 @@ def test_history_is_deduplicated_and_compliance_export_contains_calls(calls):
     assert client.post(url, json={"connection_id": str(connection.id)}).status_code == 200
     data = client.get(f"/v1/calling/leads/{lead.id}").json()
     assert len(data["records"]) == 1 and data["records"][0]["status"] == "completed"
-    assert data["records"][0]["transcript"] == "Lead requested a proposal."
-    assert data["records"][0]["insights"] == insights
+    assert data["records"][0]["transcript"] is None
+    assert data["records"][0]["insights"] is None
+    details = client.get(
+        f"/v1/calling/leads/{lead.id}/calls/{data['records'][0]['id']}/details"
+    )
+    assert details.status_code == 200
+    assert details.json()["transcript"] == "Lead requested a proposal."
+    assert details.json()["insights"] == insights
     export = client.get(f"/v1/ops/leads/{lead.id}/audit-export")
     assert export.status_code == 200, export.text
     assert export.json()["calls"][0]["transcript"] == "Lead requested a proposal."
