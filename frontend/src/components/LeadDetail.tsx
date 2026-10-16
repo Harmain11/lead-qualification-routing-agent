@@ -268,7 +268,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
         </section>
       </div>
       <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
-      <CallsPanel leadId={lead.id} leadPhone={lead.phone} canEdit={canEdit} canCall={canCall} />
+      <CallsPanel leadId={lead.id} leadName={lead.full_name} companyName={lead.company_name} representativeName={lead.routing?.assigned_rep_name} leadPhone={lead.phone} canEdit={canEdit} canCall={canCall} />
     </div>
     <div id="lead-panel-ai" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-ai" tabIndex={0} hidden={activeSection !== "ai"}>
       <LeadMomentumPanel lead={lead} />

@@ -1489,7 +1489,7 @@ function App() {
                 />
               )}
               {view === "dialer" && (
-                <DialerView selectedSection={pageSection} onOpenIntegrations={() => navigate("integrations", "calling")} />
+                <DialerView selectedSection={pageSection} onOpenIntegrations={() => navigate("integrations", "calling")} onOpenLead={handleInspectLead} />
               )}
               {view === "settings" && (
                 <SettingsView

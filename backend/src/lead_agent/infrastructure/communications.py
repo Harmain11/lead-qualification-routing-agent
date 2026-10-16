@@ -550,11 +550,6 @@ class CommunicationsClient:
                     include_cloudtalk_details=(
                         self.provider != "cloudtalk"
                         or call_id == details_for_call_id
-                        or (
-                            target is not None
-                            and details_for_call_id is None
-                            and not result
-                        )
                     ),
                 )
             except (ValueError, TypeError, KeyError, AttributeError):

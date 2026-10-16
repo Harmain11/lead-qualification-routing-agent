@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,7 +27,7 @@ from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.communications import DIALERS, CommunicationsClient, phone
 from lead_agent.infrastructure.db.calling import CallRecordORM
-from lead_agent.infrastructure.db.models import LeadORM, ProviderConnectionORM
+from lead_agent.infrastructure.db.models import LeadORM, ProviderConnectionORM, RoutingDecisionORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
@@ -136,16 +136,27 @@ def recent_cloudtalk_calls(
 
     leads = list(
         session.execute(
-            select(LeadORM.id, LeadORM.full_name, LeadORM.phone).where(
-                LeadORM.workspace_id == workspace.workspace_id,
-                LeadORM.phone.is_not(None),
+            select(
+                LeadORM.id,
+                LeadORM.full_name,
+                LeadORM.company_name,
+                LeadORM.phone,
+                RoutingDecisionORM.assigned_rep_name,
             )
+            .outerjoin(
+                RoutingDecisionORM,
+                and_(
+                    RoutingDecisionORM.lead_id == LeadORM.id,
+                    RoutingDecisionORM.is_current.is_(True),
+                ),
+            )
+            .where(LeadORM.workspace_id == workspace.workspace_id, LeadORM.phone.is_not(None))
         )
     )
     by_phone = {
         "".join(character for character in (phone_number or "") if character.isdigit()):
-        (str(lead_id), full_name)
-        for lead_id, full_name, phone_number in leads
+        (str(lead_id), full_name, company_name, representative)
+        for lead_id, full_name, company_name, phone_number, representative in leads
     }
     records = []
     for call in recent:
@@ -162,6 +173,8 @@ def recent_cloudtalk_calls(
             message=None,
             lead_id=lead[0] if lead else None,
             lead_name=lead[1] if lead else None,
+            company_name=lead[2] if lead else None,
+            representative_name=lead[3] if lead else None,
         )
         records.append(record)
     return {
@@ -242,15 +255,64 @@ def call_activity(
         )
     )
     allowed, reason = outreach_allowed(session, workspace.workspace_id, lead.email, "call")
+    public_records = []
+    for record in records:
+        item = CallRecord.model_validate(record).model_dump()
+        item.update(transcript=None, recording_url=None, insights=None)
+        public_records.append(item)
     return {
         "connections": [
             {"id": row.id, "provider": row.provider_type, "account_name": row.account_name}
             for row in connections
         ],
-        "records": [CallRecord.model_validate(row) for row in records],
+        "records": public_records,
         "outreach_allowed": allowed,
         "outreach_reason": reason,
     }
+
+
+@router.get("/leads/{lead_id}/calls/{call_id}/details")
+def call_activity_details(
+    lead_id: UUID,
+    call_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> Any:
+    lead = owned_lead(session, workspace.workspace_id, lead_id)
+    record = session.scalar(
+        select(CallRecordORM).where(
+            CallRecordORM.id == call_id,
+            CallRecordORM.workspace_id == workspace.workspace_id,
+            CallRecordORM.lead_id == lead_id,
+        )
+    )
+    if record is None:
+        raise HTTPException(404, "Call activity not found")
+    if record.provider == "cloudtalk" and record.external_id:
+        connection = _connection(session, workspace.workspace_id, record.connection_id)
+        client = _client(session, workspace, connection, resolver)
+        try:
+            snapshots = client.recent_calls(
+                _target(lead), details_for_call_id=record.external_id
+            )
+        except ProviderOperationError as error:
+            raise HTTPException(429 if error.status_code == 429 else 502, str(error)) from None
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise HTTPException(502, "Call details could not be loaded from CloudTalk.") from None
+        finally:
+            client.close()
+        snapshot = next(
+            (item for item in snapshots if item.external_id == record.external_id), None
+        )
+        if snapshot is None:
+            raise HTTPException(404, "CloudTalk call details were not found.")
+        record.transcript = snapshot.transcript
+        record.recording_url = snapshot.recording_url
+        record.insights = snapshot.insights
+        record.updated_at = datetime.now(UTC)
+        session.commit()
+    return CallRecord.model_validate(record)
 
 
 @router.post(

@@ -891,14 +891,22 @@ html[data-theme] .app-shell :is(.navigation-menu-trigger, .navigation-menu-discl
 .manual-credential > button { justify-self: start; align-self: end; }
 .calls-form, .calls-history { display: flex; flex-direction: column; gap: 16px; }
 .calls-form > button { align-self: start; }
-.call-record { border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.call-record { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: grid; gap: 12px; background: var(--surface); }
 .call-record p, .call-record h4 { margin: 0; }
 .call-status { padding: 6px 12px; border-radius: 8px; background: var(--surface-soft); color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.call-record-main { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.call-record-identity { display:grid; gap:4px; min-width:0; }
+.call-record-identity strong { font-size:15px; line-height:1.4; overflow-wrap:anywhere; }
+.call-record-identity span { color:var(--muted); font-size:13px; text-transform:capitalize; }
+.call-record-receipt { color:var(--muted); font-size:13px; line-height:1.5; }
+.call-record .call-insights { margin-top:0; }
 .call-record pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 15px; line-height: 1.6; max-height: 320px; overflow: auto; padding: 16px; background: var(--surface-soft); border-radius: 8px; }
 .call-record summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 15px; font-weight: 600; }
 @media (max-width: 560px) {
   .integration-guide .manual-credential { grid-template-columns: minmax(0, 1fr); }
-  .call-record { padding: 16px; }
+  .call-record { padding: 15px; }
+  .call-record-facts { grid-template-columns: 1fr; }
+  .call-record-main { align-items: flex-start; }
 }
 
 .integration-card .provider-details > p, .integration-card .integration-guide p {

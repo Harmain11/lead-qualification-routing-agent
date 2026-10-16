@@ -15,63 +15,48 @@ export type CallInsightsData = {
   talk_listen_ratio: Array<{ caller: string; talking_time: number | null; ratio: number | null }>;
 } | null;
 
-function InsightList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <section className="call-insight-group">
-      <h5>{title}</h5>
-      {items.length ? <ul>{items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="call-insight-unavailable">{title} unavailable</p>}
-    </section>
+const nonEmpty = (value: string | null | undefined): value is string => Boolean(value?.trim());
+
+export function hasCallInsightData(insights: CallInsightsData) {
+  const notes = insights?.smart_notes;
+  return Boolean(
+    nonEmpty(insights?.summary) ||
+    nonEmpty(insights?.overall_sentiment) ||
+    insights?.topics.some((item) => nonEmpty(item.topic)) ||
+    notes?.action_items.some(nonEmpty) ||
+    notes?.decisions_made.some(nonEmpty) ||
+    notes?.open_questions.some(nonEmpty) ||
+    notes?.important_dates_and_deadlines.some((item) => nonEmpty(item.event_description)) ||
+    notes?.risks_and_issues.some(nonEmpty) ||
+    notes?.customer_feedback.some(nonEmpty)
   );
+}
+
+function InsightList({ title, items }: { title: string; items: string[] }) {
+  const available = items.filter(nonEmpty);
+  if (!available.length) return null;
+  return <section className="call-insight-group"><h5>{title}</h5><ul>{available.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section>;
 }
 
 export function CallInsights({ insights }: { insights: CallInsightsData }) {
   const notes = insights?.smart_notes;
-  const topics = insights?.topics ?? [];
-  const talkListen = insights?.talk_listen_ratio ?? [];
+  const topics = (insights?.topics ?? []).filter((item) => nonEmpty(item.topic));
+  const dates = (notes?.important_dates_and_deadlines ?? []).filter((item) => nonEmpty(item.event_description));
+  if (!hasCallInsightData(insights)) return null;
 
   return (
-    <section className="call-insights" aria-label="Conversation intelligence">
-      <h4>Conversation intelligence</h4>
-      <div className="call-insight-summary">
-        <span className="call-insight-label">Call summary</span>
-        {insights?.summary?.trim()
-          ? <p>{insights.summary}</p>
-          : <p className="call-insight-unavailable">Call summary unavailable</p>}
-      </div>
-
-      <div className="call-insight-facts">
-        <div>
-          <span className="call-insight-label">Overall sentiment</span>
-          <strong>{insights?.overall_sentiment?.trim() || "Unavailable"}</strong>
-        </div>
-        <div className="call-insight-topics">
-          <span className="call-insight-label">Topics</span>
-          {topics.length
-            ? <ul>{topics.map((item, index) => <li key={`${item.topic}-${index}`}><span>{item.topic}</span>{item.weight !== null ? <small>Weight {item.weight}</small> : <small>Weight unavailable</small>}</li>)}</ul>
-            : <p className="call-insight-unavailable">Topics unavailable</p>}
-        </div>
-      </div>
-
+    <section className="call-insights" aria-label="AI insights">
+      {nonEmpty(insights?.summary) && <div className="call-insight-summary"><span className="call-insight-label">Summary</span><p>{insights.summary}</p></div>}
+      {nonEmpty(insights?.overall_sentiment) && <span className="call-insight-sentiment">{insights.overall_sentiment}</span>}
+      {topics.length > 0 && <section className="call-insight-group"><h5>Topics</h5><ul>{topics.map((item, index) => <li key={`${item.topic}-${index}`}>{item.topic}</li>)}</ul></section>}
       <div className="call-insight-notes">
         <InsightList title="Action items" items={notes?.action_items ?? []} />
-        <InsightList title="Decisions made" items={notes?.decisions_made ?? []} />
+        <InsightList title="Decisions" items={notes?.decisions_made ?? []} />
         <InsightList title="Open questions" items={notes?.open_questions ?? []} />
-        <section className="call-insight-group">
-          <h5>Important dates & deadlines</h5>
-          {notes?.important_dates_and_deadlines?.length
-            ? <ul>{notes.important_dates_and_deadlines.map((item, index) => <li key={`${item.event_description}-${index}`}><strong>{item.date_mention?.trim() || "Date mention unavailable"}</strong><span>{item.event_description}</span></li>)}</ul>
-            : <p className="call-insight-unavailable">Important dates & deadlines unavailable</p>}
-        </section>
-        <InsightList title="Risks & issues" items={notes?.risks_and_issues ?? []} />
+        {dates.length > 0 && <section className="call-insight-group"><h5>Important dates</h5><ul>{dates.map((item, index) => <li key={`${item.event_description}-${index}`}>{nonEmpty(item.date_mention) && <strong>{item.date_mention}</strong>}<span>{item.event_description}</span></li>)}</ul></section>}
+        <InsightList title="Risks" items={notes?.risks_and_issues ?? []} />
         <InsightList title="Customer feedback" items={notes?.customer_feedback ?? []} />
       </div>
-
-      <section className="call-insight-group call-insight-ratio">
-        <h5>Talk / listen ratio</h5>
-        {talkListen.length
-          ? <ul>{talkListen.map((item, index) => <li key={`${item.caller}-${index}`}><strong>{item.caller}</strong><span>Talking time: {item.talking_time !== null ? `${item.talking_time} s` : "Unavailable"}</span><span>Ratio: {item.ratio !== null ? `${item.ratio}%` : "Unavailable"}</span></li>)}</ul>
-          : <p className="call-insight-unavailable">Talk / listen ratio unavailable</p>}
-      </section>
     </section>
   );
 }
