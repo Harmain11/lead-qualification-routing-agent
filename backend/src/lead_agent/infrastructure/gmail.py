@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import getaddresses, parseaddr
@@ -19,6 +20,7 @@ from lead_agent.domain.crm_inbound import (
     InboundCrmPage,
     InboundCursor,
 )
+from lead_agent.domain.gmail import GmailLeadExtraction
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.provider_errors import ProviderOperationError
 
@@ -37,6 +39,14 @@ _INQUIRY = re.compile(
     r".{0,100}\b(?:quote|quotation|pricing|price|demo|proposal|consultation)\b|"
     r"\b(?:can|could) (?:we|i) (?:please )?(?:schedule|book|see|get|request)"
     r".{0,60}\b(?:demo|consultation|quote|proposal)\b",
+    re.I | re.S,
+)
+_AI_INQUIRY_SIGNAL = re.compile(
+    r"\b(?:quote|quotation|pricing|price|demo|proposal|consultation)\b|"
+    r"\b(?:interested in|looking for|seeking|need|want|require|request(?:ing)?)\b"
+    r".{0,100}\b(?:services?|support|help|solution|software|platform|product|vendor|"
+    r"consulting|implementation|project|event|website|business)\b|"
+    r"\b(?:can|could|would) you (?:please )?(?:send|share|provide|schedule|book|discuss)\b",
     re.I | re.S,
 )
 _BUSINESS = re.compile(
@@ -445,7 +455,10 @@ def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) 
     if _EXCLUDED_SUBJECT.search(subject) or "unsubscribe" in text.lower():
         return "bulk_or_transactional"
     buyer_clauses = _BUYER_INTENT.finditer(text)
-    if not (_INQUIRY.search(text) or any(_BUSINESS.search(match.group()) for match in buyer_clauses)):
+    if not (
+        _INQUIRY.search(text)
+        or any(_BUSINESS.search(match.group()) for match in buyer_clauses)
+    ):
         return "no_inquiry_signal"
     return None
 
@@ -523,10 +536,14 @@ class GmailInboundProvider:
         mailbox_email: str,
         timeout_seconds: float = 15.0,
         client: httpx.Client | None = None,
+        lead_extractor: Callable[..., GmailLeadExtraction] | None = None,
+        ai_fallback_reason: str = "verified_workspace_openai_unavailable",
     ) -> None:
         self._connection_id = connection_id
         self.mailbox_email = mailbox_email.strip().lower()
         self.api = GmailTransport(access_token, timeout_seconds=timeout_seconds, client=client)
+        self.lead_extractor = lead_extractor
+        self.ai_fallback_reason = ai_fallback_reason
 
     @property
     def connection_id(self) -> UUID:
@@ -542,7 +559,8 @@ class GmailInboundProvider:
         history_id = cursor.get("history_id")
         initial = cursor.get("initial") is True
         reconcile = cursor.get("reconcile") is True
-        if history_id and not reconcile and not initial:
+        review_recent = cursor.get("review_recent") is True
+        if history_id and not reconcile and not initial and not review_recent:
             params: dict[str, object] = {
                 "startHistoryId": history_id,
                 "historyTypes": "messageAdded",
@@ -558,7 +576,7 @@ class GmailInboundProvider:
                 history_id = None
                 reconcile = True
                 cursor = {"reconcile": True}
-        if history_id and not reconcile and not initial:
+        if history_id and not reconcile and not initial and not review_recent:
             message_ids: dict[str, str] = {}
             histories = result.get("history", [])
             for item in histories if isinstance(histories, list) else []:
@@ -574,8 +592,7 @@ class GmailInboundProvider:
             params = {
                 "maxResults": min(limit, 100),
                 "q": (
-                    "newer_than:30d -in:spam -in:trash -category:promotions "
-                    "-category:social -category:updates"
+                    "newer_than:30d -in:spam -in:trash"
                 ),
             }
             if page_token:
@@ -609,6 +626,7 @@ class GmailInboundProvider:
                 "page_token": str(next_token),
                 "initial": initial or not cursor,
                 "reconcile": reconcile,
+                "review_recent": review_recent,
             }
             if next_token
             else None
@@ -747,7 +765,7 @@ class GmailInboundProvider:
             body = str(data.get("snippet", ""))[:_MAX_BODY_CHARS]
         merged_headers = {**headers, **full_headers}
         reason = candidate_reason(merged_headers, body, self.mailbox_email)
-        if reason:
+        if reason and reason != "no_inquiry_signal":
             return ExternalCrmRecord(
                 provider="gmail",
                 object_type="message",
@@ -766,6 +784,7 @@ class GmailInboundProvider:
                 "thread_id": str(full.get("threadId") or data.get("threadId", "")),
                 "body": body,
                 "snippet": str(data.get("snippet", ""))[:1000],
+                "deterministic_candidate_reason": reason,
             },
             modified_at=datetime.fromtimestamp(
                 int(full.get("internalDate", data.get("internalDate", "0"))) / 1000, tz=UTC
@@ -821,15 +840,102 @@ class GmailInboundProvider:
             )[:_MAX_BODY_CHARS]
         else:
             content = f"Subject: {subject}\n\n{_authored_email_text(body)}"[:_MAX_BODY_CHARS]
+        authored_body = forwarded[3] if forwarded is not None else _authored_email_text(body)
+        extracted: GmailLeadExtraction | None = None
+        fallback_reason = self.ai_fallback_reason
+        ai_reason = ""
+        if self.lead_extractor is not None:
+            try:
+                extraction_headers = dict(headers)
+                if forwarded is not None:
+                    extraction_headers["from"] = f"{sender_name} <{email}>"
+                    extraction_headers["subject"] = subject
+                candidate = self.lead_extractor(
+                    headers=extraction_headers, subject=subject, body=authored_body
+                )
+                if not candidate.is_genuine_inquiry:
+                    record.values.update(
+                        gmail_ai_method="openai",
+                        gmail_ai_fallback_reason="",
+                        gmail_ai_reason="not_a_genuine_inquiry",
+                    )
+                    raise ValueError("ai_classified_not_a_genuine_inquiry")
+                evidence_sources = {
+                    "subject": subject,
+                    "body": authored_body,
+                    "from_header": extraction_headers.get("from", ""),
+                    "reply_to": extraction_headers.get("reply-to", ""),
+                }
+                if any(
+                    item.excerpt.casefold()
+                    not in evidence_sources[item.source].casefold()
+                    for item in candidate.evidence
+                ):
+                    raise ValueError("ai_evidence_not_in_source")
+                inquiry = candidate.inquiry_evidence.strip()
+                if (
+                    not inquiry
+                    or inquiry.casefold() not in authored_body.casefold()
+                    or not _AI_INQUIRY_SIGNAL.search(inquiry)
+                ):
+                    raise ValueError("ai_inquiry_signal_missing")
+                for field_name, field_value in {
+                    "full_name": candidate.full_name,
+                    "email": candidate.email,
+                    "company_name": candidate.company_name,
+                    "requested_service": candidate.requested_service,
+                    "phone": candidate.phone,
+                }.items():
+                    if field_value:
+                        field_evidence = [
+                            item for item in candidate.evidence if item.field == field_name
+                        ]
+                        if not field_evidence or not any(
+                            field_value.casefold() in item.excerpt.casefold()
+                            for item in field_evidence
+                        ):
+                            raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
+                if candidate.email and (
+                    "@" not in candidate.email or candidate.email.strip().lower() != email
+                ):
+                    raise ValueError("ai_email_does_not_match_contact")
+                extracted = candidate
+                fallback_reason = ""
+                ai_reason = "genuine_inquiry"
+            except ValueError as error:
+                if str(error) == "ai_classified_not_a_genuine_inquiry":
+                    raise ValueError(str(error)) from None
+                fallback_reason = str(error)[:128]
+            except Exception as error:
+                fallback_reason = f"openai_extraction_failed:{error.__class__.__name__}"[:128]
+        if (
+            extracted is None
+            and candidate_reason(headers, body, self.mailbox_email) == "no_inquiry_signal"
+        ):
+            record.values.update(
+                gmail_ai_method="deterministic",
+                gmail_ai_fallback_reason=fallback_reason,
+            )
+            raise ValueError("no_inquiry_signal")
+        record.values.update(
+            gmail_ai_method="openai" if extracted else "deterministic",
+            gmail_ai_fallback_reason=fallback_reason,
+            gmail_ai_reason=ai_reason,
+        )
         email = email.strip().lower()
         payload = {
             "source": "email",
             "source_detail": "Gmail",
             "external_id": record.record_id,
-            "full_name": display,
+            "full_name": (extracted.full_name if extracted else None) or display,
             "email": email,
-            "company_name": company or "Unknown company",
-            "product_or_service": "Inbound inquiry",
+            "phone": extracted.phone if extracted else None,
+            "company_name": (
+                (extracted.company_name if extracted else None) or company or "Unknown company"
+            ),
+            "product_or_service": (
+                (extracted.requested_service if extracted else None) or "Inbound inquiry"
+            ),
             "message": content,
             "received_at": record.modified_at or datetime.now(UTC),
             "gmail_message_id": record.record_id,
@@ -857,6 +963,9 @@ class GmailInboundProvider:
                 "sender_email": email,
                 "forwarded_lead": forwarded is not None,
                 "original_sender_email": parseaddr(str(headers.get("from", "")))[1].strip().lower(),
+                "gmail_ai_method": "openai" if extracted else "deterministic",
+                "gmail_ai_fallback_reason": fallback_reason,
+                "gmail_ai_reason": ai_reason,
             },
             enrichment_fingerprint=None,
         )

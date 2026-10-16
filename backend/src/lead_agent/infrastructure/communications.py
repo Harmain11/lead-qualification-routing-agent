@@ -464,8 +464,12 @@ class CommunicationsClient:
             )
         return str(result)[:255], "queued"
 
-    def recent_calls(self, target: str) -> list[CallSnapshot]:
-        target = phone(target)
+    def recent_calls(self, target: str | None, *, page: int = 1) -> list[CallSnapshot]:
+        if target is None and self.provider != "cloudtalk":
+            raise ValueError("Workspace-wide call history is only available for CloudTalk.")
+        if page < 1:
+            raise ValueError("Call-history page must be positive.")
+        target = phone(target) if target else None
         p, c = self.provider, self.credentials
         if p == "twilio":
             path = f"/2010-04-01/Accounts/{identifier(c['account_sid'])}/Calls.json"
@@ -489,29 +493,39 @@ class CommunicationsClient:
                 "POST", "/v2/list-calls", payload={"limit": 50, "sort_order": "descending"}
             )
         elif p == "cloudtalk":
-            digits = re.sub(r"\D", "", target)
-            items = []
-            page, limit = 1, 1000
-            while page <= MAX_CLOUDTALK_PAGES:
+            digits = re.sub(r"\D", "", target or "")
+            if target is None:
                 response_data = self._cloudtalk_collection(
-                    "/api/calls/index.json",
-                    {"public_external": digits, "limit": limit, "page": page},
+                    "/api/calls/index.json", {"limit": 100, "page": page}
                 )
-                page_items = response_data.get("data", [])
-                if not isinstance(page_items, list):
+                items = response_data.get("data", [])
+                if not isinstance(items, list):
                     raise ValueError("CloudTalk returned an invalid call-history page.")
-                items.extend(page_items)
-                page_count = response_data.get("pageCount")
-                if isinstance(page_count, int):
-                    if page >= page_count:
-                        break
-                    if page_count > MAX_CLOUDTALK_PAGES:
-                        raise ValueError("CloudTalk call history exceeds the supported page limit.")
-                elif len(page_items) < limit:
-                    break
-                page += 1
             else:
-                raise ValueError("CloudTalk call history exceeds the supported page limit.")
+                items = []
+                provider_page, limit = 1, 1000
+                while provider_page <= MAX_CLOUDTALK_PAGES:
+                    response_data = self._cloudtalk_collection(
+                        "/api/calls/index.json",
+                        {"public_external": digits, "limit": limit, "page": provider_page},
+                    )
+                    page_items = response_data.get("data", [])
+                    if not isinstance(page_items, list):
+                        raise ValueError("CloudTalk returned an invalid call-history page.")
+                    items.extend(page_items)
+                    page_count = response_data.get("pageCount")
+                    if isinstance(page_count, int):
+                        if provider_page >= page_count:
+                            break
+                        if page_count > MAX_CLOUDTALK_PAGES:
+                            raise ValueError(
+                                "CloudTalk call history exceeds the supported page limit."
+                            )
+                    elif len(page_items) < limit:
+                        break
+                    provider_page += 1
+                else:
+                    raise ValueError("CloudTalk call history exceeds the supported page limit.")
         else:
             raise ValueError("This provider has no call history.")
         if not isinstance(items, list):
@@ -624,7 +638,7 @@ class CommunicationsClient:
             "talk_listen_ratio": talk_listen_ratio,
         }
 
-    def normalize_call(self, item: dict[str, Any], target: str) -> CallSnapshot | None:
+    def normalize_call(self, item: dict[str, Any], target: str | None) -> CallSnapshot | None:
         p = self.provider
         insights = None
         if p == "twilio":
@@ -683,10 +697,17 @@ class CommunicationsClient:
                 call_number.get("number"),
                 *(contact_numbers if isinstance(contact_numbers, list) else []),
             ]
-            target_digits = re.sub(r"\D", "", target)
-            if not any(
-                re.sub(r"\D", "", str(number or "")) == target_digits
-                for number in numbers
+            candidate = next(
+                (
+                    str(number)
+                    for number in numbers
+                    if re.sub(r"\D", "", str(number or ""))
+                ),
+                "",
+            )
+            target_digits = re.sub(r"\D", "", target or "")
+            if target and not any(
+                re.sub(r"\D", "", str(number or "")) == target_digits for number in numbers
             ):
                 return None
             call_id = cdr.get("id") or item.get("id")
@@ -782,7 +803,9 @@ class CommunicationsClient:
         for number in numbers:
             if p == "cloudtalk":
                 matches.append(
-                    re.sub(r"\D", "", str(number or "")) == re.sub(r"\D", "", target)
+                    bool(number)
+                    if target is None
+                    else re.sub(r"\D", "", str(number or "")) == re.sub(r"\D", "", target)
                 )
                 continue
             try:
@@ -791,9 +814,13 @@ class CommunicationsClient:
                 matches.append(False)
         if not any(matches) or not call_id:
             return None
+        customer_phone = target
+        if p == "cloudtalk" and customer_phone is None:
+            digits = re.sub(r"\D", "", candidate)
+            customer_phone = f"+{digits}" if 8 <= len(digits) <= 15 else candidate
         return CallSnapshot(
             external_id=str(call_id)[:255],
-            customer_phone=target,
+            customer_phone=customer_phone or "",
             status=str(status or "unknown")[:64],
             direction=str(item.get("direction") or item.get("type") or "unknown")[:64],
             started_at=timestamp(start),

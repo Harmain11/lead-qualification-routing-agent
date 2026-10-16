@@ -215,6 +215,50 @@ def test_cloudtalk_call_creation_keeps_provider_request_id_if_returned():
     assert status == "requested"
 
 
+def test_cloudtalk_recent_history_can_be_loaded_without_a_lead_number():
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        if request.url.host == "my.cloudtalk.io":
+            assert "public_external" not in request.url.params
+            return httpx.Response(
+                200,
+                json={
+                    "responseData": {
+                        "data": [
+                            {
+                                "Cdr": {
+                                    "id": 12345,
+                                    "public_external": "14155550111",
+                                    "type": "outgoing",
+                                    "started_at": "2026-10-15 12:00:00",
+                                    "talking_time": 42,
+                                }
+                            }
+                        ],
+                        "pageCount": 1,
+                    }
+                },
+            )
+        if request.url.path.endswith("/transcription"):
+            return httpx.Response(
+                200,
+                json={"data": {"segments": []}, "pagination": {"total": 0}},
+            )
+        return httpx.Response(200, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as client:
+        records = CommunicationsClient(
+            "cloudtalk", CREDENTIALS["cloudtalk"], client=client
+        ).recent_calls(None)
+
+    assert len(records) == 1
+    assert records[0].customer_phone == TARGET
+    assert records[0].external_id == "12345"
+    assert seen[0].url.params["limit"] == "100"
+
+
 def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio():
     seen = []
 
@@ -340,6 +384,30 @@ def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio(
         "talk-listen-ratio",
     }
     assert all("recording" not in request.url.path for request in seen)
+
+
+def test_workspace_cloudtalk_history_includes_unmatched_calls(calls, monkeypatch):
+    session, client, _, lead, connection, _, adapter = calls
+    connection.provider_type = "cloudtalk"
+    session.commit()
+    records = [
+        CallSnapshot(external_id="call-matched", customer_phone=TARGET, status="completed"),
+        CallSnapshot(external_id="call-new", customer_phone="+15555550123", status="completed"),
+    ]
+
+    def recent_calls(target, *, page=1):
+        assert target is None
+        assert page == 1
+        return records
+
+    monkeypatch.setattr(adapter, "recent_calls", recent_calls)
+    response = client.get("/v1/calling/cloudtalk/recent")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [record["id"] for record in payload["records"]] == ["call-matched", "call-new"]
+    assert payload["records"][0]["lead_id"] == str(lead.id)
+    assert payload["records"][1]["lead_id"] is None
 
 
 def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():

@@ -369,13 +369,13 @@ export function configureInboundSync(
 
 export function runInboundSync(
   connectionId: string,
-  mode: "initial" | "incremental" | "manual",
+  mode: "initial" | "incremental" | "manual" | "review_recent",
   provider: string = "salesforce",
 ): Promise<CrmInboundSyncRun> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
+    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: mode === "review_recent" ? 5000 : ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
   });
 }
 

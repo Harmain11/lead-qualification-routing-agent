@@ -18,4 +18,5 @@
 - [Production query results](production-query-results.md) — transaction-only SQL output is not an empty result set, even if the callback reports success.
 - [Reasoning backfill progress](reasoning-backfill-progress.md) — provider lifecycle audit events persist backfill status and per-configuration completion receipts.
 - [CloudTalk API boundaries](cloudtalk-api-boundaries.md) — use CloudTalk's core and Conversation Intelligence hosts separately; outbound creates lack provider call IDs.
+- [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
 - [Slack notification safety](slack-notification-safety.md) — DMs require explicit per-recipient opt-in; channel fallback is explicit, and tokens stay in the secure form.

@@ -42,7 +42,7 @@ _LOGGER = logging.getLogger("lead_agent.api.crm_inbound")
 class InboundSyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["initial", "incremental", "manual"] = "manual"
+    mode: Literal["initial", "incremental", "manual", "review_recent"] = "manual"
     object_type: Literal["Lead", "contacts", "message"] = "Lead"
     limit: int = Field(default=500, ge=1, le=5000)
     page_size: int = Field(default=100, ge=1, le=200)
@@ -130,14 +130,22 @@ def synchronize_inbound_crm(
             routing=policies[1],
             reasoning_provider=None,
             notification_provider=notification_provider,
-            send_confirmation_email=request.send_confirmation_email,
+            send_confirmation_email=(
+                False
+                if connection.provider_type == "gmail" and request.mode == "review_recent"
+                else request.send_confirmation_email
+            ),
         )
     except ProviderOperationError as error:
         status_code = 503 if error.retryable else 409
         raise HTTPException(status_code=status_code, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    if connection.provider_type == "gmail" and request.object_type == "message":
+    if (
+        connection.provider_type == "gmail"
+        and request.object_type == "message"
+        and request.mode != "review_recent"
+    ):
         try:
             from lead_agent.application.meeting_email import process_recent_gmail_imports
 
