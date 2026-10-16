@@ -27,6 +27,22 @@ type CallActivity = {
   outreach_reason: string | null;
 };
 
+async function loadAllLeads(signal: AbortSignal): Promise<Lead[]> {
+  const allLeads: Lead[] = [];
+  let offset = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const page = await listLeads({ limit: 100, offset }, signal);
+    allLeads.push(...page.items);
+    if (allLeads.length > 100_000) {
+      throw new Error("This workspace has too many leads to load into the dialer at once.");
+    }
+    hasMore = page.has_more && page.items.length > 0;
+    offset = page.offset + page.items.length;
+  }
+  return allLeads;
+}
+
 const providerLabel: Record<string, string> = {
   twilio: "Twilio",
   aircall: "Aircall",
@@ -58,11 +74,13 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    Promise.all([listIntegrations(), listLeads({ limit: 50 }, controller.signal)])
-      .then(([integrationCards, leadPage]) => {
+    Promise.all([listIntegrations(), loadAllLeads(controller.signal)])
+      .then(([integrationCards, allLeads]) => {
         setCards(integrationCards);
-        setLeads(leadPage.items);
-        setSelectedLead((current) => current || leadPage.items[0]?.id || "");
+        setLeads(allLeads);
+        setSelectedLead((current) =>
+          allLeads.some((lead) => lead.id === current) ? current : allLeads[0]?.id || "",
+        );
       })
       .catch((reason) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load dialer workspace");
