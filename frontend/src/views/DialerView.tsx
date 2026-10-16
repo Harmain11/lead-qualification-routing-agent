@@ -17,9 +17,10 @@ type CallRecord = {
   transcript: string | null;
   recording_url: string | null;
   message: string | null;
-  insights: CallInsightsData;
+  insights: CallInsightsData | null;
   lead_id: string | null;
   lead_name: string | null;
+  history_page?: number;
 };
 
 type CallActivity = {
@@ -63,6 +64,8 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
+  const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (selectedSection === "history" || selectedSection === "analysis" || selectedSection === "overview") {
@@ -79,7 +82,10 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
     ])
       .then(([integrationCards, recentCalls]) => {
         setCards(integrationCards);
-        setActivity(recentCalls);
+        setActivity({
+          ...recentCalls,
+          records: recentCalls.records.map((record) => ({ ...record, history_page: 1 })),
+        });
       })
       .catch((reason) => {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Unable to load dialer workspace");
@@ -92,11 +98,43 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
     setRefreshing(true);
     setError("");
     try {
-      setActivity(await opsGet<CallActivity>("/v1/calling/cloudtalk/recent"));
+      const refreshed = await opsGet<CallActivity>("/v1/calling/cloudtalk/recent");
+      setLoadedDetails({});
+      setActivity({
+        ...refreshed,
+        records: refreshed.records.map((record) => ({ ...record, history_page: 1 })),
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load CloudTalk calls");
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function loadCloudTalkDetails(record: CallRecord) {
+    if (loadingDetails) return;
+    setLoadingDetails(record.id);
+    setError("");
+    try {
+      const details = await opsGet<CallRecord>(
+        `/v1/calling/cloudtalk/recent/${encodeURIComponent(record.id)}/details?page=${record.history_page ?? 1}`,
+      );
+      setActivity((current) => current ? {
+        ...current,
+        records: current.records.map((item) => item.id === record.id
+          ? {
+              ...item,
+              transcript: details.transcript,
+              recording_url: details.recording_url,
+              insights: details.insights,
+            }
+          : item),
+      } : current);
+      setLoadedDetails((current) => ({ ...current, [record.id]: true }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to load CloudTalk analysis");
+    } finally {
+      setLoadingDetails(null);
     }
   }
 
@@ -109,7 +147,7 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
       const next = await opsGet<CallActivity>(`/v1/calling/cloudtalk/recent?page=${nextPage}`);
       setActivity((current) => current ? {
         ...current,
-        records: [...current.records, ...next.records],
+        records: [...current.records, ...next.records.map((record) => ({ ...record, history_page: nextPage }))],
         page: next.page,
         has_more: next.has_more,
       } : next);
@@ -184,7 +222,8 @@ export function DialerView({ onOpenIntegrations, selectedSection = "" }: { onOpe
               {activity.records.map((record) => <article className="dialer-record" key={record.id}>
                 <div className="dialer-record-head"><div><strong>{record.lead_name || record.customer_phone || providerLabel[record.provider] || record.provider}</strong><span>{new Date(record.started_at || record.created_at).toLocaleString()} · {record.direction.replaceAll("_", " ")}{record.duration_seconds !== null ? ` · ${record.duration_seconds}s` : ""}</span></div><b>{statusLabel(record.status)}</b></div>
                 {record.lead_id && <p className="dialer-linked-lead">Matched to existing lead: {record.lead_name}</p>}
-                {tab === "analysis" ? <><div className="dialer-analysis-row"><span className={record.transcript ? "dialer-analysis-good" : ""}>{record.transcript ? "Transcript ready" : "Transcript unavailable"}</span><span>{record.recording_url ? "Recording or call details available" : "No recording or call details link"}</span><span>{record.message || "Provider returned no additional message."}</span></div>{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}</> : <>{record.message && <p>{record.message}</p>}{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}{!record.transcript && !record.recording_url && <small>Transcripts and recordings appear when the connected provider supplies them.</small>}</>}
+                {record.provider === "cloudtalk" && !loadedDetails[record.id] && <button className="button-quiet" onClick={() => void loadCloudTalkDetails(record)} disabled={loadingDetails !== null}>{loadingDetails === record.id ? "Loading analysis…" : "Load transcript & AI insights"}</button>}
+                {tab === "analysis" ? <><div className="dialer-analysis-row"><span className={record.transcript ? "dialer-analysis-good" : ""}>{record.transcript ? "Transcript ready" : "Transcript not loaded"}</span><span>{record.recording_url ? "Recording or call details available" : "No recording or call details link"}</span><span>{record.message || "Provider returned no additional message."}</span></div>{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}</> : <>{record.message && <p>{record.message}</p>}{record.provider === "cloudtalk" && <CallInsights insights={record.insights ?? null} />}{record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details ↗</a>}{record.transcript && <details><summary>View transcript</summary><pre>{record.transcript}</pre></details>}{!record.transcript && !record.recording_url && <small>Load analysis to check for transcripts and call details.</small>}</>}
                 <div className="dialer-lead-assessment"><strong>{assessLeadPotential(record).label}</strong><span>{assessLeadPotential(record).detail}</span></div>
                 {!record.lead_id && <AddLeadForm record={record} onCreated={(lead: Lead) => {
                   setActivity((current) => current ? {

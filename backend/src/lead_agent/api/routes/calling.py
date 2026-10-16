@@ -129,7 +129,10 @@ def recent_cloudtalk_calls(
     try:
         recent = client.recent_calls(None, page=page)
     except (ProviderOperationError, ValueError) as error:
-        raise HTTPException(502, str(error)) from None
+        status_code = (
+            429 if isinstance(error, ProviderOperationError) and error.status_code == 429 else 502
+        )
+        raise HTTPException(status_code, str(error)) from None
 
     leads = list(
         session.execute(
@@ -169,6 +172,40 @@ def recent_cloudtalk_calls(
         "page": page,
         "has_more": len(recent) == 100,
     }
+
+
+@router.get("/cloudtalk/recent/{call_id}/details")
+def cloudtalk_call_details(
+    call_id: str,
+    page: int = Query(default=1, ge=1),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> Any:
+    connection = session.scalar(
+        select(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.workspace_id == workspace.workspace_id,
+            ProviderConnectionORM.provider_type == "cloudtalk",
+            ProviderConnectionORM.status == "verified",
+            ProviderConnectionORM.is_active.is_(True),
+        )
+        .order_by(ProviderConnectionORM.account_name)
+    )
+    if connection is None:
+        raise HTTPException(404, "CloudTalk connection not found")
+    client = _client(session, workspace, connection, resolver)
+    try:
+        calls = client.recent_calls(None, page=page, details_for_call_id=call_id)
+    except (ProviderOperationError, ValueError) as error:
+        status_code = (
+            429 if isinstance(error, ProviderOperationError) and error.status_code == 429 else 502
+        )
+        raise HTTPException(status_code, str(error)) from None
+    call = next((item for item in calls if item.external_id == call_id), None)
+    if call is None:
+        raise HTTPException(404, "CloudTalk call not found on this history page")
+    return call.model_dump(mode="json")
 
 
 @router.get("/leads/{lead_id}")
@@ -371,7 +408,8 @@ def sync_calls(
     try:
         snapshots = client.recent_calls(_target(lead))
     except ProviderOperationError as error:
-        raise HTTPException(502, str(error)) from None
+        status_code = 429 if error.status_code == 429 else 502
+        raise HTTPException(status_code, str(error)) from None
     except (ValueError, TypeError, KeyError, AttributeError):
         raise HTTPException(
             502, "Call history could not be read. Check the provider setup and try again."

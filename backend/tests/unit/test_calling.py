@@ -249,14 +249,20 @@ def test_cloudtalk_recent_history_can_be_loaded_without_a_lead_number():
         return httpx.Response(200, json={})
 
     with httpx.Client(transport=httpx.MockTransport(transport)) as client:
-        records = CommunicationsClient(
+        communications = CommunicationsClient(
             "cloudtalk", CREDENTIALS["cloudtalk"], client=client
-        ).recent_calls(None)
+        )
+        records = communications.recent_calls(None)
+        list_request_count = len(seen)
+        detailed = communications.recent_calls(None, details_for_call_id="12345")
 
     assert len(records) == 1
     assert records[0].customer_phone == TARGET
     assert records[0].external_id == "12345"
     assert seen[0].url.params["limit"] == "100"
+    assert list_request_count == 1
+    assert len(detailed) == 1
+    assert any(request.url.path.endswith("/transcription") for request in seen[1:])
 
 
 def test_cloudtalk_history_uses_ci_transcript_and_never_fetches_recording_audio():
