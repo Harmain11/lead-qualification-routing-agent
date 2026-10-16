@@ -1,5 +1,5 @@
 import { OperationsDialog } from "../components/OperationsDialog";
-import { useCallback,useEffect,useMemo,useState } from "react";
+import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 import {
 createIcpDraft,
@@ -12,6 +12,7 @@ updateIcpDraft,
 validateIcpDraft,
 } from "../api";
 import type { IcpConfiguration,IcpPreview,IcpValidation,IcpVersion } from "../types";
+import { parseCommaSeparatedList } from "../textEntry";
 
 const SECTIONS = [
   "Company Profile",
@@ -44,7 +45,6 @@ const CRITERIA: Array<[string, string]> = [
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const csv = (values: string[]) => values.join(", ");
-const split = (value: string) => value.split(",").map((item) => item.trim()).filter(Boolean);
 const pretty = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (item) => item.toUpperCase());
 
 export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () => void }) {
@@ -251,7 +251,12 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
 }
 
 function TextList({ label, value, disabled, onChange, hint }: { label: string; value: string[]; disabled: boolean; onChange: (items: string[]) => void; hint?: string }) {
-  return <label className="icp-field"><span>{label}</span><input value={csv(value)} disabled={disabled} onChange={(event) => onChange(split(event.target.value))} placeholder="Enter values separated by commas" />{hint && <small>{hint}</small>}</label>;
+  const [draft, setDraft] = useState(() => csv(value));
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) setDraft(csv(value));
+  }, [value]);
+  return <label className="icp-field"><span>{label}</span><input ref={inputRef} value={draft} disabled={disabled} onChange={(event) => setDraft(event.target.value)} onBlur={() => { const normalized = parseCommaSeparatedList(draft); onChange(normalized); setDraft(csv(normalized)); }} placeholder="Enter values separated by commas" />{hint && <small>{hint}</small>}</label>;
 }
 
 function NumberField({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {
