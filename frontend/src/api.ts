@@ -109,7 +109,11 @@ function withWorkspace(headers?: HeadersInit): Headers {
   return result;
 }
 
-export async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function request<T>(
+  url: string,
+  options?: RequestInit,
+  feedback: { activityToast?: boolean } = {},
+): Promise<T> {
   const method = options?.method?.toUpperCase() ?? "GET";
   const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
   if (key) {
@@ -117,7 +121,7 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
     if (existing) return existing as Promise<T>;
   }
 
-  const pending = performRequest<T>(url, options);
+  const pending = performRequest<T>(url, options, feedback.activityToast !== false);
   if (!key) return pending;
   inFlightGets.set(key, pending);
   try {
@@ -127,7 +131,11 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
   }
 }
 
-async function performRequest<T>(url: string, options?: RequestInit): Promise<T> {
+async function performRequest<T>(
+  url: string,
+  options?: RequestInit,
+  showActivityToast = true,
+): Promise<T> {
   const response = await fetch(apiUrl(url), {
     ...options,
     credentials: "include",
@@ -156,7 +164,7 @@ async function performRequest<T>(url: string, options?: RequestInit): Promise<T>
   }
   const result = response.status === 204 ? undefined : await response.json();
   const method = options?.method?.toUpperCase() ?? "GET";
-  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !url.startsWith("/v1/auth/")) {
+  if (showActivityToast && !["GET", "HEAD", "OPTIONS"].includes(method) && !url.startsWith("/v1/auth/")) {
     const status = mutationStatusMessage(url, result);
     notifyActivity(status.message, status.kind);
   }

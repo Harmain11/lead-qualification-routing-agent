@@ -238,9 +238,14 @@ export type AdvancedAnalytics = {
 };
 export const opsGet = <T>(path: string, signal?: AbortSignal) =>
   request<T>(path, { signal });
-export const opsSave = <T>(path: string, data: unknown, method = "POST") =>
+export const opsSave = <T>(
+  path: string,
+  data: unknown,
+  method = "POST",
+  feedback?: { activityToast?: boolean },
+) =>
   request<T>(path, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }, feedback);

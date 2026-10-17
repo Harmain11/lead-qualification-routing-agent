@@ -138,29 +138,36 @@ export function AnalyticsView({
                 title="Channel performance"
                 eyebrow="Channel quality and conversion"
               >
-                <div className="channel-table">
-                  <div className="channel-head">
-                    <span>Channel</span>
-                    <span>Volume</span>
-                    <span>Qualified</span>
-                    <span>SQL</span>
-                    <span>Won</span>
-                    <span>Revenue</span>
-                    <span>Importance</span>
-                  </div>
-                  {data.channels.channels.map((row) => (
-                    <div key={row.channel}>
-                      <b>{pretty(row.channel)}</b>
-                      <span>
-                        {row.lead_volume} · {row.share_percent}%
-                      </span>
-                      <span>{row.qualification_rate}%</span>
-                      <span>{row.sql_conversion_rate}%</span>
-                      <span>{row.closed_won_conversion_rate}%</span>
-                      <span>{money(row.revenue)}</span>
-                      <em>{row.importance_index}</em>
+                <div
+                  className="channel-table-wrap"
+                  role="region"
+                  aria-label="Channel performance; scroll horizontally to view all columns"
+                  tabIndex={0}
+                >
+                  <div className="channel-table">
+                    <div className="channel-head">
+                      <span>Channel</span>
+                      <span>Volume</span>
+                      <span>Qualified</span>
+                      <span>SQL</span>
+                      <span>Won</span>
+                      <span>Revenue</span>
+                      <span>Importance</span>
                     </div>
-                  ))}
+                    {data.channels.channels.map((row) => (
+                      <div key={row.channel}>
+                        <b>{pretty(row.channel)}</b>
+                        <span>
+                          {row.lead_volume} · {row.share_percent}%
+                        </span>
+                        <span>{row.qualification_rate}%</span>
+                        <span>{row.sql_conversion_rate}%</span>
+                        <span>{row.closed_won_conversion_rate}%</span>
+                        <span>{money(row.revenue)}</span>
+                        <em>{row.importance_index}</em>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </Panel>
             </div>
