@@ -2648,7 +2648,8 @@ html[data-theme="dark"] .mini-rail-separator { background: var(--line); }
 .app-shell .lead-full-page .lead-section-pin {
   flex: 0 0 auto;
   max-width: 100%;
-  margin: 0 0 12px 12px;
+  min-height: 38px;
+  margin: 0;
   white-space: nowrap;
 }
 
