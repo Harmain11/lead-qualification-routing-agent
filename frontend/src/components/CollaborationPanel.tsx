@@ -37,7 +37,9 @@ export function CollaborationPanel({
             setError(String(reason.message));
         });
     const heartbeat = () =>
-      opsSave(`/v1/collaboration/leads/${leadId}/presence`, {}).catch(() => {});
+      opsSave(`/v1/collaboration/leads/${leadId}/presence`, {}, "POST", {
+        activityToast: false,
+      }).catch(() => {});
     void load();
     void heartbeat();
     const timer = setInterval(() => {
