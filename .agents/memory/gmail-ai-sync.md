@@ -8,3 +8,11 @@ Keep AI as the intent and field-extraction layer, but choose identity determinis
 **Why:** The user requires prospect identity to come from message direction and evidence, so internal reps and notification wrappers cannot replace the external person being contacted or responding. Gmail may also return transient rate limits; a failed review must remain clearly failed and transient GET failures should receive bounded retry.
 
 **How to apply:** When changing Gmail acquisition, classification, background processing, or status reporting, preserve AI classification, high recall without a regex veto, whole-thread context, internal-domain/member filtering, candidate role/referral evidence, phone-only support with review for uncertainty, candidate-level idempotency, safe per-message audit reasons, bounded retries, and clear progress/error states.
+
+## Independent candidate validation
+
+Validate child prospects against their own evidence, not redundant legacy thread-level identity/inquiry fields. Unsupported optional enrichment should be left unknown with a review note, not veto a verified identity. Identity, phone-only identity, inquiry, and referral evidence remain strict. Save valid Gmail candidates in a partially failed page without advancing its checkpoint.
+
+**Why:** Production reviews discarded candidates for optional or redundant extraction evidence errors, and an earlier quota failure prevented later successfully normalized prospects in the same batch from being saved.
+
+**How to apply:** Keep regressions for valid children with invalid parent metadata, optional hallucinations, fabricated identities, and a rate-limited message before a valid prospect. Sent mail alone must not exclude an explicitly forwarded, direction-supported external prospect.

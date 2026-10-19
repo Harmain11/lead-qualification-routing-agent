@@ -88,6 +88,32 @@ def _evidence_is_from_source(source: str, excerpt: str) -> bool:
     return bool(normalized_excerpt) and normalized_excerpt in _normalized_evidence(source)
 
 
+def _verified_optional_fields(candidate: Any, sources: dict[str, str]) -> tuple[Any, list[str]]:
+    """Unknown enrichment must not veto a separately verified prospect identity."""
+    optional = {"company_name", "job_title", "requested_service", "referral_context"}
+    if candidate.email:
+        optional.add("phone")
+    dropped = []
+    for field in optional:
+        value = getattr(candidate, field, None)
+        if value and not any(
+            item.field == field
+            and _evidence_is_from_source(sources[item.source], item.excerpt)
+            and _evidence_is_from_source(item.excerpt, value)
+            for item in candidate.evidence
+        ):
+            dropped.append(field)
+    return candidate.model_copy(update={
+        **{field: None for field in dropped},
+        "evidence": [
+            item for item in candidate.evidence
+            if item.field not in optional
+            or (item.field not in dropped and getattr(candidate, item.field, None)
+                and _evidence_is_from_source(sources[item.source], item.excerpt))
+        ],
+    }), sorted(dropped)
+
+
 class GmailTransport:
     def __init__(
         self,
@@ -512,13 +538,13 @@ def _forwarded_header_blocks(text: str) -> list[dict[str, str]]:
     lines = text.splitlines()
     blocks: list[dict[str, str]] = []
     for index, line in enumerate(lines):
-        match = re.match(r"(?i)^\s*>*\s*From:\s*(.+?)\s*$", line)
+        match = re.match(r"(?i)^\s*(?:>\s*)*From:\s*(.+?)\s*$", line)
         if match is None:
             continue
         headers = {"from": match.group(1).strip()}
         end = index + 1
         while end < len(lines) and end <= index + 10:
-            candidate = re.sub(r"^\s*>+\s?", "", lines[end]).strip()
+            candidate = re.sub(r"^\s*(?:>\s*)+", "", lines[end]).strip()
             if not candidate:
                 break
             key, colon, value = candidate.partition(":")
@@ -609,9 +635,6 @@ def _internal_outreach_recipients(
     for message in sources:
         raw_headers = message.get("headers", {})
         if not isinstance(raw_headers, dict):
-            continue
-        sender_name, sender_email = parseaddr(str(raw_headers.get("from", "")))
-        if not _is_internal_address(sender_email, internal_domains, internal_emails):
             continue
         bodies = [str(message.get("body", ""))]
         groups = [(raw_headers, bodies[0])]
@@ -747,7 +770,7 @@ def _email_appears_as_lead_identity(excerpt: str, email: str) -> bool:
     """Allow evidenced embedded identity email, but never a To/Cc-only address."""
     return any(
         email.casefold() in line.casefold()
-        and not re.match(r"(?i)^\s*(?:to|cc|bcc)\s*:", line)
+        and not re.match(r"(?i)^\s*(?:>\s*)*(?:to|cc|bcc)\s*:", line)
         for line in excerpt.splitlines()
     )
 
@@ -755,7 +778,7 @@ def _email_appears_as_lead_identity(excerpt: str, email: str) -> bool:
 def _email_appears_in_to_header(excerpt: str, email: str) -> bool:
     return any(
         email.casefold() in line.casefold()
-        and re.match(r"(?i)^\s*>*\s*To\s*:", line)
+        and re.match(r"(?i)^\s*(?:>\s*)*To\s*:", line)
         for line in excerpt.splitlines()
     )
 
@@ -1059,7 +1082,7 @@ class GmailInboundProvider:
             if isinstance(item, dict)
         }
         thread_id = str(data.get("threadId", ""))
-        if set(data.get("labelIds", [])).intersection({"SPAM", "TRASH", "DRAFT", "SENT"}):
+        if set(data.get("labelIds", [])).intersection({"SPAM", "TRASH", "DRAFT"}):
             return ExternalCrmRecord(
                 provider="gmail",
                 object_type="message",
@@ -1121,11 +1144,22 @@ class GmailInboundProvider:
             thread_messages.append(anchor)
         headers = {**metadata_headers, **anchor["headers"]}
         body = str(anchor["body"])
+        outreach = _internal_outreach_recipients(
+            headers, thread_messages, self.internal_domains, self.internal_emails
+        )
+        if "SENT" in data.get("labelIds", []) and not (
+            outreach and _forwarded_header_blocks(body)
+        ):
+            return ExternalCrmRecord(
+                provider="gmail", object_type="message", record_id=record_id,
+                values={"skip_reason": "system_or_own_message", "thread_id": thread_id},
+            )
         anchor_reason = candidate_reason(headers, body, self.mailbox_email)
         if (
             anchor_reason
             and anchor_reason != "no_inquiry_signal"
             and not _is_lead_notification_wrapper(headers, body)
+            and not outreach
         ):
             return ExternalCrmRecord(
                 provider="gmail",
@@ -1190,7 +1224,9 @@ class GmailInboundProvider:
             raise ValueError(str(values["skip_reason"]))
         if not values.get("headers"):
             try:
-                record = self.fetch_record(object_type="message", record_id=record.record_id)
+                fetched = self.fetch_record(object_type="message", record_id=record.record_id)
+                values.update(fetched.values)
+                record = fetched.model_copy(update={"values": values})
             except ProviderOperationError as error:
                 # History can include drafts or messages deleted before acquisition.
                 if error.code == "gmail_resource_not_found":
@@ -1377,11 +1413,30 @@ class GmailInboundProvider:
                         if re.match(r"(?i)^\s*>*\s*From:", line)
                     )
                 evidence_sources = {
-                    "subject": subject,
+                    "subject": "\n".join([subject] + [
+                        line for line in thread_context.splitlines()
+                        if re.match(r"(?i)^\s*(?:>\s*)*Subject:", line)
+                    ]),
                     "body": authored_body,
                     "from_header": "\n".join(from_evidence),
                     "reply_to": "\n".join(reply_to_evidence),
                 }
+                if candidate.candidates:
+                    # Each child has its own evidence and inquiry. Redundant legacy
+                    # fields must not veto independently valid candidates.
+                    candidate = candidate.model_copy(update={
+                        "full_name": None, "email": None, "company_name": None,
+                        "job_title": None, "requested_service": None, "phone": None,
+                        "evidence": [],
+                    })
+                else:
+                    candidate, dropped_fields = _verified_optional_fields(
+                        candidate, evidence_sources
+                    )
+                    record.values["gmail_field_review_notes"] = [
+                        f"Unverified {field.replace('_', ' ')} was left unknown."
+                        for field in dropped_fields
+                    ]
                 if any(
                     not _evidence_is_from_source(
                         evidence_sources[item.source], item.excerpt
@@ -1390,7 +1445,7 @@ class GmailInboundProvider:
                 ):
                     raise ValueError("ai_evidence_not_in_source")
                 inquiry = candidate.inquiry_evidence.strip()
-                if (
+                if not candidate.candidates and (
                     not inquiry
                     or not _evidence_is_from_source(authored_body, inquiry)
                 ):
@@ -1601,6 +1656,7 @@ class GmailInboundProvider:
             ],
             "gmail_internal_participant_names": sorted(internal_participant_names),
             "gmail_signature_contacts": signature_contacts,
+            "gmail_candidate_review_notes": values.get("gmail_field_review_notes", []),
             "gmail_notification_wrapper": notification_wrapper,
             "gmail_wrapper_sender_name": wrapper_sender_name[:255],
             "gmail_embedded_message_ids": sorted(
@@ -1714,7 +1770,10 @@ class GmailInboundProvider:
         }
         evidence_sources = {
             "body": thread_text,
-            "subject": str(payload.get("subject") or ""),
+            "subject": "\n".join([str(payload.get("subject") or "")] + [
+                line for line in thread_text.splitlines()
+                if re.match(r"(?i)^\s*(?:>\s*)*Subject:", line)
+            ]),
             "from_header": "\n".join(
                 line for line in thread_text.splitlines() if re.match(r"(?i)^\s*>*\s*From:", line)
             ),
@@ -1730,6 +1789,12 @@ class GmailInboundProvider:
             ):
                 continue
             candidate = GmailProspectCandidate.model_validate(raw)
+            candidate, dropped_fields = _verified_optional_fields(candidate, evidence_sources)
+            review_notes.extend(
+                f"{candidate.full_name or 'Prospect'}: unverified "
+                f"{field.replace('_', ' ')} was left unknown."
+                for field in dropped_fields
+            )
             name = (candidate.full_name or "").strip()
             email = (candidate.email or "").strip().lower()
             if (

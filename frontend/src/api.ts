@@ -1,4 +1,5 @@
 import { mutationStatusMessage, notifyActivity } from "./activity";
+import { recentReviewBatch } from "./inboundReview";
 import type {
   AgentActivity,
   ChannelAnalytics,
@@ -380,11 +381,13 @@ export function runInboundSync(
   connectionId: string,
   mode: "initial" | "incremental" | "manual" | "review_recent",
   provider: string = "salesforce",
+  reviewLimit = 100,
 ): Promise<CrmInboundSyncRun | CrmInboundSyncAccepted> {
+  const review = mode === "review_recent" ? recentReviewBatch(reviewLimit) : null;
   return jsonRequest<CrmInboundSyncRun | CrmInboundSyncAccepted>(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: mode === "review_recent" ? 5000 : ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
+    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: review?.limit ?? (["gmail", "outlook"].includes(provider) ? 100 : 500), page_size: review?.pageSize ?? 100, send_confirmation_email: false }),
   });
 }
 

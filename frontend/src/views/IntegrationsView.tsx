@@ -366,6 +366,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const slackVerificationAttempts = useRef(new Set<string>());
   const slackChannelLoads = useRef(new Set<string>());
   const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
+  const [reviewLimits, setReviewLimits] = useState<Record<string, string>>({});
   const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error"; message: string }>>({});
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
   const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({});
@@ -622,7 +623,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       [connectionId]: { kind: "progress", message: "Syncing provider records. This may take a moment." },
     }));
     try {
-      let result = await runInboundSync(connectionId, mode, provider);
+      let result = await runInboundSync(connectionId, mode, provider, Number(reviewLimits[connectionId] ?? "100"));
       if ("queued_at" in result) {
         const accepted = result;
         setSyncFeedback((current) => ({
@@ -1031,7 +1032,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           {(canInboundSync || canManage) && <div className="card-actions">
             {canManage && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${mailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (mailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (mailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
             {syncState?.enabled && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : card.provider === "gmail" ? "Sync Gmail" : "Sync now"}</button>}
-            {syncState?.enabled && card.provider === "gmail" && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Reviewing…" : "Review missed Gmail messages with AI"}</button>}
+            {syncState?.enabled && card.provider === "gmail" && <div>
+              <label htmlFor={`review-limit-${connection.id}`}>Recent emails to review
+                <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
+              </label>
+              <small>Review the newest 1–5,000 emails from the last 30 days. Start with a smaller batch to reduce Gmail rate limits.</small>
+              <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>{syncingProvider === card.provider ? "Reviewing…" : "Review missed Gmail messages with AI"}</button>
+            </div>}
             {syncFeedback[connection.id] && <div className={`notice integration-sync-feedback sync-feedback-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">{syncFeedback[connection.id].message}</div>}
           </div>}
         </div>}
