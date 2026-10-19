@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { sendGmailEmail } from "../api";
-import type { GmailSendResult, ProviderConnection } from "../types";
+import { createClientId } from "../clientIds";
+import type { GmailAttachmentRequest, GmailSendResult, ProviderConnection } from "../types";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -20,6 +21,23 @@ type Props = {
   onSent?: (result: GmailSendResult) => void;
 };
 
+type AttachmentDraft = GmailAttachmentRequest & {
+  id: string;
+  size: number;
+};
+
+const MAX_FILES = 3;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+
+function encodeBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+  }
+  return btoa(binary);
+}
+
 export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props) {
   const sendableAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_SEND_SCOPE),
@@ -28,17 +46,113 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
     seed?.connectionId ?? sendableAccounts[0]?.id ?? "",
   );
   const [recipient, setRecipient] = useState(seed?.recipient ?? "");
+  const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
   const [subject, setSubject] = useState(seed?.subject ?? "");
   const [body, setBody] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [encodingAttachments, setEncodingAttachments] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const savedRangeRef = useRef<Range | null>(null);
 
   useEffect(() => {
     if (!sendableAccounts.some((account) => account.id === connectionId)) {
       setConnectionId(sendableAccounts[0]?.id ?? "");
     }
   }, [accounts, connectionId]);
+
+  function syncBody() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    setBody(editor.innerText.replace(/\u00a0/g, " ").trim());
+    setBodyHtml(editor.innerHTML);
+  }
+
+  function applyFormat(command: "bold" | "italic" | "underline") {
+    editorRef.current?.focus();
+    document.execCommand(command, false);
+    syncBody();
+  }
+
+  function saveSelection() {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount || !editorRef.current?.contains(selection.anchorNode)) return;
+    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+  }
+
+  function insertLink() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    let url: URL;
+    try {
+      url = new URL(linkUrl.trim());
+    } catch {
+      setError("Enter a complete link, such as https://example.com.");
+      return;
+    }
+    if (!["http:", "https:", "mailto:"].includes(url.protocol)) {
+      setError("Links must use https, http, or mailto.");
+      return;
+    }
+    editor.focus();
+    const selection = window.getSelection();
+    if (selection && savedRangeRef.current) {
+      selection.removeAllRanges();
+      selection.addRange(savedRangeRef.current);
+    }
+    document.execCommand("createLink", false, url.toString());
+    syncBody();
+    setLinkOpen(false);
+    setLinkUrl("");
+    savedRangeRef.current = null;
+    setError(null);
+  }
+
+  async function addAttachments(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    if (!files.length) return;
+    const count = attachments.length + files.length;
+    const total = attachments.reduce((sum, file) => sum + file.size, 0)
+      + files.reduce((sum, file) => sum + file.size, 0);
+    if (count > MAX_FILES) {
+      setAttachmentError(`Choose up to ${MAX_FILES} files.`);
+      return;
+    }
+    if (files.some((file) => file.size > MAX_FILE_BYTES)) {
+      setAttachmentError("Each attachment must be 5 MB or smaller.");
+      return;
+    }
+    if (total > MAX_TOTAL_BYTES) {
+      setAttachmentError("Attachments must total 10 MB or less.");
+      return;
+    }
+    setEncodingAttachments(true);
+    setAttachmentError(null);
+    try {
+      const encoded = await Promise.all(files.map(async (file) => ({
+        id: createClientId(),
+        filename: file.name,
+        content_type: file.type || "application/octet-stream",
+        content_base64: encodeBase64(new Uint8Array(await file.arrayBuffer())),
+        size: file.size,
+      })));
+      setAttachments((current) => [...current, ...encoded]);
+    } catch {
+      setAttachmentError("One or more files could not be attached.");
+    } finally {
+      setEncodingAttachments(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -50,8 +164,14 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
       const result = await sendGmailEmail({
         connection_id: connectionId,
         recipient: recipient.trim(),
+        ...(cc.trim() ? { cc: cc.trim() } : {}),
+        ...(bcc.trim() ? { bcc: bcc.trim() } : {}),
         subject: subject.trim(),
-        body: body.trim(),
+        body,
+        ...(bodyHtml.trim() ? { html_body: bodyHtml } : {}),
+        ...(attachments.length ? {
+          attachments: attachments.map(({ id: _id, size: _size, ...file }) => file),
+        } : {}),
         ...(leadId ? { lead_id: leadId } : {}),
         ...(seed?.threadId ? { thread_id: seed.threadId } : {}),
         ...(seed?.inReplyTo ? { in_reply_to: seed.inReplyTo } : {}),
@@ -59,6 +179,13 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
       const account = sendableAccounts.find((item) => item.id === connectionId);
       setNotice(`Email sent from ${account?.account_name ?? result.sender}.`);
       setBody("");
+      setBodyHtml("");
+      setCc("");
+      setBcc("");
+      setShowCc(false);
+      setShowBcc(false);
+      setAttachments([]);
+      if (editorRef.current) editorRef.current.innerHTML = "";
       onSent?.(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Email could not be sent.");
@@ -86,17 +213,59 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
     </label>
     <label>To
       <input value={recipient} onChange={(event) => setRecipient(event.target.value)} maxLength={1024} autoComplete="email" placeholder="name@example.com" required />
-      <small>Use one or more addresses, separated by commas.</small>
+      <div className="email-recipient-options">
+        <small>Separate multiple addresses with commas.</small>
+        <div>
+          <button type="button" className="button-quiet" onClick={() => setShowCc((value) => !value)} aria-expanded={showCc}>Cc</button>
+          <button type="button" className="button-quiet" onClick={() => setShowBcc((value) => !value)} aria-expanded={showBcc}>Bcc</button>
+        </div>
+      </div>
     </label>
+    {showCc && <label>Cc<input value={cc} onChange={(event) => setCc(event.target.value)} maxLength={1024} placeholder="copy@example.com" /></label>}
+    {showBcc && <label>Bcc<input value={bcc} onChange={(event) => setBcc(event.target.value)} maxLength={1024} placeholder="hidden-copy@example.com" /></label>}
     <label>Subject
       <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required />
     </label>
-    <label>Message
-      <textarea value={body} onChange={(event) => setBody(event.target.value)} rows={7} maxLength={8000} required />
+    <div className="email-rich-editor">
+      <span className="email-field-label">Message</span>
+      <div className="email-format-toolbar" role="toolbar" aria-label="Message formatting">
+        <button type="button" aria-label="Bold" title="Bold" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("bold")}><strong>B</strong></button>
+        <button type="button" aria-label="Italic" title="Italic" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("italic")}><em>I</em></button>
+        <button type="button" aria-label="Underline" title="Underline" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("underline")}><u>U</u></button>
+        <button type="button" aria-label="Insert link" title="Insert link" onMouseDown={(event) => { event.preventDefault(); saveSelection(); }} onClick={() => { setLinkOpen((value) => !value); setError(null); }}>Link</button>
+      </div>
+      {linkOpen && <div className="email-link-entry">
+        <input type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.com" aria-label="Link URL" />
+        <button type="button" className="secondary-button" onClick={insertLink} disabled={!linkUrl.trim()}>Insert link</button>
+      </div>}
+      <div
+        ref={editorRef}
+        className="email-rich-editor-input"
+        contentEditable={!busy}
+        role="textbox"
+        aria-label="Message"
+        aria-multiline="true"
+        aria-required="true"
+        data-placeholder="Write your message…"
+        onInput={syncBody}
+        onPaste={() => window.setTimeout(syncBody, 0)}
+      />
+    </div>
+    <label className="email-attachment-picker">Attachments
+      <input type="file" multiple disabled={busy || encodingAttachments || attachments.length >= MAX_FILES} onChange={(event) => void addAttachments(event)} />
+      <small>Up to {MAX_FILES} files, {MAX_FILE_BYTES / 1024 / 1024} MB each, 10 MB total.</small>
     </label>
+    {encodingAttachments && <small role="status">Preparing attachments…</small>}
+    {attachmentError && <div className="notice" role="alert">{attachmentError}</div>}
+    {attachments.length > 0 && <ul className="email-attachment-list">
+      {attachments.map((file) => <li key={file.id}>
+        <span>{file.filename} · {(file.size / 1024).toFixed(0)} KB</span>
+        <button type="button" className="button-quiet" onClick={() => setAttachments((current) => current.filter((item) => item.id !== file.id))} disabled={busy}>Remove</button>
+      </li>)}
+    </ul>}
     {error && <div className="notice" role="alert">{error}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
-    <button className="primary-button" type="submit" disabled={busy || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
+    <button className="primary-button" type="submit" disabled={busy || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
       {busy ? "Sending…" : "Send email"}
     </button>
   </form>;

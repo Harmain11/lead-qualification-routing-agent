@@ -480,6 +480,70 @@ def test_gmail_outbound_provider_returns_message_and_thread_ids() -> None:
     ) == {"message_id": "sent-1", "thread_id": "thread-1"}
 
 
+def test_gmail_special_folders_include_spam_and_trash_when_requested() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"messages": []})
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "team@example.test", client=_client(handler)
+    )
+    for folder in ("spam", "trash", "archive", "all"):
+        provider.list_mailbox_messages(folder=folder)
+
+    assert requests[0].url.params["q"] == "in:spam"
+    assert requests[0].url.params["includeSpamTrash"].lower() == "true"
+    assert requests[1].url.params["q"] == "in:trash"
+    assert requests[1].url.params["includeSpamTrash"].lower() == "true"
+    assert requests[2].url.params["q"] == "-in:inbox -in:sent -in:spam -in:trash -in:drafts"
+    assert requests[3].url.params["q"] == "in:anywhere -in:spam -in:trash"
+
+
+def test_gmail_outbound_provider_sends_cc_bcc_rich_text_and_attachments() -> None:
+    import base64
+    from email import message_from_bytes
+    from email.policy import default
+    import json
+
+    sent_messages = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        raw = body["raw"]
+        raw += "=" * (-len(raw) % 4)
+        sent_messages.append(
+            message_from_bytes(base64.urlsafe_b64decode(raw), policy=default)
+        )
+        return httpx.Response(200, json={"id": "sent-rich", "threadId": "thread-rich"})
+
+    provider = GmailOutboundProvider(
+        uuid4(), "access", "team@example.test", client=_client(handler)
+    )
+    result = provider.send_email_with_metadata(
+        recipient="pat@example.test",
+        cc="team-copy@example.test",
+        bcc="private-copy@example.test",
+        subject="Formatted update",
+        body="Hello",
+        html_body="<p><strong>Hello</strong></p>",
+        attachments=[("notes.txt", "text/plain", b"Call notes")],
+    )
+
+    assert result == {"message_id": "sent-rich", "thread_id": "thread-rich"}
+    message = sent_messages[0]
+    assert message["To"] == "pat@example.test"
+    assert message["Cc"] == "team-copy@example.test"
+    assert message["Bcc"] == "private-copy@example.test"
+    assert message.get_content_type() == "multipart/mixed"
+    html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
+    assert "<strong>Hello</strong>" in html_part.get_content()
+    attachment = next(message.iter_attachments())
+    assert attachment.get_filename() == "notes.txt"
+    assert attachment.get_payload(decode=True) == b"Call notes"
+
+
 def test_gmail_incremental_history_and_expired_history_reconciliation() -> None:
     calls: list[str] = []
 

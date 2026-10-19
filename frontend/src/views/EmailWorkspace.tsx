@@ -30,7 +30,7 @@ export function EmailWorkspace({
 }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [connectionId, setConnectionId] = useState("");
-  const [folder, setFolder] = useState<"inbox" | "sent">("inbox");
+  const [folder, setFolder] = useState<"inbox" | "sent" | "all" | "spam" | "trash" | "archive">("inbox");
   const [messages, setMessages] = useState<GmailMailboxMessage[]>([]);
   const [selected, setSelected] = useState<GmailMailboxMessage | null>(null);
   const [thread, setThread] = useState<GmailThreadMessage[]>([]);
@@ -142,6 +142,14 @@ export function EmailWorkspace({
   }
 
   const activeAccount = accounts.find((account) => account.id === connectionId);
+  const folderLabel = {
+    inbox: "Inbox",
+    sent: "Sent",
+    all: "All Mail",
+    spam: "Spam",
+    trash: "Trash",
+    archive: "Archive",
+  }[folder];
 
   return <div className="page-view operational-page email-workspace-page">
     <header className="page-hero email-workspace-hero">
@@ -161,8 +169,24 @@ export function EmailWorkspace({
         </select>
       </label>
       <div className="email-folder-switch" role="group" aria-label="Mailbox folder">
-        <button type="button" className={folder === "inbox" ? "is-active" : ""} aria-pressed={folder === "inbox"} onClick={() => { setFolder("inbox"); setPageToken(null); }}>Inbox</button>
-        <button type="button" className={folder === "sent" ? "is-active" : ""} aria-pressed={folder === "sent"} onClick={() => { setFolder("sent"); setPageToken(null); }}>Sent</button>
+        {([
+          ["inbox", "Inbox"],
+          ["sent", "Sent"],
+          ["all", "All Mail"],
+          ["spam", "Spam"],
+          ["trash", "Trash"],
+          ["archive", "Archive"],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={folder === value ? "is-active" : ""}
+            aria-pressed={folder === value}
+            onClick={() => { setFolder(value); setPageToken(null); }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <form className="email-search" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="shared-email-search">Search email</label>
@@ -174,8 +198,8 @@ export function EmailWorkspace({
     {loadingAccounts && <div className="email-empty-state"><span>Loading connected Gmail accounts…</span></div>}
     {!loadingAccounts && accounts.length === 0 && <div className="email-empty-state"><strong>No verified Gmail account is connected.</strong><span>Connect one or more Gmail accounts to read the shared inbox.</span><button className="secondary-button" type="button" onClick={onOpenIntegrations}>Open Integrations</button></div>}
     {!loadingAccounts && accounts.length > 0 && <div className="email-workspace-grid">
-      <section className="email-message-list panel" aria-label={`${folder} messages`}>
-        <header><div><span className="eyebrow">{folder === "inbox" ? "Inbox" : "Sent mail"}</span><h2>{activeAccount?.account_name ?? "Mailbox"}</h2></div><span>{messages.length} shown</span></header>
+       <section className="email-message-list panel" aria-label={`${folderLabel} messages`}>
+         <header><div><span className="eyebrow">{folderLabel}</span><h2>{activeAccount?.account_name ?? "Mailbox"}</h2></div><span>{messages.length} shown</span></header>
         {loadingMessages && <p className="email-status">Loading messages…</p>}
         {!loadingMessages && messages.length === 0 && <div className="email-list-empty">No email matches this view.</div>}
         <div className="email-message-list-rows">

@@ -19,7 +19,9 @@ from lead_agent.api.routes.collaboration import owned_lead
 from lead_agent.application.governance import (
     OutreachBlocked,
     assert_outreach_allowed,
+    assert_residency,
     audit_operation,
+    operations_policy,
     outreach_allowed,
 )
 from lead_agent.domain.operations import StrictModel
@@ -41,6 +43,7 @@ router = APIRouter(prefix="/v1/calling", tags=["calls and voice activity"])
 class CallRecord(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
+    lead_id: UUID | None = None
     connection_id: UUID
     provider: str
     external_id: str | None
@@ -61,6 +64,15 @@ class StartCall(StrictModel):
     connection_id: UUID
     request_id: UUID
     confirmed: bool
+    rep_phone: str | None = Field(default=None, max_length=32)
+
+
+class DirectStartCall(StrictModel):
+    connection_id: UUID
+    request_id: UUID
+    phone_number: str = Field(min_length=8, max_length=32)
+    confirmed: bool
+    consent_confirmed: bool
     rep_phone: str | None = Field(default=None, max_length=32)
 
 
@@ -452,6 +464,218 @@ def start_call(
         return row
     finally:
         client.close()
+
+
+@router.post(
+    "/direct/start",
+    response_model=CallRecord,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def start_direct_call(
+    request: DirectStartCall,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> CallRecordORM:
+    if not request.confirmed:
+        raise HTTPException(422, "Confirm this individual call before dialing.")
+    if not request.consent_confirmed:
+        raise HTTPException(422, "Confirm that you have permission to call this number.")
+    try:
+        target = phone(request.phone_number)
+        rep = phone(request.rep_phone) if request.rep_phone else None
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            {
+                "direct": True,
+                "connection_id": str(request.connection_id),
+                "target": target,
+                "rep_phone": rep,
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+
+    def prior() -> CallRecordORM | None:
+        row = session.scalar(
+            select(CallRecordORM).where(
+                CallRecordORM.workspace_id == workspace.workspace_id,
+                CallRecordORM.request_id == request.request_id,
+            )
+        )
+        if row and row.request_fingerprint != fingerprint:
+            raise HTTPException(
+                409, "This call request ID was already used with different details."
+            )
+        return row
+
+    previous = prior()
+    if previous:
+        return previous
+
+    target_digits = "".join(character for character in target if character.isdigit())
+    matching_leads = [
+        lead
+        for lead in session.scalars(
+            select(LeadORM).where(
+                LeadORM.workspace_id == workspace.workspace_id,
+                LeadORM.phone.is_not(None),
+            )
+        )
+        if "".join(character for character in (lead.phone or "") if character.isdigit())
+        == target_digits
+    ]
+    policy = operations_policy(session, workspace.workspace_id)
+    try:
+        assert_residency(session, workspace.workspace_id)
+        if not matching_leads and policy.require_recorded_consent:
+            raise OutreachBlocked(
+                "This workspace requires recorded call consent. Add the number to a lead and record permission before calling."
+            )
+        for lead in matching_leads:
+            if lead.email:
+                assert_outreach_allowed(session, workspace.workspace_id, lead.email, "call")
+            elif policy.require_recorded_consent:
+                raise OutreachBlocked(
+                    "Record call permission for this lead before dialing its number."
+                )
+    except OutreachBlocked as error:
+        raise HTTPException(409, str(error)) from None
+
+    # Direct calls stay unlinked until a user explicitly creates a lead.
+    lead_id = None
+    connection = _connection(session, workspace.workspace_id, request.connection_id)
+    client = _client(session, workspace, connection, resolver)
+    try:
+        if connection.provider_type == "twilio" and (
+            not rep or rep in {target, client.credentials.get("from_number")}
+        ):
+            raise HTTPException(
+                422, "Enter your rep number, different from the number being called and caller ID."
+            )
+        if connection.provider_type == "ringcentral":
+            caller = rep or client.credentials.get("from_number")
+            if caller == target:
+                raise HTTPException(422, "Your rep number must differ from the number being called.")
+
+        now = datetime.now(UTC)
+        row = CallRecordORM(
+            workspace_id=workspace.workspace_id,
+            lead_id=lead_id,
+            connection_id=connection.id,
+            provider=connection.provider_type,
+            request_id=request.request_id,
+            request_fingerprint=fingerprint,
+            status="submitting",
+            customer_phone=target,
+            actor_id=workspace.actor_id,
+            started_at=now,
+            message="Submission started. Check your provider if its final receipt is unavailable.",
+        )
+        session.add(row)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            existing = prior()
+            if existing:
+                return existing
+            raise HTTPException(409, "The call request changed; refresh its status.") from None
+        try:
+            row.external_id, row.status = client.start_call(target, rep, str(request.request_id))
+            row.message = (
+                "Call request accepted. Add a lead afterward if this number becomes a prospect."
+            )
+        except ProviderOperationError as error:
+            row.status = (
+                "uncertain"
+                if error.category
+                in {"timeout", "temporarily_unavailable", "unknown", "malformed_response"}
+                else "failed"
+            )
+            row.message = (
+                "The provider may have accepted this call. Check its call log before placing another call."
+                if row.status == "uncertain"
+                else str(error)
+            )
+        except (ValueError, TypeError, KeyError, AttributeError):
+            row.status = "uncertain"
+            row.message = (
+                "No reliable call receipt was returned. Check the provider before placing another call."
+            )
+        row.updated_at = datetime.now(UTC)
+        audit_operation(
+            session,
+            workspace.workspace_id,
+            workspace.actor_id,
+            "call.direct_requested",
+            {
+                "connection_id": str(connection.id),
+                "request_id": str(request.request_id),
+                "provider": row.provider,
+                "status": row.status,
+            },
+        )
+        session.commit()
+        return row
+    finally:
+        client.close()
+
+
+@router.get("/direct/recent")
+def recent_direct_calls(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> dict[str, list[dict[str, object]]]:
+    records = list(
+        session.scalars(
+            select(CallRecordORM)
+            .where(
+                CallRecordORM.workspace_id == workspace.workspace_id,
+                CallRecordORM.lead_id.is_(None),
+                CallRecordORM.request_id.is_not(None),
+            )
+            .order_by(
+                func.coalesce(CallRecordORM.started_at, CallRecordORM.created_at).desc(),
+                CallRecordORM.created_at.desc(),
+            )
+            .limit(50)
+        )
+    )
+    leads = list(
+        session.execute(
+            select(
+                LeadORM.id,
+                LeadORM.full_name,
+                LeadORM.company_name,
+                LeadORM.phone,
+            ).where(
+                LeadORM.workspace_id == workspace.workspace_id,
+                LeadORM.phone.is_not(None),
+            )
+        )
+    )
+    by_phone = {
+        "".join(character for character in (phone_number or "") if character.isdigit()):
+        (str(lead_id), full_name, company_name)
+        for lead_id, full_name, company_name, phone_number in leads
+    }
+    payload: list[dict[str, object]] = []
+    for row in records:
+        item = CallRecord.model_validate(row).model_dump(mode="json")
+        match = by_phone.get(
+            "".join(character for character in row.customer_phone if character.isdigit())
+        )
+        item.update(
+            lead_id=match[0] if match else None,
+            lead_name=match[1] if match else None,
+            company_name=match[2] if match else None,
+        )
+        payload.append(item)
+    return {"records": payload}
 
 
 @router.post(

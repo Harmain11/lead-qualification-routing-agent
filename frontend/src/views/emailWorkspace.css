@@ -1,11 +1,11 @@
 .email-workspace-page { gap: 18px; }
 .email-workspace-hero { align-items: end; }
 .email-workspace-hero .primary-button { flex: 0 0 auto; }
-.email-mailbox-toolbar { display: flex; align-items: end; gap: 12px; padding: 14px; }
+.email-mailbox-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 14px; }
 .email-mailbox-toolbar > label { display: grid; gap: 6px; min-width: 220px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .email-mailbox-toolbar select,
 .email-search input { min-height: 40px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); padding: 8px 10px; }
-.email-folder-switch { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-high); }
+.email-folder-switch { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-high); }
 .email-folder-switch button { padding: 8px 13px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; }
 .email-folder-switch button.is-active { background: var(--surface-solid); color: var(--text); box-shadow: var(--shadow); }
 .email-search { display: flex; flex: 1; gap: 8px; min-width: 140px; }
@@ -48,6 +48,23 @@
 .email-composer label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .email-composer input, .email-composer select, .email-composer textarea { width: 100%; min-height: 39px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); padding: 9px 10px; font-size: 12px; }
 .email-composer textarea { resize: vertical; line-height: 1.5; }
+.email-recipient-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.email-recipient-options > div { display: flex; gap: 4px; }
+.email-recipient-options .button-quiet { min-height: 26px; padding: 3px 8px; font-size: 10px; }
+.email-rich-editor { display: grid; gap: 6px; }
+.email-field-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+.email-format-toolbar { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: var(--surface-high); }
+.email-format-toolbar button { min-width: 31px; min-height: 29px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; }
+.email-format-toolbar button:hover, .email-format-toolbar button:focus-visible { border-color: var(--line-bright); background: var(--surface-solid); }
+.email-link-entry { display: flex; gap: 7px; }
+.email-link-entry input { flex: 1; min-width: 0; }
+.email-rich-editor-input { min-height: 150px; max-height: 420px; overflow: auto; padding: 11px; border: 1px solid var(--line); border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--surface-solid); color: var(--text); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; outline: none; }
+.email-rich-editor-input:focus { border-color: var(--line-bright); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent); }
+.email-rich-editor-input:empty::before { content: attr(data-placeholder); color: var(--subtle); pointer-events: none; }
+.email-attachment-picker input[type="file"] { min-height: 0; padding: 7px; }
+.email-attachment-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.email-attachment-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-solid); color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
+.email-attachment-list .button-quiet { flex: 0 0 auto; }
 .email-composer-empty { margin-top: 16px; padding: 14px; border-radius: 10px; background: var(--surface-high); color: var(--muted); font-size: 12px; }
 .gmail-account-list { display: grid; gap: 8px; }
 .gmail-account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
@@ -77,6 +94,7 @@
   .email-workspace-hero, .email-mailbox-toolbar, .lead-email-heading { align-items: stretch; flex-direction: column; }
   .email-mailbox-toolbar > label { min-width: 0; }
   .email-search { width: 100%; }
+  .email-folder-switch { width: 100%; }
   .email-workspace-grid { grid-template-columns: minmax(0, 1fr); }
   .email-message-list { max-height: 420px; overflow: auto; }
   .email-composer-heading { align-items: start; flex-direction: column; }

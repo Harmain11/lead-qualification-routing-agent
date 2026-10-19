@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import html as html_module
 import re
 from datetime import UTC, datetime
 from email.utils import getaddresses
+from html.parser import HTMLParser
 from typing import Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,6 +34,92 @@ from lead_agent.infrastructure.provider_lifecycle import get_workspace_connectio
 router = APIRouter(prefix="/v1/email", tags=["email"])
 _EMAIL_ADDRESS = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
 _GMAIL_ID = re.compile(r"^[A-Za-z0-9_-]{1,255}$")
+_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+_ALLOWED_EMAIL_TAGS = {
+    "a", "b", "blockquote", "br", "div", "em", "i", "li", "ol", "p", "span",
+    "strong", "u", "ul",
+}
+_VOID_EMAIL_TAGS = {"br"}
+
+
+class EmailAttachment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(default="application/octet-stream", max_length=127)
+    content_base64: str = Field(min_length=1, max_length=7_000_000)
+
+    @field_validator("filename")
+    @classmethod
+    def safe_filename(cls, value: str) -> str:
+        if "\r" in value or "\n" in value:
+            raise ValueError("Attachment filenames cannot contain line breaks")
+        filename = re.split(r"[\\/]", value.strip())[-1]
+        if filename in {"", ".", ".."}:
+            raise ValueError("Choose a valid attachment filename")
+        return filename
+
+    @field_validator("content_type")
+    @classmethod
+    def valid_content_type(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+", value):
+            raise ValueError("Attachment content type is invalid")
+        return value.lower()
+
+
+class _EmailHTMLSanitizer(HTMLParser):
+    """Allow only basic formatting and safe links in user-authored email HTML."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in _ALLOWED_EMAIL_TAGS:
+            return
+        if tag == "a":
+            href = next((value for name, value in attrs if name.lower() == "href"), None)
+            if href and "\r" not in href and "\n" not in href:
+                parsed = urlsplit(href.strip())
+                if parsed.scheme in {"http", "https"} and parsed.netloc:
+                    self.parts.append(
+                        f'<a href="{html_module.escape(href.strip(), quote=True)}" '
+                        'rel="noopener noreferrer">'
+                    )
+                    return
+                if parsed.scheme == "mailto" and parsed.path:
+                    self.parts.append(
+                        f'<a href="{html_module.escape(href.strip(), quote=True)}">'
+                    )
+                    return
+        self.parts.append(f"<{tag}>")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _ALLOWED_EMAIL_TAGS and tag not in _VOID_EMAIL_TAGS:
+            self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(html_module.escape(data))
+
+
+def _sanitize_email_html(value: str | None) -> str | None:
+    if not value:
+        return None
+    parser = _EmailHTMLSanitizer()
+    parser.feed(value[:40_000])
+    parser.close()
+    return "".join(parser.parts)
+
+
+def _validate_address_list(value: str, *, required: bool) -> str:
+    if "\r" in value or "\n" in value:
+        raise ValueError("Email recipients cannot contain line breaks")
+    addresses = [address.strip() for _name, address in getaddresses([value]) if address]
+    if ((required or value.strip()) and not addresses) or len(addresses) > 10 or any(
+        not _EMAIL_ADDRESS.fullmatch(address) for address in addresses
+    ):
+        raise ValueError("Enter up to 10 valid email addresses, separated by commas")
+    return value
 
 
 class MailboxMessageResponse(BaseModel):
@@ -58,8 +149,12 @@ class SendEmailRequest(BaseModel):
 
     connection_id: UUID
     recipient: str = Field(min_length=3, max_length=1024)
+    cc: str = Field(default="", max_length=1024)
+    bcc: str = Field(default="", max_length=1024)
     subject: str = Field(min_length=1, max_length=180)
     body: str = Field(min_length=1, max_length=8000)
+    html_body: str | None = Field(default=None, max_length=40_000)
+    attachments: list[EmailAttachment] = Field(default_factory=list, max_length=3)
     lead_id: UUID | None = None
     thread_id: str | None = Field(default=None, max_length=255)
     in_reply_to: str | None = Field(default=None, max_length=998)
@@ -67,14 +162,12 @@ class SendEmailRequest(BaseModel):
     @field_validator("recipient")
     @classmethod
     def validate_recipient(cls, value: str) -> str:
-        if "\r" in value or "\n" in value:
-            raise ValueError("Email recipients cannot contain line breaks")
-        addresses = [address.strip() for _name, address in getaddresses([value]) if address]
-        if not addresses or len(addresses) > 10 or any(
-            not _EMAIL_ADDRESS.fullmatch(address) for address in addresses
-        ):
-            raise ValueError("Enter between 1 and 10 valid email addresses")
-        return value
+        return _validate_address_list(value, required=True)
+
+    @field_validator("cc", "bcc")
+    @classmethod
+    def validate_optional_recipients(cls, value: str) -> str:
+        return _validate_address_list(value, required=False)
 
     @field_validator("subject", "in_reply_to")
     @classmethod
@@ -146,7 +239,7 @@ def _gmail_connection(
 @router.get("/messages", response_model=MailboxMessagePageResponse)
 def list_mailbox_messages(
     connection_id: UUID,
-    folder: Literal["inbox", "sent", "all"] = "inbox",
+    folder: Literal["inbox", "sent", "all", "spam", "trash", "archive"] = "inbox",
     query: str = Query(default="", max_length=200),
     page_token: str | None = Query(default=None, max_length=1024),
     limit: int = Query(default=25, ge=1, le=50),
@@ -223,11 +316,29 @@ def send_email(
             raise HTTPException(status_code=404, detail="Lead not found")
 
     provider = GmailOutboundProvider(connection.id, access_token, mailbox)
+    decoded_attachments: list[tuple[str, str, bytes]] = []
+    total_attachment_bytes = 0
+    for attachment in request.attachments:
+        try:
+            content = base64.b64decode(attachment.content_base64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="An attachment could not be decoded.") from None
+        total_attachment_bytes += len(content)
+        if total_attachment_bytes > _MAX_ATTACHMENT_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail="Attachments must total 10 MB or less.",
+            )
+        decoded_attachments.append((attachment.filename, attachment.content_type, content))
     try:
         result = provider.send_email_with_metadata(
             recipient=request.recipient,
+            cc=request.cc,
+            bcc=request.bcc,
             subject=request.subject,
             body=request.body,
+            html_body=_sanitize_email_html(request.html_body),
+            attachments=decoded_attachments,
             thread_id=request.thread_id,
             in_reply_to=request.in_reply_to,
         )
@@ -247,7 +358,9 @@ def send_email(
             "thread_id": thread_id or "",
             "sender": mailbox,
             "sender_name": "",
-            "recipients": request.recipient,
+            "recipients": ", ".join(
+                value for value in (request.recipient, request.cc) if value
+            ),
             "subject": request.subject,
             "sent_at": sent_at.isoformat(),
             "rfc_message_id": "",

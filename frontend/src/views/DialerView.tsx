@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { createLead, listIntegrations, listLeads } from "../api";
 import { CallsPanel } from "../components/CallsPanel";
+import { DirectDialer } from "../components/DirectDialer";
 import { opsGet } from "../operationsApi";
 import type { IntegrationCard, Lead, LeadPayload } from "../types";
 import { CallInsights, hasCallInsightData, type CallInsightsData } from "../components/CallInsights";
@@ -215,6 +216,16 @@ export function DialerView({
     [cards],
   );
   const connected = dialers.filter((card) => card.connections.some((connection) => connection.is_active && ["connected", "verified", "configured"].includes(connection.status)));
+  const verifiedDialers = useMemo(
+    () => dialers.flatMap((card) => card.connections
+      .filter((connection) => connection.is_active && connection.status === "verified")
+      .map((connection) => ({
+        id: connection.id,
+        provider: card.provider,
+        account_name: connection.account_name,
+      }))),
+    [dialers],
+  );
   const potentialLeadCount = activity?.records.filter((record) => assessLeadPotential(record).label === "Potential lead").length ?? 0;
 
   return (
@@ -223,7 +234,7 @@ export function DialerView({
         <div>
           <span className="eyebrow">Calling operations</span>
           <h1>Dialer workspace</h1>
-          <p>Connect a provider, place confirmed calls from lead records, and review provider-supplied recordings and transcripts in one place.</p>
+          <p>Place confirmed calls to leads or new numbers, then review provider-supplied recordings and transcripts.</p>
         </div>
         <button className="primary-button" onClick={onOpenIntegrations}>Manage dialer connections <span aria-hidden="true">→</span></button>
       </header>
@@ -328,8 +339,15 @@ export function DialerView({
                 </>
               )}
             </section>
+            <DirectDialer
+              connections={verifiedDialers}
+              canCall={canCall}
+              canViewLeads={canViewLeads}
+              canEditLeads={canEditLeads}
+              onOpenLead={onOpenLead}
+            />
             <section className="dialer-workflow-grid">
-              <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Calls remain rep-confirmed and are launched from a lead with a valid international number.</p></div></article>
+              <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Calls are placed individually to a lead or a valid international number, with consent and permission checks.</p></div></article>
               <article><span className="dialer-step">02</span><div><h3>Sync provider activity</h3><p>Import status, duration, recording links and transcripts from the connected provider.</p></div></article>
               <article><span className="dialer-step">03</span><div><h3>Review the conversation</h3><p>Use the history and transcript views to prepare follow-ups and qualification decisions.</p></div></article>
             </section>
