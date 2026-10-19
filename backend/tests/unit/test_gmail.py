@@ -174,10 +174,16 @@ def test_mime_parser_prefers_nested_plain_text_and_html_fallback() -> None:
                     "filename": "proposal.pdf",
                     "body": {"attachmentId": "not-downloaded"},
                 },
+                {
+                    "mimeType": "text/plain",
+                    "filename": "project-details.txt",
+                    "body": {"data": _encoded("Attachment: we need a project proposal")},
+                },
             ],
         }
     )
-    assert plain == "Please send pricing for our team"
+    assert plain.startswith("Please send pricing for our team")
+    assert "Attachment: we need a project proposal" in plain
 
     html = parse_mime_body(
         {
@@ -502,7 +508,7 @@ def test_gmail_forwarded_lead_keeps_forwarded_contact_identity_and_provenance() 
     assert canonical.normalized_payload["company_name"] == "Client Example"
     assert canonical.provider_metadata["forwarded_lead"] is True
     assert canonical.provider_metadata["original_sender_email"] == "rep@agency.example"
-    assert "Forwarded message from" in canonical.normalized_payload["message"]
+    assert "From: Mira Example <mira@client.example>" in canonical.normalized_payload["message"]
 
 
 def test_gmail_ai_recovers_candidate_without_deterministic_inquiry_signal() -> None:
@@ -709,18 +715,239 @@ def test_gmail_ai_uses_forwarded_message_identity_and_content() -> None:
         },
         modified_at=datetime(2026, 1, 1, tzinfo=UTC),
     ))
-    assert observed == ["We are looking for event support for Acme Group."]
+    assert len(observed) == 1
+    assert "From: Mira Example <mira@client.example>" in observed[0]
+    assert "We are looking for event support for Acme Group." in observed[0]
     assert canonical.normalized_payload["email"] == "mira@client.example"
     assert canonical.provider_metadata["forwarded_lead"] is True
+
+
+def test_gmail_fetch_record_supplies_full_multi_message_thread_to_ai() -> None:
+    body = "Could we discuss a project this week?"
+    thread_messages = [
+        {
+            "id": "older",
+            "threadId": "thread-full",
+            "internalDate": "1760000000000",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [
+                    {"name": "From", "value": "Mira <mira@client.example>"},
+                    {"name": "To", "value": "inbox@example.test"},
+                    {"name": "Date", "value": "Mon, 1 Oct 2026 10:00:00 +0000"},
+                    {"name": "Subject", "value": "Project question"},
+                ],
+                "body": {"data": _encoded("We are comparing providers for our project.")},
+            },
+        },
+        {
+            "id": "newer",
+            "threadId": "thread-full",
+            "internalDate": "1760000100000",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [
+                    {"name": "From", "value": "Mira <mira@client.example>"},
+                    {"name": "To", "value": "inbox@example.test"},
+                    {"name": "Cc", "value": "ops@example.test"},
+                    {"name": "Date", "value": "Mon, 1 Oct 2026 10:01:00 +0000"},
+                    {"name": "Subject", "value": "Re: Project question"},
+                ],
+                "body": {"data": _encoded(body)},
+            },
+        },
+    ]
+
+    class FakeApi:
+        def get(self, path: str, **_params):
+            if path == "messages/newer":
+                return {
+                    "id": "newer",
+                    "threadId": "thread-full",
+                    "labelIds": ["INBOX"],
+                    "internalDate": "1760000100000",
+                    "snippet": body,
+                    "payload": {
+                        "headers": [
+                            {"name": "From", "value": "Mira <mira@client.example>"},
+                            {"name": "Subject", "value": "Re: Project question"},
+                        ]
+                    },
+                }
+            if path == "threads/thread-full":
+                return {"id": "thread-full", "messages": thread_messages}
+            raise AssertionError(f"Unexpected Gmail API path: {path}")
+
+    received: list[str] = []
+
+    def extract(*, body: str, **_kwargs):
+        received.append(body)
+        return GmailLeadExtraction(
+            is_genuine_inquiry=True,
+            reason="The thread describes an active project discussion.",
+            inquiry_evidence="Could we discuss a project this week?",
+        )
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test", lead_extractor=extract
+    )
+    provider.api = FakeApi()
+    fetched = provider.fetch_record(object_type="message", record_id="newer")
+    canonical = provider.normalize_record(fetched)
+
+    assert len(received) == 1
+    assert "We are comparing providers for our project." in received[0]
+    assert "Could we discuss a project this week?" in received[0]
+    assert "Cc: ops@example.test" in received[0]
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.normalized_payload["gmail_thread_id"] == "thread-full"
+
+
+def test_gmail_inline_forwarded_headers_select_distinct_prospect() -> None:
+    provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
+    body = (
+        "Can you follow up?\n\n"
+        "From: Mira Example <mira@client.example>\n"
+        "To: sales@agency.example\n"
+        "Date: Mon, 19 Oct 2026 09:00:00 +0000\n"
+        "Subject: Pricing request\n\n"
+        "Could you send pricing for our team?"
+    )
+    canonical = provider.normalize_record(
+        ExternalCrmRecord(
+            provider="gmail",
+            object_type="message",
+            record_id="forward-inline",
+            values={
+                "thread_id": "thread-forward-inline",
+                "headers": {
+                    "from": "Sales Rep <rep@agency.example>",
+                    "subject": "Fwd: pricing",
+                },
+                "body": body,
+            },
+            modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+        )
+    )
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.provider_metadata["original_sender_email"] == "rep@agency.example"
+    assert canonical.provider_metadata["gmail_thread_decision"] == "separate_forwarded_lead"
+    assert "From: Mira Example <mira@client.example>" in canonical.normalized_payload["message"]
+
+
+def test_gmail_quoted_header_and_internal_cc_do_not_become_candidate() -> None:
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="The sender is exploring a project.",
+        inquiry_evidence="Could we discuss the project?",
+    )
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test", lead_extractor=lambda **_kwargs: extraction
+    )
+    quoted = provider.normalize_record(
+        ExternalCrmRecord(
+            provider="gmail",
+            object_type="message",
+            record_id="quoted-thread",
+            values={
+                "thread_id": "thread-quoted",
+                "headers": {"from": "Mira <mira@client.example>", "subject": "Project"},
+                "body": (
+                    "Could we discuss the project?\n"
+                    "> From: old.contact@example.test\n"
+                    "> Subject: previous inquiry"
+                ),
+            },
+            modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+        )
+    )
+    assert quoted.normalized_payload["email"] == "mira@client.example"
+    assert quoted.provider_metadata["gmail_thread_decision"] == "sender_lead"
+
+    cc_provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "inbox@example.test",
+        lead_extractor=lambda **_kwargs: GmailLeadExtraction(
+            is_genuine_inquiry=True,
+            reason="An internal colleague appears in the thread.",
+            inquiry_evidence="Could we discuss the project?",
+            email="staff@agency.example",
+            evidence=[
+                GmailEvidence(
+                    field="email",
+                    source="body",
+                    excerpt="Cc: staff@agency.example",
+                )
+            ],
+        ),
+    )
+    with pytest.raises(
+        ValueError, match="thread_candidate_not_a_prospect"
+    ):
+        cc_provider.normalize_record(
+            ExternalCrmRecord(
+                provider="gmail",
+                object_type="message",
+                record_id="internal-cc",
+                values={
+                    "thread_id": "thread-cc",
+                    "headers": {"from": "Mira <mira@client.example>", "subject": "Project"},
+                    "body": "Could we discuss the project?",
+                    "thread_context": (
+                        "From: Mira <mira@client.example>\n"
+                        "Cc: staff@agency.example\n\nCould we discuss the project?"
+                    ),
+                },
+                modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+            )
+        )
+
+
+def test_gmail_forwarded_identity_is_stable_across_repeated_normalization() -> None:
+    provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="forward-repeat",
+        values={
+            "thread_id": "thread-repeat",
+            "headers": {"from": "Rep <rep@agency.example>", "subject": "Fwd: lead"},
+            "body": (
+                "---------- Forwarded message ---------\n"
+                "From: Mira <mira@client.example>\n"
+                "Subject: Pricing request\n\nCould you send pricing?"
+            ),
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+    first = provider.normalize_record(record)
+    second = provider.normalize_record(record)
+    assert first.normalized_payload["email"] == second.normalized_payload["email"]
+    assert first.normalized_payload["email"] == "mira@client.example"
+    assert first.source_fingerprint == second.source_fingerprint
 
 
 class _CanonicalGmailProvider:
     provider_name = "gmail"
 
-    def __init__(self, connection_id: UUID, messages: list[ExternalCrmRecord]) -> None:
+    def __init__(
+        self,
+        connection_id: UUID,
+        messages: list[ExternalCrmRecord],
+        *,
+        email: str = "mira@client.example",
+        name: str = "Mira Example",
+        forwarded_lead: bool = False,
+        original_sender_email: str | None = None,
+    ) -> None:
         self.connection_id = connection_id
         self.messages = messages
         self.normalize_count = 0
+        self.email = email
+        self.name = name
+        self.forwarded_lead = forwarded_lead
+        self.original_sender_email = original_sender_email
 
     def list_records(
         self, *, object_type: str, cursor: InboundCursor | None, limit: int
@@ -743,8 +970,8 @@ class _CanonicalGmailProvider:
             "source": "email",
             "source_detail": "Gmail",
             "external_id": record.record_id,
-            "full_name": "Mira Example",
-            "email": "mira@client.example",
+            "full_name": self.name,
+            "email": self.email,
             "company_name": "Client Example",
             "product_or_service": "Inbound inquiry",
             "message": content,
@@ -765,7 +992,13 @@ class _CanonicalGmailProvider:
                 "gmail_message_id": record.record_id,
                 "gmail_thread_id": str(values["thread_id"]),
                 "gmail_mailbox": "inbox@example.test",
-                "sender_email": "mira@client.example",
+                "sender_email": self.email,
+                "forwarded_lead": self.forwarded_lead,
+                "original_sender_email": self.original_sender_email or self.email,
+                "gmail_thread_decision": (
+                    "separate_forwarded_lead" if self.forwarded_lead else "sender_lead"
+                ),
+                "gmail_candidate_identity_email": self.email,
             },
         )
 
@@ -912,6 +1145,69 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         assert confirmation_calls == []
         assert len(delivery_correlations) == 2
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
+        forwarder_run = run(
+            _CanonicalGmailProvider(
+                connection.id,
+                [message("rep1", "Forwarding a possible lead.")],
+                email="rep@agency.example",
+                name="Sales Rep",
+            ),
+            "incremental",
+        )
+        forwarded_run = run(
+            _CanonicalGmailProvider(
+                connection.id,
+                [message("forward1", "Forwarded project request.")],
+                email="prospect@client.example",
+                name="Mira Prospect",
+                forwarded_lead=True,
+                original_sender_email="rep@agency.example",
+            ),
+            "incremental",
+        )
+        linked_run = run(
+            _CanonicalGmailProvider(
+                connection.id,
+                [message("forward2", "The same prospect forwarded again.")],
+                email="prospect@client.example",
+                name="Mira Prospect",
+                forwarded_lead=True,
+                original_sender_email="rep@agency.example",
+            ),
+            "incremental",
+        )
+        repeated_forward = run(
+            _CanonicalGmailProvider(
+                connection.id,
+                [message("forward2", "The same prospect forwarded again.")],
+                email="prospect@client.example",
+                name="Mira Prospect",
+                forwarded_lead=True,
+                original_sender_email="rep@agency.example",
+            ),
+            "manual",
+        )
+        rep_lead = session.scalar(
+            select(LeadORM).where(LeadORM.email == "rep@agency.example")
+        )
+        prospect_lead = session.scalar(
+            select(LeadORM).where(LeadORM.email == "prospect@client.example")
+        )
+        assert forwarder_run.records_created == 1
+        assert forwarded_run.records_created == 1
+        assert linked_run.records_updated == 1
+        assert repeated_forward.records_unchanged == 1
+        assert rep_lead is not None and prospect_lead is not None
+        assert rep_lead.id != prospect_lead.id
+        assert session.scalar(select(func.count()).select_from(LeadORM)) == 3
+        assert session.scalar(
+            select(func.count())
+            .select_from(models.ProviderLifecycleAuditORM)
+            .where(models.ProviderLifecycleAuditORM.action == "gmail_candidate_linked_existing")
+        ) >= 1
+        decisions_before_review = session.scalar(
+            select(func.count()).select_from(models.RoutingDecisionORM)
+        )
         review_provider = _CanonicalGmailProvider(
             connection.id,
             [
@@ -925,7 +1221,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         assert review_provider.normalize_count == 0
         assert (
             session.scalar(select(func.count()).select_from(models.RoutingDecisionORM))
-            == first_decisions + 1
+            == decisions_before_review
         )
 
 

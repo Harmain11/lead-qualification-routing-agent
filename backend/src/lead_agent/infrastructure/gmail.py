@@ -417,15 +417,23 @@ def _forwarded_lead(text: str) -> tuple[str, str, str, str] | None:
         r"(?im)^(?:-{2,}\s*(?:original|forwarded) message\s*-*|begin forwarded message:)\s*$",
         text,
     )
-    if marker is None:
-        return None
-    forwarded = text[marker.end():]
+    if marker is not None:
+        forwarded = text[marker.end():]
+    else:
+        # Some clients omit the usual forwarded-message banner. Require a real
+        # inline header block rather than treating arbitrary "From:" prose as a lead.
+        header_start = re.search(r"(?im)^From:\s*.+$", text)
+        if header_start is None:
+            return None
+        forwarded = text[header_start.start():]
     header_block, separator, body = forwarded.partition("\n\n")
     headers: dict[str, str] = {}
     for line in header_block.splitlines():
         key, colon, value = line.partition(":")
         if colon and key.strip().lower() in {"from", "subject", "date", "to"}:
             headers[key.strip().lower()] = value.strip()
+    if marker is None and not ({"subject", "date", "to"} & headers.keys()):
+        return None
     name, address = parseaddr(headers.get("from", ""))
     address = address.strip().lower()
     authored = _authored_email_text(body if separator else "")
@@ -522,10 +530,12 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
         mime = str(part.get("mimeType", "")).lower()
         filename = str(part.get("filename", ""))
         body = part.get("body", {})
-        if filename or not isinstance(body, dict):
+        if not isinstance(body, dict):
+            return
+        if filename and mime not in {"text/plain", "message/rfc822"}:
             return
         data = _decode_body(body.get("data"))
-        if mime == "text/plain" and data:
+        if mime in {"text/plain", "message/rfc822"} and data:
             plain.append(data)
         elif mime == "text/html" and data:
             html.append(data)
@@ -741,71 +751,136 @@ class GmailInboundProvider:
             f"messages/{record_id}",
             format="metadata",
             metadataHeaders=[
-                "From", "Reply-To", "Subject", "Date", "Auto-Submitted",
-                "Precedence", "List-Id", "List-Unsubscribe", "In-Reply-To",
+                "From", "Reply-To", "To", "Cc", "Bcc", "Subject", "Date",
+                "Auto-Submitted", "Precedence", "List-Id", "List-Unsubscribe",
+                "In-Reply-To", "Message-ID",
             ],
             fields="id,threadId,labelIds,internalDate,snippet,payload(headers)",
         )
-        headers = {
+        metadata_headers = {
             str(item.get("name", "")).lower(): str(item.get("value", ""))
             for item in data.get("payload", {}).get("headers", [])
             if isinstance(item, dict)
         }
-        labels = set(data.get("labelIds", []))
-        if labels.intersection({"SPAM", "TRASH", "DRAFT", "SENT"}):
+        thread_id = str(data.get("threadId", ""))
+        if set(data.get("labelIds", [])).intersection({"SPAM", "TRASH", "DRAFT", "SENT"}):
             return ExternalCrmRecord(
                 provider="gmail",
                 object_type="message",
                 record_id=record_id,
-                values={"skip_reason": "system_or_own_message"},
+                values={"skip_reason": "system_or_own_message", "thread_id": thread_id},
             )
-        reason = candidate_reason(headers, str(data.get("snippet", "")), self.mailbox_email)
-        if reason and reason != "no_inquiry_signal":
-            return ExternalCrmRecord(
-                provider="gmail",
-                object_type="message",
-                record_id=record_id,
-                values={"skip_reason": reason},
-            )
-        full = self.api.get(
-            f"messages/{record_id}",
+        thread = self.api.get(
+            f"threads/{thread_id}",
             format="full",
-            fields="id,threadId,internalDate,payload(mimeType,filename,headers,body(data),parts(mimeType,filename,body(data),parts))",
+        ) if thread_id else {}
+        messages = thread.get("messages", [])
+        thread_messages: list[dict[str, Any]] = []
+        if isinstance(messages, list):
+            for message in messages:
+                if not isinstance(message, dict):
+                    continue
+                payload = message.get("payload", {})
+                if not isinstance(payload, dict):
+                    continue
+                headers = {
+                    str(item.get("name", "")).lower(): str(item.get("value", ""))
+                    for item in payload.get("headers", [])
+                    if isinstance(item, dict)
+                }
+                body = parse_mime_body(payload) or str(message.get("snippet", ""))
+                thread_messages.append(
+                    {
+                        "message_id": str(message.get("id", "")),
+                        "headers": headers,
+                        "body": body[:_MAX_BODY_CHARS],
+                        "internal_date": str(message.get("internalDate", "")),
+                    }
+                )
+        anchor = next(
+            (message for message in thread_messages if message["message_id"] == record_id),
+            None,
         )
-        payload = full.get("payload", {})
-        full_headers = {
-            str(item.get("name", "")).lower(): str(item.get("value", ""))
-            for item in payload.get("headers", [])
-            if isinstance(item, dict)
-        }
-        body = parse_mime_body(payload)
-        if not body:
-            body = str(data.get("snippet", ""))[:_MAX_BODY_CHARS]
-        merged_headers = {**headers, **full_headers}
-        reason = candidate_reason(merged_headers, body, self.mailbox_email)
-        if reason and reason != "no_inquiry_signal":
+        if anchor is None:
+            full = self.api.get(
+                f"messages/{record_id}",
+                format="full",
+            )
+            payload = full.get("payload", {})
+            full_headers = {
+                str(item.get("name", "")).lower(): str(item.get("value", ""))
+                for item in payload.get("headers", [])
+                if isinstance(item, dict)
+            } if isinstance(payload, dict) else {}
+            anchor = {
+                "message_id": record_id,
+                "headers": full_headers or metadata_headers,
+                "body": (
+                    parse_mime_body(payload)
+                    if isinstance(payload, dict)
+                    else ""
+                ) or str(data.get("snippet", "")),
+                "internal_date": str(full.get("internalDate", data.get("internalDate", ""))),
+            }
+            thread_messages.append(anchor)
+        headers = {**metadata_headers, **anchor["headers"]}
+        body = str(anchor["body"])
+        anchor_reason = candidate_reason(headers, body, self.mailbox_email)
+        if anchor_reason and anchor_reason != "no_inquiry_signal":
             return ExternalCrmRecord(
                 provider="gmail",
                 object_type="message",
                 record_id=record_id,
-                values={
-                    "skip_reason": reason,
-                    "thread_id": str(full.get("threadId") or data.get("threadId", "")),
-                },
+                values={"skip_reason": anchor_reason, "thread_id": thread_id},
             )
+        context_parts: list[str] = []
+        def message_order(message: dict[str, Any]) -> int:
+            try:
+                return int(message["internal_date"] or "0")
+            except (TypeError, ValueError):
+                return 0
+
+        for message in sorted(thread_messages, key=message_order):
+            message_headers = message["headers"]
+            header_lines = [
+                f"{name.title()}: {value}"
+                for name, value in message_headers.items()
+                if name.lower() in {
+                    "from",
+                    "to",
+                    "cc",
+                    "bcc",
+                    "date",
+                    "subject",
+                    "reply-to",
+                    "message-id",
+                    "in-reply-to",
+                    "references",
+                }
+                and value
+            ]
+            context_parts.append(
+                f"--- Gmail message {message['message_id']} ---\n"
+                + "\n".join(header_lines)
+                + "\n\n"
+                + str(message["body"])
+            )
+        thread_context = "\n\n".join(context_parts)[: _MAX_BODY_CHARS * 3]
         return ExternalCrmRecord(
             provider="gmail",
             object_type="message",
             record_id=record_id,
             values={
-                "headers": merged_headers,
-                "thread_id": str(full.get("threadId") or data.get("threadId", "")),
+                "headers": headers,
+                "thread_id": thread_id,
                 "body": body,
+                "thread_context": thread_context,
+                "thread_messages": thread_messages,
                 "snippet": str(data.get("snippet", ""))[:1000],
-                "deterministic_candidate_reason": reason,
+                "deterministic_candidate_reason": anchor_reason,
             },
             modified_at=datetime.fromtimestamp(
-                int(full.get("internalDate", data.get("internalDate", "0"))) / 1000, tz=UTC
+                int(anchor["internal_date"] or data.get("internalDate", "0")) / 1000, tz=UTC
             ),
         )
 
@@ -828,11 +903,28 @@ class GmailInboundProvider:
         if not isinstance(headers, dict):
             raise ValueError("Gmail message headers are unavailable")
         sender_name, sender_email = parseaddr(str(headers.get("from", "")))
-        email = sender_email.strip().lower()
+        original_sender_email = sender_email.strip().lower()
+        email = original_sender_email
         body = str(values.get("body", ""))[:_MAX_BODY_CHARS]
         if not email or not body:
             raise ValueError("Gmail message does not contain an importable sender and body")
         subject = str(headers.get("subject", "(no subject)"))[:500]
+        thread_context = str(values.get("thread_context") or body)[: _MAX_BODY_CHARS * 3]
+        thread_messages = values.get("thread_messages", [])
+        forwarded_options: list[tuple[str, str, str, str]] = []
+        if isinstance(thread_messages, list):
+            for message in thread_messages:
+                if isinstance(message, dict):
+                    parsed_forward = _forwarded_lead(str(message.get("body", "")))
+                    if parsed_forward is not None:
+                        forwarded_options.append(parsed_forward)
+        forwarded = _forwarded_lead(body)
+        if forwarded is None:
+            unique_forwarded = {item[1].strip().lower(): item for item in forwarded_options}
+            if len(unique_forwarded) == 1:
+                forwarded = next(iter(unique_forwarded.values()))
+        if forwarded is not None and forwarded[1].strip().lower() == original_sender_email:
+            forwarded = None
         display = sender_name.strip() or email.split("@", 1)[0]
         local_domain = email.split("@")[-1]
         company = (
@@ -840,9 +932,8 @@ class GmailInboundProvider:
             .replace(".", " ")
             .title()
         )
-        forwarded = _forwarded_lead(body)
         if forwarded is not None:
-            sender_name, email, forwarded_subject, forwarded_body = forwarded
+            sender_name, email, forwarded_subject, _forwarded_body = forwarded
             subject = forwarded_subject or subject
             email = email.strip().lower()
             display = sender_name.strip() or email.split("@", 1)[0]
@@ -852,13 +943,7 @@ class GmailInboundProvider:
                 .replace(".", " ")
                 .title()
             )
-            content = (
-                f"Forwarded message from {sender_name or email} <{email}>:\n"
-                f"Subject: {subject}\n\n{forwarded_body}"
-            )[:_MAX_BODY_CHARS]
-        else:
-            content = f"Subject: {subject}\n\n{_authored_email_text(body)}"[:_MAX_BODY_CHARS]
-        authored_body = forwarded[3] if forwarded is not None else _authored_email_text(body)
+        authored_body = thread_context
         extracted: GmailLeadExtraction | None = None
         fallback_reason = self.ai_fallback_reason
         ai_reason = ""
@@ -869,7 +954,7 @@ class GmailInboundProvider:
                     extraction_headers["from"] = f"{sender_name} <{email}>"
                     extraction_headers["subject"] = subject
                 candidate = self.lead_extractor(
-                    headers=extraction_headers, subject=subject, body=authored_body
+                    headers=extraction_headers, subject=subject, body=thread_context
                 )
                 if not candidate.is_genuine_inquiry:
                     record.values.update(
@@ -914,20 +999,63 @@ class GmailInboundProvider:
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
                 if candidate.email and (
-                    "@" not in candidate.email or candidate.email.strip().lower() != email
+                    "@" not in candidate.email
+                    or (
+                        candidate.email.strip().lower() != original_sender_email
+                        and candidate.email.strip().lower()
+                        not in {item[1].strip().lower() for item in forwarded_options}
+                        and (
+                            forwarded is None
+                            or candidate.email.strip().lower() != forwarded[1].strip().lower()
+                        )
+                    )
                 ):
-                    raise ValueError("ai_email_does_not_match_contact")
+                    raise ValueError("ai_email_not_a_thread_candidate")
+                if candidate.email:
+                    email = candidate.email.strip().lower()
+                    if email != original_sender_email:
+                        selected_forward = next(
+                            (
+                                item for item in forwarded_options
+                                if item[1].strip().lower() == email
+                            ),
+                            forwarded,
+                        )
+                        if selected_forward is not None:
+                            forwarded = selected_forward
+                            sender_name = selected_forward[0]
+                            display = sender_name.strip() or email.split("@", 1)[0]
+                            subject = selected_forward[2] or subject
+                            local_domain = email.split("@")[-1]
+                            company = (
+                                re.sub(
+                                    r"\.(com|net|org|co|io|ai|biz|uk|us)$",
+                                    "",
+                                    local_domain,
+                                    flags=re.I,
+                                )
+                                .replace(".", " ")
+                                .title()
+                            )
                 extracted = candidate
                 fallback_reason = ""
                 ai_reason = "genuine_inquiry"
             except ValueError as error:
                 if str(error) == "ai_classified_not_a_genuine_inquiry":
                     raise ValueError(str(error)) from None
+                if str(error) == "ai_email_not_a_thread_candidate":
+                    record.values.update(
+                        gmail_ai_method="openai",
+                        gmail_ai_fallback_reason="",
+                        gmail_ai_reason="thread_candidate_not_supported",
+                    )
+                    raise ValueError("thread_candidate_not_a_prospect") from None
                 safe_reason = str(error)
                 if safe_reason not in {
                     "ai_evidence_not_in_source",
                     "ai_inquiry_signal_missing",
                     "ai_email_does_not_match_contact",
+                    "ai_email_not_a_thread_candidate",
                 } and not re.fullmatch(
                     r"ai_evidence_missing_or_mismatched:[a-z_]{1,64}", safe_reason
                 ):
@@ -949,7 +1077,10 @@ class GmailInboundProvider:
                     fallback_reason = "ai_rate_limited"
                 elif "quota" in detail:
                     fallback_reason = "ai_project_quota_exhausted"
-                elif "timed out" in detail or error.__class__.__name__ == "ReasoningProviderTimeout":
+                elif (
+                    "timed out" in detail
+                    or error.__class__.__name__ == "ReasoningProviderTimeout"
+                ):
                     fallback_reason = "ai_timeout"
                 elif "temporarily unavailable" in detail:
                     fallback_reason = "ai_provider_unavailable"
@@ -967,7 +1098,8 @@ class GmailInboundProvider:
                 ) from None
         if (
             extracted is None
-            and candidate_reason(headers, body, self.mailbox_email) == "no_inquiry_signal"
+            and candidate_reason(headers, thread_context, self.mailbox_email)
+            == "no_inquiry_signal"
         ):
             record.values.update(
                 gmail_ai_method="deterministic",
@@ -980,6 +1112,11 @@ class GmailInboundProvider:
             gmail_ai_reason=ai_reason,
         )
         email = email.strip().lower()
+        candidate_decision = (
+            "separate_forwarded_lead"
+            if forwarded is not None and email != original_sender_email
+            else "sender_lead"
+        )
         payload = {
             "source": "email",
             "source_detail": "Gmail",
@@ -993,17 +1130,21 @@ class GmailInboundProvider:
             "product_or_service": (
                 (extracted.requested_service if extracted else None) or "Inbound inquiry"
             ),
-            "message": content,
+            "message": thread_context,
             "received_at": record.modified_at or datetime.now(UTC),
             "gmail_message_id": record.record_id,
             "gmail_thread_id": str(values.get("thread_id", "")),
             "gmail_mailbox": self.mailbox_email,
             "sender_display_name": sender_name[:255],
-            "original_sender_email": parseaddr(str(headers.get("from", "")))[1].strip().lower(),
-            "forwarded_lead": forwarded is not None,
+            "original_sender_email": original_sender_email,
+            "forwarded_lead": candidate_decision == "separate_forwarded_lead",
+            "gmail_thread_decision": candidate_decision,
+            "gmail_candidate_identity_email": email,
             "reply_to": parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
         }
-        fingerprint = hashlib.sha256(f"{record.record_id}\0{content}".encode()).hexdigest()
+        fingerprint = hashlib.sha256(
+            f"{record.record_id}\0{thread_context}\0{email}".encode()
+        ).hexdigest()
         return CanonicalInboundLead(
             provider="gmail",
             object_type="message",
@@ -1018,8 +1159,10 @@ class GmailInboundProvider:
                 "gmail_message_id": record.record_id,
                 "gmail_mailbox": self.mailbox_email,
                 "sender_email": email,
-                "forwarded_lead": forwarded is not None,
-                "original_sender_email": parseaddr(str(headers.get("from", "")))[1].strip().lower(),
+                "forwarded_lead": candidate_decision == "separate_forwarded_lead",
+                "original_sender_email": original_sender_email,
+                "gmail_thread_decision": candidate_decision,
+                "gmail_candidate_identity_email": email,
                 "gmail_ai_method": "openai" if extracted else "deterministic",
                 "gmail_ai_fallback_reason": fallback_reason,
                 "gmail_ai_reason": ai_reason,
