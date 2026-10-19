@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from contextvars import copy_context
 from datetime import UTC, datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, RLock
 from typing import Any
 from uuid import UUID, uuid4
@@ -409,6 +409,8 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "gmail_ai_method",
         "gmail_ai_fallback_reason",
         "gmail_ai_reason",
+        "gmail_thread_decision",
+        "gmail_candidate_identity_email",
         "location_id",
         "dnd",
         "dnd_call",
@@ -788,7 +790,9 @@ def _process_record(
             session,
             connection,
             action=(
-                "gmail_candidate_imported"
+                "gmail_candidate_linked_existing"
+                if canonical.provider == "gmail" and outcome == "updated"
+                else "gmail_candidate_imported"
                 if canonical.provider == "gmail"
                 else "outlook_candidate_imported"
             ),
@@ -799,6 +803,14 @@ def _process_record(
                 "message_id": canonical.provider_record_id,
                 "thread_id": canonical.provider_metadata.get("gmail_thread_id"),
                 "lead_id": str(lead.id),
+                "thread_decision": canonical.provider_metadata.get(
+                    "gmail_thread_decision", "sender_lead"
+                ),
+                "candidate_identity_email": canonical.provider_metadata.get(
+                    "gmail_candidate_identity_email"
+                ),
+                "matching_strategy": strategy,
+                "linked_existing": outcome == "updated",
                 "ai_method": canonical.provider_metadata.get("gmail_ai_method"),
                 "ai_fallback_reason": canonical.provider_metadata.get("gmail_ai_fallback_reason"),
             },
@@ -1101,6 +1113,8 @@ def run_inbound_sync(
                             correlation_id=run.correlation_id,
                             details={
                                 "message_id": record.record_id,
+                                "thread_id": record.values.get("thread_id"),
+                                "thread_decision": record.values.get("gmail_thread_decision"),
                                 "reason": str(error)[:128],
                                 "ai_fallback_reason": str(
                                     record.values.get("gmail_ai_fallback_reason") or ""
