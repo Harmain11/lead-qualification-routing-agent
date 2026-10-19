@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CloudTalkAgent, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
+import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { SlackSetupGuide } from "../components/SlackSetupGuide";
@@ -369,6 +370,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [notice, setNotice] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [busyTargetConnectionId, setBusyTargetConnectionId] = useState<string | null>(null);
   const [accountChoiceProvider, setAccountChoiceProvider] = useState<"calendly" | null>(null);
   const [busyAction, setBusyAction] = useState<ConnectionOperation | null>(null);
   const [operationFeedback, setOperationFeedback] = useState<Record<string, { state: "running" | "success" | "error"; message: string }>>({});
@@ -643,7 +645,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation, targetConnectionId?: string) {
     if (runningProvider.current) return;
     runningProvider.current = provider;
-    setBusy(provider); setBusyAction(kind ?? null); setNotice(null);
+    setBusy(provider); setBusyAction(kind ?? null); setBusyTargetConnectionId(targetConnectionId ?? null); setNotice(null);
     if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "running", message: operationProgress[kind] } }));
     try {
       await operation();
@@ -668,7 +670,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       const message = actionError instanceof Error ? actionError.message : "Integration action failed";
       setNotice(message);
       if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
-    } finally { setBusy(null); setBusyAction(null); runningProvider.current = null; }
+    } finally { setBusy(null); setBusyAction(null); setBusyTargetConnectionId(null); runningProvider.current = null; }
   }
 
   async function syncInbound(
@@ -1138,13 +1140,17 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </div>}
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
           {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
-          {gmailDirection && gmailConnections.length > 0 && <div className="integration-guide gmail-account-list">
-            <span className="eyebrow">Connected Gmail accounts</span>
-            {gmailConnections.map((gmailAccount) => <div className="gmail-account-row" key={gmailAccount.id}>
-              <div><strong>{gmailAccount.account_name}</strong><small>{connectionStatusLabel(gmailAccount.status)}</small></div>
-              {canDisconnect && gmailAccount.is_active && <button type="button" className="button-quiet danger" onClick={() => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)} disabled={Boolean(busy)}>{busy === "gmail" && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}
-            </div>)}
-          </div>}
+          {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
+            accounts={gmailConnections}
+            canConnect={canConnectProvider}
+            canDisconnect={canDisconnect}
+            busy={Boolean(busy)}
+            busyAccountId={busyTargetConnectionId}
+            connecting={busy === "gmail" && busyAction === "connect"}
+            onAdd={() => void connectOAuth("gmail", "connect")}
+            onDisconnect={(gmailAccount) => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)}
+            statusLabel={connectionStatusLabel}
+          />}
          <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
@@ -1186,7 +1192,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>}
          {!comingSoon && <div className="card-actions">
-            {gmailDirection && gmailConnections.length > 0 && canConnectProvider && <button type="button" onClick={() => connectOAuth("gmail", "connect")} disabled={Boolean(busy)}>{busy === "gmail" && busyAction === "connect" ? "Connecting…" : "Add Gmail account"}</button>}
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
             {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
         </div>}
