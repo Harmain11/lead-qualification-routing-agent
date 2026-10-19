@@ -986,16 +986,16 @@ def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_pa
 def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from lead_agent.worker import celery_app as worker
+    from lead_agent.worker import preview_sync
 
     session = _session(tmp_path)
     connection = _connection(session, uuid4(), provider_type="gmail")
     provider = FakeInboundProvider(connection.id, [])
     queued: list[dict[str, object]] = []
     monkeypatch.setattr(
-        worker.run_scheduled_crm_inbound_sync,
-        "apply_async",
-        lambda *args, **kwargs: queued.append({"args": args, **kwargs}),
+        preview_sync,
+        "enqueue_manual_sync",
+        lambda state_id, **kwargs: queued.append({"state_id": state_id, **kwargs}),
     )
 
     def override_db():
@@ -1028,9 +1028,37 @@ def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
         assert configured.status_code == 200
         assert response.status_code == 202
         assert response.json()["status"] == "queued"
-        assert queued[0]["kwargs"]["requested_mode"] == "review_recent"
+        assert queued[0]["requested_mode"] == "review_recent"
         assert state.json()["status"] == "queued"
         assert runs.json() == []
     finally:
         app.dependency_overrides.clear()
         session.close()
+
+
+def test_preview_manual_sync_runs_without_the_celery_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from threading import Event
+    from lead_agent.worker import preview_sync
+
+    completed = Event()
+    call: dict[str, object] = {}
+
+    def run_locally(state_id: str, **kwargs: object) -> str:
+        call.update({"state_id": state_id, **kwargs})
+        completed.set()
+        return "completed"
+
+    monkeypatch.setattr(
+        preview_sync.run_scheduled_crm_inbound_sync, "run", run_locally
+    )
+    preview_sync.enqueue_manual_sync(
+        "state-123", requested_mode="review_recent", requested_limit=25
+    )
+    assert completed.wait(timeout=2)
+    assert call == {
+        "state_id": "state-123",
+        "requested_mode": "review_recent",
+        "requested_limit": 25,
+    }
