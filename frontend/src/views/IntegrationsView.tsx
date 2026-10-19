@@ -13,6 +13,7 @@ beginIntegration,
 configureInboundSync,
 disconnectIntegration,
 getInboundSyncState,
+getInboundSyncRuns,
 getSlackNotificationConfig,
 listIntegrations,
   listCloudTalkAgents,
@@ -32,6 +33,7 @@ import { AiUsagePanel } from "../components/AiUsagePanel";
 import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
 import { can } from "../permissions";
 import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
+import { pollInboundSync } from "../inboundSyncPolling";
 import type { CrmInboundSyncState,IntegrationCard,ProviderConnection,SlackNotificationConfig,SlackNotificationRule } from "../types";
 
 function ProviderDetailsPanel({
@@ -620,15 +622,38 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       [connectionId]: { kind: "progress", message: "Syncing provider records. This may take a moment." },
     }));
     try {
-      const result = await runInboundSync(connectionId, mode, provider);
+      let result = await runInboundSync(connectionId, mode, provider);
+      if ("queued_at" in result) {
+        const accepted = result;
+        setSyncFeedback((current) => ({
+          ...current,
+          [connectionId]: { kind: "progress", message: accepted.message },
+        }));
+        result = await pollInboundSync({
+          queuedAt: accepted.queued_at,
+          getRuns: () => getInboundSyncRuns(connectionId),
+          getState: () => getInboundSyncState(connectionId, provider),
+          onProgress: (message) => {
+            setSyncFeedback((current) => ({
+              ...current,
+              [connectionId]: { kind: "progress", message },
+            }));
+          },
+        });
+      }
+      if ("queued_at" in result) throw new Error("Gmail sync did not return a completed run.");
       const summary = mode === "review_recent"
         ? `Review complete: ${result.records_fetched} scanned, ${result.records_created + result.records_updated} classified as leads, ${result.records_skipped} skipped, ${result.records_unchanged} duplicates, ${result.records_failed} failures.`
         : `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
+      const finalMessage = result.last_error
+        ? `${summary} ${result.last_error}`
+        : summary;
       setSyncFeedback((current) => ({
         ...current,
         [connectionId]: {
-          kind: result.status.startsWith("completed") ? "success" : "error",
-          message: summary,
+          kind: result.status.startsWith("completed") && result.status !== "completed_with_errors"
+            ? "success" : "error",
+          message: finalMessage,
         },
       }));
       await refresh();

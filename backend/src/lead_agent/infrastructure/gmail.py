@@ -41,14 +41,6 @@ _INQUIRY = re.compile(
     r".{0,60}\b(?:demo|consultation|quote|proposal)\b",
     re.I | re.S,
 )
-_AI_INQUIRY_SIGNAL = re.compile(
-    r"\b(?:quote|quotation|pricing|price|demo|proposal|consultation)\b|"
-    r"\b(?:interested in|looking for|seeking|need|want|require|request(?:ing)?)\b"
-    r".{0,100}\b(?:services?|support|help|solution|software|platform|product|vendor|"
-    r"consulting|implementation|project|event|website|business)\b|"
-    r"\b(?:can|could|would) you (?:please )?(?:send|share|provide|schedule|book|discuss)\b",
-    re.I | re.S,
-)
 _BUSINESS = re.compile(
     r"\b(?:services?|solutions?|software|platform|product|automation|implementation|"
     r"consulting|website|vendor|agency|budget|business|project)\b",
@@ -876,7 +868,6 @@ class GmailInboundProvider:
                 if (
                     not inquiry
                     or inquiry.casefold() not in authored_body.casefold()
-                    or not _AI_INQUIRY_SIGNAL.search(inquiry)
                 ):
                     raise ValueError("ai_inquiry_signal_missing")
                 for field_name, field_value in {
@@ -905,9 +896,48 @@ class GmailInboundProvider:
             except ValueError as error:
                 if str(error) == "ai_classified_not_a_genuine_inquiry":
                     raise ValueError(str(error)) from None
-                fallback_reason = str(error)[:128]
+                safe_reason = str(error)
+                if safe_reason not in {
+                    "ai_evidence_not_in_source",
+                    "ai_inquiry_signal_missing",
+                    "ai_email_does_not_match_contact",
+                } and not re.fullmatch(
+                    r"ai_evidence_missing_or_mismatched:[a-z_]{1,64}", safe_reason
+                ):
+                    safe_reason = f"ai_provider_error:{error.__class__.__name__}"
+                fallback_reason = safe_reason[:128]
+                record.values.update(
+                    gmail_ai_method="openai",
+                    gmail_ai_fallback_reason=fallback_reason,
+                    gmail_ai_reason="classification_failed",
+                )
+                raise ValueError(
+                    f"ai_classification_failed:{fallback_reason[:96]}"
+                ) from None
             except Exception as error:
-                fallback_reason = f"openai_extraction_failed:{error.__class__.__name__}"[:128]
+                detail = str(error).casefold()
+                if "configuration is invalid" in detail or "credentials are invalid" in detail:
+                    fallback_reason = "ai_credentials_missing_or_invalid"
+                elif "rate limit" in detail:
+                    fallback_reason = "ai_rate_limited"
+                elif "quota" in detail:
+                    fallback_reason = "ai_project_quota_exhausted"
+                elif "timed out" in detail or error.__class__.__name__ == "ReasoningProviderTimeout":
+                    fallback_reason = "ai_timeout"
+                elif "temporarily unavailable" in detail:
+                    fallback_reason = "ai_provider_unavailable"
+                elif error.__class__.__name__ == "InvalidReasoningOutput":
+                    fallback_reason = "ai_invalid_output"
+                else:
+                    fallback_reason = f"ai_provider_error:{error.__class__.__name__}"[:128]
+                record.values.update(
+                    gmail_ai_method="openai",
+                    gmail_ai_fallback_reason=fallback_reason,
+                    gmail_ai_reason="classification_failed",
+                )
+                raise ValueError(
+                    f"ai_classification_failed:{error.__class__.__name__}"
+                ) from None
         if (
             extracted is None
             and candidate_reason(headers, body, self.mailbox_email) == "no_inquiry_signal"

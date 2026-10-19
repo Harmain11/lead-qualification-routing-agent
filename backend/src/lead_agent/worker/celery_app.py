@@ -136,11 +136,28 @@ def dispatch_due_crm_inbound_syncs() -> int:
     retry_backoff=True,
     retry_jitter=True,
 )  # type: ignore[untyped-decorator]
-def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
+def run_scheduled_crm_inbound_sync(
+    self: object,
+    state_id: str,
+    requested_mode: str | None = None,
+    requested_limit: int | None = None,
+    requested_page_size: int | None = None,
+    requested_actor_id: str | None = None,
+    requested_send_confirmation_email: bool = True,
+) -> str:
     del self
     with get_session_factory()() as session:
         state = session.get(CrmInboundSyncStateORM, UUID(state_id))
-        if state is None or not state.enabled:
+        if state is None:
+            return "skipped"
+        if not state.enabled:
+            if state.status == "queued":
+                state.status = "failed"
+                state.error_category = "configuration"
+                state.error_code = "gmail_sync_disabled_before_start"
+                state.last_error = "Sync was disabled before the queued run started."
+                state.updated_at = datetime.now(UTC)
+                session.commit()
             return "skipped"
         connection = session.get(ProviderConnectionORM, state.connection_id)
         if (
@@ -149,6 +166,13 @@ def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
             or not connection.is_active
             or connection.status not in {"connected", "verified"}
         ):
+            if state.status == "queued":
+                state.status = "failed"
+                state.error_category = "configuration"
+                state.error_code = "provider_connection_unavailable"
+                state.last_error = "The provider connection became unavailable before sync started."
+                state.updated_at = datetime.now(UTC)
+                session.commit()
             return "skipped"
         provider = get_workspace_inbound_crm_resolver().resolve(
             session,
@@ -156,20 +180,38 @@ def run_scheduled_crm_inbound_sync(self: object, state_id: str) -> str:
             state.connection_id,
             actor_id="system:crm-inbound-scheduler",
         )
+        if (
+            connection.provider_type == "gmail"
+            and state.object_type == "message"
+            and not callable(getattr(provider, "lead_extractor", None))
+        ):
+            state.status = "failed"
+            state.error_category = "configuration"
+            state.error_code = "gmail_ai_credentials_unavailable"
+            state.last_error = (
+                "Gmail AI lead detection is unavailable. Connect or re-verify a "
+                "workspace OpenAI credential, then retry."
+            )
+            state.updated_at = datetime.now(UTC)
+            session.commit()
+            return "failed"
         icp, routing = settings.load_policies()
         run = run_inbound_sync(
             session,
             connection,
             provider,
-            mode="incremental" if state.initial_import_completed else "initial",
+            mode=requested_mode or (
+                "incremental" if state.initial_import_completed else "initial"
+            ),
             object_type=state.object_type,
-            limit=settings.crm_inbound_batch_limit,
-            page_size=settings.crm_inbound_page_size,
-            actor_id="system:crm-inbound-scheduler",
+            limit=requested_limit or settings.crm_inbound_batch_limit,
+            page_size=requested_page_size or settings.crm_inbound_page_size,
+            actor_id=requested_actor_id or "system:crm-inbound-scheduler",
             icp=icp,
             routing=routing,
             reasoning_provider=None,
             notification_provider=get_notification_provider(),
+            send_confirmation_email=requested_send_confirmation_email,
         )
         if connection.provider_type == "gmail" and state.object_type == "message":
             try:

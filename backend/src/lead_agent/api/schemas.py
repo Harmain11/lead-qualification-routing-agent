@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -342,6 +342,8 @@ class CrmInboundSyncRunResponse(BaseModel):
     records_unchanged: int
     records_skipped: int
     records_failed: int
+    records_processed: int
+    records_succeeded: int
     error_category: str | None
     error_code: str | None
     last_error: str | None
@@ -349,6 +351,12 @@ class CrmInboundSyncRunResponse(BaseModel):
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class CrmInboundSyncAcceptedResponse(BaseModel):
+    status: Literal["queued"] = "queued"
+    queued_at: datetime
+    message: str
 
 
 def crm_inbound_state_response(row: Any) -> CrmInboundSyncStateResponse:
@@ -376,6 +384,7 @@ def crm_inbound_state_response(row: Any) -> CrmInboundSyncStateResponse:
 
 
 def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
+    succeeded = row.records_created + row.records_updated + row.records_unchanged
     return CrmInboundSyncRunResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -393,6 +402,8 @@ def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
         records_unchanged=row.records_unchanged,
         records_skipped=row.records_skipped,
         records_failed=row.records_failed,
+        records_processed=succeeded + row.records_skipped + row.records_failed,
+        records_succeeded=succeeded,
         error_category=row.error_category,
         error_code=row.error_code,
         last_error=row.last_error,
