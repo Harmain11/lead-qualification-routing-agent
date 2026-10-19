@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import re
+import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime
 from email.message import EmailMessage
@@ -58,6 +59,31 @@ _EXCLUDED_SUBJECT = re.compile(
     r"security alert|verification code|statement|invoice|your subscription|unsubscribe)\b",
     re.I,
 )
+_EVIDENCE_TRANSLATION = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u00a0": " ",
+        "\u200b": "",
+    }
+)
+
+
+def _normalized_evidence(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value).translate(_EVIDENCE_TRANSLATION)
+    return " ".join(normalized.casefold().split())
+
+
+def _evidence_is_from_source(source: str, excerpt: str) -> bool:
+    normalized_excerpt = _normalized_evidence(excerpt)
+    return bool(normalized_excerpt) and normalized_excerpt in _normalized_evidence(source)
 
 
 class GmailTransport:
@@ -859,15 +885,16 @@ class GmailInboundProvider:
                     "reply_to": extraction_headers.get("reply-to", ""),
                 }
                 if any(
-                    item.excerpt.casefold()
-                    not in evidence_sources[item.source].casefold()
+                    not _evidence_is_from_source(
+                        evidence_sources[item.source], item.excerpt
+                    )
                     for item in candidate.evidence
                 ):
                     raise ValueError("ai_evidence_not_in_source")
                 inquiry = candidate.inquiry_evidence.strip()
                 if (
                     not inquiry
-                    or inquiry.casefold() not in authored_body.casefold()
+                    or not _evidence_is_from_source(authored_body, inquiry)
                 ):
                     raise ValueError("ai_inquiry_signal_missing")
                 for field_name, field_value in {
@@ -882,7 +909,7 @@ class GmailInboundProvider:
                             item for item in candidate.evidence if item.field == field_name
                         ]
                         if not field_evidence or not any(
-                            field_value.casefold() in item.excerpt.casefold()
+                            _evidence_is_from_source(item.excerpt, field_value)
                             for item in field_evidence
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
