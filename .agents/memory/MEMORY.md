@@ -20,3 +20,4 @@
 - [CloudTalk API boundaries](cloudtalk-api-boundaries.md) — use CloudTalk's core and Conversation Intelligence hosts separately; outbound creates lack provider call IDs.
 - [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
 - [Slack notification safety](slack-notification-safety.md) — DMs require explicit per-recipient opt-in; channel fallback is explicit, and tokens stay in the secure form.
+- [Gmail AI lead sync](gmail-ai-sync.md) — Use high-recall AI lead detection; preserve auditable per-message failures and continue the batch.

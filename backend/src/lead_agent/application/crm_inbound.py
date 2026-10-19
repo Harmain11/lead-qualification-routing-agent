@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import copy_context
 from datetime import UTC, datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock, RLock
 from typing import Any
 from uuid import UUID, uuid4
@@ -1001,6 +1003,34 @@ def run_inbound_sync(
                 break
             run.records_fetched += len(page.records)
             session.commit()
+            normalized_gmail: dict[str, CanonicalInboundLead | Exception] = {}
+            if connection.provider_type == "gmail":
+                normalize_records = page.records
+                if mode == "review_recent":
+                    normalize_records = [
+                        record for record in page.records
+                        if session.scalar(
+                            select(CrmProviderRecordLinkORM.id).where(
+                                CrmProviderRecordLinkORM.connection_id == connection.id,
+                                CrmProviderRecordLinkORM.provider == "gmail",
+                                CrmProviderRecordLinkORM.object_type == object_type,
+                                CrmProviderRecordLinkORM.provider_record_id == record.record_id,
+                            )
+                        ) is None
+                    ]
+                with ThreadPoolExecutor(max_workers=min(4, len(normalize_records) or 1)) as pool:
+                    futures = {
+                        pool.submit(
+                            copy_context().run, provider.normalize_record, record
+                        ): record
+                        for record in normalize_records
+                    }
+                    for future in as_completed(futures):
+                        record = futures[future]
+                        try:
+                            normalized_gmail[record.record_id] = future.result()
+                        except Exception as error:
+                            normalized_gmail[record.record_id] = error
             for record in page.records:
                 try:
                     if mode == "review_recent" and connection.provider_type == "gmail":
@@ -1016,7 +1046,11 @@ def run_inbound_sync(
                             run.records_unchanged += 1
                             session.commit()
                             continue
-                    canonical = provider.normalize_record(record)
+                    canonical = normalized_gmail.get(record.record_id)
+                    if isinstance(canonical, Exception):
+                        raise canonical
+                    if canonical is None:
+                        canonical = provider.normalize_record(record)
                     outcome = _process_record(
                         session,
                         connection,
@@ -1038,7 +1072,21 @@ def run_inbound_sync(
                     return _fail_run(session, state, run, error, connection)
                 except ValueError as error:
                     run = session.get(CrmInboundSyncRunORM, run.id) or run
-                    run.records_skipped += 1
+                    ai_classification_failed = str(error).startswith(
+                        "ai_classification_failed:"
+                    )
+                    if ai_classification_failed:
+                        run.records_failed += 1
+                        reason_code = str(
+                            record.values.get("gmail_ai_fallback_reason")
+                            or str(error).split(":", 1)[-1]
+                        )[:80]
+                        run.last_error = (
+                            f"AI classification failed for some messages ({reason_code}); "
+                            "those messages were skipped. See audit events for details."
+                        )
+                    else:
+                        run.records_skipped += 1
                     if connection.provider_type in {"gmail", "outlook"}:
                         record_provider_lifecycle_audit(
                             session,
@@ -1108,7 +1156,11 @@ def run_inbound_sync(
         state = session.get(CrmInboundSyncStateORM, state.id) or state
         now = datetime.now(UTC)
         bounded = run.records_fetched >= bounded_limit and cursor is not None
-        run.status = "completed_bounded" if bounded else "completed"
+        run.status = (
+            "completed_with_errors"
+            if run.records_failed
+            else "completed_bounded" if bounded else "completed"
+        )
         run.cursor_current = cursor
         run.checkpoint = final_checkpoint
         run.completed_at = now

@@ -3,6 +3,7 @@ import type {
   AgentActivity,
   ChannelAnalytics,
   CrmSync,
+  CrmInboundSyncAccepted,
   CrmInboundSyncRun,
   CrmInboundSyncState,
   DashboardAnalytics,
@@ -379,12 +380,16 @@ export function runInboundSync(
   connectionId: string,
   mode: "initial" | "incremental" | "manual" | "review_recent",
   provider: string = "salesforce",
-): Promise<CrmInboundSyncRun> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
+): Promise<CrmInboundSyncRun | CrmInboundSyncAccepted> {
+  return jsonRequest<CrmInboundSyncRun | CrmInboundSyncAccepted>(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: mode === "review_recent" ? 5000 : ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
   });
+}
+
+export function getInboundSyncRuns(connectionId: string): Promise<CrmInboundSyncRun[]> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/runs?limit=10`);
 }
 
 export function sendLeadToCrm(leadId: string, provider?: string): Promise<CrmSync> {

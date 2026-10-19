@@ -683,12 +683,22 @@ export type CrmInboundSyncRun = {
   id: string;
   status: string;
   mode: "initial" | "incremental" | "manual" | "review_recent";
+  created_at: string;
+  last_error: string | null;
   records_fetched: number;
   records_created: number;
   records_updated: number;
   records_unchanged: number;
   records_skipped: number;
   records_failed: number;
+  records_processed: number;
+  records_succeeded: number;
+};
+
+export type CrmInboundSyncAccepted = {
+  status: "queued";
+  queued_at: string;
+  message: string;
 };
 
 export type TimeRange = "weekly" | "monthly" | "annual";

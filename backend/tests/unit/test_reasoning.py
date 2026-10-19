@@ -18,6 +18,7 @@ from lead_agent.domain.analysis import (
     ReasoningProviderTimeout,
     ReasoningProviderUnavailable,
 )
+from lead_agent.domain.gmail import GmailLeadExtraction
 from lead_agent.domain.models import NormalizedLead
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.infrastructure.observability import reset_request_id, set_request_id
@@ -676,3 +677,111 @@ def test_evaluation_dataset_covers_all_supported_channels() -> None:
     cases = json.loads(fixture.read_text(encoding="utf-8"))
     assert {case["channel"] for case in cases} == {"website", "email", "linkedin", "clutch"}
     assert all(case["expected"]["qualification_category"] for case in cases)
+
+
+def test_gmail_extraction_timeout_has_bounded_timeout_and_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    options: dict[str, object] = {}
+
+    class APITimeoutError(Exception):
+        pass
+
+    class Responses:
+        def parse(self, **_kwargs: object) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise APITimeoutError("private email payload")
+
+    class Client:
+        responses = Responses()
+
+        def with_options(self, **kwargs: object) -> Client:
+            options.update(kwargs)
+            return self
+
+    monkeypatch.setattr(openai_provider, "sleep", lambda _seconds: None)
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=90,
+        max_retries=8,
+        store_responses=False,
+        client=Client(),
+    )
+    with pytest.raises(ReasoningProviderTimeout):
+        provider.extract_gmail_lead(headers={}, subject="Question", body="Need help.")
+    assert attempts == 3
+    assert options == {"timeout": 15, "max_retries": 0}
+
+
+def test_gmail_extraction_retries_transient_network_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    options: dict[str, object] = {}
+
+    class APIConnectionError(Exception):
+        pass
+
+    class Responses:
+        def parse(self, **_kwargs: object) -> SimpleNamespace:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise APIConnectionError("transient")
+            return SimpleNamespace(
+                output_parsed=GmailLeadExtraction(
+                    is_genuine_inquiry=True,
+                    reason="A clear request.",
+                    inquiry_evidence="Need help",
+                ),
+                usage=None,
+            )
+
+    class Client:
+        responses = Responses()
+
+        def with_options(self, **kwargs: object) -> Client:
+            options.update(kwargs)
+            return self
+
+    monkeypatch.setattr(openai_provider, "sleep", lambda _seconds: None)
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=90,
+        max_retries=8,
+        store_responses=False,
+        client=Client(),
+    )
+    result = provider.extract_gmail_lead(
+        headers={}, subject="Question", body="Need help."
+    )
+    assert result.is_genuine_inquiry
+    assert attempts == 2
+    assert options == {"timeout": 15, "max_retries": 0}
+
+
+def test_gmail_extraction_maps_unknown_provider_errors_to_safe_unavailable() -> None:
+    class Responses:
+        def parse(self, **_kwargs: object) -> None:
+            raise RuntimeError("private email body")
+
+    class Client:
+        responses = Responses()
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=90,
+        max_retries=8,
+        store_responses=False,
+        client=Client(),
+    )
+    with pytest.raises(
+        ReasoningProviderUnavailable, match="OpenAI Gmail extraction failed"
+    ) as error:
+        provider.extract_gmail_lead(headers={}, subject="Question", body="Need help.")
+    assert "private email body" not in str(error.value)

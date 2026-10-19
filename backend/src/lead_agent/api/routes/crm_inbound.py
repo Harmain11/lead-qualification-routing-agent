@@ -4,12 +4,15 @@ import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_policies, require_permission
 from lead_agent.api.schemas import (
+    CrmInboundSyncAcceptedResponse,
     CrmInboundSyncRunResponse,
     CrmInboundSyncStateResponse,
     crm_inbound_run_response,
@@ -97,19 +100,72 @@ def update_inbound_sync_configuration(
 
 @router.post(
     "/{connection_id}/inbound-sync",
-    response_model=CrmInboundSyncRunResponse,
+    response_model=None,
     dependencies=[Depends(rate_limit_dependency("provider_actions"))],
 )
 def synchronize_inbound_crm(
     connection_id: UUID,
     request: InboundSyncRequest,
+    response: Response,
     session: Session = Depends(get_db),
     policies: tuple[IcpConfig, RoutingConfig] = Depends(get_policies),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     resolver: WorkspaceInboundCrmProviderResolver = Depends(get_workspace_inbound_crm_resolver),
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
-) -> CrmInboundSyncRunResponse:
+) -> CrmInboundSyncRunResponse | CrmInboundSyncAcceptedResponse:
     connection = _connection(session, workspace.workspace_id, connection_id)
+    if connection.provider_type == "gmail" and request.object_type == "message":
+        state = get_inbound_sync_state(
+            session, workspace.workspace_id, connection_id, request.object_type
+        )
+        if state is None or not state.enabled:
+            raise HTTPException(status_code=409, detail="inbound synchronization is disabled")
+        queued_at = datetime.now(UTC)
+        if (
+            state.status == "running"
+            and state.lease_expires_at is not None
+            and state.lease_expires_at > queued_at
+        ):
+            raise HTTPException(status_code=409, detail="an inbound synchronization run is already active")
+        state.status = "queued"
+        state.last_error = None
+        state.error_category = None
+        state.error_code = None
+        state.next_sync_at = queued_at + timedelta(seconds=state.sync_interval_seconds)
+        state.updated_at = queued_at
+        session.commit()
+        try:
+            from lead_agent.worker.celery_app import run_scheduled_crm_inbound_sync
+
+            run_scheduled_crm_inbound_sync.apply_async(
+                args=[str(state.id)],
+                kwargs={
+                    "requested_mode": request.mode,
+                    "requested_limit": request.limit,
+                    "requested_page_size": request.page_size,
+                    "requested_actor_id": workspace.actor_id,
+                    "requested_send_confirmation_email": False
+                    if request.mode == "review_recent"
+                    else request.send_confirmation_email,
+                },
+            )
+        except Exception as error:
+            state.status = "failed"
+            state.error_category = "temporarily_unavailable"
+            state.error_code = "gmail_sync_queue_unavailable"
+            state.last_error = "Gmail sync could not be queued because the worker is unavailable."
+            state.updated_at = datetime.now(UTC)
+            session.commit()
+            _LOGGER.warning(
+                "gmail.inbound_sync_queue_failed",
+                extra={"fields": {"connection_id": str(connection.id), "error_class": error.__class__.__name__}},
+            )
+            raise HTTPException(status_code=503, detail=state.last_error) from None
+        response.status_code = 202
+        return CrmInboundSyncAcceptedResponse(
+            queued_at=queued_at,
+            message="Gmail sync queued. Progress and results will update here.",
+        )
     try:
         provider = resolver.resolve(
             session,

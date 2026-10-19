@@ -544,6 +544,36 @@ def test_gmail_ai_recovers_candidate_without_deterministic_inquiry_signal() -> N
     assert canonical.provider_metadata["gmail_ai_method"] == "openai"
 
 
+def test_gmail_ai_can_accept_plausible_intent_without_keyword_gate() -> None:
+    body = (
+        "We are comparing firms for our rebrand. "
+        "Could we discuss what working together might look like?"
+    )
+    headers = {"from": "Mira Example <mira@client.example>", "subject": "A question"}
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="The sender is exploring a possible business fit.",
+        inquiry_evidence="Could we discuss what working together might look like?",
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "inbox@example.test",
+        lead_extractor=lambda **_kwargs: extraction,
+    )
+    canonical = provider.normalize_record(
+        ExternalCrmRecord(
+            provider="gmail",
+            object_type="message",
+            record_id="ai-plausible-intent",
+            values={"thread_id": "thread-ai", "headers": headers, "body": body},
+            modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.provider_metadata["gmail_ai_method"] == "openai"
+
+
 def test_gmail_ai_negative_excludes_message_even_if_heuristic_candidate() -> None:
     provider = GmailInboundProvider(
         uuid4(), "access", "inbox@example.test",
@@ -565,7 +595,7 @@ def test_gmail_ai_negative_excludes_message_even_if_heuristic_candidate() -> Non
     assert record.values["gmail_ai_method"] == "openai"
 
 
-def test_gmail_openai_failure_falls_back_and_records_reason() -> None:
+def test_gmail_openai_failure_skips_message_with_auditable_reason() -> None:
     def fail(**_kwargs):
         raise RuntimeError("provider unavailable")
 
@@ -585,12 +615,11 @@ def test_gmail_openai_failure_falls_back_and_records_reason() -> None:
         },
         modified_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    canonical = provider.normalize_record(record)
-    assert canonical.normalized_payload["email"] == "mira@client.example"
-    assert canonical.provider_metadata["gmail_ai_method"] == "deterministic"
-    assert canonical.provider_metadata["gmail_ai_fallback_reason"] == (
-        "openai_extraction_failed:RuntimeError"
-    )
+    with pytest.raises(ValueError, match="ai_classification_failed:RuntimeError"):
+        provider.normalize_record(record)
+    assert record.values["gmail_ai_method"] == "openai"
+    assert record.values["gmail_ai_reason"] == "classification_failed"
+    assert record.values["gmail_ai_fallback_reason"] == "ai_provider_error:RuntimeError"
 
 
 def test_gmail_ai_uses_forwarded_message_identity_and_content() -> None:

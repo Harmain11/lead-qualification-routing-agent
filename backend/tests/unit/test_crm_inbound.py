@@ -384,6 +384,30 @@ def test_interrupted_batch_resumes_after_last_committed_page(tmp_path, icp, rout
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 3
 
 
+def test_single_record_failure_does_not_abort_the_remaining_batch(tmp_path, icp, routing) -> None:
+    class OneBadRecordProvider(FakeInboundProvider):
+        def normalize_record(self, record):
+            if record.record_id == "bad-message":
+                raise ValueError("ai_classification_failed:ai_timeout")
+            return super().normalize_record(record)
+
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4())
+        provider = OneBadRecordProvider(
+            connection.id,
+            [
+                _record("bad-message", "bad@example.test"),
+                _record("good-message", "good@example.test"),
+            ],
+        )
+        run = _run(session, connection, provider, icp, routing, page_size=2)
+        assert run.status == "completed_with_errors"
+        assert run.records_failed == 1
+        assert run.records_created == 1
+        assert "ai_timeout" in (run.last_error or "")
+        assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
+
+
 def test_active_inbound_lease_blocks_overlap_across_workers(tmp_path, icp, routing) -> None:
     with _session(tmp_path) as session:
         connection = _connection(session, uuid4())
@@ -954,6 +978,59 @@ def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_pa
         serialized = json.dumps({"run": started.json(), "state": state.json(), "runs": runs.json()})
         assert "one@example.test" not in serialized
         assert "provider_record_id" not in serialized
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lead_agent.worker import celery_app as worker
+
+    session = _session(tmp_path)
+    connection = _connection(session, uuid4(), provider_type="gmail")
+    provider = FakeInboundProvider(connection.id, [])
+    queued: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        worker.run_scheduled_crm_inbound_sync,
+        "apply_async",
+        lambda *args, **kwargs: queued.append({"args": args, **kwargs}),
+    )
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_workspace_inbound_crm_resolver] = lambda: ResolverStub(provider)
+    app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
+        workspace_id=connection.workspace_id,
+        actor_id="manager",
+        role="sales_manager",
+        permissions=frozenset({"crm.sync", "integrations.manage", "integrations.view"}),
+    )
+    try:
+        with TestClient(app) as client:
+            configured = client.put(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/configuration",
+                json={"enabled": True, "object_type": "message", "interval_seconds": 300},
+            )
+            response = client.post(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync",
+                json={"mode": "review_recent", "object_type": "message", "limit": 20},
+            )
+            state = client.get(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/state?object_type=message"
+            )
+            runs = client.get(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/runs?limit=1"
+            )
+        assert configured.status_code == 200
+        assert response.status_code == 202
+        assert response.json()["status"] == "queued"
+        assert queued[0]["kwargs"]["requested_mode"] == "review_recent"
+        assert state.json()["status"] == "queued"
+        assert runs.json() == []
     finally:
         app.dependency_overrides.clear()
         session.close()
