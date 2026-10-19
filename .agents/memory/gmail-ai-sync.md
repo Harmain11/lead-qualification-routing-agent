@@ -24,3 +24,11 @@ Treat plausible conversations about the workspace's services as leads even when 
 **Why:** The user specified that these are startup calls: if the email is about the team's services, the contact can be a lead even while information is missing.
 
 **How to apply:** A relevant reply confirming or scheduling a services call, asking for context, or continuing the discussion is enough; don't require a stated buying need. Separate lead detection from sales readiness. Verify exact evidence after removing quoted-line transport prefixes, retain strict identity checks, and distinguish actual rejection reasons from optional enrichment notes. Normalize phone formatting only when the same number appears in the source. Allow one evidence-repair pass over the acquired thread.
+
+## Internal company forwarders and missing details
+
+Ingenuity and Ingenuity Systems company email addresses belong to the internal team; never promote their representatives or forwarders into prospect identities. Their forwarded conversations are lead source material, not grounds to reject an embedded external opportunity. A verified external email can be retained with the person's missing name explicitly marked unknown.
+
+**Why:** The user said “all forwarded mail with ingenuitysystem or ingenuity are our own companies email dont take there name in leads” and reiterated that startup messages can have missing information.
+
+**How to apply:** Recognize the company-domain variants independently of manual internal-domain setup, including quoted headers and name-only internal representatives. Keep their identities as provenance. Do not invent missing personal or service details.

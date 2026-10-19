@@ -83,6 +83,14 @@ def _normalized_evidence(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).translate(_EVIDENCE_TRANSLATION)
     # Quoting adds transport formatting between wrapped words, not authored text.
     normalized = re.sub(r"(?m)^[ \t]*(?:>[ \t]*)+", "", normalized)
+    # Plain-text MIME may repeat a telephone link after its displayed number.
+    # Remove only a link whose number is identical to that displayed number.
+    normalized = _PHONE_LINK.sub(
+        lambda match: match["display"] if _phone_evidence_is_from_source(
+            match["display"], match["link"]
+        ) else match.group(0),
+        normalized,
+    )
     return " ".join(normalized.casefold().split())
 
 
@@ -94,6 +102,9 @@ def _evidence_is_from_source(source: str, excerpt: str) -> bool:
 _PHONE_TOKEN = re.compile(
     r"(?<!\d)(?:\+?1[\s()./%\-]*)?(?:\(\s*\d{3}\s*\)|\d{3})"
     r"[\s()./%\-]*\d{3}[\s()./%\-]*\d{4}(?!\d)"
+)
+_PHONE_LINK = re.compile(
+    rf"(?P<display>{_PHONE_TOKEN.pattern})\s*<(?P<link>[^<>\n]{{1,100}})>"
 )
 
 
@@ -204,6 +215,35 @@ def _ground_candidate_identity(
             evidence = [item for item in evidence if item.field != "email"]
             evidence.append(GmailEvidence(field="email", source="body", excerpt=line))
             break
+        name = (candidate.full_name or "").strip()
+        name_excerpt = ""
+        if name:
+            for block in _forwarded_header_blocks(sources["body"]):
+                _, author = parseaddr(block["headers"].get("from", ""))
+                if author.strip().lower() != email:
+                    continue
+                # The correspondent's own signature may expand a shortened or
+                # non-personal From display name. Never borrow a nested author's name.
+                own_body = re.split(
+                    r"(?im)^\s*(?:>\s*)*From:", block["body"], maxsplit=1
+                )[0]
+                lines = own_body.splitlines()
+                for index, line in enumerate(lines):
+                    clean = re.sub(r"^\s*(?:>\s*)*", "", line).strip().strip("_* ")
+                    if (
+                        _normalized_evidence(clean) == _normalized_evidence(name)
+                        and len(line) <= 500
+                        and email in "\n".join(lines[index:index + 7]).lower()
+                    ):
+                        name_excerpt = line
+                        break
+                if name_excerpt:
+                    break
+        if name_excerpt:
+            evidence = [item for item in evidence if item.field != "full_name"]
+            evidence.append(GmailEvidence(
+                field="full_name", source="body", excerpt=name_excerpt
+            ))
     return candidate.model_copy(update={"evidence": evidence})
 
 
@@ -595,8 +635,7 @@ def _thread_from_participants(
         address = address.strip().lower()
         if not address or "@" not in address:
             return
-        domain = address.rsplit("@", 1)[-1]
-        if address in internal_emails or domain in internal_domains:
+        if _is_internal_address(address, internal_domains, internal_emails):
             return
         participants.setdefault(address, name.strip())
 
@@ -711,7 +750,15 @@ def _is_internal_address(
         normalized
         and (
             normalized in internal_emails
-            or ("@" in normalized and normalized.rsplit("@", 1)[-1] in internal_domains)
+            or ("@" in normalized and (
+                normalized.rsplit("@", 1)[-1] in internal_domains
+                or any(
+                    re.sub(r"[^a-z0-9]", "", label) in {
+                        "ingenuity", "ingenuitysys", "ingenuitysystem", "ingenuitysystems",
+                    }
+                    for label in normalized.rsplit("@", 1)[-1].split(".")[:-1]
+                )
+            ))
         )
     )
 
@@ -1374,22 +1421,23 @@ class GmailInboundProvider:
             for name, address in outreach_recipients
             if address not in known_participant_emails
         )
-        internal_participant_names: set[str] = set()
+        internal_participant_names: set[str] = {"ingenuity", "ingenuity systems"}
         signature_contacts: list[dict[str, str]] = []
         for message in participant_messages:
             message_headers = message.get("headers", {})
             if not isinstance(message_headers, dict):
                 continue
-            participant_name, participant_email = parseaddr(
-                str(message_headers.get("from", ""))
-            )
-            participant_email = participant_email.strip().lower()
-            participant_domain = participant_email.rsplit("@", 1)[-1]
-            if participant_email and (
-                participant_email in self.internal_emails
-                or participant_domain in self.internal_domains
-            ):
-                if participant_name.strip():
+            author_headers = [message_headers] + [
+                block["headers"]
+                for block in _forwarded_header_blocks(str(message.get("body", "")))
+            ]
+            for author_header in author_headers:
+                participant_name, participant_email = parseaddr(
+                    str(author_header.get("from", ""))
+                )
+                if _is_internal_address(
+                    participant_email, self.internal_domains, self.internal_emails
+                ) and participant_name.strip():
                     internal_participant_names.add(participant_name.strip().casefold())
             for contact in _signature_contacts(str(message.get("body", ""))):
                 signature_contacts.append(
@@ -1400,10 +1448,7 @@ class GmailInboundProvider:
                 )
         header_name, header_email = parseaddr(str(headers.get("from", "")))
         header_email = header_email.strip().lower()
-        if header_email and (
-            header_email in self.internal_emails
-            or header_email.rsplit("@", 1)[-1] in self.internal_domains
-        ):
+        if _is_internal_address(header_email, self.internal_domains, self.internal_emails):
             if header_name.strip():
                 internal_participant_names.add(header_name.strip().casefold())
         if not eligible_participants and self.lead_extractor is None:
@@ -1481,6 +1526,7 @@ class GmailInboundProvider:
                 extraction_headers = dict(headers)
                 extraction_headers["internal-domains"] = ",".join(sorted(self.internal_domains))
                 extraction_headers["internal-emails"] = ",".join(sorted(self.internal_emails))
+                extraction_headers["internal-company-names"] = "Ingenuity,Ingenuity Systems"
                 if values.get("gmail_validation_feedback"):
                     extraction_headers["validation-feedback"] = str(
                         values["gmail_validation_feedback"]
@@ -1566,14 +1612,12 @@ class GmailInboundProvider:
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
                 candidate_name = (candidate.full_name or "").strip()
                 candidate_email = (candidate.email or "").strip().lower()
-                candidate_email_domain = (
-                    candidate_email.rsplit("@", 1)[-1] if "@" in candidate_email else ""
-                )
                 if (
                     _is_notification_label(candidate_name)
                     or candidate_name.casefold() in internal_participant_names
-                    or candidate_email in self.internal_emails
-                    or candidate_email_domain in self.internal_domains
+                    or _is_internal_address(
+                        candidate_email, self.internal_domains, self.internal_emails
+                    )
                 ) and not candidate.candidates:
                     raise ValueError("internal_notification_identity_only")
                 if (
@@ -1924,12 +1968,10 @@ class GmailInboundProvider:
                 continue
             if email in outreach_emails and candidate.role != "referred_prospect":
                 candidate = candidate.model_copy(update={"role": "direct_prospect"})
-            email_domain = email.rsplit("@", 1)[-1] if "@" in email else ""
             if (
                 _is_notification_label(name)
                 or name.casefold() in internal_names
-                or email in self.internal_emails
-                or email_domain in self.internal_domains
+                or _is_internal_address(email, self.internal_domains, self.internal_emails)
             ):
                 internal_candidate_seen = True
                 continue
@@ -2038,12 +2080,16 @@ class GmailInboundProvider:
             has_referral_support = bool(
                 candidate.referred_by or candidate.referral_context or candidate.company_name
             )
-            if not name or (not email and (not candidate.phone or not has_referral_support)):
+            if not email and (not name or not candidate.phone or not has_referral_support):
                 rejection_notes.append(
                     f"{name or 'Prospect'}: name_or_supported_contact_missing"
                 )
                 repairable_rejections = True
                 continue
+            if not name:
+                review_notes.append(
+                    "Name not provided; retained the verified external email."
+                )
             identity = email or "|".join(
                 (
                     name.casefold(),
@@ -2064,7 +2110,7 @@ class GmailInboundProvider:
             candidate_payload = {
                 **payload,
                 "external_id": provider_record_id,
-                "full_name": name,
+                "full_name": name or "Name not provided",
                 "email": email,
                 "phone": candidate.phone or "",
                 "company_name": candidate.company_name or "Unknown",
@@ -2077,6 +2123,7 @@ class GmailInboundProvider:
                 "gmail_unknown_identity_fields": [
                     field_name
                     for field_name, value in {
+                        "full_name": name,
                         "email": email,
                         "company_name": candidate.company_name,
                         "job_title": candidate.job_title,
