@@ -16,3 +16,11 @@ Validate child prospects against their own evidence, not redundant legacy thread
 **Why:** Production reviews discarded candidates for optional or redundant extraction evidence errors, and an earlier quota failure prevented later successfully normalized prospects in the same batch from being saved.
 
 **How to apply:** Keep regressions for valid children with invalid parent metadata, optional hallucinations, fabricated identities, and a rate-limited message before a valid prospect. Sent mail alone must not exclude an explicitly forwarded, direction-supported external prospect.
+
+## Early-stage service discussions
+
+Treat plausible conversations about the workspace's services as leads even when the service is incomplete or the conversation is at its starting point. A request for more context can qualify using the whole thread. Missing service details stay unknown; they are not a reason to reject the lead. Keep a referring participant linked as context and track the supported referred contact separately.
+
+**Why:** The user explicitly clarified that “if service is incomplete no issue it could be at starting point” and asked to judge whether the full conversation is about services.
+
+**How to apply:** Separate lead detection from sales readiness. Verify exact evidence after removing quoted-line transport prefixes, retain strict identity checks, and distinguish actual rejection reasons from optional enrichment notes. Allow only one evidence-repair pass over the already acquired thread.

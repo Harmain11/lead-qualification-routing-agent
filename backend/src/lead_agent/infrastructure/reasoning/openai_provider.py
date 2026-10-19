@@ -201,6 +201,7 @@ class OpenAIReasoningProvider:
                 "from", "reply-to", "to", "date", "message-id",
             }},
             "authored_body": body[:96_000],
+            "validation_feedback": headers.get("validation-feedback", "")[:2000],
         }
         request_id = current_request_id()
         request_options = (
@@ -243,13 +244,21 @@ class OpenAIReasoningProvider:
             "include early-stage or brief inquiries, requests to discuss a project, questions "
             "about services or capabilities, pricing or demonstrations, and messages exploring "
             "whether there may be a fit. Do not require a budget, purchase timeline, or exact "
-            "buying phrase. Mark genuine only when authored content supports a plausible "
+            "buying phrase. A reply asking for more context or continuing a discussion of our "
+            "services is an early-stage lead even if the specific service or requirements are "
+            "not yet settled. Missing company, job title, or requested service does not disqualify "
+            "a supported prospect. When someone redirects us to a named contact about the "
+            "commercial matter, return that contact as a referred_prospect, preserving the sender "
+            "as external_referrer and referred_by, not as the referred person's email. "
+            "Mark genuine only when authored content supports a plausible "
             "commercial inquiry; exclude clearly automated, transactional, personal, or unrelated "
             "messages. Do not infer intent from generic business language or the sender alone. "
             "Extract only fields grounded in the supplied headers or conversation body. For every "
             "lead candidate return role, confidence, name, optional email, company/context, "
             "role/job title, phone, requested service, referrer, referral context, inquiry "
             "evidence, reason, and exact field-level evidence. Keep multiple candidates separate. "
+            "Confidence measures support for the person's identity and role, not sales readiness; "
+            "do not lower it merely because the service scope is unsettled. "
             "Put lead identities only in candidates; leave legacy top-level identity fields null "
             "so no mailbox sender, latest sender, or recipient is promoted by default. Quote exact "
             "contiguous source text for the inquiry and each extracted field; do not paraphrase. "
@@ -261,6 +270,11 @@ class OpenAIReasoningProvider:
             "source labels must be subject, "
             "body, from_header, or reply_to, and evidence field labels must match output fields. "
             "Do not guess missing values. Return only the requested structured object."
+            " If validation_feedback is present, the prior extraction failed those checks. "
+            "Re-read the original thread, repair only source-supported fields, use exact excerpts "
+            "and correct source labels, and leave unsupported optional fields null. Never invent "
+            "evidence to satisfy validation. Quoted line prefixes are formatting, not authored "
+            "words; preserve the original wording across wrapped lines."
         )
         with provider_operation("openai") as operation:
             client = self._client
