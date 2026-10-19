@@ -17,12 +17,15 @@ from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.crm_inbound import (
+    _contact_update_payload,
     _hubspot_own_writeback_matches,
+    _process_record,
     configure_inbound_sync,
     get_inbound_sync_state,
     run_inbound_sync,
     upgrade_default_mail_sync_intervals,
 )
+from lead_agent.application.gmail_history import gmail_history_messages
 from lead_agent.application.services import process_lead
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
@@ -43,6 +46,7 @@ from lead_agent.infrastructure.db.models import (
     CrmInboundSyncRunORM,
     CrmProviderRecordLinkORM,
     LeadORM,
+    PipelineEventORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
 )
@@ -442,6 +446,242 @@ def test_gmail_rate_limited_message_does_not_discard_other_valid_leads(tmp_path,
         assert run.cursor_current == run.cursor_start
         assert run.checkpoint is None
         assert session.scalar(select(LeadORM.email)) == "valid@example.test"
+
+
+def test_gmail_thread_messages_are_added_once_to_same_lead_across_follow_up_syncs(
+    tmp_path, icp, routing
+):
+    class GmailProvider(FakeInboundProvider):
+        provider_name = "gmail"
+
+        def __init__(self, connection_id, records):
+            super().__init__(connection_id, records)
+            self.thread_messages = [
+                {
+                    "message_id": "gmail-message-1", "thread_id": "thread-1",
+                    "sender": "prospect@example.test", "sender_name": "Lead m1",
+                    "recipients": "inbox@example.test", "subject": "Services",
+                    "sent_at": "2026-10-19T09:00:00+00:00",
+                    "direction": "inbound", "body": "We are interested in services.",
+                },
+                {
+                    "message_id": "gmail-message-2", "thread_id": "thread-1",
+                    "sender": "inbox@example.test", "sender_name": "Corral",
+                    "recipients": "prospect@example.test", "subject": "Re: Services",
+                    "sent_at": "2026-10-19T10:00:00+00:00",
+                    "direction": "outbound", "body": "Could you share more details?",
+                },
+            ]
+
+        def list_records(self, *, object_type, cursor, limit):
+            assert object_type == "message"
+            self.calls.append(cursor)
+            offset = int((cursor or {}).get("offset", 0))
+            records = self.records[offset:offset + limit]
+            checkpoint = {"offset": offset + len(records)}
+            return InboundCrmPage(
+                records=records,
+                next_cursor=checkpoint if checkpoint["offset"] < len(self.records) else None,
+                checkpoint=checkpoint,
+            )
+
+        def normalize_record(self, record):
+            if record.record_id == "message-3":
+                raise ValueError("not_a_new_lead")
+            canonical = super().normalize_record(record)
+            return canonical.model_copy(update={
+                "provider": "gmail",
+                "object_type": "message",
+                "provider_metadata": {
+                    "gmail_thread_id": record.values["thread_id"],
+                    "gmail_message_id": record.record_id,
+                },
+            })
+
+        def fetch_thread(self, thread_id, *, lead_email):
+            assert thread_id == "thread-1"
+            return self.thread_messages
+
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        records = [
+            _record("message-1", "prospect@example.test", message="Initial services inquiry."),
+            _record(
+                "message-2", "prospect@example.test",
+                message="Follow-up with more service details.", version=2,
+            ),
+            _record(
+                "message-3", "prospect@example.test",
+                message="Additional context in a separate email.", version=3,
+            ),
+        ]
+        records[0].values["thread_id"] = "thread-1"
+        records[1].values["thread_id"] = "thread-1"
+        records[2].values.update({
+            "thread_id": "thread-2",
+            "headers": {
+                "from": "Lead message-3 <prospect@example.test>",
+                "to": "Inbox <inbox@example.test>",
+            },
+            "thread_messages": [{
+                "message_id": "gmail-message-3",
+                "thread_id": "thread-2",
+                "headers": {
+                    "from": "Lead message-3 <prospect@example.test>",
+                    "to": "Inbox <inbox@example.test>",
+                    "subject": "Additional information",
+                },
+                "body": "Additional context in a separate email.",
+                "internal_date": "1792404000000",
+            }],
+        })
+        provider = GmailProvider(connection.id, records[:1])
+        first = _run(
+            session, connection, provider, icp, routing,
+            object_type="message", mode="initial", page_size=1,
+            send_confirmation_email=False,
+        )
+        provider.records.append(records[1])
+        second = _run(
+            session, connection, provider, icp, routing,
+            object_type="message", mode="incremental", page_size=1,
+            send_confirmation_email=False,
+        )
+        provider.records.append(records[2])
+        third = _run(
+            session, connection, provider, icp, routing,
+            object_type="message", mode="incremental", page_size=1,
+            send_confirmation_email=False,
+        )
+        lead = session.scalar(select(LeadORM).where(LeadORM.email == "prospect@example.test"))
+        assert lead is not None
+        events = list(
+            session.scalars(
+                select(PipelineEventORM)
+                .where(
+                    PipelineEventORM.lead_id == lead.id,
+                    PipelineEventORM.stage == "gmail_message",
+                )
+                .order_by(PipelineEventORM.created_at)
+            )
+        )
+        assert first.records_created == 1
+        assert second.records_updated == 1
+        assert third.records_skipped == 1
+        assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
+        assert [event.details["message_id"] for event in events] == [
+            "gmail-message-1", "gmail-message-2", "gmail-message-3",
+        ]
+        assert "Follow-up with more service details." in lead.message
+
+
+def test_gmail_updates_preserve_known_details_when_follow_up_omits_them():
+    lead = LeadORM(
+        id=uuid4(), workspace_id=uuid4(), source="email", source_detail="Gmail",
+        full_name="Avery Lane", email="avery@example.test", phone="+1-555-0100",
+        job_title="VP of Operations", company_name="Northstar",
+        industry="SaaS", employee_count=180, annual_revenue=1250000,
+        geography="United States", budget=50000,
+        product_or_service="Lead routing automation", message="Initial conversation.",
+        received_at=datetime(2026, 10, 1, tzinfo=UTC), raw_payload={},
+        normalization_version="1", created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    canonical = CanonicalInboundLead(
+        provider="gmail", object_type="message", provider_record_id="follow-up",
+        normalized_payload={
+            "full_name": "Name not provided", "email": "avery@example.test",
+            "phone": "", "job_title": None, "company_name": "Unknown",
+            "industry": None, "employee_count": None, "annual_revenue": None,
+            "geography": None, "budget": None, "product_or_service": "Unknown",
+            "message": "New follow-up details.",
+        },
+        source_fingerprint="a" * 64, provider_source="Gmail", provider_metadata={},
+    )
+    payload = _contact_update_payload(canonical, lead, canonical.normalized_payload)
+    assert payload["full_name"] == "Avery Lane"
+    assert payload["company_name"] == "Northstar"
+    assert payload["product_or_service"] == "Lead routing automation"
+    assert payload["phone"] == "+1-555-0100"
+    assert payload["job_title"] == "VP of Operations"
+    assert payload["message"] == "New follow-up details."
+
+
+def test_gmail_history_is_scoped_to_exact_sender_or_to_email_not_cc():
+    messages = [
+        {
+            "message_id": "cc-only",
+            "headers": {
+                "from": "Other Lead <other@example.test>",
+                "to": "inbox@example.test",
+                "cc": "prospect@example.test",
+            },
+            "internal_date": "1792404000000",
+            "body": "Not addressed to this prospect.",
+        },
+        {
+            "message_id": "to-match",
+            "headers": {
+                "from": "Other Lead <other@example.test>",
+                "to": "Prospect <prospect@example.test>",
+            },
+            "internal_date": "1792404060000",
+            "body": "This message is addressed to this prospect.",
+        },
+        {
+            "message_id": "from-match",
+            "headers": {
+                "from": "Prospect <prospect@example.test>",
+                "to": "inbox@example.test",
+            },
+            "internal_date": "1792404120000",
+            "body": "This message is from this prospect.",
+        },
+    ]
+    rows = gmail_history_messages(
+        messages,
+        lead_email="prospect@example.test",
+        mailbox_email="inbox@example.test",
+    )
+    assert [row["message_id"] for row in rows] == ["to-match", "from-match"]
+    assert rows[0]["direction"] == "inbound"
+    assert rows[1]["direction"] == "inbound"
+
+
+def test_gmail_skips_ambiguous_email_match_instead_of_creating_a_duplicate(
+    tmp_path, icp, routing
+):
+    with _session(tmp_path) as session:
+        workspace_id = uuid4()
+        connection = _connection(session, workspace_id, provider_type="gmail")
+        now = datetime.now(UTC)
+        for name in ("Existing Lead A", "Existing Lead B"):
+            session.add(LeadORM(
+                id=uuid4(), workspace_id=workspace_id, source="website",
+                full_name=name, email="shared@example.test", phone=None, job_title=None,
+                company_name="Existing Company", product_or_service="AI services",
+                message="Initial conversation.", received_at=now, raw_payload={},
+                normalization_version="1", created_at=now, updated_at=now,
+            ))
+        session.commit()
+        canonical = CanonicalInboundLead(
+            provider="gmail", object_type="message", provider_record_id="thread-new:contact",
+            normalized_payload={
+                "email": "shared@example.test", "full_name": "Shared Contact",
+                "phone": "", "company_name": "Unknown",
+                "product_or_service": "Unknown", "message": "Follow-up email.",
+                "source": "email", "source_detail": "Gmail",
+            },
+            source_fingerprint="a" * 64, provider_source="Gmail",
+            provider_metadata={"gmail_thread_id": "thread-new"},
+        )
+        with pytest.raises(ValueError, match="gmail_contact_match_ambiguous"):
+            _process_record(
+                session, connection, object(), canonical, icp, routing, None, None,
+                actor_id="test-user", correlation_id="test-run",
+                send_confirmation_email=False,
+            )
+        assert session.scalar(select(func.count()).select_from(LeadORM)) == 2
 
 
 def test_active_inbound_lease_blocks_overlap_across_workers(tmp_path, icp, routing) -> None:
