@@ -37,6 +37,7 @@ from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import get_provider_connection
+from lead_agent.settings.config import get_settings
 
 router = APIRouter(prefix="/v1/integrations/connections", tags=["crm-inbound"])
 _LOGGER = logging.getLogger("lead_agent.api.crm_inbound")
@@ -135,20 +136,26 @@ def synchronize_inbound_crm(
         state.updated_at = queued_at
         session.commit()
         try:
-            from lead_agent.worker.celery_app import run_scheduled_crm_inbound_sync
+            task_kwargs = {
+                "requested_mode": request.mode,
+                "requested_limit": request.limit,
+                "requested_page_size": request.page_size,
+                "requested_actor_id": workspace.actor_id,
+                "requested_send_confirmation_email": False
+                if request.mode == "review_recent"
+                else request.send_confirmation_email,
+            }
+            if get_settings().app_env == "development":
+                from lead_agent.worker.preview_sync import enqueue_manual_sync
 
-            run_scheduled_crm_inbound_sync.apply_async(
-                args=[str(state.id)],
-                kwargs={
-                    "requested_mode": request.mode,
-                    "requested_limit": request.limit,
-                    "requested_page_size": request.page_size,
-                    "requested_actor_id": workspace.actor_id,
-                    "requested_send_confirmation_email": False
-                    if request.mode == "review_recent"
-                    else request.send_confirmation_email,
-                },
-            )
+                enqueue_manual_sync(str(state.id), **task_kwargs)
+            else:
+                from lead_agent.worker.celery_app import run_scheduled_crm_inbound_sync
+
+                run_scheduled_crm_inbound_sync.apply_async(
+                    args=[str(state.id)],
+                    kwargs=task_kwargs,
+                )
         except Exception as error:
             state.status = "failed"
             state.error_category = "temporarily_unavailable"
