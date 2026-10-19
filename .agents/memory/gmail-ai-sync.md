@@ -21,6 +21,6 @@ Validate child prospects against their own evidence, not redundant legacy thread
 
 Treat plausible conversations about the workspace's services as leads even when the service is incomplete or the conversation is at its starting point. A request for more context can qualify using the whole thread. Missing service details stay unknown; they are not a reason to reject the lead. Keep a referring participant linked as context and track the supported referred contact separately.
 
-**Why:** The user explicitly clarified that “if service is incomplete no issue it could be at starting point” and asked to judge whether the full conversation is about services.
+**Why:** The user specified that these are startup calls: if the email is about the team's services, the contact can be a lead even while information is missing.
 
-**How to apply:** Separate lead detection from sales readiness. Verify exact evidence after removing quoted-line transport prefixes, retain strict identity checks, and distinguish actual rejection reasons from optional enrichment notes. Allow only one evidence-repair pass over the already acquired thread.
+**How to apply:** A relevant reply confirming or scheduling a services call, asking for context, or continuing the discussion is enough; don't require a stated buying need. Separate lead detection from sales readiness. Verify exact evidence after removing quoted-line transport prefixes, retain strict identity checks, and distinguish actual rejection reasons from optional enrichment notes. Normalize phone formatting only when the same number appears in the source. Allow one evidence-repair pass over the acquired thread.
