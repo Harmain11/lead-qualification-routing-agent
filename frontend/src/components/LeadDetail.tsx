@@ -2,6 +2,7 @@ import { CallsPanel } from "./CallsPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AiStageAssessment } from "./AiStageAssessment";
+import { GmailInquiryView } from "./GmailInquiryView";
 
 import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadClosingOptions, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome } from "../types";
@@ -239,7 +240,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
           <div>
             <span className="eyebrow">{title(lead.source)} lead</span>
             <h3>Original inquiry</h3>
-            <blockquote>{lead.message}</blockquote>
+            <GmailInquiryView message={lead.message} />
             <p className="lead-received">Received {new Date(lead.received_at).toLocaleString()}</p>
             <details className="lead-source-evidence">
               <summary>View source details</summary>
