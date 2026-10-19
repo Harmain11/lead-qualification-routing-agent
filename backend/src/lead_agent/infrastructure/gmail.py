@@ -564,6 +564,41 @@ def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) 
     return None
 
 
+def _is_lead_notification_wrapper(headers: dict[str, str], body: str = "") -> bool:
+    subject = str(headers.get("subject", ""))
+    sender = str(headers.get("from", ""))
+    subject_is_notification = bool(
+        re.search(
+            r"\b(?:lead\s+notifications?|new\s+lead\s+(?:alert|submission|received))\b",
+            subject,
+            re.I,
+        )
+    )
+    branded_notification = bool(
+        re.search(r"ingenuity\s+lead\s+notifications?", f"{sender}\n{subject}\n{body[:4000]}", re.I)
+    )
+    structured_lead_body = bool(
+        re.search(
+            r"(?im)^\s*(?:lead\s+details|lead\s+information|lead\s+payload)\s*[:#]?",
+            body[:4000],
+        )
+    )
+    return subject_is_notification or branded_notification or structured_lead_body
+
+
+def _email_appears_as_lead_identity(excerpt: str, email: str) -> bool:
+    """Allow evidenced embedded identity email, but never a To/Cc-only address."""
+    return any(
+        email.casefold() in line.casefold()
+        and not re.match(r"(?i)^\s*(?:to|cc|bcc)\s*:", line)
+        for line in excerpt.splitlines()
+    )
+
+
+def _is_notification_label(value: str) -> bool:
+    return bool(re.search(r"\b(?:ingenuity\s+)?lead\s+notifications?\b", value, re.I))
+
+
 class _TextHTML(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -922,7 +957,11 @@ class GmailInboundProvider:
         headers = {**metadata_headers, **anchor["headers"]}
         body = str(anchor["body"])
         anchor_reason = candidate_reason(headers, body, self.mailbox_email)
-        if anchor_reason and anchor_reason != "no_inquiry_signal":
+        if (
+            anchor_reason
+            and anchor_reason != "no_inquiry_signal"
+            and not _is_lead_notification_wrapper(headers, body)
+        ):
             return ExternalCrmRecord(
                 provider="gmail",
                 object_type="message",
@@ -999,6 +1038,7 @@ class GmailInboundProvider:
         if not isinstance(headers, dict):
             raise ValueError("Gmail message headers are unavailable")
         sender_name, sender_email = parseaddr(str(headers.get("from", "")))
+        wrapper_sender_name = sender_name.strip()
         original_sender_email = sender_email.strip().lower()
         email = original_sender_email
         body = str(values.get("body", ""))[:_MAX_BODY_CHARS]
@@ -1006,6 +1046,7 @@ class GmailInboundProvider:
             raise ValueError("Gmail message does not contain an importable sender and body")
         subject = str(headers.get("subject", "(no subject)"))[:500]
         thread_context = str(values.get("thread_context") or body)[: _MAX_BODY_CHARS * 3]
+        notification_wrapper = _is_lead_notification_wrapper(headers, thread_context)
         thread_messages = values.get("thread_messages", [])
         forwarded_options: list[tuple[str, str, str, str]] = []
         if isinstance(thread_messages, list):
@@ -1027,6 +1068,30 @@ class GmailInboundProvider:
             self.internal_domains,
             self.internal_emails,
         )
+        internal_participant_names: set[str] = set()
+        for message in participant_messages:
+            message_headers = message.get("headers", {})
+            if not isinstance(message_headers, dict):
+                continue
+            participant_name, participant_email = parseaddr(
+                str(message_headers.get("from", ""))
+            )
+            participant_email = participant_email.strip().lower()
+            participant_domain = participant_email.rsplit("@", 1)[-1]
+            if participant_email and (
+                participant_email in self.internal_emails
+                or participant_domain in self.internal_domains
+            ):
+                if participant_name.strip():
+                    internal_participant_names.add(participant_name.strip().casefold())
+        header_name, header_email = parseaddr(str(headers.get("from", "")))
+        header_email = header_email.strip().lower()
+        if header_email and (
+            header_email in self.internal_emails
+            or header_email.rsplit("@", 1)[-1] in self.internal_domains
+        ):
+            if header_name.strip():
+                internal_participant_names.add(header_name.strip().casefold())
         if not eligible_participants and self.lead_extractor is None:
             raise ValueError("no_external_thread_participant")
         eligible_by_email = {address: name for name, address in eligible_participants}
@@ -1151,12 +1216,32 @@ class GmailInboundProvider:
                             for item in field_evidence
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
-                if candidate.email and candidate.email.strip().lower() not in eligible_by_email:
+                candidate_name = (candidate.full_name or "").strip()
+                candidate_email = (candidate.email or "").strip().lower()
+                candidate_email_domain = (
+                    candidate_email.rsplit("@", 1)[-1] if "@" in candidate_email else ""
+                )
+                if (
+                    _is_notification_label(candidate_name)
+                    or candidate_name.casefold() in internal_participant_names
+                    or candidate_email in self.internal_emails
+                    or candidate_email_domain in self.internal_domains
+                ) and not candidate.candidates:
+                    raise ValueError("internal_notification_identity_only")
+                if (
+                    candidate.email
+                    and candidate.email.strip().lower() not in eligible_by_email
+                    and not candidate.candidates
+                ):
                     raise ValueError("ai_email_not_a_thread_candidate")
                 if candidate.email:
                     email = candidate.email.strip().lower()
                 elif selected_identity is None and not candidate.candidates:
-                    raise ValueError("external_thread_participant_ambiguous")
+                    raise ValueError(
+                        "internal_notification_identity_only"
+                        if notification_wrapper
+                        else "external_thread_participant_ambiguous"
+                    )
                 selected_identity = next(
                     (item for item in eligible_participants if item[1] == email),
                     selected_identity,
@@ -1308,6 +1393,17 @@ class GmailInboundProvider:
                 for item in participant_messages
                 if item.get("message_id")
             ],
+            "gmail_internal_participant_names": sorted(internal_participant_names),
+            "gmail_notification_wrapper": notification_wrapper,
+            "gmail_wrapper_sender_name": wrapper_sender_name[:255],
+            "gmail_embedded_message_ids": sorted(
+                set(
+                    re.findall(
+                        r"(?im)^\s*>*\s*Message-ID:\s*<?([^>\s]+)",
+                        thread_context,
+                    )
+                )
+            ),
             "gmail_eligible_participant_emails": list(eligible_by_email),
             "gmail_prospect_candidates": (
                 [item.model_dump(mode="json") for item in extracted.candidates]
@@ -1354,6 +1450,17 @@ class GmailInboundProvider:
                 "gmail_ai_method": "openai" if extracted else "deterministic",
                 "gmail_ai_fallback_reason": fallback_reason,
                 "gmail_ai_reason": ai_reason,
+                "gmail_notification_wrapper": notification_wrapper,
+                "gmail_wrapper_sender_name": wrapper_sender_name[:255],
+                "gmail_source_subject": subject[:500],
+                "gmail_embedded_message_ids": sorted(
+                    set(
+                        re.findall(
+                            r"(?im)^\s*>*\s*Message-ID:\s*<?([^>\s]+)",
+                            thread_context,
+                        )
+                    )
+                ),
             },
             enrichment_fingerprint=None,
         )
@@ -1370,6 +1477,11 @@ class GmailInboundProvider:
             str(value).strip().lower()
             for value in payload.get("gmail_eligible_participant_emails", [])
         }
+        internal_names = {
+            str(value).strip().casefold()
+            for value in payload.get("gmail_internal_participant_names", [])
+            if str(value).strip()
+        }
         evidence_sources = {
             "body": thread_text,
             "subject": str(payload.get("subject") or ""),
@@ -1380,6 +1492,7 @@ class GmailInboundProvider:
         }
         normalized: list[CanonicalInboundLead] = []
         review_notes: list[str] = []
+        internal_candidate_seen = False
         for raw in candidates:
             if (
                 not isinstance(raw, dict)
@@ -1388,6 +1501,17 @@ class GmailInboundProvider:
             ):
                 continue
             candidate = GmailProspectCandidate.model_validate(raw)
+            name = (candidate.full_name or "").strip()
+            email = (candidate.email or "").strip().lower()
+            email_domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+            if (
+                _is_notification_label(name)
+                or name.casefold() in internal_names
+                or email in self.internal_emails
+                or email_domain in self.internal_domains
+            ):
+                internal_candidate_seen = True
+                continue
             if candidate.confidence < 0.6:
                 review_notes.append(
                     f"{candidate.full_name or 'Unknown person'} ({candidate.role}) "
@@ -1438,10 +1562,25 @@ class GmailInboundProvider:
                 for field, value in fields.items()
             ):
                 continue
-            email = (candidate.email or "").strip().lower()
-            if email and email not in eligible_emails:
-                continue
-            name = (candidate.full_name or "").strip()
+            if email:
+                email_evidence = [
+                    item for item in candidate.evidence if item.field == "email"
+                ]
+                if not email_evidence or not any(
+                    item.source in {"from_header", "reply_to"}
+                    or (
+                        item.source == "body"
+                        and _email_appears_as_lead_identity(item.excerpt, email)
+                    )
+                    for item in email_evidence
+                ):
+                    continue
+                if email not in eligible_emails and not any(
+                    item.source == "body"
+                    and _email_appears_as_lead_identity(item.excerpt, email)
+                    for item in email_evidence
+                ) and not any(item.source == "from_header" for item in email_evidence):
+                    continue
             has_referral_support = bool(
                 candidate.referred_by or candidate.referral_context or candidate.company_name
             )
@@ -1519,6 +1658,14 @@ class GmailInboundProvider:
         if not normalized:
             if review_notes:
                 raise ValueError(f"candidate_identity_requires_manual_review:{review_notes[0]}")
+            if internal_candidate_seen:
+                raise ValueError("internal_notification_identity_only")
+            if payload.get("gmail_notification_wrapper") and not any(
+                isinstance(item, dict)
+                and item.get("role") in {"direct_prospect", "referred_prospect"}
+                for item in candidates
+            ):
+                raise ValueError("internal_notification_identity_only")
             raise ValueError("no_supported_prospect_candidates")
         return normalized
 

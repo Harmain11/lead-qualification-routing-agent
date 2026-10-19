@@ -1228,6 +1228,379 @@ def test_gmail_referral_thread_creates_company_and_phone_only_referral_candidate
     )
 
 
+def _embedded_lead_candidate(
+    *,
+    name: str,
+    email: str,
+    company: str,
+    role: str,
+    phone: str,
+    inquiry: str,
+    candidate_role: str = "direct_prospect",
+    referred_by: str | None = None,
+) -> GmailProspectCandidate:
+    evidence = [
+        GmailEvidence(field="full_name", source="body", excerpt=f"Name: {name}"),
+        GmailEvidence(field="email", source="body", excerpt=f"Lead email: {email}"),
+        GmailEvidence(field="company_name", source="body", excerpt=f"Company: {company}"),
+        GmailEvidence(field="job_title", source="body", excerpt=f"Role: {role}"),
+        GmailEvidence(field="phone", source="body", excerpt=f"Phone: {phone}"),
+        GmailEvidence(
+            field="requested_service", source="body", excerpt=f"Inquiry: {inquiry}"
+        ),
+    ]
+    if referred_by:
+        evidence.append(
+            GmailEvidence(
+                field="referred_by", source="body", excerpt=f"Referred by: {referred_by}"
+            )
+        )
+    return GmailProspectCandidate(
+        role=candidate_role,
+        is_genuine_inquiry=True,
+        confidence=0.97,
+        reason=f"{name} is the external person identified in the lead payload.",
+        inquiry_evidence=inquiry,
+        full_name=name,
+        email=email,
+        company_name=company,
+        job_title=role,
+        phone=phone,
+        requested_service="website refresh",
+        referred_by=referred_by,
+        evidence=evidence,
+    )
+
+
+def _notification_record(
+    *,
+    subject: str,
+    body: str,
+    candidates: list[GmailProspectCandidate],
+    record_id: str = "notification-message",
+) -> tuple[GmailInboundProvider, ExternalCrmRecord]:
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="The embedded payload contains an external commercial inquiry.",
+        inquiry_evidence=candidates[0].inquiry_evidence,
+        candidates=candidates,
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+        internal_emails={"reese@ingenuitysys.com"},
+        lead_extractor=lambda **_kwargs: extraction,
+    )
+    headers = {
+        "from": "Reese Maddox <reese@ingenuitysys.com>",
+        "subject": subject,
+    }
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id=record_id,
+        values={
+            "thread_id": f"thread-{record_id}",
+            "headers": headers,
+            "body": body,
+            "thread_context": (
+                f"--- Gmail message {record_id} ---\n"
+                f"From: {headers['from']}\nSubject: {subject}\n\n{body}"
+            ),
+            "thread_messages": [
+                {
+                    "message_id": record_id,
+                    "headers": headers,
+                    "body": body,
+                }
+            ],
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+    return provider, record
+
+
+def test_gmail_ingenuity_notification_reese_wrapper_uses_embedded_lead_identity() -> None:
+    inquiry = "Could you send pricing for a website refresh?"
+    body = (
+        "Lead Details\nName: Jordan Bell\nLead email: jordan@bellstudio.example\n"
+        "Company: Bell Studio\nRole: Founder\nPhone: 1-202-555-0177\n"
+        f"Inquiry: {inquiry}\nMessage-ID: <original-jordan-77@bellstudio.example>"
+    )
+    external = _embedded_lead_candidate(
+        name="Jordan Bell",
+        email="jordan@bellstudio.example",
+        company="Bell Studio",
+        role="Founder",
+        phone="1-202-555-0177",
+        inquiry=inquiry,
+    )
+    internal_decoy = GmailProspectCandidate(
+        role="direct_prospect",
+        is_genuine_inquiry=True,
+        confidence=0.99,
+        reason="Wrapper sender incorrectly selected as a lead.",
+        inquiry_evidence=inquiry,
+        full_name="Reese Maddox",
+        email="reese@ingenuitysys.com",
+    )
+    provider, record = _notification_record(
+        subject="Ingenuity Lead Notifications — Reese Maddox",
+        body=body,
+        candidates=[internal_decoy, external],
+        record_id="ingenuity-notification-reese",
+    )
+
+    [lead] = provider.normalize_records(record)
+    assert lead.normalized_payload["full_name"] == "Jordan Bell"
+    assert lead.normalized_payload["email"] == "jordan@bellstudio.example"
+    assert lead.normalized_payload["company_name"] == "Bell Studio"
+    assert lead.normalized_payload["job_title"] == "Founder"
+    assert lead.normalized_payload["phone"] == "1-202-555-0177"
+    assert lead.normalized_payload["gmail_notification_wrapper"] is True
+    assert lead.normalized_payload["gmail_wrapper_sender_name"] == "Reese Maddox"
+    assert lead.normalized_payload["gmail_embedded_message_ids"] == [
+        "original-jordan-77@bellstudio.example"
+    ]
+    assert lead.provider_metadata["gmail_notification_wrapper"] is True
+    assert lead.provider_metadata["gmail_wrapper_sender_name"] == "Reese Maddox"
+    assert lead.provider_metadata["original_sender_email"] == "reese@ingenuitysys.com"
+    assert lead.normalized_payload["gmail_message_id"] == "ingenuity-notification-reese"
+    assert lead.normalized_payload["gmail_thread_id"] == "thread-ingenuity-notification-reese"
+    internal_provider, internal_record = _notification_record(
+        subject="Ingenuity Lead Notifications — Reese Maddox",
+        body=body,
+        candidates=[internal_decoy],
+        record_id="internal-only-notification",
+    )
+    with pytest.raises(ValueError, match="internal_notification_identity_only"):
+        internal_provider.normalize_records(internal_record)
+
+
+def test_gmail_notification_with_one_embedded_lead_uses_original_from_and_thread_evidence() -> None:
+    inquiry = "We need a website refresh. Could you send pricing?"
+    body = (
+        "Lead Information:\nName: Avery Stone\nLead email: avery@stoneworks.example\n"
+        "Company: Stoneworks\nRole: Operations Director\nPhone: 1-202-555-0130\n"
+        f"Inquiry: {inquiry}\n\n"
+        "Original message headers:\n"
+        "From: Avery Stone <avery@stoneworks.example>\n"
+        "Reply-To: avery@stoneworks.example\n"
+        "To: Reese Maddox <reese@ingenuitysys.com>\n"
+        "Cc: team@stoneworks.example\nSubject: Website refresh pricing\n"
+        "Message-ID: <avery-original@stoneworks.example>\n\n"
+        f"{inquiry}"
+    )
+    candidate = _embedded_lead_candidate(
+        name="Avery Stone",
+        email="avery@stoneworks.example",
+        company="Stoneworks",
+        role="Operations Director",
+        phone="1-202-555-0130",
+        inquiry=inquiry,
+    )
+    provider, record = _notification_record(
+        subject="New lead received",
+        body=body,
+        candidates=[candidate],
+        record_id="one-embedded-lead",
+    )
+
+    [lead] = provider.normalize_records(record)
+    assert lead.normalized_payload["full_name"] == "Avery Stone"
+    assert lead.normalized_payload["email"] == "avery@stoneworks.example"
+    assert "Original message headers:" in lead.normalized_payload["message"]
+    assert "Cc: team@stoneworks.example" in lead.normalized_payload["message"]
+    assert lead.normalized_payload["gmail_notification_wrapper"] is True
+
+
+def test_gmail_notification_with_multiple_embedded_leads_keeps_candidates_separate() -> None:
+    inquiry_a = "Could you send pricing for a website refresh?"
+    inquiry_b = "We need help planning our new website refresh."
+    body = (
+        "Lead Details A\nName: Morgan Reed\nLead email: morgan@reed.example\n"
+        "Company: Reed Group\nRole: CEO\nPhone: 1-202-555-0151\n"
+        f"Inquiry: {inquiry_a}\n\n"
+        "Lead Details B\nName: Taylor Kim\nLead email: taylor@kim.example\n"
+        "Company: Kim Design\nRole: Marketing Lead\nPhone: 1-202-555-0152\n"
+        f"Inquiry: {inquiry_b}\nReferred by: Morgan Reed"
+    )
+    first = _embedded_lead_candidate(
+        name="Morgan Reed",
+        email="morgan@reed.example",
+        company="Reed Group",
+        role="CEO",
+        phone="1-202-555-0151",
+        inquiry=inquiry_a,
+    )
+    second = _embedded_lead_candidate(
+        name="Taylor Kim",
+        email="taylor@kim.example",
+        company="Kim Design",
+        role="Marketing Lead",
+        phone="1-202-555-0152",
+        inquiry=inquiry_b,
+        candidate_role="referred_prospect",
+        referred_by="Morgan Reed",
+    )
+    provider, record = _notification_record(
+        subject="Ingenuity Lead Notifications",
+        body=body,
+        candidates=[first, second],
+        record_id="multi-embedded-leads",
+    )
+
+    leads = provider.normalize_records(record)
+    assert [lead.normalized_payload["full_name"] for lead in leads] == [
+        "Morgan Reed",
+        "Taylor Kim",
+    ]
+    assert [lead.normalized_payload["email"] for lead in leads] == [
+        "morgan@reed.example",
+        "taylor@kim.example",
+    ]
+    assert leads[1].normalized_payload["gmail_referred_by"] == "Morgan Reed"
+    assert leads[0].provider_record_id != leads[1].provider_record_id
+
+
+def test_gmail_direct_external_inbound_thread_remains_a_single_external_lead() -> None:
+    inquiry = "Could you send pricing for our website refresh?"
+    candidate = GmailProspectCandidate(
+        role="direct_prospect",
+        is_genuine_inquiry=True,
+        confidence=0.96,
+        reason="The external sender directly requests commercial services.",
+        inquiry_evidence=inquiry,
+        full_name="Casey Lane",
+        email="casey@lane.example",
+        company_name="Lane Studio",
+        requested_service="website refresh",
+        evidence=[
+            GmailEvidence(field="full_name", source="from_header", excerpt="Casey Lane"),
+            GmailEvidence(field="email", source="from_header", excerpt="casey@lane.example"),
+            GmailEvidence(field="company_name", source="body", excerpt="Lane Studio"),
+            GmailEvidence(
+                field="requested_service", source="body", excerpt="website refresh"
+            ),
+        ],
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+        lead_extractor=lambda **_kwargs: GmailLeadExtraction(
+            is_genuine_inquiry=True,
+            reason="The external sender requests pricing.",
+            inquiry_evidence=inquiry,
+            candidates=[candidate],
+        ),
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="direct-casey",
+        values={
+            "thread_id": "direct-casey-thread",
+            "headers": {
+                "from": "Casey Lane <casey@lane.example>",
+                "subject": "Website refresh pricing",
+            },
+            "body": f"We are Lane Studio. {inquiry}",
+            "thread_context": (
+                "From: Casey Lane <casey@lane.example>\n"
+                "Subject: Website refresh pricing\n\n"
+                f"We are Lane Studio. {inquiry}"
+            ),
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+
+    [lead] = provider.normalize_records(record)
+    assert lead.normalized_payload["full_name"] == "Casey Lane"
+    assert lead.normalized_payload["email"] == "casey@lane.example"
+    assert lead.normalized_payload["gmail_notification_wrapper"] is False
+
+
+def test_gmail_fetch_does_not_drop_automated_lead_notification_wrapper() -> None:
+    inquiry = "Could you send pricing for our website refresh?"
+    body = (
+        "Lead Details\nName: Jordan Bell\nLead email: jordan@bellstudio.example\n"
+        "Company: Bell Studio\nRole: Founder\nPhone: 1-202-555-0177\n"
+        f"Inquiry: {inquiry}"
+    )
+
+    class FakeApi:
+        def get(self, path: str, **_params):
+            if path == "messages/wrapper-auto":
+                return {
+                    "id": "wrapper-auto",
+                    "threadId": "wrapper-auto-thread",
+                    "labelIds": ["INBOX"],
+                    "internalDate": "1792400000000",
+                    "snippet": body,
+                    "payload": {
+                        "headers": [
+                            {
+                                "name": "From",
+                                "value": (
+                                    "Ingenuity Lead Notifications "
+                                    "<notifications@ingenuitysys.com>"
+                                ),
+                            },
+                            {
+                                "name": "Subject",
+                                "value": "Ingenuity Lead Notifications — Reese Maddox",
+                            },
+                        ]
+                    },
+                }
+            if path == "threads/wrapper-auto-thread":
+                return {
+                    "messages": [
+                        {
+                            "id": "wrapper-auto",
+                            "threadId": "wrapper-auto-thread",
+                            "internalDate": "1792400000000",
+                            "payload": {
+                                "mimeType": "text/plain",
+                                "headers": [
+                                    {
+                                        "name": "From",
+                                        "value": (
+                                            "Ingenuity Lead Notifications "
+                                            "<notifications@ingenuitysys.com>"
+                                        ),
+                                    },
+                                    {
+                                        "name": "Subject",
+                                        "value": (
+                                            "Ingenuity Lead Notifications — Reese Maddox"
+                                        ),
+                                    },
+                                ],
+                                "body": {"data": _encoded(body)},
+                            },
+                        }
+                    ]
+                }
+            raise AssertionError(f"Unexpected Gmail API path: {path}")
+
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+    )
+    provider.api = FakeApi()
+    fetched = provider.fetch_record(object_type="message", record_id="wrapper-auto")
+    assert fetched.values.get("skip_reason") is None
+    assert fetched.values["body"] == body
+    assert "Ingenuity Lead Notifications" in fetched.values["thread_context"]
+
+
 def test_gmail_forwarded_identity_is_stable_across_repeated_normalization() -> None:
     provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
     record = ExternalCrmRecord(
