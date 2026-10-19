@@ -574,6 +574,53 @@ def test_gmail_ai_can_accept_plausible_intent_without_keyword_gate() -> None:
     assert canonical.provider_metadata["gmail_ai_method"] == "openai"
 
 
+def test_gmail_ai_evidence_accepts_normalized_whitespace_and_typography() -> None:
+    body = "We’re exploring event\noptions. Could we discuss this next week?"
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="The sender is exploring event services.",
+        inquiry_evidence="Could we discuss this next week?",
+        email="mira@client.example",
+        requested_service="event options",
+        evidence=[
+            GmailEvidence(
+                field="requested_service",
+                source="body",
+                excerpt="We're exploring event options",
+            ),
+            GmailEvidence(
+                field="email",
+                source="from_header",
+                excerpt="mira@client.example",
+            ),
+        ],
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "inbox@example.test",
+        lead_extractor=lambda **_kwargs: extraction,
+    )
+    canonical = provider.normalize_record(
+        ExternalCrmRecord(
+            provider="gmail",
+            object_type="message",
+            record_id="ai-normalized-evidence",
+            values={
+                "thread_id": "thread-ai",
+                "headers": {
+                    "from": "Mira Example <mira@client.example>",
+                    "subject": "Event services",
+                },
+                "body": body,
+            },
+            modified_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    assert canonical.normalized_payload["email"] == "mira@client.example"
+    assert canonical.provider_metadata["gmail_ai_method"] == "openai"
+
+
 def test_gmail_ai_negative_excludes_message_even_if_heuristic_candidate() -> None:
     provider = GmailInboundProvider(
         uuid4(), "access", "inbox@example.test",

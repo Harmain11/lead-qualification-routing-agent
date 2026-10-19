@@ -210,8 +210,9 @@ class OpenAIReasoningProvider:
             "commercial inquiry; exclude clearly automated, transactional, personal, or unrelated "
             "messages. Do not infer intent from a signature, quoted history, generic business "
             "language, or the sender alone. Extract only fields "
-            "grounded in the supplied headers or authored body. Return exact evidence excerpts "
-            "for the inquiry and each extracted field. Evidence source labels must be subject, "
+            "grounded in the supplied headers or authored body. Quote exact contiguous source "
+            "text for the inquiry and each extracted field; do not paraphrase excerpts. Evidence "
+            "source labels must be subject, "
             "body, from_header, or reply_to, and evidence field labels must match output fields. "
             "Do not guess missing values. Return only the requested structured object."
         )
