@@ -66,5 +66,21 @@
 .call-insight-group li strong { color:var(--workspace-accent,var(--orange)); font-size:12px; }
 .call-insight-ratio ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
 .call-insight-ratio li { padding:8px; border-radius:6px; background:var(--surface-high); }
-@media (max-width:600px) { .call-insight-facts,.call-insight-notes,.dialer-call-facts { grid-template-columns:1fr; }.dialer-record { padding:15px; }.dialer-record-top { align-items:flex-start; } }
+.dialer-call-launch { display:grid; gap:16px; }
+.dialer-call-launch > .dialer-panel-head { margin-bottom:0; }
+.dialer-lead-search { display:grid; gap:7px; max-width:520px; color:var(--muted); font-size:13px; font-weight:700; }
+.dialer-lead-search input { width:100%; min-width:0; border:1px solid var(--line-bright); border-radius:8px; padding:10px 12px; color:var(--text); background:var(--surface-high); font:inherit; }
+.dialer-lead-results { display:grid; gap:8px; max-height:320px; overflow:auto; }
+.dialer-lead-option { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:9px; color:var(--text); background:var(--surface-high); text-align:left; cursor:pointer; }
+.dialer-lead-option:hover,.dialer-lead-option:focus-visible { border-color:var(--workspace-accent,var(--orange)); }
+.dialer-lead-option > span:first-child { display:grid; gap:3px; min-width:0; }
+.dialer-lead-option strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dialer-lead-option small,.dialer-selected-lead span { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+.dialer-lead-option > span:last-child { color:var(--workspace-accent,var(--orange)); font-size:20px; }
+.dialer-selected-lead { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 15px; border:1px solid var(--line); border-radius:10px; background:var(--surface-high); }
+.dialer-selected-lead > div:first-child { display:grid; gap:4px; min-width:0; }
+.dialer-selected-lead strong { font-size:15px; }
+.dialer-selected-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.dialer-call-launch .calls-panel { margin-top:0; }
+@media (max-width:600px) { .call-insight-facts,.call-insight-notes,.dialer-call-facts { grid-template-columns:1fr; }.dialer-record { padding:15px; }.dialer-record-top { align-items:flex-start; }.dialer-selected-lead { align-items:flex-start; flex-direction:column; }.dialer-selected-actions { justify-content:flex-start; } }
 @media (max-width:800px) { .dialer-head { flex-direction:column; }.dialer-head > button { width:100%; }.dialer-provider-grid,.dialer-workflow-grid { grid-template-columns:1fr; }.dialer-summary-grid { grid-template-columns:1fr; }.dialer-panel-head { flex-direction:column; }.dialer-lead-select { width:100%; min-width:0; } }

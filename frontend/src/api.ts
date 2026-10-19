@@ -219,6 +219,21 @@ export const generateEmailTemplate = (
     body: JSON.stringify(sample),
   });
 
+export type LeadConfirmationAutomation = { enabled: boolean };
+export const getLeadConfirmationAutomation = () =>
+  request<LeadConfirmationAutomation>(
+    "/v1/settings/email-automation/lead-confirmations",
+  );
+export const setLeadConfirmationAutomation = (enabled: boolean) =>
+  request<LeadConfirmationAutomation>(
+    "/v1/settings/email-automation/lead-confirmations",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    },
+  );
+
 export async function signIn(email: string, password: string): Promise<AuthSession> {
   const session = await request<AuthSession>("/v1/auth/signin", {
     method: "POST",

@@ -1547,7 +1547,21 @@ function App() {
                 />
               )}
               {view === "dialer" && (
-                <DialerView selectedSection={pageSection} onOpenIntegrations={() => navigate("integrations", "calling")} onOpenLead={handleInspectLead} />
+                <DialerView
+                  selectedSection={pageSection}
+                  onOpenIntegrations={() => navigate("integrations", "calling")}
+                  onOpenLead={handleInspectLead}
+                  canViewLeads={can(workspacePermissions, "leads.view")}
+                  canEditLeads={
+                    can(workspacePermissions, "leads.view") &&
+                    can(workspacePermissions, "leads.edit")
+                  }
+                  canCall={
+                    can(workspacePermissions, "leads.view") &&
+                    can(workspacePermissions, "leads.edit") &&
+                    can(workspacePermissions, "agents.execute")
+                  }
+                />
               )}
               {view === "settings" && (
                 <SettingsView
