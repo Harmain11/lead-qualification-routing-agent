@@ -1002,7 +1002,297 @@ def test_gmail_internal_dan_thread_selects_external_les_not_quoted_reese() -> No
     assert canonical.normalized_payload["job_title"] == "Founder"
     assert canonical.provider_metadata["original_sender_email"] == "dan@ingenuitysys.com"
     assert canonical.provider_metadata["gmail_thread_decision"] == "separate_forwarded_lead"
-    assert observed_headers[0]["from"] == "Les Lehman <les@leslehman.com>"
+    assert observed_headers[0]["from"] == "Dan Asif <dan@ingenuitysys.com>"
+
+
+@pytest.mark.parametrize(
+    ("rep_name", "rep_email", "person_name", "person_email", "company", "subject", "quoted"),
+    [
+        (
+            "Dan Asif",
+            "dan@ingenuitysys.com",
+            "Les Lehman",
+            "les@leslehman.com",
+            "Les Lehman Studio",
+            "Re: Les Can I call you on Thursday?",
+            False,
+        ),
+        (
+            "Dan A.",
+            "dan@ingenuitysys.com",
+            "Kathi Moore",
+            "kathi@moore.example",
+            "Moore Design",
+            "Fwd: Website planning",
+            False,
+        ),
+        (
+            "Reese Maddox",
+            "reese@ingenuitysys.com",
+            "Pei Chen",
+            "pei@chen.example",
+            "Chen Studio",
+            "Re: Follow-up",
+            True,
+        ),
+    ],
+)
+def test_gmail_internal_forwarded_outreach_selects_external_to_recipient(
+    rep_name: str,
+    rep_email: str,
+    person_name: str,
+    person_email: str,
+    company: str,
+    subject: str,
+    quoted: bool,
+) -> None:
+    inquiry = "Could we discuss a website refresh this Thursday?"
+    quote_prefix = ">" if quoted else ""
+    body = (
+        "---------- Forwarded message ---------\n"
+        f"{quote_prefix}From: {rep_name} <{rep_email}>\n"
+        f"{quote_prefix}To: {person_name} <{person_email}>\n"
+        f"{quote_prefix}Subject: {subject}\n"
+        f"{quote_prefix}Date: Mon, 19 Oct 2026 09:10:00 +0000\n\n"
+        f"Hi {person_name.split()[0]}, {inquiry}\n"
+        f"Name: {person_name}\nLead email: {person_email}\n"
+        f"Company: {company}\nRole: Founder\nPhone: 1-202-555-0161\n"
+        f"Inquiry: {inquiry}"
+    )
+    extracted = _embedded_lead_candidate(
+        name=person_name,
+        email=person_email,
+        company=company,
+        role="Founder",
+        phone="1-202-555-0161",
+        inquiry=inquiry,
+    )
+    observed_headers: list[dict[str, str]] = []
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+        internal_emails={rep_email},
+        lead_extractor=lambda **kwargs: (
+            observed_headers.append(kwargs["headers"])
+            or GmailLeadExtraction(
+                is_genuine_inquiry=True,
+                reason="Internal commercial outreach is addressed to this external person.",
+                inquiry_evidence=inquiry,
+                candidates=[extracted],
+            )
+        ),
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id=f"forward-{person_email}",
+        values={
+            "thread_id": f"thread-{person_email}",
+            "headers": {
+                "from": f"{rep_name} <{rep_email}>",
+                "to": "sales@ingenuitysys.com",
+                "subject": f"Fwd: {subject}",
+            },
+            "body": body,
+            "thread_context": (
+                f"From: {rep_name} <{rep_email}>\n"
+                f"To: sales@ingenuitysys.com\nSubject: Fwd: {subject}\n\n{body}"
+            ),
+            "thread_messages": [
+                {
+                    "message_id": f"forward-{person_email}",
+                    "headers": {
+                        "from": f"{rep_name} <{rep_email}>",
+                        "to": "sales@ingenuitysys.com",
+                        "subject": f"Fwd: {subject}",
+                    },
+                    "body": body,
+                }
+            ],
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+
+    [lead] = provider.normalize_records(record)
+    assert lead.normalized_payload["full_name"] == person_name
+    assert lead.normalized_payload["email"] == person_email
+    assert lead.normalized_payload["company_name"] == company
+    assert lead.normalized_payload["gmail_candidate_role"] == "direct_prospect"
+    assert lead.provider_metadata["original_sender_email"] == rep_email
+    assert lead.provider_metadata["gmail_candidate_identity_email"] == person_email
+    assert observed_headers[0]["from"] == f"{rep_name} <{rep_email}>"
+
+
+def test_gmail_thread_with_multiple_internal_forwarded_emails_extracts_each_recipient() -> None:
+    first_inquiry = "Could we discuss a website refresh this week?"
+    second_inquiry = "Can you help plan a new website refresh?"
+    body = (
+        "---------- Forwarded message ---------\n"
+        "From: Dan Asif <dan@ingenuitysys.com>\n"
+        "To: Les Lehman <les@leslehman.com>\n"
+        "Subject: Re: Les Can I call you on Thursday?\n"
+        "Date: Mon, 19 Oct 2026 09:10:00 +0000\n\n"
+        f"Hi Les, {first_inquiry}\n"
+        "Name: Les Lehman\nLead email: les@leslehman.com\n"
+        "Company: Les Lehman Studio\nRole: Founder\nPhone: 1-202-555-0161\n"
+        f"Inquiry: {first_inquiry}\n\n"
+        ">---------- Forwarded message ---------\n"
+        ">From: Dan Asif <dan@ingenuitysys.com>\n"
+        ">To: Kathi Moore <kathi@moore.example>\n"
+        ">Subject: Fwd: Website planning\n"
+        ">Date: Mon, 19 Oct 2026 09:20:00 +0000\n\n"
+        f"Hi Kathi, {second_inquiry}\n"
+        "Name: Kathi Moore\nLead email: kathi@moore.example\n"
+        "Company: Moore Design\nRole: Director\nPhone: 1-202-555-0162\n"
+        f"Inquiry: {second_inquiry}"
+    )
+    first = _embedded_lead_candidate(
+        name="Les Lehman",
+        email="les@leslehman.com",
+        company="Les Lehman Studio",
+        role="Founder",
+        phone="1-202-555-0161",
+        inquiry=first_inquiry,
+    )
+    second = _embedded_lead_candidate(
+        name="Kathi Moore",
+        email="kathi@moore.example",
+        company="Moore Design",
+        role="Director",
+        phone="1-202-555-0162",
+        inquiry=second_inquiry,
+        candidate_role="external_referrer",
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+        internal_emails={"dan@ingenuitysys.com"},
+        lead_extractor=lambda **_kwargs: GmailLeadExtraction(
+            is_genuine_inquiry=True,
+            reason="Two independent outbound commercial conversations are present.",
+            inquiry_evidence=first_inquiry,
+            candidates=[first, second],
+        ),
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="dan-forward-batch",
+        values={
+            "thread_id": "dan-forward-batch-thread",
+            "headers": {
+                "from": "Dan Asif <dan@ingenuitysys.com>",
+                "to": "sales@ingenuitysys.com",
+                "subject": "Fwd: customer outreach",
+            },
+            "body": body,
+            "thread_context": body,
+            "thread_messages": [
+                {
+                    "message_id": "dan-forward-batch",
+                    "headers": {
+                        "from": "Dan Asif <dan@ingenuitysys.com>",
+                        "to": "sales@ingenuitysys.com",
+                        "subject": "Fwd: customer outreach",
+                    },
+                    "body": body,
+                }
+            ],
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+
+    leads = provider.normalize_records(record)
+    assert [lead.normalized_payload["full_name"] for lead in leads] == [
+        "Les Lehman",
+        "Kathi Moore",
+    ]
+    assert [lead.normalized_payload["email"] for lead in leads] == [
+        "les@leslehman.com",
+        "kathi@moore.example",
+    ]
+    assert leads[1].normalized_payload["gmail_candidate_role"] == "direct_prospect"
+    assert leads[0].provider_record_id != leads[1].provider_record_id
+    assert [
+        lead.provider_record_id for lead in provider.normalize_records(record)
+    ] == [lead.provider_record_id for lead in leads]
+
+
+def test_gmail_signature_only_contact_is_context_not_a_lead_identity() -> None:
+    body = (
+        "Could you send pricing for our event project?\n\n"
+        "Best regards,\nDina Shah\nFounder\nDina Studio\n"
+        "dina@dinastudio.example"
+    )
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="A contact appears only in the representative's signature.",
+        inquiry_evidence="Could you send pricing for our event project?",
+        candidates=[
+            GmailProspectCandidate(
+                role="direct_prospect",
+                is_genuine_inquiry=True,
+                confidence=0.94,
+                reason="The model incorrectly selected the signature contact.",
+                inquiry_evidence="Could you send pricing for our event project?",
+                full_name="Dina Shah",
+                email="dina@dinastudio.example",
+                company_name="Dina Studio",
+                evidence=[
+                    GmailEvidence(field="full_name", source="body", excerpt="Dina Shah"),
+                    GmailEvidence(
+                        field="email",
+                        source="body",
+                        excerpt="dina@dinastudio.example",
+                    ),
+                    GmailEvidence(
+                        field="company_name", source="body", excerpt="Dina Studio"
+                    ),
+                ],
+            )
+        ],
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+        internal_emails={"dan@ingenuitysys.com"},
+        lead_extractor=lambda **_kwargs: extraction,
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="signature-contact",
+        values={
+            "thread_id": "signature-thread",
+            "headers": {
+                "from": "Dan Asif <dan@ingenuitysys.com>",
+                "subject": "Event project",
+            },
+            "body": body,
+            "thread_context": body,
+            "thread_messages": [
+                {
+                    "message_id": "signature-contact",
+                    "headers": {"from": "Dan Asif <dan@ingenuitysys.com>"},
+                    "body": body,
+                }
+            ],
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+
+    canonical = provider.normalize_record(record)
+    assert canonical.normalized_payload["gmail_signature_contacts"][0]["role"] == (
+        "signature_only"
+    )
+    with pytest.raises(ValueError, match="no_supported_prospect_candidates"):
+        provider.normalize_records(record)
 
 
 def test_gmail_ai_can_select_one_of_multiple_external_thread_participants() -> None:
