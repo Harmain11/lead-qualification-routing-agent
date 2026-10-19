@@ -35,6 +35,7 @@ from lead_agent.application.exports import (
     render_export,
     write_export_audit,
 )
+from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
@@ -1004,7 +1005,6 @@ def sync_lead_gmail_conversation(
             known_message_ids_by_connection.add((connection_id, message_id))
         else:
             legacy_known_message_ids.add(message_id)
-    now = datetime.now(UTC)
     checked_threads: set[tuple[str, str]] = set()
     automation_threads: list[
         tuple[ProviderConnectionORM, list[dict[str, str]]]
@@ -1053,35 +1053,15 @@ def sync_lead_gmail_conversation(
                         raise
                     threads_unreadable += 1
                     continue
-                for message in thread_messages:
-                    message["gmail_connection_id"] = str(connection.id)
-                    message_id = message.get("message_id", "")
-                    scoped_message_id = (str(connection.id), message_id)
-                    if (
-                        not message_id
-                        or scoped_message_id in known_message_ids_by_connection
-                        or message_id in legacy_known_message_ids
-                    ):
-                        continue
-                    event_time = now
-                    if message.get("sent_at"):
-                        try:
-                            event_time = datetime.fromisoformat(message["sent_at"])
-                        except ValueError:
-                            pass
-                    session.add(
-                        PipelineEventORM(
-                            id=uuid4(),
-                            workspace_id=workspace.workspace_id,
-                            lead_id=lead_id,
-                            stage="gmail_message",
-                            status=message.get("direction", "inbound"),
-                            details=message,
-                            created_at=event_time,
-                        )
-                    )
-                    known_message_ids_by_connection.add(scoped_message_id)
-                    messages_added += 1
+                messages_added += append_gmail_thread_messages(
+                    session,
+                    workspace_id=workspace.workspace_id,
+                    lead_id=lead_id,
+                    connection_id=connection.id,
+                    messages=thread_messages,
+                    known_message_ids_by_connection=known_message_ids_by_connection,
+                    legacy_known_message_ids=legacy_known_message_ids,
+                )
                 if thread_messages:
                     automation_threads.append((connection, thread_messages))
     except ProviderOperationError as error:

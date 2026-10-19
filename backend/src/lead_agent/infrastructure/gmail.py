@@ -1170,6 +1170,11 @@ class GmailInboundProvider:
                 if isinstance(item, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            to_recipients = [
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("to", "")])
+                if address
+            ]
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses(
@@ -1178,7 +1183,7 @@ class GmailInboundProvider:
                 if address
             ]
             sender = sender.strip().lower()
-            if sender != target and target not in recipients:
+            if sender != target and target not in to_recipients:
                 continue
             try:
                 timestamp = datetime.fromtimestamp(
@@ -1863,6 +1868,9 @@ class GmailInboundProvider:
                 "gmail_notification_wrapper": notification_wrapper,
                 "gmail_wrapper_sender_name": wrapper_sender_name[:255],
                 "gmail_source_subject": subject[:500],
+                # Kept only on the in-memory canonical record for timeline import.
+                # The provider-link metadata allowlist never persists message bodies.
+                "gmail_thread_messages": values.get("thread_messages", []),
                 "gmail_embedded_message_ids": sorted(
                     set(
                         re.findall(
@@ -2149,6 +2157,9 @@ class GmailInboundProvider:
                 "gmail_referred_by": candidate.referred_by or "",
                 "gmail_selection_reason": candidate.reason[:500],
                 "gmail_candidate_identity_email": email,
+                "gmail_thread_messages": base.provider_metadata.get(
+                    "gmail_thread_messages", []
+                ),
             }
             normalized.append(
                 base.model_copy(

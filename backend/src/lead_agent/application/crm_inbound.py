@@ -13,6 +13,10 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from lead_agent.application.gmail_history import (
+    append_gmail_thread_messages,
+    gmail_history_messages,
+)
 from lead_agent.application.services import process_source_event, reprocess_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
@@ -543,6 +547,27 @@ def _new_link(
 def _contact_update_payload(
     canonical: CanonicalInboundLead, lead: LeadORM, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    if canonical.provider == "gmail":
+        preserve_when_missing = {
+            "full_name": {"", "unknown", "name not provided"},
+            "company_name": {"", "unknown"},
+            "product_or_service": {"", "unknown"},
+        }
+        optional_fields = (
+            "phone", "job_title", "industry", "employee_count", "annual_revenue",
+            "geography", "budget",
+        )
+        preserved = {
+            field: getattr(lead, field)
+            for field in optional_fields
+            if payload.get(field) in (None, "")
+        }
+        for field, missing_values in preserve_when_missing.items():
+            incoming = str(payload.get(field) or "").strip().casefold()
+            existing = getattr(lead, field)
+            if incoming in missing_values and existing:
+                preserved[field] = existing
+        return {**payload, **preserved}
     if canonical.provider != "gohighlevel":
         return payload
     # A contact-only source has no commercial inquiry or ICP enrichment fields.
@@ -564,6 +589,81 @@ def _contact_update_payload(
             )
         },
     }
+
+
+def _store_gmail_thread_history(
+    session: Session,
+    connection: ProviderConnectionORM,
+    provider: CrmInboundProvider,
+    lead: LeadORM,
+    thread_id: str,
+    thread_messages: list[dict[str, Any]] | None = None,
+) -> int:
+    fetch_thread = getattr(provider, "fetch_thread", None)
+    if not thread_id or not lead.email:
+        return 0
+    if thread_messages is not None:
+        messages = gmail_history_messages(
+            thread_messages,
+            lead_email=lead.email,
+            mailbox_email=str(getattr(provider, "mailbox_email", "") or ""),
+        )
+    elif callable(fetch_thread):
+        messages = fetch_thread(thread_id, lead_email=lead.email)
+    else:
+        return 0
+    return append_gmail_thread_messages(
+        session,
+        workspace_id=connection.workspace_id,
+        lead_id=lead.id,
+        connection_id=connection.id,
+        messages=messages,
+    )
+
+
+def _store_existing_gmail_contact_history(
+    session: Session,
+    connection: ProviderConnectionORM,
+    provider: CrmInboundProvider,
+    record: Any,
+) -> int:
+    """Keep messages from a known lead's imported thread even if this message isn't a new lead."""
+    from email.utils import getaddresses
+
+    values = getattr(record, "values", {})
+    headers = values.get("headers", {}) if isinstance(values, dict) else {}
+    thread_id = str(values.get("thread_id") or "") if isinstance(values, dict) else ""
+    if not thread_id or not isinstance(headers, dict):
+        return 0
+    from lead_agent.infrastructure.gmail import _is_internal_address
+
+    internal_domains = set(getattr(provider, "internal_domains", set()))
+    internal_emails = set(getattr(provider, "internal_emails", set()))
+    addresses = {
+        address.strip().lower()
+        for _name, address in getaddresses(
+            [str(headers.get("from") or ""), str(headers.get("to") or "")]
+        )
+        if address and not _is_internal_address(address, internal_domains, internal_emails)
+    }
+    leads_by_id: dict[UUID, LeadORM] = {}
+    for address in addresses:
+        matches = _email_matches(session, connection.workspace_id, address)
+        if len(matches) == 1:
+            leads_by_id[matches[0].id] = matches[0]
+    return sum(
+        _store_gmail_thread_history(
+            session,
+            connection,
+            provider,
+            lead,
+            thread_id,
+            values.get("thread_messages")
+            if isinstance(values.get("thread_messages"), list)
+            else None,
+        )
+        for lead in leads_by_id.values()
+    )
 
 
 def _process_record(
@@ -691,6 +791,14 @@ def _process_record(
             link.last_change_kind = "own_writeback" if own_writeback else "no_meaningful_change"
             link.last_seen_at = now
             link.updated_at = now
+            if canonical.provider == "gmail":
+                _store_gmail_thread_history(
+                    session, connection, provider, lead,
+                    str(canonical.provider_metadata.get("gmail_thread_id") or ""),
+                    canonical.provider_metadata.get("gmail_thread_messages")
+                    if isinstance(canonical.provider_metadata.get("gmail_thread_messages"), list)
+                    else None,
+                )
             session.commit()
             return "unchanged"
         reprocess_lead(
@@ -720,10 +828,21 @@ def _process_record(
         link.last_imported_at = now
         link.updated_at = now
         session.commit()
+        if canonical.provider == "gmail":
+            _store_gmail_thread_history(
+                session, connection, provider, lead,
+                str(canonical.provider_metadata.get("gmail_thread_id") or ""),
+                canonical.provider_metadata.get("gmail_thread_messages")
+                if isinstance(canonical.provider_metadata.get("gmail_thread_messages"), list)
+                else None,
+            )
+            session.commit()
         return "updated"
 
     email = str(normalized_payload.get("email") or "")
     matches = _email_matches(session, connection.workspace_id, email)
+    if canonical.provider == "gmail" and len(matches) > 1:
+        raise ValueError("gmail_contact_match_ambiguous")
     if len(matches) == 1:
         lead = matches[0]
         reprocess_lead(
@@ -801,6 +920,15 @@ def _process_record(
         if existing is None:
             raise
         return "unchanged"
+    if canonical.provider == "gmail":
+        _store_gmail_thread_history(
+            session, connection, provider, lead,
+            str(canonical.provider_metadata.get("gmail_thread_id") or ""),
+            canonical.provider_metadata.get("gmail_thread_messages")
+            if isinstance(canonical.provider_metadata.get("gmail_thread_messages"), list)
+            else None,
+        )
+        session.commit()
     if canonical.provider in {"gmail", "outlook"}:
         record_provider_lifecycle_audit(
             session,
@@ -1132,6 +1260,10 @@ def run_inbound_sync(
                                 ),
                             )
                     if not candidate_outcomes:
+                        if connection.provider_type == "gmail":
+                            _store_existing_gmail_contact_history(
+                                session, connection, provider, record
+                            )
                         session.commit()
                         continue
                 except ProviderOperationError as error:
@@ -1161,6 +1293,9 @@ def run_inbound_sync(
                     else:
                         run.records_skipped += 1
                     if connection.provider_type == "gmail":
+                        _store_existing_gmail_contact_history(
+                            session, connection, provider, record
+                        )
                         reason = str(error)
                         friendly_reason = {
                             "no_external_thread_participant": (

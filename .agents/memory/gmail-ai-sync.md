@@ -32,3 +32,11 @@ Ingenuity and Ingenuity Systems company email addresses belong to the internal t
 **Why:** The user said “all forwarded mail with ingenuitysystem or ingenuity are our own companies email dont take there name in leads” and reiterated that startup messages can have missing information.
 
 **How to apply:** Recognize the company-domain variants independently of manual internal-domain setup, including quoted headers and name-only internal representatives. Keep their identities as provenance. Do not invent missing personal or service details.
+
+## Follow-up email ownership
+
+Import later messages into the matching lead's Gmail history rather than making a duplicate lead. Scope a message by the exact external email in From or To within the same workspace; a Cc-only address is not an identity match. Do not guess when an email is ambiguous across existing leads.
+
+**Why:** The user emphasized that a Gmail provider handles many prospects and each email must be attached to the particular lead it actually matches.
+
+**How to apply:** Keep distinct candidates in the same thread attached to their own email identities, deduplicate imported messages by mailbox and Gmail message ID, and preserve already-known lead details when a follow-up omits them.
