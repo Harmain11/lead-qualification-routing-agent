@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import json
 import re
+import time
 import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -99,30 +100,49 @@ class GmailTransport:
         self.access_token = access_token
 
     def get(self, path: str, **params: object) -> dict[str, Any]:
-        try:
-            response = self.client.get(
-                f"{_API}/{path.lstrip('/')}",
-                params=cast(Any, params),
-                headers={"Authorization": f"Bearer {self.access_token}"},
-            )
-        except httpx.TimeoutException:
-            raise ProviderOperationError(
-                "Gmail request timed out.",
-                provider="gmail",
-                code="gmail_timeout",
-                category="timeout",
-                retryable=True,
-            ) from None
-        except httpx.HTTPError:
+        response: httpx.Response | None = None
+        for attempt in range(3):
+            try:
+                response = self.client.get(
+                    f"{_API}/{path.lstrip('/')}",
+                    params=cast(Any, params),
+                    headers={"Authorization": f"Bearer {self.access_token}"},
+                )
+            except httpx.TimeoutException:
+                raise ProviderOperationError(
+                    "Gmail request timed out.",
+                    provider="gmail",
+                    code="gmail_timeout",
+                    category="timeout",
+                    retryable=True,
+                ) from None
+            except httpx.HTTPError:
+                raise ProviderOperationError(
+                    "Gmail is temporarily unavailable.",
+                    provider="gmail",
+                    code="gmail_transport_error",
+                    category="temporarily_unavailable",
+                    retryable=True,
+                ) from None
+            if response.status_code < 400:
+                break
+            error = _gmail_http_error(response, path=path)
+            if not error.retryable or attempt == 2:
+                raise error
+            retry_after = response.headers.get("Retry-After", "")
+            try:
+                delay = min(2.0, max(0.0, float(retry_after)))
+            except ValueError:
+                delay = 0.2 * (2**attempt)
+            time.sleep(delay)
+        if response is None:
             raise ProviderOperationError(
                 "Gmail is temporarily unavailable.",
                 provider="gmail",
                 code="gmail_transport_error",
                 category="temporarily_unavailable",
                 retryable=True,
-            ) from None
-        if response.status_code >= 400:
-            raise _gmail_http_error(response, path=path)
+            )
         if len(response.content) > _MAX_MESSAGE_BYTES:
             raise ProviderOperationError(
                 "Gmail message exceeds the permitted size.",
