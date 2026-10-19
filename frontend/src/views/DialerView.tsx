@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { createLead, listIntegrations } from "../api";
+import { createLead, listIntegrations, listLeads } from "../api";
+import { CallsPanel } from "../components/CallsPanel";
 import { opsGet } from "../operationsApi";
 import type { IntegrationCard, Lead, LeadPayload } from "../types";
 import { CallInsights, hasCallInsightData, type CallInsightsData } from "../components/CallInsights";
@@ -59,7 +60,21 @@ function assessLeadPotential(record: CallRecord) {
   return { label: "Review manually", detail: "The available call content does not show a clear buying signal either way." };
 }
 
-export function DialerView({ onOpenIntegrations, onOpenLead, selectedSection = "" }: { onOpenIntegrations: () => void; onOpenLead: (leadId: string) => void; selectedSection?: string }) {
+export function DialerView({
+  onOpenIntegrations,
+  onOpenLead,
+  selectedSection = "",
+  canViewLeads,
+  canEditLeads,
+  canCall,
+}: {
+  onOpenIntegrations: () => void;
+  onOpenLead: (leadId: string) => void;
+  selectedSection?: string;
+  canViewLeads: boolean;
+  canEditLeads: boolean;
+  canCall: boolean;
+}) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activity, setActivity] = useState<CallActivity | null>(null);
   const [tab, setTab] = useState<"overview" | "history" | "analysis">("overview");
@@ -68,6 +83,11 @@ export function DialerView({ onOpenIntegrations, onOpenLead, selectedSection = "
   const [error, setError] = useState("");
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
+  const [leadSearch, setLeadSearch] = useState("");
+  const [leadResults, setLeadResults] = useState<Lead[]>([]);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [leadSearchLoading, setLeadSearchLoading] = useState(false);
+  const [leadSearchError, setLeadSearchError] = useState("");
 
   useEffect(() => {
     if (selectedSection === "history" || selectedSection === "analysis" || selectedSection === "overview") {
@@ -95,6 +115,36 @@ export function DialerView({ onOpenIntegrations, onOpenLead, selectedSection = "
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!canViewLeads) return;
+    const controller = new AbortController();
+    setLeadSearchLoading(true);
+    setLeadSearchError("");
+    const timeout = window.setTimeout(() => {
+      void listLeads(
+        { limit: 20, search: leadSearch.trim() || undefined },
+        controller.signal,
+      )
+        .then((result) => {
+          if (!controller.signal.aborted) setLeadResults(result.items);
+        })
+        .catch((reason) => {
+          if (!controller.signal.aborted) {
+            setLeadSearchError(
+              reason instanceof Error ? reason.message : "Unable to search leads.",
+            );
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLeadSearchLoading(false);
+        });
+    }, 200);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [canViewLeads, leadSearch]);
 
   async function refreshCalls() {
     setRefreshing(true);
@@ -208,6 +258,75 @@ export function DialerView({ onOpenIntegrations, onOpenLead, selectedSection = "
                   </article>;
                 })}
               </div>
+            </section>
+            <section className="dialer-panel dialer-call-launch">
+              <div className="dialer-panel-head">
+                <div><span className="eyebrow">Direct calling</span><h2>Call a lead</h2></div>
+                <span className="dialer-panel-count">Each call needs rep confirmation</span>
+              </div>
+              <p className="panel-copy">Choose a lead, select a verified calling account, and place the call without leaving the Dialer. Calls still pass workspace consent and permission checks.</p>
+              {!canViewLeads ? (
+                <p className="dialer-empty">Lead-view permission is required to choose a contact.</p>
+              ) : (
+                <>
+                  {selectedLead ? (
+                    <>
+                      <div className="dialer-selected-lead">
+                        <div>
+                          <strong>{selectedLead.full_name}</strong>
+                          <span>{selectedLead.company_name || "Company not supplied"} · {selectedLead.phone || "No phone number"}</span>
+                        </div>
+                        <div className="dialer-selected-actions">
+                          <button type="button" className="button-quiet" onClick={() => onOpenLead(selectedLead.id)}>Open lead</button>
+                          <button type="button" className="button-quiet" onClick={() => setSelectedLead(null)}>Choose another lead</button>
+                        </div>
+                      </div>
+                      <CallsPanel
+                        key={selectedLead.id}
+                        leadId={selectedLead.id}
+                        leadName={selectedLead.full_name}
+                        companyName={selectedLead.company_name}
+                        leadPhone={selectedLead.phone}
+                        representativeName={selectedLead.routing?.assigned_rep_name}
+                        canCall={canCall}
+                        canEdit={canEditLeads}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <label className="dialer-lead-search">
+                        Search leads by name, company, or email
+                        <input
+                          type="search"
+                          value={leadSearch}
+                          onChange={(event) => setLeadSearch(event.target.value)}
+                          placeholder="Search leads…"
+                        />
+                      </label>
+                      {leadSearchError && <p className="team-alert" role="alert">{leadSearchError}</p>}
+                      {leadSearchLoading ? (
+                        <p role="status">Searching leads…</p>
+                      ) : leadResults.length ? (
+                        <div className="dialer-lead-results" aria-label="Lead search results">
+                          {leadResults.map((lead) => (
+                            <button
+                              type="button"
+                              className="dialer-lead-option"
+                              key={lead.id}
+                              onClick={() => setSelectedLead(lead)}
+                            >
+                              <span><strong>{lead.full_name}</strong><small>{lead.company_name || "Company not supplied"} · {lead.phone || "No phone number"}</small></span>
+                              <span aria-hidden="true">→</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="dialer-empty">{leadSearch.trim() ? "No matching leads found." : "No leads are available to call yet."}</p>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
             </section>
             <section className="dialer-workflow-grid">
               <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Calls remain rep-confirmed and are launched from a lead with a valid international number.</p></div></article>

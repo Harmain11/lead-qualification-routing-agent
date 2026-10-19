@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,7 @@ from lead_agent.infrastructure.db.models import (
     LeadORM,
     ProviderConnectionORM,
     SourceEventORM,
+    WorkspaceEmailAutomationSettingORM,
 )
 from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE, GmailOutboundProvider
 from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
@@ -95,9 +96,12 @@ def _record_pre_routing_history(
 
 
 def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
-    """Send one idempotent confirmation using the active admin-connected Gmail."""
+    """Send one idempotent confirmation when the workspace has opted in."""
     recipient = (row.email or "").strip().lower()
     if "@" not in recipient:
+        return
+    automation = session.get(WorkspaceEmailAutomationSettingORM, row.workspace_id)
+    if automation is None or not automation.lead_confirmation_enabled:
         return
     assert_outreach_allowed(session, row.workspace_id, recipient)
     connection = session.scalar(
@@ -121,9 +125,7 @@ def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
             LeadFollowUpEmailORM.kind == "lead_confirmation",
         )
     )
-    if existing is not None and existing.status == "sent":
-        return
-    if existing is not None and existing.status == "sent":
+    if existing is not None and existing.status in {"sent", "sending"}:
         return
     session.rollback()
     resolved = get_workspace_connection_resolver().resolve_connection(
@@ -136,7 +138,7 @@ def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
             LeadFollowUpEmailORM.kind == "lead_confirmation",
         )
     )
-    if existing is not None and existing.status == "sent":
+    if existing is not None and existing.status in {"sent", "sending"}:
         return
 
     now = datetime.now(UTC)
@@ -160,7 +162,23 @@ def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
             updated_at=now,
         )
         session.add(existing)
-        session.flush()
+        try:
+            session.flush()
+            session.commit()
+        except IntegrityError:
+            # Another intake worker may have created the unique lead-confirmation
+            # row after our lookup. Re-read it and compete for the send claim.
+            session.rollback()
+            existing = session.scalar(
+                select(LeadFollowUpEmailORM).where(
+                    LeadFollowUpEmailORM.lead_id == row.id,
+                    LeadFollowUpEmailORM.kind == "lead_confirmation",
+                )
+            )
+            if existing is None:
+                raise
+            if existing.status in {"sent", "sending"}:
+                return
     elif existing.provider_connection_id != connection_id:
         existing.provider_connection_id = connection_id
         existing.recipient = recipient
@@ -186,10 +204,24 @@ def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
         existing.updated_at = now
         session.commit()
         return
-    existing.attempts += 1
-    existing.status = "pending"
-    existing.updated_at = now
+    session.flush()
+    claimed_id = session.scalar(
+        update(LeadFollowUpEmailORM)
+        .where(
+            LeadFollowUpEmailORM.id == existing.id,
+            LeadFollowUpEmailORM.status.in_(("pending", "retryable", "failed")),
+            LeadFollowUpEmailORM.attempts < 3,
+        )
+        .values(
+            status="sending",
+            attempts=LeadFollowUpEmailORM.attempts + 1,
+            updated_at=now,
+        )
+        .returning(LeadFollowUpEmailORM.id)
+    )
     session.commit()
+    if claimed_id is None:
+        return
     try:
         message_id = GmailOutboundProvider(connection_id, access_token, mailbox).send_email(
             recipient=recipient, subject=subject, body=body

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   generateEmailTemplate,
+  getLeadConfirmationAutomation,
   getEmailTemplates,
   getPublicIntakeConfig,
   getRoutingConfig,
   rotatePublicIntakeConfig,
+  setLeadConfirmationAutomation,
   saveEmailTemplate,
   updateRoutingConfig,
 } from "../api";
@@ -177,6 +179,10 @@ export function SettingsView({
 
 function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
   const [templates, setTemplates] = useState<WorkspaceEmailTemplate[]>([]);
+  const [automaticConfirmationEnabled, setAutomaticConfirmationEnabled] =
+    useState(false);
+  const [automationLoading, setAutomationLoading] = useState(true);
+  const [automationBusy, setAutomationBusy] = useState(false);
   const [importantContext, setImportantContext] = useState<
     Record<WorkspaceEmailTemplate["kind"], string>
   >({ confirmation: "", follow_up: "" });
@@ -193,7 +199,40 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
             : "Unable to load email templates",
         ),
       );
+    void getLeadConfirmationAutomation()
+      .then((setting) => setAutomaticConfirmationEnabled(setting.enabled))
+      .catch((error) =>
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "Unable to load automatic confirmation setting",
+        ),
+      )
+      .finally(() => setAutomationLoading(false));
   }, [canManage]);
+  const toggleAutomaticConfirmation = async () => {
+    setAutomationBusy(true);
+    setNotice(null);
+    try {
+      const setting = await setLeadConfirmationAutomation(
+        !automaticConfirmationEnabled,
+      );
+      setAutomaticConfirmationEnabled(setting.enabled);
+      setNotice(
+        setting.enabled
+          ? "Automatic new-lead confirmations are on."
+          : "Automatic new-lead confirmations are off. Future leads will not receive an automatic confirmation.",
+      );
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Unable to update automatic confirmation setting",
+      );
+    } finally {
+      setAutomationBusy(false);
+    }
+  };
   const update = (
     kind: WorkspaceEmailTemplate["kind"],
     field: "subject" | "body" | "generation_method",
@@ -285,10 +324,52 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
       <p className="panel-copy">
         Edit sample emails here, or let AI create a fresh reusable email from
         the essential context alone. Generated copy is a draft until you save
-        it. Confirmation is sent automatically when a new lead arrives.
-        Follow-up is never sent automatically; a teammate reviews the
-        lead-specific draft and clicks Send in Corral.
+        it. New-lead confirmation emails are off by default and are sent only
+        while the switch below is on. Manual follow-up emails are unaffected.
       </p>
+      <div className="email-automation-control">
+        <div className="email-automation-copy">
+          <div className="email-automation-title">
+            <h3>Automatic new-lead confirmations</h3>
+            <span
+              className={`email-automation-state${automaticConfirmationEnabled ? " is-on" : ""}`}
+            >
+              {automationLoading
+                ? "Loading"
+                : automaticConfirmationEnabled
+                  ? "On"
+                  : "Off"}
+            </span>
+          </div>
+          <p>
+            {automaticConfirmationEnabled
+              ? "New leads receive the saved confirmation email. Turn this off to stop future automatic sends."
+              : "No confirmation email is sent automatically when a lead is added. Turn this on only when you want that behavior."}
+          </p>
+        </div>
+        <button
+          type="button"
+          className={`email-automation-toggle${automaticConfirmationEnabled ? " is-on" : ""}`}
+          role="switch"
+          aria-checked={automaticConfirmationEnabled}
+          aria-label="Automatic new-lead confirmation emails"
+          disabled={automationLoading || automationBusy}
+          onClick={() => void toggleAutomaticConfirmation()}
+        >
+          <span className="email-automation-track" aria-hidden="true">
+            <i />
+          </span>
+          <span>
+            {automationLoading
+              ? "Loading…"
+              : automationBusy
+                ? "Saving…"
+                : automaticConfirmationEnabled
+                  ? "On"
+                  : "Off"}
+          </span>
+        </button>
+      </div>
       <div className="email-template-grid">
         {templates.map((template) => {
           const confirmation = template.kind === "confirmation";
@@ -299,7 +380,11 @@ function EmailTemplatesPanel({ canManage }: { canManage: boolean }) {
                   {confirmation ? "New-lead confirmation" : "Lead follow-up"}
                 </h3>
                 <span>
-                  {confirmation ? "Automatic on intake" : "Human-send only"}
+                  {confirmation
+                    ? automaticConfirmationEnabled
+                      ? "Automatic · On"
+                      : "Automatic · Off"
+                    : "Human-send only"}
                 </span>
               </div>
               <p className="panel-copy">
