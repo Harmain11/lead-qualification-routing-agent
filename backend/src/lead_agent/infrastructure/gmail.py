@@ -23,7 +23,7 @@ from lead_agent.domain.crm_inbound import (
     InboundCrmPage,
     InboundCursor,
 )
-from lead_agent.domain.gmail import GmailLeadExtraction, GmailProspectCandidate
+from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailProspectCandidate
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.provider_errors import ProviderOperationError
 
@@ -80,6 +80,8 @@ _EVIDENCE_TRANSLATION = str.maketrans(
 
 def _normalized_evidence(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).translate(_EVIDENCE_TRANSLATION)
+    # Quoting adds transport formatting between wrapped words, not authored text.
+    normalized = re.sub(r"(?m)^[ \t]*(?:>[ \t]*)+", "", normalized)
     return " ".join(normalized.casefold().split())
 
 
@@ -112,6 +114,41 @@ def _verified_optional_fields(candidate: Any, sources: dict[str, str]) -> tuple[
                 and _evidence_is_from_source(sources[item.source], item.excerpt))
         ],
     }), sorted(dropped)
+
+
+def _ground_candidate_identity(
+    candidate: GmailProspectCandidate,
+    sources: dict[str, str],
+    eligible_emails: set[str],
+    outreach_emails: set[str],
+) -> GmailProspectCandidate:
+    """Use parsed participant headers, not an LLM's choice of evidence label."""
+    email = (candidate.email or "").strip().lower()
+    evidence = []
+    for item in candidate.evidence:
+        if (
+            item.field == "full_name" and email in eligible_emails
+            and not _evidence_is_from_source(sources[item.source], item.excerpt)
+            and _evidence_is_from_source(sources["body"], item.excerpt)
+        ):
+            item = item.model_copy(update={"source": "body"})
+        evidence.append(item)
+    if email in eligible_emails:
+        for line in sources["body"].splitlines():
+            match = re.match(
+                r"(?i)^\s*(?:>\s*)*(From|Reply-To|To):\s*(.*)$", line
+            )
+            if match is None or len(line) > 500:
+                continue
+            if match[1].casefold() == "to" and email not in outreach_emails:
+                continue
+            pairs = getaddresses([match[2]])
+            if not any(address.strip().lower() == email for _, address in pairs):
+                continue
+            evidence = [item for item in evidence if item.field != "email"]
+            evidence.append(GmailEvidence(field="email", source="body", excerpt=line))
+            break
+    return candidate.model_copy(update={"evidence": evidence})
 
 
 class GmailTransport:
@@ -1388,6 +1425,10 @@ class GmailInboundProvider:
                 extraction_headers = dict(headers)
                 extraction_headers["internal-domains"] = ",".join(sorted(self.internal_domains))
                 extraction_headers["internal-emails"] = ",".join(sorted(self.internal_emails))
+                if values.get("gmail_validation_feedback"):
+                    extraction_headers["validation-feedback"] = str(
+                        values["gmail_validation_feedback"]
+                    )[:2000]
                 candidate = self.lead_extractor(
                     headers=extraction_headers, subject=subject, body=thread_context
                 )
@@ -1734,7 +1775,9 @@ class GmailInboundProvider:
             enrichment_fingerprint=None,
         )
 
-    def normalize_records(self, record: ExternalCrmRecord) -> list[CanonicalInboundLead]:
+    def normalize_records(
+        self, record: ExternalCrmRecord, *, _evidence_retry: bool = False,
+    ) -> list[CanonicalInboundLead]:
         base = self.normalize_record(record)
         payload = base.normalized_payload
         candidates = payload.get("gmail_prospect_candidates")
@@ -1775,20 +1818,35 @@ class GmailInboundProvider:
                 if re.match(r"(?i)^\s*(?:>\s*)*Subject:", line)
             ]),
             "from_header": "\n".join(
-                line for line in thread_text.splitlines() if re.match(r"(?i)^\s*>*\s*From:", line)
+                line for line in thread_text.splitlines()
+                if re.match(r"(?i)^\s*(?:>\s*)*From:", line)
             ),
             "reply_to": str(payload.get("reply_to") or ""),
         }
         normalized: list[CanonicalInboundLead] = []
         review_notes: list[str] = []
+        rejection_notes: list[str] = []
+        repairable_rejections = False
         internal_candidate_seen = False
-        for raw in candidates:
+        # Validate referred prospects before considering whether an outreach
+        # recipient marked as a referrer also represents a direct opportunity.
+        ordered_candidates = sorted(
+            candidates,
+            key=lambda item: not (
+                isinstance(item, dict)
+                and item.get("role") in {"direct_prospect", "referred_prospect"}
+            ),
+        )
+        for raw in ordered_candidates:
             if (
                 not isinstance(raw, dict)
                 or not raw.get("is_genuine_inquiry")
             ):
                 continue
             candidate = GmailProspectCandidate.model_validate(raw)
+            candidate = _ground_candidate_identity(
+                candidate, evidence_sources, eligible_emails, outreach_emails,
+            )
             candidate, dropped_fields = _verified_optional_fields(candidate, evidence_sources)
             review_notes.extend(
                 f"{candidate.full_name or 'Prospect'}: unverified "
@@ -1797,12 +1855,18 @@ class GmailInboundProvider:
             )
             name = (candidate.full_name or "").strip()
             email = (candidate.email or "").strip().lower()
+            if candidate.role == "external_referrer" and any(
+                _normalized_evidence(str(item.normalized_payload.get("gmail_referred_by") or ""))
+                == _normalized_evidence(name)
+                for item in normalized
+            ):
+                continue
             if (
                 candidate.role not in {"direct_prospect", "referred_prospect"}
                 and email not in outreach_emails
             ):
                 continue
-            if email in outreach_emails:
+            if email in outreach_emails and candidate.role != "referred_prospect":
                 candidate = candidate.model_copy(update={"role": "direct_prospect"})
             email_domain = email.rsplit("@", 1)[-1] if "@" in email else ""
             if (
@@ -1818,11 +1882,17 @@ class GmailInboundProvider:
                     f"{candidate.full_name or 'Unknown person'} ({candidate.role}) "
                     "requires manual review because identity confidence is low."
                 )
+                rejection_notes.append(
+                    f"{candidate.full_name or 'Unknown person'} ({candidate.role}) "
+                    "identity_confidence_low"
+                )
                 continue
             if (
                 not candidate.inquiry_evidence
                 or not _evidence_is_from_source(thread_text, candidate.inquiry_evidence)
             ):
+                rejection_notes.append(f"{name or 'Prospect'}: inquiry_evidence_not_in_source")
+                repairable_rejections = True
                 continue
             evidence = [
                 {
@@ -1838,10 +1908,15 @@ class GmailInboundProvider:
                 }
                 for item in candidate.evidence
             ]
-            if any(
-                not _evidence_is_from_source(evidence_sources[item.source], item.excerpt)
-                for item in candidate.evidence
-            ):
+            invalid_sources = sorted({
+                item.field for item in candidate.evidence
+                if not _evidence_is_from_source(evidence_sources[item.source], item.excerpt)
+            })
+            if invalid_sources:
+                rejection_notes.append(
+                    f"{name or 'Prospect'}: evidence_not_in_source:{','.join(invalid_sources)}"
+                )
+                repairable_rejections = True
                 continue
             fields = {
                 "full_name": candidate.full_name,
@@ -1853,15 +1928,20 @@ class GmailInboundProvider:
                 "referred_by": candidate.referred_by,
                 "referral_context": candidate.referral_context,
             }
-            if any(
-                value
+            unsupported_fields = [
+                field for field, value in fields.items() if value
                 and not any(
                     item["field"] == field
                     and _evidence_is_from_source(item["excerpt"], value)
                     for item in evidence
                 )
-                for field, value in fields.items()
-            ):
+            ]
+            if unsupported_fields:
+                rejection_notes.append(
+                    f"{name or 'Prospect'}: field_evidence_missing_or_mismatched:"
+                    f"{','.join(unsupported_fields)}"
+                )
+                repairable_rejections = True
                 continue
             if email:
                 email_evidence = [
@@ -1890,13 +1970,19 @@ class GmailInboundProvider:
                     or (item.source == "body" and body_identity_supported)
                     for item in email_evidence
                 ):
+                    rejection_notes.append(f"{name or 'Prospect'}: email_identity_not_supported")
                     continue
                 if email not in eligible_emails and not body_identity_supported:
+                    rejection_notes.append(f"{name or 'Prospect'}: email_not_a_thread_participant")
                     continue
             has_referral_support = bool(
                 candidate.referred_by or candidate.referral_context or candidate.company_name
             )
             if not name or (not email and (not candidate.phone or not has_referral_support)):
+                rejection_notes.append(
+                    f"{name or 'Prospect'}: name_or_supported_contact_missing"
+                )
+                repairable_rejections = True
                 continue
             identity = email or "|".join(
                 (
@@ -1968,8 +2054,16 @@ class GmailInboundProvider:
                 )
             )
         if not normalized:
-            if review_notes:
-                raise ValueError(f"candidate_identity_requires_manual_review:{review_notes[0]}")
+            if repairable_rejections and self.lead_extractor and not _evidence_retry:
+                # Retry only the structured extraction once, reusing acquired
+                # source text. No extra Gmail reads and no relaxed evidence checks.
+                retry_values = {
+                    **record.values,
+                    "gmail_validation_feedback": "; ".join(rejection_notes)[:2000],
+                }
+                return self.normalize_records(
+                    record.model_copy(update={"values": retry_values}), _evidence_retry=True
+                )
             if internal_candidate_seen:
                 raise ValueError("internal_notification_identity_only")
             if payload.get("gmail_notification_wrapper") and not any(
@@ -1978,7 +2072,10 @@ class GmailInboundProvider:
                 for item in candidates
             ):
                 raise ValueError("internal_notification_identity_only")
-            raise ValueError("no_supported_prospect_candidates")
+            details = "; ".join(rejection_notes)[:1200]
+            raise ValueError(
+                "no_supported_prospect_candidates" + (f":{details}" if details else "")
+            )
         return normalized
 
 
