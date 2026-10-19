@@ -5,7 +5,11 @@ import pytest
 
 from lead_agent.domain.crm_inbound import ExternalCrmRecord
 from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailProspectCandidate
-from lead_agent.infrastructure.gmail import GmailInboundProvider, _evidence_is_from_source
+from lead_agent.infrastructure.gmail import (
+    GmailInboundProvider,
+    _evidence_is_from_source,
+    _phone_evidence_is_from_source,
+)
 
 
 def _record(body: str) -> ExternalCrmRecord:
@@ -40,6 +44,17 @@ def test_quoted_wrapped_evidence_is_contiguous_without_transport_prefixes():
     )
     assert not _evidence_is_from_source(source, "Please contact Dr. Other on Monday")
     assert not _evidence_is_from_source("Please call\n> somebody else", "Please call me")
+
+
+def test_phone_evidence_matches_display_link_and_country_code_formatting():
+    source = (
+        "> Please contact Dr. Singh on Monday at 1-202-324-3000 "
+        "<(202)%20324-3000>."
+    )
+    excerpt = "(202)%20324-3000"
+    assert _phone_evidence_is_from_source(source, excerpt)
+    assert _phone_evidence_is_from_source(source, "202 324 3000")
+    assert not _phone_evidence_is_from_source(source, "202 324 3001")
 
 
 def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead():
@@ -84,7 +99,8 @@ def test_quoted_referral_creates_phone_only_contact_and_keeps_referrer_as_contex
         "> Subject: Collaboration\n> Date: Monday\n"
         "> From: Alex Howard <alex@firm.example>\n"
         "> To: Casey <casey@agency-cloud.example>\n\n"
-        "> Please contact Dr. Singh on Monday at\n> 1-202-555-0138.\n"
+        "> Please contact Dr. Singh on Monday at "
+        "1-202-555-0138 <(202)%20555-0138>.\n"
         "> They can speak with you about this matter.\n\n"
         "> From: Casey <casey@agency-cloud.example>\n"
         "> To: Alex Howard <alex@firm.example>\n> Subject: Collaboration\n\n"
@@ -104,12 +120,12 @@ def test_quoted_referral_creates_phone_only_contact_and_keeps_referrer_as_contex
     referred = GmailProspectCandidate(
         role="referred_prospect", is_genuine_inquiry=True, confidence=0.93,
         reason="Explicit referral about the commercial matter.",
-        inquiry_evidence="Please contact Dr. Singh on Monday at 1-202-555-0138.",
+        inquiry_evidence="Please contact Dr. Singh on Monday at",
         full_name="Dr. Singh", phone="1-202-555-0138", referred_by="Alex Howard",
         company_name="Unverified firm name",
         evidence=[
             GmailEvidence(field="full_name", source="body", excerpt="Dr. Singh"),
-            GmailEvidence(field="phone", source="body", excerpt="1-202-555-0138"),
+            GmailEvidence(field="phone", source="subject", excerpt="(202)%20555-0138"),
             GmailEvidence(field="referred_by", source="from_header", excerpt="Alex Howard"),
         ],
     )

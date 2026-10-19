@@ -13,6 +13,7 @@ from email.message import EmailMessage
 from email.utils import getaddresses, parseaddr
 from html.parser import HTMLParser
 from typing import Any, cast
+from urllib.parse import unquote
 from uuid import UUID
 
 import httpx
@@ -90,6 +91,56 @@ def _evidence_is_from_source(source: str, excerpt: str) -> bool:
     return bool(normalized_excerpt) and normalized_excerpt in _normalized_evidence(source)
 
 
+_PHONE_TOKEN = re.compile(
+    r"(?<!\d)(?:\+?1[\s()./%\-]*)?(?:\(\s*\d{3}\s*\)|\d{3})"
+    r"[\s()./%\-]*\d{3}[\s()./%\-]*\d{4}(?!\d)"
+)
+
+
+def _phone_tokens(value: str) -> set[str]:
+    decoded = unquote(unicodedata.normalize("NFKC", value))
+    return {
+        re.sub(r"\D", "", match.group(0))
+        for match in _PHONE_TOKEN.finditer(decoded)
+    }
+
+
+def _same_phone(left: str, right: str) -> bool:
+    first = re.sub(r"\D", "", left)
+    second = re.sub(r"\D", "", right)
+    if first == second:
+        return True
+    return (
+        len(first) == 11 and first.startswith("1") and first[1:] == second
+    ) or (
+        len(second) == 11 and second.startswith("1") and second[1:] == first
+    )
+
+
+def _phone_evidence_is_from_source(source: str, excerpt: str) -> bool:
+    excerpt_tokens = _phone_tokens(excerpt)
+    source_tokens = _phone_tokens(source)
+    return bool(excerpt_tokens and any(
+        _same_phone(evidenced, sourced)
+        for evidenced in excerpt_tokens
+        for sourced in source_tokens
+    ))
+
+
+def _field_evidence_matches(
+    field: str, source: str, excerpt: str, value: str | None = None,
+) -> bool:
+    if field == "phone":
+        return (
+            _phone_evidence_is_from_source(source, excerpt)
+            and (value is None or _phone_evidence_is_from_source(excerpt, value))
+        )
+    return (
+        _evidence_is_from_source(source, excerpt)
+        and (value is None or _evidence_is_from_source(excerpt, value))
+    )
+
+
 def _verified_optional_fields(candidate: Any, sources: dict[str, str]) -> tuple[Any, list[str]]:
     """Unknown enrichment must not veto a separately verified prospect identity."""
     optional = {"company_name", "job_title", "requested_service", "referral_context"}
@@ -100,8 +151,9 @@ def _verified_optional_fields(candidate: Any, sources: dict[str, str]) -> tuple[
         value = getattr(candidate, field, None)
         if value and not any(
             item.field == field
-            and _evidence_is_from_source(sources[item.source], item.excerpt)
-            and _evidence_is_from_source(item.excerpt, value)
+            and _field_evidence_matches(
+                field, sources[item.source], item.excerpt, value
+            )
             for item in candidate.evidence
         ):
             dropped.append(field)
@@ -126,6 +178,10 @@ def _ground_candidate_identity(
     email = (candidate.email or "").strip().lower()
     evidence = []
     for item in candidate.evidence:
+        if item.field == "phone" and not _field_evidence_matches(
+            "phone", sources[item.source], item.excerpt
+        ) and _field_evidence_matches("phone", sources["body"], item.excerpt):
+            item = item.model_copy(update={"source": "body"})
         if (
             item.field == "full_name" and email in eligible_emails
             and not _evidence_is_from_source(sources[item.source], item.excerpt)
@@ -1910,7 +1966,9 @@ class GmailInboundProvider:
             ]
             invalid_sources = sorted({
                 item.field for item in candidate.evidence
-                if not _evidence_is_from_source(evidence_sources[item.source], item.excerpt)
+                if not _field_evidence_matches(
+                    item.field, evidence_sources[item.source], item.excerpt
+                )
             })
             if invalid_sources:
                 rejection_notes.append(
@@ -1932,7 +1990,9 @@ class GmailInboundProvider:
                 field for field, value in fields.items() if value
                 and not any(
                     item["field"] == field
-                    and _evidence_is_from_source(item["excerpt"], value)
+                    and _field_evidence_matches(
+                        field, evidence_sources[item["source"]], item["excerpt"], value
+                    )
                     for item in evidence
                 )
             ]
