@@ -926,11 +926,21 @@ export type GmailMailboxMessagePage = {
 export type GmailSendRequest = {
   connection_id: string;
   recipient: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
+  html_body?: string;
+  attachments?: GmailAttachmentRequest[];
   lead_id?: string;
   thread_id?: string;
   in_reply_to?: string;
+};
+
+export type GmailAttachmentRequest = {
+  filename: string;
+  content_type: string;
+  content_base64: string;
 };
 
 export type GmailSendResult = {

@@ -1,3 +1,34 @@
+.direct-dialer-panel { display: grid; gap: 14px; }
+.direct-dialer-panel > .dialer-panel-head { flex-wrap: wrap; min-width: 0; gap: 10px 16px; }
+.direct-dialer-panel > .dialer-panel-head > div { min-width: 0; flex: 1 1 220px; }
+.direct-dialer-panel .dialer-panel-count { flex: 0 1 210px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.direct-dialer-form { display: grid; gap: 13px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.direct-dialer-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .8fr) minmax(220px, .8fr); gap: 12px; }
+.direct-dialer-fields label, .direct-call-lead-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.direct-dialer-fields input, .direct-dialer-fields select, .direct-call-lead-form input, .direct-call-lead-form textarea { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); font: inherit; }
+.direct-dialer-fields small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.direct-dialer-confirm { margin: 0; }
+.direct-call-result { display: grid; gap: 8px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-high); }
+.direct-call-result > div:first-child { display: grid; gap: 4px; }
+.direct-call-result strong { font-size: 13px; }
+.direct-call-result span, .direct-call-result p { color: var(--muted); font-size: 11px; }
+.direct-call-result p { margin: 0; }
+.direct-call-history { display: grid; gap: 10px; }
+.direct-call-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.direct-call-history-head h3 { margin: 0; font-size: 14px; }
+.direct-call-history ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.direct-call-history li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-solid); }
+.direct-call-history-copy { display: grid; min-width: 0; gap: 4px; }
+.direct-call-history-copy strong { overflow-wrap: anywhere; font-size: 12px; }
+.direct-call-history-copy span, .direct-call-history-copy small { color: var(--muted); font-size: 10px; }
+.direct-call-lead-form { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-solid); }
+.direct-call-lead-form > strong { font-size: 12px; }
+.direct-call-lead-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 780px) {
+  .direct-dialer-fields { grid-template-columns: minmax(0, 1fr); }
+  .direct-call-history li { align-items: flex-start; flex-direction: column; }
+  .direct-dialer-panel .dialer-panel-count { text-align: left; }
+}
 .dialer-page { gap: 20px; }
 .dialer-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
 .dialer-head h1 { margin:4px 0 6px; }

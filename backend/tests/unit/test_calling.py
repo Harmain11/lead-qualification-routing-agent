@@ -806,6 +806,81 @@ def test_call_is_confirmed_and_duplicate_request_never_redials(calls):
     assert session.scalar(select(func.count()).select_from(CallRecordORM)) == 1
 
 
+def test_direct_call_is_confirmed_idempotent_and_logged_without_a_lead(calls):
+    session, client, _, _, connection, _, adapter = calls
+    payload = {
+        **request(connection),
+        "phone_number": "+14155550199",
+        "consent_confirmed": True,
+    }
+    url = "/v1/calling/direct/start"
+    assert client.post(url, json={**payload, "confirmed": False}).status_code == 422
+    assert client.post(url, json={**payload, "consent_confirmed": False}).status_code == 422
+    first = client.post(url, json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()["lead_id"] is None
+    assert client.post(url, json=payload).json()["id"] == first.json()["id"]
+    assert adapter.count == 1
+    assert session.scalar(select(func.count()).select_from(CallRecordORM)) == 1
+
+    history = client.get("/v1/calling/direct/recent")
+    assert history.status_code == 200, history.text
+    assert history.json()["records"][0]["customer_phone"] == "+14155550199"
+    assert history.json()["records"][0]["lead_id"] is None
+
+
+def test_direct_call_respects_contact_opt_out_and_strict_consent(calls):
+    session, client, workspace, lead, connection, _, adapter = calls
+    session.add(
+        ConsentEventORM(
+            workspace_id=workspace.workspace_id,
+            email=lead.email,
+            channel="call",
+            status="withdrawn",
+            basis="request",
+            purpose="Do not call",
+            evidence="Asked not to receive calls",
+            actor_id="test",
+        )
+    )
+    session.commit()
+    payload = {
+        **request(connection),
+        "phone_number": TARGET,
+        "consent_confirmed": True,
+    }
+    assert client.post("/v1/calling/direct/start", json=payload).status_code == 409
+    assert adapter.count == 0
+
+    session.add(
+        OperationsPolicyORM(
+            workspace_id=workspace.workspace_id,
+            configuration={"require_recorded_consent": True},
+            version=0,
+            updated_at=datetime.now(UTC),
+            updated_by="test",
+        )
+    )
+    session.commit()
+    unlinked = {**payload, "request_id": str(uuid4()), "phone_number": "+14155550199"}
+    assert client.post("/v1/calling/direct/start", json=unlinked).status_code == 409
+    assert adapter.count == 0
+
+
+def test_direct_call_requires_agent_action_permission(calls):
+    _, client, workspace, _, connection, _, adapter = calls
+    app.dependency_overrides[get_workspace_context] = lambda: replace(
+        workspace, role="viewer", permissions=role_permissions("viewer")
+    )
+    payload = {
+        **request(connection),
+        "phone_number": "+14155550199",
+        "consent_confirmed": True,
+    }
+    assert client.post("/v1/calling/direct/start", json=payload).status_code == 403
+    assert adapter.count == 0
+
+
 def test_uncertain_provider_timeout_is_durable_and_never_retried(calls):
     _, client, _, lead, connection, _, adapter = calls
     adapter.timeout = True

@@ -20,7 +20,9 @@ class CallRecordORM(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     connection_id: Mapped[UUID] = mapped_column(
         ForeignKey("provider_connections.id", ondelete="CASCADE")
     )

@@ -23,3 +23,4 @@
 - [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
 - [New lead indicators](lead-new-indicators.md) — Keep sequential IDs hidden; show per-lead and tab dots until each unseen lead is opened.
 - [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.
+- [Manual direct dialing](direct-dial-policy.md) — Dial one confirmed number at a time; keep the call unlinked until the user explicitly adds a lead, while enforcing consent checks.

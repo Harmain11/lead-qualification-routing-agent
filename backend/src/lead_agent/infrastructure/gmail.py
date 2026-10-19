@@ -1163,6 +1163,9 @@ class GmailInboundProvider:
             "inbox": "in:inbox",
             "sent": "in:sent",
             "all": "in:anywhere -in:spam -in:trash",
+            "spam": "in:spam",
+            "trash": "in:trash",
+            "archive": "-in:inbox -in:sent -in:spam -in:trash -in:drafts",
         }.get(folder)
         if folder_query is None:
             raise ValueError("Unsupported Gmail mailbox folder")
@@ -1171,6 +1174,8 @@ class GmailInboundProvider:
             "q": f"{folder_query} {safe_query}".strip(),
             "maxResults": min(max(limit, 1), 50),
         }
+        if folder in {"spam", "trash"}:
+            params["includeSpamTrash"] = True
         if page_token:
             params["pageToken"] = page_token[:1024]
         listed = self.api.get("messages", **params)
@@ -2392,17 +2397,37 @@ class GmailOutboundProvider:
         recipient: str,
         subject: str,
         body: str,
+        cc: str = "",
+        bcc: str = "",
+        html_body: str | None = None,
+        attachments: list[tuple[str, str, bytes]] | None = None,
         thread_id: str | None = None,
         in_reply_to: str | None = None,
     ) -> dict[str, str | None]:
         message = EmailMessage()
         message["From"] = self.mailbox_email
         message["To"] = recipient
+        if cc:
+            message["Cc"] = cc
+        if bcc:
+            message["Bcc"] = bcc
         message["Subject"] = subject
         if in_reply_to:
             message["In-Reply-To"] = in_reply_to
             message["References"] = in_reply_to
         message.set_content(body)
+        if html_body:
+            message.add_alternative(html_body, subtype="html")
+        for filename, content_type, content in attachments or []:
+            maintype, separator, subtype = content_type.partition("/")
+            if not separator or not maintype or not subtype:
+                maintype, subtype = "application", "octet-stream"
+            message.add_attachment(
+                content,
+                maintype=maintype,
+                subtype=subtype,
+                filename=filename,
+            )
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
         request: dict[str, str] = {"raw": raw}
         if thread_id:
