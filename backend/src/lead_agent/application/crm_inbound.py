@@ -411,6 +411,7 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "gmail_ai_reason",
         "gmail_thread_decision",
         "gmail_candidate_identity_email",
+        "gmail_selection_reason",
         "location_id",
         "dnd",
         "dnd_call",
@@ -421,6 +422,16 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         for key, value in canonical.provider_metadata.items()
         if key in allowed and isinstance(value, (str, int, float, bool, type(None)))
     }
+
+
+def _append_gmail_review_detail(run: CrmInboundSyncRunORM, detail: str) -> None:
+    marker = "Participant review:"
+    current = run.last_error or ""
+    prior, separator, details = current.partition(marker)
+    entries = [item.strip() for item in details.split(" | ") if item.strip()] if separator else []
+    entries.append(detail[:240])
+    entries = entries[-3:]
+    run.last_error = " ".join(part for part in (prior.strip(), marker, " | ".join(entries)) if part)
 
 
 def _json_safe_payload(values: Mapping[str, object]) -> dict[str, object]:
@@ -1099,6 +1110,27 @@ def run_inbound_sync(
                         )
                     else:
                         run.records_skipped += 1
+                    if connection.provider_type == "gmail":
+                        reason = str(error)
+                        friendly_reason = {
+                            "no_external_thread_participant": (
+                                "no eligible external sender or forwarded participant was found"
+                            ),
+                            "external_thread_participant_ambiguous": (
+                                "multiple external participants were found without evidence "
+                                "selecting one prospect"
+                            ),
+                            "thread_candidate_not_a_prospect": (
+                                "the suggested identity was not an eligible external sender"
+                            ),
+                        }.get(reason, reason[:120])
+                        _append_gmail_review_detail(
+                            run,
+                            (
+                                f"Thread {record.values.get('thread_id') or 'unknown'} skipped: "
+                                f"{friendly_reason}."
+                            ),
+                        )
                     if connection.provider_type in {"gmail", "outlook"}:
                         record_provider_lifecycle_audit(
                             session,
@@ -1132,6 +1164,40 @@ def run_inbound_sync(
                     run.records_unchanged += 1
                 else:
                     run.records_skipped += 1
+                if connection.provider_type == "gmail":
+                    identity = str(
+                        canonical.normalized_payload.get("full_name")
+                        or canonical.normalized_payload.get("email")
+                        or "external participant"
+                    )
+                    email = str(canonical.normalized_payload.get("email") or "")
+                    decision = str(
+                        canonical.provider_metadata.get("gmail_thread_decision", "sender_lead")
+                    )
+                    outcome_text = (
+                        "created as a separate forwarded lead"
+                        if outcome == "created" and decision == "separate_forwarded_lead"
+                        else "linked to an existing lead"
+                        if outcome in {"updated", "unchanged"}
+                        else "created as the direct external lead"
+                    )
+                    why = (
+                        str(
+                            canonical.normalized_payload.get("gmail_selection_reason")
+                            or "selected from forwarded or quoted From evidence"
+                        )
+                        if decision == "separate_forwarded_lead"
+                        else "selected from the external sender identity"
+                    )
+                    why = why[:140]
+                    _append_gmail_review_detail(
+                        run,
+                        (
+                            "Thread "
+                            f"{canonical.provider_metadata.get('gmail_thread_id') or 'unknown'}: "
+                            f"selected {identity} <{email}>; {why}; {outcome_text}."
+                        ),
+                    )
                 session.commit()
 
             final_checkpoint = page.checkpoint or final_checkpoint

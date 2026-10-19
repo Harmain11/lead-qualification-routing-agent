@@ -646,7 +646,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         ? `Review complete: ${result.records_fetched} scanned, ${result.records_created + result.records_updated} classified as leads, ${result.records_skipped} skipped, ${result.records_unchanged} duplicates, ${result.records_failed} failures.`
         : `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
       const finalMessage = result.last_error
-        ? `${summary} ${result.last_error}`
+        ? `${summary} Details: ${result.last_error}`
         : summary;
       setSyncFeedback((current) => ({
         ...current,

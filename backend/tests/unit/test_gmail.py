@@ -198,6 +198,23 @@ def test_mime_parser_prefers_nested_plain_text_and_html_fallback() -> None:
     assert "Contact our team & discuss a demo" in html
     assert "secret" not in html
 
+    combined = parse_mime_body(
+        {
+            "mimeType": "multipart/alternative",
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": _encoded("Short note")}},
+                {
+                    "mimeType": "text/html",
+                    "body": {
+                        "data": _encoded("<p>Short note</p><p>Full pricing context</p>")
+                    },
+                },
+            ],
+        }
+    )
+    assert "Short note" in combined
+    assert "Full pricing context" in combined
+
 
 def test_mime_parser_bounds_body_size() -> None:
     body = parse_mime_body({"mimeType": "text/plain", "body": {"data": _encoded("x" * 100_000)}})
@@ -904,6 +921,132 @@ def test_gmail_quoted_header_and_internal_cc_do_not_become_candidate() -> None:
         )
 
 
+def test_gmail_internal_dan_thread_selects_external_les_not_quoted_reese() -> None:
+    body = (
+        "Hi Dan, please see the customer conversation below.\n\n"
+        "---------- Forwarded message ---------\n"
+        "From: Reese Maddox <reese@ingenuitysys.com>\n"
+        "Date: Mon, 19 Oct 2026 09:10:00 +0000\n"
+        "To: Dan Asif <dan@ingenuitysys.com>\n"
+        "Subject: Fwd: Website pricing\n\n"
+        "Forwarding the customer's note.\n\n"
+        "From: Les Lehman <les@leslehman.com>\n"
+        "Date: Mon, 19 Oct 2026 08:55:00 +0000\n"
+        "To: Reese Maddox <reese@ingenuitysys.com>\n"
+        "Subject: Website pricing\n\n"
+        "I'm the founder at Les Lehman Studio. Could you send pricing for a website refresh?"
+    )
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="Les is the external customer requesting commercial services.",
+        inquiry_evidence="Could you send pricing for a website refresh?",
+        full_name="Les Lehman",
+        email="les@leslehman.com",
+        company_name="Les Lehman Studio",
+        job_title="Founder",
+        requested_service="website refresh",
+        evidence=[
+            GmailEvidence(field="full_name", source="body", excerpt="Les Lehman"),
+            GmailEvidence(field="email", source="body", excerpt="les@leslehman.com"),
+            GmailEvidence(field="company_name", source="body", excerpt="Les Lehman Studio"),
+            GmailEvidence(field="job_title", source="body", excerpt="founder"),
+            GmailEvidence(field="requested_service", source="body", excerpt="website refresh"),
+        ],
+    )
+    observed_headers: list[dict[str, str]] = []
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "inbox@ingenuitysys.com",
+        lead_extractor=lambda **kwargs: (
+            observed_headers.append(kwargs["headers"]) or extraction
+        ),
+        internal_domains={"ingenuitysys.com"},
+        internal_emails={
+            "dan@ingenuitysys.com",
+            "reese@ingenuitysys.com",
+        },
+    )
+    canonical = provider.normalize_record(
+        ExternalCrmRecord(
+            provider="gmail",
+            object_type="message",
+            record_id="dan-thread",
+            values={
+                "thread_id": "dan-les-thread",
+                "headers": {
+                    "from": "Dan Asif <dan@ingenuitysys.com>",
+                    "subject": "Fwd: Website pricing",
+                },
+                "body": body,
+                "thread_context": body,
+                "thread_messages": [
+                    {
+                        "message_id": "dan-thread",
+                        "headers": {"from": "Dan Asif <dan@ingenuitysys.com>"},
+                        "body": body,
+                    }
+                ],
+            },
+            modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+        )
+    )
+    assert canonical.normalized_payload["full_name"] == "Les Lehman"
+    assert canonical.normalized_payload["email"] == "les@leslehman.com"
+    assert canonical.normalized_payload["company_name"] == "Les Lehman Studio"
+    assert canonical.normalized_payload["job_title"] == "Founder"
+    assert canonical.provider_metadata["original_sender_email"] == "dan@ingenuitysys.com"
+    assert canonical.provider_metadata["gmail_thread_decision"] == "separate_forwarded_lead"
+    assert observed_headers[0]["from"] == "Les Lehman <les@leslehman.com>"
+
+
+def test_gmail_ai_can_select_one_of_multiple_external_thread_participants() -> None:
+    body = (
+        "From: Les Lehman <les@leslehman.com>\n"
+        "To: Dan Asif <dan@ingenuitysys.com>\n"
+        "Subject: Pricing request\n\n"
+        "Could you send pricing for the website refresh?\n\n"
+        "From: Pat Lee <pat@agency.example>\n"
+        "Date: Mon, 19 Oct 2026 09:10:00 +0000\n"
+        "Subject: Re: Pricing request\n\nPat is copied for implementation."
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "inbox@ingenuitysys.com",
+        lead_extractor=lambda **_kwargs: GmailLeadExtraction(
+            is_genuine_inquiry=True,
+            reason="Les made the commercial request; Pat is mentioned as a collaborator.",
+            inquiry_evidence="Could you send pricing for the website refresh?",
+            full_name="Les Lehman",
+            email="les@leslehman.com",
+            evidence=[
+                GmailEvidence(field="full_name", source="body", excerpt="Les Lehman"),
+                GmailEvidence(field="email", source="body", excerpt="les@leslehman.com"),
+            ],
+        ),
+        internal_domains={"ingenuitysys.com"},
+    )
+    canonical = provider.normalize_record(
+        ExternalCrmRecord(
+            provider="gmail",
+            object_type="message",
+            record_id="multi-external",
+            values={
+                "thread_id": "multi-external-thread",
+                "headers": {
+                    "from": "Dan Asif <dan@ingenuitysys.com>",
+                    "subject": "Fwd: Pricing request",
+                },
+                "body": body,
+                "thread_context": body,
+            },
+            modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+        )
+    )
+    assert canonical.normalized_payload["email"] == "les@leslehman.com"
+
+
 def test_gmail_forwarded_identity_is_stable_across_repeated_normalization() -> None:
     provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
     record = ExternalCrmRecord(
@@ -1197,6 +1340,8 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         assert forwarded_run.records_created == 1
         assert linked_run.records_updated == 1
         assert repeated_forward.records_unchanged == 1
+        assert "Mira Prospect" in (forwarded_run.last_error or "")
+        assert "linked to an existing lead" in (linked_run.last_error or "")
         assert rep_lead is not None and prospect_lead is not None
         assert rep_lead.id != prospect_lead.id
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 3
