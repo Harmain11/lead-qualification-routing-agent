@@ -40,3 +40,11 @@ Import later messages into the matching lead's Gmail history rather than making 
 **Why:** The user emphasized that a Gmail provider handles many prospects and each email must be attached to the particular lead it actually matches.
 
 **How to apply:** Keep distinct candidates in the same thread attached to their own email identities, deduplicate imported messages by mailbox and Gmail message ID, and preserve already-known lead details when a follow-up omits them.
+
+## Personal email review and optional contact fields
+
+Route Gmail candidates using common consumer mailbox domains to manual review before standard sales routing. Keep existing uncertainty-based review for work-email identities. Extract name, phone, and company when exact evidence is available; none is required when absent.
+
+**Why:** The user confirmed personal email deserves human verification, while available contact details should be captured without blocking an otherwise valid candidate.
+
+**How to apply:** Treat consumer-provider domains as review signals, not proof of identity or a reason to reject a lead. Preserve evidence grounding and optionality in the extraction schema, prompts, and tests.

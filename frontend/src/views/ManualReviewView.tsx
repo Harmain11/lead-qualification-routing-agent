@@ -1,4 +1,5 @@
 import type { ManualReviewAnalytics } from "../types";
+import { NewLeadDot } from "../components/NewLeadDot";
 import {
   Empty,
   pretty,
@@ -9,9 +10,11 @@ import {
 export function ManualReviewView({
   data,
   onInspect,
+  newLeadIds,
 }: {
   data: ManualReviewAnalytics | null;
   onInspect: (id: string) => void;
+  newLeadIds: ReadonlySet<string>;
 }) {
   if (!data) return <Unavailable />;
   return (
@@ -35,6 +38,7 @@ export function ManualReviewView({
           data.items.map((lead) => (
             <article className="review-card panel" key={lead.id}>
               <div className="review-card-head">
+                {newLeadIds.has(lead.id) && <NewLeadDot />}
                 <span className={`source-tag source-${lead.source}`}>
                   {pretty(lead.source)}
                 </span>

@@ -279,6 +279,8 @@ export type CrmSync = {
 
 export type Lead = {
   id: string;
+  /** Internal compatibility field; do not display sequential lead numbers in the UI. */
+  lead_number: number;
   workspace_id: string;
   source: string;
   source_detail: string | null;
@@ -488,7 +490,7 @@ export type GmailConversationSyncResult = {
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail"
+  "id" | "lead_number" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail"
 > & {
   source: string;
   source_detail: string;
@@ -888,4 +890,53 @@ export type ManualReviewAnalytics = {
   metadata: AnalyticsMetadata;
   items: Array<LeadCard & { review_reasons: string[] }>;
   total: number;
+};
+
+export type GmailMailboxMessage = {
+  message_id: string;
+  thread_id: string;
+  sender: string;
+  sender_name: string;
+  recipients: string;
+  subject: string;
+  sent_at: string;
+  snippet: string;
+  direction: "inbound" | "outbound" | string;
+  unread: boolean;
+};
+
+export type GmailThreadMessage = {
+  message_id: string;
+  thread_id: string;
+  sender: string;
+  sender_name: string;
+  recipients: string;
+  subject: string;
+  sent_at: string;
+  rfc_message_id: string;
+  direction: "inbound" | "outbound" | string;
+  body: string;
+};
+
+export type GmailMailboxMessagePage = {
+  messages: GmailMailboxMessage[];
+  next_page_token: string | null;
+};
+
+export type GmailSendRequest = {
+  connection_id: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  lead_id?: string;
+  thread_id?: string;
+  in_reply_to?: string;
+};
+
+export type GmailSendResult = {
+  message_id: string;
+  thread_id: string | null;
+  sender: string;
+  recipient: string;
+  sent_at: string;
 };

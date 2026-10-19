@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
-
-from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,6 +12,7 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import get_policies, require_permission
 from lead_agent.api.schemas import (
     CrmInboundSyncAcceptedResponse,
+    CrmInboundSyncCancellationResponse,
     CrmInboundSyncRunResponse,
     CrmInboundSyncStateResponse,
     crm_inbound_run_response,
@@ -21,7 +21,9 @@ from lead_agent.api.schemas import (
 from lead_agent.application.crm_inbound import (
     configure_inbound_sync,
     get_inbound_sync_state,
+    inbound_sync_lease_is_active,
     list_inbound_sync_runs,
+    request_inbound_sync_cancellation,
     run_inbound_sync,
 )
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
@@ -123,11 +125,16 @@ def synchronize_inbound_crm(
             raise HTTPException(status_code=409, detail="inbound synchronization is disabled")
         queued_at = datetime.now(UTC)
         if (
-            state.status == "running"
-            and state.lease_expires_at is not None
-            and state.lease_expires_at > queued_at
+            state.status in {"queued", "cancel_requested"}
+            or (
+                state.status == "running"
+                and inbound_sync_lease_is_active(state, queued_at)
+            )
         ):
-            raise HTTPException(status_code=409, detail="an inbound synchronization run is already active")
+            raise HTTPException(
+                status_code=409,
+                detail="an inbound synchronization run is already active",
+            )
         state.status = "queued"
         state.last_error = None
         state.error_category = None
@@ -165,7 +172,12 @@ def synchronize_inbound_crm(
             session.commit()
             _LOGGER.warning(
                 "gmail.inbound_sync_queue_failed",
-                extra={"fields": {"connection_id": str(connection.id), "error_class": error.__class__.__name__}},
+                extra={
+                    "fields": {
+                        "connection_id": str(connection.id),
+                        "error_class": error.__class__.__name__,
+                    }
+                },
             )
             raise HTTPException(status_code=503, detail=state.last_error) from None
         response.status_code = 202
@@ -265,3 +277,30 @@ def retrieve_inbound_sync_runs(
             session, workspace.workspace_id, connection_id, limit=limit
         )
     ]
+
+
+@router.post(
+    "/{connection_id}/inbound-sync/cancel",
+    response_model=CrmInboundSyncCancellationResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def cancel_inbound_sync(
+    connection_id: UUID,
+    object_type: Literal["message"] = "message",
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
+) -> CrmInboundSyncCancellationResponse:
+    connection = _connection(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "gmail":
+        raise HTTPException(
+            status_code=409,
+            detail="Cancellation is currently supported for Gmail syncs only.",
+        )
+    result = request_inbound_sync_cancellation(
+        session,
+        workspace.workspace_id,
+        connection_id,
+        object_type,
+        workspace.actor_id,
+    )
+    return CrmInboundSyncCancellationResponse(**result)

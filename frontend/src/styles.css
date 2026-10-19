@@ -2855,6 +2855,17 @@ html[data-theme="dark"] .app-shell .slack-multi-menu .slack-multi-option:hover {
   padding: 0 16px;
   white-space: nowrap;
 }
+.gmail-sync-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.gmail-sync-cancel-button {
+  min-height: 40px;
+  white-space: nowrap;
+}
 .gmail-sync-actions > .gmail-sync-progress,
 .gmail-sync-actions > .gmail-sync-result,
 .gmail-sync-actions > .integration-sync-feedback {
@@ -2962,6 +2973,7 @@ html[data-theme="dark"] .app-shell .slack-multi-menu .slack-multi-option:hover {
   letter-spacing: .02em;
 }
 .sync-result-badge-error { background: #fff2e5; color: #925b17; }
+.sync-result-badge-cancelled { background: #edf2f6; color: #4d6273; }
 .gmail-sync-result-stats {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -3093,13 +3105,15 @@ html[data-theme="dark"] .gmail-sync-progress { background: #182a33; color: #c4de
 html[data-theme="dark"] .gmail-sync-result-badge,
 html[data-theme="dark"] .gmail-review-note > span { background: #244833; color: #b6e0c5; }
 html[data-theme="dark"] .sync-result-badge-error { background: #4a3520; color: #f1c17f; }
+html[data-theme="dark"] .sync-result-badge-cancelled { background: #2b3933; color: #c5d2cb; }
 html[data-theme="dark"] .gmail-review-note-skipped > span,
 html[data-theme="dark"] .gmail-sync-review-details summary > span { background: #2b3933; color: #c5d2cb; }
 html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; color: #cad8d0; }
 @media (max-width: 760px) {
   .gmail-sync-controls { grid-template-columns: minmax(0, 1fr); }
   .gmail-sync-controls > p { order: 2; }
-  .gmail-sync-controls .gmail-sync-button { width: 100%; }
+  .gmail-sync-buttons { width: 100%; }
+  .gmail-sync-controls .gmail-sync-button { width: auto; flex: 1; }
   .gmail-sync-result-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .gmail-sync-result > header { flex-direction: column; }
   .gmail-sync-active-banner { grid-template-columns: 12px minmax(0, 1fr); }
@@ -3223,6 +3237,9 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
 .gmail-inquiry-empty { margin: 10px 0 0; color: var(--muted); font-size: 11px; }
 .gmail-inquiry-raw { padding-top: 10px; border-top: 1px solid var(--line); }
 .gmail-inquiry-raw pre { max-height: 360px; }
+.gmail-inquiry-history { border-top: 1px solid var(--line); padding-top: 10px; }
+.gmail-inquiry-history > summary { color: var(--blue); cursor: pointer; font-size: 11px; font-weight: 750; }
+.gmail-inquiry-history-messages { display: grid; gap: 8px; margin-top: 10px; }
 .original-inquiry-plain {
   padding: 15px;
   border: 1px solid var(--line);

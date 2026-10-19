@@ -10,6 +10,7 @@ import {
 addIntegrationCredential,
 apiUrl,
 beginIntegration,
+  cancelInboundSync,
 configureInboundSync,
 disconnectIntegration,
 getInboundSyncState,
@@ -40,13 +41,15 @@ import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderC
 function syncRunMessage(run: CrmInboundSyncRun) {
   const review = run.mode === "review_recent";
   if (run.status === "completed") return review ? "AI review finished." : "Sync finished.";
+  if (run.status === "cancelled") return review ? "AI review cancelled. Completed leads were kept." : "Sync cancelled. Completed records were kept.";
   if (run.status === "completed_with_errors") {
     return review ? "AI review finished with some messages needing attention." : "Sync finished with some records needing attention.";
   }
   return review ? "AI review failed." : "Sync failed.";
 }
 
-function syncRunKind(run: CrmInboundSyncRun): "success" | "error" {
+function syncRunKind(run: CrmInboundSyncRun): "success" | "error" | "cancelled" {
+  if (run.status === "cancelled") return "cancelled";
   return run.status === "completed" ? "success" : "error";
 }
 
@@ -382,9 +385,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const syncWatchers = useRef(new Set<string>());
   const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
   const [reviewLimits, setReviewLimits] = useState<Record<string, string>>({});
-  const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error"; message: string }>>({});
+  const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error" | "cancelled"; message: string }>>({});
   const [syncResults, setSyncResults] = useState<Record<string, CrmInboundSyncRun | null>>({});
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
+  const [syncCancelRequests, setSyncCancelRequests] = useState<Record<string, boolean>>({});
   const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({});
   const [slackMembers, setSlackMembers] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const [slackRouting, setSlackRouting] = useState<SlackNotificationConfig | null>(null);
@@ -474,19 +478,25 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       } finally {
         setSlackRoutingReady(true);
       }
-      const inboundConnections = nextCards.filter((card) => (card.category === "CRM" || ["gmail", "outlook"].includes(card.provider)) && card.connection);
-      const entries = await Promise.all(inboundConnections.map(async (card) => {
-        try { return [card.connection!.id, await getInboundSyncState(card.connection!.id, card.provider)] as const; }
-        catch { return [card.connection!.id, null] as const; }
+      const inboundConnections = nextCards.flatMap((card) =>
+        card.category === "CRM" || ["gmail", "outlook"].includes(card.provider)
+          ? (card.connections.length ? card.connections : card.connection ? [card.connection] : [])
+              .filter((connection) => connection.is_active)
+              .map((connection) => ({ provider: card.provider, connection }))
+          : [],
+      );
+      const entries = await Promise.all(inboundConnections.map(async ({ connection, provider }) => {
+        try { return [connection.id, await getInboundSyncState(connection.id, provider)] as const; }
+        catch { return [connection.id, null] as const; }
       }));
       setSyncStates(Object.fromEntries(entries));
-      const gmailConnections = inboundConnections.filter((card) => card.provider === "gmail" && card.connection);
-      const gmailRuns = await Promise.all(gmailConnections.map(async (card) => {
+      const gmailConnections = inboundConnections.filter((item) => item.provider === "gmail");
+      const gmailRuns = await Promise.all(gmailConnections.map(async ({ connection }) => {
         try {
-          const runs = await getInboundSyncRuns(card.connection!.id);
-          return [card.connection!.id, runs[0] ?? null] as const;
+          const runs = await getInboundSyncRuns(connection.id);
+          return [connection.id, runs[0] ?? null] as const;
         } catch {
-          return [card.connection!.id, null] as const;
+          return [connection.id, null] as const;
         }
       }));
       setSyncResults((current) => ({
@@ -497,8 +507,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         const next = { ...current };
         for (const [connectionId, run] of gmailRuns) {
           if (!run || syncWatchers.current.has(connectionId)) continue;
-          next[connectionId] = ["queued", "running"].includes(run.status)
-            ? { kind: "progress", message: "Sync is still running; reconnecting to progress…" }
+          next[connectionId] = ["queued", "running", "cancel_requested"].includes(run.status)
+            ? {
+              kind: "progress",
+              message: run.status === "cancel_requested"
+                ? "Cancellation requested. Waiting for the current Gmail operation to stop…"
+                : "Sync is still running; reconnecting to progress…",
+            }
             : { kind: syncRunKind(run), message: syncRunMessage(run) };
         }
         return next;
@@ -625,7 +640,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   }, []);
 
-  async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation) {
+  async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation, targetConnectionId?: string) {
     if (runningProvider.current) return;
     runningProvider.current = provider;
     setBusy(provider); setBusyAction(kind ?? null); setNotice(null);
@@ -633,10 +648,17 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     try {
       await operation();
       if (kind === "disconnect") setCards((current) => current.map((card) => {
-        if (card.provider !== provider || !card.connection) return card;
-        const id = card.connection.id;
-        const disconnected: ProviderConnection = { ...card.connection, status: "disconnected", is_active: false, credential_state: "missing" };
-        return { ...card, connection: disconnected, connections: card.connections.map((item) => item.id === id ? disconnected : item) };
+        if (card.provider !== provider) return card;
+        const id = targetConnectionId ?? card.connection?.id;
+        if (!id) return card;
+        const row = card.connections.find((item) => item.id === id) ?? (card.connection?.id === id ? card.connection : null);
+        if (!row) return card;
+        const disconnected: ProviderConnection = { ...row, status: "disconnected", is_active: false, credential_state: "missing" };
+        return {
+          ...card,
+          connection: card.connection?.id === id ? disconnected : card.connection,
+          connections: card.connections.map((item) => item.id === id ? disconnected : item),
+        };
       }));
       setNotice(success);
       if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "success", message: success } }));
@@ -658,6 +680,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     syncWatchers.current.add(connectionId);
     setBusy(provider);
     setSyncingProvider(provider);
+    setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
     setNotice(null);
     setSyncResults((current) => ({ ...current, [connectionId]: null }));
     setSyncFeedback((current) => ({
@@ -694,18 +717,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setSyncFeedback((current) => ({
         ...current,
         [connectionId]: {
-          kind: result.status === "completed" ? "success" : "error",
-          message: result.mode === "review_recent"
-            ? result.status === "completed"
-              ? "AI review finished."
-              : result.status === "completed_with_errors"
-                ? "AI review finished with some messages needing attention."
-                : "AI review failed."
-            : result.status === "completed"
-              ? "Sync finished."
-              : result.status === "completed_with_errors"
-                ? "Sync finished with some records needing attention."
-                : "Sync failed.",
+          kind: syncRunKind(result),
+          message: syncRunMessage(result),
         },
       }));
       await refresh();
@@ -717,6 +730,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       }));
     } finally {
       syncWatchers.current.delete(connectionId);
+      setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
       setBusy(null);
       setSyncingProvider(null);
     }
@@ -727,16 +741,18 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     syncWatchers.current.add(connectionId);
     setBusy(provider);
     setSyncingProvider(provider);
+    setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
     setSyncFeedback((current) => ({
       ...current,
       [connectionId]: { kind: "progress", message: "Reconnecting to the active Gmail sync…" },
     }));
     try {
       const runs = await getInboundSyncRuns(connectionId);
-      const activeRun = runs.find((run) => run.status === "queued" || run.status === "running");
-      if (!activeRun) return;
+      const activeRun = runs.find((run) => ["queued", "running", "cancel_requested"].includes(run.status));
+      const state = await getInboundSyncState(connectionId, provider);
+      if (!activeRun && !["queued", "running", "cancel_requested"].includes(state.status)) return;
       const result = await pollInboundSync({
-        queuedAt: activeRun.created_at,
+        queuedAt: activeRun?.created_at ?? state.updated_at,
         getRuns: () => getInboundSyncRuns(connectionId),
         getState: () => getInboundSyncState(connectionId, provider),
         onProgress: (message) => setSyncFeedback((current) => ({
@@ -748,18 +764,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setSyncFeedback((current) => ({
         ...current,
         [connectionId]: {
-          kind: result.status === "completed" ? "success" : "error",
-          message: result.mode === "review_recent"
-            ? result.status === "completed"
-              ? "AI review finished."
-              : result.status === "completed_with_errors"
-                ? "AI review finished with some messages needing attention."
-                : "AI review failed."
-            : result.status === "completed"
-              ? "Sync finished."
-              : result.status === "completed_with_errors"
-                ? "Sync finished with some records needing attention."
-                : "Sync failed.",
+          kind: syncRunKind(result),
+          message: syncRunMessage(result),
         },
       }));
       await refresh();
@@ -771,8 +777,50 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       }));
     } finally {
       syncWatchers.current.delete(connectionId);
+      setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
       setBusy(null);
       setSyncingProvider(null);
+    }
+  }
+
+  async function cancelGmailSync(connectionId: string) {
+    if (syncCancelRequests[connectionId]) return;
+    setSyncCancelRequests((current) => ({ ...current, [connectionId]: true }));
+    setSyncFeedback((current) => ({
+      ...current,
+      [connectionId]: {
+        kind: "progress",
+        message: "Requesting cancellation…",
+      },
+    }));
+    try {
+      const result = await cancelInboundSync(connectionId);
+      if (result.status === "not_running") {
+        setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
+        setSyncFeedback((current) => ({
+          ...current,
+          [connectionId]: {
+            kind: "progress",
+            message: "The sync has just finished. Refreshing its result…",
+          },
+        }));
+        await refresh();
+        return;
+      }
+      setSyncFeedback((current) => ({
+        ...current,
+        [connectionId]: { kind: "progress", message: result.message },
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cancellation could not be requested.";
+      setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
+      setSyncFeedback((current) => ({
+        ...current,
+        [connectionId]: {
+          kind: "progress",
+          message: `${message} The Gmail sync may still be running.`,
+        },
+      }));
     }
   }
 
@@ -780,15 +828,17 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     if (!canView) return;
     for (const card of cards) {
       if (card.provider !== "gmail") continue;
-      const connection = card.connection;
-      const state = connection ? syncStates[connection.id] : null;
-      if (
-        connection
-        && state
-        && (state.status === "running" || state.status === "queued")
-        && !syncWatchers.current.has(connection.id)
-      ) {
-        void resumeInboundSync(connection.id, card.provider);
+      const connections = card.connections.length ? card.connections : card.connection ? [card.connection] : [];
+      for (const connection of connections) {
+        const state = syncStates[connection.id];
+        if (
+          connection.is_active
+          && state
+          && ["running", "queued", "cancel_requested"].includes(state.status)
+          && !syncWatchers.current.has(connection.id)
+        ) {
+          void resumeInboundSync(connection.id, card.provider);
+        }
       }
     }
   }, [canView, cards, syncStates]);
@@ -802,10 +852,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   }
 
-  function connectOAuth(provider: string) {
+  function connectOAuth(provider: string, intent?: "connect" | "reconnect") {
     if (!canConnect || (adminOnlyProviders.has(provider) && !canManage) || (provider === "slack" && !canManage) || busy) return;
     const connection = cards.find((card) => card.provider === provider)?.connection;
-    oauthIntent.current = connection && connection.status !== "disconnected" ? "reconnect" : "connect";
+    oauthIntent.current = intent ?? (connection && connection.status !== "disconnected" ? "reconnect" : "connect");
     if (provider === "calendly") {
       setExpanded(provider);
       setAccountChoiceProvider(provider);
@@ -988,23 +1038,25 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   const focusedLabel = selectedProvider ? cardByProvider.get(selectedProvider)?.display_name || selectedProvider : aiSection ? "AI connection" : callingSection ? "All dialers" : "";
   const activeGmailSyncs = cards
-    .filter((card) => card.provider === "gmail" && card.connection)
-    .map((card) => ({
-      connection: card.connection!,
-      state: syncStates[card.connection!.id],
-      feedback: syncFeedback[card.connection!.id],
-    }))
+    .filter((card) => card.provider === "gmail")
+    .flatMap((card) => (card.connections.length ? card.connections : card.connection ? [card.connection] : [])
+      .map((connection) => ({
+        connection,
+        state: syncStates[connection.id],
+        feedback: syncFeedback[connection.id],
+      })))
     .filter(({ state, feedback }) =>
       state?.status === "running"
       || state?.status === "queued"
+      || state?.status === "cancel_requested"
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
   return <div className={`page-view operational-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
     <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
-    {activeGmailSyncs.map(({ connection, feedback }) => <section className="gmail-sync-active-banner" key={connection.id} role="status" aria-live="polite">
+    {activeGmailSyncs.map(({ connection, state, feedback }) => <section className="gmail-sync-active-banner" key={connection.id} role="status" aria-live="polite">
       <span className="gmail-sync-active-indicator" aria-hidden="true" />
-      <div><span className="eyebrow">Gmail · AI review active</span><strong>Sync is still running</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
-      <span className="gmail-sync-active-state">In progress</span>
+      <div><span className="eyebrow">Gmail · AI review active</span><strong>{state?.status === "cancel_requested" ? "Stopping Gmail sync" : "Sync is still running"}</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
+      <span className="gmail-sync-active-state">{state?.status === "cancel_requested" ? "Stopping" : "In progress"}</span>
     </section>)}
     {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <div className="integration-category-filter">
       <div className="integration-category-heading">
@@ -1061,6 +1113,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          ? (card.connections.length ? card.connections : connection ? [connection] : [])
            .filter((item) => item.is_active && item.status === "verified" && item.credential_state === "configured")
          : [];
+        const gmailConnections = gmailDirection
+          ? (card.connections.length ? card.connections : connection ? [connection] : [])
+              .filter((item) => item.status !== "disconnected")
+          : [];
        const selectedReasoningModel = modelSelections[card.provider] ?? connection?.selected_model ?? card.default_model ?? card.supported_models[0] ?? "";
        const selectedOpenAIModel = selectedReasoningModel;
         const detailsOpen = card.provider === "slack" ? slackPanelOpen : open;
@@ -1081,7 +1137,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
           </div>}
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
-         {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">Choose your account or organization at provider sign-in. Only one account per provider remains active after verification.</p>}
+          {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
+          {gmailDirection && gmailConnections.length > 0 && <div className="integration-guide gmail-account-list">
+            <span className="eyebrow">Connected Gmail accounts</span>
+            {gmailConnections.map((gmailAccount) => <div className="gmail-account-row" key={gmailAccount.id}>
+              <div><strong>{gmailAccount.account_name}</strong><small>{connectionStatusLabel(gmailAccount.status)}</small></div>
+              {canDisconnect && gmailAccount.is_active && <button type="button" className="button-quiet danger" onClick={() => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)} disabled={Boolean(busy)}>{busy === "gmail" && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}
+            </div>)}
+          </div>}
          <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
@@ -1122,7 +1185,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         {!comingSoon && <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>}
-        {!comingSoon && <div className="card-actions">
+         {!comingSoon && <div className="card-actions">
+            {gmailDirection && gmailConnections.length > 0 && canConnectProvider && <button type="button" onClick={() => connectOAuth("gmail", "connect")} disabled={Boolean(busy)}>{busy === "gmail" && busyAction === "connect" ? "Connecting…" : "Add Gmail account"}</button>}
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
             {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
         </div>}
@@ -1171,9 +1235,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                   <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
                 </label>
                 <p>AI reviews recent messages from the last 30 days and adds matches to the right lead. Choose 1–5,000 messages.</p>
-                <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
-                  {syncingProvider === card.provider ? "Syncing with AI…" : "Sync Gmail with AI"}
-                </button>
+                <div className="gmail-sync-buttons">
+                  <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
+                    {syncingProvider === card.provider ? "Syncing with AI…" : "Sync Gmail with AI"}
+                  </button>
+                  {syncingProvider === card.provider && syncFeedback[connection.id]?.kind === "progress" && <button className="button-quiet gmail-sync-cancel-button" type="button" onClick={() => void cancelGmailSync(connection.id)} disabled={syncCancelRequests[connection.id]} aria-label="Cancel Gmail AI sync">
+                    {syncCancelRequests[connection.id] ? "Stopping…" : "Cancel sync"}
+                  </button>}
+                </div>
             </div>}
             {syncFeedback[connection.id] && (syncFeedback[connection.id].kind === "progress"
               ? <div className="gmail-sync-progress" role="status" aria-live="polite"><span className="gmail-sync-spinner" aria-hidden="true" /><span>{syncFeedback[connection.id].message}</span></div>
@@ -1190,7 +1259,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                     ["Failed", result.records_failed],
                   ];
                   return <section className={`gmail-sync-result sync-result-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">
-                    <header><div><span className={`gmail-sync-result-badge sync-result-badge-${syncFeedback[connection.id].kind}`}>{result.status === "completed" ? "Complete" : result.status === "completed_with_errors" ? "Needs attention" : "Failed"}</span><strong>{syncFeedback[connection.id].message}</strong></div><time>{new Date(result.created_at).toLocaleString()}</time></header>
+                    <header><div><span className={`gmail-sync-result-badge sync-result-badge-${syncFeedback[connection.id].kind}`}>{result.status === "cancelled" ? "Cancelled" : result.status === "completed" ? "Complete" : result.status === "completed_with_errors" ? "Needs attention" : "Failed"}</span><strong>{syncFeedback[connection.id].message}</strong></div><time>{new Date(result.created_at).toLocaleString()}</time></header>
                     <div className="gmail-sync-result-stats">{stats.map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}</div>
                     {review.general && <p className="gmail-sync-result-summary">{review.general}</p>}
                     {review.notes.length > 0 && <details className="gmail-sync-review-details">

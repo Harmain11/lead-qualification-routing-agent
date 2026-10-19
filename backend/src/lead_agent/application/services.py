@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -372,6 +373,7 @@ def process_source_event(
     notification_provider: NotificationProvider | None = None,
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
     send_confirmation_email: bool = True,
+    manual_review_reason: str | None = None,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
@@ -413,6 +415,11 @@ def process_source_event(
         analysis, result = _analyze_and_qualify(
             lead, resolved_icp.configuration, routing, active_provider
         )
+        if manual_review_reason:
+            review_update: dict[str, Any] = {"requires_manual_review": True}
+            if analysis.status == "completed":
+                review_update["status"] = "manual_review"
+            analysis = analysis.model_copy(update=review_update)
         result = resolved_icp.trace_result(result)
         try:
             row = create_lead_with_result(
@@ -434,7 +441,13 @@ def process_source_event(
             row = source_event.lead
         if get_current_routing(session, row.id, workspace_id) is None:
             _record_pre_routing_history(session, row, analysis, result)
-        route_and_notify(session, row, routing, notification_provider=notification_provider)
+        route_and_notify(
+            session,
+            row,
+            routing,
+            notification_provider=notification_provider,
+            manual_review_reason=manual_review_reason,
+        )
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message
@@ -477,6 +490,7 @@ def reprocess_lead(
     require_provider_success: bool = False,
     send_confirmation_email: bool = True,
     preserve_inquiry: bool = False,
+    manual_review_reason: str | None = None,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     """Run a meaningful source update through the canonical qualification pipeline."""
 
@@ -489,6 +503,11 @@ def reprocess_lead(
     analysis, result = _analyze_and_qualify(
         normalized, resolved_icp.configuration, routing, active_provider
     )
+    if manual_review_reason:
+        review_update: dict[str, Any] = {"requires_manual_review": True}
+        if analysis.status == "completed":
+            review_update["status"] = "manual_review"
+        analysis = analysis.model_copy(update=review_update)
     if require_provider_success and analysis.status == "provider_error":
         if analysis.error_code == ReasoningProviderTimeout.code:
             raise ReasoningProviderTimeout(
@@ -534,6 +553,7 @@ def reprocess_lead(
         force=True,
         reroute_reason=reroute_reason,
         send_notification=send_notification,
+        manual_review_reason=manual_review_reason,
     )
     if send_confirmation_email:
         _send_lead_confirmation_email(session, row)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from itertools import count
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -27,12 +28,15 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
 
+_LEAD_NUMBERS = count(1)
+
 
 def _lead(workspace_id, *, manual_review: bool = False, disqualified: bool = False) -> LeadORM:
     now, lead_id, qualification_id = datetime.now(UTC), uuid4(), uuid4()
     lead = LeadORM(
         id=lead_id,
         workspace_id=workspace_id,
+        lead_number=next(_LEAD_NUMBERS),
         source="website",
         source_detail=None,
         external_id=None,
@@ -150,7 +154,9 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
 
         assert row.subject == "A fresh next step for Northstar Labs"
         assert row.generation_method == "openai"
-        assert facts_seen[0]["workspace_email_template"]["subject"] == "Hello {{lead_name}} at {{company_name}}"
+        assert facts_seen[0]["workspace_email_template"]["subject"] == (
+            "Hello {{lead_name}} at {{company_name}}"
+        )
         assert row.status == "draft"
         original_id = row.id
         row.status = "sent"

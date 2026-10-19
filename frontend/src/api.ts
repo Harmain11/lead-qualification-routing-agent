@@ -42,6 +42,10 @@ import type {
   IcpVersion,
   SlackNotificationConfig,
   WorkspaceEmailTemplate,
+  GmailMailboxMessagePage,
+  GmailThreadMessage,
+  GmailSendRequest,
+  GmailSendResult,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -359,6 +363,35 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
 }
 
+export function listGmailMailboxMessages(
+  connectionId: string,
+  folder: "inbox" | "sent" | "all" = "inbox",
+  query = "",
+  pageToken?: string | null,
+  signal?: AbortSignal,
+): Promise<GmailMailboxMessagePage> {
+  const params = new URLSearchParams({ connection_id: connectionId, folder, query });
+  if (pageToken) params.set("page_token", pageToken);
+  return request(`/v1/email/messages?${params.toString()}`, { signal });
+}
+
+export function getGmailMailboxThread(
+  connectionId: string,
+  threadId: string,
+  signal?: AbortSignal,
+): Promise<{ messages: GmailThreadMessage[] }> {
+  const params = new URLSearchParams({ connection_id: connectionId, thread_id: threadId });
+  return request(`/v1/email/thread?${params.toString()}`, { signal });
+}
+
+export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResult> {
+  return request("/v1/email/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {
   const objectType = ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead";
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state?object_type=${objectType}`);
@@ -393,6 +426,15 @@ export function runInboundSync(
 
 export function getInboundSyncRuns(connectionId: string): Promise<CrmInboundSyncRun[]> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/runs?limit=10`);
+}
+
+export function cancelInboundSync(
+  connectionId: string,
+): Promise<{ status: "cancellation_requested" | "not_running"; message: string }> {
+  return jsonRequest(
+    `/v1/integrations/connections/${connectionId}/inbound-sync/cancel?object_type=message`,
+    { method: "POST" },
+  );
 }
 
 export function sendLeadToCrm(leadId: string, provider?: string): Promise<CrmSync> {

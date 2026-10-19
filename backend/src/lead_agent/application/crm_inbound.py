@@ -26,6 +26,7 @@ from lead_agent.domain.crm_inbound import (
     InboundCursor,
     InboundSyncMode,
 )
+from lead_agent.domain.email import is_personal_email_address
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationProvider
@@ -45,6 +46,7 @@ from lead_agent.infrastructure.observability import (
     set_request_id,
 )
 from lead_agent.infrastructure.provider_lifecycle import record_provider_lifecycle_audit
+from lead_agent.infrastructure.repositories import get_current_routing
 
 _SYNC_LOCKS: dict[tuple[UUID, UUID, str], RLock] = {}
 _SYNC_LOCKS_GUARD = Lock()
@@ -290,9 +292,16 @@ def _acquire_sync_lease(
                 CrmInboundSyncStateORM.id == state.id,
                 CrmInboundSyncStateORM.enabled.is_(True),
                 or_(
-                    CrmInboundSyncStateORM.status != "running",
-                    CrmInboundSyncStateORM.lease_expires_at.is_(None),
-                    CrmInboundSyncStateORM.lease_expires_at <= now,
+                    CrmInboundSyncStateORM.status.not_in(
+                        ("running", "cancel_requested")
+                    ),
+                    and_(
+                        CrmInboundSyncStateORM.status == "running",
+                        or_(
+                            CrmInboundSyncStateORM.lease_expires_at.is_(None),
+                            CrmInboundSyncStateORM.lease_expires_at <= now,
+                        ),
+                    ),
                 ),
             )
         )
@@ -307,6 +316,21 @@ def _acquire_sync_lease(
     return bool(getattr(result, "rowcount", 0) == 1)
 
 
+def _lease_is_active(state: CrmInboundSyncStateORM, now: datetime) -> bool:
+    expires_at = state.lease_expires_at
+    if expires_at is None:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    return expires_at > now
+
+
+def inbound_sync_lease_is_active(
+    state: CrmInboundSyncStateORM, now: datetime | None = None
+) -> bool:
+    return _lease_is_active(state, now or datetime.now(UTC))
+
+
 def _renew_sync_lease(
     session: Session,
     state_id: UUID,
@@ -318,7 +342,7 @@ def _renew_sync_lease(
         .where(
             CrmInboundSyncStateORM.id == state_id,
             CrmInboundSyncStateORM.lease_owner == owner,
-            CrmInboundSyncStateORM.status == "running",
+            CrmInboundSyncStateORM.status.in_(("running", "cancel_requested")),
         )
         .values(
             lease_expires_at=now + timedelta(seconds=_SYNC_LEASE_SECONDS),
@@ -365,6 +389,91 @@ def list_inbound_sync_runs(
     )
 
 
+def request_inbound_sync_cancellation(
+    session: Session,
+    workspace_id: UUID,
+    connection_id: UUID,
+    object_type: str,
+    actor_id: str,
+) -> dict[str, str]:
+    """Request a cooperative stop for the active inbound sync, if there is one."""
+
+    active_statuses = ("queued", "running", "cancel_requested")
+    state = session.scalar(
+        select(CrmInboundSyncStateORM).where(
+            CrmInboundSyncStateORM.workspace_id == workspace_id,
+            CrmInboundSyncStateORM.connection_id == connection_id,
+            CrmInboundSyncStateORM.object_type == object_type,
+            CrmInboundSyncStateORM.status.in_(active_statuses),
+        )
+    )
+    if state is None:
+        return {
+            "status": "not_running",
+            "message": "This Gmail sync has already finished.",
+        }
+
+    if state.status == "cancel_requested":
+        return {
+            "status": "cancellation_requested",
+            "message": (
+                "Cancellation is already requested. Waiting for the current Gmail "
+                "operation to stop."
+            ),
+        }
+
+    now = datetime.now(UTC)
+    state_update = session.execute(
+        update(CrmInboundSyncStateORM)
+        .where(
+            CrmInboundSyncStateORM.id == state.id,
+            CrmInboundSyncStateORM.status.in_(active_statuses),
+        )
+        .values(status="cancel_requested", updated_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    if int(getattr(state_update, "rowcount", 0)) != 1:
+        return {
+            "status": "not_running",
+            "message": "This Gmail sync has already finished.",
+        }
+    active_run = session.scalar(
+        select(CrmInboundSyncRunORM)
+        .where(
+            CrmInboundSyncRunORM.workspace_id == workspace_id,
+            CrmInboundSyncRunORM.connection_id == connection_id,
+            CrmInboundSyncRunORM.object_type == object_type,
+            CrmInboundSyncRunORM.status.in_(("running", "cancel_requested")),
+        )
+        .order_by(CrmInboundSyncRunORM.started_at.desc())
+    )
+    if active_run is not None:
+        active_run.status = "cancel_requested"
+        active_run.updated_at = now
+    connection = session.get(ProviderConnectionORM, connection_id)
+    if connection is not None:
+        record_provider_lifecycle_audit(
+            session,
+            connection,
+            action="gmail_inbound_sync_cancel",
+            outcome="cancellation_requested",
+            actor_id=actor_id,
+            correlation_id=active_run.correlation_id if active_run else str(state.id),
+            details={
+                "run_id": str(active_run.id) if active_run else None,
+                "object_type": object_type,
+            },
+        )
+    session.commit()
+    return {
+        "status": "cancellation_requested",
+        "message": (
+            "Cancellation requested. Gmail will finish its current operation "
+            "before stopping."
+        ),
+    }
+
+
 def _record_link(
     session: Session,
     connection: ProviderConnectionORM,
@@ -393,6 +502,16 @@ def _email_matches(session: Session, workspace_id: UUID, email: str) -> list[Lea
             )
         )
     )
+
+
+def _gmail_manual_review_reason(canonical: CanonicalInboundLead) -> str | None:
+    email = str(canonical.normalized_payload.get("email") or "")
+    if canonical.provider == "gmail" and is_personal_email_address(email):
+        return (
+            "Personal email provider detected; verify the prospect's business "
+            "affiliation before standard sales routing."
+        )
+    return None
 
 
 def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object]:
@@ -681,6 +800,7 @@ def _process_record(
     send_confirmation_email: bool,
 ) -> str:
     normalized_payload = _json_safe_payload(canonical.normalized_payload)
+    manual_review_reason = _gmail_manual_review_reason(canonical)
     link = _record_link(session, connection, canonical)
     now = datetime.now(UTC)
     if canonical.provider == "gohighlevel":
@@ -791,6 +911,26 @@ def _process_record(
             link.last_change_kind = "own_writeback" if own_writeback else "no_meaningful_change"
             link.last_seen_at = now
             link.updated_at = now
+            review_routed = False
+            if manual_review_reason:
+                current_routing = get_current_routing(
+                    session, lead.id, connection.workspace_id
+                )
+                if current_routing is None or not current_routing.manual_review:
+                    reprocess_lead(
+                        session,
+                        lead,
+                        _contact_update_payload(canonical, lead, normalized_payload),
+                        icp,
+                        routing,
+                        provider=reasoning_provider,
+                        notification_provider=notification_provider,
+                        send_confirmation_email=False,
+                        preserve_inquiry=canonical.provider == "gohighlevel",
+                        manual_review_reason=manual_review_reason,
+                    )
+                    link.last_change_kind = "manual_review_policy"
+                    review_routed = True
             if canonical.provider == "gmail":
                 _store_gmail_thread_history(
                     session, connection, provider, lead,
@@ -800,7 +940,7 @@ def _process_record(
                     else None,
                 )
             session.commit()
-            return "unchanged"
+            return "updated" if review_routed else "unchanged"
         reprocess_lead(
             session,
             lead,
@@ -811,6 +951,7 @@ def _process_record(
             notification_provider=notification_provider,
             send_confirmation_email=send_confirmation_email,
             preserve_inquiry=canonical.provider == "gohighlevel",
+            manual_review_reason=manual_review_reason,
         )
         link = _record_link(session, connection, canonical)
         if link is None:
@@ -855,6 +996,7 @@ def _process_record(
             notification_provider=notification_provider,
             send_confirmation_email=send_confirmation_email,
             preserve_inquiry=canonical.provider == "gohighlevel",
+            manual_review_reason=manual_review_reason,
         )
         strategy = "exact_email"
         outcome = "updated"
@@ -907,6 +1049,7 @@ def _process_record(
             notification_provider=notification_provider,
             workspace_id=connection.workspace_id,
             send_confirmation_email=send_confirmation_email,
+            manual_review_reason=manual_review_reason,
         )
         lead = result.lead
         strategy = "new_provider_record" if not matches else "ambiguous_email_created_separate"
@@ -1024,6 +1167,168 @@ def _fail_run(
     return run
 
 
+def _new_inbound_sync_run(
+    connection: ProviderConnectionORM,
+    state: CrmInboundSyncStateORM,
+    *,
+    run_id: UUID,
+    mode: InboundSyncMode,
+    object_type: str,
+    actor_id: str,
+    correlation_id: str,
+    cursor: InboundCursor | None,
+    now: datetime,
+    status: str = "running",
+) -> CrmInboundSyncRunORM:
+    return CrmInboundSyncRunORM(
+        id=run_id,
+        workspace_id=connection.workspace_id,
+        connection_id=connection.id,
+        state_id=state.id,
+        provider=connection.provider_type,
+        object_type=object_type,
+        mode=mode,
+        status=status,
+        requested_by=actor_id[:255],
+        correlation_id=correlation_id[:255],
+        cursor_start=cursor,
+        cursor_current=cursor,
+        records_fetched=0,
+        records_created=0,
+        records_updated=0,
+        records_unchanged=0,
+        records_skipped=0,
+        records_failed=0,
+        started_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _finish_cancelled_run(
+    session: Session,
+    state: CrmInboundSyncStateORM,
+    run: CrmInboundSyncRunORM,
+    connection: ProviderConnectionORM,
+    *,
+    cursor: InboundCursor | None = None,
+) -> CrmInboundSyncRunORM:
+    now = datetime.now(UTC)
+    run.status = "cancelled"
+    run.error_category = None
+    run.error_code = None
+    run.last_error = "Cancelled by user."
+    run.cursor_current = cursor if cursor is not None else run.cursor_current
+    run.completed_at = now
+    run.updated_at = now
+    state.status = "ready" if state.enabled else "disabled"
+    state.lease_owner = None
+    state.lease_expires_at = None
+    if run.mode != "review_recent":
+        state.resume_cursor = run.cursor_current
+    state.error_category = None
+    state.error_code = None
+    state.last_error = None
+    state.updated_at = now
+    record_provider_lifecycle_audit(
+        session,
+        connection,
+        action=(
+            f"{run.provider}_{run.mode}_sync"
+            if run.provider in {"gmail", "outlook"}
+            else "inbound_sync"
+        ),
+        outcome="cancelled",
+        actor_id=run.requested_by,
+        correlation_id=run.correlation_id,
+        details={
+            "run_id": str(run.id),
+            "mode": run.mode,
+            "object_type": run.object_type,
+            "records_fetched": run.records_fetched,
+            "created": run.records_created,
+            "updated": run.records_updated,
+            "unchanged": run.records_unchanged,
+            "skipped": run.records_skipped,
+            "failed": run.records_failed,
+        },
+    )
+    session.commit()
+    return run
+
+
+def _cancelled_before_start(
+    session: Session,
+    connection: ProviderConnectionORM,
+    state: CrmInboundSyncStateORM,
+    *,
+    mode: InboundSyncMode,
+    object_type: str,
+    actor_id: str,
+) -> CrmInboundSyncRunORM:
+    active_run = session.scalar(
+        select(CrmInboundSyncRunORM)
+        .where(
+            CrmInboundSyncRunORM.state_id == state.id,
+            CrmInboundSyncRunORM.status.in_(("running", "cancel_requested")),
+        )
+        .order_by(CrmInboundSyncRunORM.started_at.desc())
+    )
+    if active_run is not None:
+        return _finish_cancelled_run(
+            session, state, active_run, connection, cursor=active_run.cursor_current
+        )
+
+    now = datetime.now(UTC)
+    request_id = current_request_id()
+    correlation_id = request_id if request_id != "-" else str(uuid4())
+    cursor = _start_cursor(state, mode)
+    run = _new_inbound_sync_run(
+        connection,
+        state,
+        run_id=uuid4(),
+        mode=mode,
+        object_type=object_type,
+        actor_id=actor_id,
+        correlation_id=correlation_id,
+        cursor=cursor,
+        now=now,
+        status="cancel_requested",
+    )
+    session.add(run)
+    session.flush()
+    return _finish_cancelled_run(session, state, run, connection, cursor=cursor)
+
+
+def finish_queued_inbound_sync_cancellation(
+    session: Session,
+    connection: ProviderConnectionORM,
+    state: CrmInboundSyncStateORM,
+    *,
+    mode: InboundSyncMode,
+    actor_id: str,
+) -> CrmInboundSyncRunORM:
+    """Record cancellation when a queued job is picked up before doing provider work."""
+
+    if _lease_is_active(state, datetime.now(UTC)):
+        raise ValueError("active sync has not acknowledged cancellation")
+    return _cancelled_before_start(
+        session,
+        connection,
+        state,
+        mode=mode,
+        object_type=state.object_type,
+        actor_id=actor_id,
+    )
+
+
+def _sync_cancellation_requested(session: Session, run_id: UUID) -> bool:
+    status = session.scalar(
+        select(CrmInboundSyncRunORM.status).where(CrmInboundSyncRunORM.id == run_id)
+    )
+    return status == "cancel_requested"
+
+
 def run_inbound_sync(
     session: Session,
     connection: ProviderConnectionORM,
@@ -1059,8 +1364,32 @@ def run_inbound_sync(
         state = _state(session, connection, object_type)
         if not state.enabled:
             raise ValueError("inbound synchronization is disabled")
+        now = datetime.now(UTC)
+        if state.status == "cancel_requested":
+            if _lease_is_active(state, now):
+                raise ValueError("an inbound synchronization run is already active")
+            return _cancelled_before_start(
+                session,
+                connection,
+                state,
+                mode=mode,
+                object_type=object_type,
+                actor_id=actor_id,
+            )
         run_id = uuid4()
-        if not _acquire_sync_lease(session, state, str(run_id), datetime.now(UTC)):
+        if not _acquire_sync_lease(session, state, str(run_id), now):
+            session.refresh(state)
+            if state.status == "cancel_requested" and not _lease_is_active(
+                state, datetime.now(UTC)
+            ):
+                return _cancelled_before_start(
+                    session,
+                    connection,
+                    state,
+                    mode=mode,
+                    object_type=object_type,
+                    actor_id=actor_id,
+                )
             raise ValueError("an inbound synchronization run is already active")
         session.refresh(state)
         active = session.scalar(
@@ -1083,28 +1412,16 @@ def run_inbound_sync(
         now = datetime.now(UTC)
         request_id = current_request_id()
         correlation_id = request_id if request_id != "-" else str(uuid4())
-        run = CrmInboundSyncRunORM(
-            id=run_id,
-            workspace_id=connection.workspace_id,
-            connection_id=connection.id,
-            state_id=state.id,
-            provider=connection.provider_type,
-            object_type=object_type,
+        run = _new_inbound_sync_run(
+            connection,
+            state,
+            run_id=run_id,
             mode=mode,
-            status="running",
-            requested_by=actor_id[:255],
-            correlation_id=correlation_id[:255],
-            cursor_start=cursor,
-            cursor_current=cursor,
-            records_fetched=0,
-            records_created=0,
-            records_updated=0,
-            records_unchanged=0,
-            records_skipped=0,
-            records_failed=0,
-            started_at=now,
-            created_at=now,
-            updated_at=now,
+            object_type=object_type,
+            actor_id=actor_id,
+            correlation_id=correlation_id,
+            cursor=cursor,
+            now=now,
         )
         state.error_category = None
         state.error_code = None
@@ -1128,8 +1445,16 @@ def run_inbound_sync(
 
         final_checkpoint = state.last_successful_cursor
         while run.records_fetched < bounded_limit:
+            if _sync_cancellation_requested(session, run.id):
+                return _finish_cancelled_run(
+                    session, state, run, connection, cursor=cursor
+                )
             if before_page is not None:
                 before_page(run)
+            if _sync_cancellation_requested(session, run.id):
+                return _finish_cancelled_run(
+                    session, state, run, connection, cursor=cursor
+                )
             remaining = bounded_limit - run.records_fetched
             request_size = min(bounded_page, remaining)
             page_start = cursor
@@ -1141,8 +1466,16 @@ def run_inbound_sync(
                 )
             except ProviderOperationError as error:
                 run.cursor_current = page_start
+                if _sync_cancellation_requested(session, run.id):
+                    return _finish_cancelled_run(
+                        session, state, run, connection, cursor=page_start
+                    )
                 return _fail_run(session, state, run, error, connection)
             except Exception as error:
+                if _sync_cancellation_requested(session, run.id):
+                    return _finish_cancelled_run(
+                        session, state, run, connection, cursor=page_start
+                    )
                 translated = ProviderOperationError(
                     "Inbound provider request failed",
                     provider=connection.provider_type,
@@ -1154,6 +1487,10 @@ def run_inbound_sync(
                 run.cursor_current = page_start
                 return _fail_run(session, state, run, translated, connection)
 
+            if _sync_cancellation_requested(session, run.id):
+                return _finish_cancelled_run(
+                    session, state, run, connection, cursor=page_start
+                )
             if not page.records:
                 cursor = page.next_cursor
                 if page.checkpoint:
@@ -1184,6 +1521,7 @@ def run_inbound_sync(
                     if callable(normalize_gmail_records)
                     else provider.normalize_record
                 )
+                normalization_cancelled = False
                 with ThreadPoolExecutor(max_workers=min(2, len(normalize_records) or 1)) as pool:
                     futures = {
                         pool.submit(
@@ -1192,6 +1530,11 @@ def run_inbound_sync(
                         for record in normalize_records
                     }
                     for future in as_completed(futures):
+                        if _sync_cancellation_requested(session, run.id):
+                            normalization_cancelled = True
+                            for pending in futures:
+                                pending.cancel()
+                            break
                         record = futures[future]
                         try:
                             result = future.result()
@@ -1200,8 +1543,16 @@ def run_inbound_sync(
                             )
                         except Exception as error:
                             normalized_gmail[record.record_id] = error
+                if normalization_cancelled:
+                    return _finish_cancelled_run(
+                        session, state, run, connection, cursor=page_start
+                    )
             page_provider_error: ProviderOperationError | None = None
             for record in page.records:
+                if _sync_cancellation_requested(session, run.id):
+                    return _finish_cancelled_run(
+                        session, state, run, connection, cursor=page_start
+                    )
                 try:
                     if (
                         mode == "review_recent"
@@ -1228,6 +1579,10 @@ def run_inbound_sync(
                     canonicals = canonical if isinstance(canonical, list) else [canonical]
                     candidate_outcomes: list[tuple[CanonicalInboundLead, str]] = []
                     for candidate_canonical in canonicals:
+                        if _sync_cancellation_requested(session, run.id):
+                            return _finish_cancelled_run(
+                                session, state, run, connection, cursor=page_start
+                            )
                         try:
                             candidate_outcome = _process_record(
                                 session,
@@ -1391,6 +1746,10 @@ def run_inbound_sync(
                         )
                 session.commit()
 
+            if _sync_cancellation_requested(session, run.id):
+                return _finish_cancelled_run(
+                    session, state, run, connection, cursor=page_start
+                )
             if page_provider_error is not None:
                 run.cursor_current = page_start
                 return _fail_run(session, state, run, page_provider_error, connection)
@@ -1426,6 +1785,10 @@ def run_inbound_sync(
                 cursor = None
                 break
 
+        if _sync_cancellation_requested(session, run.id):
+            return _finish_cancelled_run(
+                session, state, run, connection, cursor=cursor
+            )
         run = session.get(CrmInboundSyncRunORM, run.id) or run
         state = session.get(CrmInboundSyncStateORM, state.id) or state
         now = datetime.now(UTC)

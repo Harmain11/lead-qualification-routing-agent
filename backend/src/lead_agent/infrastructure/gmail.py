@@ -1150,6 +1150,135 @@ class GmailInboundProvider:
                 break
         return list(thread_ids)
 
+    def list_mailbox_messages(
+        self,
+        *,
+        folder: str,
+        query: str = "",
+        page_token: str | None = None,
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """List one bounded page of mailbox messages without downloading message bodies."""
+        folder_query = {
+            "inbox": "in:inbox",
+            "sent": "in:sent",
+            "all": "in:anywhere -in:spam -in:trash",
+        }.get(folder)
+        if folder_query is None:
+            raise ValueError("Unsupported Gmail mailbox folder")
+        safe_query = " ".join(query.replace("\r", " ").replace("\n", " ").split())[:200]
+        params: dict[str, object] = {
+            "q": f"{folder_query} {safe_query}".strip(),
+            "maxResults": min(max(limit, 1), 50),
+        }
+        if page_token:
+            params["pageToken"] = page_token[:1024]
+        listed = self.api.get("messages", **params)
+        summaries: list[dict[str, Any]] = []
+        listed_messages = listed.get("messages", [])
+        for item in listed_messages if isinstance(listed_messages, list) else []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            message_id = str(item["id"])
+            metadata = self.api.get(
+                f"messages/{message_id}",
+                format="metadata",
+                metadataHeaders=["From", "To", "Cc", "Subject", "Date"],
+                fields="id,threadId,labelIds,internalDate,snippet,payload(headers)",
+            )
+            payload = metadata.get("payload", {})
+            raw_headers = payload.get("headers", []) if isinstance(payload, dict) else []
+            headers = {
+                str(header.get("name", "")).lower(): str(header.get("value", ""))
+                for header in raw_headers
+                if isinstance(header, dict)
+            }
+            sender_name, sender = parseaddr(headers.get("from", ""))
+            recipients = [
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")])
+                if address
+            ]
+            try:
+                sent_at = datetime.fromtimestamp(
+                    int(metadata.get("internalDate", "0")) / 1000, tz=UTC
+                ).isoformat()
+            except (TypeError, ValueError, OSError):
+                sent_at = headers.get("date", "")
+            labels = metadata.get("labelIds", [])
+            summaries.append({
+                "message_id": message_id,
+                "thread_id": str(metadata.get("threadId") or item.get("threadId") or ""),
+                "sender": parseaddr(headers.get("from", ""))[1].strip().lower(),
+                "sender_name": sender_name[:255],
+                "recipients": ", ".join(recipients)[:1000],
+                "subject": headers.get("subject", "(no subject)")[:500],
+                "sent_at": sent_at,
+                "snippet": str(metadata.get("snippet") or "")[:500],
+                "direction": (
+                    "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
+                ),
+                "unread": isinstance(labels, list) and "UNREAD" in labels,
+            })
+        return {
+            "messages": summaries,
+            "next_page_token": str(listed["nextPageToken"])[:1024]
+            if listed.get("nextPageToken")
+            else None,
+        }
+
+    def fetch_mailbox_thread(self, thread_id: str) -> list[dict[str, str]]:
+        """Read a full thread from this mailbox, including messages to non-lead recipients."""
+        result = self.api.get(
+            f"threads/{thread_id}",
+            format="full",
+            fields="id,messages(id,threadId,internalDate,snippet,payload(mimeType,headers,body(data),parts(mimeType,filename,body(data),parts)))",
+        )
+        rows: list[dict[str, str]] = []
+        messages = result.get("messages", [])
+        for message in messages if isinstance(messages, list) else []:
+            if not isinstance(message, dict):
+                continue
+            payload = message.get("payload", {})
+            if not isinstance(payload, dict):
+                continue
+            headers = {
+                str(header.get("name", "")).lower(): str(header.get("value", ""))
+                for header in payload.get("headers", [])
+                if isinstance(header, dict)
+            }
+            sender_name, sender = parseaddr(headers.get("from", ""))
+            recipients = [
+                address.strip().lower()
+                for _name, address in getaddresses(
+                    [headers.get("to", ""), headers.get("cc", "")]
+                )
+                if address
+            ]
+            try:
+                sent_at = datetime.fromtimestamp(
+                    int(message.get("internalDate", "0")) / 1000, tz=UTC
+                ).isoformat()
+            except (TypeError, ValueError, OSError):
+                sent_at = headers.get("date", "")
+            body = parse_mime_body(payload)
+            rows.append({
+                "message_id": str(message.get("id") or ""),
+                "thread_id": str(message.get("threadId") or thread_id),
+                "sender": sender.strip().lower(),
+                "sender_name": sender_name[:255],
+                "recipients": ", ".join(recipients)[:1000],
+                "subject": headers.get("subject", "(no subject)")[:500],
+                "sent_at": sent_at,
+                "rfc_message_id": headers.get("message-id", ""),
+                "direction": (
+                    "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
+                ),
+                "body": (body or str(message.get("snippet") or ""))[:8000],
+            })
+        rows.sort(key=lambda item: item["sent_at"])
+        return rows
+
     def fetch_thread(self, thread_id: str, *, lead_email: str) -> list[dict[str, str]]:
         """Read messages between this mailbox and a lead from a known Gmail thread."""
         target = lead_email.strip().lower()
@@ -2249,6 +2378,23 @@ class GmailOutboundProvider:
         thread_id: str | None = None,
         in_reply_to: str | None = None,
     ) -> str | None:
+        return self.send_email_with_metadata(
+            recipient=recipient,
+            subject=subject,
+            body=body,
+            thread_id=thread_id,
+            in_reply_to=in_reply_to,
+        ).get("message_id")
+
+    def send_email_with_metadata(
+        self,
+        *,
+        recipient: str,
+        subject: str,
+        body: str,
+        thread_id: str | None = None,
+        in_reply_to: str | None = None,
+    ) -> dict[str, str | None]:
         message = EmailMessage()
         message["From"] = self.mailbox_email
         message["To"] = recipient
@@ -2263,4 +2409,8 @@ class GmailOutboundProvider:
             request["threadId"] = thread_id
         payload = self.api.post("messages/send", request)
         message_id = payload.get("id")
-        return str(message_id) if message_id else None
+        returned_thread_id = payload.get("threadId")
+        return {
+            "message_id": str(message_id) if message_id else None,
+            "thread_id": str(returned_thread_id) if returned_thread_id else None,
+        }

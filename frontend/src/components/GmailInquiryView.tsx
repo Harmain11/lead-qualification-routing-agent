@@ -1,4 +1,4 @@
-import { parseGmailInquiry, type GmailInquiryForward, type GmailInquiryMessage } from "../gmailInquiry";
+import { cleanGmailInquiryText, parseGmailInquiry, type GmailInquiryForward, type GmailInquiryMessage } from "../gmailInquiry";
 
 function formatDate(value: string) {
   if (!value) return "";
@@ -41,7 +41,7 @@ function ForwardedMessage({ message }: { message: GmailInquiryForward }) {
   </section>;
 }
 
-function EmailMessage({ message, index }: { message: GmailInquiryMessage; index: number }) {
+function EmailMessage({ message, index, label }: { message: GmailInquiryMessage; index: number; label?: string }) {
   const sender = senderDisplay(message.from);
   return <article className="gmail-inquiry-message">
     <header className="gmail-inquiry-message-header">
@@ -53,7 +53,7 @@ function EmailMessage({ message, index }: { message: GmailInquiryMessage; index:
         {sender.email && <small>{sender.email}</small>}
       </div>
       <div className="gmail-inquiry-message-meta">
-        <span>Message {index + 1}</span>
+         <span>{label || `Message ${index + 1}`}</span>
         {message.date && <time>{formatDate(message.date)}</time>}
       </div>
     </header>
@@ -66,8 +66,12 @@ function EmailMessage({ message, index }: { message: GmailInquiryMessage; index:
 
 export function GmailInquiryView({ message }: { message: string }) {
   const inquiry = parseGmailInquiry(message);
-  if (!inquiry) return <div className="original-inquiry-plain">{message}</div>;
+  if (!inquiry) {
+    const readableText = cleanGmailInquiryText(message);
+    return <div className="original-inquiry-plain">{readableText || "No readable message text was included."}</div>;
+  }
   const role = inquiry.role.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const [original, ...earlierMessages] = inquiry.messages;
 
   return <div className="gmail-inquiry-view">
     <div className="gmail-inquiry-context">
@@ -76,7 +80,13 @@ export function GmailInquiryView({ message }: { message: string }) {
       {inquiry.context && <p>{inquiry.context}</p>}
     </div>
     <div className="gmail-inquiry-messages">
-      {inquiry.messages.map((item, index) => <EmailMessage key={`${index}-${item.date}-${item.subject}`} message={item} index={index} />)}
+      {original && <EmailMessage message={original} index={0} label="Original inquiry" />}
+      {earlierMessages.length > 0 && <details className="gmail-inquiry-history">
+        <summary>View {earlierMessages.length} earlier {earlierMessages.length === 1 ? "email" : "emails"}</summary>
+        <div className="gmail-inquiry-history-messages">
+          {earlierMessages.map((item, index) => <EmailMessage key={`${index + 1}-${item.date}-${item.subject}`} message={item} index={index + 1} />)}
+        </div>
+      </details>}
     </div>
     <details className="gmail-inquiry-raw">
       <summary>View full original source</summary>

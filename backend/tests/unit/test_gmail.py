@@ -391,6 +391,95 @@ def test_gmail_outbound_provider_replies_inside_existing_thread() -> None:
     assert "References: <inbound-1@example.test>" in decoded
 
 
+def test_gmail_shared_inbox_lists_messages_and_reads_full_thread() -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/messages"):
+            return httpx.Response(
+                200,
+                json={
+                    "messages": [{"id": "message-1", "threadId": "thread-1"}],
+                    "nextPageToken": "next",
+                },
+            )
+        if request.url.path.endswith("/messages/message-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "message-1",
+                    "threadId": "thread-1",
+                    "labelIds": ["INBOX", "UNREAD"],
+                    "internalDate": "1792494000000",
+                    "snippet": "Could you send pricing?",
+                    "payload": {
+                        "headers": [
+                            {"name": "From", "value": "Pat Example <pat@example.test>"},
+                            {"name": "To", "value": "team@example.test"},
+                            {"name": "Subject", "value": "Pricing request"},
+                        ]
+                    },
+                },
+            )
+        if request.url.path.endswith("/threads/thread-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "messages": [{
+                        "id": "message-1",
+                        "threadId": "thread-1",
+                        "internalDate": "1792494000000",
+                        "payload": {
+                            "mimeType": "text/plain",
+                            "headers": [
+                                {"name": "From", "value": "Pat Example <pat@example.test>"},
+                                {"name": "To", "value": "team@example.test"},
+                                {"name": "Subject", "value": "Pricing request"},
+                                {"name": "Message-ID", "value": "<message-1@example.test>"},
+                            ],
+                            "body": {"data": _encoded("Could you send pricing?")},
+                        },
+                    }]
+                },
+            )
+        raise AssertionError(f"Unexpected Gmail request: {request.url}")
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "team@example.test", client=_client(handler)
+    )
+    page = provider.list_mailbox_messages(
+        folder="inbox", query="from:pat@example.test", page_token="previous", limit=75
+    )
+    assert page["next_page_token"] == "next"
+    assert page["messages"][0]["sender"] == "pat@example.test"
+    assert page["messages"][0]["unread"] is True
+    assert page["messages"][0]["subject"] == "Pricing request"
+    assert calls[0].url.params["q"] == "in:inbox from:pat@example.test"
+    assert calls[0].url.params["maxResults"] == "50"
+    assert calls[0].url.params["pageToken"] == "previous"
+
+    thread = provider.fetch_mailbox_thread("thread-1")
+    assert thread[0]["thread_id"] == "thread-1"
+    assert thread[0]["direction"] == "inbound"
+    assert thread[0]["body"] == "Could you send pricing?"
+    assert thread[0]["rfc_message_id"] == "<message-1@example.test>"
+
+
+def test_gmail_outbound_provider_returns_message_and_thread_ids() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "sent-1", "threadId": "thread-1"})
+
+    provider = GmailOutboundProvider(
+        uuid4(), "access", "team@example.test", client=_client(handler)
+    )
+    assert provider.send_email_with_metadata(
+        recipient="pat@example.test",
+        subject="Pricing",
+        body="Here is the information.",
+    ) == {"message_id": "sent-1", "thread_id": "thread-1"}
+
+
 def test_gmail_incremental_history_and_expired_history_reconciliation() -> None:
     calls: list[str] = []
 
@@ -563,7 +652,10 @@ def test_gmail_forwarded_lead_keeps_forwarded_contact_identity_and_provenance() 
 
 
 def test_gmail_ai_recovers_candidate_without_deterministic_inquiry_signal() -> None:
-    body = "We are looking for event support for Acme Group."
+    body = (
+        "We are looking for event support for Acme Group. "
+        "Call me at 1-202-555-0161."
+    )
     headers = {
         "from": "Mira Example <mira@client.example>",
         "subject": "Question",
@@ -576,11 +668,13 @@ def test_gmail_ai_recovers_candidate_without_deterministic_inquiry_signal() -> N
         full_name="Mira Example",
         email="mira@client.example",
         company_name="Acme Group",
+        phone="1-202-555-0161",
         requested_service="event support",
         evidence=[
             GmailEvidence(field="full_name", source="from_header", excerpt="Mira Example"),
             GmailEvidence(field="email", source="from_header", excerpt="mira@client.example"),
             GmailEvidence(field="company_name", source="body", excerpt="Acme Group"),
+            GmailEvidence(field="phone", source="body", excerpt="1-202-555-0161"),
             GmailEvidence(field="requested_service", source="body", excerpt="event support"),
         ],
     )
@@ -597,6 +691,7 @@ def test_gmail_ai_recovers_candidate_without_deterministic_inquiry_signal() -> N
     ))
     assert canonical.normalized_payload["full_name"] == "Mira Example"
     assert canonical.normalized_payload["company_name"] == "Acme Group"
+    assert canonical.normalized_payload["phone"] == "1-202-555-0161"
     assert canonical.normalized_payload["product_or_service"] == "event support"
     assert canonical.provider_metadata["gmail_ai_method"] == "openai"
 
@@ -2194,6 +2289,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         )
         lead = session.scalar(select(LeadORM))
         assert lead is not None and lead.source == "email" and lead.external_id == "m1"
+        assert lead.lead_number == 1
         first_decisions = session.scalar(
             select(func.count()).select_from(models.RoutingDecisionORM)
         )
@@ -2213,8 +2309,9 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         )
         assert first.records_created == 1
         assert second.records_updated == 1
+        assert lead.lead_number == 1
         assert confirmation_calls == []
-        assert delivery_correlations == [first.correlation_id, second.correlation_id]
+        assert delivery_correlations == [first.correlation_id]
         assert all(value != "-" for value in delivery_correlations)
         assert current_request_id() == "-"
         notification_audits = list(
@@ -2239,7 +2336,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         )
         assert repeated.records_unchanged == 1
         assert confirmation_calls == []
-        assert len(delivery_correlations) == 2
+        assert len(delivery_correlations) == 1
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
         forwarder_run = run(
             _CanonicalGmailProvider(
