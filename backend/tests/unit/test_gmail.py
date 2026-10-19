@@ -476,6 +476,35 @@ def test_gmail_transient_message_failure_is_not_skipped(status: int) -> None:
     assert "private provider body" not in str(caught.value)
 
 
+def test_gmail_retries_user_rate_limit_before_returning_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("lead_agent.infrastructure.gmail.time.sleep", lambda _delay: None)
+    attempts = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(
+                403,
+                headers={"Retry-After": "0"},
+                json={
+                    "error": {
+                        "errors": [{"reason": "userRateLimitExceeded"}],
+                        "message": "Rate Limit Exceeded",
+                    }
+                },
+            )
+        return httpx.Response(200, json={"messages": []})
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "inbox@example.test", client=_client(handler)
+    )
+    assert provider.api.get("messages") == {"messages": []}
+    assert attempts == 3
+
+
 def test_gmail_normalization_preserves_provider_and_message_thread_provenance() -> None:
     provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
     record = ExternalCrmRecord(

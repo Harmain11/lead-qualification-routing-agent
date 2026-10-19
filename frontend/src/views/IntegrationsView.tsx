@@ -643,7 +643,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       }
       if ("queued_at" in result) throw new Error("Gmail sync did not return a completed run.");
       const summary = mode === "review_recent"
-        ? `Review complete: ${result.records_fetched} scanned, ${result.records_created + result.records_updated} classified as leads, ${result.records_skipped} skipped, ${result.records_unchanged} duplicates, ${result.records_failed} failures.`
+        ? result.status === "failed" && result.records_fetched === 0
+          ? "Review failed before any messages were scanned."
+          : result.status === "failed"
+            ? `Review failed after scanning ${result.records_fetched} messages.`
+            : result.status === "completed_with_errors"
+              ? `Review completed with errors: ${result.records_fetched} scanned, ${result.records_created + result.records_updated} classified as leads, ${result.records_skipped} skipped, ${result.records_unchanged} duplicates, ${result.records_failed} failures.`
+              : `Review complete: ${result.records_fetched} scanned, ${result.records_created + result.records_updated} classified as leads, ${result.records_skipped} skipped, ${result.records_unchanged} duplicates, ${result.records_failed} failures.`
         : `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
       const finalMessage = result.last_error
         ? `${summary} Details: ${result.last_error}`
