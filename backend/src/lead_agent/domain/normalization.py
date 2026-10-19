@@ -32,7 +32,18 @@ def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
     company_name = _clean(payload.get("company_name") or payload.get("company"))
     message = _clean(payload.get("message") or payload.get("inquiry"))
     product = _clean(payload.get("product_or_service") or payload.get("product"))
-    if not full_name or not email or not company_name or not message or not product:
+    gmail_phone_only = (
+        _clean(payload.get("source_detail")) == "Gmail"
+        and not email
+        and bool(_clean(payload.get("phone")))
+    )
+    if (
+        not full_name
+        or (not email and not gmail_phone_only)
+        or not company_name
+        or not message
+        or not product
+    ):
         raise ValueError(
             "full_name, email, company_name, product_or_service, and message are required"
         )
@@ -58,7 +69,7 @@ def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
         source_detail=_clean(payload.get("source_detail")),
         external_id=_clean(payload.get("external_id")),
         full_name=full_name,
-        email=email.lower(),
+        email=(email or "").lower(),
         phone=_clean(payload.get("phone")),
         job_title=_clean(payload.get("job_title") or payload.get("title")),
         company_name=company_name,

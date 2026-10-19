@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import re
 import unicodedata
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from lead_agent.domain.crm_inbound import (
     InboundCrmPage,
     InboundCursor,
 )
-from lead_agent.domain.gmail import GmailLeadExtraction
+from lead_agent.domain.gmail import GmailLeadExtraction, GmailProspectCandidate
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.provider_errors import ProviderOperationError
 
@@ -506,6 +507,14 @@ def _evidence_message_id(
                 ):
                     return message_id
     return fallback_id
+
+
+def _context_message_id(context: str, excerpt: str, fallback_id: str) -> str:
+    position = context.find(excerpt)
+    if position < 0:
+        return fallback_id
+    markers = list(re.finditer(r"(?m)^--- Gmail message ([^ ]+) ---$", context[:position]))
+    return markers[-1].group(1) if markers else fallback_id
 
 
 def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) -> str | None:
@@ -1018,7 +1027,7 @@ class GmailInboundProvider:
             self.internal_domains,
             self.internal_emails,
         )
-        if not eligible_participants:
+        if not eligible_participants and self.lead_extractor is None:
             raise ValueError("no_external_thread_participant")
         eligible_by_email = {address: name for name, address in eligible_participants}
         forwarded = _forwarded_lead(body)
@@ -1146,7 +1155,7 @@ class GmailInboundProvider:
                     raise ValueError("ai_email_not_a_thread_candidate")
                 if candidate.email:
                     email = candidate.email.strip().lower()
-                elif selected_identity is None:
+                elif selected_identity is None and not candidate.candidates:
                     raise ValueError("external_thread_participant_ambiguous")
                 selected_identity = next(
                     (item for item in eligible_participants if item[1] == email),
@@ -1293,6 +1302,31 @@ class GmailInboundProvider:
             "gmail_candidate_identity_email": email,
             "gmail_selection_reason": selection_reason,
             "gmail_evidence": evidence_refs,
+                "subject": subject,
+            "gmail_source_message_ids": [
+                str(item.get("message_id"))
+                for item in participant_messages
+                if item.get("message_id")
+            ],
+            "gmail_eligible_participant_emails": list(eligible_by_email),
+            "gmail_prospect_candidates": (
+                [item.model_dump(mode="json") for item in extracted.candidates]
+                if extracted
+                else []
+            ),
+            "gmail_participant_roles": (
+                [
+                    {
+                        "name": item.full_name,
+                        "email": item.email,
+                        "role": item.role,
+                        "reason": item.reason,
+                    }
+                    for item in extracted.candidates
+                ]
+                if extracted
+                else []
+            ),
             "reply_to": parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
         }
         fingerprint = hashlib.sha256(
@@ -1323,6 +1357,170 @@ class GmailInboundProvider:
             },
             enrichment_fingerprint=None,
         )
+
+    def normalize_records(self, record: ExternalCrmRecord) -> list[CanonicalInboundLead]:
+        base = self.normalize_record(record)
+        payload = base.normalized_payload
+        candidates = payload.get("gmail_prospect_candidates")
+        if not isinstance(candidates, list) or not candidates:
+            return [base]
+        thread_id = str(payload.get("gmail_thread_id") or record.record_id)
+        thread_text = str(payload.get("message") or "")
+        eligible_emails = {
+            str(value).strip().lower()
+            for value in payload.get("gmail_eligible_participant_emails", [])
+        }
+        evidence_sources = {
+            "body": thread_text,
+            "subject": str(payload.get("subject") or ""),
+            "from_header": "\n".join(
+                line for line in thread_text.splitlines() if re.match(r"(?i)^\s*>*\s*From:", line)
+            ),
+            "reply_to": str(payload.get("reply_to") or ""),
+        }
+        normalized: list[CanonicalInboundLead] = []
+        review_notes: list[str] = []
+        for raw in candidates:
+            if (
+                not isinstance(raw, dict)
+                or not raw.get("is_genuine_inquiry")
+                or raw.get("role") not in {"direct_prospect", "referred_prospect"}
+            ):
+                continue
+            candidate = GmailProspectCandidate.model_validate(raw)
+            if candidate.confidence < 0.6:
+                review_notes.append(
+                    f"{candidate.full_name or 'Unknown person'} ({candidate.role}) "
+                    "requires manual review because identity confidence is low."
+                )
+                continue
+            if (
+                not candidate.inquiry_evidence
+                or not _evidence_is_from_source(thread_text, candidate.inquiry_evidence)
+            ):
+                continue
+            evidence = [
+                {
+                    **item.model_dump(mode="json"),
+                    "message_id": str(
+                        _context_message_id(
+                            thread_text,
+                            item.excerpt,
+                            str(base.provider_metadata.get("gmail_message_id") or record.record_id),
+                        )
+                    ),
+                    "thread_id": thread_id,
+                }
+                for item in candidate.evidence
+            ]
+            if any(
+                not _evidence_is_from_source(evidence_sources[item.source], item.excerpt)
+                for item in candidate.evidence
+            ):
+                continue
+            fields = {
+                "full_name": candidate.full_name,
+                "email": candidate.email,
+                "company_name": candidate.company_name,
+                "job_title": candidate.job_title,
+                "phone": candidate.phone,
+                "requested_service": candidate.requested_service,
+                "referred_by": candidate.referred_by,
+                "referral_context": candidate.referral_context,
+            }
+            if any(
+                value
+                and not any(
+                    item["field"] == field
+                    and _evidence_is_from_source(item["excerpt"], value)
+                    for item in evidence
+                )
+                for field, value in fields.items()
+            ):
+                continue
+            email = (candidate.email or "").strip().lower()
+            if email and email not in eligible_emails:
+                continue
+            name = (candidate.full_name or "").strip()
+            has_referral_support = bool(
+                candidate.referred_by or candidate.referral_context or candidate.company_name
+            )
+            if not name or (not email and (not candidate.phone or not has_referral_support)):
+                continue
+            identity = email or "|".join(
+                (
+                    name.casefold(),
+                    (candidate.phone or "").strip(),
+                    (candidate.company_name or "").casefold(),
+                )
+            )
+            candidate_key = hashlib.sha256(f"{thread_id}\0{identity}".encode()).hexdigest()[:24]
+            provider_record_id = f"{thread_id}:{candidate_key}"
+            role_label = candidate.role.replace("_", " ")
+            referral = f" Referred by {candidate.referred_by}." if candidate.referred_by else ""
+            context = (
+                f" Referral context: {candidate.referral_context}."
+                if candidate.referral_context
+                else ""
+            )
+            summary = f"Thread role: {role_label}.{referral}{context}"
+            candidate_payload = {
+                **payload,
+                "external_id": provider_record_id,
+                "full_name": name,
+                "email": email,
+                "phone": candidate.phone or "",
+                "company_name": candidate.company_name or "Unknown",
+                "job_title": candidate.job_title,
+                "product_or_service": candidate.requested_service or "Unknown",
+                "message": f"{summary}\n\nOriginal thread:\n{thread_text}",
+                "gmail_candidate_role": candidate.role,
+                "gmail_referred_by": candidate.referred_by or "",
+                "gmail_referral_context": candidate.referral_context or "",
+                "gmail_unknown_identity_fields": [
+                    field_name
+                    for field_name, value in {
+                        "email": email,
+                        "company_name": candidate.company_name,
+                        "job_title": candidate.job_title,
+                        "phone": candidate.phone,
+                    }.items()
+                    if not value
+                ],
+                "gmail_selection_reason": candidate.reason,
+                "gmail_evidence": evidence,
+                "gmail_prospect_candidates": [],
+                "gmail_participant_roles": payload.get("gmail_participant_roles", []),
+                "gmail_candidate_review_notes": review_notes,
+            }
+            fingerprint = hashlib.sha256(
+                (
+                    f"{provider_record_id}\0{thread_text}\0"
+                    f"{json.dumps(candidate_payload, sort_keys=True, default=str)}"
+                ).encode()
+            ).hexdigest()
+            metadata = {
+                **base.provider_metadata,
+                "gmail_candidate_role": candidate.role,
+                "gmail_referred_by": candidate.referred_by or "",
+                "gmail_selection_reason": candidate.reason[:500],
+                "gmail_candidate_identity_email": email,
+            }
+            normalized.append(
+                base.model_copy(
+                    update={
+                        "provider_record_id": provider_record_id,
+                        "normalized_payload": candidate_payload,
+                        "source_fingerprint": fingerprint,
+                        "provider_metadata": metadata,
+                    }
+                )
+            )
+        if not normalized:
+            if review_notes:
+                raise ValueError(f"candidate_identity_requires_manual_review:{review_notes[0]}")
+            raise ValueError("no_supported_prospect_candidates")
+        return normalized
 
 
 class GmailOutboundProvider:

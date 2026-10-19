@@ -26,7 +26,12 @@ from lead_agent.domain.crm_inbound import (
     InboundCursor,
     InboundSyncMode,
 )
-from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction
+from lead_agent.domain.gmail import (
+    GmailEvidence,
+    GmailLeadExtraction,
+    GmailProspectCandidate,
+)
+from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationDelivery, NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -1047,6 +1052,182 @@ def test_gmail_ai_can_select_one_of_multiple_external_thread_participants() -> N
     assert canonical.normalized_payload["email"] == "les@leslehman.com"
 
 
+def test_gmail_referral_thread_creates_company_and_phone_only_referral_candidates() -> None:
+    body = (
+        "Maya Jones at Swift Water Law wants to discuss a collaboration.\n"
+        "Rick Kosakowski replied: Please contact Mr. Patel at 1-202-324-3000. "
+        "For the second matter, contact Ms. Singh at 1-202-555-0148."
+    )
+    inquiry = "wants to discuss a collaboration"
+    extraction = GmailLeadExtraction(
+        is_genuine_inquiry=True,
+        reason="The thread contains a company inquiry and two explicit referrals.",
+        inquiry_evidence=inquiry,
+        candidates=[
+            GmailProspectCandidate(
+                role="direct_prospect",
+                is_genuine_inquiry=True,
+                confidence=0.96,
+                reason="Maya requested a collaboration for Swift Water Law.",
+                inquiry_evidence=inquiry,
+                full_name="Maya Jones",
+                email="maya@swiftwaterlaw.com",
+                company_name="Swift Water Law",
+                evidence=[
+                    GmailEvidence(field="full_name", source="body", excerpt="Maya Jones"),
+                    GmailEvidence(
+                        field="email",
+                        source="from_header",
+                        excerpt="maya@swiftwaterlaw.com",
+                    ),
+                    GmailEvidence(field="company_name", source="body", excerpt="Swift Water Law"),
+                ],
+            ),
+            GmailProspectCandidate(
+                role="referred_prospect",
+                is_genuine_inquiry=True,
+                confidence=0.93,
+                reason="Rick explicitly referred the team to Mr. Patel.",
+                inquiry_evidence="Please contact Mr. Patel at 1-202-324-3000",
+                full_name="Mr. Patel",
+                phone="1-202-324-3000",
+                referred_by="Rick Kosakowski",
+                referral_context="Swift Water Law wants to discuss a collaboration",
+                evidence=[
+                    GmailEvidence(field="full_name", source="body", excerpt="Mr. Patel"),
+                    GmailEvidence(field="phone", source="body", excerpt="1-202-324-3000"),
+                    GmailEvidence(
+                        field="referred_by",
+                        source="body",
+                        excerpt="Rick Kosakowski",
+                    ),
+                    GmailEvidence(
+                        field="referral_context",
+                        source="body",
+                        excerpt="Swift Water Law wants to discuss a collaboration",
+                    ),
+                ],
+            ),
+            GmailProspectCandidate(
+                role="referred_prospect",
+                is_genuine_inquiry=True,
+                confidence=0.91,
+                reason="Rick explicitly referred the team to Ms. Singh.",
+                inquiry_evidence="contact Ms. Singh at 1-202-555-0148",
+                full_name="Ms. Singh",
+                phone="1-202-555-0148",
+                referred_by="Rick Kosakowski",
+                evidence=[
+                    GmailEvidence(field="full_name", source="body", excerpt="Ms. Singh"),
+                    GmailEvidence(field="phone", source="body", excerpt="1-202-555-0148"),
+                    GmailEvidence(
+                        field="referred_by",
+                        source="body",
+                        excerpt="Rick Kosakowski",
+                    ),
+                ],
+            ),
+            GmailProspectCandidate(
+                role="external_referrer",
+                is_genuine_inquiry=True,
+                confidence=0.99,
+                reason="Rick is the connector, not a referred prospect.",
+                inquiry_evidence="Please contact Mr. Patel",
+                full_name="Rick Kosakowski",
+            ),
+            GmailProspectCandidate(
+                role="referred_prospect",
+                is_genuine_inquiry=True,
+                confidence=0.35,
+                reason="The thread may mention another referred person.",
+                inquiry_evidence="contact Ms. Singh",
+                full_name="Unclear prospect",
+            ),
+        ],
+    )
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "sales@ingenuitysys.com",
+        internal_domains={"ingenuitysys.com"},
+        lead_extractor=lambda **_kwargs: extraction,
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="rick-reply",
+        values={
+            "thread_id": "rick-referral-thread",
+            "headers": {
+                "from": "Rick Kosakowski <rick@swiftwaterlaw.com>",
+                "subject": "Re: Swift Water Law collaboration",
+            },
+            "body": body,
+            "thread_context": (
+                "From: Maya Jones <maya@swiftwaterlaw.com>\n\n"
+                f"{body}\n\n"
+                "From: Rick Kosakowski <rick@swiftwaterlaw.com>"
+            ),
+            "thread_messages": [
+                {
+                    "message_id": "maya-message",
+                    "headers": {"from": "Maya Jones <maya@swiftwaterlaw.com>"},
+                    "body": body,
+                },
+                {
+                    "message_id": "rick-reply",
+                    "headers": {"from": "Rick Kosakowski <rick@swiftwaterlaw.com>"},
+                    "body": body,
+                },
+            ],
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+    candidates = provider.normalize_records(record)
+    repeated = provider.normalize_records(record)
+    assert [item.normalized_payload["full_name"] for item in candidates] == [
+        "Maya Jones",
+        "Mr. Patel",
+        "Ms. Singh",
+    ]
+    assert [item.normalized_payload["email"] for item in candidates] == [
+        "maya@swiftwaterlaw.com",
+        "",
+        "",
+    ]
+    assert candidates[1].normalized_payload["phone"] == "1-202-324-3000"
+    assert candidates[1].normalized_payload["gmail_referred_by"] == "Rick Kosakowski"
+    assert candidates[1].normalized_payload["gmail_referral_context"] == (
+        "Swift Water Law wants to discuss a collaboration"
+    )
+    assert candidates[1].normalized_payload["gmail_candidate_role"] == "referred_prospect"
+    phone_only_lead = normalize_lead(candidates[1].normalized_payload, uuid4())
+    assert phone_only_lead.email == ""
+    assert phone_only_lead.phone == "1-202-324-3000"
+    assert "email" in candidates[1].normalized_payload["gmail_unknown_identity_fields"]
+    assert candidates[0].normalized_payload["company_name"] == "Swift Water Law"
+    assert candidates[1].normalized_payload["gmail_source_message_ids"] == [
+        "maya-message",
+        "rick-reply",
+    ]
+    assert any(
+        participant["role"] == "external_referrer"
+        for participant in candidates[1].normalized_payload["gmail_participant_roles"]
+    )
+    assert "requires manual review" in candidates[0].normalized_payload[
+        "gmail_candidate_review_notes"
+    ][0]
+    assert len({item.provider_record_id for item in candidates}) == 3
+    assert [item.provider_record_id for item in candidates] == [
+        item.provider_record_id for item in repeated
+    ]
+    assert all(
+        item.normalized_payload["gmail_message_id"] == "rick-reply"
+        and item.normalized_payload["gmail_thread_id"] == "rick-referral-thread"
+        for item in candidates
+    )
+
+
 def test_gmail_forwarded_identity_is_stable_across_repeated_normalization() -> None:
     provider = GmailInboundProvider(uuid4(), "access", "inbox@example.test")
     record = ExternalCrmRecord(
@@ -1341,7 +1522,7 @@ def test_gmail_message_ids_deduplicate_and_new_thread_message_updates_same_conta
         assert linked_run.records_updated == 1
         assert repeated_forward.records_unchanged == 1
         assert "Mira Prospect" in (forwarded_run.last_error or "")
-        assert "linked to an existing lead" in (linked_run.last_error or "")
+        assert "updated." in (linked_run.last_error or "")
         assert rep_lead is not None and prospect_lead is not None
         assert rep_lead.id != prospect_lead.id
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 3

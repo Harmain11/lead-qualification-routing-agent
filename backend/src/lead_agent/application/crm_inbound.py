@@ -412,6 +412,9 @@ def _safe_provider_metadata(canonical: CanonicalInboundLead) -> dict[str, object
         "gmail_thread_decision",
         "gmail_candidate_identity_email",
         "gmail_selection_reason",
+        "gmail_candidate_role",
+        "gmail_referred_by",
+        "gmail_referral_context",
         "location_id",
         "dnd",
         "dnd_call",
@@ -430,7 +433,7 @@ def _append_gmail_review_detail(run: CrmInboundSyncRunORM, detail: str) -> None:
     prior, separator, details = current.partition(marker)
     entries = [item.strip() for item in details.split(" | ") if item.strip()] if separator else []
     entries.append(detail[:240])
-    entries = entries[-3:]
+    entries = entries[-12:]
     run.last_error = " ".join(part for part in (prior.strip(), marker, " | ".join(entries)) if part)
 
 
@@ -751,7 +754,9 @@ def _process_record(
                 "source_fingerprint": canonical.source_fingerprint,
                 **(
                     {
-                        "gmail_message_id": canonical.provider_record_id,
+                        "gmail_message_id": canonical.provider_metadata.get(
+                            "gmail_message_id", canonical.provider_record_id
+                        ),
                         "gmail_thread_id": canonical.provider_metadata.get("gmail_thread_id"),
                         "gmail_mailbox": canonical.provider_metadata.get("gmail_mailbox"),
                     }
@@ -811,7 +816,9 @@ def _process_record(
             actor_id=actor_id,
             correlation_id=correlation_id,
             details={
-                "message_id": canonical.provider_record_id,
+                "message_id": canonical.provider_metadata.get(
+                    "gmail_message_id", canonical.provider_record_id
+                ),
                 "thread_id": canonical.provider_metadata.get("gmail_thread_id"),
                 "lead_id": str(lead.id),
                 "thread_decision": canonical.provider_metadata.get(
@@ -1026,37 +1033,52 @@ def run_inbound_sync(
                 break
             run.records_fetched += len(page.records)
             session.commit()
-            normalized_gmail: dict[str, CanonicalInboundLead | Exception] = {}
+            normalized_gmail: dict[str, list[CanonicalInboundLead] | Exception] = {}
             if connection.provider_type == "gmail":
                 normalize_records = page.records
-                if mode == "review_recent":
+                normalize_gmail_records = getattr(provider, "normalize_records", None)
+                if mode == "review_recent" and not callable(normalize_gmail_records):
                     normalize_records = [
-                        record for record in page.records
+                        item
+                        for item in page.records
                         if session.scalar(
                             select(CrmProviderRecordLinkORM.id).where(
                                 CrmProviderRecordLinkORM.connection_id == connection.id,
                                 CrmProviderRecordLinkORM.provider == "gmail",
                                 CrmProviderRecordLinkORM.object_type == object_type,
-                                CrmProviderRecordLinkORM.provider_record_id == record.record_id,
+                                CrmProviderRecordLinkORM.provider_record_id == item.record_id,
                             )
-                        ) is None
+                        )
+                        is None
                     ]
+                normalize = (
+                    normalize_gmail_records
+                    if callable(normalize_gmail_records)
+                    else provider.normalize_record
+                )
                 with ThreadPoolExecutor(max_workers=min(4, len(normalize_records) or 1)) as pool:
                     futures = {
                         pool.submit(
-                            copy_context().run, provider.normalize_record, record
+                            copy_context().run, normalize, record
                         ): record
                         for record in normalize_records
                     }
                     for future in as_completed(futures):
                         record = futures[future]
                         try:
-                            normalized_gmail[record.record_id] = future.result()
+                            result = future.result()
+                            normalized_gmail[record.record_id] = (
+                                result if isinstance(result, list) else [result]
+                            )
                         except Exception as error:
                             normalized_gmail[record.record_id] = error
             for record in page.records:
                 try:
-                    if mode == "review_recent" and connection.provider_type == "gmail":
+                    if (
+                        mode == "review_recent"
+                        and connection.provider_type == "gmail"
+                        and not callable(getattr(provider, "normalize_records", None))
+                    ):
                         existing_link = session.scalar(
                             select(CrmProviderRecordLinkORM.id).where(
                                 CrmProviderRecordLinkORM.connection_id == connection.id,
@@ -1073,20 +1095,44 @@ def run_inbound_sync(
                     if isinstance(canonical, Exception):
                         raise canonical
                     if canonical is None:
-                        canonical = provider.normalize_record(record)
-                    outcome = _process_record(
-                        session,
-                        connection,
-                        provider,
-                        canonical,
-                        icp,
-                        routing,
-                        reasoning_provider,
-                        notification_provider,
-                        actor_id=actor_id,
-                        correlation_id=run.correlation_id,
-                        send_confirmation_email=send_confirmation_email,
-                    )
+                        canonical = [provider.normalize_record(record)]
+                    canonicals = canonical if isinstance(canonical, list) else [canonical]
+                    candidate_outcomes: list[tuple[CanonicalInboundLead, str]] = []
+                    for candidate_canonical in canonicals:
+                        try:
+                            candidate_outcome = _process_record(
+                                session,
+                                connection,
+                                provider,
+                                candidate_canonical,
+                                icp,
+                                routing,
+                                reasoning_provider,
+                                notification_provider,
+                                actor_id=actor_id,
+                                correlation_id=run.correlation_id,
+                                send_confirmation_email=send_confirmation_email,
+                            )
+                            candidate_outcomes.append((candidate_canonical, candidate_outcome))
+                        except ValueError as candidate_error:
+                            if connection.provider_type != "gmail":
+                                raise
+                            run.records_skipped += 1
+                            thread_label = str(
+                                candidate_canonical.provider_metadata.get("gmail_thread_id")
+                                or "unknown"
+                            )
+                            _append_gmail_review_detail(
+                                run,
+                                (
+                                    f"Thread {thread_label}: "
+                                    f"{candidate_canonical.normalized_payload.get('full_name')}: "
+                                    f"needs review: {str(candidate_error)[:100]}."
+                                ),
+                            )
+                    if not candidate_outcomes:
+                        session.commit()
+                        continue
                 except ProviderOperationError as error:
                     run = session.get(CrmInboundSyncRunORM, run.id) or run
                     run.records_failed += 1
@@ -1156,48 +1202,54 @@ def run_inbound_sync(
                     session.commit()
                     continue
                 run = session.get(CrmInboundSyncRunORM, run.id) or run
-                if outcome == "created":
-                    run.records_created += 1
-                elif outcome == "updated":
-                    run.records_updated += 1
-                elif outcome == "unchanged":
-                    run.records_unchanged += 1
-                else:
-                    run.records_skipped += 1
-                if connection.provider_type == "gmail":
-                    identity = str(
-                        canonical.normalized_payload.get("full_name")
-                        or canonical.normalized_payload.get("email")
-                        or "external participant"
-                    )
-                    email = str(canonical.normalized_payload.get("email") or "")
-                    decision = str(
-                        canonical.provider_metadata.get("gmail_thread_decision", "sender_lead")
-                    )
-                    outcome_text = (
-                        "created as a separate forwarded lead"
-                        if outcome == "created" and decision == "separate_forwarded_lead"
-                        else "linked to an existing lead"
-                        if outcome in {"updated", "unchanged"}
-                        else "created as the direct external lead"
-                    )
-                    why = (
-                        str(
-                            canonical.normalized_payload.get("gmail_selection_reason")
-                            or "selected from forwarded or quoted From evidence"
+                for candidate_index, (candidate_canonical, outcome) in enumerate(
+                    candidate_outcomes
+                ):
+                    if outcome == "created":
+                        run.records_created += 1
+                    elif outcome == "updated":
+                        run.records_updated += 1
+                    elif outcome == "unchanged":
+                        run.records_unchanged += 1
+                    else:
+                        run.records_skipped += 1
+                    if connection.provider_type == "gmail":
+                        identity = str(
+                            candidate_canonical.normalized_payload.get("full_name")
+                            or "Unknown person"
                         )
-                        if decision == "separate_forwarded_lead"
-                        else "selected from the external sender identity"
-                    )
-                    why = why[:140]
-                    _append_gmail_review_detail(
-                        run,
-                        (
-                            "Thread "
-                            f"{canonical.provider_metadata.get('gmail_thread_id') or 'unknown'}: "
-                            f"selected {identity} <{email}>; {why}; {outcome_text}."
-                        ),
-                    )
+                        email = str(candidate_canonical.normalized_payload.get("email") or "")
+                        role = str(
+                            candidate_canonical.provider_metadata.get("gmail_candidate_role")
+                            or "prospect"
+                        ).replace("_", " ")
+                        referrer = str(
+                            candidate_canonical.provider_metadata.get("gmail_referred_by") or ""
+                        )
+                        referral_context = str(
+                            candidate_canonical.provider_metadata.get("gmail_referral_context")
+                            or ""
+                        )
+                        if candidate_index == 0:
+                            for note in candidate_canonical.normalized_payload.get(
+                                "gmail_candidate_review_notes", []
+                            ):
+                                _append_gmail_review_detail(run, str(note))
+                        why = str(
+                            candidate_canonical.normalized_payload.get("gmail_selection_reason")
+                            or "supported by thread evidence"
+                        )[:120]
+                        _append_gmail_review_detail(
+                            run,
+                            (
+                                "Thread "
+                                f"{candidate_canonical.provider_metadata.get('gmail_thread_id')}: "
+                                f"selected {identity} <{email or 'email unknown'}> as {role}"
+                                f"{f' referred by {referrer}' if referrer else ''}; "
+                                f"{f'context: {referral_context}; ' if referral_context else ''}"
+                                f"{why}; {outcome}."
+                            ),
+                        )
                 session.commit()
 
             final_checkpoint = page.checkpoint or final_checkpoint
