@@ -4,7 +4,7 @@
 - [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
 - [Integration card presentation](integration-card-presentation.md) — Non-AI cards expand independently; AI providers share one selector card with separate underlying state.
 - [Email lead relevance](email-lead-relevance.md) — exclude unrelated mail before lead creation; existing sales-thread replies remain interactions.
-- [Integration account policy](integration-account-policy.md) — one active account per provider; reconnection must preserve historical data.
+- [Integration account policy](integration-account-policy.md) — Gmail supports multiple active mailboxes; other providers remain single-account, with history preserved on reconnect.
 - [OAuth account choice](oauth-account-choice.md) — explicit Calendly/Salesforce choices; Slack uses its own workspace picker and must not preselect a team.
 - [Slack channel visibility](slack-channel-visibility.md) — user's Slack has channels; list public channels before the app is invited, and don't show inactive workspaces as connected.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
@@ -19,5 +19,7 @@
 - [Reasoning backfill progress](reasoning-backfill-progress.md) — provider lifecycle audit events persist backfill status and per-configuration completion receipts.
 - [CloudTalk API boundaries](cloudtalk-api-boundaries.md) — use CloudTalk's core and Conversation Intelligence hosts separately; outbound creates lack provider call IDs.
 - [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
-- [Slack notification safety](slack-notification-safety.md) — DMs require explicit per-recipient opt-in; channel fallback is explicit, and tokens stay in the secure form.
-- [Gmail AI lead sync](gmail-ai-sync.md) — Use high-recall AI lead detection; preserve auditable per-message failures and continue the batch.
+- [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
+- [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
+- [New lead indicators](lead-new-indicators.md) — Keep sequential IDs hidden; show per-lead and tab dots until each unseen lead is opened.
+- [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.

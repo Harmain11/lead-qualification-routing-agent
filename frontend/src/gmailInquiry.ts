@@ -16,26 +16,47 @@ export type ParsedGmailInquiry = {
   messages: GmailInquiryMessage[];
 };
 
+const GMAIL_HEADER_NAMES = [
+  "From", "To", "Cc", "Bcc", "Date", "Subject", "Reply-To", "References",
+  "In-Reply-To", "Message-ID", "MIME-Version", "Content-Type",
+  "Content-Transfer-Encoding",
+].join("|");
+
+function normalizeHeaderBoundaries(source: string) {
+  return source
+    .replace(/\r\n?/g, "\n")
+    .replace(new RegExp(`[\\t ]+(?=(?:${GMAIL_HEADER_NAMES}):\\s)`, "gi"), "\n");
+}
+
 function parseHeadersAndBody(source: string) {
-  const separator = source.search(/\n\s*\n/);
-  const headerText = separator < 0 ? "" : source.slice(0, separator);
-  const body = separator < 0 ? source.trim() : source.slice(separator).replace(/^\n\s*/, "").trim();
+  const normalized = normalizeHeaderBoundaries(source);
+  const separator = normalized.search(/\n\s*\n/);
+  const headerText = separator < 0 ? normalized : normalized.slice(0, separator);
+  let body = separator < 0 ? "" : normalized.slice(separator).replace(/^\n\s*/, "").trim();
   const headers: Record<string, string> = {};
   let currentHeader = "";
-  for (const line of headerText.split(/\r?\n/)) {
+  const lines = headerText.split(/\n/);
+  let firstBodyLine = -1;
+  for (const [index, line] of lines.entries()) {
     const match = line.match(/^([A-Za-z-]+):\s*(.*)$/);
     if (match) {
       currentHeader = match[1].toLowerCase();
       headers[currentHeader] = match[2].trim();
     } else if (currentHeader && /^\s/.test(line)) {
       headers[currentHeader] += ` ${line.trim()}`;
+    } else if (line.trim()) {
+      firstBodyLine = index;
+      break;
     }
+  }
+  if (separator < 0 && firstBodyLine >= 0) {
+    body = lines.slice(firstBodyLine).join("\n").trim();
   }
   return { headers, body };
 }
 
 function parseForwardedMessage(body: string) {
-  const marker = /(?:^|\n)-{5,}\s*Forwarded message\s*-{5,}\s*(?:\n|$)/i.exec(body);
+  const marker = /-{5,}\s*Forwarded message\s*-{5,}\s*/i.exec(body);
   if (!marker) return { body: body.trim(), forwarded: null };
   const before = body.slice(0, marker.index).trim();
   const forwardedSource = body.slice(marker.index + marker[0].length);
@@ -56,7 +77,9 @@ function parseForwardedMessage(body: string) {
 }
 
 export function parseGmailInquiry(message: string): ParsedGmailInquiry | null {
-  const source = message.replace(/\r\n/g, "\n");
+  const source = message
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]*--- Gmail message ([^ ]+) ---[ \t]*/g, "\n--- Gmail message $1 ---\n");
   const markers = Array.from(source.matchAll(/^--- Gmail message ([^ ]+) ---$/gm));
   if (!markers.length) return null;
 
@@ -87,4 +110,20 @@ export function parseGmailInquiry(message: string): ParsedGmailInquiry | null {
     context,
     messages,
   };
+}
+
+export function cleanGmailInquiryText(message: string): string {
+  const headerLine = new RegExp(`^\\s*(?:${GMAIL_HEADER_NAMES}):\\s*.*$`, "i");
+  return message
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((line) =>
+      !headerLine.test(line)
+      && !/^\s*--- Gmail message [^ ]+ ---\s*$/i.test(line)
+      && !/^\s*Thread role:\s*/i.test(line)
+      && !/^\s*Original thread:\s*/i.test(line),
+    )
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

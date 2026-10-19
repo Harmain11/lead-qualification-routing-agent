@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, joinedload
 
 from lead_agent.domain.analysis import LeadContextAnalysis
@@ -114,9 +114,19 @@ def create_lead_with_result(
         )
         session.add(source_event)
 
+    lead_number = session.scalar(
+        update(WorkspaceORM)
+        .where(WorkspaceORM.id == workspace_id)
+        .values(last_lead_number=WorkspaceORM.last_lead_number + 1)
+        .returning(WorkspaceORM.last_lead_number)
+    )
+    if lead_number is None:
+        raise RuntimeError("workspace disappeared while allocating a lead number")
+
     row = LeadORM(
         id=lead.id,
         workspace_id=workspace_id,
+        lead_number=lead_number,
         source_event_id=source_event.id if source_event else None,
         source=lead.source,
         source_detail=lead.source_detail,

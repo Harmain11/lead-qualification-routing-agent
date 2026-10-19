@@ -13,6 +13,8 @@ from sqlalchemy import select
 
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
+    finish_queued_inbound_sync_cancellation,
+    inbound_sync_lease_is_active,
     run_inbound_sync,
 )
 from lead_agent.application.services import reprocess_lead
@@ -150,6 +152,20 @@ def run_scheduled_crm_inbound_sync(
         state = session.get(CrmInboundSyncStateORM, UUID(state_id))
         if state is None:
             return "skipped"
+        connection = session.get(ProviderConnectionORM, state.connection_id)
+        if state.status == "cancel_requested" and connection is not None:
+            if inbound_sync_lease_is_active(state):
+                return "cancellation_requested"
+            finish_queued_inbound_sync_cancellation(
+                session,
+                connection,
+                state,
+                mode=requested_mode or (
+                    "incremental" if state.initial_import_completed else "initial"
+                ),
+                actor_id=requested_actor_id or "system:crm-inbound-scheduler",
+            )
+            return "cancelled"
         if not state.enabled:
             if state.status == "queued":
                 state.status = "failed"
@@ -159,7 +175,6 @@ def run_scheduled_crm_inbound_sync(
                 state.updated_at = datetime.now(UTC)
                 session.commit()
             return "skipped"
-        connection = session.get(ProviderConnectionORM, state.connection_id)
         if (
             connection is None
             or connection.workspace_id != state.workspace_id
@@ -213,7 +228,11 @@ def run_scheduled_crm_inbound_sync(
             notification_provider=get_notification_provider(),
             send_confirmation_email=requested_send_confirmation_email,
         )
-        if connection.provider_type == "gmail" and state.object_type == "message":
+        if (
+            run.status != "cancelled"
+            and connection.provider_type == "gmail"
+            and state.object_type == "message"
+        ):
             try:
                 from lead_agent.application.meeting_email import (
                     process_recent_gmail_imports,

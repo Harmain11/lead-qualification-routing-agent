@@ -493,6 +493,53 @@ def notify_routing_decision(
                     return existing
             except ValueError:
                 pass
+
+    if active_provider.provider_name == "slack":
+        # Serialize Slack notifications per lead. A committed pending record
+        # also blocks a second route from posting while the first request is in flight.
+        session.execute(
+            select(LeadORM.id).where(LeadORM.id == lead.id).with_for_update()
+        )
+        prior_notification = session.scalar(
+            select(NotificationORM)
+            .join(
+                RoutingDecisionORM,
+                NotificationORM.routing_decision_id == RoutingDecisionORM.id,
+            )
+            .where(
+                RoutingDecisionORM.workspace_id == lead.workspace_id,
+                RoutingDecisionORM.lead_id == lead.id,
+                RoutingDecisionORM.id != decision.id,
+                NotificationORM.provider == "slack",
+                NotificationORM.status.in_(("pending", "retryable", "sent")),
+            )
+            .order_by(NotificationORM.created_at.asc())
+        )
+        if prior_notification is not None:
+            existing.status = "suppressed"
+            existing.attempts = 0
+            existing.error_message = (
+                "A Slack notification for this lead is already sent or pending."
+            )
+            existing.payload = {
+                "suppressed_reason": "lead_already_notified_or_pending",
+                "prior_notification_id": str(prior_notification.id),
+            }
+            existing.updated_at = now
+            decision.notification_state = "suppressed"
+            record_pipeline_event(
+                session,
+                lead.id,
+                "notified",
+                "suppressed",
+                {
+                    "provider": "slack",
+                    "notification_id": str(existing.id),
+                    "reason": "lead_already_notified_or_pending",
+                },
+            )
+            session.commit()
+            return existing
     if existing is not None and existing.status != "sent" and existing.attempts >= 5:
         existing.status = "failed"
         existing.error_message = (
@@ -621,6 +668,7 @@ def route_and_notify(
     force: bool = False,
     reroute_reason: str | None = None,
     send_notification: bool = True,
+    manual_review_reason: str | None = None,
 ) -> RoutingDecisionORM:
     qualification = _qualification(lead)
     analysis = _analysis(lead)
@@ -644,11 +692,15 @@ def route_and_notify(
         queue = routing.manual_review_queue
         priority: RoutePriority = "urgent"
         action_key = "manual_review"
-        reason = (
+        reason = manual_review_reason or (
             "Manual-review precedence: analysis uncertainty or provider failure "
             "requires human review."
         )
-        matched_rules = ["manual_review_precedence"]
+        matched_rules = (
+            ["gmail_personal_email_review"]
+            if manual_review_reason
+            else ["manual_review_precedence"]
+        )
     elif qualification.hard_disqualified or band == "disqualify":
         selected_rule = None
         band_config = next(item for item in routing.score_bands if item.key == "disqualify")

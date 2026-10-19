@@ -31,6 +31,9 @@ class WorkspaceORM(Base):
     slug: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     is_demo: Mapped[bool] = mapped_column(nullable=False, default=False)
+    last_lead_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -658,6 +661,9 @@ class SocialMessageORM(Base):
 class LeadORM(Base):
     __tablename__ = "leads"
     __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "lead_number", name="uq_leads_workspace_number"
+        ),
         Index(
             "uq_leads_source_event",
             "source_event_id",
@@ -677,6 +683,7 @@ class LeadORM(Base):
         nullable=False,
         default=lambda: DEFAULT_WORKSPACE_ID,
     )
+    lead_number: Mapped[int] = mapped_column(Integer, nullable=False)
     source_event_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("source_events.id"), nullable=True
     )

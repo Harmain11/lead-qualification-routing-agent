@@ -18,21 +18,25 @@ from lead_agent.api.main import app
 from lead_agent.application.crm import sync_lead_to_crm
 from lead_agent.application.crm_inbound import (
     _contact_update_payload,
+    _gmail_manual_review_reason,
     _hubspot_own_writeback_matches,
     _process_record,
     configure_inbound_sync,
     get_inbound_sync_state,
+    request_inbound_sync_cancellation,
     run_inbound_sync,
     upgrade_default_mail_sync_intervals,
 )
 from lead_agent.application.gmail_history import gmail_history_messages
-from lead_agent.application.services import process_lead
+from lead_agent.application.services import process_lead, process_source_event
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
     ExternalCrmRecord,
     InboundCrmPage,
     InboundCursor,
 )
+from lead_agent.domain.email import is_personal_email_address
+from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
@@ -51,6 +55,7 @@ from lead_agent.infrastructure.db.models import (
     ProviderLifecycleAuditORM,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.repositories import ensure_workspace
 
 
@@ -577,7 +582,7 @@ def test_gmail_thread_messages_are_added_once_to_same_lead_across_follow_up_sync
 
 def test_gmail_updates_preserve_known_details_when_follow_up_omits_them():
     lead = LeadORM(
-        id=uuid4(), workspace_id=uuid4(), source="email", source_detail="Gmail",
+        id=uuid4(), workspace_id=uuid4(), lead_number=1, source="email", source_detail="Gmail",
         full_name="Avery Lane", email="avery@example.test", phone="+1-555-0100",
         job_title="VP of Operations", company_name="Northstar",
         industry="SaaS", employee_count=180, annual_revenue=1250000,
@@ -605,6 +610,174 @@ def test_gmail_updates_preserve_known_details_when_follow_up_omits_them():
     assert payload["phone"] == "+1-555-0100"
     assert payload["job_title"] == "VP of Operations"
     assert payload["message"] == "New follow-up details."
+
+
+@pytest.mark.parametrize(
+    ("email", "expected"),
+    [
+        ("prospect@gmail.com", True),
+        ("prospect@outlook.com", True),
+        ("prospect@company.example", False),
+        ("not-an-email", False),
+    ],
+)
+def test_common_personal_email_domains_are_detected(email: str, expected: bool) -> None:
+    assert is_personal_email_address(email) is expected
+
+
+def test_personal_gmail_candidate_reason_preserves_manual_review_path(
+    tmp_path, icp, routing
+) -> None:
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        payload = _lead_payload("prospect@gmail.com", "gmail-personal-lead")
+        payload.update({"source": "email", "source_detail": "Gmail", "phone": "+1-202-555-0161"})
+        canonical = CanonicalInboundLead(
+            provider="gmail",
+            object_type="message",
+            provider_record_id="gmail-personal-lead",
+            normalized_payload=payload,
+            source_fingerprint="a" * 64,
+            provider_source="Gmail",
+            provider_metadata={},
+        )
+        reason = _gmail_manual_review_reason(canonical)
+        assert reason is not None
+        work_email = canonical.model_copy(
+            update={
+                "normalized_payload": {
+                    **payload,
+                    "email": "prospect@company.example",
+                }
+            }
+        )
+        assert _gmail_manual_review_reason(work_email) is None
+        event = SourceEvent.create("gmail", "message:gmail-personal-lead", {}, payload)
+        result = process_source_event(
+            session,
+            event,
+            icp,
+            routing,
+            provider=DeterministicReasoningProvider(),
+            workspace_id=connection.workspace_id,
+            send_confirmation_email=False,
+            manual_review_reason=reason,
+        )
+        decision = session.scalar(
+            select(models.RoutingDecisionORM).where(
+                models.RoutingDecisionORM.workspace_id == connection.workspace_id,
+                models.RoutingDecisionORM.lead_id == result.lead.id,
+                models.RoutingDecisionORM.is_current.is_(True),
+            )
+        )
+        assert result.status == "manual_review"
+        assert decision is not None and decision.manual_review is True
+        assert decision.assigned_queue == routing.manual_review_queue
+        assert reason in decision.routing_reason
+
+
+def test_existing_personal_gmail_lead_is_reviewed_once(tmp_path, icp, routing) -> None:
+    with _session(tmp_path) as session:
+        workspace_id = uuid4()
+        connection = _connection(session, workspace_id, provider_type="gmail")
+        original_payload = _lead_payload("prospect@gmail.com", "existing-personal-lead")
+        original_event = SourceEvent.create(
+            "website", "existing-personal-lead", {}, original_payload
+        )
+        existing = process_source_event(
+            session,
+            original_event,
+            icp,
+            routing,
+            provider=DeterministicReasoningProvider(),
+            workspace_id=workspace_id,
+            send_confirmation_email=False,
+        ).lead
+
+        # Simulate a previously auto-routed lead before the Gmail policy existed.
+        existing.analysis.requires_manual_review = False
+        existing.analysis.status = "completed"
+        structured_output = dict(existing.analysis.structured_output)
+        structured_output.update(
+            {"requires_manual_review": False, "status": "completed"}
+        )
+        existing.analysis.structured_output = structured_output
+        current = session.scalar(
+            select(models.RoutingDecisionORM).where(
+                models.RoutingDecisionORM.workspace_id == workspace_id,
+                models.RoutingDecisionORM.lead_id == existing.id,
+                models.RoutingDecisionORM.is_current.is_(True),
+            )
+        )
+        assert current is not None
+        current.manual_review = False
+        session.commit()
+
+        canonical = CanonicalInboundLead(
+            provider="gmail",
+            object_type="message",
+            provider_record_id="gmail-existing-personal-lead",
+            normalized_payload={
+                **_lead_payload("prospect@gmail.com", "gmail-existing-personal-lead"),
+                "source": "email",
+                "source_detail": "Gmail",
+                "phone": "+1-202-555-0161",
+            },
+            source_fingerprint="b" * 64,
+            provider_source="Gmail",
+            provider_metadata={
+                "gmail_thread_id": "gmail-thread-existing-personal",
+                "gmail_thread_messages": [],
+            },
+        )
+        provider = FakeInboundProvider(connection.id, [])
+
+        assert _process_record(
+            session,
+            connection,
+            provider,
+            canonical,
+            icp,
+            routing,
+            DeterministicReasoningProvider(),
+            None,
+            actor_id="test-user",
+            correlation_id="gmail-existing-personal",
+            send_confirmation_email=False,
+        ) == "updated"
+        decision = session.scalar(
+            select(models.RoutingDecisionORM).where(
+                models.RoutingDecisionORM.workspace_id == workspace_id,
+                models.RoutingDecisionORM.lead_id == existing.id,
+                models.RoutingDecisionORM.is_current.is_(True),
+            )
+        )
+        assert decision is not None and decision.manual_review is True
+        assert "Personal email provider" in decision.routing_reason
+
+        decisions_before_repeat = session.scalar(
+            select(func.count()).select_from(models.RoutingDecisionORM).where(
+                models.RoutingDecisionORM.lead_id == existing.id
+            )
+        )
+        assert _process_record(
+            session,
+            connection,
+            provider,
+            canonical,
+            icp,
+            routing,
+            DeterministicReasoningProvider(),
+            None,
+            actor_id="test-user",
+            correlation_id="gmail-existing-personal-repeat",
+            send_confirmation_email=False,
+        ) == "unchanged"
+        assert session.scalar(
+            select(func.count()).select_from(models.RoutingDecisionORM).where(
+                models.RoutingDecisionORM.lead_id == existing.id
+            )
+        ) == decisions_before_repeat
 
 
 def test_gmail_history_is_scoped_to_exact_sender_or_to_email_not_cc():
@@ -655,9 +828,9 @@ def test_gmail_skips_ambiguous_email_match_instead_of_creating_a_duplicate(
         workspace_id = uuid4()
         connection = _connection(session, workspace_id, provider_type="gmail")
         now = datetime.now(UTC)
-        for name in ("Existing Lead A", "Existing Lead B"):
+        for lead_number, name in enumerate(("Existing Lead A", "Existing Lead B"), start=1):
             session.add(LeadORM(
-                id=uuid4(), workspace_id=workspace_id, source="website",
+                id=uuid4(), workspace_id=workspace_id, lead_number=lead_number, source="website",
                 full_name=name, email="shared@example.test", phone=None, job_title=None,
                 company_name="Existing Company", product_or_service="AI services",
                 message="Initial conversation.", received_at=now, raw_payload={},
@@ -1310,6 +1483,118 @@ def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
     finally:
         app.dependency_overrides.clear()
         session.close()
+
+
+def test_queued_gmail_sync_cancellation_stops_before_provider_work(
+    tmp_path, icp, routing
+) -> None:
+    session = _session(tmp_path)
+    connection = _connection(session, uuid4(), provider_type="gmail")
+    state = configure_inbound_sync(
+        session,
+        connection,
+        enabled=True,
+        object_type="message",
+        actor_id="manager",
+    )
+    state.status = "queued"
+    session.commit()
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
+        workspace_id=connection.workspace_id,
+        actor_id="manager",
+        role="sales_manager",
+        permissions=frozenset({"crm.sync", "integrations.view"}),
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/cancel"
+                "?object_type=message"
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "cancellation_requested"
+
+        provider = SimpleNamespace(
+            provider_name="gmail",
+            connection_id=connection.id,
+        )
+        run = run_inbound_sync(
+            session,
+            connection,
+            provider,
+            mode="review_recent",
+            object_type="message",
+            limit=10,
+            page_size=2,
+            actor_id="manager",
+            icp=icp,
+            routing=routing,
+        )
+        session.refresh(state)
+        assert run.status == "cancelled"
+        assert run.records_fetched == 0
+        assert state.status == "ready"
+        assert state.lease_owner is None
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_running_gmail_sync_stops_after_the_current_provider_operation(
+    tmp_path, icp, routing
+) -> None:
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        configure_inbound_sync(
+            session,
+            connection,
+            enabled=True,
+            object_type="message",
+            actor_id="manager",
+        )
+
+        def list_records(**_kwargs):
+            cancellation = request_inbound_sync_cancellation(
+                session,
+                connection.workspace_id,
+                connection.id,
+                "message",
+                "manager",
+            )
+            assert cancellation["status"] == "cancellation_requested"
+            return InboundCrmPage(
+                records=[_record("gmail-message-1", "person@example.test")],
+                next_cursor={"history_id": "next"},
+            )
+
+        provider = SimpleNamespace(
+            provider_name="gmail",
+            connection_id=connection.id,
+            list_records=list_records,
+        )
+        run = run_inbound_sync(
+            session,
+            connection,
+            provider,
+            mode="review_recent",
+            object_type="message",
+            limit=10,
+            page_size=2,
+            actor_id="manager",
+            icp=icp,
+            routing=routing,
+        )
+        state = get_inbound_sync_state(
+            session, connection.workspace_id, connection.id, "message"
+        )
+        assert run.status == "cancelled"
+        assert run.records_fetched == 0
+        assert state is not None and state.status == "ready"
 
 
 def test_preview_manual_sync_runs_without_the_celery_broker(

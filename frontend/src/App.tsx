@@ -81,7 +81,13 @@ const AdvancedAnalyticsPanel = lazy(() =>
     default: module.AdvancedAnalyticsPanel,
   })),
 );
+const EmailWorkspace = lazy(() =>
+  import("./views/EmailWorkspace").then((module) => ({
+    default: module.EmailWorkspace,
+  })),
+);
 import { CommandPalette } from "./components/CommandPalette";
+import { useNewLeadIndicators } from "./useNewLeadIndicators";
 import { opsGet } from "./operationsApi";
 import { relayOAuthCallbackFromPopup } from "./oauthPopup";
 import {
@@ -113,6 +119,7 @@ import type { AnalyticsBundle } from "./views/ProductViews";
 type View =
   | "dashboard"
   | "leads"
+  | "email"
   | "contacts"
   | "pipeline"
   | "agents"
@@ -144,6 +151,7 @@ function savedTheme(): Theme {
 const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "dashboard", label: "Dashboard", group: "Workspace" },
   { id: "leads", label: "Leads" },
+  { id: "email", label: "Email" },
   { id: "contacts", label: "Contacts" },
   { id: "accounts", label: "Companies" },
   { id: "pipeline", label: "Pipeline" },
@@ -159,6 +167,7 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
 const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   dashboard: "analytics.view",
   leads: "leads.view",
+  email: "integrations.view",
   contacts: "leads.view",
   accounts: "leads.view",
   intelligence: "agents.view",
@@ -218,6 +227,13 @@ function NavIcon({ id }: { id: View }) {
         <svg {...shared}>
           <circle cx="9" cy="8" r="3" />
           <path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20" />
+        </svg>
+      );
+    case "email":
+      return (
+        <svg {...shared}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="m4 7 8 6 8-6" />
         </svg>
       );
     case "contacts":
@@ -357,6 +373,19 @@ function App() {
   });
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const {
+    unseenLeadIds,
+    observeLeadSnapshot,
+    markSeen: markLeadSeen,
+  } = useNewLeadIndicators(auth?.user.id, auth?.current_workspace_id);
+  const unseenLeadIdSet = useMemo(
+    () => new Set(unseenLeadIds),
+    [unseenLeadIds],
+  );
+  const hasUnseenManualReviewLead = useMemo(
+    () => data?.review?.items.some((lead) => unseenLeadIdSet.has(lead.id)) ?? false,
+    [data?.review?.items, unseenLeadIdSet],
+  );
   const [leadRevision, setLeadRevision] = useState(0);
   const [tourOpen, setTourOpen] = useState(false);
   const [openaiSetupCard, setOpenaiSetupCard] =
@@ -494,7 +523,7 @@ function App() {
             ? getManualReview(activeRange, controller.signal)
             : Promise.resolve(null),
           canViewLeads
-            ? listLeads({ limit: 1 }, controller.signal)
+            ? listLeads({ limit: 50 }, controller.signal)
             : Promise.resolve(null),
         ]);
         if (requestVersion !== refreshVersion.current) return;
@@ -520,7 +549,8 @@ function App() {
             : null,
         );
         const nextLeads = leadRows?.items ?? [];
-        setLeads(nextLeads);
+        observeLeadSnapshot(nextLeads);
+        setLeads(nextLeads.slice(0, 1));
         if (leadRows) {
           const nextSignature = JSON.stringify([
             leadRows.total,
@@ -585,7 +615,7 @@ function App() {
         if (requestVersion === refreshVersion.current) setLoading(false);
       }
     },
-    [range, auth?.current_workspace_id, auth?.workspaces],
+    [range, auth?.current_workspace_id, auth?.workspaces, observeLeadSnapshot],
   );
 
   useEffect(() => {
@@ -685,6 +715,10 @@ function App() {
     setAiSetupCards([]);
     reasoningPromptDismissed.current.clear();
   }, [auth]);
+
+  useEffect(() => {
+    if (selectedLead) markLeadSeen(selectedLead.id, selectedLead.created_at);
+  }, [selectedLead?.id, markLeadSeen]);
 
   useEffect(() => {
     if (!auth) return;
@@ -1143,7 +1177,14 @@ function App() {
                   navigationItemActive(item) || (item.id === "settings" && view === "icp")
                 }
                 activeChild={navigationActiveChild(item.id)}
-                badge={item.id === "review" ? data?.review?.total : undefined}
+                notificationDot={
+                  item.id === "leads"
+                    ? unseenLeadIds.length > 0
+                    : item.id === "review" && hasUnseenManualReviewLead
+                }
+                notificationLabel={
+                  item.id === "review" ? "New leads for manual review" : "New leads"
+                }
                 onNavigate={(child) => navigateChild(item.id, child)}
               />
             </div>
@@ -1212,7 +1253,14 @@ function App() {
                     active={active}
                     collapsed
                     activeChild={navigationActiveChild(item.id)}
-                    badge={item.id === "review" ? data?.review?.total : undefined}
+                    notificationDot={
+                      item.id === "leads"
+                        ? unseenLeadIds.length > 0
+                        : item.id === "review" && hasUnseenManualReviewLead
+                    }
+                    notificationLabel={
+                      item.id === "review" ? "New leads for manual review" : "New leads"
+                    }
                     onNavigate={(child) => navigateChild(item.id, child)}
                   />
                 </div>
@@ -1370,11 +1418,13 @@ function App() {
                       });
                   }}
                   revision={leadRevision}
+                  newLeadIds={unseenLeadIdSet}
                   onInspect={handleInspectLead}
                   onClose={closeLead}
                   canEdit={can(workspacePermissions, "leads.edit")}
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
+                  canViewEmail={can(workspacePermissions, "integrations.view")}
                   canCall={can(workspacePermissions, "agents.execute") && can(workspacePermissions, "leads.edit")}
                   onUpdated={(lead) => {
                     setSelectedLead(lead);
@@ -1386,6 +1436,7 @@ function App() {
                   }}
                   onDeleted={(leadId) => {
                     closeLead();
+                    markLeadSeen(leadId);
                     pinnedSections.removeLead(leadId);
                     setLeads((current) =>
                       current.filter((item) => item.id !== leadId),
@@ -1437,6 +1488,7 @@ function App() {
               {view === "review" && (
                 <ManualReviewView
                   data={data?.review ?? null}
+                  newLeadIds={unseenLeadIdSet}
                   onInspect={(id) => {
                     openLeadSection(id, "ai");
                   }}
@@ -1486,6 +1538,12 @@ function App() {
                   key={auth.current_workspace_id}
                   permissions={workspacePermissions}
                   selectedSection={pageSection}
+                />
+              )}
+              {view === "email" && (
+                <EmailWorkspace
+                  canSend={can(workspacePermissions, "leads.edit")}
+                  onOpenIntegrations={() => navigate("integrations", "gmail")}
                 />
               )}
               {view === "dialer" && (

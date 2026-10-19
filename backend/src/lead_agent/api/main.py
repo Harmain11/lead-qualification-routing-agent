@@ -16,6 +16,7 @@ from lead_agent.api.routes import (
     contact_records,
     crm,
     crm_inbound,
+    email,
     email_templates,
     follow_up,
     governance,
@@ -66,6 +67,7 @@ app.include_router(routing.router)
 app.include_router(leads.router)
 app.include_router(meetings.router)
 app.include_router(follow_up.router)
+app.include_router(email.router)
 app.include_router(email_templates.router)
 app.include_router(intake.router)
 app.include_router(crm.router)

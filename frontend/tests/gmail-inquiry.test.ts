@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseGmailInquiry } from "../src/gmailInquiry.ts";
+import { cleanGmailInquiryText, parseGmailInquiry } from "../src/gmailInquiry.ts";
 
 test("extracts Gmail thread metadata and presents forwarded content separately", () => {
   const inquiry = parseGmailInquiry(`Thread role: direct prospect. Referred by Dan Asif.
@@ -39,4 +39,29 @@ Please contact me about the project.
 
 test("leaves non-Gmail inquiry text available to the plain-message presentation", () => {
   assert.equal(parseGmailInquiry("Interested in learning more about your services."), null);
+});
+
+test("parses inline Gmail thread markers and compact header text", () => {
+  const inquiry = parseGmailInquiry(`Thread role: direct prospect. Original thread: --- Gmail message abc123 ---
+From: Pat Example <pat@example.test> To: team@example.test Subject: Pricing request Date: Tue, 20 Oct 2026 09:00:00 +0000
+
+Please send pricing for the project.
+`);
+  assert.ok(inquiry);
+  assert.equal(inquiry.role, "direct prospect");
+  assert.equal(inquiry.messages.length, 1);
+  assert.equal(inquiry.messages[0].from, "Pat Example <pat@example.test>");
+  assert.equal(inquiry.messages[0].to, "team@example.test");
+  assert.equal(inquiry.messages[0].subject, "Pricing request");
+  assert.equal(inquiry.messages[0].body, "Please send pricing for the project.");
+});
+
+test("strips technical headers from the plain-text fallback", () => {
+  const readable = cleanGmailInquiryText(`Thread role: direct prospect.
+From: Pat Example <pat@example.test>
+Subject: Pricing request
+MIME-Version: 1.0
+
+Please send pricing for the project.`);
+  assert.equal(readable, "Please send pricing for the project.");
 });

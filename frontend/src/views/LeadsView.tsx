@@ -89,9 +89,11 @@ export function LeadsView({
   onCreated,
   onUpdated,
   onDeleted,
+  newLeadIds,
   canEdit = true,
   canExport = false,
   canCrmSync = false,
+  canViewEmail = false,
   canCall = false,
 }: {
   selected: Lead | null;
@@ -105,9 +107,11 @@ export function LeadsView({
   onCreated: (lead: Lead) => void;
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
+  newLeadIds: ReadonlySet<string>;
   canEdit?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
+  canViewEmail?: boolean;
   canCall?: boolean;
 }) {
   const [search, setSearch] = useState("");
@@ -320,6 +324,7 @@ export function LeadsView({
             isSectionPinned={isSectionPinned}
             onTogglePin={onTogglePin}
             canCrmSync={canCrmSync}
+            canViewEmail={canViewEmail}
             canCall={canCall}
             canEdit={canEdit}
             onUpdated={(lead) => {
@@ -566,7 +571,7 @@ export function LeadsView({
                 <th>Source</th>
                 <th>Score</th>
                 <th>Routing</th>
-                <th>Representative</th>
+                <th>Assigned rep</th>
                 <th>Received</th>
               </tr>
             </thead>
@@ -575,6 +580,7 @@ export function LeadsView({
                 <LeadTableRow
                   key={lead.id}
                   lead={lead}
+                  isNew={newLeadIds.has(lead.id)}
                   selected={false}
                   checked={selectedIds.has(lead.id)}
                   onToggle={toggleSelected}
@@ -915,12 +921,14 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
 
 const LeadTableRow = memo(function LeadTableRow({
   lead,
+  isNew,
   selected,
   checked,
   onToggle,
   onInspect,
 }: {
   lead: Lead;
+  isNew: boolean;
   selected: boolean;
   checked: boolean;
   onToggle: (id: string) => void;
@@ -949,7 +957,7 @@ const LeadTableRow = memo(function LeadTableRow({
         />
       </td>
       <td className="lead-identity-cell">
-        <LeadRowIdentity lead={lead} />
+        <LeadRowIdentity lead={lead} isNew={isNew} />
       </td>
       <td data-label="Source">
         <span

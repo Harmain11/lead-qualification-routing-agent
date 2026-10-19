@@ -275,6 +275,8 @@ class OpenAIReasoningProvider:
             "lead candidate return role, confidence, name, optional email, company/context, "
             "role/job title, phone, requested service, referrer, referral context, inquiry "
             "evidence, reason, and exact field-level evidence. Keep multiple candidates separate. "
+             "Whenever an exact name, phone number, or company name is present, include it in its "
+             "field and cite the exact source excerpt; these fields are optional when absent. "
             "Confidence measures support for the person's identity and role, not sales readiness; "
             "do not lower it merely because the service scope is unsettled. "
             "Put lead identities only in candidates; leave legacy top-level identity fields null "

@@ -964,20 +964,31 @@ def _persist_validation(
                     else validation.metadata.get("calendly_user_uri")
                 )
             if isinstance(verified_mailbox, str) and verified_mailbox.strip():
-                session.execute(
-                    update(ProviderConnectionORM)
-                    .where(
-                        ProviderConnectionORM.workspace_id == row.workspace_id,
-                        ProviderConnectionORM.provider_type == row.provider_type,
-                        ProviderConnectionORM.id != row.id,
-                    )
-                    .values(is_active=False)
-                )
                 if row.provider_type == "gmail":
+                    # Gmail mailboxes are independent workspace accounts. Rebinding
+                    # only retires a previous connection for this same address.
                     _rebind_gmail_mailbox_state(session, row, verified_mailbox, now)
                 elif row.provider_type == "outlook":
+                    session.execute(
+                        update(ProviderConnectionORM)
+                        .where(
+                            ProviderConnectionORM.workspace_id == row.workspace_id,
+                            ProviderConnectionORM.provider_type == row.provider_type,
+                            ProviderConnectionORM.id != row.id,
+                        )
+                        .values(is_active=False)
+                    )
                     _rebind_outlook_mailbox_state(session, row, verified_mailbox, now)
                 else:
+                    session.execute(
+                        update(ProviderConnectionORM)
+                        .where(
+                            ProviderConnectionORM.workspace_id == row.workspace_id,
+                            ProviderConnectionORM.provider_type == row.provider_type,
+                            ProviderConnectionORM.id != row.id,
+                        )
+                        .values(is_active=False)
+                    )
                     row.is_active = True
             else:
                 row.is_active = False

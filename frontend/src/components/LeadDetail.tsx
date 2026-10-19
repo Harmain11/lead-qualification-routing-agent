@@ -3,6 +3,7 @@ import { CollaborationPanel } from "./CollaborationPanel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AiStageAssessment } from "./AiStageAssessment";
 import { GmailInquiryView } from "./GmailInquiryView";
+import { LeadEmailPanel } from "./LeadEmailPanel";
 
 import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadClosingOptions, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome } from "../types";
@@ -60,6 +61,7 @@ type LeadDetailProps = {
   lead: Lead;
   canCrmSync?: boolean;
   canEdit?: boolean;
+  canViewEmail?: boolean;
   canCall?: boolean;
   onUpdated?: (lead: Lead) => void;
   onDeleted?: (leadId: string) => void;
@@ -69,7 +71,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall = false, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canCall = false, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -97,8 +99,12 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
   const [selectedProvider, setSelectedProvider] = useState(lead.crm_sync?.provider || "");
   const [meetingRefreshToken, setMeetingRefreshToken] = useState(0);
   const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const visibleSections = leadDetailSections.filter((section) => section.id !== "email" || canViewEmail);
   const updatedLeadCallback = useRef(onUpdated);
   useEffect(() => { updatedLeadCallback.current = onUpdated; }, [onUpdated]);
+  useEffect(() => {
+    if (activeSection === "email" && !canViewEmail) onSectionChange("overview");
+  }, [activeSection, canViewEmail, onSectionChange]);
   useEffect(() => {
     if (!activityRefreshToken || !updatedLeadCallback.current) return;
     let active = true;
@@ -180,7 +186,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
     </header>
     <nav className="lead-detail-navigation" aria-label="Lead detail sections">
       <div ref={detailTabsRef} className="lead-detail-tabs" role="tablist" aria-label="Lead detail">
-        {leadDetailSections.map((section, index) => <a
+        {visibleSections.map((section, index) => <a
           key={section.id}
           id={`lead-tab-${section.id}`}
           className="lead-detail-tab"
@@ -196,13 +202,13 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
           }}
           onKeyDown={(event) => {
             let nextIndex: number | null = null;
-            if (event.key === "ArrowRight") nextIndex = (index + 1) % leadDetailSections.length;
-            if (event.key === "ArrowLeft") nextIndex = (index - 1 + leadDetailSections.length) % leadDetailSections.length;
+            if (event.key === "ArrowRight") nextIndex = (index + 1) % visibleSections.length;
+            if (event.key === "ArrowLeft") nextIndex = (index - 1 + visibleSections.length) % visibleSections.length;
             if (event.key === "Home") nextIndex = 0;
-            if (event.key === "End") nextIndex = leadDetailSections.length - 1;
+            if (event.key === "End") nextIndex = visibleSections.length - 1;
             if (nextIndex !== null) {
               event.preventDefault();
-              const next = leadDetailSections[nextIndex];
+              const next = visibleSections[nextIndex];
               document.getElementById(`lead-tab-${next.id}`)?.focus();
               onSectionChange(next.id);
             }
@@ -271,6 +277,18 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
       <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
       <CallsPanel leadId={lead.id} leadName={lead.full_name} companyName={lead.company_name} representativeName={lead.routing?.assigned_rep_name} leadPhone={lead.phone} canEdit={canEdit} canCall={canCall} />
     </div>
+    <section id="lead-panel-email" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={activeSection !== "email"}>
+      <LeadEmailPanel
+        lead={lead}
+        active={activeSection === "email"}
+        canView={canViewEmail}
+        canSend={canEdit}
+        onConversationSynced={() => {
+          setActivityRefreshToken((revision) => revision + 1);
+          setMeetingRefreshToken((revision) => revision + 1);
+        }}
+      />
+    </section>
     <div id="lead-panel-ai" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-ai" tabIndex={0} hidden={activeSection !== "ai"}>
       <LeadMomentumPanel lead={lead} />
       <AiStageAssessment analysis={analysis} />

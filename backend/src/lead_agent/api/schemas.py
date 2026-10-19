@@ -220,6 +220,7 @@ class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    lead_number: int
     workspace_id: UUID
     source: str
     source_detail: str | None
@@ -356,6 +357,11 @@ class CrmInboundSyncRunResponse(BaseModel):
 class CrmInboundSyncAcceptedResponse(BaseModel):
     status: Literal["queued"] = "queued"
     queued_at: datetime
+    message: str
+
+
+class CrmInboundSyncCancellationResponse(BaseModel):
+    status: Literal["cancellation_requested", "not_running"]
     message: str
 
 
@@ -600,6 +606,7 @@ def lead_response(
 ) -> LeadResponse:
     return LeadResponse(
         id=row.id,
+        lead_number=row.lead_number,
         workspace_id=row.workspace_id,
         source=row.source,
         source_detail=row.source_detail,

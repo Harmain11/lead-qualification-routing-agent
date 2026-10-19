@@ -701,10 +701,16 @@ def test_outcome_learning_preserves_component_budgets_and_creates_draft(ops, icp
     weights = resolved.configuration.scoring.component_points["icp_fit"]
     keys = [key for key, points in weights.items() if points > 1]
     assert len(keys) >= 2
+    last_lead_number = session.scalar(
+        select(func.max(LeadORM.lead_number)).where(
+            LeadORM.workspace_id == workspace.workspace_id
+        )
+    ) or 0
     for index in range(20):
         row = LeadORM(
             id=uuid4(),
             workspace_id=workspace.workspace_id,
+            lead_number=last_lead_number + index + 1,
             source="web",
             full_name=f"Outcome {index}",
             email=f"person{index}@example.test",

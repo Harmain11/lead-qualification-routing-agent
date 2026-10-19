@@ -21,7 +21,8 @@ export type NavigationMenuItemProps = {
   activeChild?: string;
   collapsed?: boolean;
   enabled?: boolean;
-  badge?: number;
+  notificationDot?: boolean;
+  notificationLabel?: string;
   onNavigate: (childId?: string) => void;
 };
 
@@ -32,7 +33,8 @@ export function NavigationMenuItem({
   activeChild,
   collapsed = false,
   enabled = true,
-  badge,
+  notificationDot = false,
+  notificationLabel = "New activity",
   onNavigate,
 }: NavigationMenuItemProps) {
   const children = item.children ?? [];
@@ -242,14 +244,24 @@ export function NavigationMenuItem({
         className="navigation-menu-trigger"
         onClick={() => { setPinnedOpen(false); setFocused(false); setHovered(false); onNavigate(); }}
         aria-current={active ? "page" : undefined}
-        aria-label={collapsed ? item.label : undefined}
-        title={item.label}
+        aria-label={
+          collapsed || notificationDot
+            ? `${item.label}${notificationDot ? `, ${notificationLabel}` : ""}`
+            : undefined
+        }
+        title={
+          notificationDot
+            ? `${item.label} — ${notificationLabel}`
+            : item.label
+        }
       >
         <i className="navigation-menu-icon">{icon}</i>
         <span className="navigation-menu-label">
           {item.label}
         </span>
-        {typeof badge === "number" && badge > 0 && <b className="navigation-menu-badge">{badge}</b>}
+        {notificationDot && (
+          <span className="navigation-menu-notification-dot" aria-hidden="true" />
+        )}
       </button>
       {hasChildren && (
         <>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from datetime import UTC, datetime
 from io import BytesIO, StringIO
+from itertools import count
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -59,6 +60,8 @@ def _record(name: str = "Jane Doe") -> ExportLeadRecord:
         recommended_action="Schedule a discovery call.",
     )
 
+_LEAD_NUMBERS = count(1)
+
 
 def _lead(workspace_id, *, name: str, received_at: datetime, band: str = "warm") -> LeadORM:
     lead_id = uuid4()
@@ -66,6 +69,7 @@ def _lead(workspace_id, *, name: str, received_at: datetime, band: str = "warm")
     row = LeadORM(
         id=lead_id,
         workspace_id=workspace_id,
+        lead_number=next(_LEAD_NUMBERS),
         source="website",
         source_detail=None,
         external_id=None,

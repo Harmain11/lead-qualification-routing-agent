@@ -22,12 +22,14 @@ export async function pollInboundSync({
     const run = runs.find((candidate) => Date.parse(candidate.created_at) >= acceptedAt);
     if (run) {
       const saved = run.records_created + run.records_updated;
-      onProgress(
-        `Gmail sync ${run.status}: ${run.records_processed} processed, ${saved} leads saved, ${run.records_skipped} skipped, ${run.records_failed} failed.`,
-      );
-      if (!["queued", "running"].includes(run.status)) return run;
+      onProgress(run.status === "cancel_requested"
+        ? `Cancellation requested. Waiting for the current Gmail operation to stop (${run.records_processed} processed, ${saved} leads saved).`
+        : `Gmail sync ${run.status}: ${run.records_processed} processed, ${saved} leads saved, ${run.records_skipped} skipped, ${run.records_failed} failed.`);
+      if (!["queued", "running", "cancel_requested"].includes(run.status)) return run;
     } else if (state.status === "failed") {
       throw new Error(state.last_error || "Gmail sync worker failed before processing began.");
+    } else if (state.status === "cancel_requested") {
+      onProgress("Cancellation requested. Waiting for the Gmail worker to stop.");
     } else {
       onProgress("Gmail sync is queued; waiting for a worker to start.");
     }
