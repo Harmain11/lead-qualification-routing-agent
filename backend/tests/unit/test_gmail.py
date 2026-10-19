@@ -1251,6 +1251,86 @@ def test_gmail_thread_with_multiple_internal_forwarded_emails_extracts_each_reci
     ] == [lead.provider_record_id for lead in leads]
 
 
+@pytest.mark.parametrize("fabricated_identity", [False, True])
+@pytest.mark.parametrize("via_fetch", [False, True])
+def test_forwarded_outreach_uses_child_evidence_not_legacy_or_optional_fields(
+    fabricated_identity: bool, via_fetch: bool,
+) -> None:
+    inquiry = "Could we discuss a website refresh on Thursday?"
+    to_line = "> > To: Avery Lane <avery@lane.example>"
+    body = (
+        "Please review the forwarded outreach.\n\n"
+        "> > From: Morgan West <morgan@agency.example>\n"
+        f"{to_line}\n> > Subject: Thursday discussion\n\n"
+        f"> > Hi Avery, {inquiry}"
+    )
+    child = GmailProspectCandidate(
+        role="direct_prospect", is_genuine_inquiry=True, confidence=0.96,
+        reason="External recipient of internal commercial outreach.",
+        inquiry_evidence=inquiry,
+        full_name="Invented Person" if fabricated_identity else "Avery Lane",
+        email="avery@lane.example",
+        company_name="Unsupported Company", requested_service="Website redesign package",
+        evidence=[
+            GmailEvidence(field="full_name", source="body", excerpt=to_line),
+            GmailEvidence(field="email", source="body", excerpt=to_line),
+            GmailEvidence(field="company_name", source="body", excerpt="not in the email"),
+            GmailEvidence(field="requested_service", source="body", excerpt=inquiry),
+        ],
+    )
+    outer_headers = {
+        "from": "Sales <sales@agency.example>" if via_fetch else "Relay <relay@delivery.example>",
+        "subject": "Discussion",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        message = {
+            "id": "nested-outreach", "threadId": "outreach-thread",
+            "labelIds": ["SENT"], "internalDate": "1792368000000",
+            "payload": {
+                "mimeType": "text/plain",
+                "headers": [{"name": key, "value": value} for key, value in outer_headers.items()],
+                "body": {"data": _encoded(body)},
+            },
+        }
+        return httpx.Response(
+            200, json={"messages": [message]} if "/threads/" in request.url.path else message
+        )
+
+    provider = GmailInboundProvider(
+        uuid4(), "access", "sales@agency.example",
+        client=_client(handler),
+        internal_domains={"agency.example"},
+        lead_extractor=lambda **_: GmailLeadExtraction(
+            is_genuine_inquiry=True, reason="Commercial outreach.",
+            inquiry_evidence="This is a paraphrase, not source evidence.",
+            full_name="Morgan West", email="morgan@agency.example",
+            evidence=[
+                GmailEvidence(field="email", source="body", excerpt="invalid legacy evidence")
+            ],
+            candidates=[child],
+        ),
+    )
+    record = ExternalCrmRecord(
+        provider="gmail", object_type="message", record_id="nested-outreach",
+        values={} if via_fetch else {
+            "headers": outer_headers,
+            "body": body, "thread_context": body, "thread_id": "outreach-thread",
+        },
+        modified_at=datetime(2026, 10, 19, tzinfo=UTC),
+    )
+    if fabricated_identity:
+        with pytest.raises(ValueError):
+            provider.normalize_records(record)
+        return
+    [lead] = provider.normalize_records(record)
+    assert lead.normalized_payload["full_name"] == "Avery Lane"
+    assert lead.normalized_payload["email"] == "avery@lane.example"
+    assert lead.normalized_payload["company_name"] == "Unknown"
+    assert "Unsupported Company" not in str(lead.normalized_payload)
+    assert lead.normalized_payload["gmail_candidate_review_notes"]
+
+
 def test_gmail_signature_only_contact_is_context_not_a_lead_identity() -> None:
     body = (
         "Could you send pricing for our event project?\n\n"

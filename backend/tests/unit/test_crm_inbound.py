@@ -408,6 +408,42 @@ def test_single_record_failure_does_not_abort_the_remaining_batch(tmp_path, icp,
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
 
 
+def test_gmail_rate_limited_message_does_not_discard_other_valid_leads(tmp_path, icp, routing):
+    class GmailBatchProvider(FakeInboundProvider):
+        provider_name = "gmail"
+
+        def list_records(self, *, object_type, cursor, limit):
+            return super().list_records(object_type="Lead", cursor=cursor, limit=limit)
+
+        def normalize_record(self, record):
+            if record.record_id == "rate-limited":
+                raise ProviderOperationError(
+                    "Gmail rate limit", provider="gmail", code="gmail_rate_limited",
+                    category="temporarily_unavailable", retryable=True,
+                )
+            return super().normalize_record(record).model_copy(
+                update={"provider": "gmail", "object_type": "message"}
+            )
+
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        provider = GmailBatchProvider(connection.id, [
+            _record("rate-limited", "blocked@example.test"),
+            _record("valid", "valid@example.test"),
+        ])
+        run = _run(
+            session, connection, provider, icp, routing,
+            object_type="message", mode="review_recent", page_size=2,
+        )
+        assert run.status == "failed"
+        assert run.error_code == "gmail_rate_limited"
+        assert run.records_failed == 1
+        assert run.records_created == 1
+        assert run.cursor_current == run.cursor_start
+        assert run.checkpoint is None
+        assert session.scalar(select(LeadORM.email)) == "valid@example.test"
+
+
 def test_active_inbound_lease_blocks_overlap_across_workers(tmp_path, icp, routing) -> None:
     with _session(tmp_path) as session:
         connection = _connection(session, uuid4())
@@ -1040,6 +1076,7 @@ def test_preview_manual_sync_runs_without_the_celery_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from threading import Event
+
     from lead_agent.worker import preview_sync
 
     completed = Event()

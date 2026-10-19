@@ -1056,7 +1056,7 @@ def run_inbound_sync(
                     if callable(normalize_gmail_records)
                     else provider.normalize_record
                 )
-                with ThreadPoolExecutor(max_workers=min(4, len(normalize_records) or 1)) as pool:
+                with ThreadPoolExecutor(max_workers=min(2, len(normalize_records) or 1)) as pool:
                     futures = {
                         pool.submit(
                             copy_context().run, normalize, record
@@ -1072,6 +1072,7 @@ def run_inbound_sync(
                             )
                         except Exception as error:
                             normalized_gmail[record.record_id] = error
+            page_provider_error: ProviderOperationError | None = None
             for record in page.records:
                 try:
                     if (
@@ -1138,6 +1139,9 @@ def run_inbound_sync(
                     run.records_failed += 1
                     run.cursor_current = page_start
                     session.commit()
+                    if connection.provider_type == "gmail":
+                        page_provider_error = page_provider_error or error
+                        continue
                     return _fail_run(session, state, run, error, connection)
                 except ValueError as error:
                     run = session.get(CrmInboundSyncRunORM, run.id) or run
@@ -1252,6 +1256,9 @@ def run_inbound_sync(
                         )
                 session.commit()
 
+            if page_provider_error is not None:
+                run.cursor_current = page_start
+                return _fail_run(session, state, run, page_provider_error, connection)
             final_checkpoint = page.checkpoint or final_checkpoint
             cursor = page.next_cursor or page.checkpoint
             run = session.get(CrmInboundSyncRunORM, run.id) or run
