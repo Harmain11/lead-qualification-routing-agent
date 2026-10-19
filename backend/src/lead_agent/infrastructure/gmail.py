@@ -461,12 +461,21 @@ def _thread_from_participants(
             return
         participants.setdefault(address, name.strip())
 
+    def add_addresses(value: str) -> None:
+        for name, address in getaddresses([value]):
+            add(f"{name} <{address}>" if name else address)
+
     add(headers.get("from", ""))
+    add_addresses(headers.get("reply-to", ""))
     for message in thread_messages:
         message_headers = message.get("headers", {})
         if isinstance(message_headers, dict):
             add(str(message_headers.get("from", "")))
+            add_addresses(str(message_headers.get("reply-to", "")))
         lines = str(message.get("body", "")).splitlines()
+        for block in _forwarded_header_blocks(str(message.get("body", ""))):
+            add(str(block["headers"].get("from", "")))
+            add_addresses(str(block["headers"].get("reply-to", "")))
         for index, line in enumerate(lines):
             match = re.match(r"(?i)^\s*>*\s*From:\s*(.+?)\s*$", line)
             if match is None:
@@ -476,6 +485,134 @@ def _thread_from_participants(
                 continue
             add(match.group(1))
     return [(name, email) for email, name in participants.items()]
+
+
+def _forwarded_header_blocks(text: str) -> list[dict[str, str]]:
+    """Parse complete inline From/To header blocks, including nested quoted prefixes."""
+    lines = text.splitlines()
+    blocks: list[dict[str, str]] = []
+    for index, line in enumerate(lines):
+        match = re.match(r"(?i)^\s*>*\s*From:\s*(.+?)\s*$", line)
+        if match is None:
+            continue
+        headers = {"from": match.group(1).strip()}
+        end = index + 1
+        while end < len(lines) and end <= index + 10:
+            candidate = re.sub(r"^\s*>+\s?", "", lines[end]).strip()
+            if not candidate:
+                break
+            key, colon, value = candidate.partition(":")
+            normalized_key = key.strip().casefold()
+            if colon and normalized_key in {
+                "from", "to", "cc", "reply-to", "subject", "date", "message-id"
+            }:
+                headers[normalized_key] = value.strip()
+                end += 1
+                continue
+            break
+        if {"to", "subject", "date", "reply-to"} & headers.keys():
+            blocks.append(
+                {
+                    "headers": headers,
+                    "body": "\n".join(lines[end + 1 :]),
+                }
+            )
+    return blocks
+
+
+def _signature_contacts(text: str) -> list[dict[str, str]]:
+    """Collect signature-only identities as context; callers must not promote them."""
+    lines = text.splitlines()
+    contacts: dict[str, dict[str, str]] = {}
+    for index, line in enumerate(lines):
+        if not re.match(
+            r"(?i)^\s*(?:--\s*|best(?: regards)?|kind regards|warm regards|"
+            r"regards|sincerely|cheers|thanks)[,!]?\s*$",
+            line,
+        ):
+            continue
+        signature = lines[index + 1:index + 9]
+        emails = sorted({
+            address.lower()
+            for entry in signature
+            for address in re.findall(
+                r"(?i)\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}\b",
+                entry,
+            )
+        })
+        display_name = next(
+            (
+                entry.strip()
+                for entry in signature[:3]
+                if entry.strip()
+                and "@" not in entry
+                and not re.search(r"\d{3}", entry)
+            ),
+            "",
+        )
+        excerpt = "\n".join(signature).strip()
+        for address in emails:
+            contacts.setdefault(
+                address,
+                {
+                    "name": display_name,
+                    "email": address,
+                    "role": "signature_only",
+                    "excerpt": excerpt[:500],
+                },
+            )
+    return list(contacts.values())
+
+
+def _is_internal_address(
+    address: str, internal_domains: set[str], internal_emails: set[str]
+) -> bool:
+    normalized = address.strip().lower()
+    return bool(
+        normalized
+        and (
+            normalized in internal_emails
+            or ("@" in normalized and normalized.rsplit("@", 1)[-1] in internal_domains)
+        )
+    )
+
+
+def _internal_outreach_recipients(
+    headers: dict[str, str],
+    messages: list[dict[str, Any]],
+    internal_domains: set[str],
+    internal_emails: set[str],
+) -> list[tuple[str, str]]:
+    """Find external To recipients of internal-authored messages, never Cc recipients."""
+    recipients: dict[str, str] = {}
+    sources = [{"headers": headers, "body": ""}, *messages]
+    for message in sources:
+        raw_headers = message.get("headers", {})
+        if not isinstance(raw_headers, dict):
+            continue
+        sender_name, sender_email = parseaddr(str(raw_headers.get("from", "")))
+        if not _is_internal_address(sender_email, internal_domains, internal_emails):
+            continue
+        bodies = [str(message.get("body", ""))]
+        groups = [(raw_headers, bodies[0])]
+        groups.extend(
+            (block["headers"], block["body"])
+            for block in _forwarded_header_blocks(bodies[0])
+        )
+        for block_headers, _body in groups:
+            block_name, block_sender = parseaddr(str(block_headers.get("from", "")))
+            if not _is_internal_address(block_sender, internal_domains, internal_emails):
+                continue
+            for display_name, address in getaddresses([str(block_headers.get("to", ""))]):
+                address = address.strip().lower()
+                if (
+                    not address
+                    or "@" not in address
+                    or _is_internal_address(address, internal_domains, internal_emails)
+                ):
+                    continue
+                recipients.setdefault(address, display_name.strip())
+    return [(name, address) for address, name in recipients.items()]
 
 
 def _evidence_message_id(
@@ -574,8 +711,8 @@ def _is_lead_notification_wrapper(headers: dict[str, str], body: str = "") -> bo
             re.I,
         )
     )
-    branded_notification = bool(
-        re.search(r"ingenuity\s+lead\s+notifications?", f"{sender}\n{subject}\n{body[:4000]}", re.I)
+    notification_sender = bool(
+        re.search(r"\blead\s+notifications?\b", sender, re.I)
     )
     structured_lead_body = bool(
         re.search(
@@ -583,7 +720,7 @@ def _is_lead_notification_wrapper(headers: dict[str, str], body: str = "") -> bo
             body[:4000],
         )
     )
-    return subject_is_notification or branded_notification or structured_lead_body
+    return subject_is_notification or notification_sender or structured_lead_body
 
 
 def _email_appears_as_lead_identity(excerpt: str, email: str) -> bool:
@@ -595,8 +732,16 @@ def _email_appears_as_lead_identity(excerpt: str, email: str) -> bool:
     )
 
 
+def _email_appears_in_to_header(excerpt: str, email: str) -> bool:
+    return any(
+        email.casefold() in line.casefold()
+        and re.match(r"(?i)^\s*>*\s*To\s*:", line)
+        for line in excerpt.splitlines()
+    )
+
+
 def _is_notification_label(value: str) -> bool:
-    return bool(re.search(r"\b(?:ingenuity\s+)?lead\s+notifications?\b", value, re.I))
+    return bool(re.search(r"\blead\s+notifications?\b", value, re.I))
 
 
 class _TextHTML(HTMLParser):
@@ -1068,7 +1213,20 @@ class GmailInboundProvider:
             self.internal_domains,
             self.internal_emails,
         )
+        outreach_recipients = _internal_outreach_recipients(
+            headers,
+            participant_messages,
+            self.internal_domains,
+            self.internal_emails,
+        )
+        known_participant_emails = {address for _, address in eligible_participants}
+        eligible_participants.extend(
+            (name, address)
+            for name, address in outreach_recipients
+            if address not in known_participant_emails
+        )
         internal_participant_names: set[str] = set()
+        signature_contacts: list[dict[str, str]] = []
         for message in participant_messages:
             message_headers = message.get("headers", {})
             if not isinstance(message_headers, dict):
@@ -1084,6 +1242,13 @@ class GmailInboundProvider:
             ):
                 if participant_name.strip():
                     internal_participant_names.add(participant_name.strip().casefold())
+            for contact in _signature_contacts(str(message.get("body", ""))):
+                signature_contacts.append(
+                    {
+                        **contact,
+                        "message_id": str(message.get("message_id") or record.record_id),
+                    }
+                )
         header_name, header_email = parseaddr(str(headers.get("from", "")))
         header_email = header_email.strip().lower()
         if header_email and (
@@ -1095,6 +1260,20 @@ class GmailInboundProvider:
         if not eligible_participants and self.lead_extractor is None:
             raise ValueError("no_external_thread_participant")
         eligible_by_email = {address: name for name, address in eligible_participants}
+        thread_reply_to = "\n".join(
+            [
+                str(message.get("headers", {}).get("reply-to", ""))
+                for message in participant_messages
+                if isinstance(message.get("headers"), dict)
+                and message.get("headers", {}).get("reply-to")
+            ]
+            + [
+                str(block["headers"].get("reply-to", ""))
+                for message in participant_messages
+                for block in _forwarded_header_blocks(str(message.get("body", "")))
+                if block["headers"].get("reply-to")
+            ]
+        )
         forwarded = _forwarded_lead(body)
         if forwarded is None:
             unique_forwarded = {item[1].strip().lower(): item for item in forwarded_options}
@@ -1153,9 +1332,6 @@ class GmailInboundProvider:
                 extraction_headers = dict(headers)
                 extraction_headers["internal-domains"] = ",".join(sorted(self.internal_domains))
                 extraction_headers["internal-emails"] = ",".join(sorted(self.internal_emails))
-                if forwarded is not None:
-                    extraction_headers["from"] = f"{sender_name} <{email}>"
-                    extraction_headers["subject"] = subject
                 candidate = self.lead_extractor(
                     headers=extraction_headers, subject=subject, body=thread_context
                 )
@@ -1361,6 +1537,11 @@ class GmailInboundProvider:
             if forwarded is not None and email != original_sender_email
             else "sender_lead"
         )
+        identity_name_is_email_local_part = bool(
+            email in {address for _, address in outreach_recipients}
+            and not sender_name.strip()
+            and not (extracted and extracted.full_name)
+        )
         payload = {
             "source": "email",
             "source_detail": "Gmail",
@@ -1375,7 +1556,10 @@ class GmailInboundProvider:
             "product_or_service": (
                 (extracted.requested_service if extracted else None) or "Inbound inquiry"
             ),
-            "message": thread_context,
+            "message": (
+                "Thread role: direct prospect selected from parsed external participant "
+                f"headers.\n\n{thread_context}"
+            ),
             "received_at": record.modified_at or datetime.now(UTC),
             "gmail_message_id": record.record_id,
             "gmail_thread_id": str(values.get("thread_id", "")),
@@ -1385,6 +1569,8 @@ class GmailInboundProvider:
             "forwarded_lead": candidate_decision == "separate_forwarded_lead",
             "gmail_thread_decision": candidate_decision,
             "gmail_candidate_identity_email": email,
+            "gmail_candidate_role": "direct_prospect",
+            "gmail_identity_name_is_email_local_part": identity_name_is_email_local_part,
             "gmail_selection_reason": selection_reason,
             "gmail_evidence": evidence_refs,
                 "subject": subject,
@@ -1394,6 +1580,7 @@ class GmailInboundProvider:
                 if item.get("message_id")
             ],
             "gmail_internal_participant_names": sorted(internal_participant_names),
+            "gmail_signature_contacts": signature_contacts,
             "gmail_notification_wrapper": notification_wrapper,
             "gmail_wrapper_sender_name": wrapper_sender_name[:255],
             "gmail_embedded_message_ids": sorted(
@@ -1405,6 +1592,9 @@ class GmailInboundProvider:
                 )
             ),
             "gmail_eligible_participant_emails": list(eligible_by_email),
+            "gmail_outreach_recipient_emails": [
+                address for _, address in outreach_recipients
+            ],
             "gmail_prospect_candidates": (
                 [item.model_dump(mode="json") for item in extracted.candidates]
                 if extracted
@@ -1423,7 +1613,8 @@ class GmailInboundProvider:
                 if extracted
                 else []
             ),
-            "reply_to": parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
+            "reply_to": thread_reply_to
+            or parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
         }
         fingerprint = hashlib.sha256(
             f"{record.record_id}\0{thread_context}\0{email}".encode()
@@ -1446,6 +1637,8 @@ class GmailInboundProvider:
                 "original_sender_email": original_sender_email,
                 "gmail_thread_decision": candidate_decision,
                 "gmail_candidate_identity_email": email,
+                "gmail_candidate_role": "direct_prospect",
+                "gmail_identity_name_is_email_local_part": identity_name_is_email_local_part,
                 "gmail_selection_reason": selection_reason[:500],
                 "gmail_ai_method": "openai" if extracted else "deterministic",
                 "gmail_ai_fallback_reason": fallback_reason,
@@ -1470,12 +1663,29 @@ class GmailInboundProvider:
         payload = base.normalized_payload
         candidates = payload.get("gmail_prospect_candidates")
         if not isinstance(candidates, list) or not candidates:
+            outreach = payload.get("gmail_outreach_recipient_emails", [])
+            if len(set(outreach)) > 1:
+                raise ValueError("multiple_forwarded_outreach_candidates_require_manual_review")
+            if outreach and (
+                not payload.get("full_name")
+                or payload.get("gmail_identity_name_is_email_local_part")
+                or _is_internal_address(
+                    str(payload.get("email") or ""),
+                    self.internal_domains,
+                    self.internal_emails,
+                )
+            ):
+                raise ValueError("forwarded_outreach_identity_requires_manual_review")
             return [base]
         thread_id = str(payload.get("gmail_thread_id") or record.record_id)
         thread_text = str(payload.get("message") or "")
         eligible_emails = {
             str(value).strip().lower()
             for value in payload.get("gmail_eligible_participant_emails", [])
+        }
+        outreach_emails = {
+            str(value).strip().lower()
+            for value in payload.get("gmail_outreach_recipient_emails", [])
         }
         internal_names = {
             str(value).strip().casefold()
@@ -1497,12 +1707,18 @@ class GmailInboundProvider:
             if (
                 not isinstance(raw, dict)
                 or not raw.get("is_genuine_inquiry")
-                or raw.get("role") not in {"direct_prospect", "referred_prospect"}
             ):
                 continue
             candidate = GmailProspectCandidate.model_validate(raw)
             name = (candidate.full_name or "").strip()
             email = (candidate.email or "").strip().lower()
+            if (
+                candidate.role not in {"direct_prospect", "referred_prospect"}
+                and email not in outreach_emails
+            ):
+                continue
+            if email in outreach_emails:
+                candidate = candidate.model_copy(update={"role": "direct_prospect"})
             email_domain = email.rsplit("@", 1)[-1] if "@" in email else ""
             if (
                 _is_notification_label(name)
@@ -1566,20 +1782,31 @@ class GmailInboundProvider:
                 email_evidence = [
                     item for item in candidate.evidence if item.field == "email"
                 ]
-                if not email_evidence or not any(
-                    item.source in {"from_header", "reply_to"}
+                body_identity_supported = any(
+                    item.source == "body"
+                    and _email_appears_as_lead_identity(item.excerpt, email)
+                    and (
+                        email in eligible_emails
+                        or bool(payload.get("gmail_notification_wrapper"))
+                        or (
+                            candidate.role == "referred_prospect"
+                            and bool(candidate.referred_by)
+                        )
+                    )
                     or (
                         item.source == "body"
-                        and _email_appears_as_lead_identity(item.excerpt, email)
+                        and email in outreach_emails
+                        and _email_appears_in_to_header(item.excerpt, email)
                     )
+                    for item in email_evidence
+                )
+                if not email_evidence or not any(
+                    item.source in {"from_header", "reply_to"}
+                    or (item.source == "body" and body_identity_supported)
                     for item in email_evidence
                 ):
                     continue
-                if email not in eligible_emails and not any(
-                    item.source == "body"
-                    and _email_appears_as_lead_identity(item.excerpt, email)
-                    for item in email_evidence
-                ) and not any(item.source == "from_header" for item in email_evidence):
+                if email not in eligible_emails and not body_identity_supported:
                     continue
             has_referral_support = bool(
                 candidate.referred_by or candidate.referral_context or candidate.company_name
