@@ -442,6 +442,72 @@ def _forwarded_lead(text: str) -> tuple[str, str, str, str] | None:
     return name.strip(), address, headers.get("subject", ""), authored
 
 
+def _thread_from_participants(
+    headers: dict[str, str],
+    thread_messages: list[dict[str, Any]],
+    internal_domains: set[str],
+    internal_emails: set[str],
+) -> list[tuple[str, str]]:
+    participants: dict[str, str] = {}
+
+    def add(value: str) -> None:
+        name, address = parseaddr(value)
+        address = address.strip().lower()
+        if not address or "@" not in address:
+            return
+        domain = address.rsplit("@", 1)[-1]
+        if address in internal_emails or domain in internal_domains:
+            return
+        participants.setdefault(address, name.strip())
+
+    add(headers.get("from", ""))
+    for message in thread_messages:
+        message_headers = message.get("headers", {})
+        if isinstance(message_headers, dict):
+            add(str(message_headers.get("from", "")))
+        lines = str(message.get("body", "")).splitlines()
+        for index, line in enumerate(lines):
+            match = re.match(r"(?i)^\s*>*\s*From:\s*(.+?)\s*$", line)
+            if match is None:
+                continue
+            nearby = "\n".join(lines[index + 1:index + 6])
+            if not re.search(r"(?im)^\s*>*\s*(?:To|Date|Subject):", nearby):
+                continue
+            add(match.group(1))
+    return [(name, email) for email, name in participants.items()]
+
+
+def _evidence_message_id(
+    source: str,
+    excerpt: str,
+    messages: list[dict[str, Any]],
+    fallback_id: str,
+) -> str:
+    header_names = {
+        "subject": "subject",
+        "from_header": "from",
+        "reply_to": "reply-to",
+    }
+    for message in messages:
+        message_id = str(message.get("message_id") or fallback_id)
+        message_headers = message.get("headers", {})
+        if isinstance(message_headers, dict):
+            source_text = (
+                str(message.get("body", ""))
+                if source == "body"
+                else str(message_headers.get(header_names.get(source, ""), ""))
+            )
+            if source_text and _evidence_is_from_source(source_text, excerpt):
+                return message_id
+        if source == "from_header":
+            for line in str(message.get("body", "")).splitlines():
+                if re.match(r"(?i)^\s*>*\s*From:", line) and _evidence_is_from_source(
+                    line, excerpt
+                ):
+                    return message_id
+    return fallback_id
+
+
 def candidate_reason(headers: dict[str, str], snippet: str, mailbox_email: str) -> str | None:
     sender_name, sender_email = parseaddr(headers.get("from", ""))
     sender_email = sender_email.strip().lower()
@@ -547,10 +613,17 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
 
     visit(payload)
     content = "\n".join(plain).strip()
-    if not content and html:
+    if html:
         parser = _TextHTML()
         parser.feed("\n".join(html))
-        content = re.sub(r"[ \t]+", " ", " ".join(parser.parts)).strip()
+        html_content = re.sub(r"[ \t]+", " ", " ".join(parser.parts)).strip()
+        if not content:
+            content = html_content
+        elif html_content:
+            normalized_plain = " ".join(content.casefold().split())
+            normalized_html = " ".join(html_content.casefold().split())
+            if normalized_html not in normalized_plain:
+                content = f"{content}\n\n{html_content}"
     return content[:_MAX_BODY_CHARS]
 
 
@@ -566,9 +639,23 @@ class GmailInboundProvider:
         client: httpx.Client | None = None,
         lead_extractor: Callable[..., GmailLeadExtraction] | None = None,
         ai_fallback_reason: str = "verified_workspace_openai_unavailable",
+        internal_domains: set[str] | None = None,
+        internal_emails: set[str] | None = None,
     ) -> None:
         self._connection_id = connection_id
         self.mailbox_email = mailbox_email.strip().lower()
+        self.internal_domains = {
+            domain.strip().lower()
+            for domain in (internal_domains or set())
+            if domain.strip()
+        }
+        self.internal_domains.add(self.mailbox_email.rsplit("@", 1)[-1])
+        self.internal_emails = {
+            email.strip().lower()
+            for email in (internal_emails or set())
+            if "@" in email
+        }
+        self.internal_emails.add(self.mailbox_email)
         self.api = GmailTransport(access_token, timeout_seconds=timeout_seconds, client=client)
         self.lead_extractor = lead_extractor
         self.ai_fallback_reason = ai_fallback_reason
@@ -918,13 +1005,49 @@ class GmailInboundProvider:
                     parsed_forward = _forwarded_lead(str(message.get("body", "")))
                     if parsed_forward is not None:
                         forwarded_options.append(parsed_forward)
+        participant_messages = (
+            [message for message in thread_messages if isinstance(message, dict)]
+            if isinstance(thread_messages, list)
+            else []
+        )
+        if not any(item.get("message_id") == record.record_id for item in participant_messages):
+            participant_messages.append({"headers": headers, "body": body})
+        eligible_participants = _thread_from_participants(
+            headers,
+            participant_messages,
+            self.internal_domains,
+            self.internal_emails,
+        )
+        if not eligible_participants:
+            raise ValueError("no_external_thread_participant")
+        eligible_by_email = {address: name for name, address in eligible_participants}
         forwarded = _forwarded_lead(body)
         if forwarded is None:
             unique_forwarded = {item[1].strip().lower(): item for item in forwarded_options}
             if len(unique_forwarded) == 1:
                 forwarded = next(iter(unique_forwarded.values()))
-        if forwarded is not None and forwarded[1].strip().lower() == original_sender_email:
+        if forwarded is not None and forwarded[1].strip().lower() not in eligible_by_email:
             forwarded = None
+        selected_identity = (
+            next(
+                (item for item in eligible_participants if item[1] == forwarded[1].lower()),
+                None,
+            )
+            if forwarded
+            else next(
+                (item for item in eligible_participants if item[1] == original_sender_email),
+                eligible_participants[0] if len(eligible_participants) == 1 else None,
+            )
+        )
+        if selected_identity is not None:
+            sender_name, email = selected_identity
+            if email != original_sender_email and forwarded is None:
+                forwarded = (
+                    sender_name,
+                    email,
+                    subject,
+                    thread_context,
+                )
         display = sender_name.strip() or email.split("@", 1)[0]
         local_domain = email.split("@")[-1]
         company = (
@@ -944,12 +1067,18 @@ class GmailInboundProvider:
                 .title()
             )
         authored_body = thread_context
+        if self.lead_extractor is None and selected_identity is None:
+            raise ValueError("external_thread_participant_ambiguous")
         extracted: GmailLeadExtraction | None = None
+        evidence_refs: list[dict[str, str]] = []
+        selection_reason = ""
         fallback_reason = self.ai_fallback_reason
         ai_reason = ""
         if self.lead_extractor is not None:
             try:
                 extraction_headers = dict(headers)
+                extraction_headers["internal-domains"] = ",".join(sorted(self.internal_domains))
+                extraction_headers["internal-emails"] = ",".join(sorted(self.internal_emails))
                 if forwarded is not None:
                     extraction_headers["from"] = f"{sender_name} <{email}>"
                     extraction_headers["subject"] = subject
@@ -963,11 +1092,25 @@ class GmailInboundProvider:
                         gmail_ai_reason="not_a_genuine_inquiry",
                     )
                     raise ValueError("ai_classified_not_a_genuine_inquiry")
+                from_evidence = []
+                reply_to_evidence = []
+                for thread_message in participant_messages:
+                    message_headers = thread_message.get("headers", {})
+                    if isinstance(message_headers, dict):
+                        if message_headers.get("from"):
+                            from_evidence.append(str(message_headers["from"]))
+                        if message_headers.get("reply-to"):
+                            reply_to_evidence.append(str(message_headers["reply-to"]))
+                    from_evidence.extend(
+                        line.strip()
+                        for line in str(thread_message.get("body", "")).splitlines()
+                        if re.match(r"(?i)^\s*>*\s*From:", line)
+                    )
                 evidence_sources = {
                     "subject": subject,
                     "body": authored_body,
-                    "from_header": extraction_headers.get("from", ""),
-                    "reply_to": extraction_headers.get("reply-to", ""),
+                    "from_header": "\n".join(from_evidence),
+                    "reply_to": "\n".join(reply_to_evidence),
                 }
                 if any(
                     not _evidence_is_from_source(
@@ -986,6 +1129,7 @@ class GmailInboundProvider:
                     "full_name": candidate.full_name,
                     "email": candidate.email,
                     "company_name": candidate.company_name,
+                    "job_title": candidate.job_title,
                     "requested_service": candidate.requested_service,
                     "phone": candidate.phone,
                 }.items():
@@ -998,48 +1142,54 @@ class GmailInboundProvider:
                             for item in field_evidence
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
-                if candidate.email and (
-                    "@" not in candidate.email
-                    or (
-                        candidate.email.strip().lower() != original_sender_email
-                        and candidate.email.strip().lower()
-                        not in {item[1].strip().lower() for item in forwarded_options}
-                        and (
-                            forwarded is None
-                            or candidate.email.strip().lower() != forwarded[1].strip().lower()
-                        )
-                    )
-                ):
+                if candidate.email and candidate.email.strip().lower() not in eligible_by_email:
                     raise ValueError("ai_email_not_a_thread_candidate")
                 if candidate.email:
                     email = candidate.email.strip().lower()
+                elif selected_identity is None:
+                    raise ValueError("external_thread_participant_ambiguous")
+                selected_identity = next(
+                    (item for item in eligible_participants if item[1] == email),
+                    selected_identity,
+                )
+                if selected_identity is not None:
+                    sender_name = selected_identity[0]
+                    display = sender_name.strip() or email.split("@", 1)[0]
                     if email != original_sender_email:
-                        selected_forward = next(
-                            (
-                                item for item in forwarded_options
-                                if item[1].strip().lower() == email
-                            ),
-                            forwarded,
+                        forwarded = next(
+                            (item for item in forwarded_options if item[1].lower() == email),
+                            (sender_name, email, subject, thread_context),
                         )
-                        if selected_forward is not None:
-                            forwarded = selected_forward
-                            sender_name = selected_forward[0]
-                            display = sender_name.strip() or email.split("@", 1)[0]
-                            subject = selected_forward[2] or subject
-                            local_domain = email.split("@")[-1]
-                            company = (
-                                re.sub(
-                                    r"\.(com|net|org|co|io|ai|biz|uk|us)$",
-                                    "",
-                                    local_domain,
-                                    flags=re.I,
-                                )
-                                .replace(".", " ")
-                                .title()
+                        subject = forwarded[2] or subject
+                        local_domain = email.split("@")[-1]
+                        company = (
+                            re.sub(
+                                r"\.(com|net|org|co|io|ai|biz|uk|us)$",
+                                "",
+                                local_domain,
+                                flags=re.I,
                             )
+                            .replace(".", " ")
+                            .title()
+                        )
+                evidence_refs = [
+                    {
+                        "field": item.field,
+                        "source": item.source,
+                        "excerpt": item.excerpt,
+                        "message_id": _evidence_message_id(
+                            item.source,
+                            item.excerpt,
+                            participant_messages,
+                            record.record_id,
+                        ),
+                    }
+                    for item in candidate.evidence
+                ]
                 extracted = candidate
                 fallback_reason = ""
                 ai_reason = "genuine_inquiry"
+                selection_reason = candidate.reason
             except ValueError as error:
                 if str(error) == "ai_classified_not_a_genuine_inquiry":
                     raise ValueError(str(error)) from None
@@ -1123,6 +1273,7 @@ class GmailInboundProvider:
             "external_id": record.record_id,
             "full_name": (extracted.full_name if extracted else None) or display,
             "email": email,
+            "job_title": extracted.job_title if extracted else None,
             "phone": extracted.phone if extracted else None,
             "company_name": (
                 (extracted.company_name if extracted else None) or company or "Unknown company"
@@ -1140,6 +1291,8 @@ class GmailInboundProvider:
             "forwarded_lead": candidate_decision == "separate_forwarded_lead",
             "gmail_thread_decision": candidate_decision,
             "gmail_candidate_identity_email": email,
+            "gmail_selection_reason": selection_reason,
+            "gmail_evidence": evidence_refs,
             "reply_to": parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
         }
         fingerprint = hashlib.sha256(
@@ -1163,6 +1316,7 @@ class GmailInboundProvider:
                 "original_sender_email": original_sender_email,
                 "gmail_thread_decision": candidate_decision,
                 "gmail_candidate_identity_email": email,
+                "gmail_selection_reason": selection_reason[:500],
                 "gmail_ai_method": "openai" if extracted else "deterministic",
                 "gmail_ai_fallback_reason": fallback_reason,
                 "gmail_ai_reason": ai_reason,

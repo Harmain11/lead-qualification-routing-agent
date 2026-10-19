@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.crm_inbound import CrmInboundProvider
@@ -11,7 +12,11 @@ from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.crm.gohighlevel import GoHighLevelCrmProvider
 from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceInboundCrmProvider
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    ProviderConnectionORM,
+    UserORM,
+    WorkspaceMembershipORM,
+)
 from lead_agent.infrastructure.gmail import GmailInboundProvider
 from lead_agent.infrastructure.outlook import OutlookInboundProvider
 from lead_agent.infrastructure.provider_lifecycle import (
@@ -79,6 +84,39 @@ class WorkspaceInboundCrmProviderResolver:
                     category="configuration",
                     retryable=False,
                 )
+            member_emails = set(
+                session.scalars(
+                    select(UserORM.email)
+                    .join(WorkspaceMembershipORM, WorkspaceMembershipORM.user_id == UserORM.id)
+                    .where(
+                        WorkspaceMembershipORM.workspace_id == workspace_id,
+                        WorkspaceMembershipORM.status == "active",
+                    )
+                )
+            )
+            internal_domains = {
+                mailbox.rsplit("@", 1)[-1].lower(),
+                *(
+                    email.rsplit("@", 1)[-1].lower()
+                    for email in member_emails
+                    if "@" in email
+                    and email.rsplit("@", 1)[-1].lower()
+                    not in {
+                        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
+                        "live.com", "yahoo.com", "icloud.com", "aol.com",
+                        "proton.me", "protonmail.com",
+                    }
+                ),
+            }
+            configured_domains = (
+                metadata.get("internal_domains", []) if isinstance(metadata, dict) else []
+            )
+            if isinstance(configured_domains, list):
+                internal_domains.update(
+                    value.strip().lower()
+                    for value in configured_domains
+                    if isinstance(value, str) and value.strip()
+                )
             extractor = None
             fallback_reason = "verified_workspace_openai_unavailable"
             try:
@@ -102,6 +140,8 @@ class WorkspaceInboundCrmProviderResolver:
                 timeout_seconds=self.settings.crm_timeout_seconds,
                 lead_extractor=extractor,
                 ai_fallback_reason=fallback_reason or "workspace_openai_extractor_unavailable",
+                internal_domains=internal_domains,
+                internal_emails=member_emails,
             )
         if resolved.provider == "outlook":
             connection = session.get(ProviderConnectionORM, resolved.connection_id)
