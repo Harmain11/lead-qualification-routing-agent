@@ -197,6 +197,10 @@ class OpenAIReasoningProvider:
                 for email in headers.get("internal-emails", "").split(",")
                 if email.strip()
             ],
+            "internal_company_names": [
+                name.strip() for name in headers.get("internal-company-names", "").split(",")
+                if name.strip()
+            ],
             "headers": {key: value[:1000] for key, value in headers.items() if key in {
                 "from", "reply-to", "to", "date", "message-id",
             }},
@@ -222,13 +226,19 @@ class OpenAIReasoningProvider:
             "qualification is separate from lead detection. Still exclude clear declines, "
             "unrelated/personal messages, automated content, and contacts whose identity or role "
             "cannot be supported by the thread. "
+            "A verified external participant email is enough contact identity when the person's "
+            "name is absent; leave full_name null rather than inventing or borrowing a name. "
+            "A phone-only referred contact still needs an evidenced name and referral. "
             "The supplied body contains every available message in the thread with each message's "
             "From, To, Cc, Date, and Subject metadata. Combine relevant context across messages; "
             "do not classify only the newest message. For an explicit forwarded message, use the "
             "external prospect described by its embedded/quoted From header, not an internal "
             "forwarder or latest sender. Treat these known internal domains and addresses as "
             "teammates, not prospects: use the supplied internal_domains and "
-            "known_internal_emails. "
+            "known_internal_emails. The supplied internal_company_names also identify our own "
+            "companies. Their employees are representatives/sources, never prospects just because "
+            "they forwarded a lead. Select the external person or referred contact in the embedded "
+            "conversation, and keep the internal forwarder only as provenance. "
             "Automated lead-notification emails may be internal delivery wrappers. Ignore the "
             "wrapper sender, display label, and mailbox owner as "
             "lead identities; parse the embedded original lead fields and underlying thread. "
@@ -274,6 +284,9 @@ class OpenAIReasoningProvider:
             "evidence; a recipient reply is not required. For To-header identities use body "
             "evidence containing the exact To line from the supplied conversation. "
             "Leave any optional field null when its exact value cannot be quoted. "
+            "Prefer a short exact reply or referral sentence for inquiry evidence, not a summary "
+            "of the opportunity. Names may be evidenced in the external correspondent's own "
+            "signature even when their From display label is abbreviated. "
             "Evidence "
             "source labels must be subject, "
             "body, from_header, or reply_to, and evidence field labels must match output fields. "

@@ -5,9 +5,11 @@ import pytest
 
 from lead_agent.domain.crm_inbound import ExternalCrmRecord
 from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailProspectCandidate
+from lead_agent.domain.normalization import normalize_lead
 from lead_agent.infrastructure.gmail import (
     GmailInboundProvider,
     _evidence_is_from_source,
+    _is_internal_address,
     _phone_evidence_is_from_source,
 )
 
@@ -48,13 +50,20 @@ def test_quoted_wrapped_evidence_is_contiguous_without_transport_prefixes():
 
 def test_phone_evidence_matches_display_link_and_country_code_formatting():
     source = (
-        "> Please contact Dr. Singh on Monday at 1-202-324-3000 "
-        "<(202)%20324-3000>."
+        "> Please contact Dr. Singh on Monday at 1-202-324-3000\r\n"
+        "> <(202)%20324-3000>."
     )
     excerpt = "(202)%20324-3000"
     assert _phone_evidence_is_from_source(source, excerpt)
     assert _phone_evidence_is_from_source(source, "202 324 3000")
     assert not _phone_evidence_is_from_source(source, "202 324 3001")
+    assert _evidence_is_from_source(
+        source, "Please contact Dr. Singh on Monday at 1-202-324-3000."
+    )
+    assert not _evidence_is_from_source(
+        source.replace("%20324-3000", "%20324-3001"),
+        "Please contact Dr. Singh on Monday at 1-202-324-3000.",
+    )
 
 
 def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead():
@@ -75,7 +84,7 @@ def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead
         full_name="Lee Taylor", email="lee@studio.example",
         requested_service="A fully specified AI transformation package",
         evidence=[
-            GmailEvidence(field="full_name", source="from_header", excerpt="Lee Taylor"),
+            GmailEvidence(field="full_name", source="from_header", excerpt="lee studio.example"),
             GmailEvidence(field="email", source="from_header", excerpt="To: <lee@studio.example>"),
             GmailEvidence(
                 field="requested_service", source="body",
@@ -100,7 +109,7 @@ def test_quoted_referral_creates_phone_only_contact_and_keeps_referrer_as_contex
         "> From: Alex Howard <alex@firm.example>\n"
         "> To: Casey <casey@agency-cloud.example>\n\n"
         "> Please contact Dr. Singh on Monday at "
-        "1-202-555-0138 <(202)%20555-0138>.\n"
+        "1-202-555-0138\n> <(202)%20555-0138>.\n"
         "> They can speak with you about this matter.\n\n"
         "> From: Casey <casey@agency-cloud.example>\n"
         "> To: Alex Howard <alex@firm.example>\n> Subject: Collaboration\n\n"
@@ -120,7 +129,7 @@ def test_quoted_referral_creates_phone_only_contact_and_keeps_referrer_as_contex
     referred = GmailProspectCandidate(
         role="referred_prospect", is_genuine_inquiry=True, confidence=0.93,
         reason="Explicit referral about the commercial matter.",
-        inquiry_evidence="Please contact Dr. Singh on Monday at",
+        inquiry_evidence="Please contact Dr. Singh on Monday at 1-202-555-0138.",
         full_name="Dr. Singh", phone="1-202-555-0138", referred_by="Alex Howard",
         company_name="Unverified firm name",
         evidence=[
@@ -214,3 +223,121 @@ def test_missing_phone_on_explicit_referral_can_be_recovered_without_inventing_e
     assert lead.normalized_payload["phone"] == "1-202-555-0138"
     assert lead.normalized_payload["email"] == ""
     assert "name_or_supported_contact_missing" in calls[1]["headers"]["validation-feedback"]
+
+
+@pytest.mark.parametrize("domain", [
+    "ingenuitysys.com", "ingenuitysystem.com", "ingenuitysystems.com",
+    "ingenuity-systems.cloud", "mail.ingenuity.example",
+])
+def test_ingenuity_company_domains_are_internal_without_manual_configuration(domain):
+    assert _is_internal_address(f"rep@{domain}", set(), set())
+
+
+@pytest.mark.parametrize("address", [
+    "person@client.example", "person@notingenuity.com", "ingenuity@gmail.com",
+])
+def test_unrelated_addresses_are_not_internal_brand_matches(address):
+    assert not _is_internal_address(address, set(), set())
+
+
+def test_nested_ingenuity_forwarder_and_named_internal_rep_are_not_leads():
+    body = (
+        "From: Reese Example <reese@ingenuity-systems.cloud>\n"
+        "To: Lee Taylor <lee@client.example>\nSubject: Startup call\n\n"
+        "Could we discuss our AI services?\n"
+        "Reese Example\nIngenuity Systems\n1-202-555-0140\n\n"
+        "> From: Lee Taylor <lee@client.example>\n"
+        "> To: Reese Example <reese@ingenuity-systems.cloud>\n"
+        "> Subject: Startup call\n\n> Give me a little more context\n"
+    )
+    lead = GmailProspectCandidate(
+        role="direct_prospect", is_genuine_inquiry=True, confidence=0.95,
+        reason="Engaged in the introductory service conversation.",
+        inquiry_evidence="Give me a little more context",
+        full_name="Lee Taylor", email="lee@client.example",
+        evidence=[
+            GmailEvidence(field="full_name", source="body", excerpt="Lee Taylor"),
+            GmailEvidence(field="email", source="body", excerpt="lee@client.example"),
+        ],
+    )
+    internal = GmailProspectCandidate(
+        role="direct_prospect", is_genuine_inquiry=True, confidence=0.95,
+        reason="Incorrectly selected the representative.",
+        inquiry_evidence="Could we discuss our AI services?",
+        full_name="Reese Example", phone="1-202-555-0140", company_name="Ingenuity Systems",
+        evidence=[
+            GmailEvidence(field="full_name", source="body", excerpt="Reese Example"),
+            GmailEvidence(field="phone", source="body", excerpt="1-202-555-0140"),
+            GmailEvidence(field="company_name", source="body", excerpt="Ingenuity Systems"),
+        ],
+    )
+    observed = []
+
+    def extractor(**kwargs):
+        observed.append(kwargs["headers"])
+        return _extraction([internal, lead])
+
+    record = _record(body)
+    record.values["headers"] = {
+        "from": "Company Forwarder <forwarder@ingenuitysystem.com>",
+        "subject": "Forwarded conversation",
+    }
+    [result] = _provider(extractor).normalize_records(record)
+    assert result.normalized_payload["email"] == "lee@client.example"
+    assert result.provider_metadata["original_sender_email"] == "forwarder@ingenuitysystem.com"
+    assert not any(
+        "ingenuity" in email
+        for email in result.normalized_payload["gmail_eligible_participant_emails"]
+    )
+    assert "reese example" in result.normalized_payload["gmail_internal_participant_names"]
+    assert observed[0]["internal-company-names"] == "Ingenuity,Ingenuity Systems"
+
+
+def test_name_is_not_borrowed_from_a_different_correspondents_signature():
+    body = (
+        "From: Avery Lane <avery@client.example>\n"
+        "To: Morgan <morgan@agency.example>\nSubject: Services\n\n"
+        "Could we discuss your services?\n\n"
+        "From: Other Person <other@elsewhere.example>\n"
+        "To: Morgan <morgan@agency.example>\nSubject: Other matter\n\n"
+        "Invented Name\nother@elsewhere.example\n"
+    )
+    candidate = GmailProspectCandidate(
+        role="direct_prospect", is_genuine_inquiry=True, confidence=0.95,
+        reason="Incorrectly combined identities from two messages.",
+        inquiry_evidence="Could we discuss your services?",
+        full_name="Invented Name", email="avery@client.example",
+        evidence=[
+            GmailEvidence(field="full_name", source="from_header", excerpt="Avery Lane"),
+            GmailEvidence(field="email", source="from_header", excerpt="avery@client.example"),
+        ],
+    )
+    with pytest.raises(ValueError, match="full_name"):
+        _provider(lambda **_: _extraction([candidate])).normalize_records(_record(body))
+
+
+def test_startup_reply_with_verified_email_and_missing_details_is_saved_as_unknown():
+    body = (
+        "From: <prospect@client.example>\n"
+        "To: Morgan <morgan@agency.example>\nSubject: Intro call about our AI services\n\n"
+        "Can you tell me more about your services?"
+    )
+    candidate = GmailProspectCandidate(
+        role="direct_prospect", is_genuine_inquiry=True, confidence=0.95,
+        reason="Early-stage services discussion with an identified external email.",
+        inquiry_evidence="Can you tell me more about your services?",
+        email="prospect@client.example",
+        evidence=[
+            GmailEvidence(field="email", source="from_header", excerpt="prospect@client.example")
+        ],
+    )
+    [lead] = _provider(lambda **_: _extraction([candidate])).normalize_records(_record(body))
+    assert lead.normalized_payload["email"] == "prospect@client.example"
+    assert lead.normalized_payload["full_name"] == "Name not provided"
+    assert "full_name" in lead.normalized_payload["gmail_unknown_identity_fields"]
+    assert lead.normalized_payload["company_name"] == "Unknown"
+    assert lead.normalized_payload["product_or_service"] == "Unknown"
+    assert lead.normalized_payload["job_title"] is None
+    saved = normalize_lead(lead.normalized_payload, uuid4())
+    assert saved.email == "prospect@client.example"
+    assert saved.full_name == "Name not provided"
