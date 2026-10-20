@@ -83,6 +83,9 @@ export function DirectDialer({
   const [result, setResult] = useState<DirectCallRecord | null>(null);
   const [history, setHistory] = useState<DirectCallRecord[]>([]);
   const [historyError, setHistoryError] = useState("");
+  const [cloudTalkNumbers, setCloudTalkNumbers] = useState<string[]>([]);
+  const [cloudTalkNumbersLoading, setCloudTalkNumbersLoading] = useState(false);
+  const [cloudTalkNumbersError, setCloudTalkNumbersError] = useState("");
 
   useEffect(() => {
     if (!connections.some((connection) => connection.id === connectionId)) {
@@ -110,6 +113,39 @@ export function DirectDialer({
 
   const selected = connections.find((connection) => connection.id === connectionId);
   const needsRep = selected?.provider === "twilio";
+
+  useEffect(() => {
+    if (selected?.provider !== "cloudtalk" || !connectionId) {
+      setCloudTalkNumbers([]);
+      setCloudTalkNumbersError("");
+      setCloudTalkNumbersLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCloudTalkNumbers([]);
+    setCloudTalkNumbersError("");
+    setCloudTalkNumbersLoading(true);
+    opsGet<{ numbers: string[] }>(
+      `/v1/calling/cloudtalk/numbers?connection_id=${encodeURIComponent(connectionId)}`,
+      controller.signal,
+    )
+      .then((data) => {
+        if (!controller.signal.aborted) setCloudTalkNumbers(data.numbers);
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) {
+          setCloudTalkNumbersError(
+            reason instanceof Error
+              ? reason.message
+              : "CloudTalk phone numbers could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCloudTalkNumbersLoading(false);
+      });
+    return () => controller.abort();
+  }, [connectionId, selected?.provider]);
 
   function addPhoneKey(value: string) {
     setPhoneNumber((current) => {
@@ -266,6 +302,27 @@ export function DirectDialer({
                 </option>
               ))}
             </select>
+            {selected?.provider === "cloudtalk" && (
+              <div className="direct-dialer-caller-ids" aria-live="polite">
+                <strong>Numbers assigned in CloudTalk</strong>
+                {cloudTalkNumbersLoading ? (
+                  <p role="status">Loading assigned numbers…</p>
+                ) : cloudTalkNumbersError ? (
+                  <p role="alert">{cloudTalkNumbersError}</p>
+                ) : cloudTalkNumbers.length ? (
+                  <ul aria-label="CloudTalk numbers assigned to this account">
+                    {cloudTalkNumbers.map((number) => <li key={number}>{number}</li>)}
+                  </ul>
+                ) : (
+                  <p role="status">CloudTalk returned no assigned numbers.</p>
+                )}
+                <small>
+                  Automatic and Smart Rotation are managed in CloudTalk Phone.
+                  Corral can show this inventory, but cannot choose or confirm
+                  the caller ID used by this API call.
+                </small>
+              </div>
+            )}
             {selected && ["twilio", "ringcentral"].includes(selected.provider) && (
               <label>Your rep number{needsRep ? " (required)" : " (optional override)"}
                 <input

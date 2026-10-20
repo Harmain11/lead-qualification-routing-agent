@@ -35,8 +35,10 @@ import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { ActivityToasts } from "./components/ActivityToasts";
+import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { NativeSelectEnhancer } from "./components/NativeSelectEnhancer";
+import { notifyActivity } from "./activity";
 const IntegrationsView = lazy(() =>
   import("./views/IntegrationsView").then((module) => ({
     default: module.IntegrationsView,
@@ -373,11 +375,19 @@ function App() {
   });
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadNotificationSnapshot, setLeadNotificationSnapshot] = useState<{
+    workspaceId: string;
+    leads: Lead[];
+  }>({ workspaceId: "", leads: [] });
   const {
     unseenLeadIds,
     observeLeadSnapshot,
     markSeen: markLeadSeen,
   } = useNewLeadIndicators(auth?.user.id, auth?.current_workspace_id);
+  const notificationLeads =
+    leadNotificationSnapshot.workspaceId === auth?.current_workspace_id
+      ? leadNotificationSnapshot.leads
+      : [];
   const unseenLeadIdSet = useMemo(
     () => new Set(unseenLeadIds),
     [unseenLeadIds],
@@ -549,7 +559,18 @@ function App() {
             : null,
         );
         const nextLeads = leadRows?.items ?? [];
-        observeLeadSnapshot(nextLeads);
+        const newArrivalIds = observeLeadSnapshot(nextLeads);
+        setLeadNotificationSnapshot({
+          workspaceId: auth?.current_workspace_id ?? "",
+          leads: nextLeads,
+        });
+        if (newArrivalIds.length) {
+          const example = nextLeads.find((lead) => newArrivalIds.includes(lead.id));
+          const message = newArrivalIds.length === 1
+            ? `New lead arrived${example?.full_name ? `: ${example.full_name}` : ""}.`
+            : `${newArrivalIds.length} new leads arrived.`;
+          notifyActivity(message, "info");
+        }
         setLeads(nextLeads.slice(0, 1));
         if (leadRows) {
           const nextSignature = JSON.stringify([
@@ -1294,6 +1315,13 @@ function App() {
             </div>
           </div>
           <div className="bar-actions">
+            {can(workspacePermissions, "leads.view") && (
+              <LeadNotificationCenter
+                unseenLeadIds={unseenLeadIds}
+                leads={notificationLeads}
+                onOpenLead={handleInspectLead}
+              />
+            )}
             <div className="header-shortcuts" aria-label="Quick shortcuts">
               {headerShortcuts.map((shortcut) => <div className="header-shortcut" key={shortcut.id}>
                 <button

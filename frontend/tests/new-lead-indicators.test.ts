@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   emptyNewLeadIndicatorSnapshot,
   markLeadSeen,
+  newlyUnseenLeadIds,
   observeNewLeads,
 } from "../src/newLeadIndicators.ts";
 
@@ -71,4 +72,21 @@ test("legacy stored snapshots without opened-lead tracking remain readable", () 
   );
 
   assert.deepEqual(result.unseenIds, ["new"]);
+});
+
+test("only newly unseen lead IDs trigger arrival notifications", () => {
+  const baseline = observeNewLeads(emptyNewLeadIndicatorSnapshot, [
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const arrived = observeNewLeads(baseline, [
+    { id: "new", created_at: "2026-10-02T10:00:00Z" },
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const repeated = observeNewLeads(arrived, [
+    { id: "new", created_at: "2026-10-02T10:00:00Z" },
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+
+  assert.deepEqual(newlyUnseenLeadIds(baseline, arrived), ["new"]);
+  assert.deepEqual(newlyUnseenLeadIds(arrived, repeated), []);
 });

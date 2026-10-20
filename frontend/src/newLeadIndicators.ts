@@ -31,6 +31,14 @@ function sameValues(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+export function newlyUnseenLeadIds(
+  previous: NewLeadIndicatorSnapshot,
+  next: NewLeadIndicatorSnapshot,
+): string[] {
+  const previouslyUnseen = new Set(previous.unseenIds);
+  return next.unseenIds.filter((id) => !previouslyUnseen.has(id));
+}
+
 export function observeNewLeads(
   snapshot: NewLeadIndicatorSnapshot,
   leads: LeadIndicatorRow[],
