@@ -237,7 +237,7 @@ export function DirectDialer({
     </div>
     {connections.length > 0 && (
       <div className="dialer-preferred-provider">
-        <label htmlFor="preferred-dialer-connection">Embedded dialer</label>
+        <label htmlFor="preferred-dialer-connection">Preferred dialer</label>
         {connections.length > 1 ? (
           <select
             id="preferred-dialer-connection"

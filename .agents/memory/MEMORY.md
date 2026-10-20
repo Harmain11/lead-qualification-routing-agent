@@ -18,6 +18,7 @@
 - [Production query results](production-query-results.md) — transaction-only SQL output is not an empty result set, even if the callback reports success.
 - [Reasoning backfill progress](reasoning-backfill-progress.md) — provider lifecycle audit events persist backfill status and per-configuration completion receipts.
 - [CloudTalk API boundaries](cloudtalk-api-boundaries.md) — per-call source selection uses an agent-assigned number and CloudTalk Desktop; call results stay there.
+- [Embedded dialer selection](embedded-dialer-selection.md) — one verified CloudTalk, Aircall, or RingCentral phone is selected globally; other providers keep Corral's call flow.
 - [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
 - [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
 - [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
