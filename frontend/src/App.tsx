@@ -1852,6 +1852,12 @@ function App() {
           connection={selectedDialer}
           open={dialerPhoneOpen}
           callActive={dialerCallActive}
+          notificationPreferenceKey={
+            dialerPreferenceKey
+              ? `${dialerPreferenceKey}:cloudtalk-alerts:v1`
+              : null
+          }
+          onOpen={() => setDialerPhoneOpen(true)}
           onToggle={() => {
             if (dialerCallActive && dialerPhoneOpen) return;
             setDialerPhoneOpen((current) => !current);
