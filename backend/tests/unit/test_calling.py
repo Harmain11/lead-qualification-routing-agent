@@ -1048,8 +1048,8 @@ def test_cloudtalk_number_inventory_is_scoped_and_closes_provider_client(calls, 
     class FakeCloudTalkClient:
         closed = False
 
-        def list_cloudtalk_numbers(self):
-            return ["+14155550123", "+442071838750"]
+        def list_cloudtalk_agent_caller_ids(self):
+            return ["+14155550123", "+442071838750"], "+14155550123"
 
         def close(self):
             self.closed = True
@@ -1063,5 +1063,107 @@ def test_cloudtalk_number_inventory_is_scoped_and_closes_provider_client(calls, 
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"numbers": ["+14155550123", "+442071838750"]}
+    assert response.json() == {
+        "numbers": ["+14155550123", "+442071838750"],
+        "default_number": "+14155550123",
+    }
     assert provider_client.closed
+
+
+def test_cloudtalk_caller_ids_come_from_the_selected_agent():
+    seen = []
+
+    def transport(request):
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "responseData": {
+                    "data": [
+                        {
+                            "Agent": {
+                                "id": "7",
+                                "default_number": "+14155550123",
+                                "associated_numbers": [
+                                    "+14155550123",
+                                    "+442071838750",
+                                ],
+                            }
+                        }
+                    ]
+                }
+            },
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(transport)) as http_client:
+        client = CommunicationsClient(
+            "cloudtalk", CREDENTIALS["cloudtalk"], client=http_client
+        )
+        numbers, default_number = client.list_cloudtalk_agent_caller_ids()
+
+    assert numbers == ["+14155550123", "+442071838750"]
+    assert default_number == "+14155550123"
+    assert seen[0].url.path == "/api/agents/index.json"
+    assert seen[0].url.params["id"] == "7"
+
+
+def test_cloudtalk_handoff_uses_only_an_assigned_caller_id_and_keeps_safeguards(
+    calls, monkeypatch
+):
+    session, client, workspace, _, connection, _, adapter = calls
+    connection.provider_type = "cloudtalk"
+    connection.status = "verified"
+    connection.is_active = True
+    session.commit()
+    monkeypatch.setattr(
+        adapter,
+        "list_cloudtalk_agent_caller_ids",
+        lambda: (["+14155550123", "+442071838750"], "+14155550123"),
+        raising=False,
+    )
+
+    payload = {
+        **request(connection),
+        "phone_number": TARGET,
+        "caller_id": "+442071838750",
+        "consent_confirmed": True,
+    }
+    prepared = client.post("/v1/calling/direct/cloudtalk-handoff", json=payload)
+    assert prepared.status_code == 200, prepared.text
+    assert prepared.json()["handoff_url"] == (
+        "ct+tel:+14155550111?from=%2B442071838750"
+    )
+    assert prepared.json()["caller_id"] == "+442071838750"
+    assert adapter.count == 0
+    assert session.scalar(select(func.count()).select_from(CallRecordORM)) == 0
+
+    invalid_caller = client.post(
+        "/v1/calling/direct/cloudtalk-handoff",
+        json={**payload, "request_id": str(uuid4()), "caller_id": "+14155550999"},
+    )
+    assert invalid_caller.status_code == 422
+
+    missing_confirmation = client.post(
+        "/v1/calling/direct/cloudtalk-handoff",
+        json={**payload, "request_id": str(uuid4()), "confirmed": False},
+    )
+    assert missing_confirmation.status_code == 422
+
+    session.add(
+        ConsentEventORM(
+            workspace_id=workspace.workspace_id,
+            email="alex@acme.test",
+            channel="call",
+            status="withdrawn",
+            basis="request",
+            purpose="Do not call",
+            evidence="Asked not to receive calls",
+            actor_id="test",
+        )
+    )
+    session.commit()
+    blocked = client.post(
+        "/v1/calling/direct/cloudtalk-handoff",
+        json={**payload, "request_id": str(uuid4())},
+    )
+    assert blocked.status_code == 409

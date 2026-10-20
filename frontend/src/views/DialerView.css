@@ -23,10 +23,8 @@
 .direct-dialer-fields small, .direct-dialer-actions > small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .direct-dialer-account-field > label { margin: 0; }
 .direct-dialer-caller-ids { display: grid; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-high); }
-.direct-dialer-caller-ids > strong { font-size: 12px; }
+.direct-dialer-caller-ids > label { margin: 0; color: var(--text); }
 .direct-dialer-caller-ids > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
-.direct-dialer-caller-ids ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.direct-dialer-caller-ids li { max-width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-solid); font-size: 12px; overflow-wrap: anywhere; }
 .direct-dialer-caller-ids > small { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .direct-dialer-status { display: grid; grid-template-columns: 9px minmax(0, 1fr); align-items: start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-high); }
 .direct-dialer-status > span { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 40%, transparent); }
@@ -48,6 +46,12 @@
 .direct-call-result strong { font-size: 13px; }
 .direct-call-result span, .direct-call-result p { color: var(--muted); font-size: 11px; }
 .direct-call-result p { margin: 0; }
+.direct-call-handoff { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-high); }
+.direct-call-handoff > div { display: grid; gap: 5px; min-width: 0; }
+.direct-call-handoff strong { font-size: 13px; overflow-wrap: anywhere; }
+.direct-call-handoff p, .direct-call-handoff > small { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.direct-call-handoff .primary-button { justify-self: start; text-decoration: none; }
+.direct-call-handoff .primary-button[aria-disabled="true"] { opacity: .55; pointer-events: none; }
 .direct-call-history { display: grid; gap: 10px; }
 .direct-call-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .direct-call-history-head h3 { margin: 0; font-size: 14px; }
