@@ -276,6 +276,17 @@ def _send_lead_confirmation_email(session: Session, row: LeadORM) -> None:
         )
 
 
+def _send_confirmation_if_eligible(
+    session: Session,
+    row: LeadORM,
+    *,
+    send_confirmation_email: bool = True,
+    requires_manual_review: bool = False,
+) -> None:
+    if send_confirmation_email and not requires_manual_review:
+        _send_lead_confirmation_email(session, row)
+
+
 @dataclass(frozen=True)
 class IntakeResult:
     source_event_id: str
@@ -418,7 +429,9 @@ def process_lead(
     if get_current_routing(session, row.id, workspace_id) is None:
         _record_pre_routing_history(session, row, analysis, result)
     route_and_notify(session, row, routing, notification_provider=notification_provider)
-    _send_lead_confirmation_email(session, row)
+    _send_confirmation_if_eligible(
+        session, row, requires_manual_review=analysis.requires_manual_review
+    )
     if row.source_event is not None and row.source_event.status == "received":
         row.source_event.status = (
             "manual_review" if analysis.requires_manual_review else "processed"
@@ -459,8 +472,12 @@ def process_source_event(
             # confirmation email is retryable. Re-check the idempotent email
             # record on duplicate webhook deliveries so a later retry can
             # complete the confirmation without duplicating the lead.
-            if send_confirmation_email:
-                _send_lead_confirmation_email(session, existing_lead)
+            _send_confirmation_if_eligible(
+                session,
+                existing_lead,
+                send_confirmation_email=send_confirmation_email,
+                requires_manual_review=source_event.status == "manual_review",
+            )
             return IntakeResult(
                 str(source_event.id), source_event.status, existing_lead, duplicate=True
             )
@@ -537,8 +554,12 @@ def process_source_event(
         # Commit the lead/source event before touching Gmail or its delivery
         # ledger. This makes intake durable even when email storage/provider
         # work is temporarily locked or unavailable.
-        if send_confirmation_email:
-            _send_lead_confirmation_email(session, row)
+        _send_confirmation_if_eligible(
+            session,
+            row,
+            send_confirmation_email=send_confirmation_email,
+            requires_manual_review=analysis.requires_manual_review,
+        )
         if provider is None and getattr(active_provider, "provider_name", "") not in {
             "", "deterministic-safeguard", "deterministic"
         }:
@@ -644,8 +665,12 @@ def reprocess_lead(
         manual_review_reason=effective_manual_review_reason,
     )
     _record_integration_approval_outcome(session, row, approval_provider)
-    if send_confirmation_email:
-        _send_lead_confirmation_email(session, row)
+    _send_confirmation_if_eligible(
+        session,
+        row,
+        send_confirmation_email=send_confirmation_email,
+        requires_manual_review=analysis.requires_manual_review,
+    )
     if provider is None and getattr(active_provider, "provider_name", "") not in {
         "", "deterministic-safeguard", "deterministic"
     }:
