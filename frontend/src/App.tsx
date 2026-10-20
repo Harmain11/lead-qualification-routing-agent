@@ -430,7 +430,7 @@ function App() {
         preferredDialerRef.current = nextId;
         setPreferredDialerId(nextId);
         if (nextId !== currentId) {
-          setDialerPhoneOpen(Boolean(next && isEmbeddedDialerConnection(next)));
+          setDialerPhoneOpen(false);
           setDialerCallActive(false);
         }
         if (nextId) {
@@ -462,7 +462,7 @@ function App() {
       if (nextId) window.localStorage.setItem(dialerPreferenceKey, nextId);
       else window.localStorage.removeItem(dialerPreferenceKey);
     }
-    setDialerPhoneOpen(Boolean(next && isEmbeddedDialerConnection(next)));
+    setDialerPhoneOpen(false);
   }, [dialerCallActive, dialerConnections, dialerPreferenceKey]);
   const [pageSection, setPageSection] = useState(() =>
     sectionFromSearch(
