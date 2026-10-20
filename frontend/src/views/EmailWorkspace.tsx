@@ -113,10 +113,7 @@ export function EmailWorkspace({
     getGmailMailboxThread(connectionId, selected.thread_id, controller.signal).then((result) => {
       if (!controller.signal.aborted) {
         setThread(result.messages);
-        const latestMessage = result.messages.at(-1);
-        setExpandedMessageIds(
-          latestMessage ? new Set([latestMessage.message_id]) : new Set(),
-        );
+        setExpandedMessageIds(new Set());
         setLoadingThread(false);
       }
     }).catch((reason) => {
@@ -300,6 +297,7 @@ export function EmailWorkspace({
           accounts={accounts}
           canSend={canSend}
           seed={composeSeed}
+          onClose={() => setComposeSeed(null)}
           onSent={() => {
             setComposeSeed(null);
             setRevision((current) => current + 1);

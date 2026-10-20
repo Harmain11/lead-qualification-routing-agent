@@ -19,6 +19,7 @@ type Props = {
   leadId?: string;
   seed?: GmailComposerSeed;
   onSent?: (result: GmailSendResult) => void;
+  onClose?: () => void;
 };
 
 type AttachmentDraft = GmailAttachmentRequest & {
@@ -38,7 +39,14 @@ function encodeBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props) {
+export function EmailComposer({
+  accounts,
+  canSend,
+  leadId,
+  seed,
+  onSent,
+  onClose,
+}: Props) {
   const sendableAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_SEND_SCOPE),
   );
@@ -194,6 +202,24 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
     }
   }
 
+  function closeComposer() {
+    const hasUnsentChanges =
+      body.trim() ||
+      bodyHtml.trim() ||
+      cc.trim() ||
+      bcc.trim() ||
+      attachments.length > 0 ||
+      recipient !== (seed?.recipient ?? "") ||
+      subject !== (seed?.subject ?? "");
+    if (
+      hasUnsentChanges &&
+      !window.confirm("Close this composer and discard the unsent draft?")
+    ) {
+      return;
+    }
+    onClose?.();
+  }
+
   if (!canSend) {
     return <div className="email-composer-empty">You can read this conversation. Sending email requires lead edit permission.</div>;
   }
@@ -204,25 +230,41 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
   return <form className="email-composer" onSubmit={(event) => void submit(event)}>
     <div className="email-composer-heading">
       <div><span className="eyebrow">{seed?.threadId ? "Reply" : "Compose"}</span><h3>{seed?.threadId ? "Reply to email" : "New email"}</h3></div>
-      <small>Review the recipient and message before sending.</small>
-    </div>
-    <label>From
-      <select value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
-        {sendableAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}
-      </select>
-    </label>
-    <label>To
-      <input value={recipient} onChange={(event) => setRecipient(event.target.value)} maxLength={1024} autoComplete="email" placeholder="name@example.com" required />
-      <div className="email-recipient-options">
-        <small>Separate multiple addresses with commas.</small>
-        <div>
-          <button type="button" className="button-quiet" onClick={() => setShowCc((value) => !value)} aria-expanded={showCc}>Cc</button>
-          <button type="button" className="button-quiet" onClick={() => setShowBcc((value) => !value)} aria-expanded={showBcc}>Bcc</button>
-        </div>
+      <div className="email-composer-heading-actions">
+        <small>Review the recipient and message before sending.</small>
+        {onClose && <button
+          className="email-composer-close button-quiet"
+          type="button"
+          aria-label={seed?.threadId ? "Close reply" : "Close email composer"}
+          title={seed?.threadId ? "Close reply" : "Close email composer"}
+          disabled={busy}
+          onClick={closeComposer}
+        >
+          <span aria-hidden="true">×</span>
+        </button>}
       </div>
-    </label>
-    {showCc && <label>Cc<input value={cc} onChange={(event) => setCc(event.target.value)} maxLength={1024} placeholder="copy@example.com" /></label>}
-    {showBcc && <label>Bcc<input value={bcc} onChange={(event) => setBcc(event.target.value)} maxLength={1024} placeholder="hidden-copy@example.com" /></label>}
+    </div>
+    <div className="email-composer-address-grid">
+      <label>From
+        <select value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
+          {sendableAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}
+        </select>
+      </label>
+      <div className="email-composer-recipient-fields">
+        <label>To
+          <input value={recipient} onChange={(event) => setRecipient(event.target.value)} maxLength={1024} autoComplete="email" placeholder="name@example.com" required />
+        </label>
+        <div className="email-recipient-options">
+          <small>Separate multiple addresses with commas.</small>
+          <div>
+            <button type="button" className="button-quiet" onClick={() => setShowCc((value) => !value)} aria-expanded={showCc}>Cc</button>
+            <button type="button" className="button-quiet" onClick={() => setShowBcc((value) => !value)} aria-expanded={showBcc}>Bcc</button>
+          </div>
+        </div>
+        {showCc && <label>Cc<input value={cc} onChange={(event) => setCc(event.target.value)} maxLength={1024} placeholder="copy@example.com" /></label>}
+        {showBcc && <label>Bcc<input value={bcc} onChange={(event) => setBcc(event.target.value)} maxLength={1024} placeholder="hidden-copy@example.com" /></label>}
+      </div>
+    </div>
     <label>Subject
       <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required />
     </label>
@@ -265,8 +307,10 @@ export function EmailComposer({ accounts, canSend, leadId, seed, onSent }: Props
     </ul>}
     {error && <div className="notice" role="alert">{error}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
-    <button className="primary-button" type="submit" disabled={busy || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
-      {busy ? "Sending…" : "Send email"}
-    </button>
+    <div className="email-composer-footer">
+      <button className="primary-button" type="submit" disabled={busy || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
+        {busy ? "Sending…" : "Send email"}
+      </button>
+    </div>
   </form>;
 }

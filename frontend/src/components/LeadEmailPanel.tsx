@@ -155,6 +155,7 @@ export function LeadEmailPanel({
       canSend={canSend}
       leadId={lead.id}
       seed={composeSeed}
+      onClose={() => setComposeSeed(null)}
       onSent={() => {
         setRevision((current) => current + 1);
         setComposeSeed(null);
