@@ -47,32 +47,32 @@
 
 .dialer-phone-header {
   display: flex;
-  min-height: 58px;
+  min-height: 68px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px 10px 16px;
+  gap: 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid rgba(29, 66, 54, 0.12);
   background: #fff;
   color: #173b30;
 }
 
-.dialer-phone-header > div {
+.dialer-phone-header-main {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 }
 
 .dialer-phone-header strong {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .dialer-phone-header small {
   overflow: hidden;
   color: #63746e;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -81,21 +81,29 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .dialer-phone-alert-toggle {
-  min-height: 32px;
-  padding: 5px 9px;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
   border: 1px solid rgba(29, 66, 54, 0.16);
-  border-radius: 8px;
+  border-radius: 10px;
   background: #f7faf8;
   color: #31594b;
   cursor: pointer;
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.dialer-phone-alert-icon {
+  flex: 0 0 auto;
 }
 
 .dialer-phone-alert-toggle:hover:not(:disabled),
@@ -115,24 +123,18 @@
   opacity: 0.55;
 }
 
-.dialer-phone-header .dialer-phone-alert-message {
-  color: #8a5b10;
-  font-size: 10px;
-  white-space: normal;
-}
-
 .dialer-phone-close {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
   place-items: center;
-  border: 0;
+  border: 1px solid rgba(29, 66, 54, 0.12);
   border-radius: 10px;
-  background: transparent;
+  background: #f7faf8;
   color: #405b51;
   cursor: pointer;
-  font-size: 25px;
+  font-size: 22px;
   line-height: 1;
 }
 
@@ -157,14 +159,36 @@
 }
 
 .dialer-phone-cloudtalk-alert-note {
+  display: grid;
   flex: 0 0 auto;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
   margin: 0;
-  padding: 6px 12px;
+  padding: 9px 14px;
   border-bottom: 1px solid rgba(29, 66, 54, 0.09);
   background: #f7faf8;
   color: #63746e;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
+}
+
+.dialer-phone-cloudtalk-alert-note.is-feedback {
+  border-bottom-color: rgba(138, 91, 16, 0.16);
+  background: #fff8e9;
+  color: #765618;
+}
+
+.dialer-phone-alert-note-icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .dialer-phone-status {
@@ -187,23 +211,24 @@
 
 .dialer-phone-cloudtalk-frame-viewport {
   position: relative;
+  display: flex;
   width: 100%;
   min-height: 0;
   flex: 1 1 auto;
+  justify-content: center;
+  align-items: flex-start;
   overflow: hidden;
   background: #fff;
 }
 
 .dialer-phone-frame-cloudtalk {
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: relative;
   width: 420px;
   min-width: 420px;
   height: 700px;
   min-height: 700px;
   flex: 0 0 700px;
-  transform-origin: top left;
+  transform-origin: top center;
 }
 
 .dialer-phone-aircall {
@@ -382,22 +407,29 @@
   }
 
   .dialer-phone-header {
-    gap: 6px;
-    padding: 8px 9px 8px 12px;
+    min-height: 66px;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
   .dialer-phone-header-actions {
-    gap: 4px;
+    gap: 5px;
   }
 
   .dialer-phone-alert-toggle {
-    min-height: 30px;
-    padding: 4px 7px;
-    font-size: 9px;
+    min-height: 34px;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .dialer-phone-close {
+    width: 34px;
+    height: 34px;
   }
 
   .dialer-phone-cloudtalk-alert-note {
-    padding: 5px 9px;
-    font-size: 9px;
+    padding: 8px 12px;
+    font-size: 10px;
   }
 }

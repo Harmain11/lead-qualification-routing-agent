@@ -1,0 +1,324 @@
+.cloudtalk-preview-stage {
+  position: relative;
+  min-height: 980px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 15% 20%, rgba(30, 107, 82, 0.06), transparent 42%),
+    #edf2ef;
+}
+
+.cloudtalk-preview-window {
+  position: absolute;
+  right: 16px;
+  bottom: 88px;
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  height: min(804px, calc(100vh - 110px));
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(29, 66, 54, 0.16);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 20px 52px rgba(12, 36, 28, 0.2);
+}
+
+.cloudtalk-preview-header {
+  display: flex;
+  min-height: 68px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--dock-line);
+  background: #fff;
+}
+
+.cloudtalk-preview-title {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.cloudtalk-preview-title strong {
+  color: var(--dock-green-dark);
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.cloudtalk-preview-title small {
+  overflow: hidden;
+  color: var(--dock-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloudtalk-preview-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloudtalk-preview-alert-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgba(29, 66, 54, 0.16);
+  border-radius: 10px;
+  background: var(--dock-soft);
+  color: #31594b;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cloudtalk-preview-close {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(29, 66, 54, 0.12);
+  border-radius: 10px;
+  background: var(--dock-soft);
+  color: #405b51;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.cloudtalk-preview-content {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f7faf8;
+}
+
+.cloudtalk-preview-note {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(29, 66, 54, 0.09);
+  background: var(--dock-soft);
+  color: var(--dock-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.cloudtalk-preview-note.is-warning {
+  border-bottom-color: rgba(138, 91, 16, 0.16);
+  background: var(--dock-warning-bg);
+  color: var(--dock-warning);
+}
+
+.cloudtalk-preview-note-icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cloudtalk-preview-live-status {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(29, 66, 54, 0.09);
+  color: #64746e;
+  font-size: 11px;
+}
+
+.cloudtalk-login-preview {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 34px 20px 26px;
+  overflow: hidden;
+  background: #fff;
+  color: #111;
+  text-align: center;
+}
+
+.cloudtalk-login-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #050505;
+  font-size: 25px;
+  font-weight: 850;
+  letter-spacing: -0.08em;
+}
+
+.cloudtalk-login-logo span {
+  padding: 2px 4px;
+  border-radius: 2px;
+  background: #96ed1f;
+  font-size: 9px;
+  letter-spacing: -0.02em;
+}
+
+.cloudtalk-login-copy {
+  margin: 0;
+  color: #111;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.28;
+}
+
+.cloudtalk-login-button {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 9px;
+  background: #092be0;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cloudtalk-trial {
+  margin: 0;
+  color: #191919;
+  font-size: 12px;
+}
+
+.cloudtalk-trial strong {
+  color: #102eae;
+}
+
+.cloudtalk-login-footer {
+  margin: 0;
+  color: #818181;
+  font-size: 11px;
+}
+
+.cloudtalk-preview-bubble {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: inline-flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 15px 6px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  background: var(--dock-green);
+  box-shadow: 0 10px 28px rgba(13, 59, 43, 0.28);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cloudtalk-preview-bubble span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.17);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cloudtalk-current-header {
+  min-height: 76px;
+  align-items: flex-start;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.cloudtalk-current-title {
+  gap: 2px;
+}
+
+.cloudtalk-current-title strong {
+  font-size: 14px;
+}
+
+.cloudtalk-current-title small {
+  font-size: 11px;
+}
+
+.cloudtalk-current-error {
+  color: #8a5b10 !important;
+  font-size: 10px !important;
+}
+
+.cloudtalk-current-note {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 8px 12px;
+  font-size: 10px;
+}
+
+.cloudtalk-current-status {
+  line-height: 1.45;
+}
+
+.cloudtalk-refined-header {
+  min-height: 68px;
+}
+
+.cloudtalk-refined .cloudtalk-login-preview {
+  padding: 34px 24px 24px;
+}
+
+@media (max-width: 540px) {
+  .cloudtalk-preview-stage {
+    min-height: 100vh;
+  }
+
+  .cloudtalk-preview-window {
+    right: 8px;
+    bottom: 84px;
+    width: calc(100vw - 16px);
+    height: min(804px, calc(100vh - 100px));
+  }
+
+  .cloudtalk-preview-header {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .cloudtalk-preview-actions {
+    gap: 5px;
+  }
+
+  .cloudtalk-preview-alert-button {
+    min-height: 34px;
+    gap: 5px;
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .cloudtalk-preview-close {
+    width: 34px;
+    height: 34px;
+  }
+
+  .cloudtalk-preview-note {
+    padding: 8px 12px;
+    font-size: 10px;
+  }
+
+  .cloudtalk-login-copy {
+    font-size: 19px;
+  }
+}

@@ -57,22 +57,19 @@ function CloudTalkPhoneFrame({
 }) {
   const frameId = useId();
   const frameViewportRef = useRef<HTMLDivElement>(null);
-  const [frameScale, setFrameScale] = useState({ x: 1, y: 1 });
-  const [status, setStatus] = useState(
-    "Sign in with your CloudTalk account or organization SSO. Your phone session is managed by CloudTalk.",
-  );
+  const [frameScale, setFrameScale] = useState(1);
+  const [status, setStatus] = useState("");
 
   useEffect(() => {
     const viewport = frameViewportRef.current;
     if (!viewport) return;
     const updateScale = () => {
-      const next = {
-        x: Math.min(1, viewport.clientWidth / 420),
-        y: Math.min(1, viewport.clientHeight / 700),
-      };
-      setFrameScale((current) =>
-        current.x === next.x && current.y === next.y ? current : next,
+      const next = Math.min(
+        1,
+        viewport.clientWidth / 420,
+        viewport.clientHeight / 700,
       );
+      setFrameScale((current) => (current === next ? current : next));
     };
     const observer = new ResizeObserver(updateScale);
     observer.observe(viewport);
@@ -105,14 +102,16 @@ function CloudTalkPhoneFrame({
 
   return (
     <>
-      <p className="dialer-phone-status dialer-phone-cloudtalk-status" role="status" aria-live="polite">
-        {status}
-      </p>
+      {status && (
+        <p className="dialer-phone-status dialer-phone-cloudtalk-status" role="status" aria-live="polite">
+          {status}
+        </p>
+      )}
       <div className="dialer-phone-cloudtalk-frame-viewport" ref={frameViewportRef}>
         <iframe
           id={frameId}
           className="dialer-phone-frame dialer-phone-frame-cloudtalk"
-          style={{ transform: `scale(${frameScale.x}, ${frameScale.y})` }}
+          style={{ transform: `scale(${frameScale})` }}
           src={`${cloudTalkPhoneOrigin}?partner=corral`}
           title="CloudTalk Phone"
           allow="microphone https://phone.cloudtalk.io"
@@ -254,7 +253,9 @@ export function DialerPhoneDock({
       return;
     }
     if (browserAlertPermission === "denied") {
-      setBrowserAlertMessage("Allow notifications for Corral in your browser settings.");
+      setBrowserAlertMessage(
+        "Notifications are blocked. Allow them for Corral in your browser settings.",
+      );
       return;
     }
 
@@ -267,8 +268,8 @@ export function DialerPhoneDock({
       if (permission !== "granted") {
         setBrowserAlertMessage(
           permission === "denied"
-            ? "Allow notifications for Corral in your browser settings."
-            : "Notification permission was not granted.",
+            ? "Notifications are blocked. Allow them for Corral in your browser settings."
+            : "Permission wasn’t granted. Choose Allow in your browser prompt to turn on alerts.",
         );
         return;
       }
@@ -355,14 +356,9 @@ export function DialerPhoneDock({
           aria-label={`${providerName} Phone`}
         >
           <header className="dialer-phone-header">
-            <div>
+            <div className="dialer-phone-header-main">
               <strong>{providerName} Phone</strong>
               <small>{selectedConnection?.account_name || "Connected account"}</small>
-              {browserAlertMessage && provider === "cloudtalk" && (
-                <small className="dialer-phone-alert-message" role="status">
-                  {browserAlertMessage}
-                </small>
-              )}
             </div>
             <div className="dialer-phone-header-actions">
               {provider === "cloudtalk" && (
@@ -373,10 +369,25 @@ export function DialerPhoneDock({
                   onClick={() => void toggleBrowserAlerts()}
                   title={
                     browserAlertPermission === "denied"
-                      ? "Allow notifications for Corral in your browser settings."
+                      ? "Notifications are blocked. Allow them for Corral in your browser settings."
                       : "Show a browser alert when CloudTalk reports an incoming call."
                   }
                 >
+                  <svg
+                    className="dialer-phone-alert-icon"
+                    viewBox="0 0 20 20"
+                    width="15"
+                    height="15"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M15.5 8a5.5 5.5 0 0 0-11 0c0 6-2 6-2 7.5h15C17.5 14 15.5 14 15.5 8Z" />
+                    <path d="M8 18h4" />
+                  </svg>
                   {browserAlertPermission === "unsupported"
                     ? "Alerts unavailable"
                     : browserAlertsEnabled
@@ -405,9 +416,18 @@ export function DialerPhoneDock({
           <div className="dialer-phone-content">
             {provider === "cloudtalk" && (
               <>
-                <p className="dialer-phone-cloudtalk-alert-note" role="note">
-                  Use the header alert control for incoming-call notifications. CloudTalk’s embedded phone has no separate notification setting.
-                </p>
+                <div
+                  className={`dialer-phone-cloudtalk-alert-note${browserAlertMessage ? " is-feedback" : ""}`}
+                  role={browserAlertMessage ? "status" : "note"}
+                >
+                  <span className="dialer-phone-alert-note-icon" aria-hidden="true">
+                    {browserAlertMessage ? "!" : "i"}
+                  </span>
+                  <span>
+                    {browserAlertMessage ||
+                      "Call alerts are controlled here; CloudTalk’s embedded phone has no separate setting."}
+                  </span>
+                </div>
                 <CloudTalkPhoneFrame
                   onCallActiveChange={onCallActiveChange}
                   onIncomingCall={showIncomingNotification}
