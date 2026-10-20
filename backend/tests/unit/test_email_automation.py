@@ -19,6 +19,7 @@ from lead_agent.infrastructure.db.models import (
     LeadORM,
     ProviderConnectionORM,
     WorkspaceEmailAutomationSettingORM,
+    WorkspaceEmailAutomationSourceSettingORM,
 )
 from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE
 from lead_agent.infrastructure.repositories import ensure_workspace
@@ -51,17 +52,69 @@ def test_lead_confirmation_automation_defaults_off_and_is_workspace_scoped(tmp_p
         with TestClient(app) as client:
             endpoint = "/v1/settings/email-automation/lead-confirmations"
             assert client.get(endpoint).json() == {"enabled": False}
+            source_endpoint = f"{endpoint}/sources"
+            initial_sources = client.get(source_endpoint).json()
+            assert initial_sources["default_enabled"] is False
+            gmail = next(
+                item for item in initial_sources["sources"] if item["source"] == "gmail"
+            )
+            assert gmail["enabled"] is False
+            assert gmail["uses_default"] is True
+
+            gmail = next(
+                item
+                for item in client.put(
+                    f"{source_endpoint}/gmail", json={"enabled": True}
+                ).json()["sources"]
+                if item["source"] == "gmail"
+            )
+            assert gmail["enabled"] is True
+            assert gmail["uses_default"] is False
+
             assert client.put(endpoint, json={"enabled": True}).json() == {
                 "enabled": True
             }
+            source_settings = client.get(source_endpoint).json()
+            gmail = next(
+                item for item in source_settings["sources"] if item["source"] == "gmail"
+            )
+            website = next(
+                item for item in source_settings["sources"] if item["source"] == "website"
+            )
+            assert gmail["enabled"] is True
+            assert gmail["uses_default"] is False
+            assert website["enabled"] is True
+            assert website["uses_default"] is True
 
             selected["workspace_id"] = second_workspace_id
             assert client.get(endpoint).json() == {"enabled": False}
+            second_workspace_sources = client.get(source_endpoint).json()
+            gmail = next(
+                item
+                for item in second_workspace_sources["sources"]
+                if item["source"] == "gmail"
+            )
+            assert gmail["enabled"] is False
+            assert gmail["uses_default"] is True
 
             selected["workspace_id"] = first_workspace_id
             assert client.get(endpoint).json() == {"enabled": True}
+            reset_sources = client.put(
+                f"{source_endpoint}/gmail", json={"enabled": None}
+            ).json()
+            gmail = next(
+                item for item in reset_sources["sources"] if item["source"] == "gmail"
+            )
+            assert gmail["enabled"] is True
+            assert gmail["uses_default"] is True
             selected["permissions"] = frozenset()
             assert client.put(endpoint, json={"enabled": False}).status_code == 403
+            assert (
+                client.put(
+                    f"{source_endpoint}/gmail", json={"enabled": False}
+                ).status_code
+                == 403
+            )
             selected["permissions"] = frozenset({"integrations.manage"})
             assert client.put(endpoint, json={"enabled": False}).json() == {
                 "enabled": False
@@ -70,6 +123,74 @@ def test_lead_confirmation_automation_defaults_off_and_is_workspace_scoped(tmp_p
         app.dependency_overrides.clear()
         session.close()
         engine.dispose()
+
+
+def test_source_override_takes_precedence_over_workspace_default(
+    tmp_path, monkeypatch
+) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'lead-email-source-overrides.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    allowed: list[str] = []
+    with Session(engine) as session:
+        enabled_workspace_id = uuid4()
+        disabled_workspace_id = uuid4()
+        ensure_workspace(session, enabled_workspace_id, name="Gmail enabled workspace")
+        ensure_workspace(session, disabled_workspace_id, name="Gmail disabled workspace")
+        now = datetime.now(UTC)
+        enabled_lead = _lead(enabled_workspace_id)
+        enabled_lead.source, enabled_lead.source_detail = "email", "Gmail"
+        disabled_lead = _lead(disabled_workspace_id)
+        disabled_lead.source, disabled_lead.source_detail = "email", "Gmail"
+        session.add_all(
+            [
+                enabled_lead,
+                disabled_lead,
+                WorkspaceEmailAutomationSettingORM(
+                    workspace_id=enabled_workspace_id,
+                    lead_confirmation_enabled=False,
+                    updated_by="automation-admin",
+                    updated_at=now,
+                ),
+                WorkspaceEmailAutomationSettingORM(
+                    workspace_id=disabled_workspace_id,
+                    lead_confirmation_enabled=True,
+                    updated_by="automation-admin",
+                    updated_at=now,
+                ),
+                WorkspaceEmailAutomationSourceSettingORM(
+                    workspace_id=enabled_workspace_id,
+                    source="gmail",
+                    lead_confirmation_enabled=True,
+                    updated_by="automation-admin",
+                    updated_at=now,
+                ),
+                WorkspaceEmailAutomationSourceSettingORM(
+                    workspace_id=disabled_workspace_id,
+                    source="gmail",
+                    lead_confirmation_enabled=False,
+                    updated_by="automation-admin",
+                    updated_at=now,
+                ),
+            ]
+        )
+        session.commit()
+
+        def outreach_allowed(_session, _workspace_id, recipient):
+            allowed.append(recipient)
+
+        monkeypatch.setattr(
+            "lead_agent.application.services.assert_outreach_allowed",
+            outreach_allowed,
+        )
+        _deliver_lead_confirmation_email(session, enabled_lead)
+        _deliver_lead_confirmation_email(session, disabled_lead)
+
+        assert allowed == [enabled_lead.email]
+        assert session.scalar(select(LeadFollowUpEmailORM)) is None
+    engine.dispose()
 
 
 def _lead(workspace_id) -> LeadORM:

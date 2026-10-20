@@ -230,6 +230,16 @@ export const generateEmailTemplate = (
   });
 
 export type LeadConfirmationAutomation = { enabled: boolean };
+export type LeadConfirmationSource = {
+  source: string;
+  label: string;
+  enabled: boolean;
+  uses_default: boolean;
+};
+export type LeadConfirmationSources = {
+  default_enabled: boolean;
+  sources: LeadConfirmationSource[];
+};
 export const getLeadConfirmationAutomation = () =>
   request<LeadConfirmationAutomation>(
     "/v1/settings/email-automation/lead-confirmations",
@@ -237,6 +247,22 @@ export const getLeadConfirmationAutomation = () =>
 export const setLeadConfirmationAutomation = (enabled: boolean) =>
   request<LeadConfirmationAutomation>(
     "/v1/settings/email-automation/lead-confirmations",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    },
+  );
+export const getLeadConfirmationSources = () =>
+  request<LeadConfirmationSources>(
+    "/v1/settings/email-automation/lead-confirmations/sources",
+  );
+export const setLeadConfirmationSource = (
+  source: string,
+  enabled: boolean | null,
+) =>
+  request<LeadConfirmationSources>(
+    `/v1/settings/email-automation/lead-confirmations/sources/${encodeURIComponent(source)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -463,7 +489,7 @@ export function runInboundSync(
   return jsonRequest<CrmInboundSyncRun | CrmInboundSyncAccepted>(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: review?.limit ?? (["gmail", "outlook"].includes(provider) ? 100 : 500), page_size: review?.pageSize ?? 100, send_confirmation_email: false }),
+    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: review?.limit ?? (["gmail", "outlook"].includes(provider) ? 100 : 500), page_size: review?.pageSize ?? 100, send_confirmation_email: mode !== "review_recent" }),
   });
 }
 
