@@ -40,10 +40,20 @@ function readCloudTalkEventName(data: unknown): string | null {
   return typeof name === "string" ? name : null;
 }
 
+type BrowserAlertPermission = NotificationPermission | "unsupported";
+
+function getBrowserAlertPermission(): BrowserAlertPermission {
+  return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+}
+
 function CloudTalkPhoneFrame({
   onCallActiveChange,
+  onIncomingCall,
+  onCallEnded,
 }: {
   onCallActiveChange: (active: boolean) => void;
+  onIncomingCall: () => void;
+  onCallEnded: () => void;
 }) {
   const frameId = useId();
   const frameViewportRef = useRef<HTMLDivElement>(null);
@@ -85,15 +95,17 @@ function CloudTalkPhoneFrame({
       if (!update) return;
       setStatus(update.label);
       if (typeof update.active === "boolean") onCallActiveChange(update.active);
+      if (name === "ringing") onIncomingCall();
+      if (name === "ended" || name === "hangup") onCallEnded();
     }
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [frameId, onCallActiveChange]);
+  }, [frameId, onCallActiveChange, onIncomingCall, onCallEnded]);
 
   return (
     <>
-      <p className="dialer-phone-status" role="status" aria-live="polite">
+      <p className="dialer-phone-status dialer-phone-cloudtalk-status" role="status" aria-live="polite">
         {status}
       </p>
       <div className="dialer-phone-cloudtalk-frame-viewport" ref={frameViewportRef}>
@@ -161,7 +173,7 @@ function AircallPhoneFrame({
 
   return (
     <>
-      <p className="dialer-phone-status dialer-phone-cloudtalk-status" role="status" aria-live="polite">
+      <p className="dialer-phone-status" role="status" aria-live="polite">
         {status}
       </p>
       <div id={mountId} className="dialer-phone-aircall-mount" />
@@ -175,19 +187,164 @@ export function DialerPhoneDock({
   callActive,
   onToggle,
   onClose,
+  onOpen,
   onCallActiveChange,
+  notificationPreferenceKey,
 }: {
   connection: DialerPhoneConnection | null;
   open: boolean;
   callActive: boolean;
   onToggle: () => void;
   onClose: () => void;
+  onOpen: () => void;
   onCallActiveChange: (active: boolean) => void;
+  notificationPreferenceKey: string | null;
 }) {
   const embedded = isDialerPhoneAvailable(connection);
   const selectedConnection = embedded ? connection : null;
   const provider = selectedConnection?.provider ?? "";
   const providerName = providerLabels[provider] ?? "Dialer";
+  const [browserAlertsEnabled, setBrowserAlertsEnabled] = useState(false);
+  const [browserAlertPermission, setBrowserAlertPermission] = useState(getBrowserAlertPermission);
+  const [browserAlertMessage, setBrowserAlertMessage] = useState("");
+  const notificationRef = useRef<Notification | null>(null);
+
+  useEffect(() => {
+    const permission = getBrowserAlertPermission();
+    setBrowserAlertPermission(permission);
+    let savedPreference = false;
+    try {
+      savedPreference =
+        Boolean(notificationPreferenceKey) &&
+        window.localStorage.getItem(notificationPreferenceKey!) === "enabled";
+    } catch {
+      savedPreference = false;
+    }
+    setBrowserAlertsEnabled(savedPreference && permission === "granted");
+    setBrowserAlertMessage("");
+  }, [notificationPreferenceKey]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    function handleServiceWorkerMessage(event: MessageEvent) {
+      if (event.data?.type === "corral:open-cloudtalk-phone") onOpen();
+    }
+    navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
+  }, [onOpen]);
+
+  async function toggleBrowserAlerts() {
+    setBrowserAlertMessage("");
+    if (browserAlertsEnabled) {
+      setBrowserAlertsEnabled(false);
+      try {
+        if (notificationPreferenceKey) {
+          window.localStorage.removeItem(notificationPreferenceKey);
+        }
+      } catch {
+        // Keep the setting disabled for this session even when storage is unavailable.
+      }
+      closeIncomingNotification();
+      return;
+    }
+
+    if (browserAlertPermission === "unsupported") {
+      setBrowserAlertMessage("This browser does not support notifications.");
+      return;
+    }
+    if (browserAlertPermission === "denied") {
+      setBrowserAlertMessage("Allow notifications for Corral in your browser settings.");
+      return;
+    }
+
+    try {
+      const permission =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      setBrowserAlertPermission(permission);
+      if (permission !== "granted") {
+        setBrowserAlertMessage(
+          permission === "denied"
+            ? "Allow notifications for Corral in your browser settings."
+            : "Notification permission was not granted.",
+        );
+        return;
+      }
+      if ("serviceWorker" in navigator) {
+        try {
+          await navigator.serviceWorker.register("/cloudtalk-notifications-sw.js");
+        } catch {
+          setBrowserAlertMessage("Background alerts are unavailable; keep Corral open to receive alerts.");
+        }
+      }
+      setBrowserAlertsEnabled(true);
+      if (notificationPreferenceKey) {
+        try {
+          window.localStorage.setItem(notificationPreferenceKey, "enabled");
+        } catch {
+          // Alerts remain enabled for this session if browser storage is unavailable.
+        }
+      }
+    } catch {
+      setBrowserAlertMessage("Could not enable browser alerts. Check this site's permissions.");
+    }
+  }
+
+  function showIncomingNotification() {
+    if (
+      !browserAlertsEnabled ||
+      typeof Notification === "undefined" ||
+      Notification.permission !== "granted"
+    ) {
+      return;
+    }
+    const options: NotificationOptions = {
+      body: "Your CloudTalk phone is ringing.",
+      tag: "corral-cloudtalk-incoming",
+    };
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.getRegistration()
+        .then((registration) =>
+          registration
+            ? registration.showNotification("Incoming CloudTalk call", options)
+            : showPageNotification(options),
+        )
+        .catch(() => showPageNotification(options));
+      return;
+    }
+    showPageNotification(options);
+  }
+
+  function showPageNotification(options: NotificationOptions) {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    try {
+      notificationRef.current?.close();
+      const notification = new Notification("Incoming CloudTalk call", options);
+      notificationRef.current = notification;
+      notification.onclick = () => {
+        window.focus();
+        onOpen();
+        notification.close();
+      };
+    } catch {
+      setBrowserAlertMessage("Browser alerts could not be displayed.");
+    }
+  }
+
+  function closeIncomingNotification() {
+    notificationRef.current?.close();
+    notificationRef.current = null;
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.getRegistration()
+        .then((registration) =>
+          registration?.getNotifications({ tag: "corral-cloudtalk-incoming" }) ?? [],
+        )
+        .then((notifications) => notifications.forEach((notification) => notification.close()))
+        .catch(() => undefined);
+    }
+  }
 
   return (
     <aside className="dialer-phone-dock" aria-label="Embedded phone">
@@ -201,25 +358,57 @@ export function DialerPhoneDock({
             <div>
               <strong>{providerName} Phone</strong>
               <small>{selectedConnection?.account_name || "Connected account"}</small>
+              {browserAlertMessage && provider === "cloudtalk" && (
+                <small className="dialer-phone-alert-message" role="status">
+                  {browserAlertMessage}
+                </small>
+              )}
             </div>
-            <button
-              type="button"
-              className="dialer-phone-close"
-              onClick={onClose}
-              disabled={callActive}
-              title={
-                callActive
-                  ? "End the active call before closing the phone."
-                  : `Close ${providerName} Phone`
-              }
-              aria-label={`Close ${providerName} Phone`}
-            >
-              <span aria-hidden="true">×</span>
-            </button>
+            <div className="dialer-phone-header-actions">
+              {provider === "cloudtalk" && (
+                <button
+                  type="button"
+                  className="dialer-phone-alert-toggle"
+                  aria-pressed={browserAlertsEnabled}
+                  onClick={() => void toggleBrowserAlerts()}
+                  title={
+                    browserAlertPermission === "denied"
+                      ? "Allow notifications for Corral in your browser settings."
+                      : "Show a browser alert when CloudTalk reports an incoming call."
+                  }
+                >
+                  {browserAlertPermission === "unsupported"
+                    ? "Alerts unavailable"
+                    : browserAlertsEnabled
+                      ? "Alerts on"
+                      : browserAlertPermission === "denied"
+                        ? "Alerts blocked"
+                        : "Enable alerts"}
+                </button>
+              )}
+              <button
+                type="button"
+                className="dialer-phone-close"
+                onClick={onClose}
+                disabled={callActive}
+                title={
+                  callActive
+                    ? "End the active call before closing the phone."
+                    : `Close ${providerName} Phone`
+                }
+                aria-label={`Close ${providerName} Phone`}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
           </header>
           <div className="dialer-phone-content">
             {provider === "cloudtalk" && (
-              <CloudTalkPhoneFrame onCallActiveChange={onCallActiveChange} />
+              <CloudTalkPhoneFrame
+                onCallActiveChange={onCallActiveChange}
+                onIncomingCall={showIncomingNotification}
+                onCallEnded={closeIncomingNotification}
+              />
             )}
             {provider === "aircall" && (
               <div className="dialer-phone-aircall">
