@@ -4,6 +4,19 @@
 .direct-dialer-panel .dialer-panel-count { flex: 0 1 210px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: right; }
 .direct-dialer-form { display: grid; gap: 13px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .direct-dialer-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .8fr) minmax(220px, .8fr); gap: 12px; }
+.direct-dialer-number-field { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.direct-dialer-keypad { display: grid; gap: 6px; width: 100%; max-width: 300px; margin-top: 4px; }
+.direct-dialer-keypad-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.direct-dialer-keypad-head span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.direct-dialer-keypad-head button { border: 0; padding: 2px 4px; color: var(--workspace-accent, var(--orange)); background: transparent; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.direct-dialer-keypad-head button:disabled { opacity: .5; cursor: not-allowed; }
+.direct-dialer-keypad-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.direct-dialer-key { display: grid; align-content: center; justify-items: center; min-height: 48px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--surface-solid); font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.direct-dialer-key strong { font-size: 16px; line-height: 1.1; }
+.direct-dialer-key small { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .08em; line-height: 1; }
+.direct-dialer-key:hover:not(:disabled) { border-color: var(--workspace-accent, var(--orange)); background: var(--surface-high); transform: translateY(-1px); }
+.direct-dialer-key:focus-visible, .direct-dialer-keypad-head button:focus-visible { outline: 2px solid var(--workspace-accent, var(--orange)); outline-offset: 2px; }
+.direct-dialer-key:disabled { opacity: .55; cursor: not-allowed; }
 .direct-dialer-fields label, .direct-call-lead-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .direct-dialer-fields input, .direct-dialer-fields select, .direct-call-lead-form input, .direct-call-lead-form textarea { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); font: inherit; }
 .direct-dialer-fields small { color: var(--muted); font-size: 10px; font-weight: 400; }

@@ -40,6 +40,21 @@ const providerNames: Record<string, string> = {
   cloudtalk: "CloudTalk",
 };
 
+const keypadKeys = [
+  { value: "1", letters: "" },
+  { value: "2", letters: "ABC" },
+  { value: "3", letters: "DEF" },
+  { value: "4", letters: "GHI" },
+  { value: "5", letters: "JKL" },
+  { value: "6", letters: "MNO" },
+  { value: "7", letters: "PQRS" },
+  { value: "8", letters: "TUV" },
+  { value: "9", letters: "WXYZ" },
+  { value: "+", letters: "" },
+  { value: "0", letters: "+" },
+  { value: "backspace", letters: "" },
+];
+
 function acceptedCall(record: DirectCallRecord) {
   return !["failed", "uncertain", "submitting"].includes(record.status);
 }
@@ -95,6 +110,27 @@ export function DirectDialer({
 
   const selected = connections.find((connection) => connection.id === connectionId);
   const needsRep = selected?.provider === "twilio";
+
+  function addPhoneKey(value: string) {
+    setPhoneNumber((current) => {
+      if (value === "+") {
+        if (current.startsWith("+")) return current;
+        return `+${current}`;
+      }
+      return `${current}${value}`;
+    });
+    setConfirmed(false);
+  }
+
+  function removePhoneKey() {
+    setPhoneNumber((current) => current.slice(0, -1));
+    setConfirmed(false);
+  }
+
+  function clearPhoneNumber() {
+    setPhoneNumber("");
+    setConfirmed(false);
+  }
 
   async function startCall(event: FormEvent) {
     event.preventDefault();
@@ -160,19 +196,60 @@ export function DirectDialer({
     ) : (
       <form className="direct-dialer-form" onSubmit={(event) => void startCall(event)}>
         <div className="direct-dialer-fields">
-          <label>Phone number
+          <div className="direct-dialer-number-field">
+            <label htmlFor="direct-dial-phone-number">Phone number</label>
             <input
+              id="direct-dial-phone-number"
               type="tel"
               autoComplete="tel"
               value={phoneNumber}
-              onChange={(event) => setPhoneNumber(event.target.value)}
+              onChange={(event) => {
+                setPhoneNumber(event.target.value);
+                setConfirmed(false);
+              }}
               placeholder="+14155550123"
               maxLength={32}
               required
               disabled={busy || Boolean(requestId)}
             />
             <small>Include the +country code.</small>
-          </label>
+            <div className="direct-dialer-keypad">
+              <div className="direct-dialer-keypad-head">
+                <span>Dial pad</span>
+                <button
+                  type="button"
+                  onClick={clearPhoneNumber}
+                  disabled={busy || Boolean(requestId) || !phoneNumber}
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="direct-dialer-keypad-grid" role="group" aria-label="Phone number keypad">
+                {keypadKeys.map((key) => {
+                  const backspace = key.value === "backspace";
+                  return (
+                    <button
+                      type="button"
+                      className={`direct-dialer-key${backspace ? " is-backspace" : ""}`}
+                      key={key.value}
+                      aria-label={backspace ? "Delete last digit" : key.value === "+" ? "Add country code plus sign" : `Add digit ${key.value}`}
+                      onClick={() => backspace ? removePhoneKey() : addPhoneKey(key.value)}
+                      disabled={busy || Boolean(requestId)}
+                    >
+                      {backspace ? (
+                        <span aria-hidden="true">⌫</span>
+                      ) : (
+                        <>
+                          <strong>{key.value}</strong>
+                          {key.letters && <small>{key.letters}</small>}
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
           <label>Calling account
             <select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); }} disabled={busy || Boolean(requestId)}>
               {connections.map((connection) => (
