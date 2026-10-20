@@ -7,12 +7,12 @@ Use HTTP Basic Auth with the Access Key ID as username and Access Key Secret as 
 
 CloudTalk's create-call endpoint accepts an agent ID and E.164 callee number but does not return a call ID or accept an idempotency key. For API-created calls, preserve Corral's durable request receipt before posting, never blindly retry an uncertain submission, and use call history to reconcile it.
 
-For direct calls that need per-call caller-ID selection, use CloudTalk's documented `ct+tel` Desktop deep link with `from=` set only to a normalized number in the configured agent's `associated_numbers` (including its verified default). The public create-call API accepts only the agent and callee, so it cannot apply a caller-ID selection.
+For Corral direct calls, use the safeguarded CloudTalk create-call API and the configured agent's verified default caller ID. The public API accepts only the agent and E.164 callee, returns no call ID, and is not a browser softphone or per-call hang-up interface. The `ct+tel` Desktop link supports per-call caller-ID selection but is not the selected Corral flow.
 
 **Why:** CloudTalk's published docs use different hosts for the core API and Conversation Intelligence, and call creation does not supply a provider-side duplicate guard.
 
 **How to apply:** When adding CloudTalk API operations, confirm each endpoint's documented host and envelope; do not retrieve recording media when a provider call-detail link is sufficient.
 
-**Why:** The user asked to select the outbound number for each direct call and approved the CloudTalk Desktop handoff after learning that the REST API cannot select one.
+**Why:** On October 20, 2026, the user chose API-started direct calls from Corral to avoid opening CloudTalk Desktop while preserving Corral's call safeguards, accepting the agent's default caller ID.
 
-**How to apply:** Preserve Corral's individual confirmation and consent, do-not-call, and residency checks before preparing the link. The Desktop app must use the configured agent, may auto-dial per its Click to Call setting, and keeps call results outside Corral's automatic call history.
+**How to apply:** Require Corral's per-call confirmation, consent, do-not-call, and residency checks; verify and show the agent's default caller ID before starting. Keep the durable request receipt and never blindly retry an uncertain submission.
