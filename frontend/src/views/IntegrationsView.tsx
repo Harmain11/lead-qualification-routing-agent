@@ -35,6 +35,11 @@ updateSlackNotificationConfig,
 import { OpenAIUsagePanel } from "../components/OpenAIUsagePanel";
 import { AiUsagePanel } from "../components/AiUsagePanel";
 import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
+import {
+  isEmbeddedDialerConnection,
+  OPEN_DIALER_PHONE_EVENT,
+  ringCentralEmbedClientId,
+} from "../components/dialerPhoneConfig";
 import { can } from "../permissions";
 import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
 import { pollInboundSync } from "../inboundSyncPolling";
@@ -411,6 +416,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const canConnect = can(permissions, "integrations.connect");
   const canDisconnect = can(permissions, "integrations.disconnect");
   const canSync = can(permissions, "crm.sync");
+  const canCallDialer = can(permissions, "dialer.call");
   const canInboundSync = canSync;
   useEffect(() => {
     if (isReasoningProvider(selectedSection)) {
@@ -1135,6 +1141,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
        const comingSoon = section.id === "coming-soon" || card.availability === "future";
        const openAI = card.provider === "openai";
         const cloudTalk = card.provider === "cloudtalk";
+        const embeddedDialer = isEmbeddedDialerConnection({ provider: card.provider });
+        const canOpenPhone = Boolean(
+          embeddedDialer &&
+            canCallDialer &&
+            connection?.is_active &&
+            connection.status === "verified",
+        );
         const requiredManualFields = cloudTalk
           ? ["access_key_id", "access_key_secret"]
           : card.manual_fields;
@@ -1318,6 +1331,38 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
             {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
         </div>}
+         {canOpenPhone && <div className="integration-guide phone-session-setup">
+           <span className="eyebrow">Phone sign-in for this browser</span>
+           <strong>Use your own {card.display_name} account</strong>
+           <p>
+             Corral’s integration connection authorizes workspace API actions.
+             Open the phone and sign in with your provider account or organization
+             SSO. The floating phone stays mounted as you move around Corral; the
+             provider may ask you to sign in again after its session expires.
+           </p>
+           {card.provider === "ringcentral" && !ringCentralEmbedClientId && (
+             <p role="note">
+               RingCentral’s live phone also needs a registered Embeddable app
+               client ID. The dock will show its setup instructions until that is
+               configured.
+             </p>
+           )}
+           <div className="card-actions">
+             <button
+               type="button"
+               className="button-quiet"
+               onClick={() =>
+                 window.dispatchEvent(
+                   new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
+                     detail: { connectionId: connection?.id },
+                   }),
+                 )
+               }
+             >
+               Open {card.display_name} phone
+             </button>
+           </div>
+         </div>}
         {card.provider === "calendly" && accountChoiceProvider === card.provider && <IntegrationAccountChoice
           key={card.provider} provider={card.provider} accountName={connection?.account_name}
           busy={busy === card.provider}

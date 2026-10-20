@@ -4,6 +4,8 @@ export type DialerPhoneConnection = {
   account_name: string;
 };
 
+export const OPEN_DIALER_PHONE_EVENT = "corral:open-dialer-phone";
+
 export const ringCentralEmbedClientId =
   (import.meta.env as Record<string, string | undefined>)
     .VITE_RINGCENTRAL_EMBED_CLIENT_ID?.trim() ?? "";
