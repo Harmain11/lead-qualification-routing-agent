@@ -494,6 +494,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         }
       }
       setCards(nextCards);
+      window.dispatchEvent(new Event("corral:integrations-changed"));
       if (canManage) {
         try {
           setLeadConfirmationSources(await getLeadConfirmationSources());
