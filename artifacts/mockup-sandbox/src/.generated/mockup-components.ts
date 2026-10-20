@@ -3,10 +3,13 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/ai-connections/Current.tsx": () => import("../components/mockups/ai-connections/Current.tsx"),
   "./components/mockups/ai-connections/Unified.tsx": () => import("../components/mockups/ai-connections/Unified.tsx"),
+  "./components/mockups/corral-brand-lockup/Current.tsx": () => import("../components/mockups/corral-brand-lockup/Current.tsx"),
   "./components/mockups/corral-email/CleanInquiry.tsx": () => import("../components/mockups/corral-email/CleanInquiry.tsx"),
   "./components/mockups/corral-email/Current.tsx": () => import("../components/mockups/corral-email/Current.tsx"),
   "./components/mockups/corral-email/EmailWorkspaceDesign.tsx": () => import("../components/mockups/corral-email/EmailWorkspaceDesign.tsx"),
-  "./components/mockups/corral-brand-lockup/Current.tsx": () => import("../components/mockups/corral-brand-lockup/Current.tsx"),
+  "./components/mockups/direct-dialer/Current.tsx": () => import("../components/mockups/direct-dialer/Current.tsx"),
+  "./components/mockups/direct-dialer/Polished.tsx": () => import("../components/mockups/direct-dialer/Polished.tsx"),
   "./components/mockups/gmail-accounts/Current.tsx": () => import("../components/mockups/gmail-accounts/Current.tsx"),
-  "./components/mockups/gmail-accounts/Refined.tsx": () => import("../components/mockups/gmail-accounts/Refined.tsx")
+  "./components/mockups/gmail-accounts/Refined.tsx": () => import("../components/mockups/gmail-accounts/Refined.tsx"),
+  "./components/mockups/lead-email-evidence/LeadEmailEvidence.tsx": () => import("../components/mockups/lead-email-evidence/LeadEmailEvidence.tsx")
 };

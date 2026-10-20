@@ -188,14 +188,20 @@ export function DirectDialer({
       <div><span className="eyebrow">Direct calling</span><h2>Call a new number</h2></div>
       <span className="dialer-panel-count">One confirmed call at a time</span>
     </div>
-    <p className="panel-copy">Enter an international number and choose a verified calling account. Calls remain manually confirmed and subject to workspace consent and residency rules.</p>
+    <p className="panel-copy">Choose a verified calling account and enter one number. Every call still requires an individual confirmation and remains subject to workspace consent and residency rules.</p>
     {!connections.length ? (
-      <p className="dialer-empty">Connect and verify a calling provider before dialing a number.</p>
+      <div className="direct-dialer-status is-unavailable" role="status">
+        <span aria-hidden="true" />
+        <div><strong>No verified calling account</strong><p>Connect and verify a calling provider in Integrations → Calling before dialing.</p></div>
+      </div>
     ) : !canCall ? (
-      <p className="dialer-empty">Calling requires agent action permission.</p>
+      <div className="direct-dialer-status is-unavailable" role="status">
+        <span aria-hidden="true" />
+        <div><strong>Calling permission unavailable</strong><p>Your role needs agent action permission to start a direct call.</p></div>
+      </div>
     ) : (
       <form className="direct-dialer-form" onSubmit={(event) => void startCall(event)}>
-        <div className="direct-dialer-fields">
+        <div className="ops-form-grid direct-dialer-fields">
           <div className="direct-dialer-number-field">
             <label htmlFor="direct-dial-phone-number">Phone number</label>
             <input
@@ -212,12 +218,13 @@ export function DirectDialer({
               required
               disabled={busy || Boolean(requestId)}
             />
-            <small>Include the +country code.</small>
+            <small>Use +country code format, for example +14155550123.</small>
             <div className="direct-dialer-keypad">
               <div className="direct-dialer-keypad-head">
                 <span>Dial pad</span>
                 <button
                   type="button"
+                  className="direct-dialer-clear"
                   onClick={clearPhoneNumber}
                   disabled={busy || Boolean(requestId) || !phoneNumber}
                 >
@@ -250,42 +257,57 @@ export function DirectDialer({
               </div>
             </div>
           </div>
-          <label>Calling account
-            <select value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); }} disabled={busy || Boolean(requestId)}>
+          <div className="direct-dialer-account-field">
+            <label htmlFor="direct-dial-connection">Calling account</label>
+            <select id="direct-dial-connection" value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); }} disabled={busy || Boolean(requestId)}>
               {connections.map((connection) => (
                 <option value={connection.id} key={connection.id}>
                   {providerNames[connection.provider] || connection.provider} · {connection.account_name}
                 </option>
               ))}
             </select>
-          </label>
-          {selected && ["twilio", "ringcentral"].includes(selected.provider) && (
-            <label>Your rep number{needsRep ? " (required)" : " (optional override)"}
-              <input
-                type="tel"
-                autoComplete="tel"
-                value={repPhone}
-                onChange={(event) => { setRepPhone(event.target.value); setConfirmed(false); }}
-                placeholder="+14155550222"
-                maxLength={32}
-                required={needsRep}
-                disabled={busy || Boolean(requestId)}
-              />
-              <small>{needsRep ? "Twilio rings you first, then connects the call." : "Leave blank to use the rep number saved in Integrations."}</small>
-            </label>
-          )}
+            {selected && ["twilio", "ringcentral"].includes(selected.provider) && (
+              <label>Your rep number{needsRep ? " (required)" : " (optional override)"}
+                <input
+                  type="tel"
+                  autoComplete="tel"
+                  value={repPhone}
+                  onChange={(event) => { setRepPhone(event.target.value); setConfirmed(false); }}
+                  placeholder="+14155550222"
+                  maxLength={32}
+                  required={needsRep}
+                  disabled={busy || Boolean(requestId)}
+                />
+                <small>{needsRep ? "Twilio rings you first, then connects the call." : "Leave blank to use the rep number saved in Integrations."}</small>
+              </label>
+            )}
+            <div className={`direct-dialer-status${error ? " has-error" : notice ? " has-notice" : ""}`} role={error ? "alert" : "status"} aria-live="polite">
+              <span aria-hidden="true" />
+              <div>
+                <strong>{error
+                  ? `${providerNames[selected?.provider ?? ""] || selected?.provider || "Calling provider"} could not start the call`
+                  : busy
+                    ? `Calling with ${providerNames[selected?.provider ?? ""] || selected?.provider || "the selected account"}…`
+                    : notice
+                      ? `${providerNames[selected?.provider ?? ""] || selected?.provider || "Calling provider"} call update`
+                      : "Verified account ready"}</strong>
+                <p>{error || notice || `${selected?.account_name ?? "Selected account"} is verified and available for a confirmed call.`}</p>
+              </div>
+            </div>
+          </div>
         </div>
         <label className="ops-check direct-dialer-confirm">
           <input type="checkbox" checked={confirmed} disabled={busy || !phoneNumber.trim() || !connectionId} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>I have permission to call this number and confirm this one individual call.</span>
+          <span><strong>I have permission to call this number and authorize this individual call.</strong><small>This confirmation is for one call only. Workspace do-not-call, consent, and residency safeguards still apply.</small></span>
         </label>
-        <button type="submit" className="primary-button" disabled={busy || !confirmed || !phoneNumber.trim() || !connectionId || (needsRep && !repPhone.trim())}>
-          {busy ? "Calling…" : requestId ? "Check existing call request" : "Call number"}
-        </button>
+        <div className="direct-dialer-actions">
+          <small>Calls are not attached to a lead unless you explicitly add one after the call.</small>
+          <button type="submit" className="primary-button" disabled={busy || !confirmed || !phoneNumber.trim() || !connectionId || (needsRep && !repPhone.trim())}>
+            {busy ? "Calling…" : requestId ? "Check existing call request" : "Call number"}
+          </button>
+        </div>
       </form>
     )}
-    {error && <p className="team-alert" role="alert">{error}</p>}
-    {notice && <p className="notice" role="status">{notice}</p>}
     {result && <div className="direct-call-result">
       <div>
         <strong>{result.customer_phone}</strong>

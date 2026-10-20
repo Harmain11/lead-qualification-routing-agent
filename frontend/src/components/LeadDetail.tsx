@@ -134,6 +134,26 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
   const analysis = lead.analysis;
   const qualification = lead.qualification;
   const route = lead.routing;
+  const requiresManualReview = Boolean(
+    route?.manual_review ||
+    analysis?.requires_manual_review ||
+    analysis?.status === "manual_review" ||
+    analysis?.status === "provider_error",
+  );
+  const genericRoutingReviewReason =
+    "Manual-review precedence: analysis uncertainty or provider failure requires human review.";
+  const routedReviewReason = route?.manual_review ? route.routing_reason.trim() : "";
+  const manualReviewReasons = [
+    routedReviewReason && routedReviewReason !== genericRoutingReviewReason ? routedReviewReason : "",
+    analysis?.error_message?.trim() || "",
+    analysis?.contradictions.length
+      ? `Contradictory evidence: ${analysis.contradictions.join("; ")}`
+      : "",
+    analysis?.unknown_fields.length
+      ? `Missing information: ${analysis.unknown_fields.join(", ")}`
+      : "",
+    routedReviewReason,
+  ].filter((reason, index, reasons) => Boolean(reason) && reasons.indexOf(reason) === index);
   const crm = crmResult?.lead_id === lead.id ? crmResult : lead.crm_sync;
   const icpRows = analysis ? [
     ["Industry", analysis.icp_evaluation.industry_fit],
@@ -184,6 +204,11 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
       </form>}
       {editNotice && <div className="notice story-head-notice" role="status">{editNotice}</div>}
     </header>
+    {requiresManualReview && <aside className="attention-callout lead-review-reason" role="status" aria-labelledby={`manual-review-title-${lead.id}`}>
+      <b id={`manual-review-title-${lead.id}`}>Human review required</b>
+      <p><strong>Reason for review</strong><span>{manualReviewReasons[0] || "Analysis confidence or evidence needs validation before this lead is actioned."}</span></p>
+      {manualReviewReasons.slice(1).map((reason) => <p className="lead-review-secondary-reason" key={reason}>{reason}</p>)}
+    </aside>}
     <nav className="lead-detail-navigation" aria-label="Lead detail sections">
       <div ref={detailTabsRef} className="lead-detail-tabs" role="tablist" aria-label="Lead detail">
         {visibleSections.map((section, index) => <a
@@ -246,7 +271,12 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
           <div>
             <span className="eyebrow">{title(lead.source)} lead</span>
             <h3>Original inquiry</h3>
-            <GmailInquiryView message={lead.message} />
+            <GmailInquiryView
+              message={lead.message}
+              source={lead.source}
+              leadEmail={lead.email}
+              receivedAt={lead.received_at}
+            />
             <p className="lead-received">Received {new Date(lead.received_at).toLocaleString()}</p>
             <details className="lead-source-evidence">
               <summary>View source details</summary>
@@ -292,7 +322,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
     <div id="lead-panel-ai" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-ai" tabIndex={0} hidden={activeSection !== "ai"}>
       <LeadMomentumPanel lead={lead} />
       <AiStageAssessment analysis={analysis} />
-    <section className="story-section"><div className="story-index">03</div><div><span className="eyebrow">AI context / intent</span><h3>{analysis ? `${title(analysis.intent_level)} intent · ${Math.round(analysis.overall_confidence * 100)}% confidence` : "Analysis unavailable"}</h3>{analysis && <><p className="story-summary">{analysis.summary.need} {analysis.summary.pain_point}</p><div className="signal-strip"><Signal name="Urgency" value={analysis.context.urgency.value} kind={analysis.context.urgency.information_kind} /><Signal name="Timeline" value={analysis.context.explicit_timeline.value} kind={analysis.context.explicit_timeline.information_kind} /><Signal name="Budget" value={analysis.context.budget_information.value} kind={analysis.context.budget_information.information_kind} /><Signal name="Buying stage" value={analysis.context.buying_stage.value} kind={analysis.context.buying_stage.information_kind} /></div>{analysis.requires_manual_review && <div className="attention-callout"><b>Human review required</b>{analysis.error_message || "Analysis confidence needs validation."}</div>}</>}</div></section>
+    <section className="story-section"><div className="story-index">03</div><div><span className="eyebrow">AI context / intent</span><h3>{analysis ? `${title(analysis.intent_level)} intent · ${Math.round(analysis.overall_confidence * 100)}% confidence` : "Analysis unavailable"}</h3>{analysis && <><p className="story-summary">{analysis.summary.need} {analysis.summary.pain_point}</p><div className="signal-strip"><Signal name="Urgency" value={analysis.context.urgency.value} kind={analysis.context.urgency.information_kind} /><Signal name="Timeline" value={analysis.context.explicit_timeline.value} kind={analysis.context.explicit_timeline.information_kind} /><Signal name="Budget" value={analysis.context.budget_information.value} kind={analysis.context.budget_information.information_kind} /><Signal name="Buying stage" value={analysis.context.buying_stage.value} kind={analysis.context.buying_stage.information_kind} /></div></>}</div></section>
     <section className="story-section"><div className="story-index">04</div><div><span className="eyebrow">ICP evaluation</span><h3>{analysis?.icp_evaluation.profile_name || "Profile unavailable"}</h3><div className="icp-matrix">{icpRows.map(([name, criterion]) => <div key={name}><i className={criterion.status} /><span>{name}</span><b>{title(criterion.status)}</b><small>{criterion.rationale}</small></div>)}</div></div></section>
     <section className="story-section"><div className="story-index">05</div><div><span className="eyebrow">Qualification</span><h3>{qualification ? `${title(qualification.classification)} · Score ${qualification.total_score} of 100` : "Not qualified"}</h3>{qualification && <><div className="score-contract">{Object.entries(qualification.component_scores).map(([component, score]) => { const maximum = component === "icp_fit" ? 40 : component === "intent_urgency" ? 35 : 25; return <div key={component}><span>{title(component)}</span><b>{score}<small> of {maximum}</small></b><i><span style={{ transform: `scaleX(${score / maximum})` }} /></i></div>; })}</div><ul className="evidence-list">{qualification.rationale.map((reason) => <li key={reason}>{reason}</li>)}</ul></>}</div></section>
     <section className="story-section"><div className="story-index">06</div><div><span className="eyebrow">Routing / action plan</span><h3>{route ? `${title(route.assigned_queue)}${route.assigned_rep_name ? ` · ${route.assigned_rep_name}` : ""}` : "Routing pending"}</h3>{route && <><p className="story-summary">{route.routing_reason}</p><div className="action-command"><span>Recommended immediate action</span><b>{route.action_plan.immediate_action}</b><p>{route.action_plan.next_step_recommendation}</p></div><div className="split-list"><div><span className="eyebrow">Talking points</span>{route.action_plan.talking_points.map((item) => <p className="list-item" key={item}><i aria-hidden="true">•</i>{item}</p>)}</div><div><span className="eyebrow">Open questions</span>{route.action_plan.unanswered_questions.length ? route.action_plan.unanswered_questions.map((item) => <p className="list-item" key={item}><i aria-hidden="true">•</i>{item}</p>) : <p>No open qualification questions.</p>}</div></div></>}</div></section>

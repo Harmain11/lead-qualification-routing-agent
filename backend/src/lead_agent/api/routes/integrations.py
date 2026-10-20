@@ -33,6 +33,12 @@ from lead_agent.application.integrations import (
     update_openai_model,
     validate_connection,
 )
+from lead_agent.application.lead_approval import (
+    LEAD_APPROVAL_PROVIDER_LABELS,
+    lead_approval_policy,
+    provider_has_verified_connection,
+    update_lead_approval_policy,
+)
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
 from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import (
@@ -599,6 +605,93 @@ def list_integrations(
         )
         for provider, setup in PROVIDER_SETUP.items()
     ]
+
+
+class LeadApprovalPolicyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auto_approve_leads: bool
+
+
+class LeadApprovalPolicyResponse(BaseModel):
+    provider: str
+    display_name: str
+    auto_approve_leads: bool
+    policy_source: Literal["default", "legacy_migration", "user"]
+    verified_connection: bool
+    updated_at: datetime | None
+
+
+def _lead_approval_policy_response(
+    session: Session, workspace_id: UUID, provider: str
+) -> LeadApprovalPolicyResponse:
+    enabled, source, updated_at = lead_approval_policy(session, workspace_id, provider)
+    return LeadApprovalPolicyResponse(
+        provider=provider,
+        display_name=LEAD_APPROVAL_PROVIDER_LABELS[provider],
+        auto_approve_leads=enabled,
+        policy_source=source,
+        verified_connection=provider_has_verified_connection(
+            session, workspace_id, provider
+        ),
+        updated_at=updated_at,
+    )
+
+
+@router.get(
+    "/lead-approval-policies",
+    response_model=list[LeadApprovalPolicyResponse],
+)
+def list_lead_approval_policies(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> list[LeadApprovalPolicyResponse]:
+    return [
+        _lead_approval_policy_response(session, workspace.workspace_id, provider)
+        for provider in LEAD_APPROVAL_PROVIDER_LABELS
+    ]
+
+
+@router.put(
+    "/lead-approval-policies/{provider}",
+    response_model=LeadApprovalPolicyResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def set_lead_approval_policy(
+    provider: str,
+    request: LeadApprovalPolicyUpdate,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> LeadApprovalPolicyResponse:
+    if provider not in LEAD_APPROVAL_PROVIDER_LABELS:
+        raise HTTPException(
+            status_code=404,
+            detail="provider does not support lead approval policies",
+        )
+    if request.auto_approve_leads:
+        if "manual_review.manage" not in workspace.permissions:
+            raise HTTPException(
+                status_code=403,
+                detail="permission required: manual_review.manage to enable auto-approval",
+            )
+        if not provider_has_verified_connection(session, workspace.workspace_id, provider):
+            name = LEAD_APPROVAL_PROVIDER_LABELS[provider]
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{name} must have an active verified connection before "
+                    "auto-approval can be enabled."
+                ),
+            )
+    update_lead_approval_policy(
+        session,
+        workspace.workspace_id,
+        provider,
+        request.auto_approve_leads,
+        workspace.actor_id,
+    )
+    session.commit()
+    return _lead_approval_policy_response(session, workspace.workspace_id, provider)
 
 
 def _slack_notification_config_response(

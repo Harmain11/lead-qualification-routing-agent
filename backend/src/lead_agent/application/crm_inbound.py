@@ -17,6 +17,10 @@ from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     gmail_history_messages,
 )
+from lead_agent.application.lead_approval import (
+    combined_review_reason,
+    provider_policy_review_reason,
+)
 from lead_agent.application.services import process_source_event, reprocess_lead
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
@@ -801,6 +805,12 @@ def _process_record(
 ) -> str:
     normalized_payload = _json_safe_payload(canonical.normalized_payload)
     manual_review_reason = _gmail_manual_review_reason(canonical)
+    provider_review_reason = provider_policy_review_reason(
+        session, connection.workspace_id, canonical.provider
+    )
+    effective_review_reason = combined_review_reason(
+        manual_review_reason, provider_review_reason
+    )
     link = _record_link(session, connection, canonical)
     now = datetime.now(UTC)
     if canonical.provider == "gohighlevel":
@@ -912,7 +922,7 @@ def _process_record(
             link.last_seen_at = now
             link.updated_at = now
             review_routed = False
-            if manual_review_reason:
+            if effective_review_reason:
                 current_routing = get_current_routing(
                     session, lead.id, connection.workspace_id
                 )
@@ -928,6 +938,7 @@ def _process_record(
                         send_confirmation_email=False,
                         preserve_inquiry=canonical.provider == "gohighlevel",
                         manual_review_reason=manual_review_reason,
+                        approval_provider=canonical.provider,
                     )
                     link.last_change_kind = "manual_review_policy"
                     review_routed = True
@@ -952,6 +963,7 @@ def _process_record(
             send_confirmation_email=send_confirmation_email,
             preserve_inquiry=canonical.provider == "gohighlevel",
             manual_review_reason=manual_review_reason,
+            approval_provider=canonical.provider,
         )
         link = _record_link(session, connection, canonical)
         if link is None:
@@ -997,6 +1009,7 @@ def _process_record(
             send_confirmation_email=send_confirmation_email,
             preserve_inquiry=canonical.provider == "gohighlevel",
             manual_review_reason=manual_review_reason,
+            approval_provider=canonical.provider,
         )
         strategy = "exact_email"
         outcome = "updated"
@@ -1050,6 +1063,7 @@ def _process_record(
             workspace_id=connection.workspace_id,
             send_confirmation_email=send_confirmation_email,
             manual_review_reason=manual_review_reason,
+            approval_provider=canonical.provider,
         )
         lead = result.lead
         strategy = "new_provider_record" if not matches else "ambiguous_email_created_separate"

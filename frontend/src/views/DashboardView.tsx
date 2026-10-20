@@ -36,11 +36,6 @@ const dashboardWidgetOptions = [
   },
   { id: "manual_review", label: "Manual review", group: "Key metrics" },
   {
-    id: "average_routing_velocity_minutes",
-    label: "Routing velocity",
-    group: "Key metrics",
-  },
-  {
     id: "attention-queue",
     label: "Attention queue",
     group: "Dashboard panels",

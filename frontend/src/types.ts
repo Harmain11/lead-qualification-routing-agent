@@ -641,6 +641,15 @@ export type IntegrationCard = {
   connections: ProviderConnection[];
 };
 
+export type LeadApprovalPolicy = {
+  provider: string;
+  display_name: string;
+  auto_approve_leads: boolean;
+  policy_source: "default" | "legacy_migration" | "user";
+  verified_connection: boolean;
+  updated_at: string | null;
+};
+
 export type SlackNotificationRule = {
   id: string;
   name: string;
