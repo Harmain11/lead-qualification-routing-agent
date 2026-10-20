@@ -1084,50 +1084,38 @@ html[data-theme] .ops-dialog.lead-drawer .lead-story { background: transparent; 
   .lead-drawer .story-head-actions > button { width: auto; flex: 1; }
 }
 
-.app-shell .integration-card .lead-approval-policy {
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--card-padding);
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius);
-  background: var(--surface-high);
-}
-.lead-approval-policy > * { margin: 0; }
-.lead-approval-policy-head {
+.app-shell .integration-card .lead-confirmation-setting {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
-.lead-approval-policy-head > div { display: grid; gap: var(--space-1); }
-.lead-approval-policy-head strong { color: var(--text); font-size: var(--font-control); }
-.lead-approval-policy-state {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+.lead-confirmation-setting-copy {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 72ch;
 }
-.lead-approval-policy-state.is-ready {
-  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
-  color: var(--green);
-}
-.app-shell .integration-card .lead-approval-policy > p {
-  max-width: 78ch;
+.lead-confirmation-setting-copy strong { color: var(--text); font-size: var(--font-control); }
+.app-shell .integration-card .lead-confirmation-setting-copy p {
+  margin: 0;
   color: var(--muted);
   font-size: var(--font-control);
-  line-height: 1.55;
+  line-height: 1.5;
 }
-.lead-approval-policy .lead-approval-policy-safeguards,
-.lead-approval-policy > small { color: var(--subtle); font-size: 12px; line-height: 1.5; }
-.lead-approval-policy .lead-approval-policy-error { color: var(--red); }
-.app-shell .integration-card .lead-approval-policy > button { justify-self: start; }
+.lead-confirmation-setting-copy small,
+.lead-confirmation-loading { color: var(--subtle); font-size: 12px; line-height: 1.5; }
+.lead-confirmation-setting-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.lead-confirmation-error { color: var(--red); font-size: 12px; }
 
 @media (max-width: 560px) {
-  .app-shell .integration-card .lead-approval-policy > button { width: 100%; }
+  .app-shell .integration-card .lead-confirmation-setting {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .lead-confirmation-setting-actions { width: 100%; justify-content: space-between; }
 }

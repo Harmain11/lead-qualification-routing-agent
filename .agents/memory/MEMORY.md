@@ -25,3 +25,4 @@
 - [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.
 - [Manual direct dialing](direct-dial-policy.md) — Keep direct calls unlinked until explicitly added; an admin must grant Dialer access per member, and consent checks still apply.
 - [Workspace review settings](workspace-manual-review-settings.md) — Keep analysis review criteria separate from provider import approvals; existing review decisions remain unchanged when criteria change.
+- [Alembic branch merges](alembic-branch-merges.md) — Merge concurrent migration heads explicitly and keep revision IDs within the database version column's 32-character limit.
