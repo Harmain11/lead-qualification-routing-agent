@@ -13,8 +13,6 @@ For Corral direct calls, use the safeguarded CloudTalk create-call API and the c
 
 **How to apply:** When adding CloudTalk API operations, confirm each endpoint's documented host and envelope; do not retrieve recording media when a provider call-detail link is sufficient.
 
-**Why:** On October 20, 2026, the user chose API-started direct calls from Corral to avoid opening CloudTalk Desktop while preserving Corral's call safeguards, accepting the agent's default caller ID.
+**Why:** On October 20, 2026, the user chose API-started direct calls from Corral to preserve Corral's safeguards, accepting the agent's default caller ID. The user later accepted the full embedded CloudTalk Phone for answering and ending calls, including the risk that its keypad bypasses Corral's checks.
 
-The user also chose to answer and end API-started calls in their CloudTalk client rather than embed the full CloudTalk Phone dialer, whose independent keypad could bypass Corral's safeguards.
-
-**How to apply:** Require Corral's per-call confirmation, consent, do-not-call, and residency checks; verify and show the agent's default caller ID before starting. Keep the durable request receipt and never blindly retry an uncertain submission. Do not represent the VoiceAgent emergency-stop endpoint as a per-call hang-up control.
+**How to apply:** Require Corral's per-call confirmation, consent, do-not-call, and residency checks; verify and show the agent's default caller ID before starting. The embedded Phone should be loaded and signed into the same agent first, remain mounted across app navigation, and clearly warn that calls placed from its keypad bypass Corral's checks. CloudTalk's docs do not guarantee API-started calls ring that embedded session, so confirm routing with a controlled test before claiming it works. Keep the durable request receipt and never blindly retry an uncertain submission. Do not represent the VoiceAgent emergency-stop endpoint as a per-call hang-up control.
