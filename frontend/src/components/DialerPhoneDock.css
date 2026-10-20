@@ -150,17 +150,6 @@
   border: 0 !important;
 }
 
-.dialer-phone-aircall.is-provider-hidden {
-  position: absolute;
-  top: 0;
-  left: -10000px;
-  width: 420px;
-  height: 700px;
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
-}
-
 .dialer-phone-setup {
   display: grid;
   align-content: center;

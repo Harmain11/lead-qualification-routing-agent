@@ -1,27 +1,11 @@
 import { useEffect, useId, useState } from "react";
 import type AircallWorkspace from "aircall-everywhere";
+import {
+  isEmbeddedDialerConnection,
+  ringCentralEmbedClientId,
+  type DialerPhoneConnection,
+} from "./dialerPhoneConfig";
 import "./DialerPhoneDock.css";
-
-export type DialerPhoneConnection = {
-  id: string;
-  provider: string;
-  account_name: string;
-};
-
-export const ringCentralEmbedClientId =
-  (import.meta.env as Record<string, string | undefined>)
-    .VITE_RINGCENTRAL_EMBED_CLIENT_ID?.trim() ?? "";
-
-export function isEmbeddedDialerConnection(
-  connection: Pick<DialerPhoneConnection, "provider"> | null | undefined,
-) {
-  if (!connection) return false;
-  return (
-    connection.provider === "cloudtalk" ||
-    connection.provider === "aircall" ||
-    connection.provider === "ringcentral"
-  );
-}
 
 const cloudTalkPhoneOrigin = "https://phone.cloudtalk.io";
 const providerLabels: Record<string, string> = {

@@ -36,12 +36,12 @@ import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
+import { DialerPhoneDock } from "./components/DialerPhoneDock";
 import {
-  DialerPhoneDock,
   isEmbeddedDialerConnection,
   ringCentralEmbedClientId,
   type DialerPhoneConnection,
-} from "./components/DialerPhoneDock";
+} from "./components/dialerPhoneConfig";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
