@@ -65,14 +65,20 @@ export function DirectDialer({
   canViewLeads,
   canEditLeads,
   onOpenLead,
-  onOpenCloudTalkPhone,
+  preferredConnectionId,
+  onPreferredConnectionChange,
+  phoneCallActive,
+  ringCentralEmbedReady,
 }: {
   connections: DirectDialerConnection[];
   canCall: boolean;
   canViewLeads: boolean;
   canEditLeads: boolean;
   onOpenLead: (leadId: string) => void;
-  onOpenCloudTalkPhone: () => void;
+  preferredConnectionId: string;
+  onPreferredConnectionChange: (connectionId: string) => void;
+  phoneCallActive: boolean;
+  ringCentralEmbedReady: boolean;
 }) {
   const [connectionId, setConnectionId] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -87,12 +93,32 @@ export function DirectDialer({
   const [historyError, setHistoryError] = useState("");
 
   useEffect(() => {
-    if (!connections.some((connection) => connection.id === connectionId)) {
-      setConnectionId(connections[0]?.id ?? "");
+    if (!connections.length) {
+      if (connectionId) {
+        setConnectionId("");
+        setConfirmed(false);
+        setNotice("");
+      }
+      return;
+    }
+    const preferred = connections.find(
+      (connection) => connection.id === preferredConnectionId,
+    );
+    const nextId = preferred?.id ?? connections[0]?.id ?? "";
+    if (nextId !== connectionId) {
+      setConnectionId(nextId);
       setConfirmed(false);
       setNotice("");
     }
-  }, [connections, connectionId]);
+    if (nextId !== preferredConnectionId) {
+      onPreferredConnectionChange(nextId);
+    }
+  }, [
+    connections,
+    connectionId,
+    onPreferredConnectionChange,
+    preferredConnectionId,
+  ]);
 
   async function refreshHistory() {
     if (!canViewLeads) return;
@@ -114,10 +140,10 @@ export function DirectDialer({
 
   const selected = connections.find((connection) => connection.id === connectionId);
   const needsRep = selected?.provider === "twilio";
-
-  useEffect(() => {
-    if (canCall && selected?.provider === "cloudtalk") onOpenCloudTalkPhone();
-  }, [canCall, onOpenCloudTalkPhone, selected?.provider]);
+  const usesEmbeddedPhone =
+    selected?.provider === "cloudtalk" ||
+    selected?.provider === "aircall" ||
+    (selected?.provider === "ringcentral" && ringCentralEmbedReady);
 
   function addPhoneKey(value: string) {
     setPhoneNumber((current) => {
@@ -145,7 +171,7 @@ export function DirectDialer({
 
   async function startCall(event: FormEvent) {
     event.preventDefault();
-    if (!canCall || !confirmed || !connectionId || busy || selected?.provider === "cloudtalk") return;
+    if (!canCall || !confirmed || !connectionId || busy || usesEmbeddedPhone) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -202,17 +228,47 @@ export function DirectDialer({
   return <section className="dialer-panel direct-dialer-panel">
     <div className="dialer-panel-head">
       <div>
-        <span className="eyebrow">{selected?.provider === "cloudtalk" ? "CloudTalk" : "Direct calling"}</span>
-        <h2>{selected?.provider === "cloudtalk" ? "CloudTalk Phone" : "Call a new number"}</h2>
+        <span className="eyebrow">{usesEmbeddedPhone ? providerNames[selected?.provider ?? ""] : "Direct calling"}</span>
+        <h2>{usesEmbeddedPhone ? `${providerNames[selected?.provider ?? ""]} Phone` : "Call a new number"}</h2>
       </div>
       <span className="dialer-panel-count">
-        {selected?.provider === "cloudtalk" ? "Call directly in CloudTalk" : "One confirmed call at a time"}
+        {usesEmbeddedPhone ? "Floating phone available throughout Corral" : "One confirmed call at a time"}
       </span>
     </div>
+    {connections.length > 0 && (
+      <div className="dialer-preferred-provider">
+        <label htmlFor="preferred-dialer-connection">Embedded dialer</label>
+        {connections.length > 1 ? (
+          <select
+            id="preferred-dialer-connection"
+            value={connectionId}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              setConnectionId(nextId);
+              onPreferredConnectionChange(nextId);
+              setConfirmed(false);
+              setNotice("");
+            }}
+            disabled={phoneCallActive || busy || Boolean(requestId)}
+          >
+            {connections.map((connection) => (
+              <option value={connection.id} key={connection.id}>
+                {providerNames[connection.provider] || connection.provider} · {connection.account_name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span>{providerNames[selected?.provider ?? ""] || selected?.provider} · {selected?.account_name}</span>
+        )}
+        {phoneCallActive && <small>End the active call before switching dialers.</small>}
+      </div>
+    )}
     <p className="panel-copy">
-      {selected?.provider === "cloudtalk"
-        ? "Use the embedded CloudTalk Phone to dial and control calls directly."
-        : "Corral-started calls require individual confirmation and follow workspace consent and residency rules."}
+      {usesEmbeddedPhone
+        ? `Use the floating ${providerNames[selected?.provider ?? ""]} phone to dial and control calls. It remains available as you move between Corral screens.`
+        : selected?.provider === "ringcentral" && !ringCentralEmbedReady
+          ? "RingCentral’s embedded phone needs a registered Embeddable app ID. Corral’s confirmed call flow remains available until it is configured."
+          : "Corral-started calls require individual confirmation and follow workspace consent and residency rules."}
     </p>
     {!connections.length ? (
       <div className="direct-dialer-status is-unavailable" role="status">
@@ -224,31 +280,11 @@ export function DirectDialer({
         <span aria-hidden="true" />
         <div><strong>Calling permission unavailable</strong><p>An admin must grant you the Dialer calling permission before you can place calls.</p></div>
       </div>
-    ) : selected?.provider === "cloudtalk" ? (
-      <div className="cloudtalk-phone-only-view">
-        {connections.length > 1 && (
-          <label className="cloudtalk-phone-account-picker" htmlFor="direct-dial-connection">
-            Calling account
-            <select
-              id="direct-dial-connection"
-              value={connectionId}
-              onChange={(event) => {
-                setConnectionId(event.target.value);
-                setConfirmed(false);
-                setNotice("");
-              }}
-            >
-              {connections.map((connection) => (
-                <option value={connection.id} key={connection.id}>
-                  {providerNames[connection.provider] || connection.provider} · {connection.account_name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <p className="cloudtalk-embed-warning">
-          Calls placed in CloudTalk Phone bypass Corral’s consent, do-not-call, and residency checks.
-          CloudTalk records these calls; they may not appear in Corral’s direct-call history.
+    ) : usesEmbeddedPhone ? (
+      <div className="embedded-phone-only-view">
+        <p className="embedded-phone-warning">
+          Calls placed in the provider phone bypass Corral’s consent, do-not-call, and residency
+          checks. They may not appear in Corral’s direct-call history.
         </p>
       </div>
     ) : (
@@ -311,14 +347,6 @@ export function DirectDialer({
             </div>
           </div>
           <div className="direct-dialer-account-field">
-            <label htmlFor="direct-dial-connection">Calling account</label>
-            <select id="direct-dial-connection" value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); setNotice(""); }} disabled={busy || Boolean(requestId)}>
-              {connections.map((connection) => (
-                <option value={connection.id} key={connection.id}>
-                  {providerNames[connection.provider] || connection.provider} · {connection.account_name}
-                </option>
-              ))}
-            </select>
             {selected && ["twilio", "ringcentral"].includes(selected.provider) && (
               <label>Your rep number{needsRep ? " (required)" : " (optional override)"}
                 <input
@@ -396,7 +424,7 @@ export function DirectDialer({
         </div>
       </form>
     )}
-    {result && selected?.provider !== "cloudtalk" && <div className="direct-call-result">
+    {result && !usesEmbeddedPhone && <div className="direct-call-result">
       <div>
         <strong>{result.customer_phone}</strong>
         <span>{providerNames[result.provider] || result.provider} · {result.status.replaceAll("_", " ")}</span>

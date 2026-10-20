@@ -70,7 +70,10 @@ export function DialerView({
   canCall,
   canCallLeads,
   canViewIntegrations,
-  onOpenCloudTalkPhone,
+  preferredDialerId,
+  onPreferredDialerChange,
+  dialerCallActive,
+  ringCentralEmbedReady,
 }: {
   onOpenIntegrations: () => void;
   onOpenLead: (leadId: string) => void;
@@ -80,7 +83,10 @@ export function DialerView({
   canCall: boolean;
   canCallLeads: boolean;
   canViewIntegrations: boolean;
-  onOpenCloudTalkPhone: () => void;
+  preferredDialerId: string;
+  onPreferredDialerChange: (connectionId: string) => void;
+  dialerCallActive: boolean;
+  ringCentralEmbedReady: boolean;
 }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activity, setActivity] = useState<CallActivity | null>(null);
@@ -352,7 +358,10 @@ export function DialerView({
               canViewLeads={canViewLeads}
               canEditLeads={canEditLeads}
               onOpenLead={onOpenLead}
-              onOpenCloudTalkPhone={onOpenCloudTalkPhone}
+              preferredConnectionId={preferredDialerId}
+              onPreferredConnectionChange={onPreferredDialerChange}
+              phoneCallActive={dialerCallActive}
+              ringCentralEmbedReady={ringCentralEmbedReady}
             />
             <section className="dialer-workflow-grid">
               <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Corral-started calls are placed individually with consent and permission checks. Calls started from CloudTalk Phone’s own keypad do not pass through those checks.</p></div></article>

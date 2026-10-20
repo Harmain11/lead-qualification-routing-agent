@@ -36,7 +36,12 @@ import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
-import { CloudTalkPhoneDock } from "./components/CloudTalkPhoneDock";
+import {
+  DialerPhoneDock,
+  isEmbeddedDialerConnection,
+  ringCentralEmbedClientId,
+  type DialerPhoneConnection,
+} from "./components/DialerPhoneDock";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
@@ -366,12 +371,98 @@ function App() {
   const [view, setView] = useState<AppView>(() =>
     pageFromSearch(window.location.search),
   );
-  const [cloudTalkPhoneMounted, setCloudTalkPhoneMounted] = useState(false);
-  const [cloudTalkPhoneOpen, setCloudTalkPhoneOpen] = useState(false);
-  const openCloudTalkPhone = useCallback(() => {
-    setCloudTalkPhoneMounted(true);
-    setCloudTalkPhoneOpen(true);
-  }, []);
+  const [dialerConnections, setDialerConnections] = useState<DialerPhoneConnection[]>([]);
+  const [preferredDialerId, setPreferredDialerId] = useState("");
+  const [dialerPhoneOpen, setDialerPhoneOpen] = useState(false);
+  const [dialerCallActive, setDialerCallActive] = useState(false);
+  const preferredDialerRef = useRef("");
+  const dialerPreferenceKey =
+    auth?.user.id && auth.current_workspace_id
+      ? `corral-preferred-dialer:v1:${auth.user.id}:${auth.current_workspace_id}`
+      : null;
+  const selectedDialer = dialerConnections.find(
+    (connection) => connection.id === preferredDialerId,
+  ) ?? null;
+
+  useEffect(() => {
+    preferredDialerRef.current = preferredDialerId;
+  }, [preferredDialerId]);
+
+  useEffect(() => {
+    preferredDialerRef.current = "";
+    setDialerConnections([]);
+    setPreferredDialerId("");
+    setDialerPhoneOpen(false);
+    setDialerCallActive(false);
+    const preferenceKey = dialerPreferenceKey ?? "";
+    if (!preferenceKey) return;
+
+    let active = true;
+    async function refreshDialerConnections() {
+      try {
+        const cards = await listIntegrations();
+        if (!active) return;
+        const available = cards
+          .filter((card) => /dialer|voice/i.test(card.category))
+          .flatMap((card) =>
+            card.connections
+              .filter(
+                (connection) =>
+                  connection.is_active && connection.status === "verified",
+              )
+              .map((connection) => ({
+                id: connection.id,
+                provider: card.provider,
+                account_name: connection.account_name,
+              })),
+          );
+        const currentId = preferredDialerRef.current;
+        const savedId = window.localStorage.getItem(preferenceKey);
+        const next =
+          available.find((connection) => connection.id === savedId) ??
+          available.find((connection) => connection.id === currentId) ??
+          available.find(isEmbeddedDialerConnection) ??
+          available[0] ??
+          null;
+        const nextId = next?.id ?? "";
+        setDialerConnections(available);
+        preferredDialerRef.current = nextId;
+        setPreferredDialerId(nextId);
+        if (nextId !== currentId) {
+          setDialerPhoneOpen(Boolean(next && isEmbeddedDialerConnection(next)));
+          setDialerCallActive(false);
+        }
+        if (nextId) {
+          window.localStorage.setItem(preferenceKey, nextId);
+        } else {
+          window.localStorage.removeItem(preferenceKey);
+        }
+      } catch (error) {
+        console.warn("Unable to refresh connected dialers", error);
+      }
+    }
+
+    const onIntegrationsChanged = () => void refreshDialerConnections();
+    window.addEventListener("corral:integrations-changed", onIntegrationsChanged);
+    void refreshDialerConnections();
+    return () => {
+      active = false;
+      window.removeEventListener("corral:integrations-changed", onIntegrationsChanged);
+    };
+  }, [dialerPreferenceKey]);
+
+  const selectPreferredDialer = useCallback((connectionId: string) => {
+    if (dialerCallActive) return;
+    const next = dialerConnections.find((connection) => connection.id === connectionId);
+    const nextId = next?.id ?? "";
+    preferredDialerRef.current = nextId;
+    setPreferredDialerId(nextId);
+    if (dialerPreferenceKey) {
+      if (nextId) window.localStorage.setItem(dialerPreferenceKey, nextId);
+      else window.localStorage.removeItem(dialerPreferenceKey);
+    }
+    setDialerPhoneOpen(Boolean(next && isEmbeddedDialerConnection(next)));
+  }, [dialerCallActive, dialerConnections, dialerPreferenceKey]);
   const [pageSection, setPageSection] = useState(() =>
     sectionFromSearch(
       window.location.search,
@@ -1617,7 +1708,10 @@ function App() {
                     can(workspacePermissions, "leads.edit")
                   }
                   canViewIntegrations={can(workspacePermissions, "integrations.view")}
-                  onOpenCloudTalkPhone={openCloudTalkPhone}
+                  preferredDialerId={preferredDialerId}
+                  onPreferredDialerChange={selectPreferredDialer}
+                  dialerCallActive={dialerCallActive}
+                  ringCentralEmbedReady={Boolean(ringCentralEmbedClientId)}
                 />
               )}
               {view === "settings" && (
@@ -1716,11 +1810,19 @@ function App() {
         onDismiss={closeTour}
         onComplete={closeTour}
       />
-      {cloudTalkPhoneMounted && can(workspacePermissions, "dialer.call") && (
-        <CloudTalkPhoneDock
-          open={cloudTalkPhoneOpen}
-          onOpen={() => setCloudTalkPhoneOpen(true)}
-          onMinimize={() => setCloudTalkPhoneOpen(false)}
+      {can(workspacePermissions, "dialer.call") && (
+        <DialerPhoneDock
+          connection={selectedDialer}
+          open={dialerPhoneOpen}
+          callActive={dialerCallActive}
+          onToggle={() => {
+            if (dialerCallActive && dialerPhoneOpen) return;
+            setDialerPhoneOpen((current) => !current);
+          }}
+          onClose={() => {
+            if (!dialerCallActive) setDialerPhoneOpen(false);
+          }}
+          onCallActiveChange={setDialerCallActive}
         />
       )}
     </div>
