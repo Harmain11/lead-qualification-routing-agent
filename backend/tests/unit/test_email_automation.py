@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_db, get_workspace_context
 from lead_agent.api.main import app
-from lead_agent.application.services import _deliver_lead_confirmation_email
+from lead_agent.application.services import (
+    _deliver_lead_confirmation_email,
+    _send_confirmation_if_eligible,
+)
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -191,6 +194,27 @@ def test_source_override_takes_precedence_over_workspace_default(
         assert allowed == [enabled_lead.email]
         assert session.scalar(select(LeadFollowUpEmailORM)) is None
     engine.dispose()
+
+
+def test_automatic_confirmation_is_skipped_for_manual_review(monkeypatch) -> None:
+    lead = _lead(uuid4())
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "lead_agent.application.services._send_lead_confirmation_email",
+        lambda _session, row: sent.append(str(row.id)),
+    )
+
+    _send_confirmation_if_eligible(
+        None, lead, requires_manual_review=True  # type: ignore[arg-type]
+    )
+    _send_confirmation_if_eligible(None, lead)  # type: ignore[arg-type]
+    _send_confirmation_if_eligible(
+        None,
+        lead,
+        send_confirmation_email=False,
+    )  # type: ignore[arg-type]
+
+    assert sent == [str(lead.id)]
 
 
 def _lead(workspace_id) -> LeadORM:
