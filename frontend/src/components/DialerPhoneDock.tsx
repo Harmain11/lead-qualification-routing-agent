@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type AircallWorkspace from "aircall-everywhere";
 import {
   isDialerPhoneAvailable,
@@ -46,9 +46,23 @@ function CloudTalkPhoneFrame({
   onCallActiveChange: (active: boolean) => void;
 }) {
   const frameId = useId();
+  const frameViewportRef = useRef<HTMLDivElement>(null);
+  const [frameScale, setFrameScale] = useState(1);
   const [status, setStatus] = useState(
     "Sign in with your CloudTalk account or organization SSO. Your phone session is managed by CloudTalk.",
   );
+
+  useEffect(() => {
+    const viewport = frameViewportRef.current;
+    if (!viewport) return;
+    const updateScale = () => {
+      setFrameScale(Math.min(1, viewport.clientWidth / 420));
+    };
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(viewport);
+    updateScale();
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const frame = document.getElementById(frameId) as HTMLIFrameElement | null;
@@ -76,14 +90,17 @@ function CloudTalkPhoneFrame({
       <p className="dialer-phone-status" role="status" aria-live="polite">
         {status}
       </p>
-      <iframe
-        id={frameId}
-        className="dialer-phone-frame"
-        src={`${cloudTalkPhoneOrigin}?partner=corral`}
-        title="CloudTalk Phone"
-        allow="microphone https://phone.cloudtalk.io"
-        referrerPolicy="strict-origin-when-cross-origin"
-      />
+      <div className="dialer-phone-cloudtalk-frame-viewport" ref={frameViewportRef}>
+        <iframe
+          id={frameId}
+          className="dialer-phone-frame dialer-phone-frame-cloudtalk"
+          style={{ transform: `scaleX(${frameScale})` }}
+          src={`${cloudTalkPhoneOrigin}?partner=corral`}
+          title="CloudTalk Phone"
+          allow="microphone https://phone.cloudtalk.io"
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      </div>
     </>
   );
 }
