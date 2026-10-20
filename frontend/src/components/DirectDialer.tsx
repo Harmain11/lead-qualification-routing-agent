@@ -405,7 +405,7 @@ export function DirectDialer({
         <div className="direct-dialer-actions">
           <small>
             {selected?.provider === "cloudtalk"
-              ? "Corral starts the call after its checks. CloudTalk handles the audio; the connected agent must be online. Call outcomes may need a separate history sync."
+              ? "Corral starts the checked call. Answer and end it in your CloudTalk client; the connected agent must be online. Call outcomes may need a separate history sync."
               : "Calls are not attached to a lead unless you explicitly add one after the call."}
           </small>
           <button
