@@ -2,6 +2,7 @@
 - [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
 - [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
+- [Email composer behavior](email-composer-behavior.md) — collapse conversation messages by default, but keep the reply composer open when requested and offer a safe close action.
 - [Integration card presentation](integration-card-presentation.md) — Non-AI cards expand independently; AI providers share one selector card with separate underlying state.
 - [Email lead relevance](email-lead-relevance.md) — exclude unrelated mail before lead creation; existing sales-thread replies remain interactions.
 - [Integration account policy](integration-account-policy.md) — Gmail supports multiple active mailboxes; other providers remain single-account, with history preserved on reconnect.
