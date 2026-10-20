@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -76,6 +77,22 @@ class DirectStartCall(StrictModel):
     rep_phone: str | None = Field(default=None, max_length=32)
 
 
+class CloudTalkHandoffRequest(DirectStartCall):
+    caller_id: str = Field(min_length=8, max_length=32)
+
+
+class CloudTalkHandoffResponse(StrictModel):
+    phone_number: str
+    caller_id: str
+    handoff_url: str
+    message: str
+
+
+class CloudTalkCallerNumberOptions(StrictModel):
+    numbers: list[str]
+    default_number: str | None = None
+
+
 class SyncCalls(StrictModel):
     connection_id: UUID
 
@@ -115,8 +132,43 @@ def _target(lead: LeadORM) -> str:
         raise HTTPException(422, str(error)) from None
 
 
+def _validate_direct_call_policy(
+    session: Session, workspace_id: UUID, target: str
+) -> None:
+    target_digits = "".join(character for character in target if character.isdigit())
+    matching_leads = [
+        lead
+        for lead in session.scalars(
+            select(LeadORM).where(
+                LeadORM.workspace_id == workspace_id,
+                LeadORM.phone.is_not(None),
+            )
+        )
+        if "".join(character for character in (lead.phone or "") if character.isdigit())
+        == target_digits
+    ]
+    policy = operations_policy(session, workspace_id)
+    try:
+        assert_residency(session, workspace_id)
+        if not matching_leads and policy.require_recorded_consent:
+            raise OutreachBlocked(
+                "This workspace requires recorded call consent. Add the number to a lead "
+                "and record permission before calling."
+            )
+        for lead in matching_leads:
+            if lead.email:
+                assert_outreach_allowed(session, workspace_id, lead.email, "call")
+            elif policy.require_recorded_consent:
+                raise OutreachBlocked(
+                    "Record call permission for this lead before dialing its number."
+                )
+    except OutreachBlocked as error:
+        raise HTTPException(409, str(error)) from None
+
+
 @router.get(
     "/cloudtalk/numbers",
+    response_model=CloudTalkCallerNumberOptions,
     dependencies=[Depends(rate_limit_dependency("provider_actions"))],
 )
 def cloudtalk_phone_numbers(
@@ -124,13 +176,13 @@ def cloudtalk_phone_numbers(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
-) -> dict[str, list[str]]:
+) -> CloudTalkCallerNumberOptions:
     connection = _connection(session, workspace.workspace_id, connection_id)
     if connection.provider_type != "cloudtalk":
         raise HTTPException(404, "CloudTalk connection not found")
     client = _client(session, workspace, connection, resolver)
     try:
-        numbers = client.list_cloudtalk_numbers()
+        numbers, default_number = client.list_cloudtalk_agent_caller_ids()
     except ProviderOperationError as error:
         status_code = 429 if error.status_code == 429 else 502
         raise HTTPException(
@@ -150,7 +202,7 @@ def cloudtalk_phone_numbers(
         ) from None
     finally:
         client.close()
-    return {"numbers": numbers}
+    return CloudTalkCallerNumberOptions(numbers=numbers, default_number=default_number)
 
 
 @router.get("/cloudtalk/recent")
@@ -554,35 +606,7 @@ def start_direct_call(
     if previous:
         return previous
 
-    target_digits = "".join(character for character in target if character.isdigit())
-    matching_leads = [
-        lead
-        for lead in session.scalars(
-            select(LeadORM).where(
-                LeadORM.workspace_id == workspace.workspace_id,
-                LeadORM.phone.is_not(None),
-            )
-        )
-        if "".join(character for character in (lead.phone or "") if character.isdigit())
-        == target_digits
-    ]
-    policy = operations_policy(session, workspace.workspace_id)
-    try:
-        assert_residency(session, workspace.workspace_id)
-        if not matching_leads and policy.require_recorded_consent:
-            raise OutreachBlocked(
-                "This workspace requires recorded call consent. Add the number to a lead "
-                "and record permission before calling."
-            )
-        for lead in matching_leads:
-            if lead.email:
-                assert_outreach_allowed(session, workspace.workspace_id, lead.email, "call")
-            elif policy.require_recorded_consent:
-                raise OutreachBlocked(
-                    "Record call permission for this lead before dialing its number."
-                )
-    except OutreachBlocked as error:
-        raise HTTPException(409, str(error)) from None
+    _validate_direct_call_policy(session, workspace.workspace_id, target)
 
     # Direct calls stay unlinked until a user explicitly creates a lead.
     lead_id = None
@@ -666,6 +690,85 @@ def start_direct_call(
         return row
     finally:
         client.close()
+
+
+@router.post(
+    "/direct/cloudtalk-handoff",
+    response_model=CloudTalkHandoffResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def prepare_cloudtalk_handoff(
+    request: CloudTalkHandoffRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> CloudTalkHandoffResponse:
+    if not request.confirmed:
+        raise HTTPException(422, "Confirm this individual call before dialing.")
+    if not request.consent_confirmed:
+        raise HTTPException(422, "Confirm that you have permission to call this number.")
+    try:
+        target = phone(request.phone_number)
+        caller_id = phone(request.caller_id)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+
+    _validate_direct_call_policy(session, workspace.workspace_id, target)
+    connection = _connection(session, workspace.workspace_id, request.connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(404, "CloudTalk connection not found")
+
+    client = _client(session, workspace, connection, resolver)
+    try:
+        assigned_numbers, _ = client.list_cloudtalk_agent_caller_ids()
+        if caller_id not in assigned_numbers:
+            raise HTTPException(
+                422,
+                "Select a caller ID assigned to the CloudTalk agent configured in this connection.",
+            )
+    except ProviderOperationError as error:
+        status_code = 429 if error.status_code == 429 else 502
+        raise HTTPException(
+            status_code,
+            (
+                "CloudTalk caller-ID assignments could not be verified. "
+                "Check the connection before calling."
+            ),
+        ) from None
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            502,
+            (
+                "CloudTalk caller-ID assignments could not be verified. "
+                "Check the connection before calling."
+            ),
+        ) from None
+    finally:
+        client.close()
+
+    handoff_url = f"ct+tel:{target}?from={quote(caller_id, safe='')}"
+    audit_operation(
+        session,
+        workspace.workspace_id,
+        workspace.actor_id,
+        "call.direct_handoff_prepared",
+        {
+            "connection_id": str(connection.id),
+            "request_id": str(request.request_id),
+            "provider": "cloudtalk",
+            "caller_id": caller_id,
+        },
+    )
+    session.commit()
+    return CloudTalkHandoffResponse(
+        phone_number=target,
+        caller_id=caller_id,
+        handoff_url=handoff_url,
+        message=(
+            "Pre-call checks passed. Open CloudTalk Desktop to call from the selected number. "
+            "CloudTalk may dial immediately if its Click to Call setting is enabled."
+        ),
+    )
 
 
 @router.get("/direct/recent")

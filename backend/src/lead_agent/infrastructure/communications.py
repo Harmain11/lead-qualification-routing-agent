@@ -288,6 +288,53 @@ class CommunicationsClient:
             raise ValueError("CloudTalk phone number list exceeds the supported page limit.")
         return numbers
 
+    def list_cloudtalk_agent_caller_ids(self) -> tuple[list[str], str | None]:
+        if self.provider != "cloudtalk":
+            raise ValueError("This provider does not have CloudTalk caller IDs.")
+        agent_id = str(self.credentials.get("agent_id", ""))
+        if not agent_id.isdigit():
+            raise ValueError("A selected CloudTalk agent is required to load caller IDs.")
+        response_data = self._cloudtalk_collection(
+            "/api/agents/index.json",
+            {"id": int(agent_id), "limit": 1, "page": 1},
+        )
+        items = response_data.get("data", [])
+        if not isinstance(items, list):
+            raise ValueError("CloudTalk returned an invalid agent record.")
+        agent_item = next((item for item in items if isinstance(item, dict)), None)
+        if agent_item is None:
+            raise ValueError("CloudTalk could not verify the selected agent.")
+        agent = agent_item.get("Agent") or agent_item.get("agent") or agent_item
+        if not isinstance(agent, dict) or str(agent.get("id", "")) != agent_id:
+            raise ValueError("CloudTalk could not verify the selected agent.")
+
+        raw_assigned = agent.get("associated_numbers")
+        if raw_assigned is not None and not isinstance(raw_assigned, list):
+            raise ValueError("CloudTalk returned invalid caller-ID assignments.")
+        numbers: list[str] = []
+        seen: set[str] = set()
+        for raw_number in raw_assigned or []:
+            if not isinstance(raw_number, str):
+                continue
+            try:
+                normalized = phone(raw_number)
+            except ValueError:
+                continue
+            if normalized not in seen:
+                seen.add(normalized)
+                numbers.append(normalized)
+
+        raw_default = agent.get("default_number")
+        default_number = None
+        if isinstance(raw_default, str) and raw_default.strip():
+            try:
+                default_number = phone(raw_default)
+            except ValueError:
+                raise ValueError("CloudTalk returned an invalid default caller ID.") from None
+            if default_number not in seen:
+                numbers.insert(0, default_number)
+        return numbers, default_number
+
     def _cloudtalk_collection(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         result = self.request("GET", path, params=params)
         response_data = result.get("responseData") if isinstance(result, dict) else None

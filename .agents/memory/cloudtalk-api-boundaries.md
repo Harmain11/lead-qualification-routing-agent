@@ -1,18 +1,18 @@
 ---
 name: CloudTalk API boundaries
-description: CloudTalk host split, authentication, and outbound request receipt behavior.
+description: CloudTalk API hosts, authentication, outbound receipts, and caller-ID handoff behavior.
 ---
 
 Use HTTP Basic Auth with the Access Key ID as username and Access Key Secret as password on both CloudTalk API hosts. Core agents, calls, and call-history routes use `https://my.cloudtalk.io/api/`; Conversation Intelligence routes use `https://api.cloudtalk.io/v1/`.
 
-CloudTalk's create-call endpoint accepts an agent ID and E.164 callee number but does not return a call ID or accept an idempotency key. Preserve Corral's durable request receipt before posting, never blindly retry an uncertain submission, and use call history to reconcile it.
+CloudTalk's create-call endpoint accepts an agent ID and E.164 callee number but does not return a call ID or accept an idempotency key. For API-created calls, preserve Corral's durable request receipt before posting, never blindly retry an uncertain submission, and use call history to reconcile it.
 
-Show assigned CloudTalk caller-ID numbers as read-only inventory in Corral. Do not add an Automatic/Smart Rotation control or claim which caller ID a Corral API call will use; those modes are managed in CloudTalk Phone and are not selectable through the create-call API.
+For direct calls that need per-call caller-ID selection, use CloudTalk's documented `ct+tel` Desktop deep link with `from=` set only to a normalized number in the configured agent's `associated_numbers` (including its verified default). The public create-call API accepts only the agent and callee, so it cannot apply a caller-ID selection.
 
 **Why:** CloudTalk's published docs use different hosts for the core API and Conversation Intelligence, and call creation does not supply a provider-side duplicate guard.
 
 **How to apply:** When adding CloudTalk API operations, confirm each endpoint's documented host and envelope; do not retrieve recording media when a provider call-detail link is sufficient.
 
-**Why:** The user chose to keep calls in Corral while showing assigned numbers, without an in-app rotation switch, because CloudTalk's public call API does not expose the native rotation mode.
+**Why:** The user asked to select the outbound number for each direct call and approved the CloudTalk Desktop handoff after learning that the REST API cannot select one.
 
-**How to apply:** Preserve Corral's explicit call confirmation and consent checks. Only show a specific caller ID for a call when CloudTalk returns evidence for that exact call.
+**How to apply:** Preserve Corral's individual confirmation and consent, do-not-call, and residency checks before preparing the link. The Desktop app must use the configured agent, may auto-dial per its Click to Call setting, and keeps call results outside Corral's automatic call history.
