@@ -226,6 +226,68 @@ class CommunicationsClient:
             raise ValueError("CloudTalk agent list exceeds the supported page limit.")
         return agents
 
+    def list_cloudtalk_numbers(self) -> list[str]:
+        if self.provider != "cloudtalk":
+            raise ValueError("This provider does not have a CloudTalk number list.")
+        numbers: list[str] = []
+        seen: set[str] = set()
+        page, limit = 1, 1000
+        while page <= MAX_CLOUDTALK_PAGES:
+            response_data = self._cloudtalk_collection(
+                "/api/numbers/index.json", {"limit": limit, "page": page}
+            )
+            items = response_data.get("data", [])
+            if not isinstance(items, list):
+                raise ValueError("CloudTalk returned an invalid phone number list.")
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                nested = item.get("Number") or item.get("PhoneNumber")
+                if isinstance(item.get("number"), dict):
+                    nested = item["number"]
+                record = nested if isinstance(nested, dict) else item
+                raw_number = item.get("number") if isinstance(item.get("number"), str) else None
+                if raw_number is None:
+                    raw_number = next(
+                        (
+                            record.get(key)
+                            for key in (
+                                "number",
+                                "phone_number",
+                                "phoneNumber",
+                                "public_number",
+                                "number_formatted",
+                                "formatted_number",
+                                "international_number",
+                            )
+                            if isinstance(record.get(key), str) and record[key].strip()
+                        ),
+                        None,
+                    )
+                if not raw_number:
+                    continue
+                try:
+                    normalized = phone(raw_number)
+                except ValueError:
+                    continue
+                if normalized not in seen:
+                    seen.add(normalized)
+                    numbers.append(normalized)
+            page_count = response_data.get("pageCount")
+            if isinstance(page_count, int):
+                if page >= page_count:
+                    break
+                if page_count > MAX_CLOUDTALK_PAGES:
+                    raise ValueError(
+                        "CloudTalk phone number list exceeds the supported page limit."
+                    )
+            elif len(items) < limit:
+                break
+            page += 1
+        else:
+            raise ValueError("CloudTalk phone number list exceeds the supported page limit.")
+        return numbers
+
     def _cloudtalk_collection(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         result = self.request("GET", path, params=params)
         response_data = result.get("responseData") if isinstance(result, dict) else None

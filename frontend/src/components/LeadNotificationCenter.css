@@ -1,0 +1,22 @@
+.lead-notification-center { position: relative; flex: 0 0 auto; }
+.lead-notification-trigger { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface); cursor: pointer; }
+.lead-notification-trigger:hover, .lead-notification-trigger:focus-visible { border-color: var(--workspace-accent, var(--green)); outline: none; }
+.lead-notification-trigger svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.lead-notification-count { position: absolute; top: -5px; right: -6px; min-width: 18px; height: 18px; display: grid; place-items: center; padding: 0 4px; border: 2px solid var(--surface); border-radius: 999px; color: #fff; background: var(--workspace-accent, var(--orange)); font-size: 10px; font-weight: 800; line-height: 1; }
+.lead-notification-inbox { position: absolute; z-index: 120; top: calc(100% + 10px); right: 0; width: min(360px, calc(100vw - 28px)); overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 18px 45px rgba(20, 32, 27, .2); color: var(--text); }
+.lead-notification-inbox > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.lead-notification-inbox > header > div { display: grid; gap: 2px; }
+.lead-notification-inbox > header strong { font-size: 14px; }
+.lead-notification-inbox > header small, .lead-notification-copy small { color: var(--muted); font-size: 11px; }
+.lead-notification-close { width: 30px; height: 30px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; font-size: 20px; cursor: pointer; }
+.lead-notification-close:hover { background: var(--surface-high); }
+.lead-notification-inbox ul { max-height: min(420px, 65vh); overflow: auto; margin: 0; padding: 5px; list-style: none; }
+.lead-notification-item { display: grid; grid-template-columns: 8px minmax(0, 1fr) 12px; align-items: start; gap: 11px; width: 100%; padding: 11px; border: 0; border-radius: 9px; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.lead-notification-item:hover, .lead-notification-item:focus-visible { outline: none; background: var(--surface-high); }
+.lead-notification-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--workspace-accent, var(--green)); }
+.lead-notification-copy { display: grid; min-width: 0; gap: 3px; }
+.lead-notification-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.lead-notification-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-notification-item > span:last-child { color: var(--muted); font-size: 19px; line-height: 1; }
+.lead-notification-empty { margin: 0; padding: 20px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 760px) { .lead-notification-trigger { width: 44px; height: 44px; } .lead-notification-inbox { position: fixed; top: 72px; right: 14px; } }

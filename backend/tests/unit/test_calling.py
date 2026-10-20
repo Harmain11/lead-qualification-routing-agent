@@ -1036,3 +1036,32 @@ def test_retention_cascade_removes_call_data_with_deleted_lead(calls):
     )
     assert client.delete(f"/v1/leads/{lead.id}").status_code == 204
     assert session.scalar(select(func.count()).select_from(CallRecordORM)) == 0
+
+
+def test_cloudtalk_number_inventory_is_scoped_and_closes_provider_client(calls, monkeypatch):
+    session, client, _, _, connection, _, _ = calls
+    connection.provider_type = "cloudtalk"
+    connection.status = "verified"
+    connection.is_active = True
+    session.commit()
+
+    class FakeCloudTalkClient:
+        closed = False
+
+        def list_cloudtalk_numbers(self):
+            return ["+14155550123", "+442071838750"]
+
+        def close(self):
+            self.closed = True
+
+    provider_client = FakeCloudTalkClient()
+    monkeypatch.setattr(calling, "_client", lambda *args: provider_client)
+
+    response = client.get(
+        "/v1/calling/cloudtalk/numbers",
+        params={"connection_id": str(connection.id)},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"numbers": ["+14155550123", "+442071838750"]}
+    assert provider_client.closed

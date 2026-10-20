@@ -115,6 +115,44 @@ def _target(lead: LeadORM) -> str:
         raise HTTPException(422, str(error)) from None
 
 
+@router.get(
+    "/cloudtalk/numbers",
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def cloudtalk_phone_numbers(
+    connection_id: UUID = Query(...),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> dict[str, list[str]]:
+    connection = _connection(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(404, "CloudTalk connection not found")
+    client = _client(session, workspace, connection, resolver)
+    try:
+        numbers = client.list_cloudtalk_numbers()
+    except ProviderOperationError as error:
+        status_code = 429 if error.status_code == 429 else 502
+        raise HTTPException(
+            status_code,
+            (
+                "CloudTalk phone numbers could not be loaded. "
+                "Check the verified connection and its access."
+            ),
+        ) from None
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            502,
+            (
+                "CloudTalk phone numbers could not be loaded. "
+                "Check the verified connection and its access."
+            ),
+        ) from None
+    finally:
+        client.close()
+    return {"numbers": numbers}
+
+
 @router.get("/cloudtalk/recent")
 def recent_cloudtalk_calls(
     page: int = Query(default=1, ge=1),
@@ -533,7 +571,8 @@ def start_direct_call(
         assert_residency(session, workspace.workspace_id)
         if not matching_leads and policy.require_recorded_consent:
             raise OutreachBlocked(
-                "This workspace requires recorded call consent. Add the number to a lead and record permission before calling."
+                "This workspace requires recorded call consent. Add the number to a lead "
+                "and record permission before calling."
             )
         for lead in matching_leads:
             if lead.email:
@@ -559,7 +598,9 @@ def start_direct_call(
         if connection.provider_type == "ringcentral":
             caller = rep or client.credentials.get("from_number")
             if caller == target:
-                raise HTTPException(422, "Your rep number must differ from the number being called.")
+                raise HTTPException(
+                    422, "Your rep number must differ from the number being called."
+                )
 
         now = datetime.now(UTC)
         row = CallRecordORM(
@@ -597,14 +638,16 @@ def start_direct_call(
                 else "failed"
             )
             row.message = (
-                "The provider may have accepted this call. Check its call log before placing another call."
+                "The provider may have accepted this call. "
+                "Check its call log before placing another call."
                 if row.status == "uncertain"
                 else str(error)
             )
         except (ValueError, TypeError, KeyError, AttributeError):
             row.status = "uncertain"
             row.message = (
-                "No reliable call receipt was returned. Check the provider before placing another call."
+                "No reliable call receipt was returned. "
+                "Check the provider before placing another call."
             )
         row.updated_at = datetime.now(UTC)
         audit_operation(

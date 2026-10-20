@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   emptyNewLeadIndicatorSnapshot,
   markLeadSeen as removeSeenLead,
+  newlyUnseenLeadIds,
   observeNewLeads,
   type LeadIndicatorRow,
   type NewLeadIndicatorSnapshot,
@@ -58,9 +59,12 @@ export function useNewLeadIndicators(
     key,
     value: readSnapshot(key),
   }));
+  const storedRef = useRef(stored);
 
   useEffect(() => {
-    setStored({ key, value: readSnapshot(key) });
+    const next = { key, value: readSnapshot(key) };
+    storedRef.current = next;
+    setStored(next);
   }, [key]);
 
   useEffect(() => {
@@ -72,14 +76,18 @@ export function useNewLeadIndicators(
 
   const observeLeadSnapshot = useCallback(
     (leads: LeadIndicatorRow[]) => {
-      if (!key) return;
-      setStored((current) => {
-        const previous =
-          current.key === key ? current.value : readSnapshot(key);
-        const next = observeNewLeads(previous, leads);
-        if (next === previous) return current;
-        return { key, value: next };
-      });
+      if (!key) return [];
+      const previous = storedRef.current.key === key
+        ? storedRef.current.value
+        : readSnapshot(key);
+      const next = observeNewLeads(previous, leads);
+      const arrivals = newlyUnseenLeadIds(previous, next);
+      if (next !== previous) {
+        const updated = { key, value: next };
+        storedRef.current = updated;
+        setStored(updated);
+      }
+      return arrivals;
     },
     [key],
   );
@@ -87,13 +95,14 @@ export function useNewLeadIndicators(
   const markSeen = useCallback(
     (leadId: string, createdAt?: string | null) => {
       if (!key) return;
-      setStored((current) => {
-        const previous =
-          current.key === key ? current.value : readSnapshot(key);
-        const next = removeSeenLead(previous, leadId, createdAt);
-        if (next === previous) return current;
-        return { key, value: next };
-      });
+      const previous = storedRef.current.key === key
+        ? storedRef.current.value
+        : readSnapshot(key);
+      const next = removeSeenLead(previous, leadId, createdAt);
+      if (next === previous) return;
+      const updated = { key, value: next };
+      storedRef.current = updated;
+      setStored(updated);
     },
     [key],
   );
