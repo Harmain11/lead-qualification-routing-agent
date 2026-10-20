@@ -533,6 +533,17 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .email-automation-toggle:hover:not(:disabled) { border-color: var(--accent, #277e62); }
 .email-automation-toggle:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent, #277e62) 70%, white); outline-offset: 2px; }
 .email-automation-toggle:disabled { cursor: wait; opacity: .68; }
+.email-source-automation { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised, var(--surface)); }
+.email-source-automation-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 12px; }
+.email-source-automation-heading h3 { margin: 5px 0 6px; }
+.email-source-automation-heading .panel-copy { margin: 0; max-width: 760px; }
+.email-source-automation-list { display: grid; gap: 8px; }
+.email-source-automation-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.email-source-automation-row > div:first-child { display: grid; gap: 4px; }
+.email-source-automation-row small { color: var(--muted); font-size: 12px; }
+.email-source-automation-actions { display: flex; align-items: center; gap: 8px; }
+.email-source-automation-actions .email-automation-toggle { min-width: 104px; justify-content: center; }
+.email-source-reset { white-space: nowrap; }
 .email-automation-track { width: 36px; height: 21px; display: flex; align-items: center; padding: 2px; border-radius: 999px; background: var(--line-bright, #53605c); transition: background var(--fast); }
 .email-automation-track i { width: 17px; height: 17px; border-radius: 50%; background: white; transition: transform var(--fast); }
 .email-automation-toggle.is-on .email-automation-track { background: var(--accent, #277e62); }
@@ -551,6 +562,11 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .email-template-preview p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
 @media (max-width: 900px) { .email-template-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .email-automation-control { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 600px) {
+  .email-source-automation-heading,
+  .email-source-automation-row { align-items: flex-start; flex-direction: column; }
+  .email-source-automation-actions { width: 100%; justify-content: space-between; }
+}
 
 .integration-sections { display: grid; gap: 32px; }
 .integration-section { display: grid; gap: 15px; }

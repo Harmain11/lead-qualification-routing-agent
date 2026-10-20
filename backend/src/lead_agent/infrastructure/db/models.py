@@ -74,6 +74,20 @@ class WorkspaceEmailAutomationSettingORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceEmailAutomationSourceSettingORM(Base):
+    """Platform-specific override for automatic lead confirmation emails."""
+
+    __tablename__ = "workspace_email_automation_source_settings"
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(32), primary_key=True)
+    lead_confirmation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkspaceRoutingConfigORM(Base):
     """Workspace-owned routing weights and manual-review choices."""
 

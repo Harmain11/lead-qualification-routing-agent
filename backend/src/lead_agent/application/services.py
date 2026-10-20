@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from lead_agent.application.email_templates import get_email_template, render_email_template
 from lead_agent.application.governance import assert_outreach_allowed
 from lead_agent.application.icp import resolve_workspace_icp
+from lead_agent.application.lead_confirmation_sources import lead_confirmation_source_key
 from lead_agent.application.lead_approval import (
     LEAD_APPROVAL_PROVIDER_LABELS,
     combined_review_reason,
@@ -44,6 +45,7 @@ from lead_agent.infrastructure.db.models import (
     ProviderConnectionORM,
     SourceEventORM,
     WorkspaceEmailAutomationSettingORM,
+    WorkspaceEmailAutomationSourceSettingORM,
 )
 from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE, GmailOutboundProvider
 from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
@@ -105,12 +107,20 @@ def _record_pre_routing_history(
 
 
 def _deliver_lead_confirmation_email(session: Session, row: LeadORM) -> None:
-    """Send one idempotent confirmation when the workspace has opted in."""
+    """Send one idempotent confirmation when the workspace or source has opted in."""
     recipient = (row.email or "").strip().lower()
     if "@" not in recipient:
         return
-    automation = session.get(WorkspaceEmailAutomationSettingORM, row.workspace_id)
-    if automation is None or not automation.lead_confirmation_enabled:
+    source_key = lead_confirmation_source_key(row.source, row.source_detail)
+    source_setting = session.get(
+        WorkspaceEmailAutomationSourceSettingORM, (row.workspace_id, source_key)
+    )
+    if source_setting is not None:
+        confirmation_enabled = source_setting.lead_confirmation_enabled
+    else:
+        automation = session.get(WorkspaceEmailAutomationSettingORM, row.workspace_id)
+        confirmation_enabled = bool(automation and automation.lead_confirmation_enabled)
+    if not confirmation_enabled:
         return
     assert_outreach_allowed(session, row.workspace_id, recipient)
     connection = session.scalar(
