@@ -241,6 +241,7 @@ def test_extended_analytics_uses_recorded_booking_and_close_facts(
     assert sum(row["closed"] for row in extended["calibration"]) == 1
     assert extended["sales_cycle_by_segment"][0]["sample_size"] == 1
     assert extended["revenue_by_conversion_type"][0]["type"] == "untyped"
+    assert extended["revenue_by_conversion_type"][0]["won"] == 1
     assert channel["booked_leads"] == 1
     assert channel["closed_won_count"] == 1
     assert dashboard["active_pipeline_by_origin"] == [

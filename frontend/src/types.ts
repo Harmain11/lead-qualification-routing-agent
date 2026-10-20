@@ -987,7 +987,7 @@ export type ExtendedAnalytics = {
     current: number | null;
     previous: number | null;
   }>;
-  revenue_by_conversion_type: Array<{ type: string; revenue: number }>;
+  revenue_by_conversion_type: Array<{ type: string; revenue: number; won: number }>;
   competitive_mentions: Array<{ mention: string; count: number }>;
   data_gaps: Array<{ key: string; label: string; reason: string }>;
 };

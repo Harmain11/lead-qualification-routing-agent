@@ -1132,11 +1132,14 @@ class AnalyticsService:
         ]
 
         revenue_types: dict[str, float] = defaultdict(float)
+        revenue_type_wins: Counter[str] = Counter()
         for lead in closed:
             if lead.outcome.pipeline_stage == "closed_won":
-                revenue_types[lead.outcome.conversion_type or "untyped"] += _money(
+                conversion_type = lead.outcome.conversion_type or "untyped"
+                revenue_types[conversion_type] += _money(
                     lead.outcome.closed_revenue
                 )
+                revenue_type_wins[conversion_type] += 1
 
         quarter_month = ((now.month - 1) // 3) * 3 + 1
         quarter_start = datetime(now.year, quarter_month, 1, tzinfo=UTC)
@@ -1191,7 +1194,7 @@ class AnalyticsService:
             "team_utilization_trend": team_utilization,
             "quarterly_scorecard": quarterly_scorecard,
             "revenue_by_conversion_type": [
-                {"type": label, "revenue": round(value, 2)}
+                {"type": label, "revenue": round(value, 2), "won": revenue_type_wins[label]}
                 for label, value in sorted(revenue_types.items())
             ],
             "competitive_mentions": [
