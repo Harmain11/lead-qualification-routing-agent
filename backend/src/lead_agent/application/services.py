@@ -14,13 +14,6 @@ from lead_agent.application.email_templates import get_email_template, render_em
 from lead_agent.application.governance import assert_outreach_allowed
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_confirmation_sources import lead_confirmation_source_key
-from lead_agent.application.lead_approval import (
-    LEAD_APPROVAL_PROVIDER_LABELS,
-    combined_review_reason,
-    lead_approval_policy,
-    provider_for_source_channel,
-    provider_policy_review_reason,
-)
 from lead_agent.application.manual_review import workspace_manual_review_config
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
@@ -457,7 +450,6 @@ def process_source_event(
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
     send_confirmation_email: bool = True,
     manual_review_reason: str | None = None,
-    approval_provider: str | None = None,
 ) -> IntakeResult:
     """Persist, process, and replay one channel-agnostic source event."""
 
@@ -497,11 +489,7 @@ def process_source_event(
 
     update_source_event(session, source_event, status="processing", increment_attempt=True)
     try:
-        policy_provider = approval_provider or provider_for_source_channel(event.channel)
-        effective_manual_review_reason = combined_review_reason(
-            manual_review_reason,
-            provider_policy_review_reason(session, workspace_id, policy_provider),
-        )
+        effective_manual_review_reason = manual_review_reason
         resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
         lead = normalize_lead(event.normalized_payload, uuid4())
         active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
@@ -544,7 +532,6 @@ def process_source_event(
             notification_provider=notification_provider,
             manual_review_reason=effective_manual_review_reason,
         )
-        _record_integration_approval_outcome(session, row, policy_provider)
         now = datetime.now(UTC)
         source_event.status = "manual_review" if analysis.requires_manual_review else "processed"
         source_event.error_message = analysis.error_message or effective_manual_review_reason
@@ -592,17 +579,13 @@ def reprocess_lead(
     send_confirmation_email: bool = True,
     preserve_inquiry: bool = False,
     manual_review_reason: str | None = None,
-    approval_provider: str | None = None,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     """Run a meaningful source update through the canonical qualification pipeline."""
 
     from lead_agent.application.governance import assert_residency
 
     assert_residency(session, row.workspace_id)
-    effective_manual_review_reason = combined_review_reason(
-        manual_review_reason,
-        provider_policy_review_reason(session, row.workspace_id, approval_provider),
-    )
+    effective_manual_review_reason = manual_review_reason
     resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
     normalized = normalize_lead(payload, row.id)
     active_provider = provider or resolve_workspace_reasoning_provider(session, row.workspace_id)
@@ -664,7 +647,6 @@ def reprocess_lead(
         send_notification=send_notification,
         manual_review_reason=effective_manual_review_reason,
     )
-    _record_integration_approval_outcome(session, row, approval_provider)
     _send_confirmation_if_eligible(
         session,
         row,
@@ -676,51 +658,6 @@ def reprocess_lead(
     }:
         _queue_reasoning_analysis(row.workspace_id, row.id)
     return normalized, result, row
-
-
-def _record_integration_approval_outcome(
-    session: Session, row: LeadORM, provider: str | None
-) -> None:
-    if provider is None or provider not in LEAD_APPROVAL_PROVIDER_LABELS:
-        return
-    enabled, _, _ = lead_approval_policy(session, row.workspace_id, provider)
-    decision = get_current_routing(session, row.id, row.workspace_id)
-    if decision is None:
-        return
-    label = LEAD_APPROVAL_PROVIDER_LABELS[provider]
-    if decision.manual_review:
-        status = "manual_review"
-        message = (
-            f"{label} auto-approval is {'on' if enabled else 'off'}; this lead remains in "
-            "Manual Review because the provider policy or existing safety checks require it."
-        )
-    elif decision.qualification_band in {"nurture", "disqualify"}:
-        status = "held"
-        message = (
-            f"{label} auto-approval is {'on' if enabled else 'off'}; normal "
-            f"{decision.qualification_band} handling was retained."
-        )
-    elif enabled:
-        status = "approved"
-        message = (
-            f"{label} auto-approval is on; analysis and safety checks passed, so the lead "
-            "was routed automatically."
-        )
-    else:
-        status = "manual_review"
-        message = f"{label} auto-approval is off; the lead was sent to Manual Review."
-    record_pipeline_event(
-        session,
-        row.id,
-        "integration_lead_approval",
-        status,
-        {
-            "provider": provider,
-            "provider_name": label,
-            "auto_approve_leads": enabled,
-            "message": message,
-        },
-    )
 
 
 def mark_source_event_manual_review(session: Session, event_id: str, reason: str) -> None:

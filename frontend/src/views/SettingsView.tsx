@@ -2,16 +2,13 @@ import { useEffect, useState } from "react";
 import {
   generateEmailTemplate,
   getLeadConfirmationAutomation,
-  getLeadConfirmationSources,
   getEmailTemplates,
   getPublicIntakeConfig,
   getRoutingConfig,
   rotatePublicIntakeConfig,
-  setLeadConfirmationSource,
   setLeadConfirmationAutomation,
   saveEmailTemplate,
   updateRoutingConfig,
-  type LeadConfirmationSources,
 } from "../api";
 import {
   opsGet,
@@ -195,12 +192,6 @@ function EmailTemplatesPanel({
     useState(false);
   const [automationLoading, setAutomationLoading] = useState(true);
   const [automationBusy, setAutomationBusy] = useState(false);
-  const [sourceSettings, setSourceSettings] =
-    useState<LeadConfirmationSources | null>(null);
-  const [sourceAutomationLoading, setSourceAutomationLoading] = useState(true);
-  const [sourceAutomationBusy, setSourceAutomationBusy] = useState<string | null>(
-    null,
-  );
   const [importantContext, setImportantContext] = useState<
     Record<WorkspaceEmailTemplate["kind"], string>
   >({ confirmation: "", follow_up: "" });
@@ -227,16 +218,6 @@ function EmailTemplatesPanel({
         ),
       )
       .finally(() => setAutomationLoading(false));
-    void getLeadConfirmationSources()
-      .then(setSourceSettings)
-      .catch((error) =>
-        setNotice(
-          error instanceof Error
-            ? error.message
-            : "Unable to load source confirmation settings",
-        ),
-      )
-      .finally(() => setSourceAutomationLoading(false));
   }, [canManage]);
   const toggleAutomaticConfirmation = async () => {
     setAutomationBusy(true);
@@ -246,8 +227,6 @@ function EmailTemplatesPanel({
         !automaticConfirmationEnabled,
       );
       setAutomaticConfirmationEnabled(setting.enabled);
-      const currentSources = await getLeadConfirmationSources();
-      setSourceSettings(currentSources);
       setNotice(
         setting.enabled
           ? "Automatic confirmations are on by default. Platform overrides remain unchanged."
@@ -261,28 +240,6 @@ function EmailTemplatesPanel({
       );
     } finally {
       setAutomationBusy(false);
-    }
-  };
-  const toggleSourceConfirmation = async (source: string, enabled: boolean | null) => {
-    setSourceAutomationBusy(source);
-    setNotice(null);
-    try {
-      const updated = await setLeadConfirmationSource(source, enabled);
-      setSourceSettings(updated);
-      const selected = updated.sources.find((item) => item.source === source);
-      setNotice(
-        enabled === null
-          ? `${selected?.label || source} now uses the workspace default.`
-          : `Automatic confirmations for ${selected?.label || source} are ${enabled ? "on" : "off"}.`,
-      );
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "Unable to update source confirmation setting",
-      );
-    } finally {
-      setSourceAutomationBusy(null);
     }
   };
   const update = (
@@ -376,8 +333,8 @@ function EmailTemplatesPanel({
       <p className="panel-copy">
         Edit sample emails here, or let AI create a fresh reusable email from
         the essential context alone. Generated copy is a draft until you save
-        it. Automatic confirmation settings can be controlled for the workspace
-        or individually by lead source. Manual follow-up emails are unaffected.
+        it. Platform-specific confirmation switches are on each integration
+        card. Manual follow-up emails are unaffected.
       </p>
       <div className="email-automation-control">
         <div className="email-automation-copy">
@@ -422,75 +379,14 @@ function EmailTemplatesPanel({
           </span>
         </button>
       </div>
-      <div className="email-source-automation">
-        <div className="email-source-automation-heading">
-          <div>
-            <span className="eyebrow">Platform-specific settings</span>
-            <h3>Automatic confirmations by lead source</h3>
-            <p className="panel-copy">
-              These switches control confirmation emails only. Lead imports are
-              managed separately in Integrations; disabling Gmail sync there
-              stops new Gmail leads without affecting the web form.
-            </p>
-          </div>
-          <button className="button-quiet" type="button" onClick={onIntegrations}>
-            Manage lead imports →
-          </button>
-        </div>
-        {sourceAutomationLoading ? (
-          <p className="panel-copy">Loading platform settings…</p>
-        ) : (
-          <div className="email-source-automation-list">
-            {sourceSettings?.sources.map((source) => (
-              <div className="email-source-automation-row" key={source.source}>
-                <div>
-                  <b>{source.label}</b>
-                  <small>
-                    {source.uses_default
-                      ? `Using workspace default (${sourceSettings.default_enabled ? "On" : "Off"})`
-                      : "Platform-specific setting"}
-                  </small>
-                </div>
-                <div className="email-source-automation-actions">
-                  {!source.uses_default && (
-                    <button
-                      className="button-quiet email-source-reset"
-                      type="button"
-                      disabled={sourceAutomationBusy !== null}
-                      onClick={() =>
-                        void toggleSourceConfirmation(source.source, null)
-                      }
-                    >
-                      Use default
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={`email-automation-toggle${source.enabled ? " is-on" : ""}`}
-                    role="switch"
-                    aria-checked={source.enabled}
-                    aria-label={`Automatic confirmation emails for ${source.label}`}
-                    disabled={sourceAutomationBusy !== null}
-                    onClick={() =>
-                      void toggleSourceConfirmation(source.source, !source.enabled)
-                    }
-                  >
-                    <span className="email-automation-track" aria-hidden="true">
-                      <i />
-                    </span>
-                    <span>
-                      {sourceAutomationBusy === source.source
-                        ? "Saving…"
-                        : source.enabled
-                          ? "On"
-                          : "Off"}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="email-automation-platform-link">
+        <p className="panel-copy">
+          The workspace setting is the default. Each platform can override it
+          from its integration card.
+        </p>
+        <button className="button-quiet" type="button" onClick={onIntegrations}>
+          Configure platform settings →
+        </button>
       </div>
       <div className="email-template-grid">
         {templates.map((template) => {
@@ -863,7 +759,8 @@ function RoutingWeightsPanel({
         </div>
         <p className="panel-copy">
           By default, personal email addresses and missing person or company names are reviewed.
-          Other checks are optional. Integration import-approval settings remain separate.
+          Other checks are optional. Platform confirmation settings do not
+          change these review rules.
         </p>
         <div className="manual-review-settings-list">
           {([

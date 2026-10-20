@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { CloudTalkAgent, SlackChannel } from "../api";
+import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
 import { OperationsDialog } from "../components/OperationsDialog";
@@ -14,22 +14,22 @@ beginIntegration,
   cancelInboundSync,
 configureInboundSync,
 disconnectIntegration,
+  getLeadConfirmationSources,
 getInboundSyncState,
 getInboundSyncRuns,
 getSlackNotificationConfig,
-  listLeadApprovalPolicies,
 listIntegrations,
   listCloudTalkAgents,
 listSlackChannelMembers,
 listSlackChannels,
 reconnectIntegration,
 runInboundSync,
+  setLeadConfirmationSource,
 selectSlackChannel,
   selectCloudTalkAgent,
 sendSlackTestNotification,
 testIntegration,
 updateReasoningModel,
-  updateLeadApprovalPolicy,
 updateSlackNotificationConfig,
 } from "../api";
 import { OpenAIUsagePanel } from "../components/OpenAIUsagePanel";
@@ -39,7 +39,7 @@ import { can } from "../permissions";
 import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
 import { pollInboundSync } from "../inboundSyncPolling";
 import { parseGmailReviewNotes } from "../gmailSyncPresentation";
-import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, LeadApprovalPolicy, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
+import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
 
 function syncRunMessage(run: CrmInboundSyncRun) {
   const review = run.mode === "review_recent";
@@ -393,8 +393,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [syncResults, setSyncResults] = useState<Record<string, CrmInboundSyncRun | null>>({});
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
   const [syncCancelRequests, setSyncCancelRequests] = useState<Record<string, boolean>>({});
-  const [leadApprovalPolicies, setLeadApprovalPolicies] = useState<Record<string, LeadApprovalPolicy>>({});
-  const [leadApprovalPolicyError, setLeadApprovalPolicyError] = useState<string | null>(null);
+  const [leadConfirmationSources, setLeadConfirmationSources] =
+    useState<LeadConfirmationSources | null>(null);
+  const [leadConfirmationSourcesLoading, setLeadConfirmationSourcesLoading] =
+    useState(true);
+  const [leadConfirmationSourceBusy, setLeadConfirmationSourceBusy] =
+    useState<string | null>(null);
+  const [leadConfirmationSourceError, setLeadConfirmationSourceError] =
+    useState<string | null>(null);
   const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({});
   const [slackMembers, setSlackMembers] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const [slackRouting, setSlackRouting] = useState<SlackNotificationConfig | null>(null);
@@ -402,7 +408,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [slackRoutingLoadError, setSlackRoutingLoadError] = useState<string | null>(null);
   const canView = can(permissions, "integrations.view");
   const canManage = can(permissions, "integrations.manage");
-  const canManageApproval = can(permissions, "manual_review.manage");
   const canConnect = can(permissions, "integrations.connect");
   const canDisconnect = can(permissions, "integrations.disconnect");
   const canSync = can(permissions, "crm.sync");
@@ -438,6 +443,30 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     requestAnimationFrame(() => document.getElementById(`integration-details-${provider}`)?.querySelector<HTMLInputElement>(".manual-credential input")?.focus());
   }
 
+  async function updateConfirmationSource(source: string, enabled: boolean | null) {
+    setLeadConfirmationSourceBusy(source);
+    setNotice(null);
+    try {
+      const updated = await setLeadConfirmationSource(source, enabled);
+      setLeadConfirmationSources(updated);
+      const selected = updated.sources.find((item) => item.source === source);
+      setNotice(
+        enabled === null
+          ? `${selected?.label || source} confirmations now use the workspace default.`
+          : `${selected?.label || source} confirmation emails are ${enabled ? "on" : "off"}.`,
+      );
+      setLeadConfirmationSourceError(null);
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Unable to update platform confirmation setting",
+      );
+    } finally {
+      setLeadConfirmationSourceBusy(null);
+    }
+  }
+
   function setExpanded(provider: string | null) {
     if (provider) {
       setExpandedProviders((current) => new Set(current).add(provider));
@@ -465,12 +494,21 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         }
       }
       setCards(nextCards);
-      try {
-        const policies = await listLeadApprovalPolicies();
-        setLeadApprovalPolicies(Object.fromEntries(policies.map((policy) => [policy.provider, policy])));
-        setLeadApprovalPolicyError(null);
-      } catch (error) {
-        setLeadApprovalPolicyError(error instanceof Error ? error.message : "Provider lead-approval settings could not be loaded.");
+      if (canManage) {
+        try {
+          setLeadConfirmationSources(await getLeadConfirmationSources());
+          setLeadConfirmationSourceError(null);
+        } catch (error) {
+          setLeadConfirmationSourceError(
+            error instanceof Error
+              ? error.message
+              : "Platform confirmation settings could not be loaded.",
+          );
+        } finally {
+          setLeadConfirmationSourcesLoading(false);
+        }
+      } else {
+        setLeadConfirmationSourcesLoading(false);
       }
       setCloudTalkAgentSelections((current) => {
         const next = { ...current };
@@ -1120,6 +1158,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              ? "WhatsApp Business Account object · messages"
              : null;
       const mailDirection = gmailDirection || outlookDirection;
+        const confirmationSource = card.directionality.automatic_inbound
+          ? leadConfirmationSources?.sources.find(
+              (source) => source.source === card.provider,
+            )
+          : undefined;
        const canConnectProvider = reasoningProvider
         ? canManage
         : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage);
@@ -1203,38 +1246,73 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         {!comingSoon && <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
           {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
         </div>}
-         {leadApprovalPolicyError && card.directionality.automatic_inbound && !comingSoon && <p className="lead-approval-policy-error" role="alert">{card.display_name} lead-approval settings could not be loaded: {leadApprovalPolicyError}</p>}
-         {leadApprovalPolicies[card.provider] && !comingSoon && (() => {
-           const policy = leadApprovalPolicies[card.provider];
-           const canEnable = canManage && canManageApproval && policy.verified_connection;
-           const canDisable = canManage && policy.auto_approve_leads;
-           return <section className="integration-guide lead-approval-policy" aria-labelledby={`lead-approval-title-${card.provider}`}>
-             <div className="lead-approval-policy-head">
-               <div><span className="eyebrow">Imported lead approval</span><strong id={`lead-approval-title-${card.provider}`}>{policy.auto_approve_leads ? "Automatic approval on" : "Manual review by default"}</strong></div>
-               <span className={`lead-approval-policy-state${policy.verified_connection ? " is-ready" : ""}`}>{policy.verified_connection ? "Verified account ready" : "No verified account"}</span>
-             </div>
-             <p>{policy.auto_approve_leads
-               ? `Eligible ${card.display_name} leads may route automatically after analysis. Existing leads are not changed retroactively.`
-               : `New ${card.display_name} imports go to Manual Review until a team member approves them.`}</p>
-             <p className="lead-approval-policy-safeguards">Analysis-required review, consent and residency rules, opt-outs, and hard disqualifiers always take precedence.</p>
-             {policy.policy_source === "legacy_migration" && <small>This setting was carried forward from the previous workspace policy and is now independent for {card.display_name}.</small>}
-             {!policy.verified_connection && <small>Connect and verify {card.display_name} before enabling automatic approval.</small>}
-             <button
-               type="button"
-               className={policy.auto_approve_leads ? "button-quiet" : "secondary-button"}
-               aria-pressed={policy.auto_approve_leads}
-               disabled={Boolean(busy) || (!policy.auto_approve_leads && !canEnable) || (policy.auto_approve_leads && !canDisable)}
-               onClick={() => void act(
-                 card.provider,
-                 async () => {
-                   const updated = await updateLeadApprovalPolicy(card.provider, !policy.auto_approve_leads);
-                   setLeadApprovalPolicies((current) => ({ ...current, [card.provider]: updated }));
-                 },
-                 `${card.display_name} automatic lead approval ${policy.auto_approve_leads ? "disabled" : "enabled"}.`,
-               )}
-             >{policy.auto_approve_leads ? "Turn off auto-approval" : "Enable auto-approval"}</button>
-           </section>;
-         })()}
+          {card.directionality.automatic_inbound && !comingSoon && canManage && (
+            leadConfirmationSourceError ? (
+              <p className="lead-confirmation-error" role="alert">
+                {card.display_name} confirmation settings could not be loaded: {leadConfirmationSourceError}
+              </p>
+            ) : confirmationSource ? (
+              <section
+                className="integration-guide lead-confirmation-setting"
+                aria-label={`${card.display_name} confirmation email settings`}
+              >
+                <div className="lead-confirmation-setting-copy">
+                  <span className="eyebrow">New-lead email</span>
+                  <strong>Automatic confirmation</strong>
+                  <p>
+                    Control confirmation emails only. New leads still follow the
+                    normal qualification and review rules.
+                  </p>
+                  {confirmationSource.uses_default && (
+                    <small>
+                      Using workspace default ({leadConfirmationSources?.default_enabled ? "On" : "Off"}).
+                    </small>
+                  )}
+                </div>
+                <div className="lead-confirmation-setting-actions">
+                  {!confirmationSource.uses_default && (
+                    <button
+                      className="button-quiet"
+                      type="button"
+                      disabled={leadConfirmationSourceBusy !== null}
+                      onClick={() =>
+                        void updateConfirmationSource(card.provider, null)
+                      }
+                    >
+                      Use default
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={`email-automation-toggle${confirmationSource.enabled ? " is-on" : ""}`}
+                    role="switch"
+                    aria-checked={confirmationSource.enabled}
+                    aria-label={`Automatic confirmation emails for ${card.display_name}`}
+                    disabled={leadConfirmationSourceBusy !== null}
+                    onClick={() =>
+                      void updateConfirmationSource(
+                        card.provider,
+                        !confirmationSource.enabled,
+                      )
+                    }
+                  >
+                    <span className="email-automation-track" aria-hidden="true">
+                      <i />
+                    </span>
+                    <span>
+                      {leadConfirmationSourceBusy === card.provider
+                        ? "Saving…"
+                        : confirmationSource.enabled
+                          ? "On"
+                          : "Off"}
+                    </span>
+                  </button>
+                </div>
+              </section>
+            ) : leadConfirmationSourcesLoading ? (
+              <p className="lead-confirmation-loading">Loading confirmation setting…</p>
+            ) : null
+          )}
          {!comingSoon && <div className="card-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
             {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}

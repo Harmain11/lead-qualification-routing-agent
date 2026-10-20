@@ -24,8 +24,7 @@ export function ManualReviewView({
           <span className="eyebrow">Human judgment queue</span>
           <h1>Manual review</h1>
           <p>
-            Leads matching your selected review rules are held here. Imported-lead
-            approval settings are managed separately in Integrations.
+            Leads matching your selected review rules are held here.
           </p>
         </div>
         <div className="review-total">
