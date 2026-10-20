@@ -15,4 +15,6 @@ For Corral direct calls, use the safeguarded CloudTalk create-call API and the c
 
 **Why:** On October 20, 2026, the user chose API-started direct calls from Corral to avoid opening CloudTalk Desktop while preserving Corral's call safeguards, accepting the agent's default caller ID.
 
-**How to apply:** Require Corral's per-call confirmation, consent, do-not-call, and residency checks; verify and show the agent's default caller ID before starting. Keep the durable request receipt and never blindly retry an uncertain submission.
+The user also chose to answer and end API-started calls in their CloudTalk client rather than embed the full CloudTalk Phone dialer, whose independent keypad could bypass Corral's safeguards.
+
+**How to apply:** Require Corral's per-call confirmation, consent, do-not-call, and residency checks; verify and show the agent's default caller ID before starting. Keep the durable request receipt and never blindly retry an uncertain submission. Do not represent the VoiceAgent emergency-stop endpoint as a per-call hang-up control.
