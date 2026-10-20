@@ -1629,7 +1629,7 @@ def test_preview_manual_sync_runs_without_the_celery_broker(
 
 @pytest.mark.parametrize("mode", ["manual", "incremental"])
 @pytest.mark.parametrize("auto_approve", [False, True])
-def test_provider_approval_policy_is_enforced_in_manual_and_scheduled_sync(
+def test_legacy_provider_approval_policy_does_not_override_normal_review_rules(
     tmp_path, icp, routing, mode: str, auto_approve: bool
 ) -> None:
     with _session(tmp_path, f"approval-{mode}-{auto_approve}.db") as session:
@@ -1654,7 +1654,7 @@ def test_provider_approval_policy_is_enforced_in_manual_and_scheduled_sync(
         assert lead is not None
         decision = get_current_routing(session, lead.id, workspace_id)
         assert decision is not None
-        assert decision.manual_review is (not auto_approve)
+        assert decision.manual_review is False
         approval_event = session.scalar(
             select(PipelineEventORM).where(
                 PipelineEventORM.workspace_id == workspace_id,
@@ -1662,8 +1662,4 @@ def test_provider_approval_policy_is_enforced_in_manual_and_scheduled_sync(
                 PipelineEventORM.stage == "integration_lead_approval",
             )
         )
-        assert approval_event is not None
-        assert approval_event.details["provider"] == "salesforce"
-        assert approval_event.details["auto_approve_leads"] is auto_approve
-        assert "Salesforce" in approval_event.details["message"]
-        assert approval_event.status == ("manual_review" if not auto_approve else "approved")
+        assert approval_event is None
