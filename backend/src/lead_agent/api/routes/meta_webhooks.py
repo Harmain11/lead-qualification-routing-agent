@@ -313,6 +313,7 @@ def _process_message(
                     session, lead, payload, *policies,
                     notification_provider=notification_provider,
                     reroute_reason="New qualified message in the same social conversation.",
+                    approval_provider=provider,
                 )
         else:
             event = SourceEvent.create(

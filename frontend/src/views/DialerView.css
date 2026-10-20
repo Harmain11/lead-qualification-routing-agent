@@ -1,26 +1,43 @@
-.direct-dialer-panel { display: grid; gap: 14px; }
-.direct-dialer-panel > .dialer-panel-head { flex-wrap: wrap; min-width: 0; gap: 10px 16px; }
+.direct-dialer-panel { display: grid; gap: var(--space-6); }
+.direct-dialer-panel > .dialer-panel-head { flex-wrap: wrap; min-width: 0; gap: var(--space-3) var(--space-6); margin-bottom: 0; }
 .direct-dialer-panel > .dialer-panel-head > div { min-width: 0; flex: 1 1 220px; }
 .direct-dialer-panel .dialer-panel-count { flex: 0 1 210px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: right; }
-.direct-dialer-form { display: grid; gap: 13px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
-.direct-dialer-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .8fr) minmax(220px, .8fr); gap: 12px; }
-.direct-dialer-number-field { display: grid; align-content: start; gap: 6px; min-width: 0; }
-.direct-dialer-keypad { display: grid; gap: 6px; width: 100%; max-width: 300px; margin-top: 4px; }
-.direct-dialer-keypad-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.direct-dialer-keypad-head span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.direct-dialer-keypad-head button { border: 0; padding: 2px 4px; color: var(--workspace-accent, var(--orange)); background: transparent; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.direct-dialer-panel > .panel-copy { margin: 0; max-width: 78ch; line-height: 1.55; }
+.direct-dialer-form { display: grid; gap: var(--space-6); padding: var(--card-padding); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-soft); }
+.direct-dialer-fields { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: var(--space-6); align-items: start; }
+.direct-dialer-number-field, .direct-dialer-account-field { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
+.direct-dialer-keypad { display: grid; gap: var(--space-2); width: 100%; max-width: 320px; margin-top: var(--space-2); }
+.direct-dialer-keypad-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.direct-dialer-keypad-head span { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.direct-dialer-keypad-head button.direct-dialer-clear { min-height: 30px; border: 0; padding: 2px 4px; color: var(--workspace-accent, var(--green)); background: transparent; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .direct-dialer-keypad-head button:disabled { opacity: .5; cursor: not-allowed; }
-.direct-dialer-keypad-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.direct-dialer-key { display: grid; align-content: center; justify-items: center; min-height: 48px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--surface-solid); font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.direct-dialer-keypad-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.direct-dialer-key { display: grid; align-content: center; justify-items: center; min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); background: var(--surface-solid); font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
 .direct-dialer-key strong { font-size: 16px; line-height: 1.1; }
 .direct-dialer-key small { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .08em; line-height: 1; }
 .direct-dialer-key:hover:not(:disabled) { border-color: var(--workspace-accent, var(--orange)); background: var(--surface-high); transform: translateY(-1px); }
-.direct-dialer-key:focus-visible, .direct-dialer-keypad-head button:focus-visible { outline: 2px solid var(--workspace-accent, var(--orange)); outline-offset: 2px; }
+.direct-dialer-key:focus-visible, .direct-dialer-keypad-head button:focus-visible { outline: 2px solid var(--workspace-accent, var(--green)); outline-offset: 2px; }
 .direct-dialer-key:disabled { opacity: .55; cursor: not-allowed; }
-.direct-dialer-fields label, .direct-call-lead-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 700; }
-.direct-dialer-fields input, .direct-dialer-fields select, .direct-call-lead-form input, .direct-call-lead-form textarea { width: 100%; min-height: 40px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); font: inherit; }
-.direct-dialer-fields small { color: var(--muted); font-size: 10px; font-weight: 400; }
-.direct-dialer-confirm { margin: 0; }
+.direct-dialer-fields label, .direct-call-lead-form label { display: grid; gap: var(--space-2); color: var(--muted); font-size: var(--font-control); font-weight: 650; }
+.direct-dialer-fields input, .direct-dialer-fields select, .direct-call-lead-form input, .direct-call-lead-form textarea { width: 100%; min-height: var(--control-height); padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); font: inherit; }
+.direct-dialer-fields small, .direct-dialer-actions > small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.direct-dialer-account-field > label { margin: 0; }
+.direct-dialer-account-field > select { margin-top: calc(-1 * var(--space-3)); }
+.direct-dialer-status { display: grid; grid-template-columns: 9px minmax(0, 1fr); align-items: start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-high); }
+.direct-dialer-status > span { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 40%, transparent); }
+.direct-dialer-status > div { display: grid; gap: var(--space-1); min-width: 0; }
+.direct-dialer-status strong { font-size: var(--font-control); }
+.direct-dialer-status p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.direct-dialer-status.is-unavailable, .direct-dialer-status.has-error { border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
+.direct-dialer-status.is-unavailable > span, .direct-dialer-status.has-error > span { background: var(--red); box-shadow: none; }
+.direct-dialer-status.has-notice > span { background: var(--workspace-accent, var(--green)); }
+.direct-dialer-panel .direct-dialer-confirm { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: var(--space-3); margin: 0; }
+.direct-dialer-confirm input { width: 16px; height: 16px; margin: 3px 0 0; }
+.direct-dialer-confirm > span { display: grid; gap: var(--space-1); color: var(--text); }
+.direct-dialer-confirm > span strong { font-size: var(--font-control); line-height: 1.45; }
+.direct-dialer-confirm > span small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.direct-dialer-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); }
+.direct-dialer-actions > small { flex: 1 1 280px; }
 .direct-call-result { display: grid; gap: 8px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-high); }
 .direct-call-result > div:first-child { display: grid; gap: 4px; }
 .direct-call-result strong { font-size: 13px; }
@@ -41,6 +58,10 @@
   .direct-dialer-fields { grid-template-columns: minmax(0, 1fr); }
   .direct-call-history li { align-items: flex-start; flex-direction: column; }
   .direct-dialer-panel .dialer-panel-count { text-align: left; }
+}
+@media (max-width: 480px) {
+  .direct-dialer-form { padding: var(--space-4); }
+  .direct-dialer-actions > button { width: 100%; }
 }
 .dialer-page { gap: 20px; }
 .dialer-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }

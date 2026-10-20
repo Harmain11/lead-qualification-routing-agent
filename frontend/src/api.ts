@@ -9,6 +9,7 @@ import type {
   CrmInboundSyncState,
   DashboardAnalytics,
   IntegrationCard,
+  LeadApprovalPolicy,
   Lead,
   LeadPipelineEvent,
   LeadProgressResult,
@@ -376,6 +377,24 @@ async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
 
 export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
+}
+
+export function listLeadApprovalPolicies(): Promise<LeadApprovalPolicy[]> {
+  return jsonRequest<LeadApprovalPolicy[]>("/v1/integrations/lead-approval-policies");
+}
+
+export function updateLeadApprovalPolicy(
+  provider: string,
+  autoApproveLeads: boolean,
+): Promise<LeadApprovalPolicy> {
+  return jsonRequest<LeadApprovalPolicy>(
+    `/v1/integrations/lead-approval-policies/${encodeURIComponent(provider)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auto_approve_leads: autoApproveLeads }),
+    },
+  );
 }
 
 export function listGmailMailboxMessages(

@@ -54,8 +54,37 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-3) var(--space-4);
   min-width: 0;
+}
+
+.reasoning-usage-model-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--font-caption);
+  font-weight: 650;
+}
+
+.reasoning-usage-model-filter select {
+  width: auto;
+  min-width: min(280px, 42vw);
+  min-height: 40px;
+  padding: 8px 34px 8px 11px;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.reasoning-usage-model-filter select:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
 }
 
 .openai-usage-periods {
@@ -220,7 +249,7 @@
   text-align: left;
 }
 
-.reasoning-provider-table { min-width: 860px; }
+.reasoning-provider-table { min-width: 940px; }
 
 .reasoning-provider-table thead th,
 .provider-model-table-wrap th {
@@ -250,6 +279,35 @@
 .reasoning-provider-table .reasoning-provider-name {
   min-width: 180px;
   text-align: left;
+}
+
+.reasoning-provider-table .reasoning-model-name {
+  min-width: 240px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.reasoning-model-name strong {
+  display: block;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.reasoning-model-name small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.reasoning-model-provider {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .reasoning-provider-name strong {

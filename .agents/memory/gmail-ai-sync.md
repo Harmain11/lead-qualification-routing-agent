@@ -48,3 +48,11 @@ Route Gmail candidates using common consumer mailbox domains to manual review be
 **Why:** The user confirmed personal email deserves human verification, while available contact details should be captured without blocking an otherwise valid candidate.
 
 **How to apply:** Treat consumer-provider domains as review signals, not proof of identity or a reason to reject a lead. Preserve evidence grounding and optionality in the extraction schema, prompts, and tests.
+
+## Email evidence presentation
+
+Email formatting in Lead Details is presentation-only. Preserve the original message and source metadata for raw review; safe readable text, links, quotes, forwards, and footer disclosures must not alter content used for lead identity, qualification, or extraction.
+
+**Why:** The user requested a readable evidence card while keeping the underlying Gmail source intact and not changing lead extraction behavior.
+
+**How to apply:** Transform only a display copy, never inject raw HTML, and keep quoted/forwarded sections, footer notices, and full source accessible. Cover normal messages, nested forwards and quotes, duplicate disclaimers, long URLs, and narrow screens.

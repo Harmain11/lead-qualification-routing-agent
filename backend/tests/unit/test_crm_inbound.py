@@ -28,6 +28,7 @@ from lead_agent.application.crm_inbound import (
     upgrade_default_mail_sync_intervals,
 )
 from lead_agent.application.gmail_history import gmail_history_messages
+from lead_agent.application.lead_approval import update_lead_approval_policy
 from lead_agent.application.services import process_lead, process_source_event
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
@@ -56,7 +57,7 @@ from lead_agent.infrastructure.db.models import (
 )
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
-from lead_agent.infrastructure.repositories import ensure_workspace
+from lead_agent.infrastructure.repositories import ensure_workspace, get_current_routing
 
 
 class FakeResponse:
@@ -1624,3 +1625,45 @@ def test_preview_manual_sync_runs_without_the_celery_broker(
         "requested_mode": "review_recent",
         "requested_limit": 25,
     }
+
+
+@pytest.mark.parametrize("mode", ["manual", "incremental"])
+@pytest.mark.parametrize("auto_approve", [False, True])
+def test_provider_approval_policy_is_enforced_in_manual_and_scheduled_sync(
+    tmp_path, icp, routing, mode: str, auto_approve: bool
+) -> None:
+    with _session(tmp_path, f"approval-{mode}-{auto_approve}.db") as session:
+        workspace_id = uuid4()
+        connection = _connection(session, workspace_id, provider_type="salesforce")
+        update_lead_approval_policy(
+            session, workspace_id, "salesforce", auto_approve, "test-user"
+        )
+        session.commit()
+        provider = FakeInboundProvider(
+            connection.id,
+            [_record(f"{mode}-{auto_approve}-lead", f"{mode}-{auto_approve}@example.test")],
+        )
+
+        run = _run(session, connection, provider, icp, routing, mode=mode)
+
+        assert run.status == "completed"
+        assert run.records_created == 1
+        lead = session.scalar(
+            select(LeadORM).where(LeadORM.workspace_id == workspace_id)
+        )
+        assert lead is not None
+        decision = get_current_routing(session, lead.id, workspace_id)
+        assert decision is not None
+        assert decision.manual_review is (not auto_approve)
+        approval_event = session.scalar(
+            select(PipelineEventORM).where(
+                PipelineEventORM.workspace_id == workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "integration_lead_approval",
+            )
+        )
+        assert approval_event is not None
+        assert approval_event.details["provider"] == "salesforce"
+        assert approval_event.details["auto_approve_leads"] is auto_approve
+        assert "Salesforce" in approval_event.details["message"]
+        assert approval_event.status == ("manual_review" if not auto_approve else "approved")

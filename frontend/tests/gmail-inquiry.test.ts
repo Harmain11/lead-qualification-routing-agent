@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanGmailInquiryText, parseGmailInquiry } from "../src/gmailInquiry.ts";
+import {
+  cleanGmailInquiryText,
+  parseGmailInquiry,
+  splitGmailBodyForDisplay,
+} from "../src/gmailInquiry.ts";
 
 test("extracts Gmail thread metadata and presents forwarded content separately", () => {
   const inquiry = parseGmailInquiry(`Thread role: direct prospect. Referred by Dan Asif.
@@ -64,4 +68,83 @@ MIME-Version: 1.0
 
 Please send pricing for the project.`);
   assert.equal(readable, "Please send pricing for the project.");
+});
+
+test("parses a normal email's sender, recipients, date, subject, and body", () => {
+  const inquiry = parseGmailInquiry(`From: Riley Chen <riley@example.test>
+To: sales@example.test
+Cc: operations@example.test
+Date: Tue, 20 Oct 2026 09:00:00 +0000
+Subject: Onboarding question
+
+Hello,
+
+Could we discuss your onboarding service?`);
+
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].from, "Riley Chen <riley@example.test>");
+  assert.equal(inquiry.messages[0].to, "sales@example.test");
+  assert.equal(inquiry.messages[0].cc, "operations@example.test");
+  assert.equal(inquiry.messages[0].subject, "Onboarding question");
+  assert.match(inquiry.messages[0].body, /Could we discuss your onboarding service/);
+});
+
+test("parses nested forwarded messages recursively without losing either body", () => {
+  const inquiry = parseGmailInquiry(`--- Gmail message root ---
+From: Maya Chen <maya@example.test>
+To: sales@example.test
+Subject: Original inquiry
+
+Please review the forwarded thread.
+---------- Forwarded message ----------
+From: Evan Brooks <evan@example.test>
+To: Maya Chen <maya@example.test>
+Subject: Fwd: project notes
+
+This is my note.
+---------- Forwarded message ----------
+From: Priya Nair <priya@example.test>
+To: Evan Brooks <evan@example.test>
+Subject: Project details
+
+The project is ready to discuss.`);
+
+  assert.ok(inquiry);
+  const forwarded = inquiry.messages[0].forwarded;
+  assert.ok(forwarded);
+  assert.equal(forwarded.body, "This is my note.");
+  assert.equal(forwarded.forwarded?.from, "Priya Nair <priya@example.test>");
+  assert.equal(forwarded.forwarded?.body, "The project is ready to discuss.");
+});
+
+test("separates nested quoted text from the visible inquiry while preserving quote markers", () => {
+  const sections = splitGmailBodyForDisplay(`Please send a few times to meet.
+
+On Monday, Riley wrote:
+> Can we review the plan?
+> > The earlier goal was to reduce handoff delays.`);
+
+  assert.equal(sections.primary, "Please send a few times to meet.");
+  assert.equal(sections.quoted.length, 1);
+  assert.match(sections.quoted[0], /> > The earlier goal/);
+});
+
+test("collapses duplicate disclaimer blocks and long signatures into one footer section", () => {
+  const disclaimer = "This email is confidential and intended only for the named recipient.";
+  const sections = splitGmailBodyForDisplay(`Could we schedule an onboarding call?
+
+${disclaimer}
+
+${disclaimer}
+
+Best regards,
+Riley Chen
+Operations Director
+riley@example.test
++1 415 555 0123`);
+
+  assert.equal(sections.primary, "Could we schedule an onboarding call?");
+  assert.equal(sections.footers.length, 2);
+  assert.equal(sections.footers.filter((item) => item === disclaimer).length, 1);
+  assert.match(sections.footers[1], /Operations Director/);
 });

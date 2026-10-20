@@ -302,6 +302,12 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .signal.inferred { border-color: rgba(233,174,99,.2); }
 .attention-callout { display: flex; flex-direction: column; gap: 4px; margin-top: 13px; padding: 12px; border: 1px solid rgba(233,174,99,.25); border-radius: 9px; background: rgba(233,174,99,.06); color: var(--muted); font-size: 13px; }
 .attention-callout b { color: var(--amber); }
+.lead-review-reason { gap: 8px; margin: 0 0 16px; padding: 15px 16px; }
+.lead-review-reason > b { font-size: 14px; }
+.lead-review-reason p { display: grid; gap: 4px; margin: 0; line-height: 1.5; }
+.lead-review-reason p strong { color: var(--text); font-size: 11px; }
+.lead-review-reason p span { color: var(--text); }
+.lead-review-reason .lead-review-secondary-reason { padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); }
 .icp-matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .icp-matrix > div { display: grid; grid-template-columns: 8px 1fr auto; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
 .icp-matrix i { width: 6px; height: 6px; margin-top: 4px; border-radius: 50%; background: var(--subtle); }
@@ -3168,7 +3174,7 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
   font-weight: 750;
   white-space: nowrap;
 }
-.gmail-inquiry-messages { display: grid; gap: 10px; max-height: 680px; overflow: auto; }
+.gmail-inquiry-messages { display: grid; gap: 10px; min-width: 0; }
 .gmail-inquiry-message {
   min-width: 0;
   padding: 14px;
@@ -3198,28 +3204,67 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
   font-size: 10px;
   overflow-wrap: anywhere;
 }
-.gmail-inquiry-message-meta { display: grid; justify-items: end; gap: 3px; margin-left: auto; }
-.gmail-inquiry-message-meta > span { color: var(--subtle); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; }
-.gmail-inquiry-message-meta time { color: var(--muted); font-size: 10px; white-space: nowrap; }
-.gmail-inquiry-subject { margin: 12px 0 6px; color: var(--text); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-.gmail-inquiry-recipient { display: flex; gap: 7px; margin: 0 0 10px; color: var(--muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
-.gmail-inquiry-recipient span { flex: 0 0 auto; color: var(--subtle); font-weight: 700; }
-.gmail-inquiry-message-body {
-  margin: 10px 0 0;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.gmail-inquiry-message-meta { display: grid; justify-items: end; gap: 5px; margin-left: auto; min-width: 0; }
+.gmail-inquiry-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+.gmail-inquiry-type-badge, .gmail-inquiry-direction-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-high);
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
 }
-.gmail-inquiry-message-body details { margin-top: 8px; }
-.gmail-inquiry-message-body summary,
+.gmail-inquiry-direction-badge { border-color: rgba(30, 107, 82, .2); color: var(--green); background: rgba(30, 107, 82, .07); }
+.gmail-inquiry-message-meta time { color: var(--muted); font-size: 10px; line-height: 1.4; text-align: right; overflow-wrap: anywhere; }
+.gmail-inquiry-message-meta time span { color: var(--subtle); font-weight: 700; }
+.gmail-inquiry-subject { display: grid; gap: 3px; margin: 13px 0 0; min-width: 0; }
+.gmail-inquiry-subject > span { color: var(--subtle); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.gmail-inquiry-subject h4 { margin: 0; color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.gmail-inquiry-recipients { display: grid; gap: 5px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.gmail-inquiry-recipient { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.gmail-inquiry-recipient > span { color: var(--subtle); font-weight: 750; }
+.gmail-inquiry-recipient > div, .gmail-inquiry-recipient a { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.gmail-inquiry-message-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 12px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.65;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.gmail-inquiry-body-content { min-width: 0; font-weight: 400; }
+.gmail-inquiry-body-content > p { margin: 0 0 10px; color: inherit; font-size: inherit; font-weight: 400; line-height: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gmail-inquiry-body-content > p:last-child { margin-bottom: 0; }
+.gmail-inquiry-body-content > :is(ul, ol) { display: grid; gap: 5px; margin: 0; padding-left: 22px; font-weight: 400; }
+.gmail-inquiry-body-content li { padding-left: 2px; font-weight: 400; overflow-wrap: anywhere; }
+.gmail-inquiry-body-content a, .gmail-inquiry-recipient a { color: var(--green); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
+.gmail-inquiry-disclosure { min-width: 0; border-top: 1px solid var(--line); padding-top: 9px; }
+.gmail-inquiry-disclosure summary,
 .gmail-inquiry-raw summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
   color: var(--green);
   cursor: pointer;
   font-size: 11px;
   font-weight: 700;
 }
+.gmail-inquiry-disclosure summary:focus-visible, .gmail-inquiry-raw summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 3px; }
+.gmail-inquiry-disclosure-content { display: grid; gap: 10px; min-width: 0; padding-top: 9px; color: var(--muted); font-weight: 400; }
+.gmail-inquiry-disclosure-content .gmail-inquiry-body-content { color: var(--muted); }
+.gmail-inquiry-quote { min-width: 0; margin: 0; padding: 10px 12px; border-left: 2px solid var(--line-bright); color: var(--muted); background: var(--surface-high); overflow-wrap: anywhere; }
+.gmail-inquiry-quote .gmail-inquiry-body-content { font-size: 12px; }
 .gmail-inquiry-message-body pre,
 .gmail-inquiry-raw pre {
   max-height: 280px;
@@ -3235,6 +3280,7 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
   overflow-wrap: anywhere;
 }
 .gmail-inquiry-forward {
+  min-width: 0;
   margin-top: 12px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -3243,16 +3289,17 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
   background: color-mix(in srgb, var(--surface) 84%, var(--green) 4%);
 }
 .gmail-inquiry-forward-label { display: flex; align-items: center; gap: 6px; color: var(--green); font-size: 10px; font-weight: 750; }
-.gmail-inquiry-forward-label span { font-size: 14px; }
 .gmail-inquiry-forward-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-top: 10px; }
 .gmail-inquiry-forward-meta > div { display: grid; gap: 2px; min-width: 0; }
 .gmail-inquiry-forward-meta > div > span { color: var(--subtle); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
 .gmail-inquiry-forward-meta strong { color: var(--text); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .gmail-inquiry-forward-meta small { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
 .gmail-inquiry-forward-subject { grid-column: 1 / -1; }
+.gmail-inquiry-forward .gmail-inquiry-message-body { margin-top: 10px; font-size: 12px; }
+.gmail-inquiry-forward .gmail-inquiry-recipients { margin-top: 9px; }
 .gmail-inquiry-empty { margin: 10px 0 0; color: var(--muted); font-size: 11px; }
-.gmail-inquiry-raw { padding-top: 10px; border-top: 1px solid var(--line); }
-.gmail-inquiry-raw pre { max-height: 360px; }
+.gmail-inquiry-raw { display: grid; justify-items: end; min-width: 0; padding-top: 7px; border-top: 1px solid var(--line); }
+.gmail-inquiry-raw pre { width: 100%; max-height: 360px; }
 .gmail-inquiry-history { border-top: 1px solid var(--line); padding-top: 10px; }
 .gmail-inquiry-history > summary { color: var(--blue); cursor: pointer; font-size: 11px; font-weight: 750; }
 .gmail-inquiry-history-messages { display: grid; gap: 8px; margin-top: 10px; }
@@ -3275,8 +3322,18 @@ html[data-theme="dark"] .gmail-inquiry-forward {
   .gmail-inquiry-context { grid-template-columns: minmax(0, 1fr); }
   .gmail-inquiry-role { justify-self: start; }
   .gmail-inquiry-message { padding: 12px; }
+  .gmail-inquiry-message-header { flex-wrap: wrap; }
+  .gmail-inquiry-message-meta { min-width: 0; }
   .gmail-inquiry-message-meta time { white-space: normal; text-align: right; }
   .gmail-inquiry-forward-meta { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .gmail-inquiry-message-header { align-items: flex-start; }
+  .gmail-inquiry-message-meta { flex: 1 1 calc(100% - 44px); justify-items: start; width: calc(100% - 44px); margin-left: 44px; }
+  .gmail-inquiry-badges { justify-content: flex-start; }
+  .gmail-inquiry-message-meta time { text-align: left; }
+  .gmail-inquiry-subject h4 { font-size: 14px; }
+  .gmail-inquiry-message-body { font-size: 12px; }
 }
 
 /* Gmail account panel: keep verified mailboxes prominent and pending attempts grouped. */
