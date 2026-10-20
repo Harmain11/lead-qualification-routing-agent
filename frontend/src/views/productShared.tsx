@@ -1,9 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import { memo, useId } from "react";
 import type {
+  AdvancedAnalytics,
   AgentActivity,
   ChannelAnalytics,
   DashboardAnalytics,
+  ExtendedAnalytics,
   ManualReviewAnalytics,
   PipelineAnalytics,
   RepAnalytics,
@@ -20,6 +22,8 @@ export type AnalyticsBundle = {
   series: TimeSeriesAnalytics | null;
   agents: AgentActivity | null;
   review: ManualReviewAnalytics | null;
+  extended: ExtendedAnalytics | null;
+  advanced: AdvancedAnalytics | null;
 };
 
 export type VisibilityOption<T extends string> = {

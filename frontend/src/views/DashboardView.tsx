@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Bars, Donut, TrendChart } from "../components/Charts";
 import { DashboardInsights } from "../components/DashboardInsights";
+import { DashboardSignals } from "../components/DashboardSignals";
 import type { DashboardAnalytics } from "../types";
 import type { AnalyticsBundle } from "./productShared";
 import {
@@ -35,11 +36,24 @@ const dashboardWidgetOptions = [
     group: "Key metrics",
   },
   { id: "manual_review", label: "Manual review", group: "Key metrics" },
+  { id: "active-pipeline-origin", label: "Active pipeline by source", group: "Dashboard panels" },
   {
     id: "attention-queue",
     label: "Attention queue",
     group: "Dashboard panels",
   },
+  { id: "speed-to-qualify", label: "Speed to Qualify", group: "Dashboard panels" },
+  { id: "sla-compliance", label: "SLA Compliance", group: "Dashboard panels" },
+  { id: "override-rate", label: "Override Rate", group: "Dashboard panels" },
+  { id: "qualified-to-booked", label: "Qualified → Booked Rate", group: "Dashboard panels" },
+  { id: "funnel-bottleneck", label: "Funnel Bottleneck View", group: "Dashboard panels" },
+  { id: "rep-capacity", label: "Rep Capacity & Load", group: "Dashboard panels" },
+  { id: "pipeline-coverage", label: "Pipeline Coverage vs Target", group: "Dashboard panels" },
+  { id: "decay-momentum", label: "Decay / Momentum Alerts", group: "Dashboard panels" },
+  { id: "forecast-narrative", label: "Forecast Narrative", group: "Dashboard panels" },
+  { id: "first-response", label: "First-Response Leaderboard", group: "Dashboard panels" },
+  { id: "escalation-alerts", label: "Escalation Alerts", group: "Dashboard panels" },
+  { id: "agent-activity", label: "Agent Activity Snapshot", group: "Dashboard panels" },
   {
     id: "signal-velocity",
     label: "Signal velocity",
@@ -70,6 +84,21 @@ const dashboardWidgetOptions = [
 ] as const;
 
 type DashboardWidgetId = (typeof dashboardWidgetOptions)[number]["id"];
+const newlyAddedDashboardWidgetIds = [
+  "active-pipeline-origin",
+  "speed-to-qualify",
+  "sla-compliance",
+  "override-rate",
+  "qualified-to-booked",
+  "funnel-bottleneck",
+  "rep-capacity",
+  "pipeline-coverage",
+  "decay-momentum",
+  "forecast-narrative",
+  "first-response",
+  "escalation-alerts",
+  "agent-activity",
+] as const;
 
 function loadDashboardWidgetSelection(storageKey: string) {
   const selected = loadSectionSelection(storageKey, dashboardWidgetOptions);
@@ -91,6 +120,15 @@ function loadDashboardWidgetSelection(storageKey: string) {
       selected.add("revenue-trend");
       selected.add("source-qualification");
       selected.add("source-quality");
+    }
+    if (
+      Array.isArray(saved) &&
+      saved.length &&
+      !window.localStorage.getItem(`${storageKey}:expanded-v2`)
+    ) {
+      newlyAddedDashboardWidgetIds.forEach((id) =>
+        selected.add(id as DashboardWidgetId),
+      );
     }
   } catch {
     // Dashboard preferences remain optional when browser storage is unavailable.
@@ -118,6 +156,7 @@ export function DashboardView({
         JSON.stringify([...visibleWidgets]),
       );
       window.localStorage.setItem(`${preferenceKey}:insights-v1`, "seen");
+      window.localStorage.setItem(`${preferenceKey}:expanded-v2`, "seen");
     } catch {
       // Dashboard preferences are optional when browser storage is unavailable.
     }
@@ -213,19 +252,26 @@ export function DashboardView({
                 (data.review ? (
                   <Panel
                     title="Attention queue"
-                    eyebrow="Human judgment required"
+                    eyebrow="Human judgment · highest combined score first"
                     action={`${data.review.total} open`}
                   >
                     {data.review.items.length ? (
-                      <div className="compact-leads">
-                        {data.review.items.slice(0, 5).map((lead) => (
-                          <LeadRow
-                            lead={lead}
-                            key={lead.id}
-                            onClick={() => onInspect(lead.id)}
-                          />
-                        ))}
-                      </div>
+                      <>
+                        <p className="panel-copy">Ranked by fit (45%), urgency (35%) and recorded opportunity value (20%).</p>
+                        <div className="compact-leads">
+                          {data.review.items.slice(0, 5).map((lead) => (
+                            <div className="dashboard-ranked-lead" key={lead.id}>
+                              <LeadRow
+                                lead={lead}
+                                onClick={() => onInspect(lead.id)}
+                              />
+                              {lead.attention_score != null && (
+                                <small>{lead.attention_score}/100 attention · {lead.sla_overdue ? "SLA overdue" : pretty(lead.priority ?? "normal")}</small>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     ) : (
                       <Empty
                         title="No review debt"
@@ -277,14 +323,16 @@ export function DashboardView({
               {visibleWidgets.has("channel-intelligence") && (
                 <Panel
                   title="Channel intelligence"
-                  eyebrow="Quality + useful volume"
+                  eyebrow="Qualified and booked rates"
                 >
                   <Bars
                     rows={data.channels.channels.map((row) => ({
                       label: pretty(row.channel),
-                      value: row.importance_index,
-                      note: `${row.lead_volume} leads · ${row.average_score} avg score`,
+                      value: row.qualified_to_booked_rate ?? row.booked_rate ?? 0,
+                      note: `${row.qualified_leads ?? 0} qualified · ${row.booked_leads ?? 0} booked · ${row.qualification_rate}% qualified`,
                     }))}
+                    formatter={(value) => `${value}%`}
+                    scaleMaximum={100}
                   />
                 </Panel>
               )}
@@ -304,9 +352,15 @@ export function DashboardView({
               )}
             </section>
           )}
+          <DashboardSignals
+            data={data}
+            visible={visibleWidgets}
+            onInspect={onInspect}
+          />
           <DashboardInsights
             channels={data.channels}
             revenue={data.revenue}
+            extended={data.extended}
             visible={visibleWidgets}
           />
         </>

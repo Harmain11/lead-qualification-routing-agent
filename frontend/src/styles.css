@@ -420,8 +420,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .dashboard-metric-grid .metric-card, .dashboard-metric-grid .metric-card.metric-featured { grid-column: auto; }
 .dashboard-command-grid > .data-panel:only-child, .dashboard-grid > .data-panel:only-child { grid-column: 1 / -1; }
 .channel-table-wrap { min-width: 0; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--subtle) var(--surface-high); }
-.channel-table { min-width: 760px; }
-.channel-table > div { display: grid; grid-template-columns: 1.2fr repeat(5, 1fr) .8fr; gap: 12px; align-items: center; padding: 11px 4px; border-top: 1px solid var(--line); font-size: 13px; }
+.channel-table { min-width: 960px; }
+.channel-table > div { display: grid; grid-template-columns: 1.2fr repeat(7, 1fr) .8fr; gap: 12px; align-items: center; padding: 11px 4px; border-top: 1px solid var(--line); font-size: 13px; }
 .channel-table > .channel-head { border-top: 0; color: var(--subtle); font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; }
 .channel-table em { justify-self: start; padding: 4px 7px; border-radius: 6px; background: var(--orange-soft); color: var(--orange-hot); font-style: normal; }
 .rep-table > div { display: grid; grid-template-columns: 36px 1.5fr repeat(4, 1fr); gap: 12px; align-items: center; padding: 12px 4px; border-top: 1px solid var(--line); }

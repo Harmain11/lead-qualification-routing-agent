@@ -29,16 +29,14 @@ export function CloudTalkPhoneDock({
   open,
   onOpen,
   onMinimize,
-  onReady,
 }: {
   open: boolean;
   onOpen: () => void;
   onMinimize: () => void;
-  onReady: () => void;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [status, setStatus] = useState(
-    "Sign in as the CloudTalk agent selected in Corral before starting a call.",
+    "Sign in as the connected CloudTalk agent to place and control calls here.",
   );
   const [callActive, setCallActive] = useState(false);
 
@@ -96,7 +94,6 @@ export function CloudTalkPhoneDock({
               allow="microphone https://phone.cloudtalk.io"
               referrerPolicy="strict-origin-when-cross-origin"
               tabIndex={open ? 0 : -1}
-              onLoad={onReady}
             />
           </div>
         </section>

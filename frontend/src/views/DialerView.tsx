@@ -70,7 +70,6 @@ export function DialerView({
   canCall,
   canCallLeads,
   canViewIntegrations,
-  cloudTalkPhoneLoaded,
   onOpenCloudTalkPhone,
 }: {
   onOpenIntegrations: () => void;
@@ -81,7 +80,6 @@ export function DialerView({
   canCall: boolean;
   canCallLeads: boolean;
   canViewIntegrations: boolean;
-  cloudTalkPhoneLoaded: boolean;
   onOpenCloudTalkPhone: () => void;
 }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
@@ -354,7 +352,6 @@ export function DialerView({
               canViewLeads={canViewLeads}
               canEditLeads={canEditLeads}
               onOpenLead={onOpenLead}
-              cloudTalkPhoneLoaded={cloudTalkPhoneLoaded}
               onOpenCloudTalkPhone={onOpenCloudTalkPhone}
             />
             <section className="dialer-workflow-grid">

@@ -1,6 +1,7 @@
 import { mutationStatusMessage, notifyActivity } from "./activity";
 import { recentReviewBatch } from "./inboundReview";
 import type {
+  AdvancedAnalytics,
   AgentActivity,
   ChannelAnalytics,
   CrmSync,
@@ -8,6 +9,7 @@ import type {
   CrmInboundSyncRun,
   CrmInboundSyncState,
   DashboardAnalytics,
+  ExtendedAnalytics,
   IntegrationCard,
   LeadApprovalPolicy,
   Lead,
@@ -787,6 +789,9 @@ export const getRepAnalytics = (range: TimeRange, signal?: AbortSignal) => analy
 export const getTimeSeriesAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<TimeSeriesAnalytics>("time-series", range, signal);
 export const getAgentActivity = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<AgentActivity>("agent-activity", range, signal);
 export const getManualReview = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ManualReviewAnalytics>("manual-review", range, signal);
+export const getExtendedAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ExtendedAnalytics>("extended", range, signal);
+export const getAdvancedAnalytics = (months = 6, signal?: AbortSignal) =>
+  jsonRequest<AdvancedAnalytics>(`/v1/intelligence/analytics?months=${months}`, { signal });
 
 export function listMembers(signal?: AbortSignal): Promise<WorkspaceMember[]> {
   return jsonRequest<WorkspaceMember[]>("/v1/members", { signal });
