@@ -16,3 +16,9 @@ The CloudTalk create-call API accepts only the agent and E.164 callee, returns n
 **Why:** On October 20, 2026, the user chose the embedded CloudTalk Phone as the direct-calling surface, replacing Corral's number-entry/API start flow. The user accepts that Phone keypad calls bypass Corral's safeguards.
 
 **How to apply:** Show the embedded Phone only to members with `dialer.call` permission, open it when CloudTalk is selected, and keep its iframe mounted across app navigation. Clearly warn that its keypad calls bypass Corral's consent, do-not-call, and residency checks and may only appear in CloudTalk history. Preserve Corral's safeguarded API flow for other supported providers. If a future flow uses the CloudTalk create-call API, keep its durable request receipt and never blindly retry an uncertain submission. Do not represent the VoiceAgent emergency-stop endpoint as a per-call hang-up control.
+
+CloudTalk's embedded Phone requires a minimum iframe size of 420 × 700 px. Its documented postMessage contract lists call and contact events from the iframe; it does not document parent commands for editing keypad input.
+
+**Why:** undersized mobile frames can disrupt the provider's own keypad layout, while the cross-origin iframe prevents Corral from directly inserting or controlling its buttons.
+
+**How to apply:** Keep the CloudTalk iframe at 420 × 700 px internally and let the surrounding dock scroll or scale to fit. Do not claim a Corral-side backspace control can edit the provider's number field unless CloudTalk documents a supported command.

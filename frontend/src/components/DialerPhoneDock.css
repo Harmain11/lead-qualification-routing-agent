@@ -16,8 +16,8 @@
   bottom: 70px;
   display: flex;
   width: min(420px, calc(100vw - 28px));
-  height: min(700px, calc(100vh - 112px));
-  min-height: 320px;
+  height: min(804px, calc(100dvh - 24px));
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(29, 66, 54, 0.18);
@@ -108,7 +108,8 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   background: #f7faf8;
 }
 
@@ -128,6 +129,28 @@
   flex: 1 1 auto;
   border: 0;
   background: #fff;
+}
+
+.dialer-phone-cloudtalk-frame-viewport {
+  position: relative;
+  width: 100%;
+  height: 700px;
+  min-height: 700px;
+  flex: 0 0 700px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.dialer-phone-frame-cloudtalk {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 420px;
+  min-width: 420px;
+  height: 700px;
+  min-height: 700px;
+  flex: 0 0 700px;
+  transform-origin: top left;
 }
 
 .dialer-phone-aircall {
@@ -290,10 +313,14 @@
   }
 
   .dialer-phone-window {
-    right: 0;
-    bottom: 64px;
-    width: calc(100vw - 24px);
-    height: min(700px, calc(100vh - 96px));
-    min-height: 300px;
+    position: fixed;
+    inset: max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom))
+      max(8px, env(safe-area-inset-left));
+    width: auto;
+    height: auto;
+    max-height: none;
+    min-height: 0;
   }
 }
