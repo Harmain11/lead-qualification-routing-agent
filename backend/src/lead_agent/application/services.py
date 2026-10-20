@@ -20,6 +20,7 @@ from lead_agent.application.lead_approval import (
     provider_for_source_channel,
     provider_policy_review_reason,
 )
+from lead_agent.application.manual_review import workspace_manual_review_config
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
@@ -28,8 +29,9 @@ from lead_agent.domain.analysis import (
     ReasoningProviderError,
     ReasoningProviderTimeout,
     ReasoningProviderUnavailable,
+    manual_review_reasons,
 )
-from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.configuration import IcpConfig, ManualReviewConfig, RoutingConfig
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.domain.normalization import normalize_lead
@@ -277,8 +279,10 @@ def _context_analysis(
     icp: IcpConfig,
     routing: RoutingConfig,
     provider: ReasoningProvider | None,
+    manual_review_config: ManualReviewConfig | None = None,
 ) -> LeadContextAnalysis:
     fallback = DeterministicReasoningProvider()
+    review_config = manual_review_config or routing.manual_review
     disqualifier = find_hard_disqualifier(lead, icp)
     if disqualifier:
         output = fallback.analyze(lead, icp)
@@ -301,20 +305,37 @@ def _context_analysis(
         code = (
             error.code if isinstance(error, ReasoningProviderError) else "invalid_provider_output"
         )
+        review_reasons = manual_review_reasons(
+            email=lead.email,
+            full_name=lead.full_name,
+            company_name=lead.company_name,
+            settings=review_config,
+            overall_confidence=output.overall_confidence,
+            contradictions=output.contradictions,
+            unknown_fields=output.unknown_fields,
+            provider_failure=True,
+        )
         return LeadContextAnalysis(
             **output.model_dump(),
             status="provider_error",
             provider=getattr(active_provider, "provider_name", "unknown"),
             model=getattr(active_provider, "model_name", "unknown"),
             prompt_version=getattr(active_provider, "prompt_version", "unknown"),
-            requires_manual_review=True,
+            requires_manual_review=bool(review_reasons),
             error_code=code,
             error_message=str(error)[:2000] or error.__class__.__name__,
         )
 
-    requires_review = output.overall_confidence < routing.manual_review.minimum_confidence or bool(
-        output.contradictions
+    review_reasons = manual_review_reasons(
+        email=lead.email,
+        full_name=lead.full_name,
+        company_name=lead.company_name,
+        settings=review_config,
+        overall_confidence=output.overall_confidence,
+        contradictions=output.contradictions,
+        unknown_fields=output.unknown_fields,
     )
+    requires_review = bool(review_reasons)
     return LeadContextAnalysis(
         **output.model_dump(),
         status="manual_review" if requires_review else "completed",
@@ -322,12 +343,8 @@ def _context_analysis(
         model=active_provider.model_name,
         prompt_version=active_provider.prompt_version,
         requires_manual_review=requires_review,
-        error_code="low_confidence_or_contradiction" if requires_review else None,
-        error_message=(
-            "Analysis confidence is below policy threshold or contains contradictory evidence."
-            if requires_review
-            else None
-        ),
+        error_code="manual_review_conditions" if requires_review else None,
+        error_message="; ".join(review_reasons) if requires_review else None,
     )
 
 
@@ -336,8 +353,9 @@ def _analyze_and_qualify(
     icp: IcpConfig,
     routing: RoutingConfig,
     provider: ReasoningProvider | None,
+    manual_review_config: ManualReviewConfig | None = None,
 ) -> tuple[LeadContextAnalysis, QualificationResult]:
-    analysis = _context_analysis(lead, icp, routing, provider)
+    analysis = _context_analysis(lead, icp, routing, provider, manual_review_config)
     result = qualify_lead(lead, icp, routing, analysis)
     summary = analysis.summary.model_copy(
         update={
@@ -377,8 +395,11 @@ def process_lead(
     resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
     active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
+    review_config = workspace_manual_review_config(
+        session, workspace_id, routing.manual_review
+    )
     analysis, result = _analyze_and_qualify(
-        lead, resolved_icp.configuration, routing, active_provider
+        lead, resolved_icp.configuration, routing, active_provider, review_config
     )
     result = resolved_icp.trace_result(result)
     row = create_lead_with_result(
@@ -457,8 +478,11 @@ def process_source_event(
         resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
         lead = normalize_lead(event.normalized_payload, uuid4())
         active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
+        review_config = workspace_manual_review_config(
+            session, workspace_id, routing.manual_review
+        )
         analysis, result = _analyze_and_qualify(
-            lead, resolved_icp.configuration, routing, active_provider
+            lead, resolved_icp.configuration, routing, active_provider, review_config
         )
         if effective_manual_review_reason:
             review_update: dict[str, Any] = {"requires_manual_review": True}
@@ -551,8 +575,11 @@ def reprocess_lead(
     resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
     normalized = normalize_lead(payload, row.id)
     active_provider = provider or resolve_workspace_reasoning_provider(session, row.workspace_id)
+    review_config = workspace_manual_review_config(
+        session, row.workspace_id, routing.manual_review
+    )
     analysis, result = _analyze_and_qualify(
-        normalized, resolved_icp.configuration, routing, active_provider
+        normalized, resolved_icp.configuration, routing, active_provider, review_config
     )
     if effective_manual_review_reason:
         review_update: dict[str, Any] = {"requires_manual_review": True}

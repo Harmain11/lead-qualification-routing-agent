@@ -89,7 +89,7 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
         </div>
          {selected && <p>{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : selected.provider === "cloudtalk" ? "CloudTalk rings the configured agent first, then connects the lead once the agent answers." : "Answer your rep phone to connect to the lead."}</p>}
         {canCall && <><label className="ops-check"><input type="checkbox" checked={confirmed} disabled={busy || !data.outreach_allowed || !leadPhone || !selected} onChange={(event) => setConfirmed(event.target.checked)} /><span>I confirm this individual {voiceAgent ? "voice-agent " : ""}call to the lead.</span></label><button type="submit" disabled={busy || !selected || !confirmed || !leadPhone || !data.outreach_allowed || (needsRep && !repPhone)}>{busy ? "Submitting…" : requestId ? "Check existing call request" : voiceAgent ? "Start voice-agent call" : data.records.length ? "Call again" : "Call lead"}</button></>}
-        {!canCall && <p>Your workspace role can view call history. Calling requires lead editing and agent action permissions.</p>}
+        {!canCall && <p>Calling this lead requires the Dialer calling permission plus lead-view and lead-edit access. Ask an admin to grant any missing permission.</p>}
       </form>
     </>}
      {data && <div className="calls-history"><h4>Recent activity</h4>{data.records.length ? <div className="lead-table-wrap lead-browser call-table-wrap">

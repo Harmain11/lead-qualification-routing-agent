@@ -38,6 +38,7 @@ from lead_agent.application.exports import (
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
+from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
 from lead_agent.domain.analysis import ReasoningProvider
@@ -259,11 +260,13 @@ def _process_create_request(
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
-        get_current_routing(session, row.id, workspace.workspace_id),
+        routing,
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
     )
 
 
@@ -359,16 +362,18 @@ def list_all_leads(
         current = [item for item in row.crm_syncs if item.is_current]
         return max(current, key=lambda item: item.requested_at, default=None)
 
+    def serialize_lead(row: LeadORM) -> LeadResponse:
+        routing = current_routing(row)
+        return lead_response(
+            row,
+            routing,
+            current_crm_sync(row),
+            _current_confirmation_email(session, row.id, workspace.workspace_id),
+            lead_manual_review_reasons(session, row, routing),
+        )
+
     return LeadListResponse(
-        items=[
-            lead_response(
-                row,
-                current_routing(row),
-                current_crm_sync(row),
-                _current_confirmation_email(session, row.id, workspace.workspace_id),
-            )
-            for row in rows
-        ],
+        items=[serialize_lead(row) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -516,11 +521,13 @@ def retrieve_lead(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
-        get_current_routing(session, row.id, workspace.workspace_id),
+        routing,
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
     )
 
 
@@ -538,11 +545,13 @@ def update_lead_title(
     row.job_title = request.job_title
     row.updated_at = datetime.now(UTC)
     session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
-        get_current_routing(session, row.id, workspace.workspace_id),
+        routing,
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
     )
 
 

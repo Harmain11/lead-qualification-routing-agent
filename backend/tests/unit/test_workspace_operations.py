@@ -390,6 +390,74 @@ def saved_workflow(client, lead, nodes, kind="playbook"):
     return result.json()
 
 
+def test_bulk_sequence_enrollment_is_idempotent_and_workspace_scoped(ops, icp, routing):
+    from lead_agent.infrastructure.db.models import LeadORM
+    from lead_agent.infrastructure.db.operations import AutomationRunORM
+
+    session, client, workspace, _, lead, *_ = ops
+    _, _, second_lead = process_lead(
+        session,
+        {
+            "source": "web",
+            "full_name": "Sam Jones",
+            "email": "sam@acme.test",
+            "company_name": "Acme",
+            "industry": "Software",
+            "geography": "Pakistan",
+            "product_or_service": "Consulting",
+            "message": "Please follow up with our team next week.",
+        },
+        icp,
+        routing,
+        workspace_id=workspace.workspace_id,
+    )
+    session.commit()
+    definition_id = uuid4()
+    definition = client.put(
+        f"/v1/automations/{definition_id}",
+        json={
+            "name": "Weekly follow-up",
+            "kind": "sequence",
+            "active": True,
+            "nodes": [
+                {"id": "start", "type": "start", "next": "wait"},
+                {
+                    "id": "wait",
+                    "type": "wait",
+                    "wait_hours": 168,
+                    "next": "draft",
+                },
+                {"id": "draft", "type": "draft", "next": "end"},
+                {"id": "end", "type": "end"},
+            ],
+            "version": 0,
+        },
+    )
+    assert definition.status_code == 200, definition.text
+
+    path = f"/v1/automations/{definition_id}/enroll-bulk"
+    payload = {"lead_ids": [str(lead.id), str(second_lead.id)]}
+    response = client.post(path, json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["enrolled"] == 2
+    assert response.json()["already_enrolled"] == 0
+    assert {item["status"] for item in response.json()["items"]} == {"enrolled"}
+
+    repeated = client.post(path, json=payload)
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["enrolled"] == 0
+    assert repeated.json()["already_enrolled"] == 2
+    assert session.query(AutomationRunORM).count() == 2
+
+    rejected = client.post(
+        path,
+        json={"lead_ids": [str(lead.id), str(uuid4())]},
+    )
+    assert rejected.status_code == 404
+    assert session.query(AutomationRunORM).count() == 2
+    assert session.get(LeadORM, lead.id) is not None
+
+
 def test_branching_workflow_and_note_idempotency(ops):
     from lead_agent.application.automations import advance_run
     from lead_agent.infrastructure.db.operations import AutomationRunORM

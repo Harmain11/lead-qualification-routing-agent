@@ -174,7 +174,7 @@ def _validate_direct_call_policy(
 def cloudtalk_phone_numbers(
     connection_id: UUID = Query(...),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> CloudTalkCallerNumberOptions:
     connection = _connection(session, workspace.workspace_id, connection_id)
@@ -209,7 +209,7 @@ def cloudtalk_phone_numbers(
 def recent_cloudtalk_calls(
     page: int = Query(default=1, ge=1),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
     connections = list(
@@ -294,7 +294,7 @@ def cloudtalk_call_details(
     call_id: str,
     page: int = Query(default=1, ge=1),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
     connection = session.scalar(
@@ -427,7 +427,7 @@ def start_call(
     request: StartCall,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(
-        require_permissions("leads.view", "leads.edit", "agents.execute")
+        require_permissions("leads.view", "leads.edit", "dialer.call")
     ),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> CallRecordORM:
@@ -564,7 +564,7 @@ def start_call(
 def start_direct_call(
     request: DirectStartCall,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> CallRecordORM:
     if not request.confirmed:
@@ -700,7 +700,7 @@ def start_direct_call(
 def prepare_cloudtalk_handoff(
     request: CloudTalkHandoffRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> CloudTalkHandoffResponse:
     if not request.confirmed:
@@ -774,7 +774,7 @@ def prepare_cloudtalk_handoff(
 @router.get("/direct/recent")
 def recent_direct_calls(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
 ) -> dict[str, list[dict[str, object]]]:
     records = list(
         session.scalars(

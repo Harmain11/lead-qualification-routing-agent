@@ -63,6 +63,8 @@ type LeadDetailProps = {
   canEdit?: boolean;
   canViewEmail?: boolean;
   canCall?: boolean;
+  canEnrollAutomations?: boolean;
+  onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
   onDeleted?: (leadId: string) => void;
   activeSection: LeadDetailSection;
@@ -71,7 +73,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canCall = false, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canCall = false, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -136,23 +138,30 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
   const route = lead.routing;
   const requiresManualReview = Boolean(
     route?.manual_review ||
-    analysis?.requires_manual_review ||
-    analysis?.status === "manual_review" ||
-    analysis?.status === "provider_error",
+    analysis?.requires_manual_review
   );
   const genericRoutingReviewReason =
+    "Lead matches an enabled manual-review condition.";
+  const legacyRoutingReviewReason =
     "Manual-review precedence: analysis uncertainty or provider failure requires human review.";
-  const routedReviewReason = route?.manual_review ? route.routing_reason.trim() : "";
+  const routedReviewReason = route?.manual_review
+    ? route.routing_reason.replace(" No rep assignment is applicable.", "").trim()
+    : "";
+  const analysisReviewReason =
+    !lead.review_reasons?.length && analysis?.error_code === "manual_review_conditions"
+      ? analysis.error_message?.trim() || ""
+      : "";
   const manualReviewReasons = [
-    routedReviewReason && routedReviewReason !== genericRoutingReviewReason ? routedReviewReason : "",
-    analysis?.error_message?.trim() || "",
-    analysis?.contradictions.length
-      ? `Contradictory evidence: ${analysis.contradictions.join("; ")}`
+    ...(lead.review_reasons ?? []),
+    routedReviewReason &&
+      routedReviewReason !== genericRoutingReviewReason &&
+      !routedReviewReason.startsWith(legacyRoutingReviewReason)
+      ? routedReviewReason
       : "",
-    analysis?.unknown_fields.length
-      ? `Missing information: ${analysis.unknown_fields.join(", ")}`
+    analysisReviewReason &&
+      !routedReviewReason.startsWith(analysisReviewReason)
+      ? analysisReviewReason
       : "",
-    routedReviewReason,
   ].filter((reason, index, reasons) => Boolean(reason) && reasons.indexOf(reason) === index);
   const crm = crmResult?.lead_id === lead.id ? crmResult : lead.crm_sync;
   const icpRows = analysis ? [
@@ -171,20 +180,40 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
         <h2>{lead.company_name}</h2>
         <p>{lead.full_name} · {lead.job_title || "Role not supplied"}</p>
       </div>
-      {(qualification || canEdit) && <div className="story-head-side">
+      {(qualification || canEdit || canEnrollAutomations) && <div className="story-head-side">
         {qualification && <div className={`score-orb band-${qualification.classification.toLowerCase().replaceAll("_", "-")}`}>
           <strong>{qualification.total_score}</strong>
           <span>{title(qualification.classification)}</span>
         </div>}
-        {canEdit && <div className="story-head-actions">
-          {!editingTitle && <button className="button-quiet" type="button" onClick={() => {
-            setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null);
-          }}>Edit title</button>}
-          <button className="danger-button" type="button" onClick={async () => {
-            if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
-            try { await deleteLead(lead.id); onDeleted?.(lead.id); }
-            catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); }
-          }}>Delete lead</button>
+        {(canEdit || canEnrollAutomations) && <div className="story-head-actions">
+          {canEdit && <>
+            {!editingTitle && <button className="button-quiet" type="button" onClick={() => {
+              setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null);
+            }}>Edit title</button>}
+            <button className="danger-button" type="button" onClick={async () => {
+              if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
+              try { await deleteLead(lead.id); onDeleted?.(lead.id); }
+              catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); }
+            }}>Delete lead</button>
+          </>}
+          {canEnrollAutomations && <div className="lead-detail-automation-actions">
+            <button
+              className="button-quiet"
+              type="button"
+              aria-label={`Enroll ${lead.full_name || "lead"} in a sequence`}
+              onClick={() => onEnrollAutomation?.("sequence")}
+            >
+              Sequence
+            </button>
+            <button
+              className="button-quiet"
+              type="button"
+              aria-label={`Enroll ${lead.full_name || "lead"} in a playbook`}
+              onClick={() => onEnrollAutomation?.("playbook")}
+            >
+              Playbook
+            </button>
+          </div>}
         </div>}
       </div>}
       {canEdit && editingTitle && <form className="story-title-form" onSubmit={async (event) => {
@@ -204,9 +233,13 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
       </form>}
       {editNotice && <div className="notice story-head-notice" role="status">{editNotice}</div>}
     </header>
+    {analysis?.status === "provider_error" && <div className="notice lead-analysis-status" role="status">
+      <b>Analysis could not complete</b>
+      <span>A fallback assessment was used. Provider failures appear in Manual Review only when that rule is enabled or another selected rule applies.</span>
+    </div>}
     {requiresManualReview && <aside className="attention-callout lead-review-reason" role="status" aria-labelledby={`manual-review-title-${lead.id}`}>
       <b id={`manual-review-title-${lead.id}`}>Human review required</b>
-      <p><strong>Reason for review</strong><span>{manualReviewReasons[0] || "Analysis confidence or evidence needs validation before this lead is actioned."}</span></p>
+      <p><strong>Matched conditions and field evidence</strong><span>{manualReviewReasons[0] || "This lead is held for human review. Check the lead details and analysis evidence below."}</span></p>
       {manualReviewReasons.slice(1).map((reason) => <p className="lead-review-secondary-reason" key={reason}>{reason}</p>)}
     </aside>}
     <nav className="lead-detail-navigation" aria-label="Lead detail sections">

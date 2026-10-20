@@ -210,8 +210,17 @@ def test_manual_review_precedes_normal_sales_assignment(icp, routing, tmp_path) 
                 .model_copy(update={"overall_confidence": 0.1})
             )
 
+    low_confidence_review_routing = routing.model_copy(
+        update={
+            "manual_review": routing.manual_review.model_copy(
+                update={"low_confidence": True}
+            )
+        }
+    )
     with session_for(tmp_path) as session:
-        _, _, lead = process_lead(session, payload(), icp, routing, LowConfidenceProvider())
+        _, _, lead = process_lead(
+            session, payload(), icp, low_confidence_review_routing, LowConfidenceProvider()
+        )
         decision = get_current_routing(session, lead.id)
         assert decision is not None
         assert decision.manual_review is True
@@ -440,12 +449,19 @@ def test_provider_failure_routes_to_manual_review_before_sales_rules(
         def analyze(self, lead, icp):
             raise TimeoutError("provider unavailable")
 
+    provider_failure_review_routing = routing.model_copy(
+        update={
+            "manual_review": routing.manual_review.model_copy(
+                update={"provider_failure": True}
+            )
+        }
+    )
     with session_for(tmp_path) as session:
         _, _, lead = process_lead(
             session,
             payload(external_id="provider-failure-route"),
             icp,
-            routing,
+            provider_failure_review_routing,
             FailingReasoningProvider(),
         )
         decision = get_current_routing(session, lead.id)

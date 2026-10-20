@@ -246,6 +246,7 @@ class LeadResponse(BaseModel):
     crm_sync: CrmSyncResponse | None = None
     confirmation_email: ConfirmationEmailResponse | None = None
     outcome: LeadOutcomeResponse | None = None
+    review_reasons: list[str] = Field(default_factory=list)
 
 
 class LeadListResponse(BaseModel):
@@ -602,8 +603,20 @@ def confirmation_email_response(row: Any) -> ConfirmationEmailResponse | None:
 
 
 def lead_response(
-    row: Any, routing: Any = None, crm_sync: Any = None, confirmation_email: Any = None
+    row: Any,
+    routing: Any = None,
+    crm_sync: Any = None,
+    confirmation_email: Any = None,
+    review_reasons: list[str] | None = None,
 ) -> LeadResponse:
+    analysis = row.analysis
+    if review_reasons is None:
+        saved_reason = (
+            analysis.error_message
+            if analysis and analysis.error_code == "manual_review_conditions"
+            else None
+        )
+        review_reasons = [saved_reason] if saved_reason else []
     return LeadResponse(
         id=row.id,
         lead_number=row.lead_number,
@@ -632,6 +645,7 @@ def lead_response(
         crm_sync=crm_sync_response(crm_sync),
         confirmation_email=confirmation_email_response(confirmation_email),
         outcome=outcome_response(row.outcome),
+        review_reasons=review_reasons,
     )
 
 

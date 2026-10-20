@@ -9,6 +9,7 @@ import {
   listIntegrations,
   listLeads,
 } from "../api";
+import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
 import { LeadDetail } from "../components/LeadDetail";
 import { LeadRowIdentity } from "../components/LeadRowIdentity";
 import { LeadSubpage, leadSubpageCopy } from "../components/LeadSubpage";
@@ -95,6 +96,8 @@ export function LeadsView({
   canCrmSync = false,
   canViewEmail = false,
   canCall = false,
+  canEnrollAutomations = false,
+  onOpenAutomations,
 }: {
   selected: Lead | null;
   activeSection: LeadDetailSection;
@@ -113,6 +116,8 @@ export function LeadsView({
   canCrmSync?: boolean;
   canViewEmail?: boolean;
   canCall?: boolean;
+  canEnrollAutomations?: boolean;
+  onOpenAutomations?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [band, setBand] = useState("all");
@@ -135,6 +140,11 @@ export function LeadsView({
   const [crmNotice, setCrmNotice] = useState<string | null>(null);
   const [crmProviders, setCrmProviders] = useState<string[]>([]);
   const [bulkProvider, setBulkProvider] = useState("");
+  const [automationEnrollment, setAutomationEnrollment] = useState<{
+    kind: "sequence" | "playbook";
+    leadId: string;
+    leadLabel: string;
+  } | null>(null);
   useEffect(() => {
     if (!canCrmSync) return;
     let active = true;
@@ -327,6 +337,14 @@ export function LeadsView({
             canViewEmail={canViewEmail}
             canCall={canCall}
             canEdit={canEdit}
+            canEnrollAutomations={canEnrollAutomations}
+            onEnrollAutomation={(kind) =>
+              setAutomationEnrollment({
+                kind,
+                leadId: selected.id,
+                leadLabel: `${selected.full_name || "Unnamed lead"} · ${selected.company_name || "No company"}`,
+              })
+            }
             onUpdated={(lead) => {
               onUpdated(lead);
               setRows((current) =>
@@ -644,6 +662,16 @@ export function LeadsView({
           selectedIds={[...selectedIds]}
         />
       )}
+      {automationEnrollment && (
+        <AutomationEnrollmentDialog
+          key={`${automationEnrollment.kind}-${automationEnrollment.leadId}`}
+          kind={automationEnrollment.kind}
+          fixedLeadIds={[automationEnrollment.leadId]}
+          fixedLeadLabel={automationEnrollment.leadLabel}
+          onClose={() => setAutomationEnrollment(null)}
+          onOpenAutomations={onOpenAutomations}
+        />
+      )}
         </>
       )}
     </div>
@@ -941,6 +969,7 @@ const LeadTableRow = memo(function LeadTableRow({
       onClick={() => onInspect(lead.id)}
       tabIndex={0}
       onKeyDown={(event) => {
+        if ((event.target as HTMLElement).closest("button, input")) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onInspect(lead.id);

@@ -680,10 +680,7 @@ def route_and_notify(
 
     manual_review = bool(
         analysis
-        and (
-            analysis.requires_manual_review
-            or analysis.status in {"provider_error", "manual_review"}
-        )
+        and analysis.requires_manual_review
     )
     selected_rule, matching_rules = _select_rule(routing.rules, lead, qualification, analysis)
     band = qualification.classification
@@ -693,8 +690,9 @@ def route_and_notify(
         priority: RoutePriority = "urgent"
         action_key = "manual_review"
         reason = manual_review_reason or (
-            "Manual-review precedence: analysis uncertainty or provider failure "
-            "requires human review."
+            analysis.error_message
+            if analysis and analysis.error_code == "manual_review_conditions"
+            else "Lead matches an enabled manual-review condition."
         )
         matched_rules = (
             ["gmail_personal_email_review"]

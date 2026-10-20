@@ -50,6 +50,20 @@ def test_normalization_allows_missing_optional_fields() -> None:
     assert lead.budget is None
 
 
+def test_normalization_preserves_missing_identity_for_manual_review() -> None:
+    lead = normalize_lead(
+        {
+            "email": "jane@example.com",
+            "product_or_service": "Lead routing",
+            "message": "Please share an overview.",
+        },
+        uuid4(),
+    )
+
+    assert lead.full_name == "Name not provided"
+    assert lead.company_name == "Company not provided"
+
+
 def test_normalization_rejects_malformed_employee_count_and_empty_message() -> None:
     base = {
         "full_name": "Jane Doe",

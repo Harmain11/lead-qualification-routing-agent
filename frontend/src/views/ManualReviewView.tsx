@@ -24,8 +24,8 @@ export function ManualReviewView({
           <span className="eyebrow">Human judgment queue</span>
           <h1>Manual review</h1>
           <p>
-            Provider failures, low confidence and contradictory evidence pause
-            here. The system does not invent a resolution.
+            Leads matching your selected review rules are held here. Imported-lead
+            approval settings are managed separately in Integrations.
           </p>
         </div>
         <div className="review-total">

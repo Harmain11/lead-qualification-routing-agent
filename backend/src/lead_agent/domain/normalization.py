@@ -27,9 +27,11 @@ def _decimal(value: Any) -> Decimal | None:
 def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
     """Map website/manual input to the stable channel-agnostic lead contract."""
 
-    full_name = _clean(payload.get("full_name") or payload.get("name"))
+    full_name = _clean(payload.get("full_name") or payload.get("name")) or "Name not provided"
     email = _clean(payload.get("email"))
-    company_name = _clean(payload.get("company_name") or payload.get("company"))
+    company_name = (
+        _clean(payload.get("company_name") or payload.get("company")) or "Company not provided"
+    )
     message = _clean(payload.get("message") or payload.get("inquiry"))
     product = _clean(payload.get("product_or_service") or payload.get("product"))
     gmail_phone_only = (
@@ -38,14 +40,12 @@ def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
         and bool(_clean(payload.get("phone")))
     )
     if (
-        not full_name
-        or (not email and not gmail_phone_only)
-        or not company_name
+        (not email and not gmail_phone_only)
         or not message
         or not product
     ):
         raise ValueError(
-            "full_name, email, company_name, product_or_service, and message are required"
+            "email, product_or_service, and message are required"
         )
 
     employee_count: int | None = None

@@ -280,6 +280,7 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
         )
         assert lead.analysis is not None
         lead.job_title = None
+        lead.full_name = "Name not provided"
         other_lead.email = lead.email
         other_lead.job_title = "Cross-workspace value"
         lead.analysis.requires_manual_review = True
@@ -316,7 +317,9 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
     assert analytics_metrics["leads_analyzed"] == 1
     assert "SQL-ready" in insights["Analytics Agent"]["summary"]
     assert review["total"] == 1
-    assert review["items"][0]["review_reasons"] == ["Confidence needs human validation."]
+    assert review["items"][0]["review_reasons"] == [
+        "Full name field (Name not provided) is missing or contains a placeholder value."
+    ]
 
 
 def test_enrichment_agent_suggests_only_unambiguous_exact_email_matches(

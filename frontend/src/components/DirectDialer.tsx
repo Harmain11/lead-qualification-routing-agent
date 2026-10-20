@@ -290,7 +290,7 @@ export function DirectDialer({
     ) : !canCall ? (
       <div className="direct-dialer-status is-unavailable" role="status">
         <span aria-hidden="true" />
-        <div><strong>Calling permission unavailable</strong><p>Your role needs agent action permission to start a direct call.</p></div>
+        <div><strong>Calling permission unavailable</strong><p>An admin must grant you the Dialer calling permission before you can place calls.</p></div>
       </div>
     ) : (
       <form className="direct-dialer-form" onSubmit={(event) => void startCall(event)}>
