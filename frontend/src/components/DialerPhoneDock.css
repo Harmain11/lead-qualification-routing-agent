@@ -156,6 +156,17 @@
   background: #f7faf8;
 }
 
+.dialer-phone-cloudtalk-alert-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(29, 66, 54, 0.09);
+  background: #f7faf8;
+  color: #63746e;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .dialer-phone-status {
   flex: 0 0 auto;
   margin: 0;
@@ -382,6 +393,11 @@
   .dialer-phone-alert-toggle {
     min-height: 30px;
     padding: 4px 7px;
+    font-size: 9px;
+  }
+
+  .dialer-phone-cloudtalk-alert-note {
+    padding: 5px 9px;
     font-size: 9px;
   }
 }

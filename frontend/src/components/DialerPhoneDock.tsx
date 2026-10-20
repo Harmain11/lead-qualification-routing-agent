@@ -404,11 +404,16 @@ export function DialerPhoneDock({
           </header>
           <div className="dialer-phone-content">
             {provider === "cloudtalk" && (
-              <CloudTalkPhoneFrame
-                onCallActiveChange={onCallActiveChange}
-                onIncomingCall={showIncomingNotification}
-                onCallEnded={closeIncomingNotification}
-              />
+              <>
+                <p className="dialer-phone-cloudtalk-alert-note" role="note">
+                  Use the header alert control for incoming-call notifications. CloudTalk’s embedded phone has no separate notification setting.
+                </p>
+                <CloudTalkPhoneFrame
+                  onCallActiveChange={onCallActiveChange}
+                  onIncomingCall={showIncomingNotification}
+                  onCallEnded={closeIncomingNotification}
+                />
+              </>
             )}
             {provider === "aircall" && (
               <div className="dialer-phone-aircall">
