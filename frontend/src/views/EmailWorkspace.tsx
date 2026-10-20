@@ -34,6 +34,9 @@ export function EmailWorkspace({
   const [messages, setMessages] = useState<GmailMailboxMessage[]>([]);
   const [selected, setSelected] = useState<GmailMailboxMessage | null>(null);
   const [thread, setThread] = useState<GmailThreadMessage[]>([]);
+  const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [pageToken, setPageToken] = useState<string | null>(null);
@@ -71,6 +74,8 @@ export function EmailWorkspace({
     if (!connectionId) {
       setMessages([]);
       setSelected(null);
+      setThread([]);
+      setExpandedMessageIds(new Set());
       setNextPageToken(null);
       return;
     }
@@ -79,6 +84,7 @@ export function EmailWorkspace({
     setError(null);
     setSelected(null);
     setThread([]);
+    setExpandedMessageIds(new Set());
     listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
       if (controller.signal.aborted) return;
       setMessages(page.messages);
@@ -97,14 +103,20 @@ export function EmailWorkspace({
   useEffect(() => {
     if (!connectionId || !selected?.thread_id) {
       setThread([]);
+      setExpandedMessageIds(new Set());
       return;
     }
     const controller = new AbortController();
     setLoadingThread(true);
     setThread([]);
+    setExpandedMessageIds(new Set());
     getGmailMailboxThread(connectionId, selected.thread_id, controller.signal).then((result) => {
       if (!controller.signal.aborted) {
         setThread(result.messages);
+        const latestMessage = result.messages.at(-1);
+        setExpandedMessageIds(
+          latestMessage ? new Set([latestMessage.message_id]) : new Set(),
+        );
         setLoadingThread(false);
       }
     }).catch((reason) => {
@@ -140,6 +152,19 @@ export function EmailWorkspace({
     setComposeSeed({ connectionId });
     setComposerRevision((current) => current + 1);
   }
+
+  function toggleThreadMessage(messageId: string) {
+    setExpandedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }
+
+  const allThreadMessagesExpanded =
+    thread.length > 0 &&
+    thread.every((message) => expandedMessageIds.has(message.message_id));
 
   const activeAccount = accounts.find((account) => account.id === connectionId);
   const folderLabel = {
@@ -221,15 +246,53 @@ export function EmailWorkspace({
         {selected && <>
           <header className="email-thread-heading">
             <div><span className="eyebrow">{selected.direction === "outbound" ? "Sent email" : "Inbox conversation"}</span><h2>{selected.subject || "(no subject)"}</h2></div>
-            {thread.some((message) => message.direction === "inbound") && <button className="secondary-button" type="button" onClick={beginReply}>Reply</button>}
+            <div className="email-thread-heading-actions">
+              {thread.length > 0 && <button className="button-quiet" type="button" onClick={() => {
+                setExpandedMessageIds(
+                  allThreadMessagesExpanded
+                    ? new Set()
+                    : new Set(thread.map((message) => message.message_id)),
+                );
+              }}>{allThreadMessagesExpanded ? "Collapse all" : "Expand all"}</button>}
+              {thread.some((message) => message.direction === "inbound") && <button className="secondary-button" type="button" onClick={beginReply}>Reply</button>}
+            </div>
           </header>
           {loadingThread && <p className="email-status">Loading conversation…</p>}
           <div className="email-thread-messages">
-            {thread.map((message) => <article className={`email-thread-message${message.direction === "outbound" ? " is-outbound" : ""}`} key={message.message_id}>
-              <header><div><strong>{message.sender_name || message.sender || "Unknown sender"}</strong><span>{message.sender}</span></div><time>{emailDate(message.sent_at)}</time></header>
-              <div className="email-thread-addresses"><span>To</span>{message.recipients || "Not listed"}</div>
-              <p>{message.body || "No message text was included."}</p>
-            </article>)}
+            {thread.map((message, index) => {
+              const expanded = expandedMessageIds.has(message.message_id);
+              const body = message.body || "No message text was included.";
+              const preview = body.replace(/\s+/g, " ").trim();
+              const excerpt =
+                preview.length > 140 ? `${preview.slice(0, 137)}…` : preview;
+              const bodyId = `email-thread-message-body-${index}`;
+              return <article className={`email-thread-message${message.direction === "outbound" ? " is-outbound" : ""}`} key={message.message_id}>
+                <button
+                  className="email-thread-message-toggle"
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-controls={bodyId}
+                  aria-label={`${expanded ? "Collapse" : "Expand"} message from ${message.sender_name || message.sender || "Unknown sender"}`}
+                  onClick={() => toggleThreadMessage(message.message_id)}
+                >
+                  <span className="email-thread-message-summary-header">
+                    <span className="email-thread-message-sender">
+                      <strong>{message.sender_name || message.sender || "Unknown sender"}</strong>
+                      <span>{message.sender}</span>
+                    </span>
+                    <time>{emailDate(message.sent_at)}</time>
+                  </span>
+                  <span className="email-thread-message-summary-footer">
+                    {!expanded && <span className="email-thread-message-preview">{excerpt}</span>}
+                    <span className="email-thread-message-toggle-label">{expanded ? "Collapse" : "Expand"}</span>
+                  </span>
+                </button>
+                {expanded && <div className="email-thread-message-body" id={bodyId}>
+                  <div className="email-thread-addresses"><span>To</span>{message.recipients || "Not listed"}</div>
+                  <p>{body}</p>
+                </div>}
+              </article>;
+            })}
           </div>
         </>}
         {composeSeed && <EmailComposer
