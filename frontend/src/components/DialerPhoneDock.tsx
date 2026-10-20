@@ -47,7 +47,7 @@ function CloudTalkPhoneFrame({
 }) {
   const frameId = useId();
   const frameViewportRef = useRef<HTMLDivElement>(null);
-  const [frameScale, setFrameScale] = useState(1);
+  const [frameScale, setFrameScale] = useState({ x: 1, y: 1 });
   const [status, setStatus] = useState(
     "Sign in with your CloudTalk account or organization SSO. Your phone session is managed by CloudTalk.",
   );
@@ -56,7 +56,13 @@ function CloudTalkPhoneFrame({
     const viewport = frameViewportRef.current;
     if (!viewport) return;
     const updateScale = () => {
-      setFrameScale(Math.min(1, viewport.clientWidth / 420));
+      const next = {
+        x: Math.min(1, viewport.clientWidth / 420),
+        y: Math.min(1, viewport.clientHeight / 700),
+      };
+      setFrameScale((current) =>
+        current.x === next.x && current.y === next.y ? current : next,
+      );
     };
     const observer = new ResizeObserver(updateScale);
     observer.observe(viewport);
@@ -94,7 +100,7 @@ function CloudTalkPhoneFrame({
         <iframe
           id={frameId}
           className="dialer-phone-frame dialer-phone-frame-cloudtalk"
-          style={{ transform: `scaleX(${frameScale})` }}
+          style={{ transform: `scale(${frameScale.x}, ${frameScale.y})` }}
           src={`${cloudTalkPhoneOrigin}?partner=corral`}
           title="CloudTalk Phone"
           allow="microphone https://phone.cloudtalk.io"
@@ -155,7 +161,7 @@ function AircallPhoneFrame({
 
   return (
     <>
-      <p className="dialer-phone-status" role="status" aria-live="polite">
+      <p className="dialer-phone-status dialer-phone-cloudtalk-status" role="status" aria-live="polite">
         {status}
       </p>
       <div id={mountId} className="dialer-phone-aircall-mount" />
