@@ -39,6 +39,7 @@ import { ProductTour } from "./components/ProductTour";
 import { DialerPhoneDock } from "./components/DialerPhoneDock";
 import {
   OPEN_DIALER_PHONE_EVENT,
+  isDialerPhoneAvailable,
   isEmbeddedDialerConnection,
   ringCentralEmbedClientId,
   type DialerPhoneConnection,
@@ -415,6 +416,8 @@ function App() {
                 id: connection.id,
                 provider: card.provider,
                 account_name: connection.account_name,
+                status: connection.status,
+                is_active: connection.is_active,
               })),
           );
         const currentId = preferredDialerRef.current;
@@ -535,7 +538,7 @@ function App() {
       const next = dialerConnections.find(
         (connection) => connection.id === detail.connectionId,
       );
-      if (!next || !isEmbeddedDialerConnection(next)) return;
+      if (!next || !isDialerPhoneAvailable(next)) return;
       if (dialerCallActive && next.id !== preferredDialerRef.current) {
         notifyActivity(
           "Finish the active call before switching the embedded phone.",

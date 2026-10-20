@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type AircallWorkspace from "aircall-everywhere";
 import {
-  isEmbeddedDialerConnection,
+  isDialerPhoneAvailable,
   ringCentralEmbedClientId,
   type DialerPhoneConnection,
 } from "./dialerPhoneConfig";
@@ -161,7 +161,7 @@ export function DialerPhoneDock({
   onClose: () => void;
   onCallActiveChange: (active: boolean) => void;
 }) {
-  const embedded = isEmbeddedDialerConnection(connection);
+  const embedded = isDialerPhoneAvailable(connection);
   const selectedConnection = embedded ? connection : null;
   const provider = selectedConnection?.provider ?? "";
   const providerName = providerLabels[provider] ?? "Dialer";
