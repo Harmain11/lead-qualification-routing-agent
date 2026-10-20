@@ -47,7 +47,7 @@ function CloudTalkPhoneFrame({
 }) {
   const frameId = useId();
   const [status, setStatus] = useState(
-    "Sign in as the connected CloudTalk agent to place and control calls here.",
+    "Sign in with your CloudTalk account or organization SSO. Your phone session is managed by CloudTalk.",
   );
 
   useEffect(() => {
@@ -94,7 +94,7 @@ function AircallPhoneFrame({
   onCallActiveChange: (active: boolean) => void;
 }) {
   const mountId = `aircall-workspace-${useId().replaceAll(":", "")}`;
-  const [status, setStatus] = useState("Loading Aircall Workspace…");
+  const [status, setStatus] = useState("Loading your Aircall Workspace session…");
 
   useEffect(() => {
     let cancelled = false;
@@ -113,9 +113,9 @@ function AircallPhoneFrame({
           domToLoadWorkspace: `#${mountId}`,
           size: "auto",
           debug: false,
-          onLogin: () => setStatus("Aircall Workspace is ready."),
+          onLogin: () => setStatus("Aircall Workspace is ready for this browser."),
           onLogout: () => {
-            setStatus("Sign in to Aircall Workspace to place and receive calls.");
+            setStatus("Sign in to your Aircall Workspace account or organization SSO.");
             onCallActiveChange(false);
           },
         });
@@ -250,7 +250,8 @@ function RingCentralPhoneFrame({
         <strong>RingCentral embed setup required</strong>
         <p>
           Register a RingCentral Embeddable app with 3-legged OAuth and Voice
-          permissions, then set the public app ID as
+          permissions. Each member signs in with their own RingCentral account.
+          Then set the public app ID as
           <code> VITE_RINGCENTRAL_EMBED_CLIENT_ID</code> before building.
         </p>
         <small>{accountName}</small>
@@ -265,12 +266,17 @@ function RingCentralPhoneFrame({
   source.searchParams.set("appServer", "https://platform.ringcentral.com");
 
   return (
-    <iframe
-      className="dialer-phone-frame"
-      src={source.toString()}
-      title="RingCentral Phone"
-      allow="microphone; autoplay; clipboard-read; clipboard-write"
-      referrerPolicy="strict-origin-when-cross-origin"
-    />
+    <>
+      <p className="dialer-phone-status" role="status" aria-live="polite">
+        Sign in with your RingCentral account or organization SSO. RingCentral manages this browser session.
+      </p>
+      <iframe
+        className="dialer-phone-frame"
+        src={source.toString()}
+        title="RingCentral Phone"
+        allow="microphone; autoplay; clipboard-read; clipboard-write"
+        referrerPolicy="strict-origin-when-cross-origin"
+      />
+    </>
   );
 }

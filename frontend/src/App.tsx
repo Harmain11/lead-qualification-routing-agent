@@ -38,6 +38,7 @@ import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { DialerPhoneDock } from "./components/DialerPhoneDock";
 import {
+  OPEN_DIALER_PHONE_EVENT,
   isEmbeddedDialerConnection,
   ringCentralEmbedClientId,
   type DialerPhoneConnection,
@@ -522,6 +523,39 @@ function App() {
     () => new Set(activeWorkspace?.effective_permissions ?? []),
     [activeWorkspace],
   );
+  useEffect(() => {
+    function openPhone(event: Event) {
+      const detail = (event as CustomEvent<{ connectionId?: unknown }>).detail;
+      if (
+        typeof detail?.connectionId !== "string" ||
+        !can(workspacePermissions, "dialer.call")
+      ) {
+        return;
+      }
+      const next = dialerConnections.find(
+        (connection) => connection.id === detail.connectionId,
+      );
+      if (!next || !isEmbeddedDialerConnection(next)) return;
+      if (dialerCallActive && next.id !== preferredDialerRef.current) {
+        notifyActivity(
+          "Finish the active call before switching the embedded phone.",
+          "info",
+        );
+        return;
+      }
+      if (next.id !== preferredDialerRef.current) {
+        selectPreferredDialer(next.id);
+      }
+      setDialerPhoneOpen(true);
+    }
+    window.addEventListener(OPEN_DIALER_PHONE_EVENT, openPhone);
+    return () => window.removeEventListener(OPEN_DIALER_PHONE_EVENT, openPhone);
+  }, [
+    dialerCallActive,
+    dialerConnections,
+    selectPreferredDialer,
+    workspacePermissions,
+  ]);
   const refreshVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const leadRequestVersion = useRef(0);
