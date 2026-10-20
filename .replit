@@ -51,6 +51,7 @@ externalPort = 3000
 [userenv]
 
 [userenv.shared]
+VITE_RINGCENTRAL_EMBED_CLIENT_ID = "no have it yet"
 
 [userenv.production]
 EMAIL_PROVIDER = "gmail"
