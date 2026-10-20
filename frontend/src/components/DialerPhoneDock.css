@@ -16,7 +16,7 @@
   bottom: 70px;
   display: flex;
   width: min(420px, calc(100vw - 28px));
-  height: min(804px, calc(100dvh - 24px));
+  height: min(804px, calc(100dvh - 100px));
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
