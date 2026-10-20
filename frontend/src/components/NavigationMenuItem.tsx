@@ -46,6 +46,8 @@ export function NavigationMenuItem({
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const childRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const escapeDismissal = useRef(false);
+  const integrationItemsGroupId = useRef<string | null>(null);
+  const returningFromIntegrationItems = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -69,7 +71,19 @@ export function NavigationMenuItem({
   };
   const leaveMenu = () => {
     clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => setHovered(false), 140);
+    leaveTimer.current = setTimeout(() => setHovered(false), 300);
+  };
+  const enterIntegrationCategory = (groupId: string) => {
+    if (returningFromIntegrationItems.current) {
+      returningFromIntegrationItems.current = false;
+      const cameBackToSameCategory = integrationItemsGroupId.current === groupId;
+      integrationItemsGroupId.current = null;
+      if (cameBackToSameCategory) {
+        setHoveredIntegrationGroupId(null);
+        return;
+      }
+    }
+    setHoveredIntegrationGroupId(groupId);
   };
   useEffect(() => {
     const media = window.matchMedia("(max-width: 760px)");
@@ -88,7 +102,11 @@ export function NavigationMenuItem({
     setHoveredIntegrationGroupId(null);
   }, [enabled]);
   useEffect(() => {
-    if (!open) setHoveredIntegrationGroupId(null);
+    if (!open) {
+      setHoveredIntegrationGroupId(null);
+      integrationItemsGroupId.current = null;
+      returningFromIntegrationItems.current = false;
+    }
   }, [open]);
   useEffect(() => {
     if (item.id !== "integrations" || !activeChild) return;
@@ -125,6 +143,8 @@ export function NavigationMenuItem({
       setPinnedOpen(false);
       setFocused(false);
       setHovered(false);
+      integrationItemsGroupId.current = null;
+      returningFromIntegrationItems.current = false;
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
@@ -160,6 +180,8 @@ export function NavigationMenuItem({
       setPinnedOpen(false);
       setHovered(false);
       setFocused(false);
+      integrationItemsGroupId.current = null;
+      returningFromIntegrationItems.current = false;
       triggerRef.current?.focus();
       return;
     }
@@ -187,6 +209,8 @@ export function NavigationMenuItem({
       setPinnedOpen(false);
       setHovered(false);
       setFocused(false);
+      integrationItemsGroupId.current = null;
+      returningFromIntegrationItems.current = false;
       onNavigate(child.id);
     }}
   >
@@ -214,7 +238,7 @@ export function NavigationMenuItem({
           role="tab"
           aria-selected={selectedIntegrationGroup?.id === group.id}
           className={`${selectedIntegrationGroup?.id === group.id ? "is-active" : ""}${hoveredIntegrationGroupId === group.id ? " is-hovered" : ""}`}
-          onMouseEnter={() => setHoveredIntegrationGroupId(group.id)}
+          onMouseEnter={() => enterIntegrationCategory(group.id)}
           onFocus={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
           onClick={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
         >
@@ -222,7 +246,20 @@ export function NavigationMenuItem({
           <b aria-hidden="true">›</b>
         </button>)}
       </div>
-      {displayedIntegrationGroup && <div className="navigation-menu-mega-items" role="tabpanel" aria-label={`${displayedIntegrationGroup.label} providers`}>
+      {displayedIntegrationGroup && <div
+        className="navigation-menu-mega-items"
+        role="tabpanel"
+        aria-label={`${displayedIntegrationGroup.label} providers`}
+        onMouseEnter={() => {
+          integrationItemsGroupId.current = displayedIntegrationGroup.id;
+          returningFromIntegrationItems.current = false;
+        }}
+        onMouseLeave={() => {
+          integrationItemsGroupId.current = displayedIntegrationGroup.id;
+          returningFromIntegrationItems.current = true;
+          setHoveredIntegrationGroupId(null);
+        }}
+      >
         {visibleChildren.map(renderChild)}
       </div>}
     </div> : visibleChildren.map(renderChild)}

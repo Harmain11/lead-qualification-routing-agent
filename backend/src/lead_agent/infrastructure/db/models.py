@@ -75,7 +75,7 @@ class WorkspaceEmailAutomationSettingORM(Base):
 
 
 class WorkspaceRoutingConfigORM(Base):
-    """Workspace-owned routing weights. An absent member weight means equal share."""
+    """Workspace-owned routing weights and manual-review choices."""
 
     __tablename__ = "workspace_routing_configs"
 
@@ -83,6 +83,9 @@ class WorkspaceRoutingConfigORM(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
     )
     member_weights: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    manual_review_settings: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     updated_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

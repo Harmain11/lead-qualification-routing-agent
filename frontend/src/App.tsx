@@ -181,7 +181,7 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   analytics: "analytics.view",
   review: "manual_review.view",
   integrations: "integrations.view",
-  dialer: "integrations.view",
+  dialer: "dialer.call",
 };
 
 function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
@@ -1453,7 +1453,12 @@ function App() {
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
                   canViewEmail={can(workspacePermissions, "integrations.view")}
-                  canCall={can(workspacePermissions, "agents.execute") && can(workspacePermissions, "leads.edit")}
+                  canCall={can(workspacePermissions, "dialer.call") && can(workspacePermissions, "leads.edit")}
+                  canEnrollAutomations={
+                    can(workspacePermissions, "agents.view") &&
+                    can(workspacePermissions, "leads.edit")
+                  }
+                  onOpenAutomations={() => navigate("automations")}
                   onUpdated={(lead) => {
                     setSelectedLead(lead);
                     setLeads((current) =>
@@ -1584,11 +1589,13 @@ function App() {
                     can(workspacePermissions, "leads.view") &&
                     can(workspacePermissions, "leads.edit")
                   }
-                  canCall={
+                  canCall={can(workspacePermissions, "dialer.call")}
+                  canCallLeads={
+                    can(workspacePermissions, "dialer.call") &&
                     can(workspacePermissions, "leads.view") &&
-                    can(workspacePermissions, "leads.edit") &&
-                    can(workspacePermissions, "agents.execute")
+                    can(workspacePermissions, "leads.edit")
                   }
+                  canViewIntegrations={can(workspacePermissions, "integrations.view")}
                 />
               )}
               {view === "settings" && (

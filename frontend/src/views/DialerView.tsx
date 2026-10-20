@@ -68,6 +68,8 @@ export function DialerView({
   canViewLeads,
   canEditLeads,
   canCall,
+  canCallLeads,
+  canViewIntegrations,
 }: {
   onOpenIntegrations: () => void;
   onOpenLead: (leadId: string) => void;
@@ -75,6 +77,8 @@ export function DialerView({
   canViewLeads: boolean;
   canEditLeads: boolean;
   canCall: boolean;
+  canCallLeads: boolean;
+  canViewIntegrations: boolean;
 }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activity, setActivity] = useState<CallActivity | null>(null);
@@ -236,7 +240,7 @@ export function DialerView({
           <h1>Dialer workspace</h1>
           <p>Place confirmed calls to leads or new numbers, then review provider-supplied recordings and transcripts.</p>
         </div>
-        <button className="primary-button" onClick={onOpenIntegrations}>Manage dialer connections <span aria-hidden="true">→</span></button>
+        {canViewIntegrations && <button className="primary-button" onClick={onOpenIntegrations}>Manage dialer connections <span aria-hidden="true">→</span></button>}
       </header>
 
       <nav className="dialer-tabs" aria-label="Dialer workspace sections">
@@ -265,7 +269,8 @@ export function DialerView({
                     <div className="dialer-provider-icon">{card.display_name.slice(0, 2).toUpperCase()}</div>
                     <div className="dialer-provider-copy"><h3>{card.display_name}</h3><p>{connection?.account_name || "No account connected"}</p></div>
                     <span className={`dialer-status ${isConnected ? "is-connected" : ""}`}>{isConnected ? "Connected" : "Not connected"}</span>
-                    {!isConnected && <button className="dialer-provider-action" onClick={onOpenIntegrations}>Set up</button>}
+                    {!isConnected && canViewIntegrations && <button className="dialer-provider-action" onClick={onOpenIntegrations}>Set up</button>}
+                    {!isConnected && !canViewIntegrations && <small className="dialer-provider-action-hint">Ask an admin to connect this provider.</small>}
                   </article>;
                 })}
               </div>
@@ -299,7 +304,7 @@ export function DialerView({
                         companyName={selectedLead.company_name}
                         leadPhone={selectedLead.phone}
                         representativeName={selectedLead.routing?.assigned_rep_name}
-                        canCall={canCall}
+                        canCall={canCallLeads}
                         canEdit={canEditLeads}
                       />
                     </>

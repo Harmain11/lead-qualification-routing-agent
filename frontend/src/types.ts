@@ -306,6 +306,7 @@ export type Lead = {
   crm_sync: CrmSync | null;
   confirmation_email?: ConfirmationEmail | null;
   outcome?: LeadOutcome | null;
+  review_reasons?: string[];
 };
 
 export type LeadOutcome = {
@@ -567,6 +568,15 @@ export type RoutingConfig = {
   workspace_id: string;
   default_strategy: "equal" | string;
   updated_at: string | null;
+  manual_review: {
+    personal_email: boolean;
+    missing_person_name: boolean;
+    missing_company_name: boolean;
+    low_confidence: boolean;
+    contradictory_evidence: boolean;
+    missing_qualification_information: boolean;
+    provider_failure: boolean;
+  };
   members: Array<{
     user_id: string;
     display_name: string;

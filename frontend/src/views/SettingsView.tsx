@@ -524,6 +524,17 @@ function RoutingWeightsPanel({
   const [percentages, setPercentages] = useState<Record<string, number>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [manualReview, setManualReview] = useState<RoutingConfig["manual_review"]>({
+    personal_email: true,
+    missing_person_name: true,
+    missing_company_name: true,
+    low_confidence: false,
+    contradictory_evidence: false,
+    missing_qualification_information: false,
+    provider_failure: false,
+  });
+  const [manualReviewBusy, setManualReviewBusy] = useState(false);
+  const [manualReviewNotice, setManualReviewNotice] = useState<string | null>(null);
   const [policy, setPolicy] = useState<PolicyResponse | null>(null);
   const [capacityBusy, setCapacityBusy] = useState(false);
   const [capacityNotice, setCapacityNotice] = useState<string | null>(null);
@@ -533,6 +544,7 @@ function RoutingWeightsPanel({
       .then((value) => {
         setConfig(value);
         setPercentages(routingPercentages(value.members));
+        setManualReview(value.manual_review);
       })
       .catch((error) =>
         setNotice(
@@ -581,6 +593,24 @@ function RoutingWeightsPanel({
       );
     } finally {
       setBusy(false);
+    }
+  };
+  const saveManualReview = async () => {
+    setManualReviewBusy(true);
+    setManualReviewNotice(null);
+    try {
+      const value = await updateRoutingConfig(undefined, manualReview);
+      setConfig(value);
+      setManualReview(value.manual_review);
+      setManualReviewNotice(
+        "Saved. New and requalified leads will use these rules; existing review decisions are unchanged.",
+      );
+    } catch (error) {
+      setManualReviewNotice(
+        error instanceof Error ? error.message : "Unable to save manual-review rules",
+      );
+    } finally {
+      setManualReviewBusy(false);
     }
   };
   const updateCapacity = (userId: string, patch: Partial<Capacity>) => {
@@ -704,6 +734,60 @@ function RoutingWeightsPanel({
           {notice}
         </div>
       )}
+      <div className="routing-manual-review-block">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Lead review rules</span>
+            <h3>When should a lead go to Manual Review?</h3>
+          </div>
+        </div>
+        <p className="panel-copy">
+          By default, personal email addresses and missing person or company names are reviewed.
+          Other checks are optional. Integration import-approval settings remain separate.
+        </p>
+        <div className="manual-review-settings-list">
+          {([
+            ["personal_email", "Personal email address", "Review leads using common personal mailbox providers."],
+            ["missing_person_name", "Person name is missing", "Review leads without a usable contact name."],
+            ["missing_company_name", "Company name is missing", "Review leads without a usable company name."],
+            ["low_confidence", "Low analysis confidence", "Also review analysis below the configured confidence threshold."],
+            ["contradictory_evidence", "Contradictory evidence", "Also review analysis that contains conflicting evidence."],
+            ["missing_qualification_information", "Other qualification details are missing", "Also review missing items such as industry, budget, or timeline."],
+            ["provider_failure", "Analysis provider failed", "Also review leads when provider analysis fails and fallback results are used."],
+          ] as const).map(([key, label, description]) => (
+            <label className="manual-review-setting" key={key}>
+              <input
+                type="checkbox"
+                checked={manualReview[key]}
+                disabled={!canManage || manualReviewBusy}
+                onChange={(event) => {
+                  setManualReviewNotice(null);
+                  setManualReview((current) => ({
+                    ...current,
+                    [key]: event.target.checked,
+                  }));
+                }}
+              />
+              <span>
+                <b>{label}</b>
+                <small>{description}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+        {canManage && (
+          <button
+            className="primary-button"
+            disabled={manualReviewBusy}
+            onClick={() => void saveManualReview()}
+          >
+            {manualReviewBusy ? "Saving…" : "Save review rules"}
+          </button>
+        )}
+        {manualReviewNotice && (
+          <div className="notice" role="status">{manualReviewNotice}</div>
+        )}
+      </div>
       {policy && (
         <div className="routing-capacity-block">
           <div className="section-heading">

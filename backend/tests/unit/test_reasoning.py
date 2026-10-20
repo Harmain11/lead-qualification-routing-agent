@@ -258,27 +258,57 @@ class UnexpectedProviderError(Exception):
         (UnavailableProvider(), "provider_unavailable"),
     ],
 )
-def test_provider_failures_fall_back_to_manual_review(
+def test_provider_failures_keep_error_status_without_default_manual_review(
     icp, routing, provider, expected_code: str
 ) -> None:
     analysis = _context_analysis(make_lead(), icp, routing, provider)
     assert analysis.status == "provider_error"
-    assert analysis.requires_manual_review is True
+    assert analysis.requires_manual_review is False
     assert analysis.error_code == expected_code
     assert analysis.summary.need
 
 
-def test_low_confidence_and_contradictions_require_manual_review(icp, routing) -> None:
+def test_default_review_rules_only_use_personal_email_or_missing_identity(icp, routing) -> None:
+    base_lead = make_lead()
+    baseline = DeterministicReasoningProvider().analyze(base_lead, icp)
+    low = baseline.model_copy(update={"overall_confidence": 0.2})
+    contradictory = baseline.model_copy(
+        update={"contradictions": ["Timeline says both this week and no planned date."]}
+    )
+
+    assert not _context_analysis(base_lead, icp, routing, StaticProvider(low)).requires_manual_review
+    assert not _context_analysis(
+        base_lead, icp, routing, StaticProvider(contradictory)
+    ).requires_manual_review
+    assert _context_analysis(
+        make_lead(email="avery@gmail.com"), icp, routing, StaticProvider(baseline)
+    ).requires_manual_review
+    assert _context_analysis(
+        make_lead(full_name="Name not provided"), icp, routing, StaticProvider(baseline)
+    ).requires_manual_review
+    assert _context_analysis(
+        make_lead(company_name="Unknown"), icp, routing, StaticProvider(baseline)
+    ).requires_manual_review
+
+
+def test_optional_analysis_review_rules_can_be_enabled(icp, routing) -> None:
     lead = make_lead()
     baseline = DeterministicReasoningProvider().analyze(lead, icp)
     low = baseline.model_copy(update={"overall_confidence": 0.2})
     contradictory = baseline.model_copy(
         update={"contradictions": ["Timeline says both this week and no planned date."]}
     )
+    enabled = routing.model_copy(
+        update={
+            "manual_review": routing.manual_review.model_copy(
+                update={"low_confidence": True, "contradictory_evidence": True}
+            )
+        }
+    )
 
-    assert _context_analysis(lead, icp, routing, StaticProvider(low)).requires_manual_review
+    assert _context_analysis(lead, icp, enabled, StaticProvider(low)).requires_manual_review
     assert _context_analysis(
-        lead, icp, routing, StaticProvider(contradictory)
+        lead, icp, enabled, StaticProvider(contradictory)
     ).requires_manual_review
 
 

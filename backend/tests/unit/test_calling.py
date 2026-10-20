@@ -867,10 +867,13 @@ def test_direct_call_respects_contact_opt_out_and_strict_consent(calls):
     assert adapter.count == 0
 
 
-def test_direct_call_requires_agent_action_permission(calls):
+def test_direct_call_requires_per_member_dialer_permission(calls):
     _, client, workspace, _, connection, _, adapter = calls
+    sales_rep_permissions = role_permissions("sales_rep")
+    assert "agents.execute" in sales_rep_permissions
+    assert "dialer.call" not in sales_rep_permissions
     app.dependency_overrides[get_workspace_context] = lambda: replace(
-        workspace, role="viewer", permissions=role_permissions("viewer")
+        workspace, role="sales_rep", permissions=sales_rep_permissions
     )
     payload = {
         **request(connection),
@@ -878,6 +881,42 @@ def test_direct_call_requires_agent_action_permission(calls):
         "consent_confirmed": True,
     }
     assert client.post("/v1/calling/direct/start", json=payload).status_code == 403
+    assert adapter.count == 0
+
+    app.dependency_overrides[get_workspace_context] = lambda: replace(
+        workspace,
+        role="sales_rep",
+        permissions=sales_rep_permissions | {"dialer.call"},
+    )
+    allowed = client.post("/v1/calling/direct/start", json=payload)
+    assert allowed.status_code == 200, allowed.text
+    assert adapter.count == 1
+
+
+def test_dialer_permission_can_read_provider_cards_without_integration_admin(calls):
+    _, client, workspace, _, _, _, _ = calls
+    app.dependency_overrides[get_workspace_context] = lambda: replace(
+        workspace,
+        role="viewer",
+        permissions=frozenset({"dialer.call"}),
+    )
+    response = client.get("/v1/integrations")
+    assert response.status_code == 200, response.text
+
+
+def test_lead_call_requires_per_member_dialer_permission(calls):
+    _, client, workspace, lead, connection, _, adapter = calls
+    permissions = role_permissions("sales_rep")
+    assert {"leads.view", "leads.edit"} <= permissions
+    assert "dialer.call" not in permissions
+    app.dependency_overrides[get_workspace_context] = lambda: replace(
+        workspace, role="sales_rep", permissions=permissions
+    )
+    response = client.post(
+        f"/v1/calling/leads/{lead.id}/start",
+        json=request(connection),
+    )
+    assert response.status_code == 403
     assert adapter.count == 0
 
 

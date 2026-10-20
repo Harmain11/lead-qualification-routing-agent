@@ -1,7 +1,7 @@
 """Explicit public response fields for workspace operations."""
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -150,3 +150,16 @@ class RunRecord(RecordResponse):
 
 class RunPage(BaseModel):
     items: list[RunRecord]
+
+
+class AutomationEnrollmentItem(BaseModel):
+    lead_id: UUID
+    run_id: UUID
+    status: Literal["enrolled", "already_enrolled"]
+
+
+class AutomationEnrollmentBatch(BaseModel):
+    definition_id: UUID
+    enrolled: int
+    already_enrolled: int
+    items: list[AutomationEnrollmentItem]

@@ -1863,6 +1863,47 @@ html[data-theme="dark"] .app-shell .notice.notice-error { color: #f0a5a5; backgr
 html[data-theme="dark"] .app-shell .notice.notice-running { color: #a8d1e9; background: rgba(74,141,189,.18); border-color: rgba(168,209,233,.3); }
 html[data-theme="dark"] .app-shell .review-reasons span { border-left-color: #F2A541; background: rgba(242,165,65,.13); color: #F2C37A; }
 html[data-theme="dark"] .app-shell .qualification-hot, html[data-theme="dark"] .app-shell .qualification-manual-review { color: #A9E7BA; }
+
+.routing-manual-review-block {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border, rgba(130, 150, 160, 0.22));
+}
+
+.manual-review-settings-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.manual-review-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border, rgba(130, 150, 160, 0.22));
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.manual-review-setting input {
+  margin-top: 0.2rem;
+}
+
+.manual-review-setting span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.manual-review-setting small {
+  color: var(--muted, #77848a);
+}
+
+.lead-analysis-status {
+  display: grid;
+  gap: 0.3rem;
+  margin: 1rem 0;
+}
 html[data-theme="dark"] .app-shell .qualification-warm { color: #F2C37A; }
 html[data-theme="dark"] .app-shell .qualification-needs-qualifying, html[data-theme="dark"] .app-shell .qualification-pending { color: #BDD7CA; }
 html[data-theme="dark"] .app-shell .qualification-nurture { color: #C9D9CC; background: #23362B; }

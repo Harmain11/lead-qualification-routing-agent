@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
     LeadORM,
@@ -700,20 +701,9 @@ class AnalyticsService:
         ]
         items = []
         for lead in leads:
-            reasons: list[str] = []
-            if lead.analysis and lead.analysis.requires_manual_review:
-                if lead.analysis.error_message:
-                    reasons.append(lead.analysis.error_message)
-                structured = lead.analysis.structured_output
-                reasons.extend(structured.get("contradictions", []))
-                if float(lead.analysis.confidence) < 0.6:
-                    reasons.append(
-                        f"Low analysis confidence ({float(lead.analysis.confidence):.0%})"
-                    )
             route = _latest_route(lead)
-            if route and route.manual_review:
-                reasons.append(route.routing_reason)
-            items.append({**self._lead_card(lead), "review_reasons": list(dict.fromkeys(reasons))})
+            reasons = lead_manual_review_reasons(self.session, lead, route)
+            items.append({**self._lead_card(lead), "review_reasons": reasons})
         return {"metadata": self.metadata(window), "items": items, "total": len(items)}
 
     def _workspace(self) -> WorkspaceORM:

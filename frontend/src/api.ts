@@ -77,11 +77,20 @@ export function getRoutingConfig(): Promise<RoutingConfig> {
   return request<RoutingConfig>("/v1/routing/config");
 }
 
-export function updateRoutingConfig(member_percentages: Record<string, number>): Promise<RoutingConfig> {
+export function updateRoutingConfig(
+  member_percentages?: Record<string, number>,
+  manual_review?: RoutingConfig["manual_review"],
+): Promise<RoutingConfig> {
+  const body: {
+    member_percentages?: Record<string, number>;
+    manual_review?: RoutingConfig["manual_review"];
+  } = {};
+  if (member_percentages) body.member_percentages = member_percentages;
+  if (manual_review) body.manual_review = manual_review;
   return request<RoutingConfig>("/v1/routing/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ member_percentages }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -94,6 +94,7 @@
 .dialer-provider-copy { min-width:0; }.dialer-provider-copy h3 { margin:0; font-size:16px; }.dialer-provider-copy p { margin:3px 0 0; overflow:hidden; color:var(--muted); text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
 .dialer-status { grid-column:2; color:var(--muted); font-size:12px; font-weight:700; }.dialer-status.is-connected { color:var(--workspace-accent,var(--orange)); }
 .dialer-provider-action { grid-column:3; grid-row:1 / span 2; min-height:36px; border:1px solid var(--line-bright); border-radius:8px; padding:0 12px; color:var(--text); background:var(--surface); font-weight:700; }
+.dialer-provider-action-hint { grid-column:3; grid-row:1 / span 2; align-self:center; color:var(--muted); font-size:12px; line-height:1.4; }
 .dialer-workflow-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .dialer-workflow-grid article { display:flex; gap:12px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
 .dialer-workflow-grid h3 { margin:0 0 4px; font-size:15px; }.dialer-workflow-grid p { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }

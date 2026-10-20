@@ -15,7 +15,11 @@ from redis.exceptions import RedisError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_authenticated_identity, require_permission
+from lead_agent.api.dependencies import (
+    get_authenticated_identity,
+    require_any_permission,
+    require_permission,
+)
 from lead_agent.api.schemas import (
     IntegrationCardResponse,
     ProviderConnectionResponse,
@@ -566,7 +570,9 @@ def _enqueue_reasoning_backfill(
 @router.get("", response_model=list[IntegrationCardResponse])
 def list_integrations(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(
+        require_any_permission("integrations.view", "dialer.call")
+    ),
     settings: Settings = Depends(get_settings),
 ) -> list[IntegrationCardResponse]:
     ensure_workspace(session, workspace.workspace_id)

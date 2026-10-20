@@ -165,6 +165,16 @@ export type Run = {
     timing?: { timezone: string; hour: number; method: string };
   };
 };
+export type AutomationEnrollmentBatch = {
+  definition_id: string;
+  enrolled: number;
+  already_enrolled: number;
+  items: {
+    lead_id: string;
+    run_id: string;
+    status: "enrolled" | "already_enrolled";
+  }[];
+};
 export type Consent = {
   id: string;
   email: string;

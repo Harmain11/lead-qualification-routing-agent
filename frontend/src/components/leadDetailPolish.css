@@ -45,6 +45,7 @@
 .lead-story .story-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .lead-drawer .story-head-actions button,
 .lead-story .story-head-actions button { min-height: 38px; white-space: nowrap; }
+.lead-detail-automation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lead-drawer .score-orb,
 .lead-story .score-orb {
   width: 82px;
