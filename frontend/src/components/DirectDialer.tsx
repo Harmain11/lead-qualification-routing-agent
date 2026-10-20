@@ -65,12 +65,16 @@ export function DirectDialer({
   canViewLeads,
   canEditLeads,
   onOpenLead,
+  cloudTalkPhoneLoaded,
+  onOpenCloudTalkPhone,
 }: {
   connections: DirectDialerConnection[];
   canCall: boolean;
   canViewLeads: boolean;
   canEditLeads: boolean;
   onOpenLead: (leadId: string) => void;
+  cloudTalkPhoneLoaded: boolean;
+  onOpenCloudTalkPhone: () => void;
 }) {
   const [connectionId, setConnectionId] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -86,11 +90,13 @@ export function DirectDialer({
   const [cloudTalkDefaultNumber, setCloudTalkDefaultNumber] = useState("");
   const [cloudTalkNumbersLoading, setCloudTalkNumbersLoading] = useState(false);
   const [cloudTalkNumbersError, setCloudTalkNumbersError] = useState("");
+  const [cloudTalkPhoneReady, setCloudTalkPhoneReady] = useState(false);
 
   useEffect(() => {
     if (!connections.some((connection) => connection.id === connectionId)) {
       setConnectionId(connections[0]?.id ?? "");
       setConfirmed(false);
+      setCloudTalkPhoneReady(false);
       setNotice("");
     }
   }, [connections, connectionId]);
@@ -186,6 +192,10 @@ export function DirectDialer({
   async function startCall(event: FormEvent) {
     event.preventDefault();
     if (!canCall || !confirmed || !connectionId || busy) return;
+    if (
+      selected?.provider === "cloudtalk" &&
+      (!cloudTalkPhoneLoaded || !cloudTalkPhoneReady || !cloudTalkDefaultNumber)
+    ) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -193,6 +203,7 @@ export function DirectDialer({
       const id = requestId || createClientId();
       setRequestId(id);
       setResult(null);
+      if (selected?.provider === "cloudtalk") onOpenCloudTalkPhone();
       const call = await opsSave<DirectCallRecord>("/v1/calling/direct/start", {
         connection_id: connectionId,
         request_id: id,
@@ -244,7 +255,10 @@ export function DirectDialer({
       <div><span className="eyebrow">Direct calling</span><h2>Call a new number</h2></div>
       <span className="dialer-panel-count">One confirmed call at a time</span>
     </div>
-    <p className="panel-copy">Choose a verified calling account and enter one number. Every call still requires an individual confirmation and remains subject to workspace consent and residency rules.</p>
+    <p className="panel-copy">
+      Corral-started calls require individual confirmation and follow workspace consent and
+      residency rules. The embedded CloudTalk Phone can also dial independently from its keypad.
+    </p>
     {!connections.length ? (
       <div className="direct-dialer-status is-unavailable" role="status">
         <span aria-hidden="true" />
@@ -316,7 +330,7 @@ export function DirectDialer({
           </div>
           <div className="direct-dialer-account-field">
             <label htmlFor="direct-dial-connection">Calling account</label>
-            <select id="direct-dial-connection" value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); setCloudTalkDefaultNumber(""); setCloudTalkNumbersError(""); setCloudTalkNumbersLoading(false); setNotice(""); }} disabled={busy || Boolean(requestId)}>
+            <select id="direct-dial-connection" value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); setCloudTalkPhoneReady(false); setCloudTalkDefaultNumber(""); setCloudTalkNumbersError(""); setCloudTalkNumbersLoading(false); setNotice(""); }} disabled={busy || Boolean(requestId)}>
               {connections.map((connection) => (
                 <option value={connection.id} key={connection.id}>
                   {providerNames[connection.provider] || connection.provider} · {connection.account_name}
@@ -331,11 +345,31 @@ export function DirectDialer({
                   <p role="alert">{cloudTalkNumbersError}</p>
                 ) : (
                   <small>
-                    Calls use the connected CloudTalk agent’s default caller ID:{" "}
-                    <strong>{cloudTalkDefaultNumber}</strong>. Per-call caller-ID selection is not
-                    supported by CloudTalk’s call API.
+                    Corral-started calls use the connected agent’s default caller ID:{" "}
+                    <strong>{cloudTalkDefaultNumber}</strong>. The embedded Phone uses its own
+                    caller-ID setting for calls placed from its keypad.
                   </small>
                 )}
+                <div className="cloudtalk-embed-callout">
+                  <div>
+                    <strong>CloudTalk Phone</strong>
+                    <small>
+                      Open it and sign in as the connected agent before starting a Corral call.
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    className="button-quiet"
+                    onClick={onOpenCloudTalkPhone}
+                    disabled={busy}
+                  >
+                    {cloudTalkPhoneLoaded ? "Show phone" : "Open phone"}
+                  </button>
+                </div>
+                <p className="cloudtalk-embed-warning">
+                  Calls placed from the embedded Phone keypad bypass Corral’s per-call checks.
+                  Use Corral’s confirmed call button for safeguard-checked calls.
+                </p>
               </div>
             )}
             {selected && ["twilio", "ringcentral"].includes(selected.provider) && (
@@ -374,6 +408,25 @@ export function DirectDialer({
             </div>
           </div>
         </div>
+        {selected?.provider === "cloudtalk" && (
+          <label className="ops-check direct-dialer-confirm cloudtalk-phone-ready-check">
+            <input
+              type="checkbox"
+              checked={cloudTalkPhoneReady}
+              disabled={!cloudTalkPhoneLoaded || busy || Boolean(requestId)}
+              onChange={(event) => setCloudTalkPhoneReady(event.target.checked)}
+            />
+            <span>
+              <strong>
+                The embedded CloudTalk Phone is signed in as the same agent configured for this connection.
+              </strong>
+              <small>
+                CloudTalk must route this agent’s call to the embedded Phone for you to answer and
+                end it there.
+              </small>
+            </span>
+          </label>
+        )}
         <label className="ops-check direct-dialer-confirm">
           <input
             type="checkbox"
@@ -383,7 +436,13 @@ export function DirectDialer({
               !phoneNumber.trim() ||
               !connectionId ||
               (selected?.provider === "cloudtalk" &&
-                (cloudTalkNumbersLoading || !cloudTalkDefaultNumber || Boolean(cloudTalkNumbersError)))
+                (
+                  cloudTalkNumbersLoading ||
+                  !cloudTalkDefaultNumber ||
+                  Boolean(cloudTalkNumbersError) ||
+                  !cloudTalkPhoneLoaded ||
+                  !cloudTalkPhoneReady
+                ))
             }
             onChange={(event) => {
               setConfirmed(event.target.checked);
@@ -405,7 +464,7 @@ export function DirectDialer({
         <div className="direct-dialer-actions">
           <small>
             {selected?.provider === "cloudtalk"
-              ? "Corral starts the checked call. Answer and end it in your CloudTalk client; the connected agent must be online. Call outcomes may need a separate history sync."
+              ? "Corral starts the checked call through the API. Keep the embedded CloudTalk Phone open to answer and end it; the agent must be online. Call outcomes may need a separate history sync."
               : "Calls are not attached to a lead unless you explicitly add one after the call."}
           </small>
           <button
@@ -418,7 +477,13 @@ export function DirectDialer({
               !connectionId ||
               (needsRep && !repPhone.trim()) ||
               (selected?.provider === "cloudtalk" &&
-                (!cloudTalkDefaultNumber || cloudTalkNumbersLoading || Boolean(cloudTalkNumbersError)))
+                (
+                  !cloudTalkDefaultNumber ||
+                  cloudTalkNumbersLoading ||
+                  Boolean(cloudTalkNumbersError) ||
+                  !cloudTalkPhoneLoaded ||
+                  !cloudTalkPhoneReady
+                ))
             }
           >
             {busy

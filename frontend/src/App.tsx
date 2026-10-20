@@ -34,6 +34,7 @@ import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
+import { CloudTalkPhoneDock } from "./components/CloudTalkPhoneDock";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
@@ -363,6 +364,13 @@ function App() {
   const [view, setView] = useState<AppView>(() =>
     pageFromSearch(window.location.search),
   );
+  const [cloudTalkPhoneMounted, setCloudTalkPhoneMounted] = useState(false);
+  const [cloudTalkPhoneOpen, setCloudTalkPhoneOpen] = useState(false);
+  const [cloudTalkPhoneLoaded, setCloudTalkPhoneLoaded] = useState(false);
+  const openCloudTalkPhone = useCallback(() => {
+    setCloudTalkPhoneMounted(true);
+    setCloudTalkPhoneOpen(true);
+  }, []);
   const [pageSection, setPageSection] = useState(() =>
     sectionFromSearch(
       window.location.search,
@@ -1596,6 +1604,8 @@ function App() {
                     can(workspacePermissions, "leads.edit")
                   }
                   canViewIntegrations={can(workspacePermissions, "integrations.view")}
+                  cloudTalkPhoneLoaded={cloudTalkPhoneLoaded}
+                  onOpenCloudTalkPhone={openCloudTalkPhone}
                 />
               )}
               {view === "settings" && (
@@ -1694,6 +1704,14 @@ function App() {
         onDismiss={closeTour}
         onComplete={closeTour}
       />
+      {cloudTalkPhoneMounted && can(workspacePermissions, "dialer.call") && (
+        <CloudTalkPhoneDock
+          open={cloudTalkPhoneOpen}
+          onOpen={() => setCloudTalkPhoneOpen(true)}
+          onMinimize={() => setCloudTalkPhoneOpen(false)}
+          onReady={() => setCloudTalkPhoneLoaded(true)}
+        />
+      )}
     </div>
   );
 }

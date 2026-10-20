@@ -70,6 +70,8 @@ export function DialerView({
   canCall,
   canCallLeads,
   canViewIntegrations,
+  cloudTalkPhoneLoaded,
+  onOpenCloudTalkPhone,
 }: {
   onOpenIntegrations: () => void;
   onOpenLead: (leadId: string) => void;
@@ -79,6 +81,8 @@ export function DialerView({
   canCall: boolean;
   canCallLeads: boolean;
   canViewIntegrations: boolean;
+  cloudTalkPhoneLoaded: boolean;
+  onOpenCloudTalkPhone: () => void;
 }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activity, setActivity] = useState<CallActivity | null>(null);
@@ -350,9 +354,11 @@ export function DialerView({
               canViewLeads={canViewLeads}
               canEditLeads={canEditLeads}
               onOpenLead={onOpenLead}
+              cloudTalkPhoneLoaded={cloudTalkPhoneLoaded}
+              onOpenCloudTalkPhone={onOpenCloudTalkPhone}
             />
             <section className="dialer-workflow-grid">
-              <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Calls are placed individually to a lead or a valid international number, with consent and permission checks.</p></div></article>
+              <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Corral-started calls are placed individually with consent and permission checks. Calls started from CloudTalk Phone’s own keypad do not pass through those checks.</p></div></article>
               <article><span className="dialer-step">02</span><div><h3>Sync provider activity</h3><p>Import status, duration, recording links and transcripts from the connected provider.</p></div></article>
               <article><span className="dialer-step">03</span><div><h3>Review the conversation</h3><p>Use the history and transcript views to prepare follow-ups and qualification decisions.</p></div></article>
             </section>

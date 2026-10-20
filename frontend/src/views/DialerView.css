@@ -26,6 +26,24 @@
 .direct-dialer-caller-ids > label { margin: 0; color: var(--text); }
 .direct-dialer-caller-ids > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .direct-dialer-caller-ids > small { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.cloudtalk-embed-callout { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:6px; border-top:1px solid var(--line); }
+.cloudtalk-embed-callout > div { display:grid; gap:4px; min-width:0; }
+.cloudtalk-embed-callout > div > strong { color:var(--text); font-size:12px; }
+.cloudtalk-embed-callout > div > small { color:var(--muted); font-size:11px; line-height:1.45; }
+.cloudtalk-embed-warning { margin:0; color:var(--muted); font-size:11px; line-height:1.5; }
+.cloudtalk-phone-ready-check { padding:12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-high); }
+.cloudtalk-phone-dock { position:fixed; right:16px; bottom:16px; z-index:1100; width:min(440px,calc(100vw - 24px)); }
+.cloudtalk-phone-window { display:grid; grid-template-rows:auto auto minmax(0,1fr); max-height:calc(100dvh - 32px); overflow:hidden; border:1px solid var(--line); border-radius:14px; background:var(--surface); box-shadow:0 20px 60px rgb(0 0 0 / 28%); }
+.cloudtalk-phone-window.is-hidden { position:fixed; left:-10000px; bottom:16px; width:440px; visibility:hidden; pointer-events:none; }
+.cloudtalk-phone-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border-bottom:1px solid var(--line); }
+.cloudtalk-phone-header > div { display:grid; gap:3px; min-width:0; }
+.cloudtalk-phone-header strong { font-size:13px; }
+.cloudtalk-phone-header small,.cloudtalk-phone-status { color:var(--muted); font-size:11px; line-height:1.4; }
+.cloudtalk-phone-status { margin:0; padding:8px 14px; border-bottom:1px solid var(--line); }
+.cloudtalk-phone-frame-scroll { width:100%; max-height:calc(100dvh - 112px); overflow:auto; }
+.cloudtalk-phone-frame { display:block; width:420px; min-width:420px; height:700px; border:0; background:#fff; }
+.cloudtalk-phone-minimized { position:fixed; right:16px; bottom:16px; z-index:1101; }
+.cloudtalk-phone-minimized > button { min-height:42px; border:1px solid var(--line); border-radius:999px; padding:0 16px; color:var(--text); background:var(--surface); box-shadow:0 8px 30px rgb(0 0 0 / 18%); font:inherit; font-weight:700; cursor:pointer; }
 .direct-dialer-status { display: grid; grid-template-columns: 9px minmax(0, 1fr); align-items: start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-high); }
 .direct-dialer-status > span { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 40%, transparent); }
 .direct-dialer-status > div { display: grid; gap: var(--space-1); min-width: 0; }
@@ -71,6 +89,8 @@
 @media (max-width: 480px) {
   .direct-dialer-form { padding: var(--space-4); }
   .direct-dialer-actions > button { width: 100%; }
+  .cloudtalk-phone-dock { right:8px; bottom:8px; width:calc(100vw - 16px); }
+  .cloudtalk-phone-minimized { right:8px; bottom:8px; }
 }
 .dialer-page { gap: 20px; }
 .dialer-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
