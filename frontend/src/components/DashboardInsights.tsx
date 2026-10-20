@@ -1,4 +1,5 @@
 import type { ChannelAnalytics, RevenueAnalytics } from "../types";
+import type { ExtendedAnalytics } from "../types";
 import type { ReactNode } from "react";
 import { Bars, TimedAreaChart } from "./Charts";
 import "./dashboardInsights.css";
@@ -6,6 +7,7 @@ import "./dashboardInsights.css";
 type DashboardInsightsProps = {
   channels: ChannelAnalytics | null;
   revenue: RevenueAnalytics | null;
+  extended: ExtendedAnalytics | null;
   visible: ReadonlySet<string>;
 };
 
@@ -32,7 +34,7 @@ function InsightPanel({ eyebrow, title, detail, children, kind = "source" }: {
   </section>;
 }
 
-export function DashboardInsights({ channels, revenue, visible }: DashboardInsightsProps) {
+export function DashboardInsights({ channels, revenue, extended, visible }: DashboardInsightsProps) {
   const activePanels = ["revenue-trend", "source-qualification", "source-quality"].filter((id) => visible.has(id));
   if (activePanels.length === 0) return null;
 
@@ -49,17 +51,15 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
       note: `${source.qualified_leads !== undefined ? `${source.qualified_leads} qualified / ` : ""}${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
     }));
   const qualityRows = [...sources]
-    .filter((source) => Number.isFinite(source.average_score) && source.scored_leads !== 0)
-    .sort((a, b) => b.average_score - a.average_score || b.lead_volume - a.lead_volume)
+    .sort((a, b) => (b.closed_won_count ?? 0) - (a.closed_won_count ?? 0)
+      || b.closed_won_conversion_rate - a.closed_won_conversion_rate
+      || b.lead_volume - a.lead_volume)
     .map((source) => ({
       label: readable(source.channel),
-      value: source.average_score,
-      note: source.scored_leads !== undefined
-        ? `${source.scored_leads} scored / ${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`
-        : `${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
+      value: source.closed_won_count ?? 0,
+      note: `${source.closed_won_conversion_rate}% win rate · ${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
     }));
   const qualificationFormat = (value: number) => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
-  const scoreFormat = (value: number) => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}/100`;
 
   return <div className="dashboard-insights">
     {visible.has("revenue-trend") && <InsightPanel
@@ -81,6 +81,16 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
           formatValue={(value) => currency!.format(value)}
           ariaLabel={`Revenue trend in ${revenue.currency}; ${revenueStatus.toLowerCase()} data`}
         />
+        <div className="insight-conversion-breakdown">
+          <b>Recorded conversion type</b>
+          {extended?.revenue_by_conversion_type.length ? (
+            <Bars rows={extended.revenue_by_conversion_type.map((row) => ({
+              label: readable(row.type),
+              value: row.revenue,
+            }))} formatter={(value) => currency!.format(value)} />
+          ) : <span>No project/sale revenue breakdown recorded for this period.</span>}
+          <small>Project and Sale are the stored labels; they do not identify new business versus expansion or renewal.</small>
+        </div>
       </div>}
     </InsightPanel>}
     {visible.has("source-qualification") && <InsightPanel
@@ -96,11 +106,11 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
     {visible.has("source-quality") && <InsightPanel
       eyebrow="Lead source · assessment signal"
       title="Lead quality by source"
-       detail="Average recorded qualification score out of 100. Bars use a fixed 0–100 scale."
+       detail="Sources ranked by recorded closed-won deals, with win rate and lead volume for context."
     >
       {!channels ? <div className="insight-empty" role="status"><b>Source analytics unavailable</b><span>Lead scores will appear when channel analytics are available.</span></div>
-        : qualityRows.length === 0 ? <div className="insight-empty" role="status"><b>No scored leads with recorded volume</b><span>Sources without leads are excluded from this ranking.</span></div>
-           : <Bars rows={qualityRows} formatter={scoreFormat} scaleMaximum={100} />}
+        : qualityRows.length === 0 ? <div className="insight-empty" role="status"><b>No source has recorded lead volume</b><span>Sources without leads are excluded from this ranking.</span></div>
+           : <Bars rows={qualityRows} formatter={(value) => `${value} won`} />}
     </InsightPanel>}
   </div>;
 }

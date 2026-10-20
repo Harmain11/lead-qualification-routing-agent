@@ -788,6 +788,7 @@ export type DashboardAnalytics = {
     previous_value: number | null;
   }>;
   band_distribution: Array<{ band: string; count: number }>;
+  active_pipeline_by_origin?: Array<{ origin: string; value: number }>;
   attention_leads: LeadCard[];
   recent_leads: LeadCard[];
 };
@@ -800,6 +801,10 @@ export type ChannelAnalytics = {
     share_percent: number;
     qualification_rate: number;
     qualified_leads?: number;
+    booked_leads?: number;
+    booked_rate?: number;
+    qualified_to_booked_rate?: number | null;
+    closed_won_count?: number;
     scored_leads?: number;
     sql_conversion_rate: number;
     closed_won_conversion_rate: number;
@@ -907,8 +912,134 @@ export type AgentActivity = {
 
 export type ManualReviewAnalytics = {
   metadata: AnalyticsMetadata;
-  items: Array<LeadCard & { review_reasons: string[] }>;
+  items: Array<LeadCard & {
+    review_reasons: string[];
+    priority?: string;
+    sla_overdue?: boolean;
+    attention_score?: number;
+  }>;
   total: number;
+};
+
+export type ExtendedAnalytics = {
+  metadata: AnalyticsMetadata;
+  speed_to_qualify: {
+    average_minutes: number | null;
+    median_minutes: number | null;
+    sample_size: number;
+  };
+  qualified_to_booked: {
+    qualified: number;
+    booked: number;
+    rate: number | null;
+  };
+  sla: {
+    configured: number;
+    compliant: number;
+    breached: number;
+    pending: number;
+    unverified: number;
+    rate: number | null;
+    definition?: string;
+  };
+  escalations: Array<LeadCard & {
+    sla_target_at: string;
+    hours_overdue: number;
+    priority: string;
+    late_response: boolean;
+  }>;
+  stale_leads: Array<LeadCard & {
+    last_activity_at: string;
+    inactive_days: number;
+  }>;
+  calibration: Array<{
+    score_band: string;
+    closed: number;
+    won: number;
+    win_rate: number | null;
+  }>;
+  sales_cycle_by_segment: Array<{
+    segment: string;
+    sample_size: number;
+    average_days: number;
+    median_days: number;
+  }>;
+  icp_fit_distribution: Array<{
+    criterion: string;
+    statuses: Record<string, number>;
+    evaluated: number;
+  }>;
+  response_heatmap: Array<{
+    weekday: number;
+    hour: number;
+    inbound: number;
+    outbound: number;
+  }>;
+  stage_velocity: Array<{
+    transition: string;
+    sample_size: number;
+    median_hours: number;
+  }>;
+  channel_mix: Array<{ source: string; month: string; leads: number }>;
+  team_utilization_trend: Array<{ month: string; rep: string; assignments: number }>;
+  quarterly_scorecard: Array<{
+    metric: string;
+    current: number | null;
+    previous: number | null;
+  }>;
+  revenue_by_conversion_type: Array<{ type: string; revenue: number }>;
+  competitive_mentions: Array<{ mention: string; count: number }>;
+  data_gaps: Array<{ key: string; label: string; reason: string }>;
+};
+
+export type AdvancedAnalytics = {
+  forecast: {
+    closed_usd_this_month: number;
+    open_pipeline_usd: number;
+    historical_close_rate: number | null;
+    expected_open_pipeline_usd: number | null;
+    quota_usd: number | null;
+    coverage: number | null;
+    closed_sample_size: number;
+    method: string;
+    unvalued_open_leads: number;
+    scope: string;
+  };
+  channels: Array<{
+    source: string;
+    month: string;
+    leads: number;
+    qualified: number;
+    won: number;
+    lost: number;
+    cost_usd: number | null;
+    closed_usd: number;
+    cost_per_qualified: number | null;
+    roi_percent: number | null;
+    method: string;
+  }>;
+  cohorts: Array<{
+    week: string;
+    campaign: string;
+    leads: number;
+    qualified: number;
+    won: number;
+    lost: number;
+  }>;
+  members: Array<{
+    user_id: string;
+    name: string;
+    closed: number;
+    wins: number;
+    comparable_leads: number;
+    expected_wins: number;
+    adjusted_win_index: number | null;
+  }>;
+  summary: string;
+  summary_method: string;
+  fairness_method: string;
+  sample_size: number;
+  truncated: boolean;
 };
 
 export type GmailMailboxMessage = {

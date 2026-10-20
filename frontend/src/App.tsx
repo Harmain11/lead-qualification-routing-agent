@@ -13,9 +13,11 @@ import {
 import {
   changeWorkspace,
   getActiveWorkspace,
+  getAdvancedAnalytics,
   getAgentActivity,
   getChannelAnalytics,
   getDashboard,
+  getExtendedAnalytics,
   getLead,
   getManualReview,
   getPipelineAnalytics,
@@ -366,7 +368,6 @@ function App() {
   );
   const [cloudTalkPhoneMounted, setCloudTalkPhoneMounted] = useState(false);
   const [cloudTalkPhoneOpen, setCloudTalkPhoneOpen] = useState(false);
-  const [cloudTalkPhoneLoaded, setCloudTalkPhoneLoaded] = useState(false);
   const openCloudTalkPhone = useCallback(() => {
     setCloudTalkPhoneMounted(true);
     setCloudTalkPhoneOpen(true);
@@ -514,6 +515,8 @@ function App() {
           series,
           agents,
           review,
+          extended,
+          advanced,
           leadRows,
         ] = await Promise.all([
           canViewAnalytics
@@ -540,6 +543,12 @@ function App() {
           canViewReview
             ? getManualReview(activeRange, controller.signal)
             : Promise.resolve(null),
+          canViewAnalytics
+            ? getExtendedAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getAdvancedAnalytics(6, controller.signal)
+            : Promise.resolve(null),
           canViewLeads
             ? listLeads({ limit: 50 }, controller.signal)
             : Promise.resolve(null),
@@ -553,7 +562,9 @@ function App() {
             reps ||
             series ||
             agents ||
-            review
+            review ||
+            extended ||
+            advanced
             ? {
                 dashboard,
                 channels,
@@ -563,6 +574,8 @@ function App() {
                 series,
                 agents,
                 review,
+                extended,
+                advanced,
               }
             : null,
         );
@@ -1604,7 +1617,6 @@ function App() {
                     can(workspacePermissions, "leads.edit")
                   }
                   canViewIntegrations={can(workspacePermissions, "integrations.view")}
-                  cloudTalkPhoneLoaded={cloudTalkPhoneLoaded}
                   onOpenCloudTalkPhone={openCloudTalkPhone}
                 />
               )}
@@ -1709,7 +1721,6 @@ function App() {
           open={cloudTalkPhoneOpen}
           onOpen={() => setCloudTalkPhoneOpen(true)}
           onMinimize={() => setCloudTalkPhoneOpen(false)}
-          onReady={() => setCloudTalkPhoneLoaded(true)}
         />
       )}
     </div>

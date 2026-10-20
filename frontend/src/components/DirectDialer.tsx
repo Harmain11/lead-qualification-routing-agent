@@ -65,7 +65,6 @@ export function DirectDialer({
   canViewLeads,
   canEditLeads,
   onOpenLead,
-  cloudTalkPhoneLoaded,
   onOpenCloudTalkPhone,
 }: {
   connections: DirectDialerConnection[];
@@ -73,7 +72,6 @@ export function DirectDialer({
   canViewLeads: boolean;
   canEditLeads: boolean;
   onOpenLead: (leadId: string) => void;
-  cloudTalkPhoneLoaded: boolean;
   onOpenCloudTalkPhone: () => void;
 }) {
   const [connectionId, setConnectionId] = useState("");
@@ -87,16 +85,11 @@ export function DirectDialer({
   const [result, setResult] = useState<DirectCallRecord | null>(null);
   const [history, setHistory] = useState<DirectCallRecord[]>([]);
   const [historyError, setHistoryError] = useState("");
-  const [cloudTalkDefaultNumber, setCloudTalkDefaultNumber] = useState("");
-  const [cloudTalkNumbersLoading, setCloudTalkNumbersLoading] = useState(false);
-  const [cloudTalkNumbersError, setCloudTalkNumbersError] = useState("");
-  const [cloudTalkPhoneReady, setCloudTalkPhoneReady] = useState(false);
 
   useEffect(() => {
     if (!connections.some((connection) => connection.id === connectionId)) {
       setConnectionId(connections[0]?.id ?? "");
       setConfirmed(false);
-      setCloudTalkPhoneReady(false);
       setNotice("");
     }
   }, [connections, connectionId]);
@@ -123,47 +116,8 @@ export function DirectDialer({
   const needsRep = selected?.provider === "twilio";
 
   useEffect(() => {
-    if (selected?.provider !== "cloudtalk" || !connectionId) {
-      setCloudTalkDefaultNumber("");
-      setCloudTalkNumbersError("");
-      setCloudTalkNumbersLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setCloudTalkDefaultNumber("");
-    setCloudTalkNumbersError("");
-    setCloudTalkNumbersLoading(true);
-    opsGet<{ numbers: string[]; default_number: string | null }>(
-      `/v1/calling/cloudtalk/numbers?connection_id=${encodeURIComponent(connectionId)}`,
-      controller.signal,
-    )
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          const defaultNumber = data.default_number && data.numbers.includes(data.default_number)
-            ? data.default_number
-            : "";
-          setCloudTalkDefaultNumber(defaultNumber);
-          if (!defaultNumber) {
-            setCloudTalkNumbersError(
-              "The CloudTalk agent’s default caller ID could not be verified.",
-            );
-          }
-        }
-      })
-      .catch((reason) => {
-        if (!controller.signal.aborted) {
-          setCloudTalkNumbersError(
-            reason instanceof Error
-              ? reason.message
-              : "CloudTalk phone numbers could not be loaded.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setCloudTalkNumbersLoading(false);
-      });
-    return () => controller.abort();
-  }, [connectionId, selected?.provider]);
+    if (canCall && selected?.provider === "cloudtalk") onOpenCloudTalkPhone();
+  }, [canCall, onOpenCloudTalkPhone, selected?.provider]);
 
   function addPhoneKey(value: string) {
     setPhoneNumber((current) => {
@@ -191,11 +145,7 @@ export function DirectDialer({
 
   async function startCall(event: FormEvent) {
     event.preventDefault();
-    if (!canCall || !confirmed || !connectionId || busy) return;
-    if (
-      selected?.provider === "cloudtalk" &&
-      (!cloudTalkPhoneLoaded || !cloudTalkPhoneReady || !cloudTalkDefaultNumber)
-    ) return;
+    if (!canCall || !confirmed || !connectionId || busy || selected?.provider === "cloudtalk") return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -203,7 +153,6 @@ export function DirectDialer({
       const id = requestId || createClientId();
       setRequestId(id);
       setResult(null);
-      if (selected?.provider === "cloudtalk") onOpenCloudTalkPhone();
       const call = await opsSave<DirectCallRecord>("/v1/calling/direct/start", {
         connection_id: connectionId,
         request_id: id,
@@ -252,12 +201,18 @@ export function DirectDialer({
 
   return <section className="dialer-panel direct-dialer-panel">
     <div className="dialer-panel-head">
-      <div><span className="eyebrow">Direct calling</span><h2>Call a new number</h2></div>
-      <span className="dialer-panel-count">One confirmed call at a time</span>
+      <div>
+        <span className="eyebrow">{selected?.provider === "cloudtalk" ? "CloudTalk" : "Direct calling"}</span>
+        <h2>{selected?.provider === "cloudtalk" ? "CloudTalk Phone" : "Call a new number"}</h2>
+      </div>
+      <span className="dialer-panel-count">
+        {selected?.provider === "cloudtalk" ? "Call directly in CloudTalk" : "One confirmed call at a time"}
+      </span>
     </div>
     <p className="panel-copy">
-      Corral-started calls require individual confirmation and follow workspace consent and
-      residency rules. The embedded CloudTalk Phone can also dial independently from its keypad.
+      {selected?.provider === "cloudtalk"
+        ? "Use the embedded CloudTalk Phone to dial and control calls directly."
+        : "Corral-started calls require individual confirmation and follow workspace consent and residency rules."}
     </p>
     {!connections.length ? (
       <div className="direct-dialer-status is-unavailable" role="status">
@@ -268,6 +223,33 @@ export function DirectDialer({
       <div className="direct-dialer-status is-unavailable" role="status">
         <span aria-hidden="true" />
         <div><strong>Calling permission unavailable</strong><p>An admin must grant you the Dialer calling permission before you can place calls.</p></div>
+      </div>
+    ) : selected?.provider === "cloudtalk" ? (
+      <div className="cloudtalk-phone-only-view">
+        {connections.length > 1 && (
+          <label className="cloudtalk-phone-account-picker" htmlFor="direct-dial-connection">
+            Calling account
+            <select
+              id="direct-dial-connection"
+              value={connectionId}
+              onChange={(event) => {
+                setConnectionId(event.target.value);
+                setConfirmed(false);
+                setNotice("");
+              }}
+            >
+              {connections.map((connection) => (
+                <option value={connection.id} key={connection.id}>
+                  {providerNames[connection.provider] || connection.provider} · {connection.account_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p className="cloudtalk-embed-warning">
+          Calls placed in CloudTalk Phone bypass Corral’s consent, do-not-call, and residency checks.
+          CloudTalk records these calls; they may not appear in Corral’s direct-call history.
+        </p>
       </div>
     ) : (
       <form className="direct-dialer-form" onSubmit={(event) => void startCall(event)}>
@@ -330,48 +312,13 @@ export function DirectDialer({
           </div>
           <div className="direct-dialer-account-field">
             <label htmlFor="direct-dial-connection">Calling account</label>
-            <select id="direct-dial-connection" value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); setCloudTalkPhoneReady(false); setCloudTalkDefaultNumber(""); setCloudTalkNumbersError(""); setCloudTalkNumbersLoading(false); setNotice(""); }} disabled={busy || Boolean(requestId)}>
+            <select id="direct-dial-connection" value={connectionId} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); setNotice(""); }} disabled={busy || Boolean(requestId)}>
               {connections.map((connection) => (
                 <option value={connection.id} key={connection.id}>
                   {providerNames[connection.provider] || connection.provider} · {connection.account_name}
                 </option>
               ))}
             </select>
-            {selected?.provider === "cloudtalk" && (
-              <div className="direct-dialer-caller-ids" aria-live="polite">
-                {cloudTalkNumbersLoading ? (
-                  <p role="status">Verifying the CloudTalk agent’s default number…</p>
-                ) : cloudTalkNumbersError ? (
-                  <p role="alert">{cloudTalkNumbersError}</p>
-                ) : (
-                  <small>
-                    Corral-started calls use the connected agent’s default caller ID:{" "}
-                    <strong>{cloudTalkDefaultNumber}</strong>. The embedded Phone uses its own
-                    caller-ID setting for calls placed from its keypad.
-                  </small>
-                )}
-                <div className="cloudtalk-embed-callout">
-                  <div>
-                    <strong>CloudTalk Phone</strong>
-                    <small>
-                      Open it and sign in as the connected agent before starting a Corral call.
-                    </small>
-                  </div>
-                  <button
-                    type="button"
-                    className="button-quiet"
-                    onClick={onOpenCloudTalkPhone}
-                    disabled={busy}
-                  >
-                    {cloudTalkPhoneLoaded ? "Show phone" : "Open phone"}
-                  </button>
-                </div>
-                <p className="cloudtalk-embed-warning">
-                  Calls placed from the embedded Phone keypad bypass Corral’s per-call checks.
-                  Use Corral’s confirmed call button for safeguard-checked calls.
-                </p>
-              </div>
-            )}
             {selected && ["twilio", "ringcentral"].includes(selected.provider) && (
               <label>Your rep number{needsRep ? " (required)" : " (optional override)"}
                 <input
@@ -391,42 +338,17 @@ export function DirectDialer({
               <span aria-hidden="true" />
               <div>
                 <strong>{error
-                  ? selected?.provider === "cloudtalk"
-                    ? "CloudTalk call could not be started"
-                    : `${providerNames[selected?.provider ?? ""] || selected?.provider || "Calling provider"} could not start the call`
+                  ? `${providerNames[selected?.provider ?? ""] || selected?.provider || "Calling provider"} could not start the call`
                   : busy
-                    ? selected?.provider === "cloudtalk"
-                      ? "Starting the CloudTalk call…"
-                      : `Calling with ${providerNames[selected?.provider ?? ""] || selected?.provider || "the selected account"}…`
+                    ? `Calling with ${providerNames[selected?.provider ?? ""] || selected?.provider || "the selected account"}…`
                     : notice
-                      ? selected?.provider === "cloudtalk"
-                        ? "CloudTalk call update"
-                        : `${providerNames[selected?.provider ?? ""] || selected?.provider || "Calling provider"} call update`
+                      ? `${providerNames[selected?.provider ?? ""] || selected?.provider || "Calling provider"} call update`
                       : "Verified account ready"}</strong>
                 <p>{error || notice || `${selected?.account_name ?? "Selected account"} is verified and available for a confirmed call.`}</p>
               </div>
             </div>
           </div>
         </div>
-        {selected?.provider === "cloudtalk" && (
-          <label className="ops-check direct-dialer-confirm cloudtalk-phone-ready-check">
-            <input
-              type="checkbox"
-              checked={cloudTalkPhoneReady}
-              disabled={!cloudTalkPhoneLoaded || busy || Boolean(requestId)}
-              onChange={(event) => setCloudTalkPhoneReady(event.target.checked)}
-            />
-            <span>
-              <strong>
-                The embedded CloudTalk Phone is signed in as the same agent configured for this connection.
-              </strong>
-              <small>
-                CloudTalk must route this agent’s call to the embedded Phone for you to answer and
-                end it there.
-              </small>
-            </span>
-          </label>
-        )}
         <label className="ops-check direct-dialer-confirm">
           <input
             type="checkbox"
@@ -434,15 +356,7 @@ export function DirectDialer({
             disabled={
               busy ||
               !phoneNumber.trim() ||
-              !connectionId ||
-              (selected?.provider === "cloudtalk" &&
-                (
-                  cloudTalkNumbersLoading ||
-                  !cloudTalkDefaultNumber ||
-                  Boolean(cloudTalkNumbersError) ||
-                  !cloudTalkPhoneLoaded ||
-                  !cloudTalkPhoneReady
-                ))
+              !connectionId
             }
             onChange={(event) => {
               setConfirmed(event.target.checked);
@@ -450,22 +364,17 @@ export function DirectDialer({
           />
           <span>
             <strong>
-              I have permission to call this number and authorize this individual
-              {selected?.provider === "cloudtalk"
-                ? ` call from ${cloudTalkDefaultNumber || "the CloudTalk agent’s default number"}`
-                : " call"}.
+              I have permission to call this number and authorize this individual call.
             </strong>
             <small>
               Corral checks workspace do-not-call, consent, and residency rules before
-              {selected?.provider === "cloudtalk" ? " starting the call through CloudTalk." : " dialing."}
+              {" "}dialing.
             </small>
           </span>
         </label>
         <div className="direct-dialer-actions">
           <small>
-            {selected?.provider === "cloudtalk"
-              ? "Corral starts the checked call through the API. Keep the embedded CloudTalk Phone open to answer and end it; the agent must be online. Call outcomes may need a separate history sync."
-              : "Calls are not attached to a lead unless you explicitly add one after the call."}
+            Calls are not attached to a lead unless you explicitly add one after the call.
           </small>
           <button
             type="submit"
@@ -475,15 +384,7 @@ export function DirectDialer({
               !confirmed ||
               !phoneNumber.trim() ||
               !connectionId ||
-              (needsRep && !repPhone.trim()) ||
-              (selected?.provider === "cloudtalk" &&
-                (
-                  !cloudTalkDefaultNumber ||
-                  cloudTalkNumbersLoading ||
-                  Boolean(cloudTalkNumbersError) ||
-                  !cloudTalkPhoneLoaded ||
-                  !cloudTalkPhoneReady
-                ))
+              (needsRep && !repPhone.trim())
             }
           >
             {busy
@@ -495,7 +396,7 @@ export function DirectDialer({
         </div>
       </form>
     )}
-    {result && <div className="direct-call-result">
+    {result && selected?.provider !== "cloudtalk" && <div className="direct-call-result">
       <div>
         <strong>{result.customer_phone}</strong>
         <span>{providerNames[result.provider] || result.provider} · {result.status.replaceAll("_", " ")}</span>

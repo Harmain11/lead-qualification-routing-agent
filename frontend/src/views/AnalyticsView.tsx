@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bars, Donut, TrendChart } from "../components/Charts";
+import { AnalyticsInsights } from "../components/AnalyticsInsights";
 import { TeamPerformancePanel } from "../components/TeamPerformancePanel";
 import type { AnalyticsBundle } from "./productShared";
 import {
@@ -23,9 +24,43 @@ const analyticsPanelOptions = [
   { id: "revenue-trajectory", label: "Revenue trajectory" },
   { id: "qualification-mix", label: "Qualification mix" },
   { id: "revenue-by-representative", label: "Revenue by representative" },
+  { id: "cohort-analysis", label: "Cohort Analysis" },
+  { id: "forecast-commentary", label: "Forecast Commentary Block" },
+  { id: "score-calibration", label: "Score Calibration Report" },
+  { id: "sales-cycle", label: "Sales Cycle Length by Segment" },
+  { id: "lead-source-payback", label: "Lead Source Payback" },
+  { id: "win-loss-reasons", label: "Win/Loss Reason Analysis" },
+  { id: "icp-fit-distribution", label: "ICP Fit Distribution" },
+  { id: "response-heatmap", label: "Response-Pattern Heatmap" },
+  { id: "deal-velocity", label: "Deal Velocity by Stage" },
+  { id: "competitive-mentions", label: "Competitive Mention Tracker" },
+  { id: "channel-mix-shift", label: "Channel Mix Shift" },
+  { id: "team-utilization", label: "Team Utilization Trend" },
+  { id: "quarterly-scorecard", label: "Quarterly Scorecard" },
 ] as const;
 
 type AnalyticsPanelId = (typeof analyticsPanelOptions)[number]["id"];
+const newlyAddedPanelIds = [
+  "cohort-analysis", "forecast-commentary", "score-calibration", "sales-cycle",
+  "lead-source-payback", "win-loss-reasons", "icp-fit-distribution",
+  "response-heatmap", "deal-velocity", "competitive-mentions",
+  "channel-mix-shift", "team-utilization", "quarterly-scorecard",
+] as const;
+
+function loadAnalyticsPanelSelection(storageKey: string) {
+  const selected = loadSectionSelection(storageKey, analyticsPanelOptions);
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(storageKey) || "null");
+    const marker = `${storageKey}:expanded-v2`;
+    if (Array.isArray(saved) && saved.length && !window.localStorage.getItem(marker)) {
+      newlyAddedPanelIds.forEach((id) => selected.add(id));
+    }
+    window.localStorage.setItem(marker, "seen");
+  } catch {
+    // Analytics preferences remain optional when browser storage is unavailable.
+  }
+  return selected;
+}
 
 export function AnalyticsView({
   data,
@@ -38,7 +73,7 @@ export function AnalyticsView({
 }) {
   const preferenceKey = `corral.analytics.panels.v1:${userId}`;
   const [preferredPanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(
-    () => loadSectionSelection(preferenceKey, analyticsPanelOptions),
+    () => loadAnalyticsPanelSelection(preferenceKey),
   );
   const displayedPanels = selectedSection
     ? new Set<AnalyticsPanelId>([selectedSection as AnalyticsPanelId])
@@ -136,7 +171,7 @@ export function AnalyticsView({
             <div className="analytics-panel-wide">
               <Panel
                 title="Channel performance"
-                eyebrow="Channel quality and conversion"
+                eyebrow="Channel quality, conversion and booking"
               >
                 <div
                   className="channel-table-wrap"
@@ -150,6 +185,8 @@ export function AnalyticsView({
                       <span>Volume</span>
                       <span>Qualified</span>
                       <span>SQL</span>
+                      <span>Booked</span>
+                      <span>Booked rate</span>
                       <span>Won</span>
                       <span>Revenue</span>
                       <span>Importance</span>
@@ -162,6 +199,8 @@ export function AnalyticsView({
                         </span>
                         <span>{row.qualification_rate}%</span>
                         <span>{row.sql_conversion_rate}%</span>
+                        <span>{row.booked_leads ?? 0}</span>
+                        <span>{row.booked_rate ?? 0}%</span>
                         <span>{row.closed_won_conversion_rate}%</span>
                         <span>{money(row.revenue)}</span>
                         <em>{row.importance_index}</em>
@@ -183,15 +222,29 @@ export function AnalyticsView({
           {displayedPanels.has("revenue-by-channel") && (
             <Panel
               title="Revenue by channel"
-              eyebrow={`${pretty(data.revenue.data_status)} data`}
+              eyebrow={data.advanced ? "Monthly intake-cohort revenue · spend and ROI" : `${pretty(data.revenue.data_status)} data`}
             >
-              <Bars
-                rows={data.revenue.by_channel.map((row) => ({
-                  label: pretty(row.label),
-                  value: row.value,
-                }))}
-                formatter={money}
-              />
+              {data.advanced?.channels.length ? (
+                <Bars
+                  rows={data.advanced.channels.slice(0, 12).map((row) => ({
+                    label: `${pretty(row.source)} · ${row.month}`,
+                    value: row.closed_usd,
+                    note: `Spend ${row.cost_usd == null ? "not configured" : money(row.cost_usd)} · ${row.roi_percent == null ? "ROI —" : `${row.roi_percent}% ROI`}`,
+                  }))}
+                  formatter={money}
+                />
+              ) : (
+                <>
+                  <Bars
+                    rows={data.revenue.by_channel.map((row) => ({
+                      label: pretty(row.label),
+                      value: row.value,
+                    }))}
+                    formatter={money}
+                  />
+                  <p className="panel-copy">Channel cost and ROI appear after costs are configured.</p>
+                </>
+              )}
             </Panel>
           )}
           {displayedPanels.has("revenue-by-service") && (
@@ -214,7 +267,11 @@ export function AnalyticsView({
               data-navigation-section="representatives"
               tabIndex={-1}
             >
-              <TeamPerformancePanel data={data.reps} />
+              <TeamPerformancePanel
+                data={data.reps}
+                fairness={data.advanced?.members}
+                fairnessMethod={data.advanced?.fairness_method}
+              />
             </div>
           )}
           {displayedPanels.has("revenue-trajectory") && (
@@ -246,6 +303,7 @@ export function AnalyticsView({
               />
             </Panel>
           )}
+          <AnalyticsInsights data={data} visible={visiblePanels} />
         </section>
       ) : (
         <section className="section-picker-empty panel">
