@@ -110,6 +110,75 @@ export function AnalyticsView({
             ? "Outcomes from multiple sources, including manual records"
             : "No revenue facts available";
   const totalLeads = metricValue(data.dashboard, "total_leads");
+  const settingsPrefix = `analytics:${userId}:${data.dashboard.metadata.workspace_id}`;
+  const revenueChannelRows = data.advanced?.channels ?? [];
+  const revenueChannelMetrics = [
+    {
+      id: "closed-revenue",
+      label: "Closed revenue",
+      rows: revenueChannelRows.map((row) => ({
+        label: `${pretty(row.source)} · ${row.month}`,
+        value: row.closed_usd,
+        period: row.month,
+        note: `Spend ${row.cost_usd == null ? "not configured" : money(row.cost_usd)}`,
+      })),
+      formatter: money,
+    },
+    {
+      id: "lead-volume",
+      label: "Lead volume",
+      rows: revenueChannelRows.map((row) => ({
+        label: `${pretty(row.source)} · ${row.month}`,
+        value: row.leads,
+        period: row.month,
+      })),
+    },
+    {
+      id: "qualified-leads",
+      label: "Qualified leads",
+      rows: revenueChannelRows.map((row) => ({
+        label: `${pretty(row.source)} · ${row.month}`,
+        value: row.qualified,
+        period: row.month,
+      })),
+    },
+    {
+      id: "configured-spend",
+      label: "Configured spend",
+      rows: revenueChannelRows.filter((row) => row.cost_usd != null).map((row) => ({
+        label: `${pretty(row.source)} · ${row.month}`,
+        value: row.cost_usd ?? 0,
+        period: row.month,
+      })),
+      formatter: money,
+    },
+    {
+      id: "cost-per-qualified",
+      label: "Cost per qualified lead",
+      rows: revenueChannelRows.filter((row) => row.cost_per_qualified != null).map((row) => ({
+        label: `${pretty(row.source)} · ${row.month}`,
+        value: row.cost_per_qualified ?? 0,
+        period: row.month,
+      })),
+      formatter: money,
+    },
+    {
+      id: "roi",
+      label: "ROI",
+      rows: revenueChannelRows.filter((row) => row.roi_percent != null).map((row) => ({
+        label: `${pretty(row.source)} · ${row.month}`,
+        value: row.roi_percent ?? 0,
+        period: row.month,
+      })),
+      formatter: (value: number) => `${value}%`,
+    },
+  ].filter((metric) =>
+    metric.id === "closed-revenue" || metric.id === "lead-volume" ||
+    metric.id === "qualified-leads" ||
+    (metric.id === "configured-spend" && revenueChannelRows.some((row) => row.cost_usd != null)) ||
+    (metric.id === "cost-per-qualified" && revenueChannelRows.some((row) => row.cost_per_qualified != null)) ||
+    (metric.id === "roi" && revenueChannelRows.some((row) => row.roi_percent != null)),
+  );
   const togglePanel = (id: AnalyticsPanelId, checked: boolean) => {
     setVisiblePanels((current) => {
       const next = new Set(current);
@@ -216,6 +285,21 @@ export function AnalyticsView({
               <TrendChart
                 values={data.series.points.map((point) => point.leads)}
                 labels={data.series.points.map((point) => point.period)}
+                settingsId={`${settingsPrefix}:lead-trajectory`}
+                defaultSeriesIds={["leads"]}
+                series={[
+                  { id: "leads", label: "Leads", values: data.series.points.map((point) => point.leads) },
+                  { id: "sqls", label: "SQLs", values: data.series.points.map((point) => point.sqls) },
+                  {
+                    id: "average-score",
+                    label: "Average score",
+                    values: data.series.points.map((point) => point.average_score),
+                    weights: data.series.points.map((point) => point.leads),
+                    aggregation: "weighted_average",
+                    formatter: (value) => value.toFixed(1),
+                  },
+                  { id: "revenue", label: "Revenue", values: data.series.points.map((point) => point.revenue), formatter: money },
+                ]}
               />
             </Panel>
           )}
@@ -226,12 +310,10 @@ export function AnalyticsView({
             >
               {data.advanced?.channels.length ? (
                 <Bars
-                  rows={data.advanced.channels.slice(0, 12).map((row) => ({
-                    label: `${pretty(row.source)} · ${row.month}`,
-                    value: row.closed_usd,
-                    note: `Spend ${row.cost_usd == null ? "not configured" : money(row.cost_usd)} · ${row.roi_percent == null ? "ROI —" : `${row.roi_percent}% ROI`}`,
-                  }))}
-                  formatter={money}
+                  rows={revenueChannelMetrics[0]?.rows ?? []}
+                  metricOptions={revenueChannelMetrics}
+                  settingsId={`${settingsPrefix}:revenue-by-channel`}
+                  formatter={revenueChannelMetrics[0]?.formatter}
                 />
               ) : (
                 <>
@@ -241,6 +323,7 @@ export function AnalyticsView({
                       value: row.value,
                     }))}
                     formatter={money}
+                    settingsId={`${settingsPrefix}:revenue-by-channel`}
                   />
                   <p className="panel-copy">Channel cost and ROI appear after costs are configured.</p>
                 </>
@@ -258,6 +341,7 @@ export function AnalyticsView({
                   value: row.value,
                 }))}
                 formatter={money}
+                settingsId={`${settingsPrefix}:revenue-by-service`}
               />
             </Panel>
           )}
@@ -279,6 +363,13 @@ export function AnalyticsView({
               <TrendChart
                 values={data.revenue.over_time.map((point) => point.value)}
                 labels={data.revenue.over_time.map((point) => point.period)}
+                settingsId={`${settingsPrefix}:revenue-trajectory`}
+                series={[{
+                  id: "closed-revenue",
+                  label: "Closed revenue",
+                  values: data.revenue.over_time.map((point) => point.value),
+                  formatter: money,
+                }]}
               />
             </Panel>
           )}
@@ -289,6 +380,7 @@ export function AnalyticsView({
                   label: pretty(row.band),
                   value: row.count,
                 }))}
+                settingsId={`${settingsPrefix}:qualification-mix`}
               />
             </Panel>
           )}
@@ -300,10 +392,15 @@ export function AnalyticsView({
                   value: row.value,
                 }))}
                 formatter={money}
+                settingsId={`${settingsPrefix}:revenue-by-representative`}
               />
             </Panel>
           )}
-          <AnalyticsInsights data={data} visible={visiblePanels} />
+          <AnalyticsInsights
+            data={data}
+            visible={visiblePanels}
+            settingsPrefix={settingsPrefix}
+          />
         </section>
       ) : (
         <section className="section-picker-empty panel">

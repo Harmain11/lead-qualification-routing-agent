@@ -16,10 +16,12 @@ export function DashboardSignals({
   data,
   visible,
   onInspect,
+  settingsPrefix,
 }: {
   data: AnalyticsBundle;
   visible: DashboardWidgetSet;
   onInspect: (id: string) => void;
+  settingsPrefix: string;
 }) {
   const active = [
     "active-pipeline-origin",
@@ -49,6 +51,7 @@ export function DashboardSignals({
         <Panel title="Active pipeline value" eyebrow="Source intake vs manually added in Corral">
           {pipelineOrigins.length ? (
             <Bars
+              settingsId={`${settingsPrefix}:active-pipeline-origin`}
               rows={pipelineOrigins.map((row) => ({
                 label: row.origin === "manual" ? "Manually added in Corral" : "Source intake",
                 value: row.value,
@@ -110,11 +113,32 @@ export function DashboardSignals({
         <Panel title="Funnel Bottleneck View" eyebrow="Median time between recorded stages">
           {extended?.stage_velocity.length ? (
             <Bars
+              settingsId={`${settingsPrefix}:funnel-bottleneck`}
               rows={extended.stage_velocity.slice(0, 5).map((row) => ({
                 label: row.transition,
                 value: row.median_hours,
                 note: `${row.sample_size} observed transition${row.sample_size === 1 ? "" : "s"}`,
               }))}
+              metricOptions={[
+                {
+                  id: "median-hours",
+                  label: "Median hours",
+                  rows: extended.stage_velocity.slice(0, 5).map((row) => ({
+                    label: row.transition,
+                    value: row.median_hours,
+                    note: `${row.sample_size} observed`,
+                  })),
+                  formatter: (value) => `${value} hr`,
+                },
+                {
+                  id: "sample-size",
+                  label: "Observed transitions",
+                  rows: extended.stage_velocity.slice(0, 5).map((row) => ({
+                    label: row.transition,
+                    value: row.sample_size,
+                  })),
+                },
+              ]}
               formatter={(value) => `${value} hr`}
             />
           ) : (
@@ -125,7 +149,7 @@ export function DashboardSignals({
 
       {visible.has("rep-capacity") && (
         <Panel title="Rep Capacity & Load" eyebrow="Open leads alongside assigned-cohort close rate">
-          <RepLoad reps={data.reps} />
+          <RepLoad reps={data.reps} settingsId={`${settingsPrefix}:rep-capacity`} />
         </Panel>
       )}
 
@@ -211,20 +235,57 @@ function NotTracked({ gap }: { gap?: { reason: string } }) {
   );
 }
 
-function RepLoad({ reps }: { reps: RepAnalytics | null }) {
+function RepLoad({ reps, settingsId }: { reps: RepAnalytics | null; settingsId: string }) {
   const rows = reps?.members?.filter((member) => member.status === "active") ?? [];
   if (!rows.length) {
     return <Empty title="Rep data unavailable" text="No active workspace members have assigned-lead records in this period." />;
   }
+  const metrics = [
+    {
+      id: "open-leads",
+      label: "Open leads",
+      rows: rows.map((member) => ({
+        label: member.display_name,
+        value: member.active_leads,
+        note: `${member.active_leads} open · ${member.conversion_rate}% win rate`,
+      })),
+      formatter: (value: number) => `${value} open`,
+    },
+    {
+      id: "assigned-leads",
+      label: "Assigned leads",
+      rows: rows.map((member) => ({
+        label: member.display_name,
+        value: member.assigned_leads,
+      })),
+    },
+    {
+      id: "win-rate",
+      label: "Recorded win rate",
+      rows: rows.map((member) => ({
+        label: member.display_name,
+        value: member.conversion_rate,
+      })),
+      formatter: (value: number) => `${value}%`,
+      scaleMaximum: 100,
+    },
+    {
+      id: "revenue",
+      label: "Recorded revenue",
+      rows: rows.map((member) => ({
+        label: member.display_name,
+        value: member.revenue,
+      })),
+      formatter: money,
+    },
+  ];
   return (
     <>
       <Bars
-        rows={rows.map((member) => ({
-          label: member.display_name,
-          value: member.active_leads,
-          note: `${member.active_leads} open · ${member.conversion_rate}% win rate`,
-        }))}
-        formatter={(value) => `${value} open`}
+        rows={metrics[0].rows}
+        metricOptions={metrics}
+        settingsId={settingsId}
+        formatter={metrics[0].formatter}
       />
       <p className="panel-copy">Open-lead counts are workload signals; configured capacity limits are not stored.</p>
     </>

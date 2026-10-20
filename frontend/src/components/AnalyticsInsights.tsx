@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { AnalyticsBundle } from "../views/productShared";
-import { Bars } from "./Charts";
+import { Bars, PlotSettings, usePlotPreferences } from "./Charts";
 import { Empty, Panel, money, pretty } from "../views/productShared";
 import "./analyticsInsights.css";
 
@@ -9,9 +9,11 @@ const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export function AnalyticsInsights({
   data,
   visible,
+  settingsPrefix,
 }: {
   data: AnalyticsBundle;
   visible: ReadonlySet<string>;
+  settingsPrefix: string;
 }) {
   const extended = data.extended;
   const advanced = data.advanced;
@@ -77,6 +79,28 @@ export function AnalyticsInsights({
               }))}
               formatter={(value) => `${value}%`}
               scaleMaximum={100}
+              settingsId={`${settingsPrefix}:score-calibration`}
+              metricOptions={[
+                {
+                  id: "win-rate",
+                  label: "Win rate",
+                  rows: extended.calibration.filter((row) => row.closed > 0).map((row) => ({
+                    label: row.score_band,
+                    value: row.win_rate ?? 0,
+                    note: `${row.won} wins / ${row.closed} closed`,
+                  })),
+                  formatter: (value) => `${value}%`,
+                  scaleMaximum: 100,
+                },
+                {
+                  id: "closed",
+                  label: "Closed leads",
+                  rows: extended.calibration.filter((row) => row.closed > 0).map((row) => ({
+                    label: row.score_band,
+                    value: row.closed,
+                  })),
+                },
+              ]}
             />
           ) : <Empty title="No closed outcomes to calibrate" text="Calibration is withheld until outcomes are recorded." />}
         </Panel>
@@ -85,11 +109,44 @@ export function AnalyticsInsights({
       {visible.has("sales-cycle") && (
           <Panel title="Sales Cycle Length by Segment" eyebrow="Median days from opportunity open (or lead receipt) to recorded close">
           {extended?.sales_cycle_by_segment.length ? (
-            <Bars rows={extended.sales_cycle_by_segment.map((row) => ({
-              label: row.segment,
-              value: row.median_days,
-              note: `${row.sample_size} closed · ${row.average_days}d average`,
-            }))} formatter={(value) => `${value} days`} />
+            <Bars
+              rows={extended.sales_cycle_by_segment.map((row) => ({
+                label: row.segment,
+                value: row.median_days,
+                note: `${row.sample_size} closed · ${row.average_days}d average`,
+              }))}
+              formatter={(value) => `${value} days`}
+              settingsId={`${settingsPrefix}:sales-cycle`}
+              metricOptions={[
+                {
+                  id: "median-days",
+                  label: "Median days",
+                  rows: extended.sales_cycle_by_segment.map((row) => ({
+                    label: row.segment,
+                    value: row.median_days,
+                    note: `${row.sample_size} closed`,
+                  })),
+                  formatter: (value) => `${value} days`,
+                },
+                {
+                  id: "average-days",
+                  label: "Average days",
+                  rows: extended.sales_cycle_by_segment.map((row) => ({
+                    label: row.segment,
+                    value: row.average_days,
+                  })),
+                  formatter: (value) => `${value} days`,
+                },
+                {
+                  id: "sample-size",
+                  label: "Closed leads",
+                  rows: extended.sales_cycle_by_segment.map((row) => ({
+                    label: row.segment,
+                    value: row.sample_size,
+                  })),
+                },
+              ]}
+            />
           ) : <Empty title="No closed-cycle data" text="A segment is shown once its leads have a recorded close date." />}
         </Panel>
       )}
@@ -128,7 +185,10 @@ export function AnalyticsInsights({
       {visible.has("response-heatmap") && (
         <div className="analytics-panel-wide">
           <Panel title="Response-Pattern Heatmap" eyebrow="Recorded Gmail activity by weekday and UTC hour">
-            <ResponseHeatmap rows={extended?.response_heatmap ?? []} />
+            <ResponseHeatmap
+              rows={extended?.response_heatmap ?? []}
+              settingsId={`${settingsPrefix}:response-heatmap`}
+            />
           </Panel>
         </div>
       )}
@@ -136,11 +196,35 @@ export function AnalyticsInsights({
       {visible.has("deal-velocity") && (
         <Panel title="Deal Velocity by Stage" eyebrow="Median time between recorded pipeline updates">
           {extended?.stage_velocity.length ? (
-            <Bars rows={extended.stage_velocity.map((row) => ({
-              label: row.transition,
-              value: row.median_hours,
-              note: `${row.sample_size} observed`,
-            }))} formatter={(value) => `${value} hr`} />
+            <Bars
+              rows={extended.stage_velocity.map((row) => ({
+                label: row.transition,
+                value: row.median_hours,
+                note: `${row.sample_size} observed`,
+              }))}
+              formatter={(value) => `${value} hr`}
+              settingsId={`${settingsPrefix}:deal-velocity`}
+              metricOptions={[
+                {
+                  id: "median-hours",
+                  label: "Median hours",
+                  rows: extended.stage_velocity.map((row) => ({
+                    label: row.transition,
+                    value: row.median_hours,
+                    note: `${row.sample_size} observed`,
+                  })),
+                  formatter: (value) => `${value} hr`,
+                },
+                {
+                  id: "sample-size",
+                  label: "Observed transitions",
+                  rows: extended.stage_velocity.map((row) => ({
+                    label: row.transition,
+                    value: row.sample_size,
+                  })),
+                },
+              ]}
+            />
           ) : <Empty title="No stage timing history" text="Record lead progress to build a stage-by-stage velocity report." />}
         </Panel>
       )}
@@ -152,7 +236,7 @@ export function AnalyticsInsights({
               label: row.mention,
               value: row.count,
               note: `${row.count} lead${row.count === 1 ? "" : "s"}`,
-            }))} formatter={(value) => `${value}`} />
+            }))} formatter={(value) => `${value}`} settingsId={`${settingsPrefix}:competitive-mentions`} />
           ) : <Empty title="No competitor mentions found" text="Only explicit saved analysis values are counted." />}
         </Panel>
       )}
@@ -240,21 +324,65 @@ function NotTracked({ reason }: { reason?: string }) {
   return <div className="analytics-not-tracked" role="status"><b>Not tracked yet</b><span>{reason ?? "This measure needs additional recorded data."}</span></div>;
 }
 
-function ResponseHeatmap({ rows }: { rows: NonNullable<AnalyticsBundle["extended"]>["response_heatmap"] }) {
+type HeatmapSettings = {
+  visibleDays: number[];
+  showInbound: boolean;
+  showOutbound: boolean;
+  scaleMax: string;
+};
+
+function ResponseHeatmap({
+  rows,
+  settingsId,
+}: {
+  rows: NonNullable<AnalyticsBundle["extended"]>["response_heatmap"];
+  settingsId: string;
+}) {
+  const defaults: HeatmapSettings = {
+    visibleDays: [0, 1, 2, 3, 4, 5, 6],
+    showInbound: true,
+    showOutbound: true,
+    scaleMax: "",
+  };
+  const [settings, setSettings] = usePlotPreferences(settingsId, defaults);
   const counts = new Map(rows.map((row) => [`${row.weekday}-${row.hour}`, row]));
-  const max = Math.max(1, ...rows.map((row) => row.inbound + row.outbound));
+  const maxCount = Math.max(1, ...rows.map((row) => row.inbound + row.outbound));
+  const configuredMax = Number(settings.scaleMax);
+  const max = Number.isFinite(configuredMax) && configuredMax >= maxCount
+    ? configuredMax
+    : maxCount;
+  const reset = () => setSettings(defaults);
   if (!rows.length) return <Empty title="No message timing data" text="Sync lead-linked Gmail activity to see message patterns." />;
   return (
     <div className="response-heatmap-scroll">
+      <PlotSettings reset={reset}>
+        <fieldset className="plot-item-toggles">
+          <legend>Message direction</legend>
+          <label><input type="checkbox" checked={settings.showInbound} disabled={settings.showInbound && !settings.showOutbound} onChange={(event) => setSettings((current) => ({ ...current, showInbound: event.target.checked }))} /><span>Inbound</span></label>
+          <label><input type="checkbox" checked={settings.showOutbound} disabled={settings.showOutbound && !settings.showInbound} onChange={(event) => setSettings((current) => ({ ...current, showOutbound: event.target.checked }))} /><span>Outbound</span></label>
+        </fieldset>
+        <fieldset className="plot-item-toggles">
+          <legend>Visible weekdays</legend>
+          {weekdays.map((day, weekday) => <label key={day}><input type="checkbox" checked={settings.visibleDays.includes(weekday)} onChange={(event) => setSettings((current) => ({
+            ...current,
+            visibleDays: event.target.checked
+              ? [...new Set([...current.visibleDays, weekday])].sort()
+              : current.visibleDays.filter((item) => item !== weekday),
+          }))} /><span>{day}</span></label>)}
+        </fieldset>
+        <label><span>Intensity maximum</span><input type="number" min={maxCount} step="1" value={settings.scaleMax} placeholder={`Auto · ${maxCount}`} onChange={(event) => setSettings((current) => ({ ...current, scaleMax: event.target.value }))} /></label>
+      </PlotSettings>
       <table className="response-heatmap">
         <thead><tr><th scope="col">Day</th>{Array.from({ length: 24 }, (_, hour) => <th scope="col" key={hour}>{hour}</th>)}</tr></thead>
-        <tbody>{weekdays.map((day, weekday) => <tr key={day}><th scope="row">{day}</th>{Array.from({ length: 24 }, (_, hour) => {
+        <tbody>{weekdays.map((day, weekday) => settings.visibleDays.includes(weekday) && <tr key={day}><th scope="row">{day}</th>{Array.from({ length: 24 }, (_, hour) => {
           const cell = counts.get(`${weekday}-${hour}`);
-          const total = (cell?.inbound ?? 0) + (cell?.outbound ?? 0);
-          return <td key={hour} title={`${day} ${String(hour).padStart(2, "0")}:00 UTC · ${cell?.inbound ?? 0} inbound · ${cell?.outbound ?? 0} outbound`} aria-label={`${day} at ${hour}:00 UTC, ${total} messages`}>
+           const inbound = settings.showInbound ? cell?.inbound ?? 0 : 0;
+           const outbound = settings.showOutbound ? cell?.outbound ?? 0 : 0;
+           const total = inbound + outbound;
+           return <td key={hour} title={`${day} ${String(hour).padStart(2, "0")}:00 UTC · ${inbound} inbound · ${outbound} outbound`} aria-label={`${day} at ${hour}:00 UTC, ${total} visible messages`}>
             <i style={{ opacity: total ? 0.2 + 0.8 * total / max : 0.04 }} />
           </td>;
-        })}</tr>)}</tbody>
+         })}</tr>)}</tbody>
       </table>
       <div className="heatmap-legend"><span>Cell intensity shows total message volume.</span><small>Hover a cell for inbound and outbound counts.</small></div>
     </div>

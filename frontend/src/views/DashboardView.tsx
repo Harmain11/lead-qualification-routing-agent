@@ -176,6 +176,79 @@ export function DashboardView({
   );
   const qualificationRate = metricValue(data.dashboard, "qualification_rate");
   const totalLeads = metricValue(data.dashboard, "total_leads");
+  const settingsPrefix = `dashboard:${userId}:${data.dashboard.metadata.workspace_id}`;
+  const channelMetrics = [
+    {
+      id: "qualified-to-booked",
+      label: "Qualified → booked rate",
+      rows: data.channels.channels.filter((row) => row.qualified_to_booked_rate != null).map((row) => ({
+        label: pretty(row.channel),
+        value: row.qualified_to_booked_rate ?? 0,
+        note: `${row.qualified_leads ?? 0} qualified · ${row.booked_leads ?? 0} booked`,
+      })),
+      formatter: (value: number) => `${value}%`,
+      scaleMaximum: 100,
+    },
+    {
+      id: "qualification-rate",
+      label: "Qualification rate",
+      rows: data.channels.channels.map((row) => ({
+        label: pretty(row.channel),
+        value: row.qualification_rate,
+      })),
+      formatter: (value: number) => `${value}%`,
+      scaleMaximum: 100,
+    },
+    {
+      id: "sql-rate",
+      label: "SQL conversion rate",
+      rows: data.channels.channels.map((row) => ({
+        label: pretty(row.channel),
+        value: row.sql_conversion_rate,
+      })),
+      formatter: (value: number) => `${value}%`,
+      scaleMaximum: 100,
+    },
+    {
+      id: "won",
+      label: "Closed-won deals",
+      rows: data.channels.channels.map((row) => ({
+        label: pretty(row.channel),
+        value: row.closed_won_count ?? 0,
+      })),
+      formatter: (value: number) => `${value} won`,
+    },
+    {
+      id: "revenue",
+      label: "Recorded revenue",
+      rows: data.channels.channels.map((row) => ({
+        label: pretty(row.channel),
+        value: row.revenue,
+      })),
+      formatter: money,
+    },
+  ];
+  const pipelineMetrics = [
+    {
+      id: "lead-count",
+      label: "Leads by stage",
+      rows: data.pipeline.stages.map((stage) => ({
+        label: stage.label,
+        value: stage.count,
+        note: stage.value ? money(stage.value) : undefined,
+      })),
+    },
+    {
+      id: "opportunity-value",
+      label: "Opportunity value",
+      rows: data.pipeline.stages.map((stage) => ({
+        label: stage.label,
+        value: stage.value,
+        note: `${stage.count} leads`,
+      })),
+      formatter: money,
+    },
+  ];
   const hasCommandWidgets = visibleWidgets.has("attention-queue");
   const hasTrendWidgets =
     visibleWidgets.has("signal-velocity") ||
@@ -303,6 +376,34 @@ export function DashboardView({
                   <TrendChart
                     values={data.series.points.map((point) => point.leads)}
                     labels={data.series.points.map((point) => point.period)}
+                    settingsId={`${settingsPrefix}:signal-velocity`}
+                    defaultSeriesIds={["leads"]}
+                    series={[
+                      {
+                        id: "leads",
+                        label: "Leads",
+                        values: data.series.points.map((point) => point.leads),
+                      },
+                      {
+                        id: "sqls",
+                        label: "SQLs",
+                        values: data.series.points.map((point) => point.sqls),
+                      },
+                      {
+                        id: "average-score",
+                        label: "Average score",
+                        values: data.series.points.map((point) => point.average_score),
+                        weights: data.series.points.map((point) => point.leads),
+                        aggregation: "weighted_average",
+                        formatter: (value) => value.toFixed(1),
+                      },
+                      {
+                        id: "revenue",
+                        label: "Revenue",
+                        values: data.series.points.map((point) => point.revenue),
+                        formatter: money,
+                      },
+                    ]}
                   />
                 </Panel>
               )}
@@ -313,6 +414,7 @@ export function DashboardView({
                       label: row.band,
                       value: row.count,
                     }))}
+                    settingsId={`${settingsPrefix}:qualification-mix`}
                   />
                 </Panel>
               )}
@@ -326,13 +428,11 @@ export function DashboardView({
                   eyebrow="Qualified and booked rates"
                 >
                   <Bars
-                    rows={data.channels.channels.map((row) => ({
-                      label: pretty(row.channel),
-                      value: row.qualified_to_booked_rate ?? row.booked_rate ?? 0,
-                      note: `${row.qualified_leads ?? 0} qualified · ${row.booked_leads ?? 0} booked · ${row.qualification_rate}% qualified`,
-                    }))}
-                    formatter={(value) => `${value}%`}
-                    scaleMaximum={100}
+                    rows={channelMetrics[0].rows}
+                    metricOptions={channelMetrics}
+                    settingsId={`${settingsPrefix}:channel-intelligence`}
+                    formatter={channelMetrics[0].formatter}
+                    scaleMaximum={channelMetrics[0].scaleMaximum}
                   />
                 </Panel>
               )}
@@ -342,11 +442,9 @@ export function DashboardView({
                   eyebrow="Active progression by stage"
                 >
                   <Bars
-                    rows={data.pipeline.stages.map((stage) => ({
-                      label: stage.label,
-                      value: stage.count,
-                      note: stage.value ? money(stage.value) : undefined,
-                    }))}
+                    rows={pipelineMetrics[0].rows}
+                    metricOptions={pipelineMetrics}
+                    settingsId={`${settingsPrefix}:pipeline-pulse`}
                   />
                 </Panel>
               )}
@@ -356,12 +454,14 @@ export function DashboardView({
             data={data}
             visible={visibleWidgets}
             onInspect={onInspect}
+            settingsPrefix={settingsPrefix}
           />
           <DashboardInsights
             channels={data.channels}
             revenue={data.revenue}
             extended={data.extended}
             visible={visibleWidgets}
+            settingsPrefix={settingsPrefix}
           />
         </>
       ) : (
