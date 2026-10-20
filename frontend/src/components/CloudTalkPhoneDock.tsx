@@ -93,7 +93,7 @@ export function CloudTalkPhoneDock({
               className="cloudtalk-phone-frame"
               src={`${CLOUDTALK_PHONE_ORIGIN}?partner=corral`}
               title="CloudTalk Phone"
-              allow="microphone *"
+              allow="microphone https://phone.cloudtalk.io"
               referrerPolicy="strict-origin-when-cross-origin"
               tabIndex={open ? 0 : -1}
               onLoad={onReady}

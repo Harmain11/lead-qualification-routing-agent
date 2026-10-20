@@ -17,6 +17,12 @@ export default defineConfig(({ mode }) => {
     server: {
       allowedHosts,
       port: 5173,
+      headers: {
+        "Permissions-Policy":
+          'camera=(), microphone=(self "https://phone.cloudtalk.io"), geolocation=()',
+        "Content-Security-Policy":
+          "frame-src 'self' https://phone.cloudtalk.io; frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+      },
       proxy: {
         "/v1": apiProxyTarget,
         "/health": apiProxyTarget,

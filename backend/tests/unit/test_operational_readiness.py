@@ -99,7 +99,12 @@ def test_security_headers_and_correlation_id_are_centralized() -> None:
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
-    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+    content_security_policy = response.headers["Content-Security-Policy"]
+    assert "frame-src 'self' https://phone.cloudtalk.io" in content_security_policy
+    assert "frame-ancestors 'none'" in content_security_policy
+    assert response.headers["Permissions-Policy"] == (
+        'camera=(), microphone=(self "https://phone.cloudtalk.io"), geolocation=()'
+    )
     assert response.headers["Strict-Transport-Security"].startswith("max-age=")
 
 
