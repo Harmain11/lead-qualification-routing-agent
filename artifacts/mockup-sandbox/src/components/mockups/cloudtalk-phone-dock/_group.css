@@ -1,0 +1,33 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --dock-green: #1e6b52;
+  --dock-green-dark: #173b30;
+  --dock-text: #29483e;
+  --dock-muted: #63746e;
+  --dock-line: rgba(29, 66, 54, 0.14);
+  --dock-soft: #f7faf8;
+  --dock-warning-bg: #fff8e9;
+  --dock-warning: #765618;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #edf2ef;
+  color: var(--dock-text);
+}
+
+button {
+  font: inherit;
+}
