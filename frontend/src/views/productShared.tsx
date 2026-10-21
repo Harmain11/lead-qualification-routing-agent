@@ -233,16 +233,39 @@ export function Panel({
   eyebrow,
   action,
   children,
+  collapsible = false,
 }: {
   title: string;
   eyebrow: string;
   action?: string;
   children: ReactNode;
+  collapsible?: boolean;
 }) {
+  const navigationSection = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  if (collapsible) {
+    return (
+      <details
+        className="panel data-panel settings-collapsible"
+        data-navigation-section={navigationSection}
+      >
+        <summary className="settings-collapsible-summary">
+          <div className="settings-collapsible-heading">
+            <span className="eyebrow">{eyebrow}</span>
+            <h2>{title}</h2>
+          </div>
+          {action && <span className="panel-action">{action}</span>}
+          <span className="settings-collapsible-icon" aria-hidden="true" />
+        </summary>
+        <div className="settings-collapsible-content">{children}</div>
+      </details>
+    );
+  }
+
   return (
     <section
       className="panel data-panel"
-      data-navigation-section={title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}
+      data-navigation-section={navigationSection}
       tabIndex={-1}
     >
       <div className="section-heading">

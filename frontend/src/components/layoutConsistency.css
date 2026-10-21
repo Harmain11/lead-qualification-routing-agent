@@ -780,6 +780,8 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
 .app-shell .dashboard-command-grid .activity-list { max-height: 320px; overflow: auto; }
 .app-shell :is(.analytics-grid, .settings-grid, .ops-card-grid, .integration-grid, .team-summary-grid) { align-items: stretch; }
 .app-shell :is(.analytics-grid, .settings-grid) > .data-panel { height: 100%; }
+.app-shell .settings-grid { align-items: start; align-content: start; }
+.app-shell .settings-grid > .data-panel { height: auto; align-self: start; }
 .app-shell .team-summary-grid > .panel { height: 100%; }
 .app-shell .lead-hero-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 340px; max-width: 100%; gap: 12px; align-self: flex-start; padding-top: 28px; }
 .app-shell .lead-hero-actions > .primary-button {

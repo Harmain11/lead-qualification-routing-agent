@@ -32,3 +32,4 @@
 - [Analytics metric integrity](analytics-metric-integrity.md) — Use recorded workspace data only; show missing inputs as untracked instead of estimating values.
 - [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
+- [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
