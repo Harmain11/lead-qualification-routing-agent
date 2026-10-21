@@ -1,0 +1,70 @@
+.pipeline-view-toggle {
+  display: inline-flex;
+  gap: 4px;
+  max-width: 100%;
+  margin-bottom: 16px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.pipeline-view-toggle button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pipeline-view-toggle button[aria-pressed="true"] {
+  background: #1e6b52;
+  color: #fff;
+}
+
+.pipeline-view-toggle button:focus-visible {
+  outline: 2px solid #1e6b52;
+  outline-offset: 2px;
+}
+
+.pipeline-track.pipeline-track-sales {
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 8px;
+  overflow: visible;
+}
+
+.pipeline-track-sales > button {
+  min-width: 0;
+}
+
+.pipeline-track-sales > button > .pipeline-link {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .pipeline-view-toggle {
+    display: flex;
+    width: 100%;
+  }
+
+  .pipeline-view-toggle button {
+    flex: 1;
+    padding-inline: 8px;
+  }
+
+  .pipeline-track.pipeline-track-sales {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .pipeline-track.pipeline-track-sales {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

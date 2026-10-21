@@ -161,10 +161,31 @@ def test_suppression_blocks_draft_before_ai_or_eligibility(ops):
 
 def test_strict_consent_and_policy_version(ops):
     session, client, workspace, _, lead, *_ = ops
+    business_profile = {
+        "business_name": "Corral Systems",
+        "alternate_names": ["Corral"],
+        "website": "https://corral.example",
+        "email_domains": ["corral.example"],
+        "description": "CRM and sales operations software.",
+        "products_services": "Lead qualification and routing.",
+        "lead_distinction_notes": "Workspace company is not a prospective lead.",
+    }
     response = client.put(
-        "/v1/ops/policy", json={"version": 0, "configuration": {"require_recorded_consent": True}}
+        "/v1/ops/policy",
+        json={
+            "version": 0,
+            "configuration": {
+                "require_recorded_consent": True,
+                "business_profile": business_profile,
+            },
+        },
     )
     assert response.status_code == 200
+    assert response.json()["configuration"]["business_profile"] == business_profile
+    assert (
+        client.get("/v1/ops/policy").json()["configuration"]["business_profile"]
+        == business_profile
+    )
     assert client.put("/v1/ops/policy", json={"version": 0, "configuration": {}}).status_code == 409
     with pytest.raises(OutreachBlocked, match="Record permission"):
         assert_outreach_allowed(session, workspace.workspace_id, lead.email)

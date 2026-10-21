@@ -63,6 +63,196 @@
 .direct-call-lead-form { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-solid); }
 .direct-call-lead-form > strong { font-size: 12px; }
 .direct-call-lead-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+
+/* Calls & voice activity panel */
+.calls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: clamp(18px, 2.2vw, 26px);
+  border-color: color-mix(in srgb, var(--green) 16%, var(--line));
+  border-radius: var(--radius-lg);
+  background: var(--surface-solid);
+  box-shadow: 0 12px 34px rgba(28, 43, 61, .07);
+}
+.calls-panel .calls-panel-toolbar { align-items: flex-start; gap: 16px 22px; }
+.calls-panel-heading { display: flex; align-items: flex-start; gap: 14px; min-width: 0; flex: 1 1 300px; }
+.calls-heading-mark {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--green) 9%, var(--surface));
+  color: var(--green);
+}
+.calls-heading-mark svg { width: 20px; height: 20px; }
+.calls-heading-copy { min-width: 0; }
+.calls-heading-copy .eyebrow { color: var(--green); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.calls-heading-copy h3 { margin: 5px 0 8px; font-size: clamp(20px, 2.4vw, 23px); }
+.calls-lead-number { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.calls-lead-number::before { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--green); content: ""; }
+.calls-panel .secondary-button.calls-sync {
+  min-height: 38px;
+  margin: 0;
+  padding: 0 13px;
+  border-color: var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  transition: border-color var(--fast), background var(--fast), transform var(--fast);
+}
+.calls-panel .secondary-button.calls-sync:hover:not(:disabled) { border-color: var(--green); background: color-mix(in srgb, var(--green) 7%, var(--surface)); transform: translateY(-1px); }
+.calls-panel .secondary-button.calls-sync:disabled { opacity: .55; cursor: not-allowed; }
+.app-shell .calls-panel .calls-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-high);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.app-shell .calls-panel .calls-notice[role="alert"] { border-color: color-mix(in srgb, var(--red) 30%, var(--line)); background: color-mix(in srgb, var(--red) 7%, var(--surface)); color: var(--red); }
+.app-shell .calls-panel .calls-notice-success { border-color: color-mix(in srgb, var(--green) 26%, var(--line)); background: color-mix(in srgb, var(--green) 7%, var(--surface)); color: var(--green); }
+.app-shell .calls-panel .calls-consent-notice { border-color: color-mix(in srgb, var(--amber) 28%, var(--line)); background: color-mix(in srgb, var(--amber) 8%, var(--surface)); color: var(--amber); }
+.calls-loading { margin: 0; color: var(--muted); font-size: 13px; }
+.calls-form { display: grid; gap: 15px; min-width: 0; }
+.calls-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.calls-form-grid:has(> label:only-child) { grid-template-columns: minmax(0, 1fr); }
+.calls-panel .calls-form label:not(.ops-check) {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.calls-panel .calls-form select,
+.calls-panel .calls-form input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-bright);
+  border-radius: 9px;
+  background: var(--surface-solid);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 450;
+  transition: border-color var(--fast), box-shadow var(--fast);
+}
+.calls-panel .calls-form select:focus-visible,
+.calls-panel .calls-form input:not([type="checkbox"]):focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-color: var(--green); }
+.calls-panel .calls-form select:disabled,
+.calls-panel .calls-form input:disabled { opacity: .65; cursor: not-allowed; }
+.calls-panel .calls-form small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.5; }
+.calls-provider-note {
+  margin: -1px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--green);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-high);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.calls-panel .direct-call-handoff .primary-button { border-color: var(--green); background: var(--green); color: var(--surface); box-shadow: 0 4px 12px color-mix(in srgb, var(--green) 18%, transparent); }
+.calls-action-group { display: grid; gap: 10px; }
+.calls-panel .ops-check.calls-confirm {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  min-height: 0;
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--green) 4%, var(--surface));
+  color: var(--text);
+}
+.calls-panel .calls-confirm input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--green);
+}
+.calls-panel .calls-confirm > span { display: grid; gap: 3px; min-width: 0; }
+.calls-panel .calls-confirm strong { font-size: 12px; line-height: 1.4; }
+.calls-panel .calls-confirm small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.45; }
+.calls-panel .calls-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: 9px;
+  background: var(--green);
+  color: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--green) 17%, transparent);
+  transition: transform var(--fast), box-shadow var(--fast), background var(--fast);
+}
+.calls-panel .calls-submit::after { content: "→"; font-size: 16px; line-height: 1; }
+.calls-panel .calls-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px color-mix(in srgb, var(--green) 23%, transparent); }
+.calls-panel .calls-submit:disabled { border-color: var(--line); background: var(--surface-high); color: var(--muted); cursor: not-allowed; box-shadow: none; }
+.calls-permission-note { margin: 0; padding: 12px 14px; border-radius: 9px; background: var(--surface-high); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.calls-provider-empty { display: grid; gap: 8px; }
+.calls-provider-empty > * { margin: 0; }
+.calls-provider-empty strong { color: var(--text); font-size: 14px; }
+.calls-provider-empty p, .calls-provider-empty a { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.calls-provider-empty a { color: var(--green); font-weight: 700; text-decoration: none; }
+.calls-provider-empty a:hover { text-decoration: underline; }
+.calls-history { display: grid; gap: 10px; min-width: 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.calls-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.calls-history-head h4 { margin: 0; color: var(--text); font-size: 15px; letter-spacing: -.015em; }
+.calls-history-empty {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  border: 1px dashed var(--line-bright);
+  border-radius: 10px;
+  background: var(--surface-high);
+}
+.calls-history-empty > span:first-child { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-solid); color: var(--muted); }
+.calls-history-empty svg { width: 18px; height: 18px; }
+.calls-history-empty > span:last-child { display: grid; gap: 3px; min-width: 0; }
+.calls-history-empty strong { color: var(--text); font-size: 12px; }
+.calls-history-empty small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.calls-footnote { color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+@media (max-width: 640px) {
+  .calls-panel { gap: 17px; padding: 17px; }
+  .calls-panel .calls-panel-toolbar { align-items: stretch; }
+  .calls-panel .calls-panel-toolbar > button { width: 100%; }
+  .calls-panel-heading { gap: 11px; }
+  .calls-heading-mark { flex-basis: 38px; width: 38px; height: 38px; border-radius: 11px; }
+  .calls-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .calls-panel *, .calls-panel *::before, .calls-panel *::after { transition: none !important; }
+}
+
 @media (max-width: 780px) {
   .direct-dialer-fields { grid-template-columns: minmax(0, 1fr); }
   .direct-call-history li { align-items: flex-start; flex-direction: column; }

@@ -253,9 +253,15 @@ function EmailMessage({
   </article>;
 }
 
-function RawEmail({ message }: { message: string }) {
+function RawEmail({
+  message,
+  label = "View raw email",
+}: {
+  message: string;
+  label?: string;
+}) {
   return <details className="gmail-inquiry-raw">
-    <summary>View raw email</summary>
+    <summary>{label}</summary>
     <pre>{message}</pre>
   </details>;
 }
@@ -265,15 +271,19 @@ export function GmailInquiryView({
   source = "",
   leadEmail = "",
   receivedAt = "",
+  displayAsContext = false,
 }: {
   message: string;
   source?: string;
   leadEmail?: string;
   receivedAt?: string;
+  displayAsContext?: boolean;
 }) {
-  const inquiry = parseGmailInquiry(message);
+  const inquiry = displayAsContext ? null : parseGmailInquiry(message);
   if (!inquiry) {
-    const readableText = cleanGmailInquiryText(message);
+    const readableText = displayAsContext
+      ? message
+      : cleanGmailInquiryText(message);
     const fallbackMessage: GmailInquiryMessage = {
       from: "",
       to: "",
@@ -288,12 +298,15 @@ export function GmailInquiryView({
       <EmailMessage
         prepared={prepared}
         index={0}
-        label="Original inquiry"
+        label={displayAsContext ? "Inquiry / process context" : "Original inquiry"}
         source={source}
         leadEmail={leadEmail}
         receivedAt={receivedAt}
       />
-      <RawEmail message={message} />
+      <RawEmail
+        message={message}
+        label={displayAsContext ? "View full submitted context" : "View raw email"}
+      />
     </div>;
   }
 

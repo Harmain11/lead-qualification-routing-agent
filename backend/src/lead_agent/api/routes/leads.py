@@ -36,12 +36,13 @@ from lead_agent.application.exports import (
     write_export_audit,
 )
 from lead_agent.application.gmail_history import append_gmail_thread_messages
+from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
-from lead_agent.domain.analysis import ReasoningProvider
+from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -144,7 +145,9 @@ class LeadProgressUpdate(BaseModel):
         if self.stage not in {"converted", "lost"} and self.credited_user_id is not None:
             raise ValueError("Member credit is only allowed when closing a lead.")
         if self.send_direct_message and self.stage != "converted":
-            raise ValueError("Direct Slack congratulations are only available for successful conversions.")
+            raise ValueError(
+                "Direct Slack congratulations are only available for successful conversions."
+            )
         return self
 
 
@@ -249,17 +252,40 @@ def _process_create_request(
     notification_provider: NotificationProvider,
     workspace: WorkspaceContext,
 ) -> LeadResponse:
+    active_provider = provider or resolve_workspace_reasoning_provider(
+        session, workspace.workspace_id
+    )
+    if getattr(active_provider, "provider_name", "") in {
+        "",
+        "deterministic",
+        "deterministic-safeguard",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Connect and verify a workspace AI provider in Integrations before "
+                "creating a lead. The lead was not created."
+            ),
+        )
     try:
         _, _, row = process_lead(
             session,
             request.model_dump(mode="json"),
             *policies,
-            provider=provider,
+            provider=active_provider,
             notification_provider=notification_provider,
             workspace_id=workspace.workspace_id,
+            require_provider_success=True,
+            analyze_hard_disqualified=True,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except ReasoningProviderError as error:
+        message = str(error).strip() or "The AI provider did not complete analysis."
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI analysis failed; the lead was not created. {message[:500]}",
+        ) from error
     routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
@@ -926,7 +952,11 @@ def _reanalyze_lead_with_history(
     resolved_icp = resolve_workspace_icp(session, workspace_id, policies[0])
     reasoning_provider = resolve_workspace_reasoning_provider(session, workspace_id)
     analysis, result = _analyze_and_qualify(
-        normalized, resolved_icp.configuration, policies[1], reasoning_provider
+        normalized,
+        resolved_icp.configuration,
+        policies[1],
+        reasoning_provider,
+        business_profile=operations_policy(session, workspace_id).business_profile,
     )
     result = resolved_icp.trace_result(result)
     previous = {

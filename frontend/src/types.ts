@@ -814,15 +814,22 @@ export type ChannelAnalytics = {
   }>;
 };
 
+export type PipelineStageAnalytics = {
+  stage: string;
+  label: string;
+  count: number;
+  value: number;
+  leads: LeadCard[];
+};
+
+export type SalesPipelineStageAnalytics = Omit<PipelineStageAnalytics, "value"> & {
+  value: null;
+};
+
 export type PipelineAnalytics = {
   metadata: AnalyticsMetadata;
-  stages: Array<{
-    stage: string;
-    label: string;
-    count: number;
-    value: number;
-    leads: LeadCard[];
-  }>;
+  stages: PipelineStageAnalytics[];
+  sales_stages: SalesPipelineStageAnalytics[];
   bands: Array<{ band: string; count: number }>;
   manual_review: number;
 };

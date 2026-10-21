@@ -11,6 +11,8 @@ from typing import Any, cast
 from urllib.parse import quote, urlsplit
 
 import httpx
+import phonenumbers
+import pycountry
 from pydantic import BaseModel, Field
 
 from lead_agent.domain.integrations import ConnectionValidation, ProviderValidationStatus
@@ -38,6 +40,121 @@ def phone(value: str) -> str:
     if not re.fullmatch(r"\+[1-9][0-9]{7,14}", cleaned):
         raise ValueError("Use a phone number with +country code, for example +14155550123.")
     return cleaned
+
+
+_COUNTRY_ALIASES = {
+    "us": "US",
+    "usa": "US",
+    "u.s": "US",
+    "u.s.": "US",
+    "u.s.a": "US",
+    "u.s.a.": "US",
+    "united states": "US",
+    "united states of america": "US",
+    "uk": "GB",
+    "u.k": "GB",
+    "u.k.": "GB",
+    "britain": "GB",
+    "great britain": "GB",
+    "england": "GB",
+    "scotland": "GB",
+    "wales": "GB",
+    "northern ireland": "GB",
+    "uae": "AE",
+}
+_US_STATE_CODES = frozenset(
+    {
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL",
+        "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+        "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+        "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    }
+)
+
+
+def _country_region(geography: str | None) -> tuple[str | None, bool]:
+    if not geography or not geography.strip():
+        return None, False
+
+    segments = re.split(r"[,;|/]|\s+[-–—]\s+", geography)
+    regions: set[str] = set()
+    ambiguous_segment = False
+    for segment in [geography, *segments]:
+        value = " ".join(segment.strip().casefold().split()).rstrip(".")
+        if not value:
+            continue
+        if value == "georgia":
+            # Georgia is both a country and a U.S. state.
+            ambiguous_segment = True
+            continue
+        if len(value) == 2 and value.upper() in _US_STATE_CODES:
+            ambiguous_segment = True
+            continue
+        if value in _COUNTRY_ALIASES:
+            regions.add(_COUNTRY_ALIASES[value])
+            continue
+        try:
+            country = pycountry.countries.lookup(segment.strip())
+        except LookupError:
+            continue
+        alpha_2 = getattr(country, "alpha_2", None)
+        if isinstance(alpha_2, str):
+            regions.add(alpha_2.upper())
+
+    if len(regions) > 1:
+        return None, True
+    if regions:
+        return next(iter(regions)), False
+    return None, ambiguous_segment
+
+
+def normalize_lead_phone(value: str, geography: str | None = None) -> str:
+    """Convert a lead's national-format phone to E.164 using its explicit country."""
+    raw = (value or "").strip()
+    if raw.startswith("+"):
+        return phone(raw)
+
+    region, ambiguous_country = _country_region(geography)
+    if ambiguous_country:
+        raise ValueError(
+            "The lead's Geography is ambiguous. "
+            "Set one country or enter the phone with +country code."
+        )
+
+    if region:
+        try:
+            parsed = phonenumbers.parse(raw, region)
+        except phonenumbers.NumberParseException:
+            raise ValueError(
+                "This phone number could not be read for the lead's country. "
+                "Use +country code format."
+            ) from None
+    else:
+        digits = re.sub(r"\D", "", raw)
+        national = digits[1:] if len(digits) == 11 and digits.startswith("1") else digits
+        if len(national) != 10 or not re.fullmatch(r"[2-9]\d{2}[2-9]\d{6}", national):
+            raise ValueError(
+                "Add the lead's country to Geography or enter the phone with +country code."
+            )
+        try:
+            parsed = phonenumbers.parse(national, "US")
+        except phonenumbers.NumberParseException:
+            raise ValueError(
+                "Add the lead's country to Geography or enter the phone with +country code."
+            ) from None
+        if parsed.country_code != 1:
+            raise ValueError(
+                "Add the lead's country to Geography or enter the phone with +country code."
+            )
+
+    if parsed.extension:
+        raise ValueError("Remove the phone extension before placing a call.")
+    if not phonenumbers.is_valid_number(parsed):
+        raise ValueError(
+            "This phone number is not valid for the lead's country. "
+            "Check the number or add +country code."
+        )
+    return phone(phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164))
 
 
 def identifier(value: str) -> str:

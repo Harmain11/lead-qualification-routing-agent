@@ -138,72 +138,97 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
     callFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
   return <section className="ops-panel calls-panel" aria-labelledby="calls-heading">
-    <div className="ops-toolbar"><div><span className="eyebrow">Calling & voice agents</span><h3 id="calls-heading">Calls & voice activity</h3><p>{leadPhone ? `Lead number: ${leadPhone}` : "Add an international phone number to this lead before calling."}</p></div>
-      {canEdit && data && data.connections.length > 0 && <button type="button" className="secondary-button" disabled={!connectionId || !leadPhone || busy} onClick={() => void sync()}>{busy ? "Working…" : "Sync recent calls"}</button>}
+    <div className="ops-toolbar calls-panel-toolbar">
+      <div className="calls-panel-heading">
+        <span className="calls-heading-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 4.8 9.2 8l-1.5 1.6a14 14 0 0 0 6.7 6.7L16 14.8l3.2 2.2-.7 3a1.5 1.5 0 0 1-1.7 1.1A17 17 0 0 1 3 7.3 1.5 1.5 0 0 1 4.1 5.6L7 4.8Z" />
+            <path d="M14 5a5 5 0 0 1 5 5" />
+            <path d="M14 2a8 8 0 0 1 8 8" />
+          </svg>
+        </span>
+        <div className="calls-heading-copy">
+          <span className="eyebrow">Calling &amp; voice agents</span>
+          <h3 id="calls-heading">Calls &amp; voice activity</h3>
+          <p className="calls-lead-number">{leadPhone ? `Lead number: ${leadPhone}` : "Add an international phone number to this lead before calling."}</p>
+        </div>
+      </div>
+      {canEdit && data && data.connections.length > 0 && <button type="button" className="secondary-button calls-sync" disabled={!connectionId || !leadPhone || busy} onClick={() => void sync()}>{busy ? "Working…" : "Sync recent calls"}</button>}
     </div>
-    {error && <p className="notice" role="alert">{error}</p>}
-    {notice && <p className="notice" role="status">{notice}</p>}
-    {!data && !error && <p role="status">Loading call activity…</p>}
-     {data && data.connections.length === 0 && <div className="ops-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
+    {error && <p className="notice calls-notice" role="alert">{error}</p>}
+    {notice && <p className="notice calls-notice calls-notice-success" role="status">{notice}</p>}
+    {!data && !error && <p className="calls-loading" role="status">Loading call activity…</p>}
+    {data && data.connections.length === 0 && <div className="ops-empty calls-provider-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
     {data && data.connections.length > 0 && <>
-      {!data.outreach_allowed && <p className="notice" role="status">{data.outreach_reason}</p>}
+      {!data.outreach_allowed && <p className="notice calls-notice calls-consent-notice" role="status">{data.outreach_reason}</p>}
       <form ref={callFormRef} onSubmit={(event) => void start(event)} className="calls-form">
-        <div className="ops-form-grid">
+        <div className="ops-form-grid calls-form-grid">
           <label>Calling provider<select value={connectionId} disabled={busy || Boolean(requestId)} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); }}><option value="">Choose a verified provider</option>{data.connections.map((item) => <option value={item.id} key={item.id}>{providerNames[item.provider]} · {item.account_name}</option>)}</select></label>
           {selected && ["twilio", "ringcentral"].includes(selected.provider) && <label>Your rep number{needsRep ? " (required)" : " (optional override)"}<input type="tel" placeholder="+14155550123" value={repPhone} required={needsRep} disabled={busy || Boolean(requestId)} onChange={(event) => { setRepPhone(event.target.value); setConfirmed(false); }} autoComplete="tel" /><small>{needsRep ? "Twilio rings you first, then connects the lead." : "Leave blank to ring the rep number saved in Integrations."}</small></label>}
+          {selected?.provider === "cloudtalk" && <label>CloudTalk caller ID
+            <select
+              value={callerId}
+              disabled={busy || cloudTalkNumbersLoading || Boolean(requestId)}
+              onChange={(event) => {
+                setCallerId(event.target.value);
+                setCloudTalkHandoff(null);
+                setHandoffOpened(false);
+                setConfirmed(false);
+              }}
+            >
+              <option value="">
+                {cloudTalkNumbersLoading ? "Loading assigned caller IDs…" : "Choose an assigned caller ID"}
+              </option>
+              {cloudTalkNumbers.map((number) => <option value={number} key={number}>{number}</option>)}
+            </select>
+            <small>
+              {cloudTalkNumbers.length
+                ? "Only caller IDs assigned to this CloudTalk agent can be used."
+                : cloudTalkNumbersLoading
+                  ? "Checking caller IDs assigned to this CloudTalk agent."
+                  : "No caller IDs are assigned to this CloudTalk agent. Ask an admin to update its CloudTalk setup."}
+            </small>
+          </label>}
         </div>
-          {selected && <p>{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : selected.provider === "cloudtalk" ? "After confirmation, Corral prepares a CloudTalk Desktop handoff with this lead’s saved number. It does not dial through the embedded phone." : "Answer your rep phone to connect to the lead."}</p>}
-          {selected?.provider === "cloudtalk" && <>
-            <label>CloudTalk caller ID
-              <select
-                value={callerId}
-                disabled={busy || cloudTalkNumbersLoading || Boolean(requestId)}
-                onChange={(event) => {
-                  setCallerId(event.target.value);
-                  setCloudTalkHandoff(null);
-                  setHandoffOpened(false);
-                  setConfirmed(false);
-                }}
+        {selected && <p className="calls-provider-note">{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : selected.provider === "cloudtalk" ? "After confirmation, Corral prepares a CloudTalk Desktop handoff with this lead’s saved number. It does not dial through the embedded phone." : "Answer your rep phone to connect to the lead."}</p>}
+        {selected?.provider === "cloudtalk" && <>
+          {cloudTalkNumbersError && <p className="notice calls-notice" role="alert">{cloudTalkNumbersError}</p>}
+          {cloudTalkHandoff && <div className="direct-call-handoff" role="status">
+            <div>
+              <strong>Ready to open CloudTalk Desktop</strong>
+              <p>{cloudTalkHandoff.message}</p>
+              <small>Lead number: {cloudTalkHandoff.phone_number} · Caller ID: {cloudTalkHandoff.caller_id}</small>
+              <small>After the call, use Sync recent calls to bring the activity into Corral.</small>
+            </div>
+            {handoffOpened ? (
+              <small>Handoff opened. Check CloudTalk Desktop before retrying to avoid placing a duplicate call.</small>
+            ) : (
+              <a
+                className="primary-button"
+                href={cloudTalkHandoff.handoff_url}
+                onClick={() => setHandoffOpened(true)}
               >
-                <option value="">
-                  {cloudTalkNumbersLoading ? "Loading assigned caller IDs…" : "Choose an assigned caller ID"}
-                </option>
-                {cloudTalkNumbers.map((number) => <option value={number} key={number}>{number}</option>)}
-              </select>
-              <small>
-                {cloudTalkNumbers.length
-                  ? "Only caller IDs assigned to this CloudTalk agent can be used."
-                  : cloudTalkNumbersLoading
-                    ? "Checking caller IDs assigned to this CloudTalk agent."
-                    : "No caller IDs are assigned to this CloudTalk agent. Ask an admin to update its CloudTalk setup."}
-              </small>
-            </label>
-            {cloudTalkNumbersError && <p className="notice" role="alert">{cloudTalkNumbersError}</p>}
-            {cloudTalkHandoff && <div className="direct-call-handoff" role="status">
-              <div>
-                <strong>Ready to open CloudTalk Desktop</strong>
-                <p>{cloudTalkHandoff.message}</p>
-                <small>Lead number: {cloudTalkHandoff.phone_number} · Caller ID: {cloudTalkHandoff.caller_id}</small>
-                <small>After the call, use Sync recent calls to bring the activity into Corral.</small>
-              </div>
-              {handoffOpened ? (
-                <small>Handoff opened. Check CloudTalk Desktop before retrying to avoid placing a duplicate call.</small>
-              ) : (
-                <a
-                  className="primary-button"
-                  href={cloudTalkHandoff.handoff_url}
-                  onClick={() => setHandoffOpened(true)}
-                >
-                  Open CloudTalk Desktop
-                </a>
-              )}
-            </div>}
-          </>}
-         {canCall && <><label className="ops-check"><input type="checkbox" checked={confirmed} disabled={busy || !data.outreach_allowed || !leadPhone || !selected || (selected.provider === "cloudtalk" && (cloudTalkNumbersLoading || !callerId))} onChange={(event) => { setConfirmed(event.target.checked); setCloudTalkHandoff(null); setHandoffOpened(false); }} /><span>I confirm this individual {voiceAgent ? "voice-agent " : ""}call to the lead.</span></label><button type="submit" disabled={busy || !selected || !confirmed || !leadPhone || !data.outreach_allowed || (needsRep && !repPhone) || (selected.provider === "cloudtalk" && (!callerId || cloudTalkNumbersLoading))}>{busy ? "Submitting…" : requestId ? "Check existing call request" : selected?.provider === "cloudtalk" ? "Prepare CloudTalk Desktop call" : voiceAgent ? "Start voice-agent call" : data.records.length ? "Call again" : "Call lead"}</button></>}
-        {!canCall && <p>Calling this lead requires the Dialer calling permission plus lead-view and lead-edit access. Ask an admin to grant any missing permission.</p>}
+                Open CloudTalk Desktop
+              </a>
+            )}
+          </div>}
+        </>}
+        {canCall && <div className="calls-action-group">
+          <label className="ops-check calls-confirm">
+            <input type="checkbox" checked={confirmed} disabled={busy || !data.outreach_allowed || !leadPhone || !selected || (selected.provider === "cloudtalk" && (cloudTalkNumbersLoading || !callerId))} onChange={(event) => { setConfirmed(event.target.checked); setCloudTalkHandoff(null); setHandoffOpened(false); }} />
+            <span>
+              <strong>Confirm this individual call</strong>
+              <small>I confirm this individual {voiceAgent ? "voice-agent " : ""}call to the lead.</small>
+            </span>
+          </label>
+          <button className="calls-submit" type="submit" disabled={busy || !selected || !confirmed || !leadPhone || !data.outreach_allowed || (needsRep && !repPhone) || (selected.provider === "cloudtalk" && (!callerId || cloudTalkNumbersLoading))}>{busy ? "Submitting…" : requestId ? "Check existing call request" : selected?.provider === "cloudtalk" ? "Prepare CloudTalk Desktop call" : voiceAgent ? "Start voice-agent call" : data.records.length ? "Call again" : "Call lead"}</button>
+        </div>}
+        {!canCall && <p className="calls-permission-note">Calling this lead requires the Dialer calling permission plus lead-view and lead-edit access. Ask an admin to grant any missing permission.</p>}
       </form>
     </>}
-     {data && <div className="calls-history"><h4>Recent activity</h4>{data.records.length ? <div className="lead-table-wrap lead-browser call-table-wrap">
+    {data && <div className="calls-history">
+      <div className="calls-history-head"><h4>Recent activity</h4></div>
+      {data.records.length ? <div className="lead-table-wrap lead-browser call-table-wrap">
        <table className="lead-table call-history-table">
          <thead><tr><th>Lead / contact</th><th>Source</th><th>Duration</th><th>Status</th><th>Representative</th><th>Received</th><th>Actions</th></tr></thead>
          <tbody>{data.records.map((call) => {
@@ -235,7 +260,18 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
            </Fragment>;
          })}</tbody>
        </table>
-     </div> : <p className="ops-empty">No call activity recorded for this lead. Use Sync recent calls to import matching provider history.</p>}</div>}
-      <small>History sync reads recent provider calls that match this lead number. AI insights load only when requested. Calls always require confirmation and pass consent checks.</small>
+      </div> : <div className="calls-history-empty">
+        <span aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 4.8 9.2 8l-1.5 1.6a14 14 0 0 0 6.7 6.7L16 14.8l3.2 2.2-.7 3a1.5 1.5 0 0 1-1.7 1.1A17 17 0 0 1 3 7.3 1.5 1.5 0 0 1 4.1 5.6L7 4.8Z" />
+          </svg>
+        </span>
+        <span>
+          <strong>No call activity recorded for this lead</strong>
+          <small>Use Sync recent calls to import matching provider history.</small>
+        </span>
+      </div>}
+    </div>}
+    <small className="calls-footnote">History sync reads recent provider calls that match this lead number. AI insights load only when requested. Calls always require confirmation and pass consent checks.</small>
   </section>;
 }

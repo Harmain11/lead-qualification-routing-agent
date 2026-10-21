@@ -22,12 +22,13 @@ from lead_agent.infrastructure.communications import (
     CallSnapshot,
     CommunicationsClient,
     CommunicationsValidator,
+    normalize_lead_phone,
     phone,
     timestamp,
 )
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.calling import CallRecordORM
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import LeadORM, ProviderConnectionORM
 from lead_agent.infrastructure.db.operations import ConsentEventORM, OperationsPolicyORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
@@ -616,6 +617,26 @@ def test_phone_and_timestamp_validation():
             phone(value)
     assert timestamp("Mon, 12 Oct 2026 10:00:00 +0000").tzinfo is not None
     assert timestamp(1730000000000).year == 2024
+
+
+def test_lead_phone_uses_the_country_from_geography():
+    assert normalize_lead_phone("020 7031 3000", "London, United Kingdom") == "+442070313000"
+    assert normalize_lead_phone("06 12 34 56 78", "France") == "+33612345678"
+    assert normalize_lead_phone("702-857-7388", "Nevada") == "+17028577388"
+    assert normalize_lead_phone("702-857-7388") == "+17028577388"
+    assert normalize_lead_phone("+14155550123", "France") == "+14155550123"
+
+
+def test_lead_phone_rejects_ambiguous_or_unrecognized_local_numbers():
+    with pytest.raises(ValueError, match="Geography is ambiguous"):
+        normalize_lead_phone("7028577388", "Georgia")
+    with pytest.raises(ValueError, match="Add the lead's country"):
+        normalize_lead_phone("07123456789")
+
+
+def test_call_target_uses_the_leads_geography():
+    lead = LeadORM(phone="020 7031 3000", geography="United Kingdom")
+    assert calling._target(lead) == "+442070313000"
 
 
 @pytest.fixture

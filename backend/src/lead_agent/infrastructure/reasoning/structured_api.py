@@ -19,6 +19,7 @@ from lead_agent.domain.configuration import IcpConfig
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.models import NormalizedLead
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.infrastructure.observability import provider_operation
 from lead_agent.infrastructure.reasoning.openai_provider import SYSTEM_PROMPT
 
@@ -137,6 +138,8 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
 class StructuredAPIReasoningProvider:
     """Reasoning provider using each vendor's native structured-output API."""
 
+    prompt_version = "phase3-context-v3"
+
     _CONFIG: dict[str, tuple[str, str]] = {
         "gemini": ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/models"),
         "claude": ("Anthropic Claude", "https://api.anthropic.com/v1/messages"),
@@ -164,7 +167,12 @@ class StructuredAPIReasoningProvider:
         self._usage_recorder = usage_recorder
         self._post = post or httpx.post
 
-    def analyze(self, lead: NormalizedLead, icp: IcpConfig) -> ReasoningOutput:
+    def analyze(
+        self,
+        lead: NormalizedLead,
+        icp: IcpConfig,
+        business_profile: WorkspaceBusinessProfile | None = None,
+    ) -> ReasoningOutput:
         payload = {
             "normalized_lead": {
                 "source": lead.source,
@@ -182,6 +190,9 @@ class StructuredAPIReasoningProvider:
                 "message": lead.message,
             },
             "icp": icp.model_dump(mode="json"),
+            "workspace_business_profile": (
+                business_profile.model_dump(mode="json") if business_profile else None
+            ),
         }
         with provider_operation(self.provider_name) as operation:
             started = perf_counter()

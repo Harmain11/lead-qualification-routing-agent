@@ -17,6 +17,7 @@ import {
   type PolicyResponse,
 } from "../operationsApi";
 import { AccountProfilePanel } from "../components/AccountProfilePanel";
+import { WorkspaceBusinessProfilePanel } from "../components/WorkspaceBusinessProfilePanel";
 import type {
   AnalyticsMetadata,
   RoutingConfig,
@@ -31,6 +32,7 @@ export function SettingsView({
   onTeam,
   onIcp,
   canViewTeam,
+  canManageWorkspace,
   canViewIcp,
   canViewRouting,
   canManageRouting,
@@ -44,6 +46,7 @@ export function SettingsView({
   onTeam: () => void;
   onIcp: () => void;
   canViewTeam: boolean;
+  canManageWorkspace: boolean;
   canViewIcp: boolean;
   canViewRouting: boolean;
   canManageRouting: boolean;
@@ -102,6 +105,14 @@ export function SettingsView({
                 }
               />
             </div>
+          </Panel>
+        )}
+        {show("workspace") && (
+          <Panel title="Business identity for AI" eyebrow="Optional analysis context">
+            <WorkspaceBusinessProfilePanel
+              canView={canViewRouting}
+              canManage={canManageWorkspace}
+            />
           </Panel>
         )}
         {overview && (

@@ -17,6 +17,7 @@ from lead_agent.application.services import process_lead
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
+    LeadFollowUpEmailORM,
     LeadORM,
     LeadOutcomeORM,
     PipelineEventORM,
@@ -141,6 +142,107 @@ def test_dashboard_channel_pipeline_and_revenue_analytics(
     assert revenue["pipeline_value"] == 18000
     assert revenue["total_revenue"] == 30000
     assert revenue["data_status"] == "crm"
+
+
+def test_sales_pipeline_uses_recorded_progress_followups_and_outcomes(
+    icp: IcpConfig, routing: RoutingConfig
+) -> None:
+    factory = _factory()
+    workspace_id = uuid4()
+    now = datetime.now(UTC)
+    identifiers = (
+        "new",
+        "draft",
+        "sent",
+        "contacted",
+        "responded",
+        "meeting",
+        "opportunity",
+        "proposal",
+        "negotiation",
+        "won",
+        "lost",
+    )
+    with factory() as session:
+        leads: dict[str, LeadORM] = {}
+        for identifier in identifiers:
+            _, _, leads[identifier] = process_lead(
+                session,
+                _payload(f"sales-pipeline-{identifier}"),
+                icp,
+                routing,
+                workspace_id=workspace_id,
+            )
+
+        def add_progress(identifier: str, stage: str, event_stage: str = "manual_progress") -> None:
+            lead = leads[identifier]
+            session.add(
+                PipelineEventORM(
+                    id=uuid4(),
+                    workspace_id=workspace_id,
+                    lead_id=lead.id,
+                    stage=event_stage,
+                    status=stage,
+                    details={"stage": stage},
+                    created_at=now,
+                )
+            )
+
+        add_progress("contacted", "contacted")
+        add_progress("responded", "responded")
+        add_progress("meeting", "scheduled", event_stage="meeting_scheduled")
+
+        for identifier, status in (("draft", "draft"), ("sent", "sent")):
+            lead = leads[identifier]
+            session.add(
+                LeadFollowUpEmailORM(
+                    id=uuid4(),
+                    workspace_id=workspace_id,
+                    lead_id=lead.id,
+                    kind="ai_follow_up",
+                    recipient=lead.email,
+                    subject="Follow-up",
+                    status=status,
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        session.commit()
+
+        for identifier, stage in (
+            ("opportunity", "opportunity"),
+            ("proposal", "proposal"),
+            ("negotiation", "negotiation"),
+            ("won", "closed_won"),
+            ("lost", "closed_lost"),
+        ):
+            _add_outcome(
+                session,
+                leads[identifier].id,
+                workspace_id,
+                stage=stage,
+                opportunity=5000,
+                revenue=5000 if stage == "closed_won" else 0,
+            )
+
+        pipeline = AnalyticsService(session, workspace_id).pipeline()
+
+    counts = {stage["stage"]: stage["count"] for stage in pipeline["sales_stages"]}
+    assert counts == {
+        "new_lead": 1,
+        "contacted": 1,
+        "follow_up_drafted": 1,
+        "follow_up_sent": 1,
+        "responded": 1,
+        "meeting_scheduled": 1,
+        "opportunity": 1,
+        "proposal_sent": 1,
+        "negotiation": 1,
+        "closed_won": 1,
+        "closed_lost": 1,
+    }
+    assert all(stage["value"] is None for stage in pipeline["sales_stages"])
 
 
 def test_channel_percentages_and_scores_use_recorded_results(

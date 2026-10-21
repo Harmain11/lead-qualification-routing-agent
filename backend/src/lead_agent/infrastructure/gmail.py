@@ -26,6 +26,7 @@ from lead_agent.domain.crm_inbound import (
 )
 from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailProspectCandidate
 from lead_agent.domain.integrations import ConnectionValidation
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.provider_errors import ProviderOperationError
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
@@ -1013,6 +1014,7 @@ class GmailInboundProvider:
         ai_fallback_reason: str = "verified_workspace_openai_unavailable",
         internal_domains: set[str] | None = None,
         internal_emails: set[str] | None = None,
+        business_profile: WorkspaceBusinessProfile | None = None,
     ) -> None:
         self._connection_id = connection_id
         self.mailbox_email = mailbox_email.strip().lower()
@@ -1028,6 +1030,9 @@ class GmailInboundProvider:
             if "@" in email
         }
         self.internal_emails.add(self.mailbox_email)
+        self.business_profile = business_profile
+        if business_profile:
+            self.internal_domains.update(business_profile.email_domains)
         self.api = GmailTransport(access_token, timeout_seconds=timeout_seconds, client=client)
         self.lead_extractor = lead_extractor
         self.ai_fallback_reason = ai_fallback_reason
@@ -1665,7 +1670,28 @@ class GmailInboundProvider:
                 extraction_headers = dict(headers)
                 extraction_headers["internal-domains"] = ",".join(sorted(self.internal_domains))
                 extraction_headers["internal-emails"] = ",".join(sorted(self.internal_emails))
-                extraction_headers["internal-company-names"] = "Ingenuity,Ingenuity Systems"
+                internal_company_names = ["Ingenuity", "Ingenuity Systems"]
+                if self.business_profile:
+                    internal_company_names.extend(
+                        [
+                            self.business_profile.business_name,
+                            *self.business_profile.alternate_names,
+                        ]
+                    )
+                unique_names: list[str] = []
+                seen_names: set[str] = set()
+                for name in internal_company_names:
+                    cleaned = name.strip()
+                    key = cleaned.casefold()
+                    if cleaned and key not in seen_names:
+                        unique_names.append(cleaned)
+                        seen_names.add(key)
+                extraction_headers["internal-company-names"] = ",".join(unique_names)
+                if self.business_profile and self.business_profile.has_context:
+                    extraction_headers["workspace-business-profile"] = json.dumps(
+                        self.business_profile.model_dump(mode="json"),
+                        sort_keys=True,
+                    )
                 if values.get("gmail_validation_feedback"):
                     extraction_headers["validation-feedback"] = str(
                         values["gmail_validation_feedback"]

@@ -301,12 +301,17 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
         <section className="story-section">
           <div>
             <span className="eyebrow">{title(lead.source)} lead</span>
-            <h3>Original inquiry</h3>
+            <h3>
+              {lead.source_detail === "manual-control-center"
+                ? "Inquiry / process context"
+                : "Original inquiry"}
+            </h3>
             <GmailInquiryView
               message={lead.message}
               source={lead.source}
               leadEmail={lead.email}
               receivedAt={lead.received_at}
+              displayAsContext={lead.source_detail === "manual-control-center"}
             />
             <p className="lead-received">Received {new Date(lead.received_at).toLocaleString()}</p>
             <details className="lead-source-evidence">

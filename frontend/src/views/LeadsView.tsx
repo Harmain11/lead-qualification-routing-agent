@@ -408,7 +408,7 @@ export function LeadsView({
           </label>
           <label><span>Qualification band</span>
           <SelectMenu
-            aria-label="Qualification band"
+            ariaLabel="Qualification band"
             value={band}
             onChange={setBand}
             options={[{ value: "all", label: "All qualification bands" }, ...["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => ({ value: item, label: qualificationLabel(item) }))]}
@@ -416,7 +416,7 @@ export function LeadsView({
           </label>
           <label><span>Lead source</span>
           <SelectMenu
-            aria-label="Lead source"
+            ariaLabel="Lead source"
             value={source}
             onChange={setSource}
             options={[{ value: "all", label: "All channels" }, ...LEAD_SOURCE_OPTIONS.map((item) => ({ value: item, label: item }))]}
@@ -481,7 +481,7 @@ export function LeadsView({
                 <label className="lead-transfer-control">
                   <span>Transfer to</span>
                   <SelectMenu
-                    aria-label="Bulk CRM provider"
+                    ariaLabel="Bulk CRM provider"
                     value={bulkProvider}
                     onChange={setBulkProvider}
                     options={[{ value: "", label: "Select CRM" }, ...crmProviders.map((provider) => ({ value: provider, label: provider === "hubspot" ? "HubSpot" : pretty(provider) }))]}
@@ -659,6 +659,8 @@ export function LeadsView({
           selectedIds={[...selectedIds]}
         />
       )}
+        </>
+      )}
       {automationEnrollment && (
         <AutomationEnrollmentDialog
           key={`${automationEnrollment.kind}-${automationEnrollment.leadId}`}
@@ -668,8 +670,6 @@ export function LeadsView({
           onClose={() => setAutomationEnrollment(null)}
           onOpenAutomations={onOpenAutomations}
         />
-      )}
-        </>
       )}
     </div>
   );
@@ -871,7 +871,7 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
           <h2>Add a lead</h2>
         </div>
         <span className="flow-status">
-          <i /> Deterministic safeguards active
+          <i /> AI context analysis · deterministic scoring safeguards
         </span>
       </div>
       <div className="form-grid">
@@ -927,18 +927,22 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
         />
       </div>
       <label className="field wide">
-        <span>Original inquiry</span>
+        <span>Inquiry / process context</span>
+        <small className="inquiry-context-hint">
+          Paste the original inquiry or summarize steps taken and where the person is in the
+          process. AI treats this as context, not necessarily a verbatim quote.
+        </small>
         <textarea
           required
           value={form.message}
           onChange={(event) => set("message", event.target.value)}
           rows={5}
-          placeholder="Pain, desired outcome, budget, timeline and technical context…"
+          placeholder="Customer need, steps taken, current stage, open questions, timing, or a short summary…"
         />
       </label>
       {error && <p className="form-error">{error}</p>}
       <button className="primary-button" disabled={busy}>
-        {busy ? "Processing signal…" : "Create and qualify lead"}
+        {busy ? "Analyzing with AI…" : "Analyze and create lead"}
       </button>
     </form>
   );
