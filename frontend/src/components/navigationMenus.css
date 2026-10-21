@@ -54,13 +54,22 @@
 .navigation-menu-icon svg { width: 19px; height: 19px; }
 .navigation-menu-label { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .navigation-menu-item.is-active > .navigation-menu-trigger > .navigation-menu-label { font-weight: 650; }
-.navigation-menu-notification-dot {
-  width: 8px;
-  height: 8px;
+.navigation-menu-notification-count {
+  display: inline-flex;
+  min-width: 21px;
+  height: 20px;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
   border: 1px solid var(--surface);
-  border-radius: 50%;
-  background: var(--orange);
+  border-radius: 999px;
+  background: var(--green, #1e6b52);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .navigation-menu-disclosure {
@@ -255,12 +264,6 @@
   margin: 0;
 }
 .side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-label { display: none; }
-.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-notification-dot {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-}
-
 .navigation-menu-item.is-collapsed { grid-template-columns: 42px; justify-content: center; }
 .navigation-menu-item.is-collapsed .navigation-menu-trigger {
   width: 42px;
@@ -269,10 +272,15 @@
   padding: 0;
 }
 .navigation-menu-item.is-collapsed .navigation-menu-label { display: none; }
-.navigation-menu-item.is-collapsed .navigation-menu-notification-dot {
+.navigation-menu-item.is-collapsed .navigation-menu-notification-count {
   position: absolute;
-  top: 7px;
-  right: 7px;
+  right: 0;
+  bottom: 0;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 3px;
+  border-width: 2px;
+  font-size: 9px;
 }
 .navigation-menu-item.is-collapsed .navigation-menu-disclosure {
   position: absolute;

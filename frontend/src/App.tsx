@@ -496,8 +496,8 @@ function App() {
     () => new Set(unseenLeadIds),
     [unseenLeadIds],
   );
-  const hasUnseenManualReviewLead = useMemo(
-    () => data?.review?.items.some((lead) => unseenLeadIdSet.has(lead.id)) ?? false,
+  const unseenManualReviewLeadCount = useMemo(
+    () => data?.review?.items.filter((lead) => unseenLeadIdSet.has(lead.id)).length ?? 0,
     [data?.review?.items, unseenLeadIdSet],
   );
   const [leadRevision, setLeadRevision] = useState(0);
@@ -1347,13 +1347,15 @@ function App() {
                   navigationItemActive(item) || (item.id === "settings" && view === "icp")
                 }
                 activeChild={navigationActiveChild(item.id)}
-                notificationDot={
+                notificationCount={
                   item.id === "leads"
-                    ? unseenLeadIds.length > 0
-                    : item.id === "review" && hasUnseenManualReviewLead
+                    ? unseenLeadIds.length
+                    : item.id === "review" ? unseenManualReviewLeadCount : 0
                 }
                 notificationLabel={
-                  item.id === "review" ? "New leads for manual review" : "New leads"
+                  item.id === "review"
+                    ? `${unseenManualReviewLeadCount} new lead${unseenManualReviewLeadCount === 1 ? "" : "s"} for manual review`
+                    : `${unseenLeadIds.length} new lead${unseenLeadIds.length === 1 ? "" : "s"}`
                 }
                 onNavigate={(child) => navigateChild(item.id, child)}
               />
@@ -1423,13 +1425,15 @@ function App() {
                     active={active}
                     collapsed
                     activeChild={navigationActiveChild(item.id)}
-                    notificationDot={
+                    notificationCount={
                       item.id === "leads"
-                        ? unseenLeadIds.length > 0
-                        : item.id === "review" && hasUnseenManualReviewLead
+                        ? unseenLeadIds.length
+                        : item.id === "review" ? unseenManualReviewLeadCount : 0
                     }
                     notificationLabel={
-                      item.id === "review" ? "New leads for manual review" : "New leads"
+                      item.id === "review"
+                        ? `${unseenManualReviewLeadCount} new lead${unseenManualReviewLeadCount === 1 ? "" : "s"} for manual review`
+                        : `${unseenLeadIds.length} new lead${unseenLeadIds.length === 1 ? "" : "s"}`
                     }
                     onNavigate={(child) => navigateChild(item.id, child)}
                   />
@@ -1758,6 +1762,7 @@ function App() {
                   onTeam={() => navigate("team")}
                   onIcp={() => navigate("icp")}
                   canViewTeam={can(workspacePermissions, "members.view")}
+                  canManageWorkspace={can(workspacePermissions, "workspace.manage")}
                   canViewIcp={can(workspacePermissions, "icp.view")}
                   canViewRouting={can(workspacePermissions, "routing.view")}
                   canManageRouting={can(workspacePermissions, "routing.manage")}

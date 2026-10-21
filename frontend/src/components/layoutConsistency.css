@@ -849,6 +849,13 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) input:is([type=radio]
 }
 /* Lead records use the product palette rather than a separate legacy theme. */
 html[data-theme] .app-shell .intake-form :is(input, textarea, select) { background: var(--surface); border-color: var(--line-bright); font-size: var(--font-body); }
+.app-shell .intake-form .inquiry-context-hint {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
 html[data-theme] .ops-dialog.lead-drawer :is(.lead-story, .story-head, .story-section, .lead-drawer-toolbar, .lead-detail-navigation) { background: var(--surface); color: var(--text); }
 html[data-theme] .ops-dialog.lead-drawer :is(.fact, .signal, .score-contract > div, .delivery-grid > div, blockquote) { background: var(--surface-high); border-color: var(--line); color: var(--text); }
 html[data-theme] .ops-dialog.lead-drawer .story-section blockquote { font-size: 16px; line-height: 1.6; }
@@ -1118,4 +1125,137 @@ html[data-theme] .ops-dialog.lead-drawer .lead-story { background: transparent; 
     flex-direction: column;
   }
   .lead-confirmation-setting-actions { width: 100%; justify-content: space-between; }
+}
+
+/* Keep expanded provider controls in one readable, website-style settings layout. */
+.app-shell .integration-card:not(.is-collapsed) .provider-details {
+  width: min(100%, 1160px);
+  margin-inline: auto;
+  gap: 14px;
+}
+.app-shell .integration-card:not(.is-collapsed) .provider-details > p {
+  max-width: 86ch;
+  margin: 0;
+  line-height: 1.55;
+}
+.app-shell .integration-card:not(.is-collapsed) .provider-details > .integration-direction {
+  max-width: none;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+.app-shell .integration-card .connection-facts span {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--bg-deep));
+}
+.app-shell .integration-card .connection-facts b { overflow-wrap: anywhere; }
+.app-shell .integration-card .connection-state-path > div { color: var(--subtle); }
+.app-shell .integration-card .connection-state-path .complete,
+.app-shell .integration-card .connection-state-path .active { color: var(--green); }
+.app-shell .integration-card .connection-state-path i {
+  border-color: var(--line-bright);
+  background: var(--surface);
+}
+.app-shell .integration-card .connection-state-path b { background: var(--line); }
+.app-shell .integration-card .connection-state-path .complete i,
+.app-shell .integration-card .connection-state-path .complete b {
+  border-color: var(--green);
+  background: var(--green);
+}
+.app-shell .integration-card .connection-state-path .active i {
+  border-color: var(--green);
+  background: var(--surface);
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-connection-actions {
+  align-items: center;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg-deep));
+  box-shadow: var(--shadow);
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide > :is(strong, p, a) {
+  margin: 0;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide > .eyebrow {
+  color: var(--orange-hot);
+  font-size: 11px;
+  letter-spacing: .12em;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide > strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide > p {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide .card-actions {
+  margin-top: 0;
+}
+.app-shell .integration-card .card-actions > button {
+  min-height: 40px;
+  padding-inline: 13px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+) {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+}
+.app-shell .integration-card .lead-confirmation-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+}
+.lead-confirmation-setting-copy { gap: 6px; }
+.lead-confirmation-setting-copy p { max-width: 70ch; }
+.lead-confirmation-setting-actions {
+  width: auto;
+  justify-content: flex-end;
+}
+.lead-confirmation-setting-actions .email-automation-toggle {
+  min-width: 90px;
+  justify-content: center;
+}
+
+@media (max-width: 650px) {
+  .app-shell .integration-card:not(.is-collapsed) .provider-details { gap: 12px; }
+  .app-shell .integration-card:not(.is-collapsed) .integration-guide { padding: 14px; }
+  .app-shell .integration-card:not(.is-collapsed) .integration-connection-actions { padding: 10px; }
+  .app-shell .integration-card .lead-confirmation-setting {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .lead-confirmation-setting-actions {
+    width: auto;
+    justify-content: flex-start;
+  }
+  .app-shell .integration-card .connection-facts { grid-template-columns: minmax(0, 1fr); }
 }

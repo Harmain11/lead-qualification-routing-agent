@@ -1,0 +1,31 @@
+.workspace-business-profile { display: grid; gap: 14px; }
+.workspace-business-profile .panel-copy { margin: 0; max-width: 68ch; }
+.workspace-business-profile-form { display: grid; gap: 12px; }
+.workspace-business-profile-form label { display: grid; min-width: 0; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.workspace-business-profile-form label > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.workspace-business-profile-form label small { color: var(--subtle); font-size: 11px; font-weight: 450; }
+.workspace-business-profile-form input,
+.workspace-business-profile-form textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-bright);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.workspace-business-profile-form textarea { min-height: 74px; resize: vertical; line-height: 1.5; }
+.workspace-business-profile-form input:disabled,
+.workspace-business-profile-form textarea:disabled { cursor: not-allowed; opacity: .76; }
+.workspace-business-profile-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.workspace-business-profile-readonly { margin: 0; color: var(--muted); font-size: 12px; }
+.workspace-business-profile-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.workspace-business-profile-actions [role="status"] { color: var(--green); font-size: 12px; line-height: 1.45; }
+.workspace-business-profile-actions .primary-button { flex: none; }
+@media (max-width: 640px) {
+  .workspace-business-profile-row { grid-template-columns: minmax(0, 1fr); }
+  .workspace-business-profile-actions { align-items: stretch; flex-direction: column; }
+}

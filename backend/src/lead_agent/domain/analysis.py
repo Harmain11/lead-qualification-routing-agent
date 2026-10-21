@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lead_agent.domain.configuration import IcpConfig, ManualReviewConfig
 from lead_agent.domain.email import is_personal_email_address
 from lead_agent.domain.models import NormalizedLead
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 
 InformationKind = Literal["explicit", "inferred", "unknown"]
 FitStatus = Literal["match", "partial", "no_match", "unknown", "disqualified"]
@@ -120,7 +121,12 @@ class ReasoningProvider(Protocol):
     model_name: str
     prompt_version: str
 
-    def analyze(self, lead: NormalizedLead, icp: IcpConfig) -> ReasoningOutput:
+    def analyze(
+        self,
+        lead: NormalizedLead,
+        icp: IcpConfig,
+        business_profile: WorkspaceBusinessProfile | None = None,
+    ) -> ReasoningOutput:
         """Extract grounded context and ICP signals without selecting a final score."""
 
 

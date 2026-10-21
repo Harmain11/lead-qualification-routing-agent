@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
+    LeadFollowUpEmailORM,
     LeadORM,
     LeadOutcomeORM,
     PipelineEventORM,
@@ -30,6 +31,19 @@ SQL_BANDS = {"hot", "warm"}
 QUALIFIED_BANDS = {"hot", "warm", "needs_qualifying"}
 ACTIVE_OPPORTUNITY_STAGES = {"opportunity", "proposal", "negotiation"}
 CLOSED_STAGES = {"closed_won", "closed_lost"}
+SALES_PIPELINE_STAGES = (
+    ("new_lead", "New lead"),
+    ("contacted", "Contacted"),
+    ("follow_up_drafted", "Follow-up drafted"),
+    ("follow_up_sent", "Follow-up sent"),
+    ("responded", "Responded"),
+    ("meeting_scheduled", "Meeting scheduled"),
+    ("opportunity", "Opportunity"),
+    ("proposal_sent", "Proposal sent"),
+    ("negotiation", "Negotiation"),
+    ("closed_won", "Converted → Project or Sale"),
+    ("closed_lost", "Closed / lost"),
+)
 ENRICHMENT_FIELDS = (
     ("company_name", "Company"),
     ("job_title", "Job title"),
@@ -300,9 +314,97 @@ class AnalyticsService:
         return {
             "metadata": self.metadata(window),
             "stages": stages,
+            "sales_stages": self._sales_pipeline_stages(leads),
             "bands": self._band_counts(leads),
             "manual_review": len([lead for lead in leads if self._is_manual_review(lead)]),
         }
+
+    def _sales_pipeline_stages(self, leads: list[LeadORM]) -> list[dict[str, Any]]:
+        lead_ids = [lead.id for lead in leads]
+        current_stage = {lead.id: "new_lead" for lead in leads}
+        stage_rank = {stage: index for index, (stage, _) in enumerate(SALES_PIPELINE_STAGES)}
+        terminal_stages = {"closed_won", "closed_lost"}
+        for terminal in terminal_stages:
+            stage_rank[terminal] = len(SALES_PIPELINE_STAGES)
+
+        def advance(lead_id: UUID, candidate: str | None) -> None:
+            if candidate not in stage_rank:
+                return
+            current = current_stage[lead_id]
+            if current in terminal_stages:
+                return
+            if candidate in terminal_stages or stage_rank[candidate] > stage_rank[current]:
+                current_stage[lead_id] = candidate
+
+        if lead_ids:
+            progress_events = self.session.scalars(
+                select(PipelineEventORM)
+                .where(
+                    PipelineEventORM.workspace_id == self.workspace_id,
+                    PipelineEventORM.lead_id.in_(lead_ids),
+                    PipelineEventORM.stage.in_(("manual_progress", "meeting_scheduled")),
+                )
+                .order_by(PipelineEventORM.created_at.asc())
+            )
+            manual_stages = {
+                "contacted": "contacted",
+                "responded": "responded",
+                "meeting_scheduled": "meeting_scheduled",
+                "proposal_sent": "proposal_sent",
+            }
+            for event in progress_events:
+                raw_stage = (
+                    "meeting_scheduled"
+                    if event.stage == "meeting_scheduled"
+                    else str(event.details.get("stage") or event.status)
+                )
+                advance(event.lead_id, manual_stages.get(raw_stage))
+
+            follow_ups = self.session.scalars(
+                select(LeadFollowUpEmailORM).where(
+                    LeadFollowUpEmailORM.workspace_id == self.workspace_id,
+                    LeadFollowUpEmailORM.lead_id.in_(lead_ids),
+                    LeadFollowUpEmailORM.kind.like("ai_follow_up%"),
+                )
+            )
+            for follow_up in follow_ups:
+                if follow_up.status == "sent":
+                    advance(follow_up.lead_id, "follow_up_sent")
+                elif follow_up.status in {"draft", "sending", "delivery_uncertain"}:
+                    advance(follow_up.lead_id, "follow_up_drafted")
+
+            outcome_stages = {
+                "opportunity": "opportunity",
+                "proposal": "proposal_sent",
+                "negotiation": "negotiation",
+                "closed_won": "closed_won",
+                "closed_lost": "closed_lost",
+            }
+            for lead in leads:
+                if lead.outcome is not None:
+                    outcome_stage = outcome_stages.get(lead.outcome.pipeline_stage)
+                    if outcome_stage in terminal_stages:
+                        current_stage[lead.id] = outcome_stage
+                    else:
+                        advance(lead.id, outcome_stage)
+
+        stage_members: dict[str, list[LeadORM]] = {
+            stage: [] for stage, _ in SALES_PIPELINE_STAGES
+        }
+        for lead in leads:
+            stage_members[current_stage[lead.id]].append(lead)
+
+        return [
+            {
+                "stage": stage,
+                "label": label,
+                "count": len(items),
+                "value": None,
+                "leads": [self._lead_card(item) for item in items[:12]],
+            }
+            for stage, label in SALES_PIPELINE_STAGES
+            for items in [stage_members[stage]]
+        ]
 
     def revenue(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
         window = AnalyticsWindow.build(range_key)

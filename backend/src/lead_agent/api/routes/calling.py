@@ -28,7 +28,12 @@ from lead_agent.application.governance import (
 from lead_agent.domain.operations import StrictModel
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.communications import DIALERS, CommunicationsClient, phone
+from lead_agent.infrastructure.communications import (
+    DIALERS,
+    CommunicationsClient,
+    normalize_lead_phone,
+    phone,
+)
 from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import LeadORM, ProviderConnectionORM, RoutingDecisionORM
 from lead_agent.infrastructure.db.session import get_db
@@ -134,7 +139,7 @@ def _client(
 
 def _target(lead: LeadORM) -> str:
     try:
-        return phone(lead.phone or "")
+        return normalize_lead_phone(lead.phone or "", lead.geography)
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
 
@@ -818,12 +823,14 @@ def prepare_cloudtalk_lead_handoff(
         status_code = 429 if error.status_code == 429 else 502
         raise HTTPException(
             status_code,
-            "CloudTalk caller-ID assignments could not be verified. Check the connection before calling.",
+            "CloudTalk caller-ID assignments could not be verified. "
+            "Check the connection before calling.",
         ) from None
     except (ValueError, TypeError, AttributeError):
         raise HTTPException(
             502,
-            "CloudTalk caller-ID assignments could not be verified. Check the connection before calling.",
+            "CloudTalk caller-ID assignments could not be verified. "
+            "Check the connection before calling.",
         ) from None
     finally:
         client.close()

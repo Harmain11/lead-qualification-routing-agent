@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.application.email_templates import get_email_template, render_email_template
-from lead_agent.application.governance import assert_outreach_allowed
+from lead_agent.application.governance import assert_outreach_allowed, operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_confirmation_sources import lead_confirmation_source_key
 from lead_agent.application.manual_review import workspace_manual_review_config
@@ -29,6 +29,7 @@ from lead_agent.domain.configuration import IcpConfig, ManualReviewConfig, Routi
 from lead_agent.domain.intake import SourceEvent
 from lead_agent.domain.models import NormalizedLead, QualificationResult
 from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import find_hard_disqualifier, qualify_lead
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
@@ -294,11 +295,13 @@ def _context_analysis(
     routing: RoutingConfig,
     provider: ReasoningProvider | None,
     manual_review_config: ManualReviewConfig | None = None,
+    business_profile: WorkspaceBusinessProfile | None = None,
+    analyze_hard_disqualified: bool = False,
 ) -> LeadContextAnalysis:
     fallback = DeterministicReasoningProvider()
     review_config = manual_review_config or routing.manual_review
     disqualifier = find_hard_disqualifier(lead, icp)
-    if disqualifier:
+    if disqualifier and not analyze_hard_disqualified:
         output = fallback.analyze(lead, icp)
         code, _ = disqualifier
         grounded_icp = output.icp_evaluation.model_copy(update={"explicit_disqualifiers": [code]})
@@ -313,7 +316,12 @@ def _context_analysis(
 
     active_provider = provider or fallback
     try:
-        output = ReasoningOutput.model_validate(active_provider.analyze(lead, icp))
+        provider_output = (
+            active_provider.analyze(lead, icp, business_profile)
+            if business_profile and business_profile.has_context
+            else active_provider.analyze(lead, icp)
+        )
+        output = ReasoningOutput.model_validate(provider_output)
     except Exception as error:
         output = fallback.analyze(lead, icp)
         code = (
@@ -368,8 +376,18 @@ def _analyze_and_qualify(
     routing: RoutingConfig,
     provider: ReasoningProvider | None,
     manual_review_config: ManualReviewConfig | None = None,
+    business_profile: WorkspaceBusinessProfile | None = None,
+    analyze_hard_disqualified: bool = False,
 ) -> tuple[LeadContextAnalysis, QualificationResult]:
-    analysis = _context_analysis(lead, icp, routing, provider, manual_review_config)
+    analysis = _context_analysis(
+        lead,
+        icp,
+        routing,
+        provider,
+        manual_review_config,
+        business_profile,
+        analyze_hard_disqualified=analyze_hard_disqualified,
+    )
     result = qualify_lead(lead, icp, routing, analysis)
     summary = analysis.summary.model_copy(
         update={
@@ -402,10 +420,13 @@ def process_lead(
     provider: ReasoningProvider | None = None,
     notification_provider: NotificationProvider | None = None,
     workspace_id: UUID = DEFAULT_WORKSPACE_ID,
+    require_provider_success: bool = False,
+    analyze_hard_disqualified: bool = False,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     from lead_agent.application.governance import assert_residency
 
     assert_residency(session, workspace_id)
+    business_profile = operations_policy(session, workspace_id).business_profile
     resolved_icp = resolve_workspace_icp(session, workspace_id, icp)
     lead = normalize_lead(payload, uuid4())
     active_provider = provider or resolve_workspace_reasoning_provider(session, workspace_id)
@@ -413,8 +434,26 @@ def process_lead(
         session, workspace_id, routing.manual_review
     )
     analysis, result = _analyze_and_qualify(
-        lead, resolved_icp.configuration, routing, active_provider, review_config
+        lead,
+        resolved_icp.configuration,
+        routing,
+        active_provider,
+        review_config,
+        business_profile,
+        analyze_hard_disqualified=analyze_hard_disqualified,
     )
+    if require_provider_success and analysis.status == "provider_error":
+        if analysis.error_code == ReasoningProviderTimeout.code:
+            raise ReasoningProviderTimeout(
+                analysis.error_message or "Workspace reasoning provider timed out"
+            )
+        if analysis.error_code == ReasoningProviderUnavailable.code:
+            raise ReasoningProviderUnavailable(
+                analysis.error_message or "Workspace reasoning provider is unavailable"
+            )
+        raise ReasoningProviderError(
+            analysis.error_message or "Workspace reasoning provider failed"
+        )
     result = resolved_icp.trace_result(result)
     row = create_lead_with_result(
         session, lead, result, analysis=analysis, workspace_id=workspace_id
@@ -456,6 +495,7 @@ def process_source_event(
     from lead_agent.application.governance import assert_residency
 
     assert_residency(session, workspace_id)
+    business_profile = operations_policy(session, workspace_id).business_profile
     source_event = get_source_event(session, event.channel, event.external_id, workspace_id)
     if source_event and source_event.status in {"processed", "manual_review"}:
         existing_lead = source_event.lead
@@ -497,7 +537,12 @@ def process_source_event(
             session, workspace_id, routing.manual_review
         )
         analysis, result = _analyze_and_qualify(
-            lead, resolved_icp.configuration, routing, active_provider, review_config
+            lead,
+            resolved_icp.configuration,
+            routing,
+            active_provider,
+            review_config,
+            business_profile,
         )
         if effective_manual_review_reason:
             review_update: dict[str, Any] = {"requires_manual_review": True}
@@ -585,6 +630,7 @@ def reprocess_lead(
     from lead_agent.application.governance import assert_residency
 
     assert_residency(session, row.workspace_id)
+    business_profile = operations_policy(session, row.workspace_id).business_profile
     effective_manual_review_reason = manual_review_reason
     resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
     normalized = normalize_lead(payload, row.id)
@@ -593,7 +639,12 @@ def reprocess_lead(
         session, row.workspace_id, routing.manual_review
     )
     analysis, result = _analyze_and_qualify(
-        normalized, resolved_icp.configuration, routing, active_provider, review_config
+        normalized,
+        resolved_icp.configuration,
+        routing,
+        active_provider,
+        review_config,
+        business_profile,
     )
     if effective_manual_review_reason:
         review_update: dict[str, Any] = {"requires_manual_review": True}

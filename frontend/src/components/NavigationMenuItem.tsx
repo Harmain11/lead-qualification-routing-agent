@@ -21,7 +21,7 @@ export type NavigationMenuItemProps = {
   activeChild?: string;
   collapsed?: boolean;
   enabled?: boolean;
-  notificationDot?: boolean;
+  notificationCount?: number;
   notificationLabel?: string;
   onNavigate: (childId?: string) => void;
 };
@@ -33,12 +33,15 @@ export function NavigationMenuItem({
   activeChild,
   collapsed = false,
   enabled = true,
-  notificationDot = false,
+  notificationCount = 0,
   notificationLabel = "New activity",
   onNavigate,
 }: NavigationMenuItemProps) {
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
+  const hasNotification = notificationCount > 0;
+  const visibleNotificationCount =
+    notificationCount > 99 ? "99+" : String(notificationCount);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -282,12 +285,12 @@ export function NavigationMenuItem({
         onClick={() => { setPinnedOpen(false); setFocused(false); setHovered(false); onNavigate(); }}
         aria-current={active ? "page" : undefined}
         aria-label={
-          collapsed || notificationDot
-            ? `${item.label}${notificationDot ? `, ${notificationLabel}` : ""}`
+          collapsed || hasNotification
+            ? `${item.label}${hasNotification ? `, ${notificationLabel}` : ""}`
             : undefined
         }
         title={
-          notificationDot
+          hasNotification
             ? `${item.label} — ${notificationLabel}`
             : item.label
         }
@@ -296,8 +299,10 @@ export function NavigationMenuItem({
         <span className="navigation-menu-label">
           {item.label}
         </span>
-        {notificationDot && (
-          <span className="navigation-menu-notification-dot" aria-hidden="true" />
+        {hasNotification && (
+          <span className="navigation-menu-notification-count" aria-hidden="true">
+            {visibleNotificationCount}
+          </span>
         )}
       </button>
       {hasChildren && (

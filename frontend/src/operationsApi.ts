@@ -33,6 +33,15 @@ export type Capacity = {
   available: boolean;
   available_until: string | null;
 };
+export type WorkspaceBusinessProfile = {
+  business_name: string;
+  alternate_names: string[];
+  website: string;
+  email_domains: string[];
+  description: string;
+  products_services: string;
+  lead_distinction_notes: string;
+};
 export type Policy = {
   territories: Territory[];
   capacity: Capacity[];
@@ -54,6 +63,7 @@ export type Policy = {
   brand_accent: string;
   custom_domain: string | null;
   monthly_quota_usd: number | null;
+  business_profile: WorkspaceBusinessProfile;
 };
 export type PolicyResponse = {
   configuration: Policy;

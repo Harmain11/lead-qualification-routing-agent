@@ -23,9 +23,12 @@
 - [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
 - [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
 - [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
+- [Manual lead AI context](manual-lead-ai-context.md) — Require successful workspace AI analysis; treat inquiry text as original or process summary while keeping qualification deterministic.
 - [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; new leads use per-lead/tab dots, a bell inbox, and one toast when first observed.
 - [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.
 - [Manual direct dialing](direct-dial-policy.md) — Keep direct calls unlinked until explicitly added; an admin must grant Dialer access per member, and consent checks still apply.
 - [Workspace review settings](workspace-manual-review-settings.md) — Keep analysis review criteria separate from provider import approvals; existing review decisions remain unchanged when criteria change.
 - [Alembic branch merges](alembic-branch-merges.md) — Merge concurrent migration heads explicitly and keep revision IDs within the database version column's 32-character limit.
 - [Analytics metric integrity](analytics-metric-integrity.md) — Use recorded workspace data only; show missing inputs as untracked instead of estimating values.
+- [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
+- [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.

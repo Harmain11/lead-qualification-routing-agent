@@ -32,6 +32,7 @@ from lead_agent.domain.gmail import (
     GmailProspectCandidate,
 )
 from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationDelivery, NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -503,9 +504,9 @@ def test_gmail_special_folders_include_spam_and_trash_when_requested() -> None:
 
 def test_gmail_outbound_provider_sends_cc_bcc_rich_text_and_attachments() -> None:
     import base64
+    import json
     from email import message_from_bytes
     from email.policy import default
-    import json
 
     sent_messages = []
 
@@ -841,7 +842,8 @@ def test_gmail_ai_negative_excludes_message_even_if_heuristic_candidate() -> Non
     provider = GmailInboundProvider(
         uuid4(), "access", "inbox@example.test",
         lead_extractor=lambda **_kwargs: GmailLeadExtraction(
-            is_genuine_inquiry=False, reason="Automated update, no buying intent."
+            is_genuine_inquiry=False,
+            reason="Routine vendor marketing email sent to our workspace.",
         ),
     )
     record = ExternalCrmRecord(
@@ -856,6 +858,58 @@ def test_gmail_ai_negative_excludes_message_even_if_heuristic_candidate() -> Non
     with pytest.raises(ValueError, match="ai_classified_not_a_genuine_inquiry"):
         provider.normalize_record(record)
     assert record.values["gmail_ai_method"] == "openai"
+
+
+def test_gmail_business_profile_reaches_extractor_and_marketing_is_not_created_as_lead() -> None:
+    profile = WorkspaceBusinessProfile(
+        business_name="Corral Systems",
+        alternate_names=["Corral"],
+        website="https://corral.example",
+        email_domains=["corral.example"],
+        description="CRM and sales operations software.",
+    )
+    observed: dict[str, object] = {}
+
+    def classify(**kwargs: object) -> GmailLeadExtraction:
+        observed.update(kwargs)
+        return GmailLeadExtraction(
+            is_genuine_inquiry=False,
+            reason="Routine vendor marketing email sent to our workspace.",
+        )
+
+    provider = GmailInboundProvider(
+        uuid4(),
+        "access",
+        "inbox@corral.example",
+        lead_extractor=classify,
+        business_profile=profile,
+    )
+    record = ExternalCrmRecord(
+        provider="gmail",
+        object_type="message",
+        record_id="routine-marketing",
+        values={
+            "headers": {
+                "from": "Vendor Sales <sales@vendor.example>",
+                "subject": "Pricing request",
+            },
+            "body": "We sell a marketing platform and would like to present a demo.",
+        },
+    )
+
+    with pytest.raises(ValueError, match="ai_classified_not_a_genuine_inquiry"):
+        provider.normalize_record(record)
+
+    extractor_headers = observed["headers"]
+    assert isinstance(extractor_headers, dict)
+    assert json.loads(extractor_headers["workspace-business-profile"]) == (
+        profile.model_dump(mode="json")
+    )
+    assert "corral.example" in extractor_headers["internal-domains"].split(",")
+    assert {"Corral Systems", "Corral"}.issubset(
+        set(extractor_headers["internal-company-names"].split(","))
+    )
+    assert record.values["gmail_ai_reason"] == "not_a_genuine_inquiry"
 
 
 def test_gmail_openai_failure_skips_message_with_auditable_reason() -> None:

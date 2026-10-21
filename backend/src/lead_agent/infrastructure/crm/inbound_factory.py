@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lead_agent.application.governance import operations_policy
 from lead_agent.domain.crm_inbound import CrmInboundProvider
 from lead_agent.domain.integrations import SecretStore
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -108,6 +109,8 @@ class WorkspaceInboundCrmProviderResolver:
                     }
                 ),
             }
+            business_profile = operations_policy(session, workspace_id).business_profile
+            internal_domains.update(business_profile.email_domains)
             configured_domains = (
                 metadata.get("internal_domains", []) if isinstance(metadata, dict) else []
             )
@@ -142,6 +145,7 @@ class WorkspaceInboundCrmProviderResolver:
                 ai_fallback_reason=fallback_reason or "workspace_openai_extractor_unavailable",
                 internal_domains=internal_domains,
                 internal_emails=member_emails,
+                business_profile=business_profile,
             )
         if resolved.provider == "outlook":
             connection = session.get(ProviderConnectionORM, resolved.connection_id)
