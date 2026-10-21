@@ -697,6 +697,90 @@ def test_company_research_citations_and_stale_review(ops, monkeypatch):
     )
 
 
+def test_workspace_business_profile_analysis_returns_cited_suggestions_without_saving(
+    ops, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from lead_agent.application import intelligence
+    from lead_agent.application.governance import operations_policy
+
+    session, client, workspace, *_ = ops
+    website = "https://acme.test"
+    page = {
+        "url": website,
+        "text": "Acme builds sales software and workflow tools. Contact sales at hello@acme.test.",
+    }
+    facts = [
+        {
+            "field": "business_name",
+            "value": "Acme",
+            "source": website,
+            "excerpt": "Acme builds sales software",
+        },
+        {
+            "field": "products_services",
+            "value": "Sales software",
+            "source": website,
+            "excerpt": "builds sales software",
+        },
+        {
+            "field": "products_services",
+            "value": "Workflow tools",
+            "source": website,
+            "excerpt": "workflow tools",
+        },
+        {
+            "field": "email_domains",
+            "value": "acme.test",
+            "source": website,
+            "excerpt": "hello@acme.test",
+        },
+    ]
+    monkeypatch.setattr(intelligence, "fetch_company_page", lambda _: page)
+    monkeypatch.setattr(
+        intelligence,
+        "resolve_workspace_reasoning_provider",
+        lambda *_: SimpleNamespace(
+            summarize_evidence=lambda *_: {
+                "summary": "Acme builds sales software and workflow tools.",
+                "recommendations": [],
+                "facts": facts,
+            }
+        ),
+    )
+
+    response = client.post(
+        "/v1/ops/business-profile/analyze", json={"website": website}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["suggestions"]["business_name"] == "Acme"
+    assert payload["suggestions"]["products_services"] == "Sales software\nWorkflow tools"
+    assert payload["suggestions"]["email_domains"] == ["acme.test"]
+    assert payload["suggestions"]["description"] == (
+        "Acme builds sales software and workflow tools."
+    )
+    assert payload["evidence"] == facts
+    assert operations_policy(session, workspace.workspace_id).business_profile.business_name == ""
+
+    facts[0]["excerpt"] = "unsupported"
+    invalid = client.post(
+        "/v1/ops/business-profile/analyze", json={"website": website}
+    )
+    assert invalid.status_code == 422
+    assert "unsupported citation" in invalid.json()["detail"]
+
+
+def test_workspace_business_profile_analysis_rejects_unsafe_website(ops):
+    _, client, *_ = ops
+    response = client.post(
+        "/v1/ops/business-profile/analyze", json={"website": "http://example.com"}
+    )
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize(
     "address", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "::ffff:127.0.0.1"]
 )
