@@ -297,12 +297,109 @@ def _context_analysis(
     manual_review_config: ManualReviewConfig | None = None,
     business_profile: WorkspaceBusinessProfile | None = None,
     analyze_hard_disqualified: bool = False,
+    icp_enabled: bool = True,
 ) -> LeadContextAnalysis:
     fallback = DeterministicReasoningProvider()
     review_config = manual_review_config or routing.manual_review
-    disqualifier = find_hard_disqualifier(lead, icp)
+    analysis_icp = icp
+    if not icp_enabled:
+        # Give reasoning the generic urgency/engagement rubric, not the
+        # built-in profile's target-market or exclusion criteria.
+        scoring = icp.scoring.model_copy(
+            update={
+                "weights": {
+                    "intent_urgency": icp.scoring.weights["intent_urgency"],
+                    "engagement_quality": icp.scoring.weights["engagement_quality"],
+                },
+                "component_points": {
+                    key: value
+                    for key, value in icp.scoring.component_points.items()
+                    if key != "icp_fit"
+                },
+            }
+        )
+        analysis_icp = icp.model_copy(
+            update={
+                "profile_name": "No custom ICP published",
+                "profile_version": "not_configured",
+                "target_industries": [],
+                "excluded_industries": [],
+                "target_geographies": [],
+                "target_business_types": [],
+                "strategic_accounts": [],
+                "company_size": icp.company_size.model_copy(
+                    update={
+                        "employees_min": 0,
+                        "employees_max": 0,
+                        "annual_revenue_min": 0,
+                        "annual_revenue_max": 0,
+                    }
+                ),
+                "buyer_roles": {},
+                "buyer": icp.buyer.model_copy(
+                    update={
+                        "job_titles": [],
+                        "seniorities": [],
+                        "departments": [],
+                        "decision_maker_indicators": [],
+                        "excluded_personas": [],
+                    }
+                ),
+                "budget": icp.budget.model_copy(update={"minimum": 0, "typical": 0}),
+                "commercial": icp.commercial.model_copy(
+                    update={"service_interests": [], "purchasing_timelines": []}
+                ),
+                "technology": icp.technology.model_copy(
+                    update={"technology_stack": [], "platform_requirements": []}
+                ),
+                "fit_signals": icp.fit_signals.model_copy(
+                    update={"required": [], "preferred": [], "exclusions": []}
+                ),
+                "pain_points": [],
+                "disqualifiers": [],
+                "scoring": scoring,
+            }
+        )
+    disqualifier = find_hard_disqualifier(lead, icp) if icp_enabled else None
+
+    def clear_unconfigured_icp(output: ReasoningOutput) -> ReasoningOutput:
+        if icp_enabled:
+            return output
+        evaluation = output.icp_evaluation
+        criterion_fields = (
+            "industry_fit",
+            "company_size_fit",
+            "geography_fit",
+            "buyer_role_fit",
+            "budget_fit",
+            "pain_point_relevance",
+        )
+        cleared = {
+            name: getattr(evaluation, name).model_copy(
+                update={
+                    "status": "unknown",
+                    "confidence": 0,
+                    "rationale": "Not evaluated until a custom workspace ICP is published.",
+                    "evidence": [],
+                }
+            )
+            for name in criterion_fields
+        }
+        return output.model_copy(
+            update={
+                "icp_evaluation": evaluation.model_copy(
+                    update={
+                        **cleared,
+                        "profile_name": "No custom ICP published",
+                        "profile_version": "not_configured",
+                        "explicit_disqualifiers": [],
+                    }
+                )
+            }
+        )
+
     if disqualifier and not analyze_hard_disqualified:
-        output = fallback.analyze(lead, icp)
+        output = fallback.analyze(lead, analysis_icp)
         code, _ = disqualifier
         grounded_icp = output.icp_evaluation.model_copy(update={"explicit_disqualifiers": [code]})
         return LeadContextAnalysis(
@@ -317,13 +414,13 @@ def _context_analysis(
     active_provider = provider or fallback
     try:
         provider_output = (
-            active_provider.analyze(lead, icp, business_profile)
+            active_provider.analyze(lead, analysis_icp, business_profile)
             if business_profile and business_profile.has_context
-            else active_provider.analyze(lead, icp)
+            else active_provider.analyze(lead, analysis_icp)
         )
-        output = ReasoningOutput.model_validate(provider_output)
+        output = clear_unconfigured_icp(ReasoningOutput.model_validate(provider_output))
     except Exception as error:
-        output = fallback.analyze(lead, icp)
+        output = clear_unconfigured_icp(fallback.analyze(lead, analysis_icp))
         code = (
             error.code if isinstance(error, ReasoningProviderError) else "invalid_provider_output"
         )
@@ -378,6 +475,7 @@ def _analyze_and_qualify(
     manual_review_config: ManualReviewConfig | None = None,
     business_profile: WorkspaceBusinessProfile | None = None,
     analyze_hard_disqualified: bool = False,
+    icp_enabled: bool = True,
 ) -> tuple[LeadContextAnalysis, QualificationResult]:
     analysis = _context_analysis(
         lead,
@@ -387,8 +485,9 @@ def _analyze_and_qualify(
         manual_review_config,
         business_profile,
         analyze_hard_disqualified=analyze_hard_disqualified,
+        icp_enabled=icp_enabled,
     )
-    result = qualify_lead(lead, icp, routing, analysis)
+    result = qualify_lead(lead, icp, routing, analysis, include_icp=icp_enabled)
     summary = analysis.summary.model_copy(
         update={
             "qualification_result": (
@@ -441,6 +540,7 @@ def process_lead(
         review_config,
         business_profile,
         analyze_hard_disqualified=analyze_hard_disqualified,
+        icp_enabled=resolved_icp.source == "workspace",
     )
     if require_provider_success and analysis.status == "provider_error":
         if analysis.error_code == ReasoningProviderTimeout.code:
@@ -543,6 +643,7 @@ def process_source_event(
             active_provider,
             review_config,
             business_profile,
+            icp_enabled=resolved_icp.source == "workspace",
         )
         if effective_manual_review_reason:
             review_update: dict[str, Any] = {"requires_manual_review": True}
@@ -645,6 +746,7 @@ def reprocess_lead(
         active_provider,
         review_config,
         business_profile,
+        icp_enabled=resolved_icp.source == "workspace",
     )
     if effective_manual_review_reason:
         review_update: dict[str, Any] = {"requires_manual_review": True}

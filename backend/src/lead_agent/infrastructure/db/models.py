@@ -722,6 +722,9 @@ class LeadORM(Base):
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_generated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -907,6 +910,9 @@ class RoutingDecisionORM(Base):
     assigned_queue: Mapped[str] = mapped_column(String(128), nullable=False)
     assigned_rep_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     assigned_rep_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_manually_assigned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     routing_reason: Mapped[str] = mapped_column(Text, nullable=False)
     matched_rules: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     action_plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -953,6 +959,40 @@ class NotificationORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     routing_decision: Mapped[RoutingDecisionORM] = relationship(back_populates="notifications")
+
+
+class AssignmentNotificationORM(Base):
+    __tablename__ = "assignment_notifications"
+    __table_args__ = (
+        Index(
+            "ix_assignment_notifications_recipient_created",
+            "workspace_id",
+            "recipient_user_id",
+            "created_at",
+        ),
+        Index(
+            "ix_assignment_notifications_recipient_unread",
+            "workspace_id",
+            "recipient_user_id",
+            "read_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    assigned_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PipelineEventORM(Base):

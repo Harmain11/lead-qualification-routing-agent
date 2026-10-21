@@ -14,3 +14,9 @@ RingCentral's embedded phone requires a separately registered Embeddable applica
 **Why:** the user chose a single global embedded phone while retaining Corral's safer call flow for providers without a supported embedded workspace.
 
 **How to apply:** Preserve the provider split and single-visible-phone behavior when changing dialer setup. Keep the dock closed until explicit user action, keep browser authentication user-scoped, never forward server API credentials into an iframe, and require the registered RingCentral embed app before enabling its live iframe.
+
+When an embedded phone is selected, do not repeat its phone card or phone workflow instructions in the Dialer Overview; the selected phone is available in the global dock. Keep the DirectDialer card for providers that use Corral's own call flow, and preserve the CloudTalk keypad safety warning in the global phone dock.
+
+**Why:** the user asked to remove the CloudTalk Phone section from the Dialer tab without removing the floating phone that is available throughout Corral.
+
+**How to apply:** Hide the embedded-phone panel and its redundant overview cards when CloudTalk, Aircall, or an enabled RingCentral embed is selected. Do not remove call history or transcript analysis from their own tabs.

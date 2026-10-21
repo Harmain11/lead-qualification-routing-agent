@@ -7,12 +7,34 @@ import {
 import type { GmailComposerSeed } from "./EmailComposer";
 import { EmailComposer } from "./EmailComposer";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
+import "../views/emailWorkspace.css";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
 function stringDetail(details: Record<string, unknown>, key: string): string {
   const value = details[key];
   return typeof value === "string" ? value : "";
+}
+
+function LeadEmailEmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return <div className="email-empty-state lead-email-empty-state" role="status">
+    <span className="lead-email-empty-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M3.75 6.75h16.5v10.5H3.75z" />
+        <path d="m4.5 7.5 7.5 6 7.5-6" />
+      </svg>
+    </span>
+    <div className="lead-email-empty-copy">
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </div>
+  </div>;
 }
 
 export function LeadEmailPanel({
@@ -64,6 +86,7 @@ export function LeadEmailPanel({
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setEvents([]);
     getLeadPipelineHistory(lead.id, controller.signal).then((rows) => {
       if (!controller.signal.aborted) {
         setEvents(rows.filter((event) => event.stage === "gmail_message"));
@@ -136,10 +159,10 @@ export function LeadEmailPanel({
 
   return <section className="lead-email-panel">
     <header className="lead-email-heading">
-      <div><span className="eyebrow">Email conversation</span><h2>{lead.full_name}</h2><p>Messages stay linked to their Gmail mailbox. Refresh imports new messages and re-checks lead qualification.</p></div>
+      <div><span className="eyebrow">Email conversation</span><h2>{lead.full_name}</h2><p>Review this lead’s Gmail history or start a new conversation.</p></div>
       <div className="lead-email-actions">
         {onAskAgent && <button className="secondary-button" type="button" onClick={onAskAgent}>Ask Corral</button>}
-        <button className="secondary-button" type="button" onClick={() => {
+        <button className="primary-button" type="button" onClick={() => {
           setComposeSeed({ recipient: lead.email || "" });
           setComposerRevision((current) => current + 1);
         }}>Compose</button>
@@ -148,8 +171,11 @@ export function LeadEmailPanel({
         </button>
       </div>
     </header>
-    {accountsLoading && <p className="email-status">Loading connected Gmail accounts…</p>}
-    {!accountsLoading && activeAccounts.length === 0 && <div className="email-empty-state"><strong>No verified Gmail account is available.</strong><span>Connect a Gmail mailbox in Integrations to view and refresh lead conversations.</span></div>}
+    {accountsLoading && <p className="email-status lead-email-status" role="status">Checking connected Gmail accounts…</p>}
+    {!accountsLoading && !loading && !error && activeAccounts.length === 0 && orderedThreads.length === 0 && <LeadEmailEmptyState
+      title="No verified Gmail mailbox"
+      description="Connect a verified Gmail mailbox in Integrations to refresh and view conversations for this lead."
+    />}
     {error && <div className="notice" role="alert">{error}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
     {composeSeed && <EmailComposer
@@ -164,10 +190,13 @@ export function LeadEmailPanel({
         setComposeSeed(null);
       }}
     />}
-    {loading && <p className="email-status">Loading lead email history…</p>}
-    {!loading && orderedThreads.length === 0 && activeAccounts.length > 0 && <div className="email-empty-state"><strong>No email has been recorded for this lead.</strong><span>Use Refresh from Gmail to check connected inboxes, or compose a new message.</span></div>}
+    {!accountsLoading && loading && <p className="email-status lead-email-status" role="status">Loading this lead’s email history…</p>}
+    {!accountsLoading && !loading && !error && orderedThreads.length === 0 && activeAccounts.length > 0 && <LeadEmailEmptyState
+      title="No conversation linked yet"
+      description="Refresh Gmail to check connected inboxes, or compose a new email to start this conversation."
+    />}
     <div className="lead-email-thread-list">
-      {orderedThreads.map(({ threadId, messages }) => {
+      {!loading && orderedThreads.map(({ threadId, messages }) => {
         const subject = stringDetail(messages[messages.length - 1]?.details ?? {}, "subject") || "(no subject)";
         return <section className="lead-email-thread" key={threadId}>
           <header><div><span className="eyebrow">Gmail thread</span><h3>{subject}</h3></div><span>{messages.length} {messages.length === 1 ? "email" : "emails"}</span></header>

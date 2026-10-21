@@ -179,6 +179,17 @@
   color: #765618;
 }
 
+.dialer-phone-cloudtalk-safety-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(138, 91, 16, 0.16);
+  background: #fff8e9;
+  color: #765618;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .dialer-phone-alert-note-icon {
   display: grid;
   width: 18px;

@@ -14,6 +14,7 @@ import type {
   IntegrationCard,
   LeadApprovalPolicy,
   Lead,
+  LeadAssignmentOption,
   LeadPipelineEvent,
   LeadProgressResult,
   GmailConversationSyncResult,
@@ -69,7 +70,7 @@ export class ApiError extends Error {
 }
 
 export type LeadAssistantAction = {
-  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "open_email" | "open_meetings" | "open_closing" | "open_history";
+  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "open_email" | "open_meetings" | "open_closing" | "open_history";
   profile_updates: Partial<Pick<Lead, "full_name" | "email" | "phone" | "job_title" | "company_name" | "industry" | "employee_count" | "annual_revenue" | "geography" | "budget" | "product_or_service">>;
   clear_fields: string[];
   note: string | null;
@@ -86,6 +87,53 @@ export type LeadAssistantAction = {
 export type LeadAssistantReply = {
   reply: string;
   action: LeadAssistantAction;
+};
+
+export type WorkspaceAssistantArea =
+  | "analytics"
+  | "automations"
+  | "icp"
+  | "settings"
+  | "integrations"
+  | "team";
+
+export type AssignmentNotification = {
+  id: string;
+  lead_id: string;
+  lead_name: string;
+  company_name: string;
+  created_at: string;
+  read_at: string | null;
+};
+
+export type WorkspaceAssistantAction = {
+  kind:
+    | "none"
+    | "open_module"
+    | "set_automation_active"
+    | "create_icp_draft"
+    | "update_routing_config"
+    | "set_lead_confirmation"
+    | "disconnect_integration"
+    | "invite_member"
+    | "update_member_role"
+    | "update_member_permissions"
+    | "suspend_member"
+    | "reactivate_member";
+  area: WorkspaceAssistantArea | null;
+  title: string;
+  summary: string;
+  target_id: string | null;
+  target_label: string | null;
+  email: string | null;
+  role: string | null;
+  enabled: boolean | null;
+  payload_json: string | null;
+};
+
+export type WorkspaceAssistantReply = {
+  reply: string;
+  action: WorkspaceAssistantAction;
 };
 
 export function setActiveWorkspace(workspaceId: string) {
@@ -542,6 +590,36 @@ export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead>
   });
 }
 
+export function updateLeadGenerated(
+  leadId: string,
+  isGenerated: boolean,
+): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}/generated`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_generated: isGenerated }),
+  });
+}
+
+export function updateLeadAssignment(
+  leadId: string,
+  assignedRepId: string | null,
+): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}/assignment`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assigned_rep_id: assignedRepId }),
+  });
+}
+
+export function listLeadAssignmentOptions(
+  signal?: AbortSignal,
+): Promise<LeadAssignmentOption[]> {
+  return jsonRequest<LeadAssignmentOption[]>("/v1/leads/assignment-options", {
+    signal,
+  });
+}
+
 export function updateLeadProfile(
   leadId: string,
   updates: LeadAssistantAction["profile_updates"],
@@ -553,6 +631,12 @@ export function updateLeadProfile(
   });
 }
 
+export function reevaluateLead(leadId: string): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}/reevaluate`, {
+    method: "POST",
+  });
+}
+
 export function chatWithLeadAssistant(
   leadId: string,
   messages: Array<{ role: "user" | "assistant"; content: string }>,
@@ -561,6 +645,17 @@ export function chatWithLeadAssistant(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
+  });
+}
+
+export function chatWithWorkspaceAssistant(
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  context: Record<string, unknown> = {},
+): Promise<WorkspaceAssistantReply> {
+  return jsonRequest<WorkspaceAssistantReply>("/v1/agent/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages, context }),
   });
 }
 
@@ -844,6 +939,15 @@ export const getManualReview = (range: TimeRange, signal?: AbortSignal) => analy
 export const getExtendedAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ExtendedAnalytics>("extended", range, signal);
 export const getAdvancedAnalytics = (months = 6, signal?: AbortSignal) =>
   jsonRequest<AdvancedAnalytics>(`/v1/intelligence/analytics?months=${months}`, { signal });
+
+export const listAssignmentNotifications = (signal?: AbortSignal) =>
+  jsonRequest<AssignmentNotification[]>("/v1/notifications/assignments", { signal });
+
+export const markAssignmentNotificationRead = (id: string) =>
+  jsonRequest<AssignmentNotification>(
+    `/v1/notifications/assignments/${encodeURIComponent(id)}/read`,
+    { method: "PATCH" },
+  );
 
 export function listMembers(signal?: AbortSignal): Promise<WorkspaceMember[]> {
   return jsonRequest<WorkspaceMember[]>("/v1/members", { signal });

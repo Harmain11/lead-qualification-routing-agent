@@ -85,11 +85,23 @@
 .gmail-account-row > div { display: grid; gap: 3px; min-width: 0; }
 .gmail-account-row strong { overflow-wrap: anywhere; font-size: 12px; }
 .gmail-account-row small { color: var(--muted); font-size: 10px; }
-.lead-email-panel { display: grid; gap: 14px; padding: 18px; }
-.lead-email-heading { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
-.lead-email-heading h2 { margin: 4px 0; font-size: 18px; }
-.lead-email-heading p { margin: 0; color: var(--muted); font-size: 12px; }
-.lead-email-actions { display: flex; gap: 8px; }
+.lead-email-panel { display: grid; width: 100%; gap: 16px; padding: clamp(16px, 2vw, 22px); }
+.lead-email-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: clamp(16px, 2vw, 24px); }
+.lead-email-heading > div:first-child { flex: 1 1 auto; min-width: 0; }
+.lead-email-heading h2 { margin: 5px 0 4px; font-size: 20px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.lead-email-heading p { max-width: 650px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.lead-email-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.lead-email-actions .secondary-button { min-height: 40px; margin: 0; padding-inline: 13px; border-color: var(--line-bright); background: var(--surface); color: var(--text); box-shadow: none; white-space: nowrap; }
+.lead-email-actions .secondary-button:hover { border-color: var(--green); background: var(--surface-soft); color: var(--text); transform: none; }
+.lead-email-actions .primary-button { min-height: 40px; margin: 0; padding-inline: 15px; border-color: var(--green); background: var(--green); color: #fff; box-shadow: none; white-space: nowrap; }
+.lead-email-actions .primary-button:hover { border-color: var(--green); background: var(--green); box-shadow: none; transform: none; filter: brightness(.94); }
+.lead-email-status { min-height: 56px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); line-height: 1.5; }
+.lead-email-empty-state { min-height: 112px; grid-template-columns: 40px minmax(0, 1fr); align-items: center; justify-items: stretch; gap: 14px; padding: 18px; background: color-mix(in srgb, var(--surface-high) 45%, var(--surface-solid)); }
+.lead-email-empty-icon { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--blue-line); border-radius: 11px; background: var(--surface-solid); color: var(--green); }
+.lead-email-empty-icon svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.lead-email-empty-copy { display: grid; gap: 5px; min-width: 0; }
+.lead-email-empty-copy strong { color: var(--text); font-size: 14px; }
+.lead-email-empty-copy span { color: var(--muted); font-size: 12px; line-height: 1.55; }
 .lead-email-thread-list { display: grid; gap: 10px; }
 .lead-email-thread { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .lead-email-thread > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -118,4 +130,6 @@
   .email-message-list { max-height: 420px; overflow: auto; }
   .email-composer-heading { align-items: start; flex-direction: column; }
   .lead-email-actions { flex-wrap: wrap; }
+  .lead-email-heading { align-items: stretch; }
+  .lead-email-actions { flex: 0 1 auto; justify-content: flex-start; }
 }

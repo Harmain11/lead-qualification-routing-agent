@@ -113,6 +113,28 @@ def test_hard_disqualifier_short_circuits_scoring(icp, routing) -> None:
     assert all("hard disqualifier" in reason.lower() for reason in result.rationale[1:4])
 
 
+def test_unconfigured_icp_is_skipped_and_remaining_score_is_normalized(icp, routing) -> None:
+    lead = make_lead(
+        job_title="Student",
+        product_or_service="School project",
+        message="I need help with homework for a school project.",
+    )
+
+    result = qualify_lead(lead, icp, routing, include_icp=False)
+
+    assert result.hard_disqualified is False
+    assert "icp_fit" not in result.component_scores
+    assert {line.component for line in result.score_breakdown} == {
+        "intent_urgency",
+        "engagement_quality",
+    }
+    assert sum(line.max_points for line in result.score_breakdown) == 60
+    assert result.total_score == round(
+        sum(line.points for line in result.score_breakdown) * 100 / 60
+    )
+    assert any("no published custom ICP" in reason for reason in result.rationale)
+
+
 def test_missing_manual_details_do_not_count_as_contact_completeness(icp, routing) -> None:
     result = qualify_lead(
         make_lead(

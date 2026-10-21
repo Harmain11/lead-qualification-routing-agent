@@ -246,6 +246,13 @@ export function DialerView({
       }))),
     [dialers],
   );
+  const selectedDialer = verifiedDialers.find(
+    (connection) => connection.id === preferredDialerId,
+  );
+  const embeddedPhoneSelected =
+    selectedDialer?.provider === "cloudtalk" ||
+    selectedDialer?.provider === "aircall" ||
+    (selectedDialer?.provider === "ringcentral" && ringCentralEmbedReady);
   const potentialLeadCount = activity?.records.filter((record) => assessLeadPotential(record).label === "Potential lead").length ?? 0;
 
   return (
@@ -387,22 +394,26 @@ export function DialerView({
                 </>
               )}
             </section>
-            <DirectDialer
-              connections={verifiedDialers}
-              canCall={canCall}
-              canViewLeads={canViewLeads}
-              canEditLeads={canEditLeads}
-              onOpenLead={onOpenLead}
-              preferredConnectionId={preferredDialerId}
-              onPreferredConnectionChange={onPreferredDialerChange}
-              phoneCallActive={dialerCallActive}
-              ringCentralEmbedReady={ringCentralEmbedReady}
-            />
-            <section className="dialer-workflow-grid">
-              <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Corral-started calls are placed individually with consent and permission checks. Calls started from CloudTalk Phone’s own keypad do not pass through those checks.</p></div></article>
-              <article><span className="dialer-step">02</span><div><h3>Sync provider activity</h3><p>Import status, duration, recording links and transcripts from the connected provider.</p></div></article>
-              <article><span className="dialer-step">03</span><div><h3>Review the conversation</h3><p>Use the history and transcript views to prepare follow-ups and qualification decisions.</p></div></article>
-            </section>
+            {!embeddedPhoneSelected && (
+              <>
+                <DirectDialer
+                  connections={verifiedDialers}
+                  canCall={canCall}
+                  canViewLeads={canViewLeads}
+                  canEditLeads={canEditLeads}
+                  onOpenLead={onOpenLead}
+                  preferredConnectionId={preferredDialerId}
+                  onPreferredConnectionChange={onPreferredDialerChange}
+                  phoneCallActive={dialerCallActive}
+                  ringCentralEmbedReady={ringCentralEmbedReady}
+                />
+                <section className="dialer-workflow-grid">
+                  <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Corral-started calls are placed individually with consent and permission checks. Calls started from a provider phone’s own keypad may not pass through those checks.</p></div></article>
+                  <article><span className="dialer-step">02</span><div><h3>Sync provider activity</h3><p>Import status, duration, recording links and transcripts from the connected provider.</p></div></article>
+                  <article><span className="dialer-step">03</span><div><h3>Review the conversation</h3><p>Use the history and transcript views to prepare follow-ups and qualification decisions.</p></div></article>
+                </section>
+              </>
+            )}
           </>}
 
           {(tab === "history" || tab === "analysis") && <section className="dialer-panel dialer-history-panel">

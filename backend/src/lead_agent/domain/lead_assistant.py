@@ -43,6 +43,7 @@ class LeadAssistantAction(BaseModel):
         "refresh_email",
         "sync_crm",
         "delete_lead",
+        "reevaluate_lead",
         "open_email",
         "open_meetings",
         "open_closing",
@@ -76,4 +77,46 @@ class LeadAssistantReply(BaseModel):
 
     reply: str = Field(min_length=1, max_length=3000)
     action: LeadAssistantAction = Field(default_factory=LeadAssistantAction)
+
+
+class WorkspaceAssistantAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "none",
+        "open_module",
+        "set_automation_active",
+        "create_icp_draft",
+        "update_routing_config",
+        "set_lead_confirmation",
+        "disconnect_integration",
+        "invite_member",
+        "update_member_role",
+        "update_member_permissions",
+        "suspend_member",
+        "reactivate_member",
+    ] = "none"
+    area: Literal[
+        "analytics",
+        "automations",
+        "icp",
+        "settings",
+        "integrations",
+        "team",
+    ] | None = None
+    title: str = Field(default="", max_length=120)
+    summary: str = Field(default="", max_length=800)
+    target_id: str | None = Field(default=None, max_length=64)
+    target_label: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=320)
+    role: str | None = Field(default=None, max_length=64)
+    enabled: bool | None = None
+    payload_json: str | None = Field(default=None, max_length=12000)
+
+
+class WorkspaceAssistantReply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reply: str = Field(min_length=1, max_length=3000)
+    action: WorkspaceAssistantAction = Field(default_factory=WorkspaceAssistantAction)
 

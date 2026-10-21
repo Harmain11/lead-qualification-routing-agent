@@ -26,6 +26,7 @@ from lead_agent.domain.routing import (
     RoutePriority,
 )
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
+from lead_agent.application.assignment_notifications import notify_assigned_member
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     LeadOutcomeORM,
@@ -79,6 +80,10 @@ def _qualification(lead: LeadORM) -> QualificationResult:
         score_breakdown=tuple(),
         policy_version=row.policy_version,
         confidence=float(row.confidence),
+        icp_version_id=row.icp_version_id,
+        icp_source=row.icp_source,
+        icp_profile_version=row.icp_profile_version,
+        icp_configuration_hash=row.icp_configuration_hash,
     )
 
 
@@ -391,11 +396,17 @@ def _notification_text(
     )
     source_detail = f" ({compact(lead.source_detail, 90)})" if lead.source_detail else ""
     band_label = qualification.classification.replace("_", " ").title()
+    icp_disclaimer = (
+        "\nICP fit was not scored. Add and publish a custom ICP in Settings to enable fit scoring.\n"
+        if qualification.icp_source == "not_configured"
+        else ""
+    )
     return (
         f"{marker}{compact(lead.company_name, 100)} — {compact(lead.full_name, 100)}\n"
         f"Workspace: {compact(workspace_name, 100)} | Source: {compact(lead.source, 60)}"
         f"{source_detail}\n"
         f"Score: {qualification.total_score}/100 | Lead temperature: {band_label}\n"
+        f"{icp_disclaimer}"
         f"Summary: {summary or 'No inquiry summary available.'}\n"
         f"Pain point: {pain or 'Not confirmed'}\n"
         f"Route: {compact(queue, 80)} | Assigned: {compact(rep_name, 100) or 'Unassigned'}\n"
@@ -673,6 +684,7 @@ def route_and_notify(
     qualification = _qualification(lead)
     analysis = _analysis(lead)
     current = get_current_routing(session, lead.id, lead.workspace_id)
+    manually_assigned = bool(current and current.is_manually_assigned)
     if current is not None and not force:
         return current
     if current is not None:
@@ -744,7 +756,17 @@ def route_and_notify(
         matched_rules = [f"default_band:{band}"]
 
     assigned_rep, assignment_reason = (None, "No rep assignment is applicable.")
-    if (
+    if manually_assigned and current is not None:
+        if current.assigned_rep_id:
+            assigned_rep = RepConfig(
+                id=current.assigned_rep_id,
+                name=current.assigned_rep_name or current.assigned_rep_id,
+                queue=current.assigned_queue,
+            )
+            assignment_reason = "Manual representative assignment preserved."
+        else:
+            assignment_reason = "Manual unassignment preserved."
+    elif (
         not manual_review
         and not qualification.hard_disqualified
         and band not in {"nurture", "disqualify"}
@@ -789,6 +811,7 @@ def route_and_notify(
         sla_target_at=sla_target,
         notification_state="pending" if send_notification else "suppressed",
         manual_review=manual_review,
+        is_manually_assigned=manually_assigned,
         idempotency_key=idempotency_key,
         is_current=True,
         created_at=now,
@@ -803,6 +826,23 @@ def route_and_notify(
             if existing is not None:
                 return existing
         raise
+    previous_assignee_id = current.assigned_rep_id if current is not None else None
+    if (
+        send_notification
+        and assigned_rep is not None
+        and assigned_rep.id != previous_assignee_id
+    ):
+        try:
+            recipient_user_id = UUID(assigned_rep.id)
+        except ValueError:
+            recipient_user_id = None
+        if recipient_user_id is not None:
+            notify_assigned_member(
+                session,
+                workspace_id=lead.workspace_id,
+                lead_id=lead.id,
+                recipient_user_id=recipient_user_id,
+            )
     record_pipeline_event(
         session,
         lead.id,

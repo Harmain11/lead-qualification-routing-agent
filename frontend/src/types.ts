@@ -77,9 +77,9 @@ export type IcpConfiguration = {
 export type IcpVersion = {
   id: string | null;
   workspace_id: string;
-  source: "system_default" | "workspace";
+  source: "system_default" | "workspace" | "not_configured";
   version_number: number | null;
-  status: "draft" | "published" | "archived";
+  status: "draft" | "published" | "archived" | "not_configured";
   name: string;
   description: string;
   configuration: IcpConfiguration;
@@ -285,6 +285,7 @@ export type Lead = {
   source: string;
   source_detail: string | null;
   external_id: string | null;
+  is_generated: boolean;
   full_name: string;
   email: string;
   phone: string | null;
@@ -307,6 +308,11 @@ export type Lead = {
   confirmation_email?: ConfirmationEmail | null;
   outcome?: LeadOutcome | null;
   review_reasons?: string[];
+};
+
+export type LeadAssignmentOption = {
+  user_id: string;
+  display_name: string;
 };
 
 export type LeadOutcome = {
@@ -491,7 +497,7 @@ export type GmailConversationSyncResult = {
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "lead_number" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail"
+  "id" | "lead_number" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail" | "is_generated"
 > & {
   source: string;
   source_detail: string;

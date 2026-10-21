@@ -225,6 +225,7 @@ class LeadResponse(BaseModel):
     source: str
     source_detail: str | None
     external_id: str | None
+    is_generated: bool = False
     full_name: str
     email: str
     phone: str | None
@@ -624,6 +625,7 @@ def lead_response(
         source=row.source,
         source_detail=row.source_detail,
         external_id=row.external_id,
+        is_generated=row.is_generated,
         full_name=row.full_name,
         email=row.email,
         phone=row.phone,

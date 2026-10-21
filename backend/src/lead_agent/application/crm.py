@@ -89,7 +89,7 @@ def build_crm_payload(
         summary=summary,
         qualification_score=lead.qualification.total_score,
         qualification_band=lead.qualification.classification,
-        icp_score=component_scores.get("icp_fit", 0),
+        icp_score=component_scores.get("icp_fit"),
         icp_version_id=lead.qualification.icp_version_id,
         icp_source=lead.qualification.icp_source,
         icp_profile_version=lead.qualification.icp_profile_version,
