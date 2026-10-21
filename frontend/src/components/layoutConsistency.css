@@ -1392,3 +1392,108 @@ html[data-theme] .ops-dialog.lead-drawer .lead-story { background: transparent; 
   }
   .app-shell .integration-card:not(.is-collapsed) .card-actions > button { min-height: 38px; }
 }
+
+.app-shell .integration-card .integration-section-disclosure {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.app-shell .integration-card .integration-section-disclosure > summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 11px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  list-style: none;
+}
+.app-shell .integration-card .integration-section-disclosure > summary::-webkit-details-marker { display: none; }
+.app-shell .integration-card .integration-section-disclosure > summary::after {
+  flex: 0 0 auto;
+  color: var(--green);
+  content: "+";
+  font-size: 17px;
+  line-height: 1;
+}
+.app-shell .integration-card .integration-section-disclosure[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.app-shell .integration-card .integration-section-disclosure[open] > summary::after { content: "−"; }
+.app-shell .integration-card .integration-section-disclosure > summary:hover { background: var(--surface-soft); }
+.app-shell .integration-card .integration-section-disclosure > summary:focus-visible,
+.app-shell .integration-card .gmail-mailbox-list > summary:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+}
+.app-shell .integration-card .integration-section-disclosure-content {
+  display: grid;
+  gap: 8px;
+  padding: 9px 10px 10px;
+}
+.app-shell .integration-card .integration-section-disclosure-content > p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.app-shell .integration-card .integration-section-disclosure-content > .integration-guide {
+  margin: 0;
+  padding: 10px 12px;
+  box-shadow: none;
+}
+.app-shell .integration-card .connection-health-disclosure .connection-facts { margin: 0; }
+.app-shell .integration-card .connection-health-disclosure .connection-state-path { margin: 3px 0 1px; }
+.app-shell .integration-card .integration-settings-disclosure .gmail-sync-result,
+.app-shell .integration-card .integration-settings-disclosure .gmail-sync-progress { margin-top: 0; }
+
+.app-shell .integration-card .gmail-mailbox-list {
+  border-top: 1px solid var(--line);
+}
+.app-shell .integration-card .gmail-mailbox-list > summary {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 9px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0 1px;
+  cursor: pointer;
+  list-style: none;
+}
+.app-shell .integration-card .gmail-mailbox-list > summary::-webkit-details-marker { display: none; }
+.app-shell .integration-card .gmail-mailbox-list-summary-copy {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.app-shell .integration-card .gmail-mailbox-list .gmail-mailbox-counts { gap: 5px; }
+.app-shell .integration-card .gmail-mailbox-list .gmail-mailbox-counts > span {
+  min-height: 21px;
+  padding: 2px 7px;
+  font-size: 10px;
+}
+.app-shell .integration-card .gmail-mailbox-list .gmail-mailbox-chevron {
+  width: 7px;
+  height: 7px;
+}
+.app-shell .integration-card .gmail-mailbox-list[open] > summary { margin-bottom: 5px; }
+.app-shell .integration-card .gmail-mailbox-list[open] .gmail-mailbox-chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+.app-shell .integration-card .gmail-mailbox-list-content {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 1px;
+}
+
+@media (max-width: 650px) {
+  .app-shell .integration-card .integration-section-disclosure > summary { min-height: 42px; }
+  .app-shell .integration-card .gmail-mailbox-list > summary {
+    grid-template-columns: minmax(0, 1fr) auto 9px;
+    gap: 5px;
+  }
+}
