@@ -3,10 +3,10 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/ai-connections/Current.tsx": () => import("../components/mockups/ai-connections/Current.tsx"),
   "./components/mockups/ai-connections/Unified.tsx": () => import("../components/mockups/ai-connections/Unified.tsx"),
-  "./components/mockups/calls-panel/Current.tsx": () => import("../components/mockups/calls-panel/Current.tsx"),
-  "./components/mockups/calls-panel/Polished.tsx": () => import("../components/mockups/calls-panel/Polished.tsx"),
   "./components/mockups/business-profile-form/Current.tsx": () => import("../components/mockups/business-profile-form/Current.tsx"),
   "./components/mockups/business-profile-form/Refined.tsx": () => import("../components/mockups/business-profile-form/Refined.tsx"),
+  "./components/mockups/calls-panel/Current.tsx": () => import("../components/mockups/calls-panel/Current.tsx"),
+  "./components/mockups/calls-panel/Polished.tsx": () => import("../components/mockups/calls-panel/Polished.tsx"),
   "./components/mockups/cloudtalk-phone-dock/Current.tsx": () => import("../components/mockups/cloudtalk-phone-dock/Current.tsx"),
   "./components/mockups/cloudtalk-phone-dock/Refined.tsx": () => import("../components/mockups/cloudtalk-phone-dock/Refined.tsx"),
   "./components/mockups/corral-brand-lockup/Current.tsx": () => import("../components/mockups/corral-brand-lockup/Current.tsx"),
