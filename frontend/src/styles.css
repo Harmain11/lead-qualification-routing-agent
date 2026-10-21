@@ -432,7 +432,8 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .section-picker-option { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer; }
 .section-picker-option input { width: 16px; height: 16px; flex: 0 0 auto; accent-color: var(--green); }
 .section-picker-option span { line-height: 1.3; }
-.section-picker-note { display: block; margin-top: 11px; color: var(--muted); font-size: 13px; }
+.section-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 14px; }
+.section-picker-note { display: block; margin: 0; color: var(--muted); font-size: 13px; }
 .section-picker-empty { padding: 24px; }
 .section-picker-empty h2 { margin: 0 0 7px; font-size: 18px; }
 .section-picker-empty p { margin: 0; color: var(--muted); font-size: 13px; }
@@ -2095,6 +2096,8 @@ html[data-theme="dark"] .guide-launch:hover { border-color: rgba(135,212,168,.45
   .section-picker-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
   .section-picker-groups { grid-template-columns: 1fr; }
   .section-picker-options { grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); }
+  .section-picker-footer { align-items: stretch; flex-direction: column; }
+  .section-picker-footer .primary-button { width: 100%; }
 }
 
 /* Keep compact labels readable across dense views. */
