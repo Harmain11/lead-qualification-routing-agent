@@ -1602,7 +1602,6 @@ function App() {
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
                   canViewEmail={can(workspacePermissions, "integrations.view")}
-                  canCall={can(workspacePermissions, "dialer.call") && can(workspacePermissions, "leads.edit")}
                   canEnrollAutomations={
                     can(workspacePermissions, "agents.view") &&
                     can(workspacePermissions, "leads.edit")

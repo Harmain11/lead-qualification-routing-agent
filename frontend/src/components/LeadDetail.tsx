@@ -1,4 +1,3 @@
-import { CallsPanel } from "./CallsPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AiStageAssessment } from "./AiStageAssessment";
@@ -62,7 +61,6 @@ type LeadDetailProps = {
   canCrmSync?: boolean;
   canEdit?: boolean;
   canViewEmail?: boolean;
-  canCall?: boolean;
   canEnrollAutomations?: boolean;
   onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
@@ -73,7 +71,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canCall = false, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -338,7 +336,6 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
         </section>
       </div>
       <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
-      <CallsPanel leadId={lead.id} leadName={lead.full_name} companyName={lead.company_name} representativeName={lead.routing?.assigned_rep_name} leadPhone={lead.phone} canEdit={canEdit} canCall={canCall} />
     </div>
     <section id="lead-panel-email" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={activeSection !== "email"}>
       <LeadEmailPanel
