@@ -22,4 +22,6 @@ and move the other integrations below it.
 
 **Why:** On 2026-10-21, the user asked for all expanded integration cards to be smaller and less visually crowded.
 
-**How to apply:** Preserve compact independent cards for other integrations. In expanded views, reduce excess spacing and nested visual weight while keeping controls readable. Keep AI setup and management in one grouped card without merging provider-specific state or changing the active analysis provider by selection alone.
+**Why:** On 2026-10-21, the user asked for sections inside expanded integration cards to collapse so the cards stay small.
+
+**How to apply:** Preserve compact independent cards for other integrations. In expanded views, reduce excess spacing and nested visual weight while keeping controls readable. Default secondary guidance, health metadata, and advanced settings to collapsed; keep primary connection actions and a short status visible. Keep AI setup and management in one grouped card without merging provider-specific state or changing the active analysis provider by selection alone.

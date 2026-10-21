@@ -89,42 +89,49 @@ export function GmailAccountsPanel({
         )}
       </header>
 
-      <div className="gmail-mailbox-counts" aria-label={`${readyAccounts.length} ready to use, ${attentionAccounts.length} needing attention`}>
-        <span className="gmail-mailbox-ready-count"><b>{readyAccounts.length}</b> ready to use</span>
-        {attentionAccounts.length > 0 && (
-          <span className="gmail-mailbox-attention-count"><i />{attentionAccounts.length} need attention</span>
-        )}
-      </div>
+      <details className="gmail-mailbox-list" open={readyAccounts.length === 0}>
+        <summary className="gmail-mailbox-list-summary">
+          <span className="gmail-mailbox-counts" aria-label={`${readyAccounts.length} ready to use, ${attentionAccounts.length} needing attention`}>
+            <span className="gmail-mailbox-ready-count"><b>{readyAccounts.length}</b> ready to use</span>
+            {attentionAccounts.length > 0 && (
+              <span className="gmail-mailbox-attention-count"><i />{attentionAccounts.length} need attention</span>
+            )}
+          </span>
+          <span className="gmail-mailbox-list-summary-copy">{readyAccounts.length > 0 ? "View accounts" : "Account setup"}</span>
+          <span className="gmail-mailbox-chevron" aria-hidden="true" />
+        </summary>
+        <div className="gmail-mailbox-list-content">
+          <div className="gmail-mailbox-section">
+            <div className="gmail-mailbox-section-heading">
+              <strong>Ready to use</strong>
+              <span>{readyAccounts.length}</span>
+            </div>
+            {readyAccounts.length > 0 ? (
+              <div className="gmail-mailbox-rows">
+                {readyAccounts.map((account) => renderAccount(account))}
+              </div>
+            ) : (
+              <div className="gmail-mailbox-empty">No verified mailbox yet. Add an account to get started.</div>
+            )}
+          </div>
 
-      <div className="gmail-mailbox-section">
-        <div className="gmail-mailbox-section-heading">
-          <strong>Ready to use</strong>
-          <span>{readyAccounts.length}</span>
+          {attentionAccounts.length > 0 && (
+            <details className="gmail-mailbox-attention" open={readyAccounts.length === 0}>
+              <summary>
+                <span className="gmail-mailbox-attention-copy">
+                  <strong>Needs attention</strong>
+                  <small>Saved accounts that are not ready yet</small>
+                </span>
+                <b>{attentionAccounts.length}</b>
+                <span className="gmail-mailbox-chevron" aria-hidden="true" />
+              </summary>
+              <div className="gmail-mailbox-rows gmail-mailbox-pending-rows">
+                {attentionAccounts.map((account) => renderAccount(account, true))}
+              </div>
+            </details>
+          )}
         </div>
-        {readyAccounts.length > 0 ? (
-          <div className="gmail-mailbox-rows">
-            {readyAccounts.map((account) => renderAccount(account))}
-          </div>
-        ) : (
-          <div className="gmail-mailbox-empty">No verified mailbox yet. Add an account to get started.</div>
-        )}
-      </div>
-
-      {attentionAccounts.length > 0 && (
-        <details className="gmail-mailbox-attention" open={readyAccounts.length === 0}>
-          <summary>
-            <span className="gmail-mailbox-attention-copy">
-              <strong>Needs attention</strong>
-              <small>Saved accounts that are not ready yet</small>
-            </span>
-            <b>{attentionAccounts.length}</b>
-            <span className="gmail-mailbox-chevron" aria-hidden="true" />
-          </summary>
-          <div className="gmail-mailbox-rows gmail-mailbox-pending-rows">
-            {attentionAccounts.map((account) => renderAccount(account, true))}
-          </div>
-        </details>
-      )}
+      </details>
     </section>
   );
 }
