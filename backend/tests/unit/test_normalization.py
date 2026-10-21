@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from lead_agent.api.schemas import LeadCreateRequest
 from lead_agent.domain.normalization import normalize_lead
 
 
@@ -31,6 +32,35 @@ def test_normalization_rejects_missing_required_fields() -> None:
         assert "required" in str(error)
     else:
         raise AssertionError("expected required-field validation error")
+
+
+def test_manual_lead_request_accepts_partial_details() -> None:
+    request = LeadCreateRequest.model_validate(
+        {
+            "source_detail": "manual-control-center",
+            "full_name": "Kathi Sitek",
+            "company_name": "Diversified Members Credit Union",
+        }
+    )
+    lead = normalize_lead(request.model_dump(mode="json"), uuid4())
+
+    assert lead.full_name == "Kathi Sitek"
+    assert lead.email == ""
+    assert lead.company_name == "Diversified Members Credit Union"
+    assert lead.product_or_service == ""
+    assert lead.message == ""
+
+
+def test_empty_manual_lead_is_rejected() -> None:
+    try:
+        normalize_lead(
+            {"source_detail": "manual-control-center"},
+            uuid4(),
+        )
+    except ValueError as error:
+        assert "at least one known lead detail" in str(error)
+    else:
+        raise AssertionError("expected empty manual lead validation error")
 
 
 def test_normalization_allows_missing_optional_fields() -> None:

@@ -17,18 +17,18 @@ class LeadCreateRequest(BaseModel):
     source_detail: str | None = None
     event_id: str | None = None
     external_id: str | None = None
-    full_name: str
-    email: str
+    full_name: str | None = None
+    email: str | None = None
     phone: str | None = None
     job_title: str | None = None
-    company_name: str
+    company_name: str | None = None
     industry: str | None = None
     employee_count: int | None = Field(default=None, ge=0)
     annual_revenue: float | None = Field(default=None, ge=0)
     geography: str | None = None
     budget: float | None = Field(default=None, ge=0)
-    product_or_service: str
-    message: str
+    product_or_service: str | None = None
+    message: str | None = None
     received_at: datetime | None = None
 
 

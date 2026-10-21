@@ -856,6 +856,12 @@ html[data-theme] .app-shell .intake-form :is(input, textarea, select) { backgrou
   font-weight: 400;
   line-height: 1.5;
 }
+.app-shell .intake-form .intake-form-note {
+  margin: -12px 0 0;
+  color: var(--subtle);
+  font-size: 13px;
+  line-height: 1.5;
+}
 html[data-theme] .ops-dialog.lead-drawer :is(.lead-story, .story-head, .story-section, .lead-drawer-toolbar, .lead-detail-navigation) { background: var(--surface); color: var(--text); }
 html[data-theme] .ops-dialog.lead-drawer :is(.fact, .signal, .score-contract > div, .delivery-grid > div, blockquote) { background: var(--surface-high); border-color: var(--line); color: var(--text); }
 html[data-theme] .ops-dialog.lead-drawer .story-section blockquote { font-size: 16px; line-height: 1.6; }
