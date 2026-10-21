@@ -1152,6 +1152,11 @@ function App() {
 
   function navigationActiveChild(id: View) {
     if (view === "leads") return leadSection;
+    if (view === "settings" && id === "settings") {
+      return pageSection === "user" || pageSection === "users"
+        ? "user"
+        : "company";
+    }
     if (view === id) return pageSection;
     return navigationChildren(id).some((child) => child.view === view) ? view : pageSection;
   }
@@ -1761,9 +1766,14 @@ function App() {
                   onIntegrations={() => navigate("integrations")}
                   onTeam={() => navigate("team")}
                   onIcp={() => navigate("icp")}
+                  onPolicies={() => navigate("policies")}
+                  onCompliance={() => navigate("compliance")}
+                  onOpenSection={(section) => navigate("settings", section)}
                   canViewTeam={can(workspacePermissions, "members.view")}
                   canManageWorkspace={can(workspacePermissions, "workspace.manage")}
                   canViewIcp={can(workspacePermissions, "icp.view")}
+                  canViewPolicies={can(workspacePermissions, "routing.view")}
+                  canViewCompliance={can(workspacePermissions, "workspace.manage")}
                   canViewRouting={can(workspacePermissions, "routing.view")}
                   canManageRouting={can(workspacePermissions, "routing.manage")}
                   canViewPublicIntake={can(

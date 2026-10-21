@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   generateEmailTemplate,
   getLeadConfirmationAutomation,
@@ -31,9 +31,14 @@ export function SettingsView({
   onIntegrations,
   onTeam,
   onIcp,
+  onPolicies,
+  onCompliance,
+  onOpenSection,
   canViewTeam,
   canManageWorkspace,
   canViewIcp,
+  canViewPolicies,
+  canViewCompliance,
   canViewRouting,
   canManageRouting,
   canViewPublicIntake,
@@ -45,18 +50,46 @@ export function SettingsView({
   onIntegrations: () => void;
   onTeam: () => void;
   onIcp: () => void;
+  onPolicies: () => void;
+  onCompliance: () => void;
+  onOpenSection: (section: string) => void;
   canViewTeam: boolean;
   canManageWorkspace: boolean;
   canViewIcp: boolean;
+  canViewPolicies: boolean;
+  canViewCompliance: boolean;
   canViewRouting: boolean;
   canManageRouting: boolean;
   canViewPublicIntake: boolean;
   canRotatePublicIntake: boolean;
   canManageEmail: boolean;
 }) {
-  const overview = !selectedSection || selectedSection === "overview";
+  const isCategory = selectedSection === "company" || selectedSection === "user";
+  const overview = !selectedSection || selectedSection === "overview" || isCategory;
+  const activeCategory =
+    selectedSection === "user" || selectedSection === "users"
+      ? "user"
+      : "company";
+  const isLegacyDetail = Boolean(selectedSection && !isCategory && selectedSection !== "overview");
   const show = (section: string) =>
-    overview || selectedSection === section;
+    selectedSection === section;
+  const tabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+    );
+    const current = tabs.indexOf(event.target as HTMLButtonElement);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? tabs.length - 1
+          : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+            tabs.length;
+    tabs[next]?.focus();
+    tabs[next]?.click();
+  };
   return (
     <div
       className={`page-view operational-page${selectedSection ? " focused-page" : ""}`}
@@ -66,128 +99,212 @@ export function SettingsView({
         <div>
           <span className="eyebrow">Workspace settings</span>
           <h1>
-            {selectedSection ? (
-              pretty(selectedSection.replaceAll("-", "_"))
-            ) : (
-              "Settings"
-            )}
+            {isLegacyDetail
+              ? pretty(selectedSection.replaceAll("-", "_"))
+              : "Settings"}
           </h1>
           <p>
-            {selectedSection
+            {isLegacyDetail
               ? "Manage this section for your current workspace."
-              : "Workspace identity, data provenance and team access stay visible here."}
+              : "Choose what you need to manage: your company workspace or your Corral account."}
           </p>
         </div>
       </header>
-      <section className="settings-grid" data-tour="settings">
-        {overview && <AccountProfilePanel />}
-        {show("workspace") && (
-          <Panel title="Workspace" eyebrow="Tenant boundary">
-            <div className="settings-facts">
-              <Fact
-                label="Name"
-                value={metadata?.workspace_name || "Unavailable"}
-              />
-              <Fact
-                label="Workspace ID"
-                value={metadata?.workspace_id || "Unavailable"}
-              />
-              <Fact
-                label="Data mode"
-                value={pretty(metadata?.data_mode || "unknown")}
-              />
-              <Fact
-                label="Analytics freshness"
-                value={
-                  metadata
-                    ? new Date(metadata.generated_at).toLocaleString()
-                    : "Unavailable"
-                }
-              />
+      <div
+        className="settings-category-tabs"
+        role="tablist"
+        aria-label="Settings categories"
+        onKeyDown={tabKeyDown}
+      >
+        <button
+          type="button"
+          role="tab"
+          id="settings-company-tab"
+          aria-selected={activeCategory === "company"}
+          aria-controls="settings-category-panel"
+          tabIndex={activeCategory === "company" ? 0 : -1}
+          className={activeCategory === "company" ? "active" : ""}
+          onClick={() => onOpenSection("company")}
+        >
+          <span className="settings-tab-mark" aria-hidden="true">01</span>
+          <span>Company</span>
+          <small>Workspace configuration</small>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="settings-user-tab"
+          aria-selected={activeCategory === "user"}
+          aria-controls="settings-category-panel"
+          tabIndex={activeCategory === "user" ? 0 : -1}
+          className={activeCategory === "user" ? "active" : ""}
+          onClick={() => onOpenSection("user")}
+        >
+          <span className="settings-tab-mark" aria-hidden="true">02</span>
+          <span>User</span>
+          <small>Account and team access</small>
+        </button>
+      </div>
+      <section
+        className="settings-grid"
+        data-tour="settings"
+        id="settings-category-panel"
+        role="tabpanel"
+        aria-labelledby={`settings-${activeCategory}-tab`}
+        tabIndex={-1}
+      >
+        {overview && activeCategory === "company" && (
+          <>
+            <div className="settings-category-intro">
+              <span className="eyebrow">Company</span>
+              <p>Workspace identity, lead qualification, intake, routing, and connected services.</p>
             </div>
-          </Panel>
+            <div className="settings-shortcut-grid">
+              <SettingsLinkGroup number="01" title="Identity & qualification" description="Company profile and the criteria used to qualify leads.">
+                <SettingsLink label="Workspace identity" onClick={() => onOpenSection("workspace")} />
+                <SettingsLink label="Ideal Customer Profile" onClick={onIcp} disabled={!canViewIcp} />
+              </SettingsLinkGroup>
+              <SettingsLinkGroup number="02" title="Lead operations" description="Control how new leads enter the workspace and get assigned.">
+                <SettingsLink label="Routing & review" onClick={() => onOpenSection("routing-distribution")} disabled={!canViewRouting} />
+                <SettingsLink label="Public intake" onClick={() => onOpenSection("website-lead-form")} disabled={!canViewPublicIntake} />
+              </SettingsLinkGroup>
+              <SettingsLinkGroup number="03" title="Connections & messaging" description="Manage workspace-owned providers and reusable email copy.">
+                <SettingsLink label="Integrations" onClick={onIntegrations} />
+                <SettingsLink label="Email templates" onClick={() => onOpenSection("email-templates")} disabled={!canManageEmail} />
+              </SettingsLinkGroup>
+              <SettingsLinkGroup number="04" title="Governance" description="Workspace policy, privacy, and compliance controls.">
+                <SettingsLink label="Segmenting & routing" onClick={onPolicies} disabled={!canViewPolicies} />
+                <SettingsLink label="Privacy & compliance" onClick={onCompliance} disabled={!canViewCompliance} />
+              </SettingsLinkGroup>
+            </div>
+            <div className="settings-other-options">
+              <span className="eyebrow">Also in Company</span>
+              <p>Analytics range, workspace data mode, and product readiness are shown below.</p>
+            </div>
+          </>
+        )}
+        {overview && activeCategory === "user" && (
+          <>
+            <div className="settings-category-intro">
+              <span className="eyebrow">User</span>
+              <p>Your Corral account profile and the people who can access this workspace.</p>
+            </div>
+            <AccountProfilePanel />
+            <Panel collapsible title="Users & permissions" eyebrow="Workspace access">
+              <p className="panel-copy">
+                Invite users, review roles, and make per-person permission changes.
+                Backend authorization remains the source of truth for every action.
+              </p>
+              <button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>
+                {canViewTeam ? "Manage users" : "Members view permission required"}
+              </button>
+            </Panel>
+          </>
         )}
         {show("workspace") && (
-          <Panel title="Business identity for AI" eyebrow="Optional analysis context">
-            <WorkspaceBusinessProfilePanel
-              canView={canViewRouting}
-              canManage={canManageWorkspace}
-            />
-          </Panel>
+          <>
+            <Panel collapsible title="Workspace" eyebrow="Tenant boundary">
+              <div className="settings-facts">
+                <Fact label="Name" value={metadata?.workspace_name || "Unavailable"} />
+                <Fact label="Workspace ID" value={metadata?.workspace_id || "Unavailable"} />
+                <Fact label="Data mode" value={pretty(metadata?.data_mode || "unknown")} />
+                <Fact label="Analytics freshness" value={metadata ? new Date(metadata.generated_at).toLocaleString() : "Unavailable"} />
+              </div>
+            </Panel>
+            <Panel collapsible title="Business identity for AI" eyebrow="Optional analysis context">
+              <WorkspaceBusinessProfilePanel canView={canViewRouting} canManage={canManageWorkspace} />
+            </Panel>
+          </>
         )}
-        {overview && (
-          <Panel title="External systems" eyebrow="Provider connections">
-            <p className="panel-copy">
-              Manage workspace-owned email, CRM and notification connections.
-              Stored credentials are represented only by safe state metadata.
-            </p>
-            <button className="primary-button" onClick={onIntegrations}>
-              Open Integration Center →
-            </button>
-          </Panel>
-        )}
-        {overview && <Panel title="Users & permissions" eyebrow="Workspace access">
-          <p className="panel-copy">
-            Invite users, review roles and make deliberate per-person permission
-            changes. Backend authorization remains the source of truth for every
-            action.
-          </p>
-          <button
-            className="primary-button"
-            disabled={!canViewTeam}
-            onClick={onTeam}
-          >
-            {canViewTeam ? "Open Users →" : "Members view permission required"}
-          </button>
-        </Panel>}
-        {show("routing-distribution") && (
-          <RoutingWeightsPanel
-            canView={canViewRouting}
-            canManage={canManageRouting}
-          />
-        )}
-        {show("website-lead-form") && (
-          <PublicIntakePanel
-            canView={canViewPublicIntake}
-            canRotate={canRotatePublicIntake}
-          />
-        )}
+        {show("routing-distribution") && <RoutingWeightsPanel canView={canViewRouting} canManage={canManageRouting} />}
+        {show("website-lead-form") && <PublicIntakePanel canView={canViewPublicIntake} canRotate={canRotatePublicIntake} />}
         {show("email-templates") && (
           <div className="settings-email-templates">
-            <EmailTemplatesPanel
-              canManage={canManageEmail}
-              onIntegrations={onIntegrations}
-            />
+            <EmailTemplatesPanel canManage={canManageEmail} onIntegrations={onIntegrations} />
           </div>
         )}
-        <Panel title="Ideal Customer Profile" eyebrow="Qualification policy">
-          <p className="panel-copy">
-            Build, validate and safely test the workspace-specific 40-point ICP.
-            Published versions remain immutable and historical scores retain
-            their exact policy reference.
-          </p>
-          <button
-            className="primary-button"
-            disabled={!canViewIcp}
-            onClick={onIcp}
-          >
-            {canViewIcp ? "Open ICP Builder →" : "ICP view permission required"}
-          </button>
-        </Panel>
-        <Panel title="Data range" eyebrow="Analytics contract">
-          <p className="panel-copy">
-            Weekly, monthly and annual windows are available. Period-over-period
-            change is withheld when the prior period has no valid denominator.
-          </p>
-        </Panel>
-        <Panel title="Product state" eyebrow="Release readiness">
-          <p className="panel-copy">
-            Analytics, team controls, workspace-specific ICP qualification,
-            secure exports and certified provider workflows are active.
-          </p>
-        </Panel>
+        {show("users") && (
+          <Panel collapsible title="Users & permissions" eyebrow="Workspace access">
+            <p className="panel-copy">Invite users, review roles, and make per-person permission changes.</p>
+            <button className="primary-button" disabled={!canViewTeam} onClick={onTeam}>Open users</button>
+          </Panel>
+        )}
+        {show("icp") && (
+          <Panel collapsible title="Ideal Customer Profile" eyebrow="Qualification policy">
+            <p className="panel-copy">Build, validate, and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p>
+            <button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>Open ICP Builder</button>
+          </Panel>
+        )}
+        {show("policies") && (
+          <Panel collapsible title="Segmenting & Routing" eyebrow="Workspace policy">
+            <p className="panel-copy">Open the existing workspace policy controls for segmentation, routing, and operational rules.</p>
+            <button className="primary-button" disabled={!canViewPolicies} onClick={onPolicies}>Open policies</button>
+          </Panel>
+        )}
+        {show("compliance") && (
+          <Panel collapsible title="Privacy & Compliance" eyebrow="Workspace safeguards">
+            <p className="panel-copy">Review the existing privacy and compliance controls for this workspace.</p>
+            <button className="primary-button" disabled={!canViewCompliance} onClick={onCompliance}>Open privacy & compliance</button>
+          </Panel>
+        )}
+        {overview && activeCategory === "company" && (
+          <>
+            <Panel collapsible title="Data range" eyebrow="Analytics contract">
+              <p className="panel-copy">Weekly, monthly, and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p>
+            </Panel>
+            <Panel collapsible title="Product state" eyebrow="Release readiness">
+              <p className="panel-copy">Analytics, team controls, workspace-specific ICP qualification, secure exports, and certified provider workflows are active.</p>
+            </Panel>
+          </>
+        )}
       </section>
     </div>
+  );
+}
+
+function SettingsLinkGroup({
+  number,
+  title,
+  description,
+  children,
+}: {
+  number: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="settings-link-group">
+      <summary className="settings-link-group-heading">
+        <span>{number}</span>
+        <div><h2>{title}</h2><p>{description}</p></div>
+        <span className="settings-collapsible-icon" aria-hidden="true" />
+      </summary>
+      <div className="settings-link-list">{children}</div>
+    </details>
+  );
+}
+
+function SettingsLink({
+  label,
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      className="settings-link"
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={disabled ? `${label}, permission required` : label}
+    >
+      <span>{label}</span>
+      <span aria-hidden="true">→</span>
+    </button>
   );
 }
 
@@ -326,7 +443,7 @@ function EmailTemplatesPanel({
   };
   if (!canManage)
     return (
-      <Panel title="Email templates" eyebrow="Workspace messaging">
+      <Panel collapsible title="Email templates" eyebrow="Workspace messaging">
         <p className="panel-copy">
           Integration management permission is required to configure email
           templates.
@@ -340,7 +457,7 @@ function EmailTemplatesPanel({
       .replaceAll("{{product_or_service}}", "lead workflow automation")
       .replaceAll("{{job_title}}", "Sales Director");
   return (
-    <Panel title="Email templates" eyebrow="Workspace messaging">
+    <Panel collapsible title="Email templates" eyebrow="Workspace messaging">
       <p className="panel-copy">
         Edit sample emails here, or let AI create a fresh reusable email from
         the essential context alone. Generated copy is a draft until you save
@@ -682,12 +799,12 @@ function RoutingWeightsPanel({
   };
   if (!canView)
     return (
-      <Panel title="Routing distribution" eyebrow="Workspace assignment">
+      <Panel collapsible title="Routing distribution" eyebrow="Workspace assignment">
         <p className="panel-copy">Routing visibility permission required.</p>
       </Panel>
     );
   return (
-    <Panel title="Routing distribution" eyebrow="Workspace assignment">
+    <Panel collapsible title="Routing distribution" eyebrow="Workspace assignment">
       <p className="panel-copy">
         Set each eligible member’s share as a percentage; all shares must total
         100%. New leads are routed by relative workload, and existing
@@ -914,7 +1031,7 @@ function PublicIntakePanel({
   };
   if (!canView)
     return (
-      <Panel title="Website lead form" eyebrow="Public intake">
+      <Panel collapsible title="Website lead form" eyebrow="Public intake">
         <p className="panel-copy">Lead view permission required.</p>
       </Panel>
     );
@@ -928,7 +1045,7 @@ function PublicIntakePanel({
     }
   };
   return (
-    <Panel title="Website lead form" eyebrow="Public intake">
+    <Panel collapsible title="Website lead form" eyebrow="Public intake">
       <p className="panel-copy">
         Send your website form to this URL. Each submission enters analysis,
         qualification, routing, Slack notification and CRM workflows

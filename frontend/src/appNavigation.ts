@@ -46,17 +46,22 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "analysis", label: "Transcript analysis" },
   ],
   settings: [
-    { id: "overview", label: "Overview" },
-    { id: "workspace", label: "Workspace" },
-    { id: "routing-distribution", label: "Routing distribution", permission: "routing.view" },
-    { id: "website-lead-form", label: "Website lead form", permission: "integrations.manage" },
-    { id: "email-templates", label: "Email templates", permission: "integrations.manage" },
-    { id: "users", label: "Users & permissions", view: "team", permission: "members.view" },
-    { id: "icp", label: "Ideal Customer Profile", view: "icp", permission: "icp.view" },
-    { id: "policies", label: "Segmenting & Routing", view: "policies", permission: "routing.view" },
-    { id: "compliance", label: "Privacy & Compliance", view: "compliance", permission: "workspace.manage" },
+    { id: "company", label: "Company" },
+    { id: "user", label: "User" },
   ],
 };
+
+const legacySettingsSections = new Set([
+  "overview",
+  "workspace",
+  "routing-distribution",
+  "website-lead-form",
+  "email-templates",
+  "users",
+  "icp",
+  "policies",
+  "compliance",
+]);
 
 export function pageFromSearch(search: string): AppPage {
   const params = new URLSearchParams(search);
@@ -69,5 +74,8 @@ export function pageFromSearch(search: string): AppPage {
 export function sectionFromSearch(search: string, page: AppPage): string {
   const params = new URLSearchParams(search);
   const section = page === "leads" ? params.get("lead_tab") : params.get("section");
+  if (page === "settings" && section && legacySettingsSections.has(section)) {
+    return section;
+  }
   return navigationSections[page]?.some((item) => item.id === section) ? section! : "";
 }
