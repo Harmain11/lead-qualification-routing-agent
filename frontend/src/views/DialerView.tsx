@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createLead, listIntegrations, listLeads } from "../api";
 import { CallsPanel } from "../components/CallsPanel";
 import { DirectDialer } from "../components/DirectDialer";
@@ -101,12 +101,20 @@ export function DialerView({
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadSearchLoading, setLeadSearchLoading] = useState(false);
   const [leadSearchError, setLeadSearchError] = useState("");
+  const callPanelRef = useRef<HTMLDivElement>(null);
+  const shouldFocusCallPanel = useRef(false);
 
   useEffect(() => {
     if (selectedSection === "history" || selectedSection === "analysis" || selectedSection === "overview") {
       setTab(selectedSection);
     }
   }, [selectedSection]);
+
+  useEffect(() => {
+    if (!selectedLead || !shouldFocusCallPanel.current) return;
+    shouldFocusCallPanel.current = false;
+    callPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [selectedLead]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -288,7 +296,7 @@ export function DialerView({
                 <div><span className="eyebrow">Direct calling</span><h2>Call a lead</h2></div>
                 <span className="dialer-panel-count">Each call needs rep confirmation</span>
               </div>
-              <p className="panel-copy">Choose a lead, select a verified calling account, and place the call without leaving the Dialer. Calls still pass workspace consent and permission checks.</p>
+              <p className="panel-copy">Choose a lead or press Call on a card. Corral uses the phone number saved on that lead, then asks you to confirm before dialing and checks workspace consent.</p>
               {!canViewLeads ? (
                 <p className="dialer-empty">Lead-view permission is required to choose a contact.</p>
               ) : (
@@ -305,16 +313,18 @@ export function DialerView({
                           <button type="button" className="button-quiet" onClick={() => setSelectedLead(null)}>Choose another lead</button>
                         </div>
                       </div>
-                      <CallsPanel
-                        key={selectedLead.id}
-                        leadId={selectedLead.id}
-                        leadName={selectedLead.full_name}
-                        companyName={selectedLead.company_name}
-                        leadPhone={selectedLead.phone}
-                        representativeName={selectedLead.routing?.assigned_rep_name}
-                        canCall={canCallLeads}
-                        canEdit={canEditLeads}
-                      />
+                      <div ref={callPanelRef}>
+                        <CallsPanel
+                          key={selectedLead.id}
+                          leadId={selectedLead.id}
+                          leadName={selectedLead.full_name}
+                          companyName={selectedLead.company_name}
+                          leadPhone={selectedLead.phone}
+                          representativeName={selectedLead.routing?.assigned_rep_name}
+                          canCall={canCallLeads}
+                          canEdit={canEditLeads}
+                        />
+                      </div>
                     </>
                   ) : (
                     <>
@@ -333,15 +343,40 @@ export function DialerView({
                       ) : leadResults.length ? (
                         <div className="dialer-lead-results" aria-label="Lead search results">
                           {leadResults.map((lead) => (
-                            <button
-                              type="button"
-                              className="dialer-lead-option"
-                              key={lead.id}
-                              onClick={() => setSelectedLead(lead)}
-                            >
-                              <span><strong>{lead.full_name}</strong><small>{lead.company_name || "Company not supplied"} · {lead.phone || "No phone number"}</small></span>
-                              <span aria-hidden="true">→</span>
-                            </button>
+                            <article className="dialer-lead-option" key={lead.id}>
+                              <button
+                                type="button"
+                                className="dialer-lead-option-main"
+                                onClick={() => setSelectedLead(lead)}
+                                aria-label={`View call options for ${lead.full_name}`}
+                              >
+                                <span>
+                                  <strong>{lead.full_name}</strong>
+                                  <small>{lead.company_name || "Company not supplied"} · {lead.phone || "No phone number"}</small>
+                                </span>
+                                <span aria-hidden="true">→</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="dialer-lead-call-action"
+                                disabled={!lead.phone || !canCallLeads || dialerCallActive}
+                                title={
+                                  !lead.phone
+                                    ? "Add a phone number to this lead before calling."
+                                    : dialerCallActive
+                                      ? "End the active call before starting another."
+                                      : !canCallLeads
+                                        ? "Calling requires Dialer, lead-view, and lead-edit permissions."
+                                        : `Open confirmation to call ${lead.full_name}.`
+                                }
+                                onClick={() => {
+                                  shouldFocusCallPanel.current = true;
+                                  setSelectedLead(lead);
+                                }}
+                              >
+                                {lead.phone ? "Call" : "No number"}
+                              </button>
+                            </article>
                           ))}
                         </div>
                       ) : (

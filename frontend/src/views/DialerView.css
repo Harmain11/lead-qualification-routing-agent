@@ -146,12 +146,17 @@
 .dialer-lead-search { display:grid; gap:7px; max-width:520px; color:var(--muted); font-size:13px; font-weight:700; }
 .dialer-lead-search input { width:100%; min-width:0; border:1px solid var(--line-bright); border-radius:8px; padding:10px 12px; color:var(--text); background:var(--surface-high); font:inherit; }
 .dialer-lead-results { display:grid; gap:8px; max-height:320px; overflow:auto; }
-.dialer-lead-option { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:9px; color:var(--text); background:var(--surface-high); text-align:left; cursor:pointer; }
-.dialer-lead-option:hover,.dialer-lead-option:focus-visible { border-color:var(--workspace-accent,var(--orange)); }
-.dialer-lead-option > span:first-child { display:grid; gap:3px; min-width:0; }
+.dialer-lead-option { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; padding:8px 10px 8px 14px; border:1px solid var(--line); border-radius:9px; background:var(--surface-high); }
+.dialer-lead-option-main { display:flex; flex:1 1 auto; align-items:center; justify-content:space-between; gap:16px; min-width:0; min-height:42px; padding:2px 4px 2px 0; border:0; color:var(--text); background:transparent; text-align:left; cursor:pointer; }
+.dialer-lead-option-main:hover,.dialer-lead-option-main:focus-visible { color:var(--workspace-accent,var(--orange)); }
+.dialer-lead-option-main > span:first-child { display:grid; gap:3px; min-width:0; }
 .dialer-lead-option strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dialer-lead-option small,.dialer-selected-lead span { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
-.dialer-lead-option > span:last-child { color:var(--workspace-accent,var(--orange)); font-size:20px; }
+.dialer-lead-option-main > span:last-child { flex:0 0 auto; color:var(--workspace-accent,var(--orange)); font-size:20px; }
+.dialer-lead-call-action { min-height:36px; flex:0 0 auto; padding:0 13px; border:1px solid var(--workspace-accent,var(--orange)); border-radius:8px; color:#fff; background:var(--workspace-accent,var(--orange)); font:inherit; font-size:13px; font-weight:750; cursor:pointer; }
+.dialer-lead-call-action:hover:not(:disabled) { filter:brightness(.94); }
+.dialer-lead-call-action:focus-visible,.dialer-lead-option-main:focus-visible { outline:2px solid var(--workspace-accent,var(--orange)); outline-offset:2px; }
+.dialer-lead-call-action:disabled { border-color:var(--line); color:var(--muted); background:var(--surface); cursor:not-allowed; }
 .dialer-selected-lead { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 15px; border:1px solid var(--line); border-radius:10px; background:var(--surface-high); }
 .dialer-selected-lead > div:first-child { display:grid; gap:4px; min-width:0; }
 .dialer-selected-lead strong { font-size:15px; }
