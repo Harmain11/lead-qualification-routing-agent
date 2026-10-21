@@ -8,6 +8,9 @@ Non-AI integration cards should have the same compact height and shape. Show a c
 Expanded cards must cover both grid columns horizontally and push the remaining
 integrations down; keep a single column on phones.
 
+When expanded, keep provider details compact and easy to scan: use tighter spacing,
+smaller inner panels, and avoid stacking visually heavy card treatments.
+
 AI providers use one AI Connections entry and one provider-selector card. Keep each provider's credentials, connection status, model settings, and actions separate. Changing the selector chooses which provider to configure; it does not switch the active lead-analysis provider. Preserve the explicit "Use for lead analysis" action.
 
 **Why:** The user explicitly requested that the opened integration cover both boxes
@@ -17,4 +20,6 @@ and move the other integrations below it.
 
 **Why:** The user requested one AI connection entry with a provider selector while retaining separate provider connections.
 
-**How to apply:** Preserve compact independent cards for other integrations. Keep AI setup and management in one grouped card without merging provider-specific state or changing the active analysis provider by selection alone.
+**Why:** On 2026-10-21, the user asked for all expanded integration cards to be smaller and less visually crowded.
+
+**How to apply:** Preserve compact independent cards for other integrations. In expanded views, reduce excess spacing and nested visual weight while keeping controls readable. Keep AI setup and management in one grouped card without merging provider-specific state or changing the active analysis provider by selection alone.
