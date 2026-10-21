@@ -6,6 +6,8 @@ import { CallInsights, hasCallInsightData, type CallInsightsData } from "./CallI
 const providerNames: Record<string, string> = { twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI", cloudtalk: "CloudTalk" };
 type CallRecord = { id: string; connection_id: string; provider: string; external_id: string | null; status: string; direction: string; customer_phone: string; started_at: string | null; created_at: string; duration_seconds: number | null; transcript: string | null; recording_url: string | null; message: string | null; insights: CallInsightsData };
 type Activity = { connections: { id: string; provider: string; account_name: string }[]; records: CallRecord[]; outreach_allowed: boolean; outreach_reason: string };
+type CloudTalkNumberOptions = { numbers: string[]; default_number: string | null };
+type CloudTalkHandoff = { phone_number: string; caller_id: string; handoff_url: string; message: string };
 
 export function CallsPanel({ leadId, leadName, companyName, representativeName, leadPhone, canCall, canEdit }: { leadId: string; leadName?: string; companyName?: string; representativeName?: string | null; leadPhone?: string | null; canCall: boolean; canEdit: boolean }) {
   const [data, setData] = useState<Activity | null>(null);
@@ -16,6 +18,12 @@ export function CallsPanel({ leadId, leadName, companyName, representativeName, 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [cloudTalkNumbers, setCloudTalkNumbers] = useState<string[]>([]);
+  const [cloudTalkNumbersLoading, setCloudTalkNumbersLoading] = useState(false);
+  const [cloudTalkNumbersError, setCloudTalkNumbersError] = useState("");
+  const [callerId, setCallerId] = useState("");
+  const [cloudTalkHandoff, setCloudTalkHandoff] = useState<CloudTalkHandoff | null>(null);
+  const [handoffOpened, setHandoffOpened] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
   const callFormRef = useRef<HTMLFormElement>(null);
@@ -31,12 +39,69 @@ export function CallsPanel({ leadId, leadName, companyName, representativeName, 
   const selected = data?.connections.find((item) => item.id === connectionId);
   const voiceAgent = selected?.provider === "vapi" || selected?.provider === "retell";
   const needsRep = selected?.provider === "twilio";
+  useEffect(() => {
+    if (selected?.provider !== "cloudtalk" || !connectionId) {
+      setCloudTalkNumbers([]);
+      setCloudTalkNumbersLoading(false);
+      setCloudTalkNumbersError("");
+      setCallerId("");
+      setCloudTalkHandoff(null);
+      setHandoffOpened(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCloudTalkNumbers([]);
+    setCloudTalkNumbersError("");
+    setCallerId("");
+    setCloudTalkHandoff(null);
+    setHandoffOpened(false);
+    setCloudTalkNumbersLoading(true);
+    opsGet<CloudTalkNumberOptions>(
+      `/v1/calling/cloudtalk/numbers?connection_id=${encodeURIComponent(connectionId)}`,
+      controller.signal,
+    )
+      .then((options) => {
+        if (controller.signal.aborted) return;
+        setCloudTalkNumbers(options.numbers);
+        setCallerId(
+          options.default_number && options.numbers.includes(options.default_number)
+            ? options.default_number
+            : options.numbers[0] ?? "",
+        );
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted) {
+          setCloudTalkNumbersError(
+            reason instanceof Error ? reason.message : "CloudTalk caller IDs could not be loaded.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCloudTalkNumbersLoading(false);
+      });
+    return () => controller.abort();
+  }, [connectionId, selected?.provider]);
 async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(`/v1/calling/leads/${leadId}`)); }
   async function start(event: FormEvent) {
     event.preventDefault();
-    if (!confirmed || !connectionId || busy) return;
+    if (!confirmed || !connectionId || busy || (selected?.provider === "cloudtalk" && !callerId)) return;
     setBusy(true); setError(""); setNotice("");
     try {
+      if (selected?.provider === "cloudtalk") {
+        const handoff = await opsSave<CloudTalkHandoff>(
+          `/v1/calling/leads/${leadId}/cloudtalk-handoff`,
+          {
+            connection_id: connectionId,
+            request_id: createClientId(),
+            confirmed: true,
+            caller_id: callerId,
+          },
+        );
+        setCloudTalkHandoff(handoff);
+        setHandoffOpened(false);
+        setConfirmed(false);
+        return;
+      }
       const id = requestId || createClientId();
       setRequestId(id);
       const result = await opsSave<CallRecord>(`/v1/calling/leads/${leadId}/start`, { connection_id: connectionId, request_id: id, confirmed: true, rep_phone: repPhone || null });
@@ -87,8 +152,54 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
           <label>Calling provider<select value={connectionId} disabled={busy || Boolean(requestId)} onChange={(event) => { setConnectionId(event.target.value); setConfirmed(false); }}><option value="">Choose a verified provider</option>{data.connections.map((item) => <option value={item.id} key={item.id}>{providerNames[item.provider]} · {item.account_name}</option>)}</select></label>
           {selected && ["twilio", "ringcentral"].includes(selected.provider) && <label>Your rep number{needsRep ? " (required)" : " (optional override)"}<input type="tel" placeholder="+14155550123" value={repPhone} required={needsRep} disabled={busy || Boolean(requestId)} onChange={(event) => { setRepPhone(event.target.value); setConfirmed(false); }} autoComplete="tel" /><small>{needsRep ? "Twilio rings you first, then connects the lead." : "Leave blank to ring the rep number saved in Integrations."}</small></label>}
         </div>
-         {selected && <p>{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : selected.provider === "cloudtalk" ? "CloudTalk rings the configured agent first, then connects the lead once the agent answers." : "Answer your rep phone to connect to the lead."}</p>}
-        {canCall && <><label className="ops-check"><input type="checkbox" checked={confirmed} disabled={busy || !data.outreach_allowed || !leadPhone || !selected} onChange={(event) => setConfirmed(event.target.checked)} /><span>I confirm this individual {voiceAgent ? "voice-agent " : ""}call to the lead.</span></label><button type="submit" disabled={busy || !selected || !confirmed || !leadPhone || !data.outreach_allowed || (needsRep && !repPhone)}>{busy ? "Submitting…" : requestId ? "Check existing call request" : voiceAgent ? "Start voice-agent call" : data.records.length ? "Call again" : "Call lead"}</button></>}
+          {selected && <p>{voiceAgent ? "This uses the assistant and phone number configured in your provider account. The saved voice agent talks to the lead." : selected.provider === "aircall" ? "The selected Aircall user must be signed in and available in Aircall Workspace." : selected.provider === "cloudtalk" ? "After confirmation, Corral prepares a CloudTalk Desktop handoff with this lead’s saved number. It does not dial through the embedded phone." : "Answer your rep phone to connect to the lead."}</p>}
+          {selected?.provider === "cloudtalk" && <>
+            <label>CloudTalk caller ID
+              <select
+                value={callerId}
+                disabled={busy || cloudTalkNumbersLoading || Boolean(requestId)}
+                onChange={(event) => {
+                  setCallerId(event.target.value);
+                  setCloudTalkHandoff(null);
+                  setHandoffOpened(false);
+                  setConfirmed(false);
+                }}
+              >
+                <option value="">
+                  {cloudTalkNumbersLoading ? "Loading assigned caller IDs…" : "Choose an assigned caller ID"}
+                </option>
+                {cloudTalkNumbers.map((number) => <option value={number} key={number}>{number}</option>)}
+              </select>
+              <small>
+                {cloudTalkNumbers.length
+                  ? "Only caller IDs assigned to this CloudTalk agent can be used."
+                  : cloudTalkNumbersLoading
+                    ? "Checking caller IDs assigned to this CloudTalk agent."
+                    : "No caller IDs are assigned to this CloudTalk agent. Ask an admin to update its CloudTalk setup."}
+              </small>
+            </label>
+            {cloudTalkNumbersError && <p className="notice" role="alert">{cloudTalkNumbersError}</p>}
+            {cloudTalkHandoff && <div className="direct-call-handoff" role="status">
+              <div>
+                <strong>Ready to open CloudTalk Desktop</strong>
+                <p>{cloudTalkHandoff.message}</p>
+                <small>Lead number: {cloudTalkHandoff.phone_number} · Caller ID: {cloudTalkHandoff.caller_id}</small>
+                <small>After the call, use Sync recent calls to bring the activity into Corral.</small>
+              </div>
+              {handoffOpened ? (
+                <small>Handoff opened. Check CloudTalk Desktop before retrying to avoid placing a duplicate call.</small>
+              ) : (
+                <a
+                  className="primary-button"
+                  href={cloudTalkHandoff.handoff_url}
+                  onClick={() => setHandoffOpened(true)}
+                >
+                  Open CloudTalk Desktop
+                </a>
+              )}
+            </div>}
+          </>}
+         {canCall && <><label className="ops-check"><input type="checkbox" checked={confirmed} disabled={busy || !data.outreach_allowed || !leadPhone || !selected || (selected.provider === "cloudtalk" && (cloudTalkNumbersLoading || !callerId))} onChange={(event) => { setConfirmed(event.target.checked); setCloudTalkHandoff(null); setHandoffOpened(false); }} /><span>I confirm this individual {voiceAgent ? "voice-agent " : ""}call to the lead.</span></label><button type="submit" disabled={busy || !selected || !confirmed || !leadPhone || !data.outreach_allowed || (needsRep && !repPhone) || (selected.provider === "cloudtalk" && (!callerId || cloudTalkNumbersLoading))}>{busy ? "Submitting…" : requestId ? "Check existing call request" : selected?.provider === "cloudtalk" ? "Prepare CloudTalk Desktop call" : voiceAgent ? "Start voice-agent call" : data.records.length ? "Call again" : "Call lead"}</button></>}
         {!canCall && <p>Calling this lead requires the Dialer calling permission plus lead-view and lead-edit access. Ask an admin to grant any missing permission.</p>}
       </form>
     </>}
