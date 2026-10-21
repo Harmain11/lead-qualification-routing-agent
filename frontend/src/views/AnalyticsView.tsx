@@ -75,6 +75,8 @@ export function AnalyticsView({
   const [preferredPanels, setVisiblePanels] = useState<Set<AnalyticsPanelId>>(
     () => loadAnalyticsPanelSelection(preferenceKey),
   );
+  const [panelSelectionDraft, setPanelSelectionDraft] =
+    useState<Set<AnalyticsPanelId>>(() => new Set(preferredPanels));
   const displayedPanels = selectedSection
     ? new Set<AnalyticsPanelId>([selectedSection as AnalyticsPanelId])
     : preferredPanels;
@@ -180,7 +182,7 @@ export function AnalyticsView({
     (metric.id === "roi" && revenueChannelRows.some((row) => row.roi_percent != null)),
   );
   const togglePanel = (id: AnalyticsPanelId, checked: boolean) => {
-    setVisiblePanels((current) => {
+    setPanelSelectionDraft((current) => {
       const next = new Set(current);
       if (checked) next.add(id);
       else next.delete(id);
@@ -222,13 +224,15 @@ export function AnalyticsView({
       {!selectedSection && (
         <SectionVisibilityPicker
           options={analyticsPanelOptions}
-          visible={visiblePanels}
-          description="Select the analytics sections you want. Only selected sections appear below."
+          visible={panelSelectionDraft}
+          applied={preferredPanels}
+          description="Select the analytics sections you want, then submit to update the plots below."
           showAllLabel="Show all sections"
           onToggle={togglePanel}
           onShowAll={() =>
-            setVisiblePanels(defaultSectionSelection(analyticsPanelOptions))
+            setPanelSelectionDraft(defaultSectionSelection(analyticsPanelOptions))
           }
+          onSubmit={() => setVisiblePanels(new Set(panelSelectionDraft))}
         />
       )}
       {displayedPanels.size > 0 ? (

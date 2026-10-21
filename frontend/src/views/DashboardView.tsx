@@ -149,6 +149,8 @@ export function DashboardView({
   const [visibleWidgets, setVisibleWidgets] = useState<Set<DashboardWidgetId>>(
     () => loadDashboardWidgetSelection(preferenceKey),
   );
+  const [widgetSelectionDraft, setWidgetSelectionDraft] =
+    useState<Set<DashboardWidgetId>>(() => new Set(visibleWidgets));
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -257,7 +259,7 @@ export function DashboardView({
     visibleWidgets.has("channel-intelligence") ||
     visibleWidgets.has("pipeline-pulse");
   const toggleWidget = (id: DashboardWidgetId, checked: boolean) => {
-    setVisibleWidgets((current) => {
+    setWidgetSelectionDraft((current) => {
       const next = new Set(current);
       if (checked) next.add(id);
       else next.delete(id);
@@ -294,13 +296,15 @@ export function DashboardView({
       </header>
       <SectionVisibilityPicker
         options={dashboardWidgetOptions}
-        visible={visibleWidgets}
-        description="Select the metrics and cards you want on your dashboard. Unchecked items are removed from the view."
+        visible={widgetSelectionDraft}
+        applied={visibleWidgets}
+        description="Select the metrics and cards you want, then submit to update your dashboard."
         showAllLabel="Show all cards"
         onToggle={toggleWidget}
         onShowAll={() =>
-          setVisibleWidgets(defaultSectionSelection(dashboardWidgetOptions))
+          setWidgetSelectionDraft(defaultSectionSelection(dashboardWidgetOptions))
         }
+        onSubmit={() => setVisibleWidgets(new Set(widgetSelectionDraft))}
       />
       {totalLeads === 0 && (
         <section className="panel workspace-empty">

@@ -30,6 +30,7 @@
 - [Workspace review settings](workspace-manual-review-settings.md) — Keep analysis review criteria separate from provider import approvals; existing review decisions remain unchanged when criteria change.
 - [Alembic branch merges](alembic-branch-merges.md) — Merge concurrent migration heads explicitly and keep revision IDs within the database version column's 32-character limit.
 - [Analytics metric integrity](analytics-metric-integrity.md) — Use recorded workspace data only; show missing inputs as untracked instead of estimating values.
+- [Dashboard selection submission](dashboard-selection-submission.md) — Keep checkbox changes staged until the user submits; only then update and save visible plots/cards.
 - [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
