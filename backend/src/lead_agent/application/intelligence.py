@@ -159,7 +159,9 @@ def suggest_workspace_business_profile(
         {"company": "the workspace organization", "evidence": [page]},
         (
             "Draft suggestions for the workspace business profile using only this official "
-            "page. Return concise facts using exactly these field labels: business_name, "
+            "page. Keep the description to one concise sentence under 240 characters and each "
+            "product or service to a short label under 120 characters. Return concise facts "
+            "using exactly these field labels: business_name, "
             "alternate_names, description, products_services, email_domains. Use one fact "
             "per product, service, brand, or email domain. Describe what the organization "
             "does and the specific products/services it publicly offers. Include an email "
@@ -205,12 +207,25 @@ def suggest_workspace_business_profile(
         for name in re.split(r"[;\n]+", value)
         if name.strip()
     ]
-    products_services = values_for("products_services")
+    def concise(value: str, limit: int) -> str:
+        value = " ".join(value.split()).strip()
+        if len(value) <= limit:
+            return value
+        cut = value.rfind(" ", 0, limit - 1)
+        return f"{value[:cut if cut > 0 else limit - 1].rstrip(' ,;:.')}…"
+
+    products_services = list(
+        dict.fromkeys(
+            concise(value, 120)
+            for value in values_for("products_services")
+            if value.strip()
+        )
+    )
     has_business_description_evidence = bool(
         values_for("description") or products_services
     )
     summary = (
-        str(result.get("summary", "")).strip()[:2000]
+        concise(str(result.get("summary", "")).strip(), 240)
         if has_business_description_evidence
         else ""
     )
@@ -234,7 +249,7 @@ def suggest_workspace_business_profile(
         website=website,
         email_domains=email_domains[:25],
         description=summary,
-        products_services="\n".join(products_services)[:2000],
+        products_services="\n".join(products_services)[:1000],
     )
     return {
         "suggestions": profile.model_dump(mode="json"),

@@ -3,6 +3,8 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/ai-connections/Current.tsx": () => import("../components/mockups/ai-connections/Current.tsx"),
   "./components/mockups/ai-connections/Unified.tsx": () => import("../components/mockups/ai-connections/Unified.tsx"),
+  "./components/mockups/business-profile-form/Current.tsx": () => import("../components/mockups/business-profile-form/Current.tsx"),
+  "./components/mockups/business-profile-form/Refined.tsx": () => import("../components/mockups/business-profile-form/Refined.tsx"),
   "./components/mockups/calls-panel/Current.tsx": () => import("../components/mockups/calls-panel/Current.tsx"),
   "./components/mockups/calls-panel/Polished.tsx": () => import("../components/mockups/calls-panel/Polished.tsx"),
   "./components/mockups/cloudtalk-phone-dock/Current.tsx": () => import("../components/mockups/cloudtalk-phone-dock/Current.tsx"),
@@ -16,9 +18,9 @@ export const modules: ModuleMap = {
   "./components/mockups/gmail-accounts/Current.tsx": () => import("../components/mockups/gmail-accounts/Current.tsx"),
   "./components/mockups/gmail-accounts/Refined.tsx": () => import("../components/mockups/gmail-accounts/Refined.tsx"),
   "./components/mockups/infographics/CorralScopeV2.tsx": () => import("../components/mockups/infographics/CorralScopeV2.tsx"),
+  "./components/mockups/lead-email-evidence/LeadEmailEvidence.tsx": () => import("../components/mockups/lead-email-evidence/LeadEmailEvidence.tsx"),
   "./components/mockups/integration-settings/Consistent.tsx": () => import("../components/mockups/integration-settings/Consistent.tsx"),
   "./components/mockups/integration-settings/Current.tsx": () => import("../components/mockups/integration-settings/Current.tsx"),
-  "./components/mockups/lead-email-evidence/LeadEmailEvidence.tsx": () => import("../components/mockups/lead-email-evidence/LeadEmailEvidence.tsx"),
   "./components/mockups/settings-cards/Collapsible.tsx": () => import("../components/mockups/settings-cards/Collapsible.tsx"),
   "./components/mockups/settings-cards/Current.tsx": () => import("../components/mockups/settings-cards/Current.tsx")
 };

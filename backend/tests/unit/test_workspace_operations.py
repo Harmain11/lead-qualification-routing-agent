@@ -711,6 +711,7 @@ def test_workspace_business_profile_analysis_returns_cited_suggestions_without_s
         "url": website,
         "text": "Acme builds sales software and workflow tools. Contact sales at hello@acme.test.",
     }
+    long_service = "Workflow tools for distributed sales teams " * 5
     facts = [
         {
             "field": "business_name",
@@ -726,7 +727,7 @@ def test_workspace_business_profile_analysis_returns_cited_suggestions_without_s
         },
         {
             "field": "products_services",
-            "value": "Workflow tools",
+            "value": long_service,
             "source": website,
             "excerpt": "workflow tools",
         },
@@ -743,7 +744,8 @@ def test_workspace_business_profile_analysis_returns_cited_suggestions_without_s
         "resolve_workspace_reasoning_provider",
         lambda *_: SimpleNamespace(
             summarize_evidence=lambda *_: {
-                "summary": "Acme builds sales software and workflow tools.",
+                "summary": "Acme builds sales software and workflow tools. "
+                + ("More public company details. " * 20),
                 "recommendations": [],
                 "facts": facts,
             }
@@ -757,12 +759,18 @@ def test_workspace_business_profile_analysis_returns_cited_suggestions_without_s
     assert response.status_code == 200
     payload = response.json()
     assert payload["suggestions"]["business_name"] == "Acme"
-    assert payload["suggestions"]["products_services"] == "Sales software\nWorkflow tools"
-    assert payload["suggestions"]["email_domains"] == ["acme.test"]
-    assert payload["suggestions"]["description"] == (
-        "Acme builds sales software and workflow tools."
+    assert len(payload["suggestions"]["description"]) <= 240
+    assert payload["suggestions"]["description"].startswith("Acme builds sales software")
+    assert all(
+        len(item) <= 120
+        for item in payload["suggestions"]["products_services"].splitlines()
     )
-    assert payload["evidence"] == facts
+    assert payload["suggestions"]["email_domains"] == ["acme.test"]
+    assert len(payload["evidence"]) == len(facts)
+    assert all(
+        fact["source"] == website and fact["excerpt"] in page["text"]
+        for fact in payload["evidence"]
+    )
     assert operations_policy(session, workspace.workspace_id).business_profile.business_name == ""
 
     facts[0]["excerpt"] = "unsupported"
