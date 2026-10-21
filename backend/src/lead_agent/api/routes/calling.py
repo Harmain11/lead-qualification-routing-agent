@@ -81,6 +81,13 @@ class CloudTalkHandoffRequest(DirectStartCall):
     caller_id: str = Field(min_length=8, max_length=32)
 
 
+class CloudTalkLeadHandoffRequest(StrictModel):
+    connection_id: UUID
+    request_id: UUID
+    confirmed: bool
+    caller_id: str = Field(min_length=8, max_length=32)
+
+
 class CloudTalkHandoffResponse(StrictModel):
     phone_number: str
     caller_id: str
@@ -766,6 +773,82 @@ def prepare_cloudtalk_handoff(
         handoff_url=handoff_url,
         message=(
             "Pre-call checks passed. Open CloudTalk Desktop to call from the selected number. "
+            "CloudTalk may dial immediately if its Click to Call setting is enabled."
+        ),
+    )
+
+
+@router.post(
+    "/leads/{lead_id}/cloudtalk-handoff",
+    response_model=CloudTalkHandoffResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def prepare_cloudtalk_lead_handoff(
+    lead_id: UUID,
+    request: CloudTalkLeadHandoffRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.view", "leads.edit", "dialer.call")
+    ),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> CloudTalkHandoffResponse:
+    if not request.confirmed:
+        raise HTTPException(422, "Confirm this individual call before dialing.")
+    lead = owned_lead(session, workspace.workspace_id, lead_id)
+    target = _target(lead)
+    try:
+        caller_id = phone(request.caller_id)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from None
+
+    _validate_direct_call_policy(session, workspace.workspace_id, target)
+    connection = _connection(session, workspace.workspace_id, request.connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(404, "CloudTalk connection not found")
+
+    client = _client(session, workspace, connection, resolver)
+    try:
+        assigned_numbers, _ = client.list_cloudtalk_agent_caller_ids()
+        if caller_id not in assigned_numbers:
+            raise HTTPException(
+                422,
+                "Select a caller ID assigned to the CloudTalk agent configured in this connection.",
+            )
+    except ProviderOperationError as error:
+        status_code = 429 if error.status_code == 429 else 502
+        raise HTTPException(
+            status_code,
+            "CloudTalk caller-ID assignments could not be verified. Check the connection before calling.",
+        ) from None
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            502,
+            "CloudTalk caller-ID assignments could not be verified. Check the connection before calling.",
+        ) from None
+    finally:
+        client.close()
+
+    handoff_url = f"ct+tel:{target}?from={quote(caller_id, safe='')}"
+    audit_operation(
+        session,
+        workspace.workspace_id,
+        workspace.actor_id,
+        "call.lead_handoff_prepared",
+        {
+            "lead_id": str(lead_id),
+            "connection_id": str(connection.id),
+            "request_id": str(request.request_id),
+            "provider": "cloudtalk",
+            "caller_id": caller_id,
+        },
+    )
+    session.commit()
+    return CloudTalkHandoffResponse(
+        phone_number=target,
+        caller_id=caller_id,
+        handoff_url=handoff_url,
+        message=(
+            "Corral’s checks passed. Open CloudTalk Desktop to continue. "
             "CloudTalk may dial immediately if its Click to Call setting is enabled."
         ),
     )

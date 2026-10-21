@@ -1206,3 +1206,107 @@ def test_cloudtalk_handoff_uses_only_an_assigned_caller_id_and_keeps_safeguards(
         json={**payload, "request_id": str(uuid4())},
     )
     assert blocked.status_code == 409
+
+
+def test_cloudtalk_lead_handoff_uses_saved_number_without_starting_api_call(
+    calls, monkeypatch
+):
+    session, client, _, lead, connection, _, adapter = calls
+    connection.provider_type = "cloudtalk"
+    connection.status = "verified"
+    connection.is_active = True
+    session.commit()
+    monkeypatch.setattr(
+        adapter,
+        "list_cloudtalk_agent_caller_ids",
+        lambda: (["+14155550123", "+442071838750"], "+14155550123"),
+        raising=False,
+    )
+    payload = {
+        "connection_id": str(connection.id),
+        "request_id": str(uuid4()),
+        "confirmed": True,
+        "caller_id": "+442071838750",
+    }
+
+    response = client.post(
+        f"/v1/calling/leads/{lead.id}/cloudtalk-handoff",
+        json=payload,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["phone_number"] == TARGET
+    assert response.json()["caller_id"] == "+442071838750"
+    assert response.json()["handoff_url"] == (
+        "ct+tel:+14155550111?from=%2B442071838750"
+    )
+    assert adapter.count == 0
+    assert session.scalar(select(func.count()).select_from(CallRecordORM)) == 0
+
+
+def test_cloudtalk_lead_handoff_requires_confirmation_and_respects_opt_out(
+    calls, monkeypatch
+):
+    session, client, workspace, lead, connection, _, adapter = calls
+    connection.provider_type = "cloudtalk"
+    connection.status = "verified"
+    connection.is_active = True
+    session.commit()
+    monkeypatch.setattr(
+        adapter,
+        "list_cloudtalk_agent_caller_ids",
+        lambda: (["+14155550123"], "+14155550123"),
+        raising=False,
+    )
+    payload = {
+        "connection_id": str(connection.id),
+        "request_id": str(uuid4()),
+        "confirmed": False,
+        "caller_id": "+14155550123",
+    }
+    unconfirmed = client.post(
+        f"/v1/calling/leads/{lead.id}/cloudtalk-handoff",
+        json=payload,
+    )
+    assert unconfirmed.status_code == 422
+
+    session.add(
+        ConsentEventORM(
+            workspace_id=workspace.workspace_id,
+            email=lead.email,
+            channel="call",
+            status="withdrawn",
+            basis="request",
+            purpose="Do not call",
+            evidence="Asked not to receive calls",
+            actor_id="test",
+        )
+    )
+    session.commit()
+    blocked = client.post(
+        f"/v1/calling/leads/{lead.id}/cloudtalk-handoff",
+        json={**payload, "request_id": str(uuid4()), "confirmed": True},
+    )
+    assert blocked.status_code == 409
+    assert adapter.count == 0
+
+
+def test_cloudtalk_lead_handoff_requires_dialer_and_lead_permissions(calls):
+    _, client, workspace, lead, connection, _, adapter = calls
+    permissions = role_permissions("sales_rep")
+    app.dependency_overrides[get_workspace_context] = lambda: replace(
+        workspace,
+        role="sales_rep",
+        permissions=permissions - {"dialer.call"},
+    )
+    response = client.post(
+        f"/v1/calling/leads/{lead.id}/cloudtalk-handoff",
+        json={
+            "connection_id": str(connection.id),
+            "request_id": str(uuid4()),
+            "confirmed": True,
+            "caller_id": "+14155550123",
+        },
+    )
+    assert response.status_code == 403
+    assert adapter.count == 0
