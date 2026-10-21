@@ -18,6 +18,7 @@ from lead_agent.application.governance import assert_residency, operations_polic
 from lead_agent.application.icp import create_draft, resolve_workspace_icp
 from lead_agent.application.routing import record_pipeline_event
 from lead_agent.domain.configuration import IcpConfig
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.company_research import fetch_company_page
 from lead_agent.infrastructure.db.models import (
@@ -141,6 +142,106 @@ def research_company(session: Session, company: CompanyORM, actor_id: str) -> Ag
         session, company.workspace_id, "research", result, actor_id, company_id=company.id
     )
     return row
+
+
+def suggest_workspace_business_profile(
+    session: Session, workspace_id: UUID, website: str
+) -> dict[str, Any]:
+    """Return cited website suggestions without changing the saved workspace profile."""
+    assert_residency(session, workspace_id)
+    page = fetch_company_page(website)
+    provider = resolve_workspace_reasoning_provider(session, workspace_id)
+    summarize = getattr(provider, "summarize_evidence", None)
+    if not callable(summarize):
+        raise ValueError("Connect and verify OpenAI before analyzing a business website")
+
+    result = summarize(
+        {"company": "the workspace organization", "evidence": [page]},
+        (
+            "Draft suggestions for the workspace business profile using only this official "
+            "page. Return concise facts using exactly these field labels: business_name, "
+            "alternate_names, description, products_services, email_domains. Use one fact "
+            "per product, service, brand, or email domain. Describe what the organization "
+            "does and the specific products/services it publicly offers. Include an email "
+            "domain only when the page explicitly shows the organization's contact email; "
+            "never infer one from the website hostname. The CRM owner is the organization, "
+            "not its prospective leads. Leave unknown details out."
+        ),
+    )
+    raw_facts = result.get("facts", [])
+    if not isinstance(raw_facts, list):
+        raise ValueError("Website analysis returned invalid evidence")
+
+    facts: list[dict[str, str]] = []
+    for fact in raw_facts:
+        if not isinstance(fact, dict):
+            raise ValueError("Website analysis returned invalid evidence")
+        field = str(fact.get("field", "")).strip()
+        value = str(fact.get("value", "")).strip()
+        excerpt = str(fact.get("excerpt", "")).strip()
+        source = str(fact.get("source", "")).strip()
+        if not field or not value or source != page["url"] or excerpt not in page["text"]:
+            raise ValueError(
+                "Website analysis returned an unsupported citation; no suggestions were applied"
+            )
+        facts.append(
+            {"field": field, "value": value, "excerpt": excerpt, "source": source}
+        )
+    if not facts:
+        raise ValueError("No cited business details were found on this page")
+
+    def values_for(*labels: str) -> list[str]:
+        expected = {re.sub(r"[^a-z0-9]+", "_", label.casefold()).strip("_") for label in labels}
+        return [
+            fact["value"]
+            for fact in facts
+            if re.sub(r"[^a-z0-9]+", "_", fact["field"].casefold()).strip("_") in expected
+        ]
+
+    business_names = values_for("business_name")
+    alternate_names = [
+        name.strip()
+        for value in values_for("alternate_names")
+        for name in re.split(r"[;\n]+", value)
+        if name.strip()
+    ]
+    products_services = values_for("products_services")
+    has_business_description_evidence = bool(
+        values_for("description") or products_services
+    )
+    summary = (
+        str(result.get("summary", "")).strip()[:2000]
+        if has_business_description_evidence
+        else ""
+    )
+    email_domains: list[str] = []
+    email_pattern = re.compile(r"(?<![\w.+-])[\w.+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,63})")
+    for fact in facts:
+        normalized_field = re.sub(r"[^a-z0-9]+", "_", fact["field"].casefold()).strip("_")
+        if normalized_field == "email_domains":
+            cited_domains = {
+                match.casefold() for match in email_pattern.findall(fact["excerpt"])
+            }
+            candidate = (
+                fact["value"].strip().casefold().removeprefix("@").rsplit("@", 1)[-1]
+            )
+            if candidate in cited_domains:
+                email_domains.append(candidate)
+
+    profile = WorkspaceBusinessProfile(
+        business_name=business_names[0][:255] if business_names else "",
+        alternate_names=[name[:255] for name in alternate_names[:25]],
+        website=website,
+        email_domains=email_domains[:25],
+        description=summary,
+        products_services="\n".join(products_services)[:2000],
+    )
+    return {
+        "suggestions": profile.model_dump(mode="json"),
+        "source": page["url"],
+        "evidence": facts[:20],
+        "limitations": "Only the supplied page was read. Review each suggestion before saving.",
+    }
 
 
 def conversation_evidence(session: Session, lead: LeadORM) -> list[dict[str, Any]]:

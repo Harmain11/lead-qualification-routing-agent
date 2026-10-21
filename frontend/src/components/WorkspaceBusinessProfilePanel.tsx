@@ -18,6 +18,13 @@ type BusinessProfileForm = {
   lead_distinction_notes: string;
 };
 
+type WebsiteProfileAnalysis = {
+  suggestions: WorkspaceBusinessProfile;
+  source: string;
+  evidence: { field: string; value: string; excerpt: string; source: string }[];
+  limitations: string;
+};
+
 const emptyForm: BusinessProfileForm = {
   business_name: "",
   alternate_names: "",
@@ -52,8 +59,17 @@ export function WorkspaceBusinessProfilePanel({
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [analyzingWebsite, setAnalyzingWebsite] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [websiteAnalysis, setWebsiteAnalysis] =
+    useState<WebsiteProfileAnalysis | null>(null);
+  const [websiteAnalysisNotice, setWebsiteAnalysisNotice] = useState<
+    string | null
+  >(null);
+  const [websiteAnalysisError, setWebsiteAnalysisError] = useState<
+    string | null
+  >(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -87,7 +103,54 @@ export function WorkspaceBusinessProfilePanel({
   const update = (key: keyof BusinessProfileForm, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
     setNotice(null);
+    if (key === "website") {
+      setWebsiteAnalysis(null);
+      setWebsiteAnalysisNotice(null);
+      setWebsiteAnalysisError(null);
+    }
   };
+
+  async function analyzeWebsite() {
+    if (!canManage || !form.website.trim()) return;
+    setAnalyzingWebsite(true);
+    setWebsiteAnalysis(null);
+    setWebsiteAnalysisNotice(null);
+    setWebsiteAnalysisError(null);
+    try {
+      const result = await opsSave<WebsiteProfileAnalysis>(
+        "/v1/ops/business-profile/analyze",
+        { website: form.website.trim() },
+      );
+      setForm((current) => ({
+        ...current,
+        business_name:
+          current.business_name.trim() || result.suggestions.business_name,
+        alternate_names:
+          current.alternate_names.trim() ||
+          result.suggestions.alternate_names.join("\n"),
+        email_domains:
+          current.email_domains.trim() ||
+          result.suggestions.email_domains.join("\n"),
+        description:
+          current.description.trim() || result.suggestions.description,
+        products_services:
+          current.products_services.trim() ||
+          result.suggestions.products_services,
+      }));
+      setWebsiteAnalysis(result);
+      setWebsiteAnalysisNotice(
+        "Website analyzed. Suggestions were added only to empty fields; review them before saving.",
+      );
+    } catch (reason) {
+      setWebsiteAnalysisError(
+        reason instanceof Error
+          ? reason.message
+          : "Unable to analyze this website.",
+      );
+    } finally {
+      setAnalyzingWebsite(false);
+    }
+  }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -188,7 +251,7 @@ export function WorkspaceBusinessProfilePanel({
           <input
             maxLength={255}
             value={form.business_name}
-            disabled={!canManage || busy}
+            disabled={!canManage || busy || analyzingWebsite}
             onChange={(event) => update("business_name", event.target.value)}
             placeholder="Your organization’s name"
           />
@@ -197,44 +260,93 @@ export function WorkspaceBusinessProfilePanel({
           <span>Other names or brands <small>One per line</small></span>
           <textarea
             maxLength={2000}
-            rows={3}
+            rows={2}
             value={form.alternate_names}
-            disabled={!canManage || busy}
+            disabled={!canManage || busy || analyzingWebsite}
             onChange={(event) => update("alternate_names", event.target.value)}
             placeholder={"Trading names, brands, or former names"}
           />
         </label>
         <div className="workspace-business-profile-row">
-          <label>
-            <span>Website</span>
-            <input
-              type="url"
-              maxLength={500}
-              value={form.website}
-              disabled={!canManage || busy}
-              onChange={(event) => update("website", event.target.value)}
-              placeholder="https://example.com"
-            />
-          </label>
+          <div className="workspace-business-profile-website-column">
+            <label>
+              <span>Website</span>
+              <input
+                type="url"
+                maxLength={500}
+                value={form.website}
+                disabled={!canManage || busy || analyzingWebsite}
+                onChange={(event) => update("website", event.target.value)}
+                placeholder="https://example.com"
+              />
+            </label>
+            <button
+              className="secondary-button workspace-business-profile-analyze"
+              type="button"
+              onClick={() => void analyzeWebsite()}
+              disabled={
+                !canManage || busy || analyzingWebsite || !form.website.trim()
+              }
+            >
+              {analyzingWebsite ? "Analyzing…" : "Analyze website"}
+            </button>
+            <small className="workspace-business-profile-hint">
+              Reads this page with your workspace AI provider. You review suggestions before saving.
+            </small>
+            {websiteAnalysisError && (
+              <small className="workspace-business-profile-analysis-error" role="alert">
+                {websiteAnalysisError}
+              </small>
+            )}
+          </div>
           <label>
             <span>Business email domains <small>One per line</small></span>
             <textarea
               maxLength={2000}
               rows={2}
               value={form.email_domains}
-              disabled={!canManage || busy}
+              disabled={!canManage || busy || analyzingWebsite}
               onChange={(event) => update("email_domains", event.target.value)}
               placeholder={"example.com"}
             />
           </label>
         </div>
+        {websiteAnalysis && (
+          <div className="workspace-business-profile-analysis">
+            {websiteAnalysisNotice && (
+              <small role="status">{websiteAnalysisNotice}</small>
+            )}
+            <details className="workspace-business-profile-evidence">
+              <summary>
+                Review website evidence ({websiteAnalysis.evidence.length})
+              </summary>
+              <p>
+                Source:{" "}
+                <a href={websiteAnalysis.source} target="_blank" rel="noreferrer">
+                  {websiteAnalysis.source}
+                </a>
+              </p>
+              {websiteAnalysis.evidence.length > 0 && (
+                <ul>
+                  {websiteAnalysis.evidence.map((fact, index) => (
+                    <li key={`${fact.field}-${index}`}>
+                      <b>{fact.field}: {fact.value}</b>
+                      <span>“{fact.excerpt}”</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <small>{websiteAnalysis.limitations}</small>
+            </details>
+          </div>
+        )}
         <label>
           <span>What your business does</span>
           <textarea
             maxLength={2000}
-            rows={3}
+            rows={2}
             value={form.description}
-            disabled={!canManage || busy}
+            disabled={!canManage || busy || analyzingWebsite}
             onChange={(event) => update("description", event.target.value)}
             placeholder="Briefly describe your organization and industry."
           />
@@ -243,9 +355,9 @@ export function WorkspaceBusinessProfilePanel({
           <span>Products and services</span>
           <textarea
             maxLength={2000}
-            rows={3}
+            rows={2}
             value={form.products_services}
-            disabled={!canManage || busy}
+            disabled={!canManage || busy || analyzingWebsite}
             onChange={(event) => update("products_services", event.target.value)}
             placeholder="What you sell or provide."
           />
@@ -254,9 +366,9 @@ export function WorkspaceBusinessProfilePanel({
           <span>How to distinguish your business from a lead</span>
           <textarea
             maxLength={1500}
-            rows={3}
+            rows={2}
             value={form.lead_distinction_notes}
-            disabled={!canManage || busy}
+            disabled={!canManage || busy || analyzingWebsite}
             onChange={(event) => update("lead_distinction_notes", event.target.value)}
             placeholder="Add any important context about your organization and how it differs from prospective customers."
           />
@@ -267,7 +379,7 @@ export function WorkspaceBusinessProfilePanel({
             <button
               className="primary-button"
               type="submit"
-              disabled={!policy || busy}
+              disabled={!policy || busy || analyzingWebsite}
             >
               {busy ? "Saving…" : "Save business context"}
             </button>

@@ -528,7 +528,12 @@ class OpenAIReasoningProvider:
                             "excerpt and the supplied source ID or URL. Unknown facts remain "
                             "unknown. Recommendations are suggestions, not promises. "
                             "Company enrichment fields: industry, employee_count, technology, "
-                            "funding, news, hiring."
+                            "funding, news, hiring. For workspace business profile suggestions, "
+                            "describe only the organization represented by the supplied page. "
+                            "List publicly named products and services, and include email domains "
+                            "only when an organization contact email is explicitly shown; never "
+                            "infer an email domain from a website hostname. Exact cited excerpts "
+                            "must come from the supplied source."
                         ),
                     },
                     {
