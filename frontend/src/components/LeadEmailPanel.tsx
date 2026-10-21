@@ -21,12 +21,14 @@ export function LeadEmailPanel({
   canView,
   canSend,
   onConversationSynced,
+  onAskAgent,
 }: {
   lead: Lead;
   active: boolean;
   canView: boolean;
   canSend: boolean;
   onConversationSynced: () => void;
+  onAskAgent?: () => void;
 }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [events, setEvents] = useState<LeadPipelineEvent[]>([]);
@@ -136,6 +138,7 @@ export function LeadEmailPanel({
     <header className="lead-email-heading">
       <div><span className="eyebrow">Email conversation</span><h2>{lead.full_name}</h2><p>Messages stay linked to their Gmail mailbox. Refresh imports new messages and re-checks lead qualification.</p></div>
       <div className="lead-email-actions">
+        {onAskAgent && <button className="secondary-button" type="button" onClick={onAskAgent}>Ask Corral</button>}
         <button className="secondary-button" type="button" onClick={() => {
           setComposeSeed({ recipient: lead.email || "" });
           setComposerRevision((current) => current + 1);
