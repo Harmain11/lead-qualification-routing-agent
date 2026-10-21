@@ -24,6 +24,7 @@
 - [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
 - [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
 - [Manual lead AI context](manual-lead-ai-context.md) — Require successful workspace AI analysis; treat inquiry text as original or process summary while keeping qualification deterministic.
+- [Lead assistant action safety](lead-assistant-actions.md) — Give Corral broad lead-page actions, but require confirmation for emails, bookings, CRM syncs, and deletes.
 - [Workspace website enrichment](workspace-website-enrichment.md) — Turn a supplied public page into cited profile suggestions; preserve manual values and require review before saving.
 - [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; new leads use per-lead/tab dots, a bell inbox, and one toast when first observed.
 - [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.

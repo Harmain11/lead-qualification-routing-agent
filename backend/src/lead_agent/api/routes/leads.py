@@ -44,6 +44,7 @@ from lead_agent.application.routing import record_pipeline_event, route_and_noti
 from lead_agent.application.services import _analyze_and_qualify, process_lead
 from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
@@ -113,6 +114,20 @@ class LeadTitleUpdateRequest(BaseModel):
         if not value:
             raise ValueError("Job title cannot be blank")
         return value
+
+
+class LeadProfileUpdateRequest(LeadProfileChanges):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @model_validator(mode="after")
+    def require_changes(self) -> LeadProfileUpdateRequest:
+        if not self.model_fields_set:
+            raise ValueError("Provide at least one lead field to update.")
+        for field in ("full_name", "email", "company_name", "product_or_service"):
+            value = getattr(self, field)
+            if field in self.model_fields_set and (value is None or not value):
+                raise ValueError(f"{field.replace('_', ' ').title()} cannot be blank.")
+        return self
 
 
 class LeadBulkDeleteRequest(BaseModel):
@@ -570,6 +585,44 @@ def update_lead_title(
         raise HTTPException(status_code=404, detail="Lead not found")
     row.job_title = request.job_title
     row.updated_at = datetime.now(UTC)
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.patch("/{lead_id}/profile", response_model=LeadResponse)
+def update_lead_profile(
+    lead_id: UUID,
+    request: LeadProfileUpdateRequest,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    """Apply reviewed profile fields and refresh qualification without external writes."""
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    changes = request.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        if field == "email":
+            value = value.lower()
+        setattr(row, field, value)
+    row.updated_at = datetime.now(UTC)
+    _reanalyze_lead_with_history(
+        session,
+        row,
+        workspace.workspace_id,
+        policies,
+        notification_provider,
+        trigger="assistant_profile_update",
+    )
     session.commit()
     routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(

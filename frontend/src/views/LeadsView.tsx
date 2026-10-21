@@ -95,6 +95,7 @@ export function LeadsView({
   canExport = false,
   canCrmSync = false,
   canViewEmail = false,
+  canUseAgent = false,
   canEnrollAutomations = false,
   onOpenAutomations,
 }: {
@@ -114,6 +115,7 @@ export function LeadsView({
   canExport?: boolean;
   canCrmSync?: boolean;
   canViewEmail?: boolean;
+  canUseAgent?: boolean;
   canEnrollAutomations?: boolean;
   onOpenAutomations?: () => void;
 }) {
@@ -333,6 +335,7 @@ export function LeadsView({
             onTogglePin={onTogglePin}
             canCrmSync={canCrmSync}
             canViewEmail={canViewEmail}
+            canUseAgent={canUseAgent}
             canEdit={canEdit}
             canEnrollAutomations={canEnrollAutomations}
             onEnrollAutomation={(kind) =>

@@ -26,6 +26,7 @@ from lead_agent.api.routes import (
     intake,
     integrations,
     intelligence,
+    lead_assistant,
     leads,
     meetings,
     meta_webhooks,
@@ -62,6 +63,7 @@ app.add_middleware(
 )
 install_request_middleware(app, settings)
 app.include_router(health.router)
+app.include_router(lead_assistant.router)
 app.include_router(auth.router)
 app.include_router(routing.config_router)
 app.include_router(routing.router)

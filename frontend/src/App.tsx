@@ -1611,6 +1611,7 @@ function App() {
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
                   canViewEmail={can(workspacePermissions, "integrations.view")}
+                  canUseAgent={can(workspacePermissions, "agents.execute")}
                   canEnrollAutomations={
                     can(workspacePermissions, "agents.view") &&
                     can(workspacePermissions, "leads.edit")

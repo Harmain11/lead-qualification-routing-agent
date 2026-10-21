@@ -1,4 +1,5 @@
 import { mutationStatusMessage, notifyActivity } from "./activity";
+import { createClientId } from "./clientIds";
 import { recentReviewBatch } from "./inboundReview";
 import type {
   AdvancedAnalytics,
@@ -66,6 +67,26 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+
+export type LeadAssistantAction = {
+  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "open_email" | "open_meetings" | "open_closing" | "open_history";
+  profile_updates: Partial<Pick<Lead, "full_name" | "email" | "phone" | "job_title" | "company_name" | "industry" | "employee_count" | "annual_revenue" | "geography" | "budget" | "product_or_service">>;
+  clear_fields: string[];
+  note: string | null;
+  progress_stage: "contacted" | "responded" | "meeting_scheduled" | "proposal_sent" | "converted" | "lost" | null;
+  progress_note: string | null;
+  conversion_type: "project" | "sale" | null;
+  closed_revenue: number | null;
+  credited_user_id: string | null;
+  email_subject: string | null;
+  email_body: string | null;
+  crm_provider: string | null;
+};
+
+export type LeadAssistantReply = {
+  reply: string;
+  action: LeadAssistantAction;
+};
 
 export function setActiveWorkspace(workspaceId: string) {
   activeWorkspaceId = workspaceId;
@@ -518,6 +539,37 @@ export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead>
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ job_title: jobTitle }),
+  });
+}
+
+export function updateLeadProfile(
+  leadId: string,
+  updates: LeadAssistantAction["profile_updates"],
+): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}/profile`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+}
+
+export function chatWithLeadAssistant(
+  leadId: string,
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+): Promise<LeadAssistantReply> {
+  return jsonRequest<LeadAssistantReply>(`/v1/leads/${leadId}/assistant/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+}
+
+export function saveLeadNote(leadId: string, body: string): Promise<{ id: string; body: string }> {
+  const noteId = createClientId();
+  return jsonRequest(`/v1/collaboration/leads/${leadId}/notes/${noteId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body, version: 0 }),
   });
 }
 
