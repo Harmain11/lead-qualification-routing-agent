@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from lead_agent.domain.models import NormalizedLead
+from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.scoring import qualify_lead
 
 
@@ -110,3 +111,39 @@ def test_hard_disqualifier_short_circuits_scoring(icp, routing) -> None:
     assert result.component_scores == {"icp_fit": 0, "intent_urgency": 0, "engagement_quality": 0}
     assert len(result.score_breakdown) == 3
     assert all("hard disqualifier" in reason.lower() for reason in result.rationale[1:4])
+
+
+def test_missing_manual_details_do_not_count_as_contact_completeness(icp, routing) -> None:
+    result = qualify_lead(
+        make_lead(
+            full_name="Name not provided",
+            email="",
+            phone=None,
+            job_title=None,
+            company_name="Company not provided",
+        ),
+        icp,
+        routing,
+    )
+
+    completeness = next(
+        line for line in result.score_breakdown if line.key == "contact_completeness"
+    )
+    assert completeness.points == 0
+
+
+def test_incomplete_manual_lead_is_not_hard_disqualified_for_missing_fields(
+    icp, routing
+) -> None:
+    lead = normalize_lead(
+        {
+            "source_detail": "manual-control-center",
+            "full_name": "Kathi Sitek",
+        },
+        uuid4(),
+    )
+
+    result = qualify_lead(lead, icp, routing)
+
+    assert result.hard_disqualified is False
+    assert result.disqualifier_code is None

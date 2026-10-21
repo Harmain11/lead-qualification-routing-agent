@@ -847,6 +847,16 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
     setForm((current) => ({ ...current, [key]: value }));
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const hasKnownDetail = Object.entries(form).some(
+      ([key, value]) =>
+        !["source", "source_detail"].includes(key) &&
+        value !== null &&
+        String(value).trim().length > 0,
+    );
+    if (!hasKnownDetail) {
+      setError("Enter at least one known lead detail; the other fields can stay blank.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -874,6 +884,9 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
           <i /> AI context analysis · deterministic scoring safeguards
         </span>
       </div>
+      <p className="intake-form-note">
+        All fields are optional. Enter at least one detail you know; leave the rest blank.
+      </p>
       <div className="form-grid">
         <Field
           label="Full name"
@@ -933,7 +946,6 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
           process. AI treats this as context, not necessarily a verbatim quote.
         </small>
         <textarea
-          required
           value={form.message}
           onChange={(event) => set("message", event.target.value)}
           rows={5}
@@ -1039,7 +1051,6 @@ function Field({
     <label className="field">
       <span>{label}</span>
       <input
-        required={["Full name", "Email", "Company", "Service"].includes(label)}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}

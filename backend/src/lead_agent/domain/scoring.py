@@ -105,6 +105,20 @@ def _field_evidence(field: AnalyzedField | None) -> tuple[str, ...]:
     return tuple(f"{item.source_field}: {item.excerpt}" for item in field.evidence)
 
 
+def _is_known_contact_value(value: str | None) -> bool:
+    normalized = _norm(value)
+    return normalized not in {
+        "",
+        "name not provided",
+        "company not provided",
+        "unknown",
+        "unknown company",
+        "n/a",
+        "not provided",
+        "unspecified",
+    }
+
+
 def qualify_lead(
     lead: NormalizedLead,
     icp: IcpConfig,
@@ -412,7 +426,7 @@ def qualify_lead(
         lead.job_title,
         lead.phone,
     ]
-    completeness = sum(bool(value) for value in completeness_fields)
+    completeness = sum(_is_known_contact_value(value) for value in completeness_fields)
     completeness_max = engagement_points.get("contact_completeness", 0)
     completeness_score = round(completeness_max * completeness / len(completeness_fields))
     lines.append(
