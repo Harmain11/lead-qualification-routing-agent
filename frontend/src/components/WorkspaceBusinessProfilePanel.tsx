@@ -35,6 +35,24 @@ const emptyForm: BusinessProfileForm = {
   lead_distinction_notes: "",
 };
 
+const productServicePresets = [
+  "Software / SaaS",
+  "Consulting",
+  "Professional services",
+  "Managed services",
+  "Marketing and advertising",
+  "Design and creative services",
+  "Training and education",
+  "Financial services",
+  "Healthcare services",
+  "Logistics and fulfillment",
+  "Manufacturing",
+  "Hardware and equipment",
+  "Retail and e-commerce",
+  "Consumer products",
+  "Subscription services",
+];
+
 const lines = (value: string) =>
   value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 
@@ -68,6 +86,10 @@ export function WorkspaceBusinessProfilePanel({
     string | null
   >(null);
   const [websiteAnalysisError, setWebsiteAnalysisError] = useState<
+    string | null
+  >(null);
+  const [presetService, setPresetService] = useState("");
+  const [presetServiceMessage, setPresetServiceMessage] = useState<
     string | null
   >(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -108,6 +130,23 @@ export function WorkspaceBusinessProfilePanel({
       setWebsiteAnalysisNotice(null);
       setWebsiteAnalysisError(null);
     }
+  };
+
+  const addProductServicePreset = (value: string) => {
+    if (!value) return;
+    const existing = lines(form.products_services);
+    if (existing.some((item) => item.toLocaleLowerCase() === value.toLocaleLowerCase())) {
+      setPresetServiceMessage(`${value} is already in the list.`);
+    } else {
+      const next = [...existing, value].join("\n");
+      if (next.length > 2000) {
+        setPresetServiceMessage("The list is full. Remove an item before adding another.");
+      } else {
+        update("products_services", next);
+        setPresetServiceMessage(`${value} added.`);
+      }
+    }
+    setPresetService("");
   };
 
   async function analyzeWebsite() {
@@ -218,13 +257,8 @@ export function WorkspaceBusinessProfilePanel({
   return (
     <div className="workspace-business-profile">
       <p className="panel-copy">
-        Add your organization’s names and what it does so AI can distinguish
-        your CRM-owning business from a prospective lead’s company. It is
-        context, not proof that an email sender is a lead. The selected reasoning
-        provider uses it for email lead detection and new or re-run analyses.
-        Routine marketing emails sent to this workspace are treated as unrelated,
-        while genuine inquiries and replies in existing sales conversations
-        remain eligible. Existing lead analyses are unchanged.
+        Add the details AI needs to recognize your business. Website suggestions
+        stay editable until you save.
       </p>
       {error && (
         <div className="notice" role="alert">
@@ -246,135 +280,197 @@ export function WorkspaceBusinessProfilePanel({
         </p>
       )}
       <form className="workspace-business-profile-form" onSubmit={save}>
-        <label>
-          <span>Business name</span>
-          <input
-            maxLength={255}
-            value={form.business_name}
-            disabled={!canManage || busy || analyzingWebsite}
-            onChange={(event) => update("business_name", event.target.value)}
-            placeholder="Your organization’s name"
-          />
-        </label>
-        <label>
-          <span>Other names or brands <small>One per line</small></span>
-          <textarea
-            maxLength={2000}
-            rows={2}
-            value={form.alternate_names}
-            disabled={!canManage || busy || analyzingWebsite}
-            onChange={(event) => update("alternate_names", event.target.value)}
-            placeholder={"Trading names, brands, or former names"}
-          />
-        </label>
-        <div className="workspace-business-profile-row">
-          <div className="workspace-business-profile-website-column">
+        <section className="workspace-business-profile-section">
+          <div className="workspace-business-profile-section-heading">
+            <h3>Organization</h3>
+            <p>Names that help AI recognize your business.</p>
+          </div>
+          <div className="workspace-business-profile-field-grid">
             <label>
-              <span>Website</span>
+              <span>Business name</span>
               <input
-                type="url"
-                maxLength={500}
-                value={form.website}
+                maxLength={255}
+                value={form.business_name}
                 disabled={!canManage || busy || analyzingWebsite}
-                onChange={(event) => update("website", event.target.value)}
-                placeholder="https://example.com"
+                onChange={(event) => update("business_name", event.target.value)}
+                placeholder="Your organization’s name"
               />
             </label>
-            <button
-              className="secondary-button workspace-business-profile-analyze"
-              type="button"
-              onClick={() => void analyzeWebsite()}
-              disabled={
-                !canManage || busy || analyzingWebsite || !form.website.trim()
-              }
-            >
-              {analyzingWebsite ? "Analyzing…" : "Analyze website"}
-            </button>
-            <small className="workspace-business-profile-hint">
-              Reads this page with your workspace AI provider. You review suggestions before saving.
-            </small>
-            {websiteAnalysisError && (
-              <small className="workspace-business-profile-analysis-error" role="alert">
-                {websiteAnalysisError}
+            <label>
+              <span>Other names or brands <small>One per line</small></span>
+              <textarea
+                maxLength={2000}
+                rows={2}
+                value={form.alternate_names}
+                disabled={!canManage || busy || analyzingWebsite}
+                onChange={(event) => update("alternate_names", event.target.value)}
+                placeholder="Trading names or product brands"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="workspace-business-profile-section">
+          <div className="workspace-business-profile-section-heading">
+            <h3>Website and email</h3>
+            <p>Analyze a public page to get cited profile suggestions.</p>
+          </div>
+          <div className="workspace-business-profile-field-grid">
+            <label>
+              <span>Website</span>
+              <div className="workspace-business-profile-website-input">
+                <input
+                  type="url"
+                  maxLength={500}
+                  value={form.website}
+                  disabled={!canManage || busy || analyzingWebsite}
+                  onChange={(event) => update("website", event.target.value)}
+                  placeholder="https://example.com"
+                />
+                <button
+                  className="secondary-button workspace-business-profile-analyze"
+                  type="button"
+                  onClick={() => void analyzeWebsite()}
+                  disabled={
+                    !canManage || busy || analyzingWebsite || !form.website.trim()
+                  }
+                >
+                  {analyzingWebsite ? "Analyzing…" : "Analyze website"}
+                </button>
+              </div>
+              <small className="workspace-business-profile-hint">
+                Only this page is read. Review suggestions before saving.
               </small>
-            )}
+              {websiteAnalysisError && (
+                <small className="workspace-business-profile-analysis-error" role="alert">
+                  {websiteAnalysisError}
+                </small>
+              )}
+            </label>
+            <label>
+              <span>Business email domains <small>One per line</small></span>
+              <textarea
+                maxLength={2000}
+                rows={2}
+                value={form.email_domains}
+                disabled={!canManage || busy || analyzingWebsite}
+                onChange={(event) => update("email_domains", event.target.value)}
+                placeholder="company.com"
+              />
+            </label>
+          </div>
+          {websiteAnalysis && (
+            <div className="workspace-business-profile-analysis">
+              {websiteAnalysisNotice && (
+                <small role="status">{websiteAnalysisNotice}</small>
+              )}
+              <details className="workspace-business-profile-evidence">
+                <summary>
+                  Review website evidence ({websiteAnalysis.evidence.length})
+                </summary>
+                <p>
+                  Source:{" "}
+                  <a href={websiteAnalysis.source} target="_blank" rel="noreferrer">
+                    {websiteAnalysis.source}
+                  </a>
+                </p>
+                {websiteAnalysis.evidence.length > 0 && (
+                  <ul>
+                    {websiteAnalysis.evidence.map((fact, index) => (
+                      <li key={`${fact.field}-${index}`}>
+                        <b>{fact.field}: {fact.value}</b>
+                        <span>“{fact.excerpt}”</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <small>{websiteAnalysis.limitations}</small>
+              </details>
+            </div>
+          )}
+        </section>
+
+        <section className="workspace-business-profile-section">
+          <div className="workspace-business-profile-section-heading">
+            <h3>What you offer</h3>
+            <p>Keep these details brief so they are easy to scan.</p>
+          </div>
+          <div className="workspace-business-profile-field-grid">
+            <label>
+              <span>What your business does</span>
+              <textarea
+                maxLength={2000}
+                rows={2}
+                value={form.description}
+                disabled={!canManage || busy || analyzingWebsite}
+                onChange={(event) => update("description", event.target.value)}
+                placeholder="One short sentence about your organization."
+              />
+            </label>
+            <div className="workspace-business-profile-service-field">
+              <label>
+                <span>Products and services <small>One per line</small></span>
+                <textarea
+                  maxLength={2000}
+                  rows={2}
+                  value={form.products_services}
+                  disabled={!canManage || busy || analyzingWebsite}
+                  onChange={(event) => {
+                    update("products_services", event.target.value);
+                    setPresetServiceMessage(null);
+                  }}
+                  placeholder="What you sell or provide."
+                />
+              </label>
+              <div className="workspace-business-profile-service-add">
+                <select
+                  aria-label="Add a common product or service"
+                  value={presetService}
+                  disabled={!canManage || busy || analyzingWebsite}
+                  onChange={(event) => addProductServicePreset(event.target.value)}
+                >
+                  <option value="">Add from common options…</option>
+                  {productServicePresets.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+                <small>Choose an option to add it, or type your own.</small>
+              </div>
+              {presetServiceMessage && (
+                <small className="workspace-business-profile-preset-status" role="status">
+                  {presetServiceMessage}
+                </small>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="workspace-business-profile-section">
+          <div className="workspace-business-profile-section-heading">
+            <h3>Lead context <small>Optional</small></h3>
+            <p>Clarify how your business differs from prospective customers.</p>
           </div>
           <label>
-            <span>Business email domains <small>One per line</small></span>
+            <span>How to distinguish your business from a lead</span>
             <textarea
-              maxLength={2000}
+              maxLength={1500}
               rows={2}
-              value={form.email_domains}
+              value={form.lead_distinction_notes}
               disabled={!canManage || busy || analyzingWebsite}
-              onChange={(event) => update("email_domains", event.target.value)}
-              placeholder={"example.com"}
+              onChange={(event) => update("lead_distinction_notes", event.target.value)}
+              placeholder="For example, we provide services to clinics; we are not a clinic."
             />
           </label>
-        </div>
-        {websiteAnalysis && (
-          <div className="workspace-business-profile-analysis">
-            {websiteAnalysisNotice && (
-              <small role="status">{websiteAnalysisNotice}</small>
-            )}
-            <details className="workspace-business-profile-evidence">
-              <summary>
-                Review website evidence ({websiteAnalysis.evidence.length})
-              </summary>
-              <p>
-                Source:{" "}
-                <a href={websiteAnalysis.source} target="_blank" rel="noreferrer">
-                  {websiteAnalysis.source}
-                </a>
-              </p>
-              {websiteAnalysis.evidence.length > 0 && (
-                <ul>
-                  {websiteAnalysis.evidence.map((fact, index) => (
-                    <li key={`${fact.field}-${index}`}>
-                      <b>{fact.field}: {fact.value}</b>
-                      <span>“{fact.excerpt}”</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <small>{websiteAnalysis.limitations}</small>
-            </details>
-          </div>
-        )}
-        <label>
-          <span>What your business does</span>
-          <textarea
-            maxLength={2000}
-            rows={2}
-            value={form.description}
-            disabled={!canManage || busy || analyzingWebsite}
-            onChange={(event) => update("description", event.target.value)}
-            placeholder="Briefly describe your organization and industry."
-          />
-        </label>
-        <label>
-          <span>Products and services</span>
-          <textarea
-            maxLength={2000}
-            rows={2}
-            value={form.products_services}
-            disabled={!canManage || busy || analyzingWebsite}
-            onChange={(event) => update("products_services", event.target.value)}
-            placeholder="What you sell or provide."
-          />
-        </label>
-        <label>
-          <span>How to distinguish your business from a lead</span>
-          <textarea
-            maxLength={1500}
-            rows={2}
-            value={form.lead_distinction_notes}
-            disabled={!canManage || busy || analyzingWebsite}
-            onChange={(event) => update("lead_distinction_notes", event.target.value)}
-            placeholder="Add any important context about your organization and how it differs from prospective customers."
-          />
-        </label>
+        </section>
+
         <div className="workspace-business-profile-actions">
-          {notice && <span role="status">{notice}</span>}
+          {notice ? (
+            <span role="status">{notice}</span>
+          ) : (
+            <small className="workspace-business-profile-save-hint">
+              Suggestions are applied only when you save.
+            </small>
+          )}
           {canManage && (
             <button
               className="primary-button"
