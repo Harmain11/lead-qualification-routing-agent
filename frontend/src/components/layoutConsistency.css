@@ -1267,3 +1267,128 @@ html[data-theme] .ops-dialog.lead-drawer .lead-story { background: transparent; 
   }
   .app-shell .integration-card .connection-facts { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Keep open integration cards compact without changing their collapsed tiles. */
+.app-shell .integration-card:not(.is-collapsed) { padding: 12px 14px 14px; }
+.app-shell .integration-card:not(.is-collapsed) .provider-details {
+  width: min(100%, 960px);
+  gap: 9px;
+  margin-top: 9px;
+}
+.app-shell .integration-card:not(.is-collapsed) .provider-details > p {
+  max-width: 78ch;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide {
+  gap: 9px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide > :is(strong, p, a) {
+  margin-block: 2px;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-guide > p {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.app-shell .integration-card:not(.is-collapsed) > .provider-details > .integration-direction {
+  padding: 7px 10px;
+  border: 0;
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.app-shell .integration-card:not(.is-collapsed) .connection-facts { gap: 8px; }
+.app-shell .integration-card:not(.is-collapsed) .connection-facts span {
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+.app-shell .integration-card:not(.is-collapsed) .connection-facts b { font-size: 12px; }
+.app-shell .integration-card:not(.is-collapsed) .connection-state-path {
+  margin: 7px 0 1px;
+}
+.app-shell .integration-card:not(.is-collapsed) .connection-state-path > div {
+  gap: 4px;
+  font-size: 11px;
+}
+.app-shell .integration-card:not(.is-collapsed) .integration-connection-actions {
+  gap: 6px;
+  padding: 8px 10px;
+}
+.app-shell .integration-card:not(.is-collapsed) .card-actions > button {
+  min-height: 34px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-panel {
+  gap: 8px;
+  padding: 11px 12px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-heading h3 { font-size: 15px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-add {
+  min-height: 32px;
+  padding-inline: 10px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-counts { gap: 6px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-counts > span {
+  min-height: 23px;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-section { gap: 6px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-rows { gap: 5px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-row {
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-mark {
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-copy strong { font-size: 12px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-copy small { font-size: 10px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-status {
+  min-height: 21px;
+  padding: 2px 7px;
+  font-size: 9px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-disconnect {
+  min-height: 27px;
+  padding-inline: 8px;
+  font-size: 10px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-attention > summary {
+  gap: 8px;
+  padding: 8px 10px;
+}
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-attention-copy strong { font-size: 11px; }
+.app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-pending-rows { padding: 7px; }
+
+@media (max-width: 650px) {
+  .app-shell .integration-card:not(.is-collapsed) { padding: 10px 11px 12px; }
+  .app-shell .integration-card:not(.is-collapsed) .provider-details { gap: 9px; }
+  .app-shell .integration-card:not(.is-collapsed) .integration-guide { padding: 10px; }
+  .app-shell .integration-card:not(.is-collapsed) .integration-connection-actions { padding: 8px; }
+  .app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-row {
+    grid-template-columns: 27px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-status {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .app-shell .integration-card:not(.is-collapsed) .gmail-mailbox-disconnect {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .app-shell .integration-card:not(.is-collapsed) .card-actions > button { min-height: 38px; }
+}
