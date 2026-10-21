@@ -35,6 +35,7 @@ from lead_agent.application.exports import (
     render_export,
     write_export_audit,
 )
+from lead_agent.application.assignment_notifications import notify_assigned_member
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
@@ -114,6 +115,23 @@ class LeadTitleUpdateRequest(BaseModel):
         if not value:
             raise ValueError("Job title cannot be blank")
         return value
+
+
+class LeadGeneratedUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_generated: bool
+
+
+class LeadAssignmentUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assigned_rep_id: UUID | None
+
+
+class LeadAssignmentOptionResponse(BaseModel):
+    user_id: UUID
+    display_name: str
 
 
 class LeadProfileUpdateRequest(LeadProfileChanges):
@@ -441,6 +459,32 @@ def closing_options(
     ]
 
 
+@router.get(
+    "/assignment-options",
+    response_model=list[LeadAssignmentOptionResponse],
+)
+def lead_assignment_options(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+) -> list[LeadAssignmentOptionResponse]:
+    members = session.execute(
+        select(WorkspaceMembershipORM, UserORM)
+        .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+        .where(
+            WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+            WorkspaceMembershipORM.status == "active",
+            UserORM.status == "active",
+        )
+        .order_by(UserORM.display_name)
+    ).all()
+    return [
+        LeadAssignmentOptionResponse(user_id=user.id, display_name=user.display_name)
+        for membership, user in members
+        if "leads.edit"
+        in effective_permissions(membership.role, membership.permission_overrides)
+    ]
+
+
 @router.post("/bulk-delete")
 def delete_leads(
     request: LeadBulkDeleteRequest,
@@ -584,6 +628,101 @@ def update_lead_title(
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     row.job_title = request.job_title
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.patch("/{lead_id}/generated", response_model=LeadResponse)
+def update_lead_generated(
+    lead_id: UUID,
+    request: LeadGeneratedUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    row.is_generated = request.is_generated
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.patch("/{lead_id}/assignment", response_model=LeadResponse)
+def update_lead_assignment(
+    lead_id: UUID,
+    request: LeadAssignmentUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+) -> LeadResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    if routing is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This lead does not have a current routing decision yet.",
+        )
+
+    previous_assignee_id = routing.assigned_rep_id
+    if request.assigned_rep_id is None:
+        routing.assigned_rep_id = None
+        routing.assigned_rep_name = None
+    else:
+        member_and_user = session.execute(
+            select(WorkspaceMembershipORM, UserORM)
+            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+                WorkspaceMembershipORM.user_id == request.assigned_rep_id,
+                WorkspaceMembershipORM.status == "active",
+                UserORM.status == "active",
+            )
+        ).first()
+        if (
+            member_and_user is None
+            or "leads.edit"
+            not in effective_permissions(
+                member_and_user[0].role, member_and_user[0].permission_overrides
+            )
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Choose an active workspace member with lead-edit access.",
+            )
+        _, user = member_and_user
+        routing.assigned_rep_id = str(user.id)
+        routing.assigned_rep_name = user.display_name
+
+    if (
+        request.assigned_rep_id is not None
+        and str(request.assigned_rep_id) != previous_assignee_id
+    ):
+        notify_assigned_member(
+            session,
+            workspace_id=workspace.workspace_id,
+            lead_id=row.id,
+            recipient_user_id=request.assigned_rep_id,
+            assigned_by_user_id=workspace.user_id,
+        )
+
+    routing.is_manually_assigned = True
     row.updated_at = datetime.now(UTC)
     session.commit()
     routing = get_current_routing(session, row.id, workspace.workspace_id)
@@ -1010,6 +1149,7 @@ def _reanalyze_lead_with_history(
         policies[1],
         reasoning_provider,
         business_profile=operations_policy(session, workspace_id).business_profile,
+        icp_enabled=resolved_icp.source == "workspace",
     )
     result = resolved_icp.trace_result(result)
     previous = {
@@ -1041,6 +1181,48 @@ def _reanalyze_lead_with_history(
         reroute_reason="Lead history changed; qualification was recalculated.",
     )
     return result.classification, result.total_score, list(result.rationale)
+
+
+@router.post("/{lead_id}/reevaluate", response_model=LeadResponse)
+def reevaluate_lead(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    try:
+        _reanalyze_lead_with_history(
+            session,
+            row,
+            workspace.workspace_id,
+            policies,
+            notification_provider,
+            trigger="manual_assistant_reevaluation",
+        )
+    except ReasoningProviderError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Qualification could not be re-evaluated. Check the workspace reasoning "
+                "provider and retry."
+            ),
+        ) from error
+    session.commit()
+    routing = get_current_routing(
+        session, row.id, workspace_id=workspace.workspace_id
+    )
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
 
 
 @router.post(

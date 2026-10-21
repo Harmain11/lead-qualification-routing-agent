@@ -111,6 +111,13 @@ def test_hot_routes_to_senior_rep_and_sends_high_priority_notification(
         decision = get_current_routing(session, lead.id)
 
         assert qualification.classification == "hot"
+        assert qualification.icp_source == "not_configured"
+        assert "icp_fit" not in qualification.component_scores
+        assert lead.analysis is not None
+        assert (
+            lead.analysis.structured_output["icp_evaluation"]["profile_version"]
+            == "not_configured"
+        )
         assert decision is not None
         assert decision.assigned_queue == "senior_rep"
         assert decision.assigned_rep_id == "rep-alex"
@@ -119,6 +126,8 @@ def test_hot_routes_to_senior_rep_and_sends_high_priority_notification(
         assert len(provider.sent) == 1
         assert "[HIGH PRIORITY]" in provider.sent[0].text
         assert "Score:" in provider.sent[0].text
+        assert "ICP fit was not scored" in provider.sent[0].text
+        assert "publish a custom ICP in Settings" in provider.sent[0].text
         assert "Summary:" in provider.sent[0].text
         assert "Lead temperature: Hot" in provider.sent[0].text
         assert "Follow-up:" in provider.sent[0].text
@@ -136,9 +145,9 @@ def test_all_qualification_bands_have_configured_default_routes(icp, routing, tm
                 budget=15000,
                 message="We are evaluating pricing for next quarter.",
             ),
-            "warm",
-            "standard_rep",
-            "rep-samira",
+            "needs_qualifying",
+            "sdr",
+            "rep-jordan",
         ),
         (
             payload(
@@ -152,9 +161,9 @@ def test_all_qualification_bands_have_configured_default_routes(icp, routing, tm
                     "Please explain an audit."
                 ),
             ),
-            "needs_qualifying",
-            "sdr",
-            "rep-jordan",
+            "nurture",
+            "nurture",
+            None,
         ),
         (
             payload(
@@ -166,8 +175,8 @@ def test_all_qualification_bands_have_configured_default_routes(icp, routing, tm
                 budget=None,
                 message="Just curious about what you do. Maybe someday.",
             ),
-            "nurture",
-            "nurture",
+            "disqualify",
+            "archive",
             None,
         ),
         (
@@ -177,8 +186,8 @@ def test_all_qualification_bands_have_configured_default_routes(icp, routing, tm
                 product_or_service="School project",
                 message="I need help with homework for a school project.",
             ),
-            "disqualify",
-            "archive",
+            "nurture",
+            "nurture",
             None,
         ),
     ]

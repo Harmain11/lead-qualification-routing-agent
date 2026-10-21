@@ -9,8 +9,8 @@ Keep “Corral” vertically centered against the logo mark, using a clean sans-
 
 **How to apply:** Preserve this hierarchy when changing the dashboard sidebar brand or its responsive layout. Center “Corral” in the same grid row as the mark; put the full, correctly spelled tagline in two lines beneath the wordmark, using a sans-serif face rather than monospaced type.
 
-Use solid Corral green for primary actions, including actions inside full-page lead dialogs. Keep consistent typography across pages and wrap names at word boundaries. Match lead-subpage row padding, line heights, separators and name/company order to the main Leads table.
+Use solid Corral green for primary actions, including actions inside full-page lead dialogs. Keep consistent typography across pages and wrap names at word boundaries. Match lead-subpage row padding, line heights, separators and name/company order to the main Leads table. Align new or redesigned UI with established Corral website patterns rather than introducing a separate visual system.
 
-**Why:** The user rejected the green-to-orange “Send to HubSpot” button and repeatedly requested consistent text and layouts across the site.
+**Why:** The user rejected the green-to-orange “Send to HubSpot” button, repeatedly requested consistent text and layouts across the site, and explicitly asked that redesigned UI match the existing website.
 
-**How to apply:** Include portalled dialogs in theme rules and keep destructive actions distinct. Lead tables must fit desktop panels with fully visible actions; use the same labelled-row layout for all lead lists on phones. Wrap long text instead of clipping buttons or squeezing names.
+**How to apply:** Reuse the current typography, spacing, colors, and component patterns before introducing new ones. Include portalled dialogs in theme rules and keep destructive actions distinct. Lead tables must fit desktop panels with fully visible actions; use the same labelled-row layout for all lead lists on phones. Wrap long text instead of clipping buttons or squeezing names.

@@ -23,6 +23,8 @@ export const modules: ModuleMap = {
   "./components/mockups/integration-settings/Consistent.tsx": () => import("../components/mockups/integration-settings/Consistent.tsx"),
   "./components/mockups/integration-settings/Current.tsx": () => import("../components/mockups/integration-settings/Current.tsx"),
   "./components/mockups/lead-email-evidence/LeadEmailEvidence.tsx": () => import("../components/mockups/lead-email-evidence/LeadEmailEvidence.tsx"),
+  "./components/mockups/lead-email-view/Current.tsx": () => import("../components/mockups/lead-email-view/Current.tsx"),
+  "./components/mockups/lead-email-view/Refined.tsx": () => import("../components/mockups/lead-email-view/Refined.tsx"),
   "./components/mockups/settings-cards/Collapsible.tsx": () => import("../components/mockups/settings-cards/Collapsible.tsx"),
   "./components/mockups/settings-cards/Current.tsx": () => import("../components/mockups/settings-cards/Current.tsx")
 };

@@ -117,7 +117,11 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
     try {
       const draft = await createIcpDraft(current?.id ? { based_on_version_id: current.id } : {});
       await load(draft.id);
-      setNotice(`Custom draft v${draft.version_number} created and prefilled from the current ICP.`);
+      setNotice(
+        `Custom draft v${draft.version_number} created from the ${
+          current?.source === "workspace" ? "current workspace ICP" : "built-in template"
+        }. It will not affect scoring until published.`,
+      );
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to create draft"); }
     finally { setBusy(false); }
   }
@@ -193,11 +197,11 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
   return <div className="page-view operational-page icp-page">
     <header className="page-hero compact-hero icp-hero">
       <div><span className="eyebrow">Workspace qualification policy</span><h1>Ideal customer profile</h1><p>Define fit once, test it safely, then publish a deterministic 40-point ICP for this workspace.</p></div>
-      <div className="icp-current-card"><small>Current ICP</small><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "System default" : `Workspace v${current?.version_number}`} · {current?.status}</span><span>Last updated {current?.updated_at ? new Date(current.updated_at).toLocaleString() : "by system policy"}</span></div>
+      <div className="icp-current-card"><small>Current ICP</small>{current?.source === "not_configured" ? <><strong>No custom ICP published</strong><span>ICP fit scoring and ICP hard exclusions are disabled.</span><span>Publish a workspace ICP to enable them.</span></> : <><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "Built-in template" : `Workspace v${current?.version_number}`} · {current?.status}</span><span>Last updated {current?.updated_at ? new Date(current.updated_at).toLocaleString() : "by system policy"}</span></>}</div>
     </header>
     <div className="icp-toolbar">
       <button className="button-quiet" onClick={onBack}>← Settings</button>
-      <span className={`icp-status status-${selected.status}`}>{selected.source === "system_default" ? "System default" : `v${selected.version_number}`} · {pretty(selected.status)}</span>
+      <span className={`icp-status status-${selected.status}`}>{selected.source === "system_default" ? "Built-in template" : selected.source === "not_configured" ? "Not configured" : `v${selected.version_number}`} · {pretty(selected.status)}</span>
       <span className={`weight-pill ${total === 40 ? "valid" : "invalid"}`} aria-label={`${total} of 40 ICP points configured`}><b>{total} / 40</b> ICP points · {total === 40 ? "valid" : "needs attention"}</span>
       {editable && <button className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>Save draft</button>}
       {canManage && !editable && <button className="primary-button" disabled={busy} onClick={() => void createDraft()}>Create new draft</button>}
@@ -205,7 +209,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
      <section className="icp-mode-picker" aria-label="Choose ICP setup mode">
        <div className="icp-mode-intro">
          <span className="eyebrow">ICP setup</span>
-         <p>Choose the system profile or open a custom draft to edit.</p>
+          <p>The built-in profile is only a template. A published custom ICP is required for fit scoring.</p>
        </div>
        <div className="icp-mode-options">
          <button
@@ -215,7 +219,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
            disabled={busy || !systemDefault}
            onClick={() => systemDefault && choose(systemDefault)}
          >
-           <span><b>Default</b><small>View the built-in profile; no workspace changes.</small></span>
+            <span><b>Built-in template</b><small>View an example profile; it is not used to score leads.</small></span>
          </button>
          <button
            type="button"
@@ -224,7 +228,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
            disabled={busy || (!canManage && versions.length === 0)}
            onClick={() => void openCustom()}
          >
-           <span><b>Custom</b><small>Open a prefilled draft and edit the fields yourself.</small></span>
+            <span><b>Custom</b><small>Publish a workspace ICP to enable fit scoring and hard exclusions.</small></span>
          </button>
        </div>
      </section>
@@ -244,7 +248,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
         {section === 6 && <ReviewSection selected={selected} total={total} validation={validation} preview={preview} editable={editable} busy={busy} runValidation={runValidation} runPreview={runPreview} openPublish={() => setPublishOpen(true)} />}
         <div className="icp-step-actions"><button className="button-quiet" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Previous</button><button className="secondary-button" disabled={section === 6} onClick={() => setSection((value) => Math.min(6, value + 1))}>Next section →</button></div>
       </section>
-       <aside className="panel icp-history"><div className="icp-history-head"><span className="eyebrow">Version history</span><h2>Workspace versions</h2></div>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>System</b><span>Default fallback</span><em>Published</em></button>}{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</aside>
+        <aside className="panel icp-history"><div className="icp-history-head"><span className="eyebrow">Version history</span><h2>Workspace versions</h2></div>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>Built-in template</b><span>Not used for lead qualification</span><em>Template</em></button>}{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</aside>
     </div>
     {publishOpen && <OperationsDialog title="Publish workspace ICP?" className="team-modal confirm-modal icp-publish-modal" showHeader={false} onClose={() => { if (!busy) setPublishOpen(false); }}><button className="modal-close" onClick={() => setPublishOpen(false)} aria-label="Close">×</button><span className="eyebrow">Deliberate policy change</span><h2 id="publish-title">Publish workspace ICP?</h2><p>New qualification runs will use this version. Existing lead scores and their ICP references will not be rewritten.</p><label><input type="checkbox" checked={confirmUse} onChange={(event) => setConfirmUse(event.target.checked)} /> I understand new leads will use this version.</label><label><input type="checkbox" checked={confirmHistory} onChange={(event) => setConfirmHistory(event.target.checked)} /> I understand historical results are preserved.</label>{exclusionsChanged && <label className="exclusion-confirm"><input type="checkbox" checked={confirmExclusions} onChange={(event) => setConfirmExclusions(event.target.checked)} /> I confirm the hard-disqualifier changes may force matching leads to Disqualified.</label>}<div className="team-modal-actions"><button className="button-quiet" onClick={() => setPublishOpen(false)}>Cancel</button><button className="primary-button" disabled={total !== 40 || !confirmUse || !confirmHistory || (exclusionsChanged && !confirmExclusions) || busy} onClick={() => void publish()}>Publish ICP</button></div></OperationsDialog>}
   </div>;

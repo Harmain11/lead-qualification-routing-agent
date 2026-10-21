@@ -340,6 +340,67 @@ def test_manual_progress_is_saved_and_rechecks_temperature(icp, routing, tmp_pat
     engine.dispose()
 
 
+def test_assistant_reevaluation_uses_the_confirmed_lead_and_records_trigger(
+    icp, routing, tmp_path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'assistant-reevaluation.db'}")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    workspace_id = uuid4()
+    ensure_workspace(session, workspace_id, name="Assistant QA")
+    lead = _lead(workspace_id)
+    session.add(lead)
+    session.commit()
+    captured: dict[str, object] = {}
+
+    def reanalyze(
+        _session,
+        row,
+        current_workspace_id,
+        _policies,
+        _notification_provider,
+        *,
+        trigger,
+    ):
+        captured.update(
+            lead_id=row.id,
+            workspace_id=current_workspace_id,
+            trigger=trigger,
+        )
+        return "warm", 78, ["Current history was rechecked."]
+
+    from lead_agent.api.routes import leads as leads_routes
+
+    monkeypatch.setattr(leads_routes, "_reanalyze_lead_with_history", reanalyze)
+    monkeypatch.setattr(
+        leads_routes,
+        "lead_response",
+        lambda row, *_args, **_kwargs: row,
+    )
+    try:
+        result = leads_routes.reevaluate_lead(
+            lead.id,
+            session=session,
+            policies=(icp, routing),
+            notification_provider=None,
+            workspace=WorkspaceContext(
+                workspace_id=workspace_id,
+                actor_id="qa-user",
+                permissions=frozenset({"leads.edit"}),
+            ),
+        )
+        assert captured == {
+            "lead_id": lead.id,
+            "workspace_id": workspace_id,
+            "trigger": "manual_assistant_reevaluation",
+        }
+        assert result.id == lead.id
+        assert result.full_name == lead.full_name
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_lead_momentum_explains_score_change_evidence_and_delivery(tmp_path) -> None:
     engine = create_engine(f"sqlite:///{tmp_path / 'momentum.db'}")
     Base.metadata.create_all(engine)

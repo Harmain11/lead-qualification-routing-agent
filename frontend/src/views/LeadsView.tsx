@@ -7,7 +7,10 @@ import {
   createLead,
   exportLeads,
   listIntegrations,
+  listLeadAssignmentOptions,
   listLeads,
+  updateLeadAssignment,
+  updateLeadGenerated,
 } from "../api";
 import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
 import { LeadDetail } from "../components/LeadDetail";
@@ -15,7 +18,7 @@ import { LeadRowIdentity } from "../components/LeadRowIdentity";
 import { LeadSubpage, leadSubpageCopy } from "../components/LeadSubpage";
 import { SelectMenu } from "../components/SelectMenu";
 import type { LeadDetailSection } from "../leadSections";
-import type { Lead, LeadPayload } from "../types";
+import type { Lead, LeadAssignmentOption, LeadPayload } from "../types";
 import {
   Empty,
   pretty,
@@ -92,6 +95,7 @@ export function LeadsView({
   onDeleted,
   newLeadIds,
   canEdit = true,
+  canManageRouting = false,
   canExport = false,
   canCrmSync = false,
   canViewEmail = false,
@@ -112,6 +116,7 @@ export function LeadsView({
   onDeleted: (leadId: string) => void;
   newLeadIds: ReadonlySet<string>;
   canEdit?: boolean;
+  canManageRouting?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
   canViewEmail?: boolean;
@@ -138,13 +143,51 @@ export function LeadsView({
   const [showExport, setShowExport] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [crmNotice, setCrmNotice] = useState<string | null>(null);
+  const [leadControlError, setLeadControlError] = useState<string | null>(null);
   const [crmProviders, setCrmProviders] = useState<string[]>([]);
   const [bulkProvider, setBulkProvider] = useState("");
+  const [assignmentOptions, setAssignmentOptions] = useState<LeadAssignmentOption[]>([]);
+  const [assignmentOptionsLoading, setAssignmentOptionsLoading] = useState(false);
+  const [assignmentOptionsError, setAssignmentOptionsError] = useState<string | null>(null);
+  const [savingAssignmentIds, setSavingAssignmentIds] = useState<Set<string>>(new Set());
+  const [savingGeneratedIds, setSavingGeneratedIds] = useState<Set<string>>(new Set());
   const [automationEnrollment, setAutomationEnrollment] = useState<{
     kind: "sequence" | "playbook";
     leadId: string;
     leadLabel: string;
   } | null>(null);
+  useEffect(() => {
+    if (!canManageRouting) {
+      setAssignmentOptions([]);
+      setAssignmentOptionsLoading(false);
+      setAssignmentOptionsError(null);
+      return;
+    }
+    let active = true;
+    const controller = new AbortController();
+    setAssignmentOptionsLoading(true);
+    setAssignmentOptionsError(null);
+    void listLeadAssignmentOptions(controller.signal)
+      .then((options) => {
+        if (active) setAssignmentOptions(options);
+      })
+      .catch((error) => {
+        if (active && !controller.signal.aborted) {
+          setAssignmentOptionsError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load workspace representatives.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setAssignmentOptionsLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [canManageRouting]);
   useEffect(() => {
     if (!canCrmSync) return;
     let active = true;
@@ -247,6 +290,51 @@ export function LeadsView({
       else next.add(id);
       return next;
     });
+  const updateLeadRow = (lead: Lead) => {
+    setRows((current) =>
+      current.map((item) => (item.id === lead.id ? lead : item)),
+    );
+    onUpdated(lead);
+  };
+  const changeLeadGenerated = async (leadId: string, isGenerated: boolean) => {
+    setLeadControlError(null);
+    setSavingGeneratedIds((current) => new Set(current).add(leadId));
+    try {
+      updateLeadRow(await updateLeadGenerated(leadId, isGenerated));
+    } catch (error) {
+      setLeadControlError(
+        error instanceof Error ? error.message : "Unable to update lead status.",
+      );
+    } finally {
+      setSavingGeneratedIds((current) => {
+        const next = new Set(current);
+        next.delete(leadId);
+        return next;
+      });
+    }
+  };
+  const changeLeadAssignment = async (
+    leadId: string,
+    assignedRepId: string | null,
+  ) => {
+    setLeadControlError(null);
+    setSavingAssignmentIds((current) => new Set(current).add(leadId));
+    try {
+      updateLeadRow(await updateLeadAssignment(leadId, assignedRepId));
+    } catch (error) {
+      setLeadControlError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update the assigned representative.",
+      );
+    } finally {
+      setSavingAssignmentIds((current) => {
+        const next = new Set(current);
+        next.delete(leadId);
+        return next;
+      });
+    }
+  };
   const selectVisible = () =>
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -573,6 +661,11 @@ export function LeadsView({
             loading={loading}
           />
         )}
+        {(leadControlError || assignmentOptionsError) && (
+          <p className="form-error" role="alert">
+            {leadControlError || assignmentOptionsError}
+          </p>
+        )}
         <div
           className="lead-table-wrap"
           hidden={activeSection !== "overview"}
@@ -590,6 +683,7 @@ export function LeadsView({
                 <th>Score</th>
                 <th>Routing</th>
                 <th>Assigned rep</th>
+                <th>Lead generated</th>
                 <th>Received</th>
               </tr>
             </thead>
@@ -601,8 +695,17 @@ export function LeadsView({
                   isNew={newLeadIds.has(lead.id)}
                   selected={false}
                   checked={selectedIds.has(lead.id)}
+                  canEditGenerated={canEdit}
+                  canManageRouting={canManageRouting}
+                  assignmentOptions={assignmentOptions}
+                  assignmentOptionsLoading={assignmentOptionsLoading}
+                  assignmentOptionsError={Boolean(assignmentOptionsError)}
+                  savingAssignment={savingAssignmentIds.has(lead.id)}
+                  savingGenerated={savingGeneratedIds.has(lead.id)}
                   onToggle={toggleSelected}
                   onInspect={onInspect}
+                  onAssignmentChange={changeLeadAssignment}
+                  onGeneratedChange={changeLeadGenerated}
                 />
               ))}
             </tbody>
@@ -968,15 +1071,33 @@ const LeadTableRow = memo(function LeadTableRow({
   isNew,
   selected,
   checked,
+  canEditGenerated,
+  canManageRouting,
+  assignmentOptions,
+  assignmentOptionsLoading,
+  assignmentOptionsError,
+  savingAssignment,
+  savingGenerated,
   onToggle,
   onInspect,
+  onAssignmentChange,
+  onGeneratedChange,
 }: {
   lead: Lead;
   isNew: boolean;
   selected: boolean;
   checked: boolean;
+  canEditGenerated: boolean;
+  canManageRouting: boolean;
+  assignmentOptions: LeadAssignmentOption[];
+  assignmentOptionsLoading: boolean;
+  assignmentOptionsError: boolean;
+  savingAssignment: boolean;
+  savingGenerated: boolean;
   onToggle: (id: string) => void;
   onInspect: (id: string) => void;
+  onAssignmentChange: (leadId: string, assignedRepId: string | null) => void;
+  onGeneratedChange: (leadId: string, isGenerated: boolean) => void;
 }) {
   const origin = crmOrigin(lead);
   return (
@@ -985,7 +1106,7 @@ const LeadTableRow = memo(function LeadTableRow({
       onClick={() => onInspect(lead.id)}
       tabIndex={0}
       onKeyDown={(event) => {
-        if ((event.target as HTMLElement).closest("button, input")) return;
+        if ((event.target as HTMLElement).closest("button, input, select")) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onInspect(lead.id);
@@ -1030,7 +1151,55 @@ const LeadTableRow = memo(function LeadTableRow({
         {pretty(lead.routing?.assigned_queue || "Pending")}
       </td>
       <td data-label="Representative">
-        {lead.routing?.assigned_rep_name || "Unassigned"}
+        {canManageRouting ? (
+          lead.routing ? (
+            <select
+              className="lead-rep-select"
+              aria-label={`Assigned representative for ${lead.full_name}`}
+              value={lead.routing.assigned_rep_id || ""}
+              disabled={
+                savingAssignment ||
+                assignmentOptionsLoading ||
+                assignmentOptionsError
+              }
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) =>
+                onAssignmentChange(lead.id, event.target.value || null)
+              }
+            >
+              <option value="">Unassigned</option>
+              {lead.routing.assigned_rep_id &&
+                !assignmentOptions.some(
+                  (option) => option.user_id === lead.routing?.assigned_rep_id,
+                ) && (
+                  <option value={lead.routing.assigned_rep_id}>
+                    {lead.routing.assigned_rep_name || "Current representative"}
+                  </option>
+                )}
+              {assignmentOptions.map((option) => (
+                <option key={option.user_id} value={option.user_id}>
+                  {option.display_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span>Routing pending</span>
+          )
+        ) : (
+          lead.routing?.assigned_rep_name || "Unassigned"
+        )}
+      </td>
+      <td className="lead-generated-cell" data-label="Lead generated">
+        <input
+          type="checkbox"
+          aria-label={`Lead generated for ${lead.full_name}`}
+          checked={lead.is_generated}
+          disabled={!canEditGenerated || savingGenerated}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) =>
+            onGeneratedChange(lead.id, event.target.checked)
+          }
+        />
       </td>
       <td data-label="Received">
         {new Date(lead.received_at).toLocaleDateString()}

@@ -141,7 +141,8 @@ def test_canonical_crm_payload_contains_phase_1_to_4_decision_data(icp, routing,
         assert payload.internal_lead_id == lead.id
         assert payload.source_channel == "website"
         assert payload.qualification_score == lead.qualification.total_score
-        assert payload.icp_score <= 40
+        assert payload.icp_score is None
+        assert payload.icp_source == "not_configured"
         assert payload.intent_urgency_score <= 35
         assert payload.engagement_score <= 25
         assert payload.rationale

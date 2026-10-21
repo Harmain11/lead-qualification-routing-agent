@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { AssignmentNotification } from "../api";
 import type { Lead } from "../types";
 import "./LeadNotificationCenter.css";
 
@@ -21,14 +22,19 @@ function leadDate(lead: Lead): string {
 export function LeadNotificationCenter({
   unseenLeadIds,
   leads,
+  assignmentNotifications,
   onOpenLead,
+  onMarkAssignmentRead,
 }: {
   unseenLeadIds: string[];
   leads: Lead[];
+  assignmentNotifications: AssignmentNotification[];
   onOpenLead: (leadId: string) => void;
+  onMarkAssignmentRead: (notificationId: string) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const notificationCount = unseenLeadIds.length + assignmentNotifications.length;
   const items = useMemo(() => {
     const byId = new Map(leads.map((lead) => [lead.id, lead]));
     return unseenLeadIds
@@ -61,20 +67,20 @@ export function LeadNotificationCenter({
       <button
         className="lead-notification-trigger"
         type="button"
-        aria-label={unseenLeadIds.length
-          ? `Notifications, ${unseenLeadIds.length} new leads`
+        aria-label={notificationCount
+          ? `Notifications, ${notificationCount} unread`
           : "Notifications"}
         aria-expanded={open}
         aria-controls="lead-notification-inbox"
-        title="New lead notifications"
+        title="Notifications"
         onClick={() => setOpen((current) => !current)}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
         </svg>
-        {unseenLeadIds.length > 0 && (
+        {notificationCount > 0 && (
           <span className="lead-notification-count">
-            {unseenLeadIds.length > 99 ? "99+" : unseenLeadIds.length}
+            {notificationCount > 99 ? "99+" : notificationCount}
           </span>
         )}
       </button>
@@ -83,12 +89,16 @@ export function LeadNotificationCenter({
           className="lead-notification-inbox"
           id="lead-notification-inbox"
           role="region"
-          aria-label="New lead inbox"
+          aria-label="Notification inbox"
         >
           <header>
             <div>
-              <strong>New leads</strong>
-              <small>{unseenLeadIds.length} unopened</small>
+              <strong>Notifications</strong>
+              <small>
+                {assignmentNotifications.length} assigned to you
+                {" · "}
+                {unseenLeadIds.length} unopened leads
+              </small>
             </div>
             <button
               type="button"
@@ -99,8 +109,36 @@ export function LeadNotificationCenter({
               ×
             </button>
           </header>
-          {items.length ? (
+          {items.length || assignmentNotifications.length ? (
             <ul>
+              {assignmentNotifications.map((notification) => (
+                <li key={`assignment:${notification.id}`}>
+                  <button
+                    type="button"
+                    className="lead-notification-item"
+                    onClick={() => {
+                      setOpen(false);
+                      onOpenLead(notification.lead_id);
+                      void onMarkAssignmentRead(notification.id);
+                    }}
+                  >
+                    <span className="lead-notification-dot" aria-hidden="true" />
+                    <span className="lead-notification-copy">
+                      <strong>Lead assigned to you</strong>
+                      <small>
+                        {notification.lead_name}
+                        {notification.company_name
+                          ? ` · ${notification.company_name}`
+                          : ""}
+                      </small>
+                      <small>
+                        {new Date(notification.created_at).toLocaleString()}
+                      </small>
+                    </span>
+                    <span aria-hidden="true">›</span>
+                  </button>
+                </li>
+              ))}
               {items.map(({ id, lead }) => (
                 <li key={id}>
                   <button
@@ -116,6 +154,11 @@ export function LeadNotificationCenter({
                       <strong>{lead?.full_name || "New lead"}</strong>
                       {lead?.company_name && <small>{lead.company_name}</small>}
                       <small>{lead ? leadDate(lead) : "Open to review this lead"}</small>
+                      {lead?.qualification?.icp_source === "not_configured" && (
+                        <small className="lead-notification-icp-note">
+                          ICP fit not scored. Add a custom ICP in Settings to enable fit scoring.
+                        </small>
+                      )}
                     </span>
                     <span aria-hidden="true">›</span>
                   </button>

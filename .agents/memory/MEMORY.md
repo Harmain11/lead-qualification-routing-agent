@@ -9,7 +9,7 @@
 - [OAuth account choice](oauth-account-choice.md) — explicit Calendly/Salesforce choices; Slack uses its own workspace picker and must not preselect a team.
 - [Slack channel visibility](slack-channel-visibility.md) — user's Slack has channels; list public channels before the app is invited, and don't show inactive workspaces as connected.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
-- [Dashboard brand alignment](dashboard-brand-alignment.md) — Center Corral against the mark; keep the sleek tagline below the wordmark only.
+- [Dashboard brand alignment](dashboard-brand-alignment.md) — Follow Corral's existing brand, typography, and UI patterns when changing or redesigning screens.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
 - [Salesforce package prerequisite](salesforce-package-prerequisite.md) — install the user-supplied package before OAuth; Connect must present the installer and setup steps.
 - [Member performance and wins](member-win-policy.md) — choose Project or Sale for each win; record in Corral and congratulate the team plus the credited member.
@@ -35,4 +35,7 @@
 - [Dashboard selection submission](dashboard-selection-submission.md) — Keep checkbox changes staged until the user submits; only then update and save visible plots/cards.
 - [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
+- [ICP scoring activation](icp-scoring-activation.md) — Until a custom workspace ICP is published, score urgency and engagement only; built-in ICP fit and exclusions stay inactive.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
+- [Corral Agent scope and approvals](corral-agent-scope.md) — Make the assistant available across Corral and require explicit approval before applying any change.
+- [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.

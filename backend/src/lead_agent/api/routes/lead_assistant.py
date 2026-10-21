@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+from typing import Any
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,7 @@ from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reason
 from lead_agent.infrastructure.repositories import get_lead
 
 router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
+workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
 
 
 class AssistantMessage(BaseModel):
@@ -31,6 +34,45 @@ class AssistantChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     messages: list[AssistantMessage] = Field(min_length=1, max_length=16)
+    context: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("context")
+    @classmethod
+    def bound_context_size(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(json.dumps(value, ensure_ascii=False)) > 24000:
+            raise ValueError("Workspace context is too large")
+        return value
+
+
+@workspace_router.post("/chat")
+def chat_with_workspace_assistant(
+    request: AssistantChatRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+) -> dict[str, object]:
+    provider = resolve_workspace_reasoning_provider(session, workspace.workspace_id)
+    assistant_method = getattr(provider, "assist_with_workspace", None)
+    if not callable(assistant_method):
+        raise HTTPException(
+            503,
+            "Connect and verify a workspace AI provider before using Corral Agent chat.",
+        )
+    payload = {
+        "messages": [message.model_dump() for message in request.messages],
+        "workspace_context": request.context,
+        "workspace_id": str(workspace.workspace_id),
+        "scope": (
+            "Corral workspace analytics, automations, ICP, settings, integrations, "
+            "team access, guidance, and content generation"
+        ),
+    }
+    try:
+        result = assistant_method(payload)
+    except ReasoningProviderError as error:
+        raise HTTPException(502, str(error)) from None
+    except Exception:
+        raise HTTPException(502, "Corral Agent could not complete this request.") from None
+    return result.model_dump(mode="json")
 
 
 @router.post("/{lead_id}/assistant/chat")

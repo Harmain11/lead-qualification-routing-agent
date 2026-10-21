@@ -124,10 +124,12 @@ def qualify_lead(
     icp: IcpConfig,
     routing: RoutingConfig,
     analysis: LeadContextAnalysis | None = None,
+    *,
+    include_icp: bool = True,
 ) -> QualificationResult:
     """Apply deterministic scoring, optionally using validated reasoning as evidence."""
 
-    disqualifier = find_hard_disqualifier(lead, icp)
+    disqualifier = find_hard_disqualifier(lead, icp) if include_icp else None
     if disqualifier:
         code, reason = disqualifier
         band = routing.band_for(0)
@@ -441,7 +443,7 @@ def qualify_lead(
     analyzed_pain = _analysis_field(analysis, "pain_point")
     pain = (
         _contains_any(text, icp.scoring.signals.get("pain_point", []))
-        or _contains_any(text, icp.pain_points)
+        or (_contains_any(text, icp.pain_points) if include_icp else None)
         or _field_signal(analyzed_pain)
     )
     lines.append(
@@ -467,7 +469,13 @@ def qualify_lead(
         )
     )
 
-    total = sum(line.points for line in lines)
+    if not include_icp:
+        # Until a workspace publishes its own ICP, neither fit points nor
+        # system-default exclusions participate in qualification.
+        lines = [line for line in lines if line.component != "icp_fit"]
+    raw_total = sum(line.points for line in lines)
+    available_points = sum(line.max_points for line in lines)
+    total = round(raw_total * 100 / available_points) if available_points else 0
     total = max(0, min(total, 100))
     band = routing.band_for(total)
     rationale = tuple(
@@ -475,6 +483,11 @@ def qualify_lead(
         f"{line.points}/{line.max_points} - {line.reason}"
         for line in lines
     )
+    if not include_icp:
+        rationale += (
+            "ICP fit was not scored because this workspace has no published custom ICP. "
+            "The overall score uses urgency and engagement only.",
+        )
     return QualificationResult(
         total_score=total,
         classification=band.key,

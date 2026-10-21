@@ -46,6 +46,8 @@ import {
 } from "./components/dialerPhoneConfig";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
+import { useAssignmentNotifications } from "./useAssignmentNotifications";
+import { CorralAgentDock } from "./components/CorralAgentDock";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { NativeSelectEnhancer } from "./components/NativeSelectEnhancer";
 import { notifyActivity } from "./activity";
@@ -525,6 +527,15 @@ function App() {
   const workspacePermissions = useMemo(
     () => new Set(activeWorkspace?.effective_permissions ?? []),
     [activeWorkspace],
+  );
+  const {
+    notifications: assignmentNotifications,
+    markRead: markAssignmentRead,
+  } = useAssignmentNotifications(
+    auth?.user.id,
+    auth?.current_workspace_id,
+    workspacePermissions.has("leads.view") ||
+      workspacePermissions.has("leads.edit"),
   );
   useEffect(() => {
     function openPhone(event: Event) {
@@ -1473,11 +1484,18 @@ function App() {
             </div>
           </div>
           <div className="bar-actions">
-            {can(workspacePermissions, "leads.view") && (
+            {(can(workspacePermissions, "leads.view") ||
+              can(workspacePermissions, "leads.edit")) && (
               <LeadNotificationCenter
                 unseenLeadIds={unseenLeadIds}
                 leads={notificationLeads}
-                onOpenLead={handleInspectLead}
+                assignmentNotifications={assignmentNotifications}
+                onOpenLead={(leadId) => {
+                  if (can(workspacePermissions, "leads.view")) {
+                    handleInspectLead(leadId);
+                  }
+                }}
+                onMarkAssignmentRead={markAssignmentRead}
               />
             )}
             <div className="header-shortcuts" aria-label="Quick shortcuts">
@@ -1608,6 +1626,7 @@ function App() {
                   onInspect={handleInspectLead}
                   onClose={closeLead}
                   canEdit={can(workspacePermissions, "leads.edit")}
+                  canManageRouting={can(workspacePermissions, "routing.manage")}
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
                   canViewEmail={can(workspacePermissions, "integrations.view")}
@@ -1618,7 +1637,9 @@ function App() {
                   }
                   onOpenAutomations={() => navigate("automations")}
                   onUpdated={(lead) => {
-                    setSelectedLead(lead);
+                    setSelectedLead((current) =>
+                      current?.id === lead.id ? lead : current,
+                    );
                     setLeads((current) =>
                       current.map((item) =>
                         item.id === lead.id ? lead : item,
@@ -1862,6 +1883,31 @@ function App() {
         onDismiss={closeTour}
         onComplete={closeTour}
       />
+      {can(workspacePermissions, "agents.execute") && (
+        <CorralAgentDock
+          key={auth.current_workspace_id}
+          selectedLead={selectedLead}
+          permissions={workspacePermissions}
+          onNavigate={(area) => navigate(area)}
+          canViewLeads={can(workspacePermissions, "leads.view")}
+          canEdit={can(workspacePermissions, "leads.edit")}
+          canCrmSync={can(workspacePermissions, "crm.sync")}
+          canViewEmail={can(workspacePermissions, "integrations.view")}
+          onInspectLead={handleInspectLead}
+          onUpdated={(lead) => {
+            setSelectedLead((current) =>
+              current?.id === lead.id ? lead : current,
+            );
+            void refresh();
+          }}
+          onDeleted={(leadId) => {
+            if (selectedLead?.id === leadId) closeLead();
+            void refresh();
+          }}
+          onOpenLeadSection={openLeadSection}
+          onRefresh={refresh}
+        />
+      )}
       {can(workspacePermissions, "dialer.call") && (
         <DialerPhoneDock
           connection={selectedDialer}

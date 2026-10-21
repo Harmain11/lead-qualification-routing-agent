@@ -17,6 +17,7 @@
 .lead-notification-copy { display: grid; min-width: 0; gap: 3px; }
 .lead-notification-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .lead-notification-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-notification-copy .lead-notification-icp-note { color: var(--workspace-accent, var(--green)); white-space: normal; }
 .lead-notification-item > span:last-child { color: var(--muted); font-size: 19px; line-height: 1; }
 .lead-notification-empty { margin: 0; padding: 20px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 @media (max-width: 760px) { .lead-notification-trigger { width: 44px; height: 44px; } .lead-notification-inbox { position: fixed; top: 72px; right: 14px; } }
