@@ -23,7 +23,7 @@
 - [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
 - [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
 - [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
-- [Manual lead AI context](manual-lead-ai-context.md) — Require successful workspace AI analysis; treat inquiry text as original or process summary while keeping qualification deterministic.
+- [Manual lead AI context](manual-lead-ai-context.md) — Use current notes, sales progress, and customer replies as time-aware evidence across scoring, answers, and follow-ups.
 - [Lead assistant action safety](lead-assistant-actions.md) — Give Corral broad lead-page actions, but require confirmation for emails, bookings, CRM syncs, and deletes.
 - [Workspace website enrichment](workspace-website-enrichment.md) — Turn a supplied public page into cited profile suggestions; preserve manual values and require review before saving.
 - [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; new leads use per-lead/tab dots, a bell inbox, and one toast when first observed.
@@ -38,5 +38,5 @@
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
 - [ICP scoring activation](icp-scoring-activation.md) — Until a custom workspace ICP is published, score urgency and engagement only; built-in ICP fit and exclusions stay inactive.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
-- [Corral Agent scope and approvals](corral-agent-scope.md) — Keep the assistant workspace-wide, require approval for changes, and route call requests to Dialer without placing calls.
+- [Corral Agent scope and approvals](corral-agent-scope.md) — Search accessible leads and clarify duplicate matches; keep changes approved and call requests routed to Dialer.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.

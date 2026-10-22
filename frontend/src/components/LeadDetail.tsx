@@ -527,8 +527,8 @@ function LeadProgressEditor({
       if (closing) {
         setOutcome(result.outcome ?? null);
         setNotice(stage === "converted"
-          ? `${title(conversionType)} win recorded in Corral. Qualification is unchanged; no CRM record was created.`
-          : "Closed / lost recorded. Qualification is unchanged.");
+          ? `${title(conversionType)} win recorded in Corral. AI re-evaluated qualification as ${title(result.classification)} (${result.score}/100); no CRM record was created.`
+          : `Closed / lost recorded. AI re-evaluated qualification as ${title(result.classification)} (${result.score}/100).`);
       } else {
         setNotice(`Progress saved. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).`);
       }

@@ -283,30 +283,27 @@ def test_workspace_chat_resolves_unique_partial_lead_name_for_note_proposal(
 
 def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch) -> None:
     workspace_id = uuid4()
-    lead_id = uuid4()
-
-    class Provider:
-        def assist_with_workspace(self, _payload):
-            return WorkspaceAssistantReply(
-                reply="I found one matching lead.",
-                action=WorkspaceAssistantAction(
-                    kind="open_lead",
-                    title="Open matching lead",
-                    summary="Open the matching lead.",
-                ),
-            )
-
+    monkeypatch.setattr(lead_assistant, "resolve_workspace_reasoning_provider",
+                        lambda *_args: pytest.fail("read-only lookup should not need AI"))
     monkeypatch.setattr(
         lead_assistant,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args: Provider(),
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
     )
     monkeypatch.setattr(
         lead_assistant,
         "build_workspace_record_context",
         lambda *_args: {
             "matched_leads": [
-                {"id": str(lead_id), "name": "Kethi Ahmed", "email": "kethi@example.test"}
+                {
+                    "id": str(uuid4()),
+                    "name": "Kethi Ahmed",
+                    "email": "kethi@example.test",
+                    "phone": "+1 555 010 2000",
+                    "company": "Northstar",
+                    "job_title": "Operations Director",
+                    "inquiry": "Interested in a discovery call.",
+                }
             ]
         },
     )
@@ -316,10 +313,7 @@ def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch
                 AssistantMessage(role="user", content="Is there a Kethi in my leads?")
             ]
         ),
-        session=SimpleNamespace(
-            scalar=lambda _query: lead_id,
-            begin_nested=nullcontext,
-        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
         workspace=WorkspaceContext(
             workspace_id=workspace_id,
             actor_id="qa-user",
@@ -327,8 +321,184 @@ def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch
         ),
     )
 
-    assert result["action"]["kind"] == "open_lead"
-    assert result["action"]["target_id"] == str(lead_id)
+    assert result["action"]["kind"] == "none"
+    assert "Yes — I found this matching lead" in result["reply"]
+    assert "**Kethi Ahmed**" in result["reply"]
+    assert "kethi@example.test" in result["reply"]
+    assert "+1 555 010 2000" in result["reply"]
+    assert "Northstar" in result["reply"]
+    assert "Operations Director" in result["reply"]
+
+
+def test_workspace_chat_asks_for_full_name_when_lead_lookup_has_multiple_matches(
+    monkeypatch,
+) -> None:
+    workspace_id = uuid4()
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("read-only lookup should not need AI"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {
+            "matched_leads": [
+                {
+                    "id": str(uuid4()),
+                    "name": "Kethi Ahmed",
+                    "email": "kethi.ahmed@example.test",
+                    "company": "Northstar",
+                },
+                {
+                    "id": str(uuid4()),
+                    "name": "Kethi Iqbal",
+                    "email": "kethi.iqbal@example.test",
+                    "company": "Bluebird",
+                },
+            ]
+        },
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Is there a Kethi in my leads?")
+            ]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "Which one do you mean?" in result["reply"]
+    assert "Reply with the full name." in result["reply"]
+    assert "Kethi Ahmed" in result["reply"]
+    assert "Kethi Iqbal" in result["reply"]
+    assert "Northstar" in result["reply"]
+    assert "Bluebird" in result["reply"]
+
+
+def test_workspace_chat_reports_no_matching_lead_from_search_results(monkeypatch) -> None:
+    workspace_id = uuid4()
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("read-only lookup should not need AI"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {"matched_leads": []},
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Is there a Kethi in my leads?")
+            ]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "couldn’t find a matching lead" in result["reply"]
+
+
+def test_workspace_chat_does_not_claim_no_match_when_search_is_unavailable(
+    monkeypatch,
+) -> None:
+    workspace_id = uuid4()
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("read-only lookup should not need AI"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+
+    def failed_retrieval(*_args):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(lead_assistant, "build_workspace_record_context", failed_retrieval)
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Is there a Kethi in my leads?")
+            ]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "couldn’t search workspace leads" in result["reply"]
+    assert "can’t confirm" in result["reply"]
+
+
+def test_workspace_chat_explains_missing_lead_view_permission_for_lookup(
+    monkeypatch,
+) -> None:
+    workspace_id = uuid4()
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("read-only lookup should not need AI"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: pytest.fail("lead search requires leads.view"),
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Is there a Kethi in my leads?")
+            ]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "current access" in result["reply"]
+    assert "lead-view permission" in result["reply"]
 
 
 def test_workspace_chat_does_not_guess_between_partial_name_matches(monkeypatch) -> None:

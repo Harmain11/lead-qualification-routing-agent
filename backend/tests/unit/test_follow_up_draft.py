@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
-from lead_agent.application.follow_up import FollowUpNotEligible, generate_follow_up_draft
 from lead_agent.application.email_templates import apply_workspace_email_signature
+from lead_agent.application.follow_up import FollowUpNotEligible, generate_follow_up_draft
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -22,12 +22,13 @@ from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
     LeadORM,
+    PipelineEventORM,
     ProviderConnectionORM,
     QualificationResultORM,
     RoutingDecisionORM,
     WorkspaceEmailTemplateORM,
 )
-from lead_agent.infrastructure.db.operations import OperationsPolicyORM
+from lead_agent.infrastructure.db.operations import LeadNoteORM, OperationsPolicyORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
 
@@ -147,6 +148,34 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
         )
         lead = _lead(workspace_id)
         session.add(lead)
+        now = datetime.now(UTC)
+        session.add(
+            LeadNoteORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                lead_id=lead.id,
+                body="Prospect asked for a demo and wants to review options this week.",
+                version=1,
+                author_id="qa-user",
+                updated_by="qa-user",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            PipelineEventORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                lead_id=lead.id,
+                stage="manual_progress",
+                status="responded",
+                details={
+                    "stage": "responded",
+                    "note": "Asked for a proposal and pricing by Friday.",
+                },
+                created_at=now,
+            )
+        )
         session.add(WorkspaceEmailTemplateORM(
             id=uuid4(), workspace_id=workspace_id, kind="follow_up",
             subject="Hello {{lead_name}} at {{company_name}}",
@@ -180,6 +209,9 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
         assert facts_seen[0]["workspace_business_profile"]["business_name"] == (
             "Northstar Labs"
         )
+        assert facts_seen[0]["team_notes"][0]["body"].startswith("Prospect asked for a demo")
+        assert facts_seen[0]["recent_activity"][0]["stage"] == "responded"
+        assert "proposal and pricing" in facts_seen[0]["recent_activity"][0]["note"]
         assert row.status == "draft"
         assert "[Your Name]" not in row.body
         assert row.body.endswith("Harmain Mughal\nNorthstar Labs")

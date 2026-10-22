@@ -30,6 +30,17 @@ class NormalizedLead:
     received_at: datetime
     raw_payload: dict[str, Any] = field(default_factory=dict)
     normalization_version: str = "1.0"
+    original_message: str | None = None
+    recorded_evidence: tuple[RecordedLeadEvidence, ...] = ()
+
+
+@dataclass(frozen=True)
+class RecordedLeadEvidence:
+    """A dated sales update or team note used as current qualification evidence."""
+
+    source: str
+    text: str
+    observed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
