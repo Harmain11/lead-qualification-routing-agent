@@ -121,9 +121,19 @@
   font: inherit;
 }
 .lead-agent-closing-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
-.lead-agent-email-preview { padding: 10px; border-radius: 8px; background: var(--surface); font-size: 12px; line-height: 1.5; }
-.lead-agent-email-preview p { margin: 0 0 5px; font-size: 12px; }
-.lead-agent-email-preview > div { max-height: 170px; overflow: auto; white-space: pre-wrap; }
+.lead-agent-email-editor { display: grid; gap: 9px; padding: 11px; border: 1px solid var(--agent-line); border-radius: 9px; background: var(--surface); }
+.lead-agent-email-editor label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.lead-agent-email-editor input,
+.lead-agent-email-editor textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--agent-line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
+.lead-agent-email-editor input { min-height: 38px; }
+.lead-agent-email-editor textarea { min-height: 150px; resize: vertical; line-height: 1.5; }
+.lead-agent-email-recipient,
+.lead-agent-email-status,
+.lead-agent-email-meta { margin: 0 !important; font-size: 12px !important; line-height: 1.5 !important; }
+.lead-agent-email-recipient b { margin-right: 5px; }
+.lead-agent-email-status { color: var(--green, #167354) !important; font-weight: 700; }
+.lead-agent-email-meta { color: var(--muted) !important; }
+.lead-agent-email-body { max-height: 220px; overflow: auto; white-space: pre-wrap; font-size: 13px; line-height: 1.5; }
 .lead-agent-action-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .lead-agent-action-buttons button { min-height: 36px; padding: 0 11px; font-size: 12px; }
 
