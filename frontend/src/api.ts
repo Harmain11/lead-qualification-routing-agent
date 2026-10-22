@@ -51,6 +51,7 @@ import type {
   GmailThreadMessage,
   GmailSendRequest,
   GmailSendResult,
+  GmailSendAccount,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -119,13 +120,17 @@ export type WorkspaceAssistantAction = {
     | "update_member_role"
     | "update_member_permissions"
     | "suspend_member"
-    | "reactivate_member";
+    | "reactivate_member"
+    | "send_email";
   area: WorkspaceAssistantArea | null;
   title: string;
   summary: string;
   target_id: string | null;
   target_label: string | null;
   email: string | null;
+  email_recipient: string | null;
+  email_subject: string | null;
+  email_body: string | null;
   role: string | null;
   enabled: boolean | null;
   payload_json: string | null;
@@ -530,6 +535,10 @@ export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResu
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export function listGmailSendAccounts(): Promise<GmailSendAccount[]> {
+  return request("/v1/email/send-accounts");
 }
 
 export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {

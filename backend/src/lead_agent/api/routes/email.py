@@ -192,6 +192,44 @@ class SendEmailResponse(BaseModel):
     sent_at: datetime
 
 
+class GmailSendAccountResponse(BaseModel):
+    id: UUID
+    account_name: str
+    sender_email: str
+
+
+@router.get("/send-accounts", response_model=list[GmailSendAccountResponse])
+def list_gmail_send_accounts(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> list[GmailSendAccountResponse]:
+    connections = session.scalars(
+        select(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.workspace_id == workspace.workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+        .order_by(ProviderConnectionORM.account_name.asc())
+    )
+    return [
+        GmailSendAccountResponse(
+            id=connection.id,
+            account_name=connection.account_name,
+            sender_email=sender_email,
+        )
+        for connection in connections
+        if GMAIL_SEND_SCOPE in set(connection.scopes or [])
+        and _EMAIL_ADDRESS.fullmatch(
+            sender_email := str(
+                connection.connection_metadata.get("gmail_email")
+                or connection.account_name
+            ).strip().lower()
+        )
+    ]
+
+
 def _gmail_connection(
     session: Session,
     workspace: WorkspaceContext,

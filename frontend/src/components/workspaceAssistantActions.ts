@@ -163,6 +163,7 @@ export function canApplyWorkspaceAssistantAction(
     update_member_permissions: "members.manage",
     suspend_member: "members.manage",
     reactivate_member: "members.manage",
+    send_email: "leads.edit",
   };
   const required = requiredPermission[action.kind];
   return action.kind === "none" || Boolean(required && permissions.has(required));
@@ -269,6 +270,8 @@ export async function applyWorkspaceAssistantAction(
       if (!action.target_id) throw new Error("Choose a workspace member first.");
       await reactivateMember(action.target_id);
       return "Reactivated the selected workspace member.";
+    case "send_email":
+      throw new Error("Review and send email drafts from the email approval card.");
     case "none":
       return "No change was made.";
     default:

@@ -95,6 +95,7 @@ class WorkspaceAssistantAction(BaseModel):
         "update_member_permissions",
         "suspend_member",
         "reactivate_member",
+        "send_email",
     ] = "none"
     area: Literal[
         "analytics",
@@ -109,6 +110,9 @@ class WorkspaceAssistantAction(BaseModel):
     target_id: str | None = Field(default=None, max_length=64)
     target_label: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=320)
+    email_recipient: str | None = Field(default=None, max_length=1024)
+    email_subject: str | None = Field(default=None, max_length=180)
+    email_body: str | None = Field(default=None, max_length=8000)
     role: str | None = Field(default=None, max_length=64)
     enabled: bool | None = None
     payload_json: str | None = Field(default=None, max_length=12000)

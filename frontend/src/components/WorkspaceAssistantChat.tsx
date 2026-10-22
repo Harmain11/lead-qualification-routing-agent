@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   chatWithWorkspaceAssistant,
+  listGmailSendAccounts,
+  sendGmailEmail,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
 } from "../api";
+import type { GmailSendAccount } from "../types";
 import { createClientId } from "../clientIds";
 import {
   applyWorkspaceAssistantAction,
@@ -16,7 +19,7 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   action?: WorkspaceAssistantAction;
-  actionStatus?: "applying" | "applied" | "dismissed";
+  actionStatus?: "applying" | "sending" | "applied" | "dismissed";
   actionResult?: string;
   actionError?: string;
 };
@@ -27,6 +30,7 @@ const prompts = [
   "Review our active automations and recommend improvements",
   "Help me update our ICP or workspace settings",
   "Show me integration and team access options",
+  "Draft an email for me to review before sending",
 ];
 
 type Props = {
@@ -39,7 +43,51 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sendAccounts, setSendAccounts] = useState<GmailSendAccount[]>([]);
+  const [sendAccountsLoading, setSendAccountsLoading] = useState(false);
+  const [sendAccountsError, setSendAccountsError] = useState("");
+  const [selectedSendAccountId, setSelectedSendAccountId] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const sendingMessageIdsRef = useRef(new Set<string>());
+  const canSendEmail = permissions.has("leads.edit");
+
+  useEffect(() => {
+    if (!canSendEmail) {
+      setSendAccounts([]);
+      setSelectedSendAccountId("");
+      setSendAccountsError("");
+      setSendAccountsLoading(false);
+      return;
+    }
+    let active = true;
+    setSendAccountsLoading(true);
+    setSendAccountsError("");
+    void listGmailSendAccounts()
+      .then((accounts) => {
+        if (!active) return;
+        setSendAccounts(accounts);
+        setSelectedSendAccountId((current) =>
+          accounts.some((account) => account.id === current)
+            ? current
+            : accounts[0]?.id ?? "",
+        );
+      })
+      .catch((reason) => {
+        if (!active) return;
+        setSendAccounts([]);
+        setSendAccountsError(
+          reason instanceof Error
+            ? reason.message
+            : "Gmail send access could not be checked.",
+        );
+      })
+      .finally(() => {
+        if (active) setSendAccountsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canSendEmail]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({
@@ -130,6 +178,87 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
     }
   }
 
+  function updateEmailDraft(
+    messageId: string,
+    field: "email_recipient" | "email_subject" | "email_body",
+    value: string,
+  ) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId && message.action
+          ? { ...message, action: { ...message.action, [field]: value } }
+          : message,
+      ),
+    );
+  }
+
+  async function handleSendEmail(
+    messageId: string,
+    action: WorkspaceAssistantAction,
+  ) {
+    const recipient = action.email_recipient?.trim() ?? "";
+    const subject = action.email_subject?.trim() ?? "";
+    const body = action.email_body ?? "";
+    if (
+      action.kind !== "send_email" ||
+      !canApplyWorkspaceAssistantAction(action, permissions) ||
+      !selectedSendAccountId ||
+      !recipient ||
+      !subject ||
+      !body.trim() ||
+      sendingMessageIdsRef.current.has(messageId)
+    ) {
+      return;
+    }
+    sendingMessageIdsRef.current.add(messageId);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? { ...message, actionStatus: "sending", actionError: undefined }
+          : message,
+      ),
+    );
+    try {
+      const result = await sendGmailEmail({
+        connection_id: selectedSendAccountId,
+        recipient,
+        subject,
+        body,
+      });
+      const account = sendAccounts.find(
+        (item) => item.id === selectedSendAccountId,
+      );
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                actionStatus: "applied",
+                actionResult: `Email sent from ${account?.account_name ?? result.sender} to ${result.recipient}.`,
+              }
+            : message,
+        ),
+      );
+    } catch (reason) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                actionStatus: undefined,
+                actionError:
+                  reason instanceof Error
+                    ? reason.message
+                    : "Email could not be sent.",
+              }
+            : message,
+        ),
+      );
+    } finally {
+      sendingMessageIdsRef.current.delete(messageId);
+    }
+  }
+
   function dismissAction(messageId: string) {
     setMessages((current) =>
       current.map((message) =>
@@ -155,8 +284,9 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
             <h2>Ask, plan, or create</h2>
             <p>
               Ask questions about workspace analytics, automations, ICP,
-              settings, integrations, and team access. Corral Agent can prepare
-              changes, but it will not apply them until you approve each one.
+              settings, integrations, team access, or email. Corral Agent can
+              prepare drafts and changes, but it will not send or apply them
+              until you approve.
             </p>
             <div className="corral-workspace-prompts">
               {prompts.map((prompt) => (
@@ -179,51 +309,178 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
               <p>{message.content}</p>
             </article>
             {message.action && (
-              <section className="corral-workspace-action" aria-label="Proposed action">
+              <section
+                className="corral-workspace-action"
+                aria-label={
+                  message.action.kind === "send_email"
+                    ? "Review email draft"
+                    : "Proposed action"
+                }
+              >
                 <div>
                   <strong>{message.action.title || "Review proposed action"}</strong>
                   <p>{message.action.summary}</p>
                 </div>
-                {(message.action.target_id ||
-                  message.action.email ||
-                  message.action.role ||
-                  message.action.enabled !== null) && (
-                  <dl>
-                    {message.action.target_id && (
-                      <>
-                        <dt>Target</dt>
-                        <dd>
-                          {message.action.target_label
-                            ? `${message.action.target_label} (${message.action.target_id})`
-                            : message.action.target_id}
-                        </dd>
-                      </>
+                {message.action.kind === "send_email" ? (
+                  <div className="corral-workspace-email-review">
+                    <label>
+                      From
+                      {sendAccounts.length > 1 ? (
+                        <select
+                          value={selectedSendAccountId}
+                          onChange={(event) =>
+                            setSelectedSendAccountId(event.target.value)
+                          }
+                          disabled={
+                            message.actionStatus === "sending" ||
+                            message.actionStatus === "applied"
+                          }
+                        >
+                          {sendAccounts.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.account_name} ({account.sender_email})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span>
+                          {sendAccounts[0]
+                            ? `${sendAccounts[0].account_name} (${sendAccounts[0].sender_email})`
+                            : sendAccountsLoading
+                              ? "Checking Gmail access…"
+                              : "No sendable Gmail account"}
+                        </span>
+                      )}
+                    </label>
+                    <label>
+                      To
+                      <input
+                        type="text"
+                        maxLength={1024}
+                        value={message.action.email_recipient ?? ""}
+                        onChange={(event) =>
+                          updateEmailDraft(
+                            message.id,
+                            "email_recipient",
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          message.actionStatus === "sending" ||
+                          message.actionStatus === "applied"
+                        }
+                      />
+                    </label>
+                    <label>
+                      Subject
+                      <input
+                        type="text"
+                        maxLength={180}
+                        value={message.action.email_subject ?? ""}
+                        onChange={(event) =>
+                          updateEmailDraft(
+                            message.id,
+                            "email_subject",
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          message.actionStatus === "sending" ||
+                          message.actionStatus === "applied"
+                        }
+                      />
+                    </label>
+                    <label>
+                      Message
+                      <textarea
+                        rows={7}
+                        maxLength={8000}
+                        value={message.action.email_body ?? ""}
+                        onChange={(event) =>
+                          updateEmailDraft(
+                            message.id,
+                            "email_body",
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          message.actionStatus === "sending" ||
+                          message.actionStatus === "applied"
+                        }
+                      />
+                    </label>
+                    {!canSendEmail && (
+                      <p className="corral-workspace-email-unavailable">
+                        You need lead-edit access to send email.
+                      </p>
                     )}
-                    {message.action.email && (
-                      <>
-                        <dt>Email</dt>
-                        <dd>{message.action.email}</dd>
-                      </>
+                    {canSendEmail && sendAccountsError && (
+                      <p
+                        className="corral-workspace-email-unavailable"
+                        role="alert"
+                      >
+                        {sendAccountsError}
+                      </p>
                     )}
-                    {message.action.role && (
-                      <>
-                        <dt>Role</dt>
-                        <dd>{message.action.role}</dd>
-                      </>
+                    {canSendEmail &&
+                      !sendAccountsLoading &&
+                      !sendAccountsError &&
+                      !sendAccounts.length && (
+                        <p className="corral-workspace-email-unavailable">
+                          Connect a verified Gmail account with send access before
+                          sending.
+                        </p>
+                      )}
+                    {!message.action.email_recipient?.trim() && (
+                      <p className="corral-workspace-email-unavailable">
+                        Add a recipient to enable sending.
+                      </p>
                     )}
-                    {message.action.enabled !== null && (
-                      <>
-                        <dt>New value</dt>
-                        <dd>{message.action.enabled ? "On" : "Off"}</dd>
-                      </>
+                  </div>
+                ) : (
+                  <>
+                    {(message.action.target_id ||
+                      message.action.email ||
+                      message.action.role ||
+                      message.action.enabled !== null) && (
+                      <dl>
+                        {message.action.target_id && (
+                          <>
+                            <dt>Target</dt>
+                            <dd>
+                              {message.action.target_label
+                                ? `${message.action.target_label} (${message.action.target_id})`
+                                : message.action.target_id}
+                            </dd>
+                          </>
+                        )}
+                        {message.action.email && (
+                          <>
+                            <dt>Email</dt>
+                            <dd>{message.action.email}</dd>
+                          </>
+                        )}
+                        {message.action.role && (
+                          <>
+                            <dt>Role</dt>
+                            <dd>{message.action.role}</dd>
+                          </>
+                        )}
+                        {message.action.enabled !== null && (
+                          <>
+                            <dt>New value</dt>
+                            <dd>{message.action.enabled ? "On" : "Off"}</dd>
+                          </>
+                        )}
+                      </dl>
                     )}
-                  </dl>
-                )}
-                {message.action.payload_json && (
-                  <details>
-                    <summary>Review exact changes</summary>
-                    <pre>{message.action.payload_json}</pre>
-                  </details>
+                    {message.action.payload_json && (
+                      <details>
+                        <summary>Review exact changes</summary>
+                        <pre>{message.action.payload_json}</pre>
+                      </details>
+                    )}
+                  </>
                 )}
                 {message.actionResult && (
                   <p className="corral-workspace-action-result" role="status">
@@ -238,7 +495,49 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
                 {message.actionStatus === "dismissed" && (
                   <p className="corral-workspace-action-result">No change made.</p>
                 )}
-                {message.actionStatus !== "applied" &&
+                {message.action.kind === "send_email" &&
+                  message.actionStatus !== "applied" &&
+                  message.actionStatus !== "dismissed" && (
+                    <div className="corral-workspace-action-buttons">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={
+                          busy ||
+                          message.actionStatus === "sending" ||
+                          !canApplyWorkspaceAssistantAction(
+                            message.action,
+                            permissions,
+                          ) ||
+                          sendAccountsLoading ||
+                          !sendAccounts.length ||
+                          !selectedSendAccountId ||
+                          !message.action.email_recipient?.trim() ||
+                          !message.action.email_subject?.trim() ||
+                          !message.action.email_body?.trim()
+                        }
+                        onClick={() =>
+                          void handleSendEmail(message.id, message.action!)
+                        }
+                      >
+                        {message.actionStatus === "sending"
+                          ? "Sending…"
+                          : "Send email"}
+                      </button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={
+                          message.actionStatus === "sending" || busy
+                        }
+                        onClick={() => dismissAction(message.id)}
+                      >
+                        Not now
+                      </button>
+                    </div>
+                  )}
+                {message.action.kind !== "send_email" &&
+                  message.actionStatus !== "applied" &&
                   message.actionStatus !== "dismissed" && (
                     <div className="corral-workspace-action-buttons">
                       <button
