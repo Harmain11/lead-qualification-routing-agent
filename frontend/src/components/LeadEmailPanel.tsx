@@ -198,9 +198,12 @@ export function LeadEmailPanel({
     <div className="lead-email-thread-list">
       {!loading && orderedThreads.map(({ threadId, messages }) => {
         const subject = stringDetail(messages[messages.length - 1]?.details ?? {}, "subject") || "(no subject)";
-        return <section className="lead-email-thread" key={threadId}>
-          <header><div><span className="eyebrow">Gmail thread</span><h3>{subject}</h3></div><span>{messages.length} {messages.length === 1 ? "email" : "emails"}</span></header>
-          {messages.map((event) => {
+        return <details className="lead-email-thread" key={threadId}>
+          <summary>
+            <span className="lead-email-thread-heading"><span className="eyebrow">Gmail thread</span><strong>{subject}</strong></span>
+            <span className="lead-email-thread-summary-meta">{messages.length} {messages.length === 1 ? "email" : "emails"}</span>
+          </summary>
+          <div className="lead-email-thread-messages">{messages.map((event) => {
             const details = event.details;
             const direction = stringDetail(details, "direction");
             const body = stringDetail(details, "body");
@@ -215,8 +218,8 @@ export function LeadEmailPanel({
               <p className="lead-email-body">{body || "No message text was stored."}</p>
               {canSend && <button className="button-quiet" type="button" onClick={() => replyTo(event)}>Reply</button>}
             </article>;
-          })}
-        </section>;
+          })}</div>
+        </details>;
       })}
     </div>
   </section>;

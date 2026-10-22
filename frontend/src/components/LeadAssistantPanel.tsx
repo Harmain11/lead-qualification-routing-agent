@@ -450,8 +450,8 @@ export function LeadAssistantPanel({
     };
     const needsCredit = action.progress_stage === "converted";
     const editRequired = ["update_profile", "add_note", "record_progress", "draft_email", "send_follow_up", "refresh_email", "delete_lead", "reevaluate_lead"].includes(action.kind);
-    return <div className="lead-agent-action">
-      <div className="lead-agent-action-title"><span aria-hidden="true">↳</span><strong>{actionTitle(action)}</strong>{message.done && <small>Completed</small>}</div>
+    return <details className="lead-agent-action" open={!message.done || message.preview?.status === "draft"}>
+      <summary className="lead-agent-action-title"><span aria-hidden="true">↳</span><strong>{actionTitle(action)}</strong>{message.done && <small>Completed</small>}</summary>
       {action.kind === "update_profile" && <dl className="lead-agent-changes">
         {changes.map(([field, value]) => <div key={field}><dt>{fieldLabels[field] || field}</dt><dd>{String(value)}</dd></div>)}
         {action.clear_fields.map((field) => <div key={`clear-${field}`}><dt>{fieldLabels[field] || field}</dt><dd>Clear this field</dd></div>)}
@@ -569,7 +569,7 @@ export function LeadAssistantPanel({
             {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "send_follow_up" ? "Review draft" : action.kind === "draft_email" ? "Create draft and review" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
           </button>
       </div>}
-    </div>;
+    </details>;
   }
 
   return <section className="lead-agent" aria-label={`Assistant for ${lead.full_name}`}>
