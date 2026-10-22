@@ -422,7 +422,7 @@ export function WorkspaceAssistantChat({
                       <input
                         type="text"
                         maxLength={1024}
-                        placeholder="name@example.com"
+                        placeholder="name@example.com, another@example.com"
                         value={message.action.email_cc ?? ""}
                         onChange={(event) =>
                           updateEmailDraft(
@@ -436,13 +436,14 @@ export function WorkspaceAssistantChat({
                           message.actionStatus === "applied"
                         }
                       />
+                      <small className="corral-workspace-recipient-hint">Separate addresses with commas · up to 10 people</small>
                     </label>
                     <label>
                       Bcc (optional)
                       <input
                         type="text"
                         maxLength={1024}
-                        placeholder="name@example.com"
+                        placeholder="name@example.com, another@example.com"
                         value={message.action.email_bcc ?? ""}
                         onChange={(event) =>
                           updateEmailDraft(
@@ -456,6 +457,7 @@ export function WorkspaceAssistantChat({
                           message.actionStatus === "applied"
                         }
                       />
+                      <small className="corral-workspace-recipient-hint">Separate addresses with commas · up to 10 people</small>
                     </label>
                     <label>
                       Subject

@@ -19,6 +19,7 @@ type Props = {
   canEdit: boolean;
   canCrmSync: boolean;
   canViewEmail: boolean;
+  dialerPhoneConnectionId: string | null;
   onInspectLead: (leadId: string) => void;
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
@@ -34,6 +35,7 @@ export function CorralAgentDock({
   canEdit,
   canCrmSync,
   canViewEmail,
+  dialerPhoneConnectionId,
   onInspectLead,
   onUpdated,
   onDeleted,
@@ -269,6 +271,7 @@ export function CorralAgentDock({
               canCrmSync={canCrmSync}
               canViewEmail={canViewEmail}
               canUseAgent
+              dialerPhoneConnectionId={dialerPhoneConnectionId}
               onUpdated={(updated) => {
                 setTargetLead(updated);
                 onUpdated(updated);

@@ -19,7 +19,12 @@ from lead_agent.api.routes.lead_assistant import AssistantChatRequest, Assistant
 from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
 from lead_agent.api import workspace_assistant_context as snapshots
 from lead_agent.api.workspace_lead_actions import validate_lead_proposal
-from lead_agent.domain.lead_assistant import WorkspaceAssistantAction, WorkspaceAssistantReply
+from lead_agent.domain.lead_assistant import (
+    LeadAssistantAction,
+    LeadAssistantReply,
+    WorkspaceAssistantAction,
+    WorkspaceAssistantReply,
+)
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.db.base import Base
@@ -176,3 +181,76 @@ def test_record_search_failure_is_visible_and_blocks_lead_proposals(monkeypatch)
     )
     assert result["action"]["kind"] == "none"
     assert any("record search is unavailable" in warning for warning in result["context_warnings"])
+
+
+@pytest.mark.parametrize(
+    ("permissions", "phone", "expected"),
+    [
+        ({"agents.execute", "leads.view", "dialer.call"}, "+1 415 555 0100", "open_dialer"),
+        ({"agents.execute", "leads.view"}, "+1 415 555 0100", "none"),
+        ({"agents.execute", "leads.view", "dialer.call"}, None, "none"),
+    ],
+)
+def test_lead_call_suggestion_requires_dialer_permission_and_saved_phone(
+    monkeypatch, permissions, phone, expected
+):
+    lead_id = uuid4()
+    lead = SimpleNamespace(
+        id=lead_id,
+        full_name="Kathi",
+        email=None,
+        phone=phone,
+        job_title=None,
+        company_name=None,
+        industry=None,
+        employee_count=None,
+        annual_revenue=None,
+        geography=None,
+        budget=None,
+        product_or_service=None,
+        message="",
+        source="website",
+        received_at=datetime.now(UTC),
+        qualification=None,
+        outcome=None,
+    )
+    monkeypatch.setattr(lead_assistant, "get_lead", lambda *_: lead)
+    monkeypatch.setattr(
+        lead_assistant,
+        "operations_policy",
+        lambda *_: SimpleNamespace(
+            business_profile=SimpleNamespace(model_dump=lambda **_: {})
+        ),
+    )
+    provider_payload = {}
+
+    def assist(payload):
+        provider_payload.update(payload)
+        return LeadAssistantReply(
+            reply="I can open the phone for you.",
+            action=LeadAssistantAction(kind="open_dialer"),
+        )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_: SimpleNamespace(assist_with_lead=assist),
+    )
+    session = MagicMock()
+    session.scalars.return_value = []
+    workspace = WorkspaceContext(
+        workspace_id=uuid4(),
+        actor_id="qa",
+        permissions=frozenset(permissions),
+    )
+    result = lead_assistant.chat_with_lead_assistant(
+        lead_id,
+        AssistantChatRequest(
+            messages=[AssistantMessage(role="user", content="I want to call Kathi")]
+        ),
+        session,
+        workspace,
+    )
+
+    assert result["action"]["kind"] == expected
+    assert provider_payload["permissions"] == sorted(permissions)

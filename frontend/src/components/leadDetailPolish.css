@@ -1,6 +1,9 @@
 /* Lead detail: compact editorial rhythm, readable evidence, and no nested tab scrollbars. */
 .lead-drawer .lead-story,
 .lead-story {
+  container-name: lead-story;
+  container-type: inline-size;
+  min-width: 0;
   width: 100%;
   max-width: 1120px;
   margin-inline: auto;
@@ -45,6 +48,30 @@
 .lead-story .story-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .lead-drawer .story-head-actions button,
 .lead-story .story-head-actions button { min-height: 38px; white-space: nowrap; }
+
+@container lead-story (max-width: 900px) {
+  .lead-drawer .story-head,
+  .lead-story .story-head { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; }
+  .story-head-main,
+  .story-head-side { width: 100%; min-width: 0; }
+  .lead-drawer .story-head-side,
+  .lead-story .story-head-side { flex-wrap: wrap; justify-content: flex-start; }
+  .lead-drawer .story-head-actions,
+  .lead-story .story-head-actions { min-width: 0; justify-content: flex-start; flex-wrap: wrap; }
+  .lead-drawer .story-head-actions > button,
+  .lead-story .story-head-actions > button { width: auto; min-width: 0; flex: 1 1 110px; }
+}
+
+@container lead-story (max-width: 560px) {
+  .lead-drawer .story-head,
+  .lead-story .story-head { padding: 16px; }
+  .lead-drawer .story-head h2,
+  .lead-story .story-head h2 { overflow-wrap: anywhere; word-break: normal; }
+  .lead-drawer .story-head-side,
+  .lead-story .story-head-side { align-items: flex-start; }
+  .lead-drawer .story-head-actions > button,
+  .lead-story .story-head-actions > button { flex-basis: 125px; }
+}
 .lead-detail-automation-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lead-drawer .score-orb,
 .lead-story .score-orb {

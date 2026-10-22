@@ -578,6 +578,27 @@
   background: color-mix(in srgb, var(--orange-soft) 18%, var(--surface));
 }
 
+.corral-workspace-action-heading {
+  position: relative;
+  padding-right: 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.corral-workspace-action-heading::-webkit-details-marker { display: none; }
+.corral-workspace-action-heading::after {
+  content: "⌄";
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: var(--muted);
+  font-size: 15px;
+  transition: transform 140ms ease;
+}
+.corral-workspace-action[open] > .corral-workspace-action-heading::after {
+  transform: rotate(180deg);
+}
+
 .corral-workspace-action strong {
   display: block;
   font-size: 12px;
@@ -649,6 +670,13 @@
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
+}
+
+.corral-workspace-recipient-hint {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .corral-workspace-email-review input,

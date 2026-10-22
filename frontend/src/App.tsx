@@ -1631,6 +1631,12 @@ function App() {
                   canCrmSync={can(workspacePermissions, "crm.sync")}
                   canViewEmail={can(workspacePermissions, "integrations.view")}
                   canUseAgent={can(workspacePermissions, "agents.execute")}
+                  dialerPhoneConnectionId={
+                    can(workspacePermissions, "dialer.call") &&
+                    isDialerPhoneAvailable(selectedDialer)
+                      ? selectedDialer?.id ?? null
+                      : null
+                  }
                   canEnrollAutomations={
                     can(workspacePermissions, "agents.view") &&
                     can(workspacePermissions, "leads.edit")
@@ -1893,6 +1899,12 @@ function App() {
           canEdit={can(workspacePermissions, "leads.edit")}
           canCrmSync={can(workspacePermissions, "crm.sync")}
           canViewEmail={can(workspacePermissions, "integrations.view")}
+          dialerPhoneConnectionId={
+            can(workspacePermissions, "dialer.call") &&
+            isDialerPhoneAvailable(selectedDialer)
+              ? selectedDialer?.id ?? null
+              : null
+          }
           onInspectLead={handleInspectLead}
           onUpdated={(lead) => {
             setSelectedLead((current) =>

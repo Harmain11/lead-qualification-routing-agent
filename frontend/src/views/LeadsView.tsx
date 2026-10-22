@@ -100,6 +100,7 @@ export function LeadsView({
   canCrmSync = false,
   canViewEmail = false,
   canUseAgent = false,
+  dialerPhoneConnectionId = null,
   canEnrollAutomations = false,
   onOpenAutomations,
 }: {
@@ -121,6 +122,7 @@ export function LeadsView({
   canCrmSync?: boolean;
   canViewEmail?: boolean;
   canUseAgent?: boolean;
+  dialerPhoneConnectionId?: string | null;
   canEnrollAutomations?: boolean;
   onOpenAutomations?: () => void;
 }) {
@@ -424,6 +426,7 @@ export function LeadsView({
             canCrmSync={canCrmSync}
             canViewEmail={canViewEmail}
             canUseAgent={canUseAgent}
+            dialerPhoneConnectionId={dialerPhoneConnectionId}
             canEdit={canEdit}
             canEnrollAutomations={canEnrollAutomations}
             onEnrollAutomation={(kind) =>
