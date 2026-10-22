@@ -202,11 +202,39 @@ export function LeadAssistantPanel({
     setQuickActionNotice("Phone opened. Enter the saved number in its keypad; no call has been started.");
   }
 
-  function startEmailDraft() {
-    void submit(
-      undefined,
-      `Draft a follow-up email to ${lead.full_name} using the information in this lead. Show it here so I can review and edit it before sending.`,
-    );
+  async function startEmailDraft() {
+    if (busy || !canUseAgent || !canEdit || !lead.email) return;
+    const userMessage: ChatMessage = {
+      id: id(),
+      role: "user",
+      content: "Write a follow-up email",
+    };
+    const assistantMessage: ChatMessage = {
+      id: id(),
+      role: "assistant",
+      content: "I’ll prepare a draft for you to review. It won’t be sent until you choose Send follow-up.",
+      action: {
+        kind: "draft_email",
+        profile_updates: {},
+        clear_fields: [],
+        note: null,
+        progress_stage: null,
+        progress_note: null,
+        conversion_type: null,
+        closed_revenue: null,
+        credited_user_id: null,
+        email_subject: null,
+        email_body: null,
+        crm_provider: null,
+      },
+    };
+    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setBusy(true);
+    try {
+      await executeAction(assistantMessage);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function changeMessage(messageId: string, changes: Partial<ChatMessage>) {
@@ -411,6 +439,7 @@ export function LeadAssistantPanel({
         }
         changeMessage(message.id, {
           done: false,
+          content: "Review the email details below. Nothing will be sent until you choose Send follow-up.",
           preview: generated,
           emailSubject: generated.subject,
           emailBody: generated.body || "",
@@ -479,7 +508,7 @@ export function LeadAssistantPanel({
       case "update_profile": return "Update lead details";
       case "add_note": return "Save team note";
       case "record_progress": return "Record lead progress";
-      case "draft_email": return "Create follow-up draft";
+      case "draft_email": return "Email draft";
       case "send_follow_up": return "Review and send follow-up";
       case "refresh_email": return "Refresh Gmail conversation";
       case "sync_crm": return "Sync to CRM";
@@ -539,6 +568,23 @@ export function LeadAssistantPanel({
         </select>
       </label>}
       {message.preview && <div className="lead-agent-email-editor">
+        <div className="lead-agent-email-toolbar">
+          <span className="lead-agent-email-tab">Email details</span>
+          {message.preview.status === "draft" && !message.done && <button
+            className="primary-button lead-agent-send-email"
+            type="button"
+            disabled={
+              Boolean(message.busy) ||
+              !(message.emailSubject ?? message.preview.subject).trim() ||
+              (message.emailBody ?? message.preview.body ?? "").trim().length < 10 ||
+              (message.emailSubject ?? message.preview.subject) !== message.preview.subject ||
+              (message.emailBody ?? message.preview.body ?? "") !== (message.preview.body || "")
+            }
+            onClick={() => void confirmFollowUpSend(message)}
+          >
+            {message.busy ? "Sending…" : "Send follow-up"}
+          </button>}
+        </div>
         <p className="lead-agent-email-recipient"><b>To</b> {message.preview.recipient}</p>
         {message.preview.status === "sent" ? (
           <>
@@ -599,20 +645,6 @@ export function LeadAssistantPanel({
           onClick={() => void saveFollowUpDraft(message)}
         >
           {message.busy ? "Saving…" : "Save draft changes"}
-        </button>
-        <button
-          className="primary-button"
-          type="button"
-          disabled={
-            Boolean(message.busy) ||
-            !(message.emailSubject ?? message.preview.subject).trim() ||
-            (message.emailBody ?? message.preview.body ?? "").trim().length < 10 ||
-            (message.emailSubject ?? message.preview.subject) !== message.preview.subject ||
-            (message.emailBody ?? message.preview.body ?? "") !== (message.preview.body || "")
-          }
-          onClick={() => void confirmFollowUpSend(message)}
-        >
-          {message.busy ? "Sending…" : "Send follow-up"}
         </button>
       </div>}
       {!message.done && !message.preview && <div className="lead-agent-action-buttons">
