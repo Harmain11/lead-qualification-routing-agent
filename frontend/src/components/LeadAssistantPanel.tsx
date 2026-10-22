@@ -34,6 +34,8 @@ type ChatMessage = {
   error?: string;
   notice?: string;
   preview?: FollowUpEmail;
+  emailSubject?: string;
+  emailBody?: string;
   actionResult?: string;
 };
 
@@ -186,7 +188,12 @@ export function LeadAssistantPanel({
     try {
       let followUp = await getLeadFollowUp(lead.id);
       if (!followUp || followUp.status === "sent") followUp = await generateLeadFollowUp(lead.id);
-      changeMessage(message.id, { busy: false, preview: followUp });
+      changeMessage(message.id, {
+        busy: false,
+        preview: followUp,
+        emailSubject: followUp.subject,
+        emailBody: followUp.body || "",
+      });
     } catch (reason) {
       changeMessage(message.id, {
         busy: false,
@@ -197,24 +204,77 @@ export function LeadAssistantPanel({
 
   async function confirmFollowUpSend(message: ChatMessage) {
     const followUp = message.preview;
-    if (!canEdit || !followUp || message.done || actionInFlightRef.current.has(message.id)) return;
-    const confirmed = window.confirm(
-      `Send this email to ${followUp.recipient}?\n\nSubject: ${followUp.subject}\n\nReview the full draft in Follow-ups before sending if anything needs to change.`,
-    );
-    if (!confirmed) return;
+    if (
+      !canEdit ||
+      !followUp ||
+      followUp.status !== "draft" ||
+      message.done ||
+      message.busy ||
+      message.emailSubject !== followUp.subject ||
+      message.emailBody !== (followUp.body || "") ||
+      actionInFlightRef.current.has(message.id)
+    ) return;
     actionInFlightRef.current.add(message.id);
     changeMessage(message.id, { busy: true, error: undefined });
     try {
-      await approveAndSendLeadFollowUp(lead.id, followUp.id);
+      const sent = await approveAndSendLeadFollowUp(lead.id, followUp.id);
       changeMessage(message.id, {
-        busy: false, done: true, preview: undefined,
-        actionResult: `Email sent to ${followUp.recipient}. Subject: ${followUp.subject}.`,
+        busy: false,
+        done: sent.status === "sent",
+        preview: sent,
+        actionResult: sent.status === "sent"
+          ? `Email sent to ${sent.recipient}. Subject: ${sent.subject}.`
+          : undefined,
+        error: sent.status === "sent"
+          ? undefined
+          : sent.error_message || "Gmail could not confirm that the email was sent.",
       });
-      void refreshLeadAfterAction(message.id);
+      if (sent.status === "sent") void refreshLeadAfterAction(message.id);
     } catch (reason) {
       changeMessage(message.id, {
         busy: false,
         error: reason instanceof Error ? reason.message : "The email could not be sent.",
+      });
+    } finally {
+      actionInFlightRef.current.delete(message.id);
+    }
+  }
+
+  function editFollowUpDraft(
+    messageId: string,
+    field: "emailSubject" | "emailBody",
+    value: string,
+  ) {
+    changeMessage(messageId, { [field]: value });
+  }
+
+  async function saveFollowUpDraft(message: ChatMessage) {
+    const followUp = message.preview;
+    const subject = message.emailSubject?.trim() || "";
+    const body = message.emailBody || "";
+    if (
+      !canEdit ||
+      !followUp ||
+      followUp.status !== "draft" ||
+      !subject ||
+      body.trim().length < 10 ||
+      actionInFlightRef.current.has(message.id)
+    ) return;
+    actionInFlightRef.current.add(message.id);
+    changeMessage(message.id, { busy: true, error: undefined, notice: undefined });
+    try {
+      const saved = await updateLeadFollowUp(lead.id, followUp.id, { subject, body });
+      changeMessage(message.id, {
+        busy: false,
+        preview: saved,
+        emailSubject: saved.subject,
+        emailBody: saved.body || "",
+        notice: "Draft saved. Review it here, then choose Send follow-up when you’re ready.",
+      });
+    } catch (reason) {
+      changeMessage(message.id, {
+        busy: false,
+        error: reason instanceof Error ? reason.message : "The draft could not be saved.",
       });
     } finally {
       actionInFlightRef.current.delete(message.id);
@@ -299,15 +359,20 @@ export function LeadAssistantPanel({
         changeMessage(message.id, { done: true });
         void refreshLeadAfterAction(message.id);
       } else if (action.kind === "draft_email") {
-        const generated = await generateLeadFollowUp(lead.id);
+        let generated = await generateLeadFollowUp(lead.id);
         if (action.email_subject?.trim() || action.email_body?.trim()) {
-          await updateLeadFollowUp(lead.id, generated.id, {
+          generated = await updateLeadFollowUp(lead.id, generated.id, {
             subject: action.email_subject?.trim() || generated.subject,
             body: action.email_body?.trim() || generated.body || "",
           });
         }
-        changeMessage(message.id, { done: true });
-        onSectionChange("follow-ups");
+        changeMessage(message.id, {
+          done: false,
+          preview: generated,
+          emailSubject: generated.subject,
+          emailBody: generated.body || "",
+          notice: "Draft created. Review or edit it here. It will not be sent until you choose Send follow-up.",
+        });
       } else if (action.kind === "send_follow_up") {
         await reviewFollowUp(message);
       } else if (action.kind === "refresh_email") {
@@ -417,24 +482,92 @@ export function LeadAssistantPanel({
           {crmOptions.map((option) => <option key={option.provider} value={option.provider}>{option.name}</option>)}
         </select>
       </label>}
-      {action.kind === "send_follow_up" && message.preview && <div className="lead-agent-email-preview">
-        <p><b>To:</b> {message.preview.recipient}</p><p><b>Subject:</b> {message.preview.subject}</p>
-        <div>{message.preview.body}</div>
+      {message.preview && <div className="lead-agent-email-editor">
+        <p className="lead-agent-email-recipient"><b>To</b> {message.preview.recipient}</p>
+        {message.preview.status === "sent" ? (
+          <>
+            <p className="lead-agent-email-status">
+              Sent {message.preview.sent_at ? new Date(message.preview.sent_at).toLocaleString() : "successfully"}.
+            </p>
+            <p><b>Subject:</b> {message.preview.subject}</p>
+            <div className="lead-agent-email-body">{message.preview.body}</div>
+          </>
+        ) : message.preview.status === "draft" ? (
+          <>
+            <label>
+              Subject
+              <input
+                type="text"
+                maxLength={180}
+                value={message.emailSubject ?? message.preview.subject}
+                onChange={(event) => editFollowUpDraft(message.id, "emailSubject", event.target.value)}
+                disabled={message.busy}
+              />
+            </label>
+            <label>
+              Message
+              <textarea
+                rows={8}
+                maxLength={5000}
+                value={message.emailBody ?? message.preview.body ?? ""}
+                onChange={(event) => editFollowUpDraft(message.id, "emailBody", event.target.value)}
+                disabled={message.busy}
+              />
+            </label>
+            {message.preview.rationale && <p className="lead-agent-email-meta"><b>Why this draft:</b> {message.preview.rationale}</p>}
+            {message.preview.generation_note && <p className="lead-agent-email-meta">{message.preview.generation_note}</p>}
+            <p className="lead-agent-email-meta">This email stays in Corral until you choose <b>Send follow-up</b>.</p>
+          </>
+        ) : (
+          <p className="lead-agent-email-status">
+            {message.preview.error_message || "This draft is no longer available to edit or send."}
+          </p>
+        )}
       </div>}
+      {message.actionResult && <p className="lead-agent-notice" role="status">{message.actionResult}</p>}
       {message.error && <p className="lead-agent-error" role="alert">{message.error}</p>}
       {message.notice && <p className="lead-agent-notice" role="status">{message.notice}</p>}
-      {!message.done && <div className="lead-agent-action-buttons">
-        {action.kind === "send_follow_up" && message.preview
-          ? <button className="primary-button" type="button" disabled={message.busy} onClick={() => void confirmFollowUpSend(message)}>{message.busy ? "Sending…" : "Confirm and send"}</button>
-          : <button
+      {message.preview?.status === "draft" && !message.done && <div className="lead-agent-action-buttons">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={
+            Boolean(message.busy) ||
+            !(message.emailSubject ?? message.preview.subject).trim() ||
+            (message.emailBody ?? message.preview.body ?? "").trim().length < 10 ||
+            (
+              (message.emailSubject ?? message.preview.subject) === message.preview.subject &&
+              (message.emailBody ?? message.preview.body ?? "") === (message.preview.body || "")
+            )
+          }
+          onClick={() => void saveFollowUpDraft(message)}
+        >
+          {message.busy ? "Saving…" : "Save draft changes"}
+        </button>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={
+            Boolean(message.busy) ||
+            !(message.emailSubject ?? message.preview.subject).trim() ||
+            (message.emailBody ?? message.preview.body ?? "").trim().length < 10 ||
+            (message.emailSubject ?? message.preview.subject) !== message.preview.subject ||
+            (message.emailBody ?? message.preview.body ?? "") !== (message.preview.body || "")
+          }
+          onClick={() => void confirmFollowUpSend(message)}
+        >
+          {message.busy ? "Sending…" : "Send follow-up"}
+        </button>
+      </div>}
+      {!message.done && !message.preview && <div className="lead-agent-action-buttons">
+        <button
             className={["sync_crm", "delete_lead", "send_follow_up", "reevaluate_lead"].includes(action.kind) ? "secondary-button" : "primary-button"}
             type="button"
             disabled={message.busy || (editRequired && !canEdit) || (action.kind === "sync_crm" && (!canCrmSync || !selectedCrm)) || (action.kind === "open_email" && !canViewEmail) || (needsCredit && (!selection.conversionType || !selection.creditedUserId))}
             onClick={() => void executeAction(message)}
           >
             {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "send_follow_up" ? "Review draft" : action.kind === "draft_email" ? "Create draft and review" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
-          </button>}
-        {message.preview && !message.done && <button className="button-quiet" type="button" onClick={() => onSectionChange("follow-ups")}>Edit in Follow-ups</button>}
+          </button>
       </div>}
     </div>;
   }

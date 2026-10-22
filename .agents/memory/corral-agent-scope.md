@@ -9,8 +9,10 @@ Customize the assistant using the saved workspace business profile and identity.
 
 The user wants information added to existing leads directly from workspace chat, not only navigation to a lead page. Keep lead detail changes, notes, progress, and re-evaluation behind explicit review of the target and values. Save evidenced facts as profile data; do not silently turn AI recommendations into facts.
 
+Lead follow-up drafting, review, editing, and sending should stay inside the AI agent conversation. Do not route the user to the separate Follow-ups section for these steps.
+
 Workspace snapshots must come from the server under the current permissions, not from browser-supplied context. UI-reported action outcomes may inform follow-up conversation, but never authorize a write or replace the target API's permission checks.
 
-**Why:** the user asked for a workspace-customized assistant that can search all records they can access on demand, update leads directly from chat, take actions across nearly all app areas, and include Cc/Bcc in reviewed email drafts; external sends and other mutations still require explicit approval. Browser-supplied snapshots are not authoritative, and custom permission overrides can separate agent execution from lead viewing.
+**Why:** the user asked for a workspace-customized assistant that can search all records they can access on demand, update leads directly from chat, keep follow-up email work in the agent, take actions across nearly all app areas, and include Cc/Bcc in reviewed email drafts; external sends and other mutations still require explicit approval. Browser-supplied snapshots are not authoritative, and custom permission overrides can separate agent execution from lead viewing.
 
 **How to apply:** Add capabilities through typed, permission-scoped tools backed by existing APIs. Retrieve only relevant stored records for each request, disclose when results are bounded, use the saved business profile for workspace identity, and keep a clear review-and-approve step before every mutation.
