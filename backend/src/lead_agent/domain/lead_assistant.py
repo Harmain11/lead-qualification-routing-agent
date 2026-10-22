@@ -46,6 +46,7 @@ class LeadAssistantAction(BaseModel):
         "reevaluate_lead",
         "open_email",
         "open_meetings",
+        "open_dialer",
         "open_closing",
         "open_history",
     ] = "none"

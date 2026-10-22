@@ -14,7 +14,7 @@ from lead_agent.api.workspace_assistant_context import build_workspace_assistant
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
-from lead_agent.domain.lead_assistant import WorkspaceAssistantAction
+from lead_agent.domain.lead_assistant import LeadAssistantAction, WorkspaceAssistantAction
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
 from lead_agent.infrastructure.db.operations import LeadNoteORM
@@ -217,6 +217,7 @@ def chat_with_lead_assistant(
         )
     )
     payload = {
+        "permissions": sorted(workspace.permissions),
         "lead": {
             "id": str(lead.id),
             "full_name": lead.full_name,
@@ -288,4 +289,18 @@ def chat_with_lead_assistant(
         raise HTTPException(502, str(error)) from None
     except Exception:
         raise HTTPException(502, "The lead assistant could not complete this request.") from None
+    if result.action.kind == "open_dialer" and (
+        "dialer.call" not in workspace.permissions or not lead.phone
+    ):
+        result.action = LeadAssistantAction()
+        if not lead.phone:
+            result.reply = (
+                f"I don’t have a phone number saved for {lead.full_name}. "
+                "Share the number and I can help update the lead before you call."
+            )
+        else:
+            result.reply = (
+                f"{lead.full_name}’s saved number is {lead.phone}, but you don’t have "
+                "permission to open the phone from this workspace. Ask an admin for Dialer access."
+            )
     return result.model_dump(mode="json")

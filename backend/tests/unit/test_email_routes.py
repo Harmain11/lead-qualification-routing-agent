@@ -33,8 +33,8 @@ def test_send_email_request_accepts_cc_bcc_rich_text_and_attachments() -> None:
     request = SendEmailRequest.model_validate({
         "connection_id": str(uuid4()),
         "recipient": "pat@example.test",
-        "cc": "team@example.test",
-        "bcc": "private@example.test",
+        "cc": "Team One <team@example.test>, team-two@example.test",
+        "bcc": "Private One <private@example.test>, private-two@example.test",
         "subject": "Formatted update",
         "body": "Hello",
         "html_body": "<p><strong>Hello</strong></p>",
@@ -44,8 +44,8 @@ def test_send_email_request_accepts_cc_bcc_rich_text_and_attachments() -> None:
             "content_base64": "Q2FsbCBub3Rlcw==",
         }],
     })
-    assert request.cc == "team@example.test"
-    assert request.bcc == "private@example.test"
+    assert request.cc == "Team One <team@example.test>, team-two@example.test"
+    assert request.bcc == "Private One <private@example.test>, private-two@example.test"
     assert request.attachments[0].filename == "notes.txt"
 
 

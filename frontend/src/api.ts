@@ -71,7 +71,7 @@ export class ApiError extends Error {
 }
 
 export type LeadAssistantAction = {
-  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "open_email" | "open_meetings" | "open_closing" | "open_history";
+  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
   profile_updates: Partial<Pick<Lead, "full_name" | "email" | "phone" | "job_title" | "company_name" | "industry" | "employee_count" | "annual_revenue" | "geography" | "budget" | "product_or_service">>;
   clear_fields: string[];
   note: string | null;

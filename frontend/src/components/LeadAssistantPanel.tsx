@@ -20,6 +20,7 @@ import {
 } from "../api";
 import type { FollowUpEmail, Lead } from "../types";
 import type { LeadDetailSection } from "../leadSections";
+import { OPEN_DIALER_PHONE_EVENT } from "./dialerPhoneConfig";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
 import "./leadAssistant.css";
@@ -47,6 +48,7 @@ const suggestions = [
   "Summarize this lead and suggest a next step",
   "What details are still missing?",
   "Draft a follow-up email",
+  "I want to call this lead",
 ];
 const fieldLabels: Record<string, string> = {
   full_name: "Name",
@@ -79,6 +81,7 @@ export function LeadAssistantPanel({
   canCrmSync,
   canViewEmail,
   canUseAgent,
+  dialerPhoneConnectionId,
   onUpdated,
   onDeleted,
   onSectionChange,
@@ -88,6 +91,7 @@ export function LeadAssistantPanel({
   canCrmSync: boolean;
   canViewEmail: boolean;
   canUseAgent: boolean;
+  dialerPhoneConnectionId: string | null;
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
   onSectionChange: (section: LeadDetailSection) => void;
@@ -153,11 +157,17 @@ export function LeadAssistantPanel({
         lead.id,
         assistantConversation(history),
       );
+      const phoneActionUnavailable =
+        reply.action.kind === "open_dialer" && !dialerPhoneConnectionId;
       setMessages((current) => [...current, {
         id: id(),
         role: "assistant",
-        content: reply.reply,
-        action: reply.action,
+        content: phoneActionUnavailable
+          ? `${reply.reply} There isn’t an active embedded phone selected, so I can’t open it here yet.`
+          : reply.reply,
+        action: phoneActionUnavailable
+          ? { ...reply.action, kind: "none" }
+          : reply.action,
       }]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The assistant could not answer. Try again.");
@@ -402,6 +412,17 @@ export function LeadAssistantPanel({
       } else if (action.kind === "open_meetings") {
         onSectionChange("follow-ups");
         changeMessage(message.id, { done: true });
+      } else if (action.kind === "open_dialer") {
+        if (!dialerPhoneConnectionId || !lead.phone?.trim()) {
+          throw new Error("No active embedded phone is selected.");
+        }
+        window.dispatchEvent(new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
+          detail: { connectionId: dialerPhoneConnectionId },
+        }));
+        changeMessage(message.id, {
+          done: true,
+          actionResult: `Phone opened. Dial ${lead.phone} from its keypad. Corral has not placed a call.`,
+        });
       } else if (action.kind === "open_closing") {
         onSectionChange("closing");
         changeMessage(message.id, { done: true });
@@ -433,6 +454,7 @@ export function LeadAssistantPanel({
       case "reevaluate_lead": return "Re-evaluate qualification and routing";
       case "open_email": return "Open email";
       case "open_meetings": return "Review meeting times";
+      case "open_dialer": return "Open phone to call";
       case "open_closing": return "Open comments and closing";
       case "open_history": return "Open lead history";
       default: return "";
@@ -451,12 +473,13 @@ export function LeadAssistantPanel({
     const needsCredit = action.progress_stage === "converted";
     const editRequired = ["update_profile", "add_note", "record_progress", "draft_email", "send_follow_up", "refresh_email", "delete_lead", "reevaluate_lead"].includes(action.kind);
     return <details className="lead-agent-action" open={!message.done || message.preview?.status === "draft"}>
-      <summary className="lead-agent-action-title"><span aria-hidden="true">↳</span><strong>{actionTitle(action)}</strong>{message.done && <small>Completed</small>}</summary>
+      <summary className="lead-agent-action-title"><span aria-hidden="true">↳</span><strong>{actionTitle(action)}</strong>{message.done && <small>{action.kind === "open_dialer" ? "Phone opened · not called" : action.kind.startsWith("open_") ? "Opened" : "Completed"}</small>}</summary>
       {action.kind === "update_profile" && <dl className="lead-agent-changes">
         {changes.map(([field, value]) => <div key={field}><dt>{fieldLabels[field] || field}</dt><dd>{String(value)}</dd></div>)}
         {action.clear_fields.map((field) => <div key={`clear-${field}`}><dt>{fieldLabels[field] || field}</dt><dd>Clear this field</dd></div>)}
       </dl>}
       {action.kind === "add_note" && <p className="lead-agent-action-copy">{action.note}</p>}
+      {action.kind === "open_dialer" && <p className="lead-agent-action-copy">Saved number: <b>{lead.phone || "Not available"}</b>. Opens the phone only; you still choose whether to place the call.</p>}
       {action.kind === "record_progress" && <>
         <p className="lead-agent-action-copy"><b>{stageLabels[action.progress_stage || ""] || "Progress update"}</b>{action.progress_note && <> · {action.progress_note}</>}</p>
         {needsCredit && !message.done && <div className="lead-agent-closing-fields">
