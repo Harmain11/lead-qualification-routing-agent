@@ -10,6 +10,7 @@ import type { GmailSendAccount } from "../types";
 import { createClientId } from "../clientIds";
 import {
   applyWorkspaceAssistantAction,
+  applyWorkspaceEmailSignature,
   canApplyWorkspaceAssistantAction,
   loadWorkspaceAssistantContext,
 } from "./workspaceAssistantActions";
@@ -25,6 +26,7 @@ type Message = {
 };
 
 const prompts = [
+  "Find a lead and summarize recent emails, calls, or meetings",
   "Explain how Corral qualifies and routes leads",
   "Summarize this month’s workspace analytics",
   "Review our active automations and recommend improvements",
@@ -36,9 +38,14 @@ const prompts = [
 type Props = {
   permissions: ReadonlySet<string>;
   onNavigate: (area: WorkspaceAssistantArea) => void;
+  onInspectLead: (leadId: string) => void;
 };
 
-export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
+export function WorkspaceAssistantChat({
+  permissions,
+  onNavigate,
+  onInspectLead,
+}: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -110,6 +117,7 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
     setBusy(true);
     setError("");
     try {
+      const context = await loadWorkspaceAssistantContext(permissions);
       const result = await chatWithWorkspaceAssistant(
         nextMessages
           .slice(-16)
@@ -117,15 +125,24 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
             role,
             content: messageContent,
           })),
-        await loadWorkspaceAssistantContext(permissions),
+        context,
       );
+      const action = result.action?.kind === "send_email"
+        ? {
+            ...result.action,
+            email_body: applyWorkspaceEmailSignature(
+              result.action.email_body ?? "",
+              context,
+            ),
+          }
+        : result.action;
       setMessages((current) => [
         ...current,
         {
           id: createClientId(),
           role: "assistant",
           content: result.reply,
-          action: result.action?.kind !== "none" ? result.action : undefined,
+          action: action?.kind !== "none" ? action : undefined,
         },
       ]);
     } catch (reason) {
@@ -152,6 +169,7 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
         action,
         permissions,
         onNavigate,
+        onInspectLead,
       );
       setMessages((current) =>
         current.map((message) =>
@@ -180,7 +198,12 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
 
   function updateEmailDraft(
     messageId: string,
-    field: "email_recipient" | "email_subject" | "email_body",
+    field:
+      | "email_recipient"
+      | "email_cc"
+      | "email_bcc"
+      | "email_subject"
+      | "email_body",
     value: string,
   ) {
     setMessages((current) =>
@@ -222,6 +245,8 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
       const result = await sendGmailEmail({
         connection_id: selectedSendAccountId,
         recipient,
+        cc: action.email_cc?.trim() ?? "",
+        bcc: action.email_bcc?.trim() ?? "",
         subject,
         body,
       });
@@ -283,10 +308,11 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
             </span>
             <h2>Ask, plan, or create</h2>
             <p>
-              Ask questions about workspace analytics, automations, ICP,
-              settings, integrations, team access, or email. Corral Agent can
-              prepare drafts and changes, but it will not send or apply them
-              until you approve.
+              Search Corral's stored leads, contacts, and synced email, call,
+              meeting, and note history alongside analytics, automations, ICP,
+              settings, integrations, and team access. Corral Agent retrieves
+              relevant records on demand. It will not send or apply changes
+              until you approve them.
             </p>
             <div className="corral-workspace-prompts">
               {prompts.map((prompt) => (
@@ -362,6 +388,46 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
                           updateEmailDraft(
                             message.id,
                             "email_recipient",
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          message.actionStatus === "sending" ||
+                          message.actionStatus === "applied"
+                        }
+                      />
+                    </label>
+                    <label>
+                      Cc (optional)
+                      <input
+                        type="text"
+                        maxLength={1024}
+                        placeholder="name@example.com"
+                        value={message.action.email_cc ?? ""}
+                        onChange={(event) =>
+                          updateEmailDraft(
+                            message.id,
+                            "email_cc",
+                            event.target.value,
+                          )
+                        }
+                        disabled={
+                          message.actionStatus === "sending" ||
+                          message.actionStatus === "applied"
+                        }
+                      />
+                    </label>
+                    <label>
+                      Bcc (optional)
+                      <input
+                        type="text"
+                        maxLength={1024}
+                        placeholder="name@example.com"
+                        value={message.action.email_bcc ?? ""}
+                        onChange={(event) =>
+                          updateEmailDraft(
+                            message.id,
+                            "email_bcc",
                             event.target.value,
                           )
                         }
@@ -448,7 +514,9 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
                           <>
                             <dt>Target</dt>
                             <dd>
-                              {message.action.target_label
+                              {message.action.kind === "open_lead"
+                                ? message.action.target_label ?? "Selected lead"
+                                : message.action.target_label
                                 ? `${message.action.target_label} (${message.action.target_id})`
                                 : message.action.target_id}
                             </dd>
@@ -556,6 +624,8 @@ export function WorkspaceAssistantChat({ permissions, onNavigate }: Props) {
                           ? "Applying…"
                           : message.action.kind === "open_module"
                             ? `Open ${message.action.area ?? "workspace"}`
+                            : message.action.kind === "open_lead"
+                              ? "Open lead"
                             : "Approve and apply"}
                       </button>
                       {message.action.kind !== "open_module" && (

@@ -16,6 +16,7 @@ type BusinessProfileForm = {
   description: string;
   products_services: string;
   lead_distinction_notes: string;
+  email_signature: string;
 };
 
 type WebsiteProfileAnalysis = {
@@ -33,6 +34,7 @@ const emptyForm: BusinessProfileForm = {
   description: "",
   products_services: "",
   lead_distinction_notes: "",
+  email_signature: "",
 };
 
 const productServicePresets = [
@@ -64,6 +66,7 @@ const toForm = (profile: WorkspaceBusinessProfile): BusinessProfileForm => ({
   description: profile.description ?? "",
   products_services: profile.products_services ?? "",
   lead_distinction_notes: profile.lead_distinction_notes ?? "",
+  email_signature: profile.email_signature ?? "",
 });
 
 export function WorkspaceBusinessProfilePanel({
@@ -207,6 +210,7 @@ export function WorkspaceBusinessProfilePanel({
       description: form.description.trim(),
       products_services: form.products_services.trim(),
       lead_distinction_notes: form.lead_distinction_notes.trim(),
+      email_signature: form.email_signature.trim(),
     };
     try {
       const saved = await opsSave<{
@@ -228,7 +232,7 @@ export function WorkspaceBusinessProfilePanel({
       );
       setForm(toForm(saved.configuration.business_profile));
       setNotice(
-        "Business context saved. It will be used for new and re-run lead analyses; existing analyses are unchanged.",
+        "Business context saved. New AI drafts can use this workspace identity and email signature.",
       );
     } catch (reason) {
       setError(
@@ -459,6 +463,24 @@ export function WorkspaceBusinessProfilePanel({
               disabled={!canManage || busy || analyzingWebsite}
               onChange={(event) => update("lead_distinction_notes", event.target.value)}
               placeholder="For example, we provide services to clinics; we are not a clinic."
+            />
+          </label>
+        </section>
+
+        <section className="workspace-business-profile-section">
+          <div className="workspace-business-profile-section-heading">
+            <h3>Email signature <small>Optional</small></h3>
+            <p>Used on AI-generated follow-up emails. Leave blank to use the business name when available.</p>
+          </div>
+          <label>
+            <span>Workspace sender signature</span>
+            <textarea
+              maxLength={1200}
+              rows={4}
+              value={form.email_signature}
+              disabled={!canManage || busy || analyzingWebsite}
+              onChange={(event) => update("email_signature", event.target.value)}
+              placeholder={"Best regards,\nYour name\nYour title · Business name"}
             />
           </label>
         </section>

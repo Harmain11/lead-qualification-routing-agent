@@ -21,6 +21,7 @@ import {
 } from "../api";
 import type { IcpConfiguration } from "../types";
 import { opsGet, opsSave, type Automation } from "../operationsApi";
+import type { PolicyResponse } from "../operationsApi";
 
 export async function loadWorkspaceAssistantContext(
   permissions: ReadonlySet<string>,
@@ -60,6 +61,20 @@ export async function loadWorkspaceAssistantContext(
   }
   if (permissions.has("routing.view")) {
     entries.push(["routing_settings", getRoutingConfig()]);
+    entries.push([
+      "workspace_profile",
+      opsGet<PolicyResponse>("/v1/ops/policy").then(({ configuration, members }) => ({
+        business_profile: configuration.business_profile,
+        territories: configuration.territories,
+        capacity: configuration.capacity,
+        battlecards: configuration.battlecards,
+        approval_tiers: configuration.approval_tiers,
+        require_recorded_consent: configuration.require_recorded_consent,
+        retention_days: configuration.retention_days,
+        required_region: configuration.required_region,
+        team: members,
+      })),
+    ]);
   }
   if (permissions.has("integrations.view")) {
     entries.push(["lead_confirmation_setting", getLeadConfirmationAutomation()]);
@@ -111,6 +126,45 @@ export async function loadWorkspaceAssistantContext(
   return context;
 }
 
+export function applyWorkspaceEmailSignature(
+  body: string,
+  context: Record<string, unknown>,
+): string {
+  const workspaceProfile = context.workspace_profile as
+    | { business_profile?: { email_signature?: unknown; business_name?: unknown } }
+    | undefined;
+  const profile = workspaceProfile?.business_profile;
+  const placeholder = /^\s*(?:\[(?:your\s+)?(?:name|title|company(?:\s+name)?|email|phone)\]|\{\{\s*(?:sender|sender_name|your_name|signature)\s*\}\})\s*$/i;
+  const signoff = /^\s*(?:best(?: regards)?|kind regards|warm regards|regards|sincerely|thanks|thank you)[,!:]?\s*$/i;
+  const genericSender = /^\s*(?:the team|your team|sales team|the sales team)\s*$/i;
+  let lines = body.split(/\r?\n/).filter((line) => !placeholder.test(line));
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (!signoff.test(lines[index])) continue;
+    const suffix = lines.slice(index + 1).map((line) => line.trim()).filter(Boolean);
+    if (suffix.every((line) => placeholder.test(line) || genericSender.test(line) || (line.length <= 160 && !/[.!?]/.test(line)))) {
+      lines = lines.slice(0, index);
+      break;
+    }
+  }
+  while (lines.length && (!lines[lines.length - 1].trim() || genericSender.test(lines[lines.length - 1]) || placeholder.test(lines[lines.length - 1]))) {
+    lines.pop();
+  }
+  const cleanBody = lines.join("\n").trim();
+  const configuredSignature = typeof profile?.email_signature === "string"
+    ? profile.email_signature.trim()
+    : "";
+  const businessName = typeof profile?.business_name === "string"
+    ? profile.business_name.trim()
+    : "";
+  const signatureHasPlaceholder = configuredSignature
+    .split(/\r?\n/)
+    .some((line) => placeholder.test(line));
+  const signature = signatureHasPlaceholder
+    ? ""
+    : configuredSignature || (businessName ? `Best regards,\n${businessName}` : "");
+  return signature ? (cleanBody ? `${cleanBody}\n\n${signature}` : signature) : cleanBody;
+}
+
 function parsePayload(action: WorkspaceAssistantAction): Record<string, unknown> {
   if (!action.payload_json) throw new Error("The proposal is missing its reviewed values.");
   const parsed: unknown = JSON.parse(action.payload_json);
@@ -152,6 +206,9 @@ export function canApplyWorkspaceAssistantAction(
   if (action.kind === "open_module") {
     return canOpenAssistantArea(action.area, permissions);
   }
+  if (action.kind === "open_lead") {
+    return Boolean(action.target_id && permissions.has("leads.view"));
+  }
   const requiredPermission: Partial<Record<WorkspaceAssistantAction["kind"], string>> = {
     set_automation_active: "workspace.manage",
     create_icp_draft: "icp.manage",
@@ -173,6 +230,7 @@ export async function applyWorkspaceAssistantAction(
   action: WorkspaceAssistantAction,
   permissions: ReadonlySet<string>,
   onNavigate: (area: WorkspaceAssistantArea) => void,
+  onInspectLead: (leadId: string) => void,
 ): Promise<string> {
   switch (action.kind) {
     case "open_module":
@@ -181,6 +239,13 @@ export async function applyWorkspaceAssistantAction(
       }
       onNavigate(action.area);
       return `Opened ${action.area}.`;
+    case "open_lead":
+      requirePermission(permissions, "leads.view");
+      if (!action.target_id) {
+        throw new Error("The lead selection is incomplete.");
+      }
+      onInspectLead(action.target_id);
+      return `Opened ${action.target_label || "the selected lead"}.`;
     case "set_automation_active": {
       requirePermission(permissions, "workspace.manage");
       if (!action.target_id || typeof action.enabled !== "boolean") {

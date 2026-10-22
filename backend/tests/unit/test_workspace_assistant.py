@@ -87,17 +87,151 @@ def test_workspace_chat_requires_a_supported_ai_provider(monkeypatch) -> None:
     assert error.value.status_code == 503
 
 
+def test_workspace_chat_retrieves_records_only_with_lead_view_permission(monkeypatch) -> None:
+    workspace_id = uuid4()
+    captured: dict[str, object] = {}
+    retrieved: dict[str, object] = {"matched_leads": [{"id": "trusted-lead"}]}
+
+    class Provider:
+        def assist_with_workspace(self, payload):
+            captured.update(payload)
+            return WorkspaceAssistantReply(reply="Found the matching record.")
+
+    def fake_retrieval(session, current_workspace_id, query):
+        assert session == "db-session"
+        assert current_workspace_id == workspace_id
+        assert query == "Find Mina's recent calls."
+        return retrieved
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        fake_retrieval,
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Find Mina's recent calls.")
+            ],
+            context={"workspace_records": {"matched_leads": [{"id": "spoofed"}]}},
+        ),
+        session="db-session",
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["reply"] == "Found the matching record."
+    assert captured["workspace_context"]["workspace_records"] == retrieved
+
+
+def test_workspace_chat_only_opens_a_record_returned_by_scoped_search(monkeypatch) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    matched = {"matched_leads": [{"id": str(lead_id), "name": "Mina Chen"}]}
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Open the matching lead to continue.",
+                action=WorkspaceAssistantAction(
+                    kind="open_lead",
+                    title="Open Mina Chen",
+                    summary="Open this lead to continue with lead-specific actions.",
+                    target_id=str(lead_id),
+                    target_label="Mina Chen",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: matched,
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[AssistantMessage(role="user", content="Open Mina Chen's lead.")]
+        ),
+        session=SimpleNamespace(scalar=lambda _query: lead_id),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+    assert result["action"]["kind"] == "open_lead"
+    assert result["action"]["target_id"] == str(lead_id)
+
+
+def test_workspace_chat_rejects_unmatched_open_lead_proposal(monkeypatch) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Open this lead.",
+                action=WorkspaceAssistantAction(
+                    kind="open_lead",
+                    title="Open lead",
+                    summary="Open the lead.",
+                    target_id=str(lead_id),
+                    target_label="Unknown lead",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {"matched_leads": []},
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[AssistantMessage(role="user", content="Open some lead.")]
+        ),
+        session=SimpleNamespace(scalar=lambda _query: lead_id),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+    assert result["action"]["kind"] == "none"
+
+
 def test_workspace_email_action_keeps_the_draft_fields_typed_and_editable() -> None:
     action = WorkspaceAssistantAction(
         kind="send_email",
         title="Review email before sending",
         summary="Check the recipient and message before you send.",
         email_recipient="pat@example.test",
+        email_cc="sales@example.test",
+        email_bcc="archive@example.test",
         email_subject="Following up",
         email_body="Hello Pat,\n\nHere is the information you requested.",
     )
 
     assert action.kind == "send_email"
     assert action.email_recipient == "pat@example.test"
+    assert action.email_cc == "sales@example.test"
+    assert action.email_bcc == "archive@example.test"
     assert action.email_subject == "Following up"
     assert "Hello Pat" in action.email_body

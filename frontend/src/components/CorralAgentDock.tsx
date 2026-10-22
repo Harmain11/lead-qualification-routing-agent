@@ -256,6 +256,7 @@ export function CorralAgentDock({
             <WorkspaceAssistantChat
               permissions={permissions}
               onNavigate={onNavigate}
+              onInspectLead={onInspectLead}
             />
           </div>
           {targetLead && (
