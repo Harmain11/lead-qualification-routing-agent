@@ -257,6 +257,8 @@ export function CorralAgentDock({
               permissions={permissions}
               onNavigate={onNavigate}
               onInspectLead={onInspectLead}
+              onRefresh={onRefresh}
+              onLeadUpdated={onUpdated}
             />
           </div>
           {targetLead && (

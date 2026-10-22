@@ -1,14 +1,7 @@
 import {
   createIcpDraft,
   disconnectIntegration,
-  getDashboard,
-  getLeadConfirmationAutomation,
-  getRoutingConfig,
   inviteMember,
-  listIntegrations,
-  listInvitations,
-  listIcpVersions,
-  listMembers,
   reactivateMember,
   setLeadConfirmationAutomation,
   suspendMember,
@@ -16,115 +9,15 @@ import {
   updateMemberPermissions,
   updateMemberRole,
   updateRoutingConfig,
+  updateLeadProfile,
+  saveLeadNote,
+  updateLeadProgress,
+  reevaluateLead,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
 } from "../api";
 import type { IcpConfiguration } from "../types";
 import { opsGet, opsSave, type Automation } from "../operationsApi";
-import type { PolicyResponse } from "../operationsApi";
-
-export async function loadWorkspaceAssistantContext(
-  permissions: ReadonlySet<string>,
-): Promise<Record<string, unknown>> {
-  const entries: Array<[string, Promise<unknown>]> = [];
-  if (permissions.has("analytics.view")) {
-    entries.push(["analytics_monthly", getDashboard("monthly")]);
-  }
-  if (permissions.has("agents.view")) {
-    entries.push([
-      "automations",
-      opsGet<{ items: Automation[] }>("/v1/automations").then(({ items }) =>
-        items.slice(0, 20).map(({ id, name, kind, active, version, specification }) => ({
-          id,
-          name,
-          kind,
-          active,
-          version,
-          specification,
-        })),
-      ),
-    ]);
-  }
-  if (permissions.has("icp.view")) {
-    entries.push([
-      "icp_versions",
-      listIcpVersions().then((items) =>
-        items.slice(0, 10).map(({ id, name, description, status, configuration }) => ({
-          id,
-          name,
-          description,
-          status,
-          configuration,
-        })),
-      ),
-    ]);
-  }
-  if (permissions.has("routing.view")) {
-    entries.push(["routing_settings", getRoutingConfig()]);
-    entries.push([
-      "workspace_profile",
-      opsGet<PolicyResponse>("/v1/ops/policy").then(({ configuration, members }) => ({
-        business_profile: configuration.business_profile,
-        territories: configuration.territories,
-        capacity: configuration.capacity,
-        battlecards: configuration.battlecards,
-        approval_tiers: configuration.approval_tiers,
-        require_recorded_consent: configuration.require_recorded_consent,
-        retention_days: configuration.retention_days,
-        required_region: configuration.required_region,
-        team: members,
-      })),
-    ]);
-  }
-  if (permissions.has("integrations.view")) {
-    entries.push(["lead_confirmation_setting", getLeadConfirmationAutomation()]);
-    entries.push([
-      "integrations",
-      listIntegrations().then((cards) =>
-        cards.map((card) => ({
-          provider: card.provider,
-          connections: card.connections.map((connection) => ({
-            id: connection.id,
-            account_name: connection.account_name,
-            status: connection.status,
-            is_active: connection.is_active,
-          })),
-        })),
-      ),
-    ]);
-  }
-  if (permissions.has("members.view")) {
-    entries.push([
-      "team",
-      Promise.all([listMembers(), listInvitations()]).then(([members, invitations]) => ({
-        members: members.slice(0, 40),
-        invitations: invitations.slice(0, 40),
-      })),
-    ]);
-  }
-
-  const context: Record<string, unknown> = {
-    available_areas: [
-      permissions.has("analytics.view") && "analytics",
-      permissions.has("agents.view") && "automations",
-      permissions.has("icp.view") && "icp",
-      (permissions.has("routing.view") || permissions.has("integrations.view")) &&
-        "settings",
-      permissions.has("integrations.view") && "integrations",
-      permissions.has("members.view") && "team",
-    ].filter(Boolean),
-  };
-  await Promise.all(
-    entries.map(async ([key, request]) => {
-      try {
-        context[key] = await request;
-      } catch {
-        // A denied or unavailable view is omitted; write APIs still enforce their own permissions.
-      }
-    }),
-  );
-  return context;
-}
 
 export function applyWorkspaceEmailSignature(
   body: string,
@@ -209,6 +102,9 @@ export function canApplyWorkspaceAssistantAction(
   if (action.kind === "open_lead") {
     return Boolean(action.target_id && permissions.has("leads.view"));
   }
+  if (["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(action.kind)) {
+    return Boolean(action.target_id && permissions.has("leads.view") && permissions.has("leads.edit"));
+  }
   const requiredPermission: Partial<Record<WorkspaceAssistantAction["kind"], string>> = {
     set_automation_active: "workspace.manage",
     create_icp_draft: "icp.manage",
@@ -233,6 +129,33 @@ export async function applyWorkspaceAssistantAction(
   onInspectLead: (leadId: string) => void,
 ): Promise<string> {
   switch (action.kind) {
+    case "update_lead_profile":
+    case "add_lead_note":
+    case "record_lead_progress":
+    case "reevaluate_lead": {
+      requirePermission(permissions, "leads.view");
+      requirePermission(permissions, "leads.edit");
+      if (!action.target_id) throw new Error("Choose a lead before applying changes.");
+      const target = action.target_id;
+      if (action.kind === "update_lead_profile") {
+        const payload = parsePayload(action);
+        await updateLeadProfile(target, payload as Parameters<typeof updateLeadProfile>[1]);
+        return `Updated ${action.target_label || "the lead"}’s details.`;
+      }
+      if (action.kind === "add_lead_note") {
+        const payload = parsePayload(action);
+        if (typeof payload.note !== "string" || !payload.note.trim()) throw new Error("Provide a note to save.");
+        await saveLeadNote(target, payload.note);
+        return `Saved a note on ${action.target_label || "the lead"}.`;
+      }
+      if (action.kind === "record_lead_progress") {
+        const payload = parsePayload(action);
+        await updateLeadProgress(target, payload as Parameters<typeof updateLeadProgress>[1]);
+        return `Recorded ${String(payload.stage)} for ${action.target_label || "the lead"}.`;
+      }
+      await reevaluateLead(target);
+      return `Re-evaluated ${action.target_label || "the lead"}’s qualification and routing.`;
+    }
     case "open_module":
       if (!canOpenAssistantArea(action.area, permissions) || !action.area) {
         throw new Error("You do not have access to that workspace area.");

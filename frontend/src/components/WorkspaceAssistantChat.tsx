@@ -2,17 +2,18 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   chatWithWorkspaceAssistant,
   listGmailSendAccounts,
+  getLead,
   sendGmailEmail,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
 } from "../api";
-import type { GmailSendAccount } from "../types";
+import type { GmailSendAccount, Lead } from "../types";
 import { createClientId } from "../clientIds";
+import { assistantConversation } from "../assistantConversation";
 import {
   applyWorkspaceAssistantAction,
   applyWorkspaceEmailSignature,
   canApplyWorkspaceAssistantAction,
-  loadWorkspaceAssistantContext,
 } from "./workspaceAssistantActions";
 
 type Message = {
@@ -23,6 +24,7 @@ type Message = {
   actionStatus?: "applying" | "sending" | "applied" | "dismissed";
   actionResult?: string;
   actionError?: string;
+  contextWarnings?: string[];
 };
 
 const prompts = [
@@ -33,18 +35,23 @@ const prompts = [
   "Help me update our ICP or workspace settings",
   "Show me integration and team access options",
   "Draft an email for me to review before sending",
+  "Update a lead’s details or add a note after review",
 ];
 
 type Props = {
   permissions: ReadonlySet<string>;
   onNavigate: (area: WorkspaceAssistantArea) => void;
   onInspectLead: (leadId: string) => void;
+  onRefresh?: () => void | Promise<void>;
+  onLeadUpdated?: (lead: Lead) => void;
 };
 
 export function WorkspaceAssistantChat({
   permissions,
   onNavigate,
   onInspectLead,
+  onRefresh,
+  onLeadUpdated,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -56,6 +63,7 @@ export function WorkspaceAssistantChat({
   const [selectedSendAccountId, setSelectedSendAccountId] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sendingMessageIdsRef = useRef(new Set<string>());
+  const applyingMessageIdsRef = useRef(new Set<string>());
   const canSendEmail = permissions.has("leads.edit");
 
   useEffect(() => {
@@ -117,22 +125,15 @@ export function WorkspaceAssistantChat({
     setBusy(true);
     setError("");
     try {
-      const context = await loadWorkspaceAssistantContext(permissions);
       const result = await chatWithWorkspaceAssistant(
-        nextMessages
-          .slice(-16)
-          .map(({ role, content: messageContent }) => ({
-            role,
-            content: messageContent,
-          })),
-        context,
+        assistantConversation(nextMessages),
       );
       const action = result.action?.kind === "send_email"
         ? {
             ...result.action,
             email_body: applyWorkspaceEmailSignature(
               result.action.email_body ?? "",
-              context,
+              result.drafting_context ?? {},
             ),
           }
         : result.action;
@@ -143,6 +144,7 @@ export function WorkspaceAssistantChat({
           role: "assistant",
           content: result.reply,
           action: action?.kind !== "none" ? action : undefined,
+          contextWarnings: result.context_warnings,
         },
       ]);
     } catch (reason) {
@@ -157,6 +159,8 @@ export function WorkspaceAssistantChat({
   }
 
   async function handleAction(messageId: string, action: WorkspaceAssistantAction) {
+    if (applyingMessageIdsRef.current.has(messageId)) return;
+    applyingMessageIdsRef.current.add(messageId);
     setMessages((current) =>
       current.map((message) =>
         message.id === messageId
@@ -178,6 +182,16 @@ export function WorkspaceAssistantChat({
             : message,
         ),
       );
+      // A refresh failure must not make a successful write appear to have failed.
+      if (action.target_id && ["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(action.kind) && onLeadUpdated) {
+        void getLead(action.target_id).then(onLeadUpdated).catch(() => {
+          setMessages((current) => current.map((message) => message.id === messageId ? {
+            ...message, actionResult: `${result} Reopen the lead to refresh its displayed details.`,
+          } : message));
+        });
+      } else {
+        void Promise.resolve().then(() => onRefresh?.()).catch(() => undefined);
+      }
     } catch (reason) {
       setMessages((current) =>
         current.map((message) =>
@@ -193,6 +207,8 @@ export function WorkspaceAssistantChat({
             : message,
         ),
       );
+    } finally {
+      applyingMessageIdsRef.current.delete(messageId);
     }
   }
 
@@ -333,6 +349,9 @@ export function WorkspaceAssistantChat({
             <article className={`corral-workspace-message is-${message.role}`}>
               <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
               <p>{message.content}</p>
+              {Boolean(message.contextWarnings?.length) && (
+                <p role="status">Some workspace information could not be loaded or was limited: {message.contextWarnings!.join(" ")}</p>
+              )}
             </article>
             {message.action && (
               <section
@@ -514,7 +533,7 @@ export function WorkspaceAssistantChat({
                           <>
                             <dt>Target</dt>
                             <dd>
-                              {message.action.kind === "open_lead"
+                              {["open_lead", "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(message.action.kind)
                                 ? message.action.target_label ?? "Selected lead"
                                 : message.action.target_label
                                 ? `${message.action.target_label} (${message.action.target_id})`
@@ -543,7 +562,7 @@ export function WorkspaceAssistantChat({
                       </dl>
                     )}
                     {message.action.payload_json && (
-                      <details>
+                      <details open={["update_lead_profile", "add_lead_note", "record_lead_progress"].includes(message.action.kind) || undefined}>
                         <summary>Review exact changes</summary>
                         <pre>{message.action.payload_json}</pre>
                       </details>

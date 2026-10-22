@@ -122,7 +122,11 @@ export type WorkspaceAssistantAction = {
     | "update_member_permissions"
     | "suspend_member"
     | "reactivate_member"
-    | "send_email";
+    | "send_email"
+    | "update_lead_profile"
+    | "add_lead_note"
+    | "record_lead_progress"
+    | "reevaluate_lead";
   area: WorkspaceAssistantArea | null;
   title: string;
   summary: string;
@@ -142,6 +146,8 @@ export type WorkspaceAssistantAction = {
 export type WorkspaceAssistantReply = {
   reply: string;
   action: WorkspaceAssistantAction;
+  context_warnings?: string[];
+  drafting_context?: Record<string, unknown>;
 };
 
 export function setActiveWorkspace(workspaceId: string) {
