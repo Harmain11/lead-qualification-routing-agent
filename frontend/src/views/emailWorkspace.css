@@ -103,10 +103,17 @@
 .lead-email-empty-copy strong { color: var(--text); font-size: 14px; }
 .lead-email-empty-copy span { color: var(--muted); font-size: 12px; line-height: 1.55; }
 .lead-email-thread-list { display: grid; gap: 10px; }
-.lead-email-thread { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
-.lead-email-thread > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.lead-email-thread > header h3 { margin: 3px 0 0; font-size: 14px; overflow-wrap: anywhere; }
-.lead-email-thread > header > span { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.lead-email-thread { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+.lead-email-thread > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; cursor: pointer; list-style: none; }
+.lead-email-thread > summary::-webkit-details-marker { display: none; }
+.lead-email-thread > summary::after { content: "⌄"; flex: 0 0 auto; color: var(--green); font-size: 17px; transition: transform 140ms ease; }
+.lead-email-thread[open] > summary::after { transform: rotate(180deg); }
+.lead-email-thread > summary:hover { background: var(--surface-high); }
+.lead-email-thread > summary:focus-visible { outline: 2px solid var(--green); outline-offset: -3px; }
+.lead-email-thread-heading { display: grid; min-width: 0; gap: 3px; }
+.lead-email-thread-heading strong { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+.lead-email-thread-summary-meta { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.lead-email-thread-messages { display: grid; gap: 8px; padding: 0 12px 12px; }
 .lead-email-message { padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-solid); }
 .lead-email-message.is-outbound { background: var(--surface-soft); }
 .lead-email-message > header { display: flex; justify-content: space-between; align-items: start; gap: 12px; }

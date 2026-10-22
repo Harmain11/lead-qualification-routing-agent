@@ -353,19 +353,20 @@ export function WorkspaceAssistantChat({
                 <p role="status">Some workspace information could not be loaded or was limited: {message.contextWarnings!.join(" ")}</p>
               )}
             </article>
-            {message.action && (
-              <section
+            {message.action && message.action.kind !== "none" && (
+              <details
                 className="corral-workspace-action"
+                open={!["applied", "dismissed"].includes(message.actionStatus ?? "")}
                 aria-label={
                   message.action.kind === "send_email"
                     ? "Review email draft"
                     : "Proposed action"
                 }
               >
-                <div>
+                <summary className="corral-workspace-action-heading">
                   <strong>{message.action.title || "Review proposed action"}</strong>
                   <p>{message.action.summary}</p>
-                </div>
+                </summary>
                 {message.action.kind === "send_email" ? (
                   <div className="corral-workspace-email-review">
                     <label>
@@ -659,7 +660,7 @@ export function WorkspaceAssistantChat({
                       )}
                     </div>
                   )}
-              </section>
+              </details>
             )}
           </div>
         ))}

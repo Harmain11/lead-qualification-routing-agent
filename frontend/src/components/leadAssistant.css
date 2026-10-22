@@ -98,9 +98,14 @@
   border-radius: 10px;
   background: var(--agent-wash);
 }
-.lead-agent-action-title { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.lead-agent-action-title { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; list-style: none; }
+.lead-agent-action-title::-webkit-details-marker { display: none; }
+.lead-agent-action-title::after { content: "⌄"; margin-left: auto; color: var(--muted); font-size: 16px; transition: transform 140ms ease; }
+.lead-agent-action[open] > .lead-agent-action-title::after { transform: rotate(180deg); }
+.lead-agent-action-title:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; border-radius: 4px; }
 .lead-agent-action-title > span { color: var(--orange); font-weight: 800; }
 .lead-agent-action-title small { margin-left: auto; color: var(--muted); font-size: 11px; }
+.lead-agent-action[open] > .lead-agent-action-title small { margin-left: 0; }
 .lead-agent-changes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 14px; margin: 0; }
 .lead-agent-changes div { min-width: 0; }
 .lead-agent-changes dt { color: var(--muted); font-size: 11px; }
