@@ -85,3 +85,19 @@ def test_workspace_chat_requires_a_supported_ai_provider(monkeypatch) -> None:
             ),
         )
     assert error.value.status_code == 503
+
+
+def test_workspace_email_action_keeps_the_draft_fields_typed_and_editable() -> None:
+    action = WorkspaceAssistantAction(
+        kind="send_email",
+        title="Review email before sending",
+        summary="Check the recipient and message before you send.",
+        email_recipient="pat@example.test",
+        email_subject="Following up",
+        email_body="Hello Pat,\n\nHere is the information you requested.",
+    )
+
+    assert action.kind == "send_email"
+    assert action.email_recipient == "pat@example.test"
+    assert action.email_subject == "Following up"
+    assert "Hello Pat" in action.email_body

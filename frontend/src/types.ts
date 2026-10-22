@@ -1100,6 +1100,12 @@ export type GmailSendRequest = {
   in_reply_to?: string;
 };
 
+export type GmailSendAccount = {
+  id: string;
+  account_name: string;
+  sender_email: string;
+};
+
 export type GmailAttachmentRequest = {
   filename: string;
   content_type: string;
