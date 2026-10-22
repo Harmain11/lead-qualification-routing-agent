@@ -131,7 +131,9 @@ def test_required_provider_failure_stops_before_persistence(monkeypatch) -> None
         services,
         "resolve_workspace_icp",
         lambda *_args: SimpleNamespace(
-            configuration=object(), trace_result=lambda result: result
+            configuration=object(),
+            source="system",
+            trace_result=lambda result: result,
         ),
     )
     monkeypatch.setattr(services, "normalize_lead", lambda *_args: object())

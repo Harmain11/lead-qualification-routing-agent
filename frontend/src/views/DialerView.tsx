@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createLead, listIntegrations } from "../api";
-import { CallsPanel } from "../components/CallsPanel";
 import { DialerContactDirectory } from "../components/DialerContactDirectory";
 import { DirectDialer } from "../components/DirectDialer";
 import { opsGet } from "../operationsApi";
@@ -98,8 +97,8 @@ export function DialerView({
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const callPanelRef = useRef<HTMLDivElement>(null);
-  const shouldFocusCallPanel = useRef(false);
+  const selectedLeadRef = useRef<HTMLDivElement>(null);
+  const shouldFocusSelectedLead = useRef(false);
 
   useEffect(() => {
     if (selectedSection === "history" || selectedSection === "analysis" || selectedSection === "overview") {
@@ -108,9 +107,9 @@ export function DialerView({
   }, [selectedSection]);
 
   useEffect(() => {
-    if (!selectedLead || !shouldFocusCallPanel.current) return;
-    shouldFocusCallPanel.current = false;
-    callPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!selectedLead || !shouldFocusSelectedLead.current) return;
+    shouldFocusSelectedLead.current = false;
+    selectedLeadRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [selectedLead]);
 
   useEffect(() => {
@@ -267,11 +266,13 @@ export function DialerView({
             </section>
             <section className="dialer-panel dialer-call-launch">
               <div className="dialer-panel-head">
-                <div><span className="eyebrow">Direct calling</span><h2>Call a lead</h2></div>
-                <span className="dialer-panel-count">Each call needs rep confirmation</span>
+                <div><span className="eyebrow">{selectedLead ? "Lead selected" : "Direct calling"}</span><h2>{selectedLead ? "Choose what to do next" : "Call a lead"}</h2></div>
+                {!selectedLead && <span className="dialer-panel-count">Each call needs rep confirmation</span>}
               </div>
               <p className="panel-copy">
-                {embeddedPhoneSelected
+                {selectedLead
+                  ? "Open this lead’s record or choose another lead."
+                  : embeddedPhoneSelected
                   ? `Choose a lead below. Call opens ${providerLabel[selectedDialer?.provider ?? ""] ?? "the embedded phone"} and copies its number for you to paste and dial.`
                   : "Choose a lead below to open Corral’s call confirmation. Calls are checked against workspace permission and consent."}
               </p>
@@ -281,7 +282,7 @@ export function DialerView({
                 <>
                   {selectedLead && (
                     <>
-                      <div className="dialer-selected-lead">
+                      <div className="dialer-selected-lead" ref={selectedLeadRef}>
                         <div>
                           <strong>{selectedLead.full_name}</strong>
                           <span>{selectedLead.company_name || "Company not supplied"} · {selectedLead.phone || "No phone number"}</span>
@@ -291,21 +292,9 @@ export function DialerView({
                           <button type="button" className="button-quiet" onClick={() => setSelectedLead(null)}>Choose another lead</button>
                         </div>
                       </div>
-                      <div ref={callPanelRef}>
-                        <CallsPanel
-                          key={selectedLead.id}
-                          leadId={selectedLead.id}
-                          leadName={selectedLead.full_name}
-                          companyName={selectedLead.company_name}
-                          leadPhone={selectedLead.phone}
-                          representativeName={selectedLead.routing?.assigned_rep_name}
-                          canCall={canCallLeads}
-                          canEdit={canEditLeads}
-                        />
-                      </div>
                     </>
                   )}
-                  <DialerContactDirectory
+                  {!selectedLead && <DialerContactDirectory
                     canCall={canCall}
                     canCallLeads={canCallLeads}
                     embeddedPhoneSelected={embeddedPhoneSelected}
@@ -315,14 +304,14 @@ export function DialerView({
                     preferredDialerId={preferredDialerId}
                     dialerCallActive={dialerCallActive}
                     onChooseLead={(lead) => {
-                      shouldFocusCallPanel.current = true;
+                      shouldFocusSelectedLead.current = true;
                       setSelectedLead(lead);
                     }}
-                  />
+                  />}
                 </>
               )}
             </section>
-            {!embeddedPhoneSelected && (
+            {!embeddedPhoneSelected && !selectedLead && (
               <>
                 <DirectDialer
                   connections={verifiedDialers}

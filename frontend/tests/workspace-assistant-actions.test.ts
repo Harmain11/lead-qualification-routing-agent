@@ -77,10 +77,14 @@ test("approved notes, progress and reevaluation call their existing lead APIs", 
   ] as const) {
     requests.length = 0;
     await actions.applyWorkspaceAssistantAction(proposal(kind, payload), permissions, noNavigate, noNavigate);
-    assert.equal(requests.length, 1);
+    assert.equal(requests.length, kind === "add_lead_note" ? 2 : 1);
     assert.equal(requests[0].method, method);
     assert.match(requests[0].url, new RegExp(suffix));
-    if (kind === "add_lead_note") assert.equal(requests[0].body.body, "Requested a proposal");
+    if (kind === "add_lead_note") {
+      assert.equal(requests[0].body.body, "Requested a proposal");
+      assert.equal(requests[1].method, "POST");
+      assert.match(requests[1].url, /reevaluate/);
+    }
     if (kind === "record_lead_progress") assert.deepEqual(requests[0].body, payload);
   }
 });

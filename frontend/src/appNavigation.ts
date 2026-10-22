@@ -7,7 +7,7 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
     { id: "overview", label: "Overview" },
     { id: "ai", label: "AI & qualification" },
     { id: "follow-ups", label: "Follow-ups & meetings" },
-    { id: "closing", label: "Comments & closing" },
+    { id: "closing", label: "Status" },
     { id: "history", label: "History" },
   ],
   analytics: [
