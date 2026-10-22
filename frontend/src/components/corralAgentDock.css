@@ -755,3 +755,232 @@
     font-size: 10px;
   }
 }
+
+/* Polished, restrained motion for the workspace assistant dock. */
+.corral-agent-launcher {
+  transition:
+    transform 220ms cubic-bezier(.2, .8, .2, 1),
+    box-shadow 220ms ease,
+    filter 220ms ease;
+}
+
+.corral-agent-launcher .corral-agent-launcher-mark,
+.corral-agent-launcher .corral-agent-launcher-state {
+  transition:
+    transform 220ms cubic-bezier(.2, .8, .2, 1),
+    background-color 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.corral-agent-launcher:hover .corral-agent-launcher-mark {
+  transform: rotate(-5deg) scale(1.06);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .08);
+}
+
+.corral-agent-launcher:hover .corral-agent-launcher-state {
+  transform: rotate(90deg);
+  background: rgba(255, 255, 255, .18);
+}
+
+.corral-agent-launcher:active {
+  transform: translate(-2px, -50%) scale(.98);
+}
+
+.corral-agent-window {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate3d(24px, 0, 0) scale(.99);
+  filter: blur(3px);
+  transform-origin: right center;
+  transition:
+    opacity 240ms ease,
+    visibility 0s linear 320ms,
+    transform 320ms cubic-bezier(.2, .8, .2, 1),
+    filter 240ms ease,
+    box-shadow 320ms ease;
+}
+
+.corral-agent-window.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0) scale(1);
+  filter: none;
+  box-shadow:
+    -18px 0 50px rgba(18, 35, 27, .2),
+    inset 2px 0 0 color-mix(in srgb, var(--orange) 70%, transparent);
+  transition:
+    opacity 240ms ease,
+    visibility 0s,
+    transform 320ms cubic-bezier(.2, .8, .2, 1),
+    filter 240ms ease,
+    box-shadow 320ms ease;
+}
+
+.corral-agent-window-header {
+  background-image: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--orange-soft) 32%, var(--surface)),
+    color-mix(in srgb, var(--surface) 94%, var(--green, #22634f))
+  );
+}
+
+.corral-agent-window-mark {
+  transition: transform 280ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.corral-agent-window.is-open .corral-agent-window-mark,
+.corral-agent-window.is-open .corral-agent-start-icon,
+.corral-agent-window.is-open .corral-workspace-welcome-mark {
+  animation: corralAgentMarkIn 420ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.corral-agent-mode:not([hidden]),
+.corral-agent-start {
+  animation: corralAgentContentIn 340ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.corral-agent-window.is-open .corral-workspace-welcome {
+  animation: corralAgentContentIn 420ms 60ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.corral-agent-window.is-open .corral-workspace-prompts button {
+  animation: corralAgentPromptIn 360ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.corral-agent-window.is-open .corral-workspace-prompts button:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.corral-agent-window.is-open .corral-workspace-prompts button:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.corral-agent-window.is-open .corral-workspace-prompts button:nth-child(4) {
+  animation-delay: 135ms;
+}
+
+.corral-agent-window.is-open .corral-workspace-prompts button:nth-child(5) {
+  animation-delay: 180ms;
+}
+
+.corral-workspace-message-group,
+.corral-workspace-action {
+  animation: corralAgentContentIn 300ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.corral-workspace-prompts button,
+.corral-agent-lead-option,
+.corral-agent-change-lead,
+.corral-agent-close,
+.corral-workspace-composer button {
+  transition:
+    transform 180ms cubic-bezier(.2, .8, .2, 1),
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.corral-workspace-prompts button:hover:not(:disabled),
+.corral-agent-lead-option:hover,
+.corral-agent-change-lead:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(18, 35, 27, .08);
+}
+
+.corral-agent-close:hover {
+  transform: rotate(90deg);
+  border-color: color-mix(in srgb, var(--orange) 55%, var(--line));
+}
+
+.corral-agent-search input,
+.corral-workspace-composer textarea {
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.corral-agent-search input:focus,
+.corral-workspace-composer textarea:focus {
+  border-color: color-mix(in srgb, var(--green, #22634f) 62%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green, #22634f) 14%, transparent);
+  outline: none;
+}
+
+.corral-workspace-composer button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(18, 35, 27, .16);
+}
+
+.corral-workspace-thinking {
+  animation: corralAgentThinking 1.35s ease-in-out infinite;
+}
+
+.corral-workspace-error,
+.corral-workspace-action-result {
+  animation: corralAgentContentIn 260ms ease both;
+}
+
+.corral-agent-dock button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--orange) 75%, transparent);
+  outline-offset: 3px;
+}
+
+@keyframes corralAgentContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes corralAgentPromptIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes corralAgentMarkIn {
+  0% {
+    opacity: 0;
+    transform: scale(.82) rotate(-8deg);
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1.06) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes corralAgentThinking {
+  0%, 100% {
+    opacity: .58;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .corral-agent-dock *,
+  .corral-agent-dock *::before,
+  .corral-agent-dock *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

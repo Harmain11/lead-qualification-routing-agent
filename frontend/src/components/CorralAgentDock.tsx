@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { listLeads } from "../api";
 import type { WorkspaceAssistantArea } from "../api";
 import type { Lead } from "../types";
@@ -44,8 +50,42 @@ export function CorralAgentDock({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [panelVisible, setPanelVisible] = useState(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const wasOpen = useRef(false);
+  const closeTimerRef = useRef<number | null>(null);
+  const openingFrameRef = useRef<number | null>(null);
+
+  const openAgent = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    if (openingFrameRef.current !== null) {
+      window.cancelAnimationFrame(openingFrameRef.current);
+    }
+    setPanelVisible(true);
+    openingFrameRef.current = window.requestAnimationFrame(() => {
+      openingFrameRef.current = null;
+      setOpen(true);
+    });
+  }, []);
+
+  const closeAgent = useCallback(() => {
+    if (openingFrameRef.current !== null) {
+      window.cancelAnimationFrame(openingFrameRef.current);
+      openingFrameRef.current = null;
+    }
+    setOpen(false);
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      setPanelVisible(false);
+      closeTimerRef.current = null;
+    }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 320);
+  }, []);
 
   useEffect(() => {
     if (selectedLead) {
@@ -57,10 +97,28 @@ export function CorralAgentDock({
   useEffect(() => {
     if (open) {
       wasOpen.current = true;
-      return;
+      closeButtonRef.current?.focus({ preventScroll: true });
     }
-    if (wasOpen.current) launcherRef.current?.focus({ preventScroll: true });
   }, [open]);
+
+  useEffect(() => {
+    if (!panelVisible && wasOpen.current) {
+      launcherRef.current?.focus({ preventScroll: true });
+      wasOpen.current = false;
+    }
+  }, [panelVisible]);
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+      if (openingFrameRef.current !== null) {
+        window.cancelAnimationFrame(openingFrameRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!open || !showLeadPicker || !canViewLeads) return;
@@ -88,11 +146,11 @@ export function CorralAgentDock({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeAgent();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+  }, [closeAgent, open]);
 
   function submitSearch(event: FormEvent) {
     event.preventDefault();
@@ -118,9 +176,17 @@ export function CorralAgentDock({
     <div className="corral-agent-dock">
       <section
         id="corral-agent-window"
-        className="corral-agent-window"
+        className={[
+          "corral-agent-window",
+          panelVisible && "is-visible",
+          open && "is-open",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         aria-label="Corral Agent"
-        hidden={!open}
+        aria-hidden={!open}
+        inert={!open}
+        hidden={!panelVisible}
       >
         <header className="corral-agent-window-header">
           <div className="corral-agent-window-brand">
@@ -171,10 +237,11 @@ export function CorralAgentDock({
               </button>
             )}
             <button
+              ref={closeButtonRef}
               type="button"
               className="corral-agent-close"
               aria-label="Collapse Corral Agent"
-              onClick={() => setOpen(false)}
+              onClick={closeAgent}
             >
               ×
             </button>
@@ -312,10 +379,10 @@ export function CorralAgentDock({
         ref={launcherRef}
         type="button"
         className={`corral-agent-launcher${open ? " is-open" : ""}`}
-        hidden={open}
+        hidden={panelVisible}
         aria-expanded={open}
         aria-controls="corral-agent-window"
-        onClick={() => setOpen((current) => !current)}
+        onClick={openAgent}
       >
         <span className="corral-agent-launcher-mark" aria-hidden="true">
           CA
