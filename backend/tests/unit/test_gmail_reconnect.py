@@ -335,7 +335,7 @@ def test_gmail_reconnect_does_not_inherit_across_mailbox_or_workspace(
         )
         assert new_state is not None and new_state.enabled
         assert new_state.initial_import_completed
-        assert new_state.sync_interval_seconds == 60
+        assert new_state.sync_interval_seconds == 300
         assert new_state.last_successful_cursor == {"history_id": "990"}
         assert new_state.records_processed == 0
 

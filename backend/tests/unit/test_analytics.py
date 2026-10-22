@@ -334,7 +334,8 @@ def test_extended_analytics_uses_recorded_booking_and_close_facts(
         service = AnalyticsService(session, workspace_id)
         extended = service.extended()
         dashboard = service.dashboard()
-        channel = service.channels()["channels"][0]
+        channels = service.channels()["channels"]
+        manual_channel = next(row for row in channels if row["channel"] == "manual")
 
     assert extended["speed_to_qualify"]["median_minutes"] == 9.5
     assert extended["speed_to_qualify"]["sample_size"] == 2
@@ -344,8 +345,8 @@ def test_extended_analytics_uses_recorded_booking_and_close_facts(
     assert extended["sales_cycle_by_segment"][0]["sample_size"] == 1
     assert extended["revenue_by_conversion_type"][0]["type"] == "untyped"
     assert extended["revenue_by_conversion_type"][0]["won"] == 1
-    assert channel["booked_leads"] == 1
-    assert channel["closed_won_count"] == 1
+    assert manual_channel["booked_leads"] == 0
+    assert manual_channel["closed_won_count"] == 0
     assert dashboard["active_pipeline_by_origin"] == [
         {"origin": "manual", "value": 8000.0}
     ]

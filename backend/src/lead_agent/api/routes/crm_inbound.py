@@ -60,7 +60,7 @@ class InboundSyncConfigurationRequest(BaseModel):
 
     enabled: bool
     object_type: Literal["Lead", "contacts", "message"] = "Lead"
-    interval_seconds: int = Field(default=60, ge=60, le=86_400)
+    interval_seconds: int | None = Field(default=None, ge=60, le=86_400)
 
 
 def _connection(session: Session, workspace_id: UUID, connection_id: UUID) -> ProviderConnectionORM:

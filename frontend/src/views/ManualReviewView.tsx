@@ -6,6 +6,7 @@ import {
   QualificationBadge,
   Unavailable,
 } from "./productShared";
+import { leadSourceLabel } from "../leadSources";
 
 export function ManualReviewView({
   data,
@@ -39,7 +40,7 @@ export function ManualReviewView({
               <div className="review-card-head">
                 {newLeadIds.has(lead.id) && <NewLeadDot />}
                 <span className={`source-tag source-${lead.source}`}>
-                  {pretty(lead.source)}
+                  {leadSourceLabel(lead.source)}
                 </span>
                 <div className="review-qualification">
                   <b>{lead.score}</b>

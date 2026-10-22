@@ -22,6 +22,11 @@ import { SelectMenu } from "../components/SelectMenu";
 import type { LeadDetailSection } from "../leadSections";
 import type { Lead, LeadAssignmentOption, LeadPayload } from "../types";
 import {
+  leadSourceCategory,
+  leadSourceDetailLabel,
+  leadSourceLabel,
+} from "../leadSources";
+import {
   Empty,
   pretty,
   QualificationBadge,
@@ -29,7 +34,7 @@ import {
 } from "./productShared";
 
 const emptyLead: LeadPayload = {
-  source: "website",
+  source: "manual",
   source_detail: "manual-control-center",
   full_name: "",
   email: "",
@@ -64,6 +69,7 @@ const emptyLeadFilters = (): LeadFilterState => ({
 });
 
 const LEAD_SOURCE_OPTIONS = [
+  "manual",
   "email",
   "website",
   "offline",
@@ -518,7 +524,7 @@ export function LeadsView({
             ariaLabel="Lead source"
             value={source}
             onChange={setSource}
-            options={[{ value: "all", label: "All channels" }, ...LEAD_SOURCE_OPTIONS.map((item) => ({ value: item, label: item }))]}
+            options={[{ value: "all", label: "All channels" }, ...LEAD_SOURCE_OPTIONS.map((item) => ({ value: item, label: leadSourceLabel(item) }))]}
           />
           </label>
           <label className="date-filter">
@@ -870,7 +876,7 @@ function ExportDialog({
   const summary =
     scope === "all"
       ? "All permitted workspace leads"
-      : `${scope === "selected" ? selectedCount : count} leads${filters.band !== "all" ? ` · ${qualificationLabel(filters.band)}` : ""}${filters.source !== "all" ? ` · ${pretty(filters.source)}` : ""}${filters.dateFrom || filters.dateTo ? ` · ${filters.dateFrom || "Any"} – ${filters.dateTo || "Any"}` : ""}`;
+      : `${scope === "selected" ? selectedCount : count} leads${filters.band !== "all" ? ` · ${qualificationLabel(filters.band)}` : ""}${filters.source !== "all" ? ` · ${leadSourceLabel(filters.source)}` : ""}${filters.dateFrom || filters.dateTo ? ` · ${filters.dateFrom || "Any"} – ${filters.dateTo || "Any"}` : ""}`;
   return (
     <OperationsDialog title="Take leads with you" className="team-modal export-dialog" showHeader={false} onClose={() => { if (!busy) onClose(); }}>
         <div className="team-modal-head">
@@ -1201,12 +1207,12 @@ const LeadTableRow = memo(function LeadTableRow({
       </td>
       <td data-label="Source">
         <span
-          className={`source-tag source-${origin?.toLowerCase() || lead.source}`}
+          className={`source-tag source-${origin?.toLowerCase() || leadSourceCategory(lead.source, lead.source_detail)}`}
         >
-          {origin || pretty(lead.source)}
+          {origin || leadSourceLabel(lead.source, lead.source_detail)}
         </span>
         <small>
-          {origin ? "CRM import" : lead.source_detail || "Original intake"}
+          {origin ? "CRM import" : leadSourceDetailLabel(lead.source_detail)}
         </small>
       </td>
       <td data-label="Score">

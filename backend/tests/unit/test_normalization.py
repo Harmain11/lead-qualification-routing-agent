@@ -38,6 +38,7 @@ def test_manual_lead_request_accepts_partial_details() -> None:
     request = LeadCreateRequest.model_validate(
         {
             "source_detail": "manual-control-center",
+            "source": "website",
             "full_name": "Kathi Sitek",
             "company_name": "Diversified Members Credit Union",
         }
@@ -45,6 +46,7 @@ def test_manual_lead_request_accepts_partial_details() -> None:
     lead = normalize_lead(request.model_dump(mode="json"), uuid4())
 
     assert lead.full_name == "Kathi Sitek"
+    assert lead.source == "manual"
     assert lead.email == ""
     assert lead.company_name == "Diversified Members Credit Union"
     assert lead.product_or_service == ""
