@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import require_permission
+from lead_agent.api.dependencies import require_permission, require_permissions
+from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
@@ -60,21 +60,27 @@ def chat_with_workspace_assistant(
             503,
             "Connect and verify a workspace AI provider before using Corral Agent chat.",
         )
-    workspace_context = {
-        key: value
-        for key, value in request.context.items()
-        if key != "workspace_records"
-    }
+    # Legacy clients may still send context, but it is never a trusted snapshot.
+    workspace_context = build_workspace_assistant_context(session, workspace)
     latest_user_message = next(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
     )
     if "leads.view" in workspace.permissions and latest_user_message:
-        workspace_context["workspace_records"] = build_workspace_record_context(
-            session,
-            workspace.workspace_id,
-            latest_user_message,
-        )
+        query = " ".join(
+            message.content for message in reversed(request.messages)
+            if message.role == "user"
+        )[:3000]
+        try:
+            with session.begin_nested():
+                workspace_context["workspace_records"] = build_workspace_record_context(
+                    session, workspace.workspace_id, query,
+                )
+        except Exception:
+            workspace_context.setdefault("context_warnings", []).append(
+                "Workspace record search is unavailable; do not infer lead details "
+                "or propose lead changes."
+            )
     payload = {
         "messages": [message.model_dump() for message in request.messages],
         "workspace_context": workspace_context,
@@ -90,7 +96,10 @@ def chat_with_workspace_assistant(
         raise HTTPException(502, str(error)) from None
     except Exception:
         raise HTTPException(502, "Corral Agent could not complete this request.") from None
-    if result.action.kind == "open_lead":
+    lead_mutations = {
+        "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead",
+    }
+    if result.action.kind == "open_lead" or result.action.kind in lead_mutations:
         target_id = result.action.target_id
         matched_lead_ids = {
             item.get("id")
@@ -115,9 +124,55 @@ def chat_with_workspace_assistant(
             )
             is not None
         )
-        if not target_is_available or not result.action.target_label:
+        if (
+            not target_is_available
+            or (result.action.kind in lead_mutations and "leads.edit" not in workspace.permissions)
+        ):
             result.action = WorkspaceAssistantAction()
-    return result.model_dump(mode="json")
+            result.reply = (
+                "I could not verify an accessible target lead for that action. "
+                "Please give the lead's name or email, and make sure you have the required access."
+            )
+        else:
+            matched_lead = next(
+                item for item in workspace_context["workspace_records"]["matched_leads"]
+                if item.get("id") == target_id
+            )
+            result.action.target_label = matched_lead.get("name") or "Selected lead"
+            if result.action.kind in lead_mutations:
+                from lead_agent.api.workspace_lead_actions import validate_lead_proposal
+                try:
+                    validate_lead_proposal(result.action)
+                    if result.action.kind == "record_lead_progress":
+                        values = json.loads(result.action.payload_json or "{}")
+                        credited_id = values.get("credited_user_id")
+                        if credited_id:
+                            credited = next((
+                                item for item in workspace_context.get("lead_closing_options", [])
+                                if item.get("user_id") == credited_id
+                            ), None)
+                            if credited is None:
+                                raise ValueError(
+                                    "Choose an active credited member from this workspace."
+                                )
+                            if values.get("stage") == "converted":
+                                result.action.summary = (
+                                    f"Record a {values['conversion_type']} win for "
+                                    f"{result.action.target_label}; credit "
+                                    f"{credited['display_name']}. Configured team congratulations "
+                                    "may be posted. No direct message will be sent."
+                                )
+                except ValueError as error:
+                    result.action = WorkspaceAssistantAction()
+                    result.reply = (
+                        f"The lead change needs clarification before review: {error}"
+                    )[:3000]
+    response = result.model_dump(mode="json")
+    response["context_warnings"] = workspace_context.get("context_warnings", [])
+    response["drafting_context"] = {
+        "workspace_profile": workspace_context.get("workspace_profile", {}),
+    }
+    return response
 
 
 @router.post("/{lead_id}/assistant/chat")
@@ -125,7 +180,7 @@ def chat_with_lead_assistant(
     lead_id: UUID,
     request: AssistantChatRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+    workspace: WorkspaceContext = Depends(require_permissions("agents.execute", "leads.view")),
 ) -> dict[str, object]:
     lead = get_lead(session, lead_id, workspace.workspace_id)
     if lead is None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from contextlib import nullcontext
 from uuid import uuid4
 
 import pytest
@@ -61,9 +62,8 @@ def test_workspace_chat_returns_provider_answer_and_conversation(monkeypatch) ->
     assert captured["messages"] == [
         {"role": "user", "content": "Generate discovery questions."},
     ]
-    assert captured["workspace_context"] == {
-        "lead_confirmation_setting": {"enabled": True}
-    }
+    assert "lead_confirmation_setting" not in captured["workspace_context"]
+    assert captured["workspace_context"]["permissions"] == ["agents.execute"]
 
 
 def test_workspace_chat_requires_a_supported_ai_provider(monkeypatch) -> None:
@@ -98,7 +98,7 @@ def test_workspace_chat_retrieves_records_only_with_lead_view_permission(monkeyp
             return WorkspaceAssistantReply(reply="Found the matching record.")
 
     def fake_retrieval(session, current_workspace_id, query):
-        assert session == "db-session"
+        assert session is db_session
         assert current_workspace_id == workspace_id
         assert query == "Find Mina's recent calls."
         return retrieved
@@ -114,6 +114,7 @@ def test_workspace_chat_retrieves_records_only_with_lead_view_permission(monkeyp
         fake_retrieval,
     )
 
+    db_session = SimpleNamespace(begin_nested=nullcontext)
     result = chat_with_workspace_assistant(
         AssistantChatRequest(
             messages=[
@@ -121,7 +122,7 @@ def test_workspace_chat_retrieves_records_only_with_lead_view_permission(monkeyp
             ],
             context={"workspace_records": {"matched_leads": [{"id": "spoofed"}]}},
         ),
-        session="db-session",
+        session=db_session,
         workspace=WorkspaceContext(
             workspace_id=workspace_id,
             actor_id="qa-user",
@@ -165,7 +166,7 @@ def test_workspace_chat_only_opens_a_record_returned_by_scoped_search(monkeypatc
         AssistantChatRequest(
             messages=[AssistantMessage(role="user", content="Open Mina Chen's lead.")]
         ),
-        session=SimpleNamespace(scalar=lambda _query: lead_id),
+        session=SimpleNamespace(scalar=lambda _query: lead_id, begin_nested=nullcontext),
         workspace=WorkspaceContext(
             workspace_id=workspace_id,
             actor_id="qa-user",
@@ -207,7 +208,7 @@ def test_workspace_chat_rejects_unmatched_open_lead_proposal(monkeypatch) -> Non
         AssistantChatRequest(
             messages=[AssistantMessage(role="user", content="Open some lead.")]
         ),
-        session=SimpleNamespace(scalar=lambda _query: lead_id),
+        session=SimpleNamespace(scalar=lambda _query: lead_id, begin_nested=nullcontext),
         workspace=WorkspaceContext(
             workspace_id=workspace_id,
             actor_id="qa-user",

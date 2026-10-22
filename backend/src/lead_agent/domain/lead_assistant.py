@@ -97,6 +97,10 @@ class WorkspaceAssistantAction(BaseModel):
         "suspend_member",
         "reactivate_member",
         "send_email",
+        "update_lead_profile",
+        "add_lead_note",
+        "record_lead_progress",
+        "reevaluate_lead",
     ] = "none"
     area: Literal[
         "analytics",

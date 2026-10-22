@@ -21,6 +21,7 @@ import {
 import type { FollowUpEmail, Lead } from "../types";
 import type { LeadDetailSection } from "../leadSections";
 import { createClientId } from "../clientIds";
+import { assistantConversation } from "../assistantConversation";
 import "./leadAssistant.css";
 
 type ChatMessage = {
@@ -33,6 +34,7 @@ type ChatMessage = {
   error?: string;
   notice?: string;
   preview?: FollowUpEmail;
+  actionResult?: string;
 };
 
 type ClosingOption = { user_id: string; display_name: string };
@@ -97,6 +99,7 @@ export function LeadAssistantPanel({
   const [selectedCrm, setSelectedCrm] = useState(lead.crm_sync?.provider || "");
   const [closingSelection, setClosingSelection] = useState<Record<string, ClosingSelection>>({});
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const actionInFlightRef = useRef(new Set<string>());
 
   useEffect(() => {
     setMessages([]);
@@ -146,7 +149,7 @@ export function LeadAssistantPanel({
     try {
       const reply: LeadAssistantReply = await chatWithLeadAssistant(
         lead.id,
-        history.slice(-16).map(({ role, content: messageContent }) => ({ role, content: messageContent })),
+        assistantConversation(history),
       );
       setMessages((current) => [...current, {
         id: id(),
@@ -194,21 +197,27 @@ export function LeadAssistantPanel({
 
   async function confirmFollowUpSend(message: ChatMessage) {
     const followUp = message.preview;
-    if (!canEdit || !followUp) return;
+    if (!canEdit || !followUp || message.done || actionInFlightRef.current.has(message.id)) return;
     const confirmed = window.confirm(
       `Send this email to ${followUp.recipient}?\n\nSubject: ${followUp.subject}\n\nReview the full draft in Follow-ups before sending if anything needs to change.`,
     );
     if (!confirmed) return;
+    actionInFlightRef.current.add(message.id);
     changeMessage(message.id, { busy: true, error: undefined });
     try {
       await approveAndSendLeadFollowUp(lead.id, followUp.id);
-      changeMessage(message.id, { busy: false, done: true, preview: undefined });
+      changeMessage(message.id, {
+        busy: false, done: true, preview: undefined,
+        actionResult: `Email sent to ${followUp.recipient}. Subject: ${followUp.subject}.`,
+      });
       void refreshLeadAfterAction(message.id);
     } catch (reason) {
       changeMessage(message.id, {
         busy: false,
         error: reason instanceof Error ? reason.message : "The email could not be sent.",
       });
+    } finally {
+      actionInFlightRef.current.delete(message.id);
     }
   }
 
@@ -224,7 +233,7 @@ export function LeadAssistantPanel({
 
   async function executeAction(message: ChatMessage) {
     const action = message.action;
-    if (!action || action.kind === "none" || message.busy || message.done) return;
+    if (!action || action.kind === "none" || message.busy || message.done || actionInFlightRef.current.has(message.id)) return;
     if (["update_profile", "add_note", "record_progress", "draft_email", "send_follow_up", "reevaluate_lead"].includes(action.kind) && !canEdit) {
       changeMessage(message.id, { error: "You need lead-edit access to make this change." });
       return;
@@ -241,6 +250,8 @@ export function LeadAssistantPanel({
       changeMessage(message.id, { error: "You do not have access to this lead’s email section." });
       return;
     }
+    actionInFlightRef.current.add(message.id);
+    changeMessage(message.id, { busy: true, error: undefined });
     try {
       if (action.kind === "reevaluate_lead") {
         if (!window.confirm(
@@ -338,6 +349,9 @@ export function LeadAssistantPanel({
         busy: false,
         error: reason instanceof Error ? reason.message : "That lead action could not be completed.",
       });
+    } finally {
+      actionInFlightRef.current.delete(message.id);
+      changeMessage(message.id, { busy: false });
     }
   }
 
