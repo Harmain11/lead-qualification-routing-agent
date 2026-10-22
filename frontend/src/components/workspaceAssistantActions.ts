@@ -156,8 +156,11 @@ export async function applyWorkspaceAssistantAction(
       }
       if (action.kind === "record_lead_progress") {
         const payload = parsePayload(action);
-        await updateLeadProgress(target, payload as Parameters<typeof updateLeadProgress>[1]);
-        return `Recorded ${String(payload.stage)} for ${action.target_label || "the lead"}.`;
+        const result = await updateLeadProgress(
+          target,
+          payload as Parameters<typeof updateLeadProgress>[1],
+        );
+        return `Recorded ${String(payload.stage)} for ${action.target_label || "the lead"} and re-evaluated qualification as ${result.classification} (${result.score}/100).`;
       }
       await reevaluateLead(target);
       return `Re-evaluated ${action.target_label || "the lead"}’s qualification and routing.`;

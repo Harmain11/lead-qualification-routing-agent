@@ -366,7 +366,7 @@ export function LeadAssistantPanel({
           throw new Error("Choose Project or Sale and select the credited team member before recording a win.");
         }
         const revenue = selection?.revenue ? Number(selection.revenue) : action.closed_revenue ?? undefined;
-        await updateLeadProgress(lead.id, {
+        const result = await updateLeadProgress(lead.id, {
           stage: action.progress_stage,
           note: action.progress_note,
           ...(converted ? {
@@ -375,7 +375,10 @@ export function LeadAssistantPanel({
             ...(revenue !== undefined ? { closed_revenue: revenue } : {}),
           } : {}),
         });
-        changeMessage(message.id, { done: true });
+        changeMessage(message.id, {
+          done: true,
+          actionResult: `Progress recorded and qualification re-evaluated as ${result.classification} (${result.score}/100).`,
+        });
         void refreshLeadAfterAction(message.id);
       } else if (action.kind === "draft_email") {
         if (!openFollowUpComposer({

@@ -22,3 +22,9 @@ Workspace snapshots must come from the server under the current permissions, not
 **Why:** the user asked for a workspace-customized assistant that can search all records they can access on demand, update leads directly from chat, keep follow-up email work in the agent, take actions across nearly all app areas, and include Cc/Bcc in reviewed email drafts; external sends and other mutations still require explicit approval. Browser-supplied snapshots are not authoritative, and custom permission overrides can separate agent execution from lead viewing.
 
 **How to apply:** Add capabilities through typed, permission-scoped tools backed by existing APIs. Retrieve only relevant stored records for each request, disclose when results are bounded, use the saved business profile for workspace identity, and keep a clear review-and-approve step before every mutation.
+
+For read-only questions about whether a lead exists or for its details, search stored leads within the current workspace and the user's lead-view permission. Report matching details; when several leads match, list their full names and details and ask which full name the user means. Distinguish no match from search failure or missing permission.
+
+**Why:** the user expects Corral Agent to verify lead records and answer with details rather than returning a generic action-target error.
+
+**How to apply:** Use the server's scoped lead search for lookup questions, do not require an AI-generated open-lead action to answer, and never report no match when search failed.

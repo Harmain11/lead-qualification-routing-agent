@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -47,6 +48,7 @@ from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
+from lead_agent.domain.models import RecordedLeadEvidence
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
@@ -1057,15 +1059,15 @@ def update_lead_progress(
             ),
             "credited_user_id": str(outcome.credited_user_id) if outcome.credited_user_id else None,
         }
-        qualification = row.qualification
-        classification = qualification.classification if qualification else "needs_qualifying"
-        score = qualification.total_score if qualification else 0
-        rationale = ["Commercial outcome recorded without changing qualification or CRM data."]
-    else:
-        classification, score, rationale = _reanalyze_lead_with_history(
-            session, row, workspace.workspace_id, policies, notification_provider,
-            trigger="manual_progress_update",
-        )
+    classification, score, rationale = _reanalyze_lead_with_history(
+        session,
+        row,
+        workspace.workspace_id,
+        policies,
+        notification_provider,
+        trigger="manual_progress_update",
+        route_after_reanalysis=request.stage not in {"converted", "lost"},
+    )
     progress_event.details = {
         **progress_event.details,
         "qualification": {"classification": classification, "score": score},
@@ -1112,6 +1114,7 @@ def _reanalyze_lead_with_history(
     notification_provider: NotificationProvider | None,
     *,
     trigger: str,
+    route_after_reanalysis: bool = True,
 ) -> tuple[str, int, list[str]]:
     events = list(
         session.scalars(
@@ -1125,17 +1128,33 @@ def _reanalyze_lead_with_history(
         )
     )
     context_lines: list[str] = []
+    recorded_evidence: list[RecordedLeadEvidence] = []
     for event in events[-60:]:
         details = event.details
         if event.stage == "manual_progress":
-            context_lines.append(
-                f"Sales stage {details.get('stage', event.status)}: {details.get('note', '')}"
+            stage = str(details.get("stage", event.status))
+            context = f"Sales stage {stage}: {details.get('note', '')}"
+            context_lines.append(context)
+            recorded_evidence.append(
+                RecordedLeadEvidence(
+                    source=f"manual_progress:{stage}",
+                    text=context,
+                    observed_at=event.created_at,
+                )
             )
         else:
             direction = details.get("direction", "email")
-            context_lines.append(
+            context = (
                 f"Gmail {direction} email ({details.get('sent_at', '')}) "
                 f"{details.get('subject', '')}: {details.get('body', '')}"
+            )
+            context_lines.append(context)
+            recorded_evidence.append(
+                RecordedLeadEvidence(
+                    source="gmail_message",
+                    text=context,
+                    observed_at=event.created_at,
+                )
             )
     progress_context = "\n".join(context_lines)[-24000:]
     payload = {
@@ -1158,7 +1177,11 @@ def _reanalyze_lead_with_history(
         "raw_payload": row.raw_payload,
         "normalization_version": row.normalization_version,
     }
-    normalized = normalize_lead(payload, row.id)
+    normalized = replace(
+        normalize_lead(payload, row.id),
+        original_message=row.message,
+        recorded_evidence=tuple(recorded_evidence),
+    )
     resolved_icp = resolve_workspace_icp(session, workspace_id, policies[0])
     reasoning_provider = resolve_workspace_reasoning_provider(session, workspace_id)
     analysis, result = _analyze_and_qualify(
@@ -1191,15 +1214,16 @@ def _reanalyze_lead_with_history(
             "analysis_provider": analysis.provider,
         },
     )
-    route_and_notify(
-        session,
-        row,
-        policies[1],
-        notification_provider=notification_provider,
-        force=True,
-        send_notification=False,
-        reroute_reason="Lead history changed; qualification was recalculated.",
-    )
+    if route_after_reanalysis:
+        route_and_notify(
+            session,
+            row,
+            policies[1],
+            notification_provider=notification_provider,
+            force=True,
+            send_notification=False,
+            reroute_reason="Lead history changed; qualification was recalculated.",
+        )
     return result.classification, result.total_score, list(result.rationale)
 
 

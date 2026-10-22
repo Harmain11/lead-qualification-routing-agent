@@ -21,6 +21,7 @@ from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     LeadWinNotificationORM,
+    PipelineEventORM,
     ProviderConnectionORM,
     UserORM,
     WorkspaceMembershipORM,
@@ -126,19 +127,19 @@ def close(store, index=0, **changes):
     )
 
 
-def test_project_sale_comparison_uses_ids_not_matching_names(sales_store, monkeypatch):
+def test_project_sale_comparison_uses_ids_not_matching_names(sales_store):
     store = sales_store
-    def forbid_reanalysis(*args, **kwargs):
-        raise AssertionError("A closing outcome must not trigger AI analysis or routing.")
-    monkeypatch.setattr(
-        "lead_agent.api.routes.leads._reanalyze_lead_with_history", forbid_reanalysis
-    )
     original_route = get_current_routing(
         store.session, store.leads[0].id, store.workspace.workspace_id
     ).id
     first = close(store)
     close(store, index=1, conversion_type="sale", closed_revenue=Decimal("500.00"))
     assert first.outcome.pipeline_stage == "closed_won"
+    assert first.score == store.leads[0].qualification.total_score
+    recorded_events = store.session.query(PipelineEventORM).filter_by(
+        lead_id=store.leads[0].id
+    )
+    assert any(event.stage == "qualification_rechecked" for event in recorded_events)
     assert first.outcome.credited_user_id == store.members[0].user_id
     assert first.outcome.currency == "USD"
     assert {receipt["status"] for receipt in first.outcome.notifications} == {"sent"}

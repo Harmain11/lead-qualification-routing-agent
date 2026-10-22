@@ -255,8 +255,12 @@ class StructuredAPIReasoningProvider:
                 "lead-specific wording rather than copying it. Use only facts in the supplied "
                 "JSON; "
                 "do not invent offers, prices, promises, company claims, or prior conversations. "
-                "Ask one low-friction next-step question. Return a short rationale grounded in "
-                "those facts.\n\n"
+                "Prioritize the newest dated team notes, sales updates, and customer messages in "
+                "recent_activity when deciding what to say; the original inquiry is background if "
+                "newer evidence conflicts. Distinguish a seller action from a prospect commitment. "
+                "If a recent update records disinterest or a closed outcome, do not write a pushy "
+                "sales pitch. Ask one low-friction next-step question when appropriate. Return a "
+                "short rationale grounded in those facts.\n\n"
                 + json.dumps(facts, ensure_ascii=False, separators=(",", ":"))
             )
         with provider_operation(self.provider_name) as operation:
