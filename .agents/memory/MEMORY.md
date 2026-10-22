@@ -1,42 +1,18 @@
 - [OpenAI credential prompts](openai-credential-prompts.md) — a stored workspace key should stop repeated setup prompts; only missing or invalid credentials should prompt again.
 - [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
-- [Email drafting style](email-drafting-style.md) — generate workspace-voice drafts; direct lead follow-up requests open the full editable composer.
-- [Email composer behavior](email-composer-behavior.md) — collapse conversation messages by default, but keep the reply composer open when requested and offer a safe close action.
-- [Integration card presentation](integration-card-presentation.md) — Non-AI cards expand independently; AI providers share one selector card with separate underlying state.
+- [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
+- [Integration card presentation](integration-card-presentation.md) — uniform compact cards with plus/minus controls reveal details independently.
 - [Email lead relevance](email-lead-relevance.md) — exclude unrelated mail before lead creation; existing sales-thread replies remain interactions.
-- [Integration account policy](integration-account-policy.md) — Gmail supports multiple active mailboxes; other providers remain single-account, with history preserved on reconnect.
+- [Integration account policy](integration-account-policy.md) — one active account per provider; reconnection must preserve historical data.
 - [OAuth account choice](oauth-account-choice.md) — explicit Calendly/Salesforce choices; Slack uses its own workspace picker and must not preselect a team.
 - [Slack channel visibility](slack-channel-visibility.md) — user's Slack has channels; list public channels before the app is invited, and don't show inactive workspaces as connected.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
-- [Dashboard brand alignment](dashboard-brand-alignment.md) — Follow Corral's existing brand, typography, and UI patterns when changing or redesigning screens.
+- [Dashboard brand alignment](dashboard-brand-alignment.md) — Center Corral against the mark; keep the sleek tagline below the wordmark only.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
 - [Salesforce package prerequisite](salesforce-package-prerequisite.md) — install the user-supplied package before OAuth; Connect must present the installer and setup steps.
-- [Member performance and wins](member-win-policy.md) — separate status updates from comments and keep Project/Sale credit explicit.
-- [Full-page editors](full-page-editors.md) — use full-page editors, preserve all lead data, and keep navigation subcategories accessible with clear hover-close behavior.
+- [Member performance and wins](member-win-policy.md) — choose Project or Sale for each win; record in Corral and congratulate the team plus the credited member.
+- [Full-page editors](full-page-editors.md) — use full-page detail/editor menus; omit decorative AI diagrams and gradient lines, and prevent cramped or overlapping text.
 - [Browser save feedback](browser-save-feedback.md) — embedded-browser ID support and optional notifications must not turn a successful save into an apparent failure.
 - [Browser harness compatibility](browser-harness-compatibility.md) — debugger support differs between the shell Chromium wrapper and installed native Playwright browsers.
 - [Production query results](production-query-results.md) — transaction-only SQL output is not an empty result set, even if the callback reports success.
-- [Reasoning backfill progress](reasoning-backfill-progress.md) — persist exact-input receipts so backfills skip only unchanged analyses.
-- [CloudTalk API boundaries](cloudtalk-api-boundaries.md) — per-call source selection uses an agent-assigned number and CloudTalk Desktop; call results stay there.
-- [Embedded dialer selection](embedded-dialer-selection.md) — keep one verified embedded phone; Dialer lead selection offers only Open lead or choose another.
-- [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
-- [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
-- [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.
-- [Manual lead AI context](manual-lead-ai-context.md) — Use current notes, sales progress, and customer replies as time-aware evidence across scoring, answers, and follow-ups.
-- [Lead assistant action safety](lead-assistant-actions.md) — Give Corral broad lead-page actions, but require confirmation for emails, bookings, CRM syncs, and deletes.
-- [Workspace website enrichment](workspace-website-enrichment.md) — Turn a supplied public page into cited profile suggestions; preserve manual values and require review before saving.
-- [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; new leads use per-lead/tab dots, a bell inbox, and one toast when first observed.
-- [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.
-- [Manual direct dialing](direct-dial-policy.md) — Keep direct calls unlinked until explicitly added; an admin must grant Dialer access per member, and consent checks still apply.
-- [Workspace review settings](workspace-manual-review-settings.md) — Keep analysis review criteria separate from provider import approvals; existing review decisions remain unchanged when criteria change.
-- [Alembic branch merges](alembic-branch-merges.md) — Merge concurrent migration heads explicitly and keep revision IDs within the database version column's 32-character limit.
-- [Analytics metric integrity](analytics-metric-integrity.md) — Use recorded workspace data only; show missing inputs as untracked instead of estimating values.
-- [Dashboard selection submission](dashboard-selection-submission.md) — Keep checkbox changes staged until the user submits; only then update and save visible plots/cards.
-- [Lead export flexibility](lead-export-flexibility.md) — Let users choose lead fields across export formats so files can match destination import schemas.
-- [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
-- [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
-- [ICP scoring activation](icp-scoring-activation.md) — Until a custom workspace ICP is published, score urgency and engagement only; built-in ICP fit and exclusions stay inactive.
-- [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
-- [Corral Agent scope and approvals](corral-agent-scope.md) — Search accessible leads and clarify duplicate matches; keep changes approved and call requests routed to Dialer.
-- [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.

@@ -1,123 +1,35 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../api";
+import { useEffect,useRef,useState } from "react";
+import type { SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
-import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
-import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
-import { SlackSetupGuide } from "../components/SlackSetupGuide";
 import { createSlackRule } from "../slackRouting";
 
 import {
 addIntegrationCredential,
 apiUrl,
 beginIntegration,
-  cancelInboundSync,
 configureInboundSync,
 disconnectIntegration,
-  getLeadConfirmationSources,
 getInboundSyncState,
-getInboundSyncRuns,
 getSlackNotificationConfig,
 listIntegrations,
-  listCloudTalkAgents,
 listSlackChannelMembers,
 listSlackChannels,
 reconnectIntegration,
 runInboundSync,
-  setLeadConfirmationSource,
 selectSlackChannel,
-  selectCloudTalkAgent,
 sendSlackTestNotification,
 testIntegration,
-updateReasoningModel,
+updateOpenAIModel,
 updateSlackNotificationConfig,
 } from "../api";
 import { OpenAIUsagePanel } from "../components/OpenAIUsagePanel";
 import { AiUsagePanel } from "../components/AiUsagePanel";
 import { SalesforceSetupGuide } from "../components/SalesforceSetupGuide";
-import {
-  isEmbeddedDialerConnection,
-  OPEN_DIALER_PHONE_EVENT,
-  ringCentralEmbedClientId,
-} from "../components/dialerPhoneConfig";
 import { can } from "../permissions";
-import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
-import { pollInboundSync } from "../inboundSyncPolling";
-import { parseGmailReviewNotes } from "../gmailSyncPresentation";
-import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
-
-function syncRunMessage(run: CrmInboundSyncRun) {
-  const review = run.mode === "review_recent";
-  if (run.status === "completed") return review ? "AI review finished." : "Sync finished.";
-  if (run.status === "cancelled") return review ? "AI review cancelled. Completed leads were kept." : "Sync cancelled. Completed records were kept.";
-  if (run.status === "completed_with_errors") {
-    return review ? "AI review finished with some messages needing attention." : "Sync finished with some records needing attention.";
-  }
-  return review ? "AI review failed." : "Sync failed.";
-}
-
-function syncRunKind(run: CrmInboundSyncRun): "success" | "error" | "cancelled" {
-  if (run.status === "cancelled") return "cancelled";
-  return run.status === "completed" ? "success" : "error";
-}
-
-function syncIntervalLabel(seconds: number) {
-  if (seconds % 3600 === 0) {
-    const hours = seconds / 3600;
-    return `${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  if (seconds % 60 === 0) {
-    const minutes = seconds / 60;
-    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  }
-  return `${seconds} seconds`;
-}
-
-function ProviderDetailsPanel({
-  provider,
-  open,
-  onClose,
-  id,
-  children,
-}: {
-  provider: string;
-  open: boolean;
-  onClose: () => void;
-  id: string;
-  children: ReactNode;
-}) {
-  if (provider === "slack") {
-    return open ? <OperationsDialog id={id} title="Slack connection" onClose={onClose} className="slack-connection-dialog">
-      <div className="provider-details slack-provider-details">{children}</div>
-    </OperationsDialog> : null;
-  }
-  return <div className="provider-details" id={id} hidden={!open}>{children}</div>;
-}
-
-function IntegrationDisclosure({
-  title,
-  children,
-  className = "",
-  open = false,
-}: {
-  title: string;
-  children: ReactNode;
-  className?: string;
-  open?: boolean;
-}) {
-  return <details className={`integration-section-disclosure ${className}`} open={open}>
-    <summary>{title}</summary>
-    <div className="integration-section-disclosure-content">{children}</div>
-  </details>;
-}
+import type { CrmInboundSyncState,IntegrationCard,ProviderConnection,SlackNotificationConfig,SlackNotificationRule } from "../types";
 
 const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
-const AI_PROVIDER_GROUP = "ai-analysis";
-const AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek", "xai"] as const;
-type ReasoningProviderId = typeof AI_PROVIDER_IDS[number];
-function isReasoningProvider(provider: string): provider is ReasoningProviderId {
-  return (AI_PROVIDER_IDS as readonly string[]).includes(provider);
-}
 type ConnectionOperation = "connect" | "reconnect" | "disconnect";
 const operationProgress: Record<ConnectionOperation, string> = {
   connect: "Connecting…", reconnect: "Reconnecting…", disconnect: "Disconnecting…",
@@ -158,8 +70,7 @@ function connectionStage(status?: string) {
 
 function connectionStatusLabel(status?: string) {
   if (!status || ["disconnected", "not_connected"].includes(status)) return "Not connected";
-  if (status === "verified") return "Verified";
-  if (["connected", "configured", "validating"].includes(status)) return "Needs verification";
+  if (["verified", "connected", "configured", "validating"].includes(status)) return "Connected";
   return "Needs authorization";
 }
 
@@ -241,7 +152,7 @@ function SlackMultiSelect({
   return <div className="slack-multi-select">
     <span className="slack-field-label">{label}</span>
     <button type="button" className={`slack-multi-trigger${open ? " open" : ""}`} onClick={() => setOpen((current) => !current)} aria-expanded={open}>
-      <span>{selected.length ? selected.map(([, optionLabel]) => optionLabel).join(", ") : `Any ${label.toLowerCase()}`}</span><i aria-hidden="true"><svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg></i>
+      <span>{selected.length ? selected.map(([, optionLabel]) => optionLabel).join(", ") : `Any ${label.toLowerCase()}`}</span><b>⌄</b>
     </button>
     {open && <div className="slack-multi-menu" role="listbox" aria-label={label}>
       <button type="button" className="slack-multi-all" onClick={() => onChange([])}><span className={!values.length ? "selected" : ""}>✓</span> Any / all</button>
@@ -307,15 +218,7 @@ function SlackRoutingEditor({
     setEditorError(null);
     setSaving(true);
     try {
-      const next = await updateSlackNotificationConfig({
-        default_connection_id: defaultConnectionId,
-        rules: rules.map((rule) => ({
-          ...rule,
-          channel_id: rule.destination_type === "direct_message"
-            ? rule.channel_id?.trim().toUpperCase() || null
-            : rule.channel_id,
-        })),
-      });
+      const next = await updateSlackNotificationConfig({ default_connection_id: defaultConnectionId, rules });
       onSaved(next);
       setEditing(false);
       onNotice("Slack notification routing saved.");
@@ -372,8 +275,7 @@ function SlackRoutingEditor({
             <SlackMultiSelect label="Lead sources" values={rule.sources} options={slackSourceOptions} onChange={(values) => updateRule(rule.id, { sources: values })} hint="Choose one or more; empty means all." />
             <SlackMultiSelect label="Queues" values={rule.queues} options={slackQueueOptions} onChange={(values) => updateRule(rule.id, { queues: values })} hint="Choose one or more; empty means all." />
           </div>
-          <div className="slack-rule-destination"><label><span>Send to workspace</span><select value={rule.connection_id} onChange={(event) => { const connectionId = event.target.value; const connection = verified.find((item) => item.id === connectionId); updateRule(rule.id, { connection_id: connectionId, channel_id: typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : null }); }}>{verified.map((item) => <option value={item.id} key={item.id}>{item.account_name}</option>)}</select></label><label><span>Destination type</span><select value={rule.destination_type ?? "channel"} onChange={(event) => { const destinationType = event.target.value as "channel" | "direct_message"; const connection = verified.find((item) => item.id === rule.connection_id); updateRule(rule.id, { destination_type: destinationType, channel_id: destinationType === "channel" && typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : null }); }}><option value="channel">Slack channel</option><option value="direct_message">Direct message</option></select></label>{(rule.destination_type ?? "channel") === "direct_message" ? <label><span>Slack member ID</span><input placeholder="U0123456789" value={rule.channel_id ?? ""} onChange={(event) => updateRule(rule.id, { channel_id: event.target.value || null })} /><small>Paste the member ID from Slack.</small></label> : <label><span>Send to channel</span><select value={rule.channel_id ?? ""} onChange={(event) => updateRule(rule.id, { channel_id: event.target.value || null })}><option value="">Use workspace default channel</option>{channelOptions(rule).map((channel) => <option value={channel.id} key={channel.id}>#{channel.name}</option>)}</select></label>}{(rule.destination_type ?? "channel") === "channel" && (channels[rule.connection_id] ?? []).length === 0 && <button className="button-quiet" type="button" onClick={() => onLoadChannels(rule.connection_id)}>Load channels</button>}<label className="slack-weight"><span>Weight</span><input aria-label={`Weight for ${rule.name}`} type="number" min="0.01" max="100" step="0.25" value={rule.weight ?? 1} onChange={(event) => updateRule(rule.id, { weight: Number(event.target.value) || 1 })} /></label></div>
-          {rule.destination_type === "direct_message" && <label className="slack-fallback-toggle"><input type="checkbox" checked={rule.fallback_to_channel ?? false} onChange={(event) => updateRule(rule.id, { fallback_to_channel: event.target.checked })} /><span>Only if this DM fails, fall back to the configured workspace channel</span></label>}
+          <div className="slack-rule-destination"><label><span>Send to workspace</span><select value={rule.connection_id} onChange={(event) => { const connectionId = event.target.value; const connection = verified.find((item) => item.id === connectionId); updateRule(rule.id, { connection_id: connectionId, channel_id: typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : null }); }}>{verified.map((item) => <option value={item.id} key={item.id}>{item.account_name}</option>)}</select></label><label><span>Destination type</span><select value={rule.destination_type ?? "channel"} onChange={(event) => { const destinationType = event.target.value as "channel" | "direct_message"; const connection = verified.find((item) => item.id === rule.connection_id); updateRule(rule.id, { destination_type: destinationType, channel_id: destinationType === "channel" && typeof connection?.metadata.slack_channel_id === "string" ? connection.metadata.slack_channel_id : null }); }}><option value="channel">Slack channel</option><option value="direct_message">Direct message</option></select></label>{(rule.destination_type ?? "channel") === "direct_message" ? <label><span>Slack member ID</span><input placeholder="U0123456789" value={rule.channel_id ?? ""} onChange={(event) => updateRule(rule.id, { channel_id: event.target.value.trim() || null })} /><small>Paste the member ID from Slack.</small></label> : <label><span>Send to channel</span><select value={rule.channel_id ?? ""} onChange={(event) => updateRule(rule.id, { channel_id: event.target.value || null })}><option value="">Use workspace default channel</option>{channelOptions(rule).map((channel) => <option value={channel.id} key={channel.id}>#{channel.name}</option>)}</select></label>}{(rule.destination_type ?? "channel") === "channel" && (channels[rule.connection_id] ?? []).length === 0 && <button className="button-quiet" type="button" onClick={() => onLoadChannels(rule.connection_id)}>Load channels</button>}<label className="slack-weight"><span>Weight</span><input aria-label={`Weight for ${rule.name}`} type="number" min="0.01" max="100" step="0.25" value={rule.weight ?? 1} onChange={(event) => updateRule(rule.id, { weight: Number(event.target.value) || 1 })} /></label></div>
           <div className="slack-rule-preview"><span>↳</span><small>Send {rule.sources.length ? `${rule.sources.map((source) => source.replaceAll("_", " ")).join(", ")} leads` : "all matching leads"} {rule.qualification_bands.length ? `that are ${rule.qualification_bands.map(qualificationBandLabel).join(", ")}` : ""} to {rule.destination_type === "direct_message" ? "the selected Slack member by direct message" : "the selected Slack channel"}.</small></div>
         </div>)}
       </div>
@@ -387,8 +289,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [activeCategory, setActiveCategory] = useState<IntegrationCategory>("all");
   const [selectedAIProvider, setSelectedAIProvider] = useState("openai");
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(() => new Set());
-  const [slackGuideOpen, setSlackGuideOpen] = useState(false);
-  const [slackPanelOpen, setSlackPanelOpen] = useState(false);
   const callingSection = selectedSection === "calling";
   const aiSection = selectedSection === "ai";
   const selectedProvider = !callingSection && !aiSection && selectedSection ? selectedSection : "";
@@ -399,42 +299,20 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [salesforceSetupOpen, setSalesforceSetupOpen] = useState(false);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, Record<string, string>>>({});
-  const [cloudTalkAgents, setCloudTalkAgents] = useState<Record<string, CloudTalkAgent[]>>({});
-  const [cloudTalkAgentSelections, setCloudTalkAgentSelections] = useState<Record<string, string>>({});
   const [modelSelections, setModelSelections] = useState<Record<string, string>>({});
-  const aiProviderSelectionInitialized = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [busyTargetConnectionId, setBusyTargetConnectionId] = useState<string | null>(null);
   const [accountChoiceProvider, setAccountChoiceProvider] = useState<"calendly" | null>(null);
   const [busyAction, setBusyAction] = useState<ConnectionOperation | null>(null);
   const [operationFeedback, setOperationFeedback] = useState<Record<string, { state: "running" | "success" | "error"; message: string }>>({});
   const runningProvider = useRef<string | null>(null);
-  const oauthPopupRef = useRef<{
-    provider: string;
-    popup: Window;
-    pollId: number;
-    timeoutId: number;
-  } | null>(null);
   const oauthIntent = useRef<ConnectionOperation>("connect");
   const slackVerificationAttempts = useRef(new Set<string>());
   const slackChannelLoads = useRef(new Set<string>());
-  const syncWatchers = useRef(new Set<string>());
   const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
-  const [reviewLimits, setReviewLimits] = useState<Record<string, string>>({});
-  const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error" | "cancelled"; message: string }>>({});
-  const [syncResults, setSyncResults] = useState<Record<string, CrmInboundSyncRun | null>>({});
+  const [syncFeedback, setSyncFeedback] = useState<Record<string, { kind: "progress" | "success" | "error"; message: string }>>({});
   const [syncStates, setSyncStates] = useState<Record<string, CrmInboundSyncState | null>>({});
-  const [syncCancelRequests, setSyncCancelRequests] = useState<Record<string, boolean>>({});
-  const [leadConfirmationSources, setLeadConfirmationSources] =
-    useState<LeadConfirmationSources | null>(null);
-  const [leadConfirmationSourcesLoading, setLeadConfirmationSourcesLoading] =
-    useState(true);
-  const [leadConfirmationSourceBusy, setLeadConfirmationSourceBusy] =
-    useState<string | null>(null);
-  const [leadConfirmationSourceError, setLeadConfirmationSourceError] =
-    useState<string | null>(null);
   const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({});
   const [slackMembers, setSlackMembers] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const [slackRouting, setSlackRouting] = useState<SlackNotificationConfig | null>(null);
@@ -445,22 +323,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const canConnect = can(permissions, "integrations.connect");
   const canDisconnect = can(permissions, "integrations.disconnect");
   const canSync = can(permissions, "crm.sync");
-  const canCallDialer = can(permissions, "dialer.call");
   const canInboundSync = canSync;
-  useEffect(() => {
-    if (isReasoningProvider(selectedSection)) {
-      setSelectedAIProvider(selectedSection);
-      aiProviderSelectionInitialized.current = true;
-      return;
-    }
-    if (aiProviderSelectionInitialized.current || cards.length === 0) return;
-    const availableAiCards = cards.filter((card) => isReasoningProvider(card.provider));
-    const preferred = availableAiCards.find((card) => card.connection?.status === "verified" && card.connection.is_active)
-      ?? availableAiCards.find((card) => card.connection?.status === "verified")
-      ?? availableAiCards[0];
-    if (preferred) setSelectedAIProvider(preferred.provider);
-    aiProviderSelectionInitialized.current = true;
-  }, [cards, selectedSection]);
   function toggleProviderExpanded(provider: string) {
     const opening = !expandedProviders.has(provider);
     setExpandedProviders((current) => {
@@ -476,30 +339,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   function showCredentialSetup(provider: string) {
     setExpanded(provider);
     requestAnimationFrame(() => document.getElementById(`integration-details-${provider}`)?.querySelector<HTMLInputElement>(".manual-credential input")?.focus());
-  }
-
-  async function updateConfirmationSource(source: string, enabled: boolean | null) {
-    setLeadConfirmationSourceBusy(source);
-    setNotice(null);
-    try {
-      const updated = await setLeadConfirmationSource(source, enabled);
-      setLeadConfirmationSources(updated);
-      const selected = updated.sources.find((item) => item.source === source);
-      setNotice(
-        enabled === null
-          ? `${selected?.label || source} confirmations now use the workspace default.`
-          : `${selected?.label || source} confirmation emails are ${enabled ? "on" : "off"}.`,
-      );
-      setLeadConfirmationSourceError(null);
-    } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "Unable to update platform confirmation setting",
-      );
-    } finally {
-      setLeadConfirmationSourceBusy(null);
-    }
   }
 
   function setExpanded(provider: string | null) {
@@ -529,34 +368,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         }
       }
       setCards(nextCards);
-      window.dispatchEvent(new Event("corral:integrations-changed"));
-      if (canManage) {
-        try {
-          setLeadConfirmationSources(await getLeadConfirmationSources());
-          setLeadConfirmationSourceError(null);
-        } catch (error) {
-          setLeadConfirmationSourceError(
-            error instanceof Error
-              ? error.message
-              : "Platform confirmation settings could not be loaded.",
-          );
-        } finally {
-          setLeadConfirmationSourcesLoading(false);
-        }
-      } else {
-        setLeadConfirmationSourcesLoading(false);
-      }
-      setCloudTalkAgentSelections((current) => {
-        const next = { ...current };
-        for (const card of nextCards) {
-          const connection = card.provider === "cloudtalk" ? card.connection : null;
-          const selected = connection?.metadata.cloudtalk_agent_id;
-          if (connection && typeof selected === "string" && !next[connection.id]) {
-            next[connection.id] = selected;
-          }
-        }
-        return next;
-      });
       try {
         setSlackRouting(await getSlackNotificationConfig());
         setSlackRoutingLoadError(null);
@@ -566,116 +377,16 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       } finally {
         setSlackRoutingReady(true);
       }
-      const inboundConnections = nextCards.flatMap((card) =>
-        card.category === "CRM" || ["gmail", "outlook"].includes(card.provider)
-          ? (card.connections.length ? card.connections : card.connection ? [card.connection] : [])
-              .filter((connection) => connection.is_active)
-              .map((connection) => ({ provider: card.provider, connection }))
-          : [],
-      );
-      const entries = await Promise.all(inboundConnections.map(async ({ connection, provider }) => {
-        try { return [connection.id, await getInboundSyncState(connection.id, provider)] as const; }
-        catch { return [connection.id, null] as const; }
+      const inboundConnections = nextCards.filter((card) => (card.category === "CRM" || ["gmail", "outlook"].includes(card.provider)) && card.connection);
+      const entries = await Promise.all(inboundConnections.map(async (card) => {
+        try { return [card.connection!.id, await getInboundSyncState(card.connection!.id, card.provider)] as const; }
+        catch { return [card.connection!.id, null] as const; }
       }));
       setSyncStates(Object.fromEntries(entries));
-      const gmailConnections = inboundConnections.filter((item) => item.provider === "gmail");
-      const gmailRuns = await Promise.all(gmailConnections.map(async ({ connection }) => {
-        try {
-          const runs = await getInboundSyncRuns(connection.id);
-          return [connection.id, runs[0] ?? null] as const;
-        } catch {
-          return [connection.id, null] as const;
-        }
-      }));
-      setSyncResults((current) => ({
-        ...current,
-        ...Object.fromEntries(gmailRuns.filter((entry): entry is readonly [string, CrmInboundSyncRun] => Boolean(entry[1]))),
-      }));
-      setSyncFeedback((current) => {
-        const next = { ...current };
-        for (const [connectionId, run] of gmailRuns) {
-          if (!run || syncWatchers.current.has(connectionId)) continue;
-          next[connectionId] = ["queued", "running", "cancel_requested"].includes(run.status)
-            ? {
-              kind: "progress",
-              message: run.status === "cancel_requested"
-                ? "Cancellation requested. Waiting for the current Gmail operation to stop…"
-                : "Sync is still running; reconnecting to progress…",
-            }
-            : { kind: syncRunKind(run), message: syncRunMessage(run) };
-        }
-        return next;
-      });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Integrations could not be loaded");
     }
   };
-  function finishOAuthPopup(provider: string, status: "connected" | "failed", callbackMessage?: string) {
-    const attempt = oauthPopupRef.current;
-    if (!attempt || attempt.provider !== provider) return;
-    window.clearInterval(attempt.pollId);
-    window.clearTimeout(attempt.timeoutId);
-    if (!attempt.popup.closed) attempt.popup.close();
-    oauthPopupRef.current = null;
-    setBusy(null);
-    setBusyAction(null);
-    runningProvider.current = null;
-
-    const displayName = cards.find((card) => card.provider === provider)?.display_name
-      ?? provider.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-    const message = status === "connected"
-      ? `${displayName} connected successfully.`
-      : callbackMessage || `${displayName} authorization was cancelled or failed. Reconnect to try again.`;
-    setNotice(message);
-    setActionErrors((current) => {
-      const next = { ...current };
-      if (status === "connected") delete next[provider];
-      else next[provider] = message;
-      return next;
-    });
-    setOperationFeedback((current) => ({
-      ...current,
-      [provider]: { state: status === "connected" ? "success" : "error", message },
-    }));
-    void refresh();
-  }
-
-  function finishClosedOAuthPopup(provider: string, message: string) {
-    const attempt = oauthPopupRef.current;
-    if (!attempt || attempt.provider !== provider) return;
-    finishOAuthPopup(provider, "failed", message);
-  }
-
-  useEffect(() => {
-    const onResult = (value: unknown) => {
-      if (isOAuthPopupResult(value)) {
-        finishOAuthPopup(value.provider, value.status, value.message);
-      }
-    };
-    const onWindowMessage = (event: MessageEvent) => {
-      if (event.origin === window.location.origin) onResult(event.data);
-    };
-    window.addEventListener("message", onWindowMessage);
-    let channel: BroadcastChannel | null = null;
-    if ("BroadcastChannel" in window) {
-      channel = new BroadcastChannel(OAUTH_RESULT_CHANNEL);
-      channel.onmessage = (event: MessageEvent<unknown>) => onResult(event.data);
-    }
-    return () => {
-      window.removeEventListener("message", onWindowMessage);
-      channel?.close();
-    };
-  }, [cards]);
-
-  useEffect(() => () => {
-    const attempt = oauthPopupRef.current;
-    if (!attempt) return;
-    window.clearInterval(attempt.pollId);
-    window.clearTimeout(attempt.timeoutId);
-    if (!attempt.popup.closed) attempt.popup.close();
-    oauthPopupRef.current = null;
-  }, []);
-
   useEffect(() => { if (canView) void refresh(); }, [canView]);
   useEffect(() => {
     const aiProviders = cards.filter((card) => integrationCategory(card) === "ai").map((card) => card.provider);
@@ -728,25 +439,18 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   }, []);
 
-  async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation, targetConnectionId?: string) {
+  async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation) {
     if (runningProvider.current) return;
     runningProvider.current = provider;
-    setBusy(provider); setBusyAction(kind ?? null); setBusyTargetConnectionId(targetConnectionId ?? null); setNotice(null);
+    setBusy(provider); setBusyAction(kind ?? null); setNotice(null);
     if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "running", message: operationProgress[kind] } }));
     try {
       await operation();
       if (kind === "disconnect") setCards((current) => current.map((card) => {
-        if (card.provider !== provider) return card;
-        const id = targetConnectionId ?? card.connection?.id;
-        if (!id) return card;
-        const row = card.connections.find((item) => item.id === id) ?? (card.connection?.id === id ? card.connection : null);
-        if (!row) return card;
-        const disconnected: ProviderConnection = { ...row, status: "disconnected", is_active: false, credential_state: "missing" };
-        return {
-          ...card,
-          connection: card.connection?.id === id ? disconnected : card.connection,
-          connections: card.connections.map((item) => item.id === id ? disconnected : item),
-        };
+        if (card.provider !== provider || !card.connection) return card;
+        const id = card.connection.id;
+        const disconnected: ProviderConnection = { ...card.connection, status: "disconnected", is_active: false, credential_state: "missing" };
+        return { ...card, connection: disconnected, connections: card.connections.map((item) => item.id === id ? disconnected : item) };
       }));
       setNotice(success);
       if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "success", message: success } }));
@@ -756,57 +460,25 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       const message = actionError instanceof Error ? actionError.message : "Integration action failed";
       setNotice(message);
       if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
-    } finally { setBusy(null); setBusyAction(null); setBusyTargetConnectionId(null); runningProvider.current = null; }
+    } finally { setBusy(null); setBusyAction(null); runningProvider.current = null; }
   }
 
-  async function syncInbound(
-    connectionId: string,
-    provider: string,
-    mode: "initial" | "manual" | "review_recent",
-  ) {
-    if (syncWatchers.current.has(connectionId)) return;
-    syncWatchers.current.add(connectionId);
+  async function syncInbound(connectionId: string, provider: string, mode: "initial" | "manual") {
     setBusy(provider);
     setSyncingProvider(provider);
-    setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
     setNotice(null);
-    setSyncResults((current) => ({ ...current, [connectionId]: null }));
     setSyncFeedback((current) => ({
       ...current,
-      [connectionId]: {
-        kind: "progress",
-        message: mode === "review_recent"
-          ? "Scanning recent Gmail messages and reviewing them with AI."
-          : "Syncing provider records. This may take a moment.",
-      },
+      [connectionId]: { kind: "progress", message: "Syncing provider records. This may take a moment." },
     }));
     try {
-      let result = await runInboundSync(connectionId, mode, provider, Number(reviewLimits[connectionId] ?? "100"));
-      if ("queued_at" in result) {
-        const accepted = result;
-        setSyncFeedback((current) => ({
-          ...current,
-          [connectionId]: { kind: "progress", message: accepted.message },
-        }));
-        result = await pollInboundSync({
-          queuedAt: accepted.queued_at,
-          getRuns: () => getInboundSyncRuns(connectionId),
-          getState: () => getInboundSyncState(connectionId, provider),
-          onProgress: (message) => {
-            setSyncFeedback((current) => ({
-              ...current,
-              [connectionId]: { kind: "progress", message },
-            }));
-          },
-        });
-      }
-      if ("queued_at" in result) throw new Error("Gmail sync did not return a completed run.");
-      setSyncResults((current) => ({ ...current, [connectionId]: result as CrmInboundSyncRun }));
+      const result = await runInboundSync(connectionId, mode, provider);
+      const summary = `Sync ${result.status}: ${result.records_fetched} fetched, ${result.records_created} created, ${result.records_updated} updated, ${result.records_skipped} skipped, ${result.records_failed} failed.`;
       setSyncFeedback((current) => ({
         ...current,
         [connectionId]: {
-          kind: syncRunKind(result),
-          message: syncRunMessage(result),
+          kind: result.status === "completed" ? "success" : "error",
+          message: summary,
         },
       }));
       await refresh();
@@ -817,119 +489,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         [connectionId]: { kind: "error", message: `Sync failed: ${message}` },
       }));
     } finally {
-      syncWatchers.current.delete(connectionId);
-      setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
       setBusy(null);
       setSyncingProvider(null);
     }
   }
-
-  async function resumeInboundSync(connectionId: string, provider: string) {
-    if (syncWatchers.current.has(connectionId)) return;
-    syncWatchers.current.add(connectionId);
-    setBusy(provider);
-    setSyncingProvider(provider);
-    setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
-    setSyncFeedback((current) => ({
-      ...current,
-      [connectionId]: { kind: "progress", message: "Reconnecting to the active Gmail sync…" },
-    }));
-    try {
-      const runs = await getInboundSyncRuns(connectionId);
-      const activeRun = runs.find((run) => ["queued", "running", "cancel_requested"].includes(run.status));
-      const state = await getInboundSyncState(connectionId, provider);
-      if (!activeRun && !["queued", "running", "cancel_requested"].includes(state.status)) return;
-      const result = await pollInboundSync({
-        queuedAt: activeRun?.created_at ?? state.updated_at,
-        getRuns: () => getInboundSyncRuns(connectionId),
-        getState: () => getInboundSyncState(connectionId, provider),
-        onProgress: (message) => setSyncFeedback((current) => ({
-          ...current,
-          [connectionId]: { kind: "progress", message },
-        })),
-      });
-      setSyncResults((current) => ({ ...current, [connectionId]: result }));
-      setSyncFeedback((current) => ({
-        ...current,
-        [connectionId]: {
-          kind: syncRunKind(result),
-          message: syncRunMessage(result),
-        },
-      }));
-      await refresh();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Gmail sync could not be resumed.";
-      setSyncFeedback((current) => ({
-        ...current,
-        [connectionId]: { kind: "error", message: `Sync failed: ${message}` },
-      }));
-    } finally {
-      syncWatchers.current.delete(connectionId);
-      setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
-      setBusy(null);
-      setSyncingProvider(null);
-    }
-  }
-
-  async function cancelGmailSync(connectionId: string) {
-    if (syncCancelRequests[connectionId]) return;
-    setSyncCancelRequests((current) => ({ ...current, [connectionId]: true }));
-    setSyncFeedback((current) => ({
-      ...current,
-      [connectionId]: {
-        kind: "progress",
-        message: "Requesting cancellation…",
-      },
-    }));
-    try {
-      const result = await cancelInboundSync(connectionId);
-      if (result.status === "not_running") {
-        setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
-        setSyncFeedback((current) => ({
-          ...current,
-          [connectionId]: {
-            kind: "progress",
-            message: "The sync has just finished. Refreshing its result…",
-          },
-        }));
-        await refresh();
-        return;
-      }
-      setSyncFeedback((current) => ({
-        ...current,
-        [connectionId]: { kind: "progress", message: result.message },
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Cancellation could not be requested.";
-      setSyncCancelRequests((current) => ({ ...current, [connectionId]: false }));
-      setSyncFeedback((current) => ({
-        ...current,
-        [connectionId]: {
-          kind: "progress",
-          message: `${message} The Gmail sync may still be running.`,
-        },
-      }));
-    }
-  }
-
-  useEffect(() => {
-    if (!canView) return;
-    for (const card of cards) {
-      if (card.provider !== "gmail") continue;
-      const connections = card.connections.length ? card.connections : card.connection ? [card.connection] : [];
-      for (const connection of connections) {
-        const state = syncStates[connection.id];
-        if (
-          connection.is_active
-          && state
-          && ["running", "queued", "cancel_requested"].includes(state.status)
-          && !syncWatchers.current.has(connection.id)
-        ) {
-          void resumeInboundSync(connection.id, card.provider);
-        }
-      }
-    }
-  }, [canView, cards, syncStates]);
 
   async function loadSlackChannelsForRouting(connectionId: string) {
     try {
@@ -940,10 +503,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   }
 
-  function connectOAuth(provider: string, intent?: "connect" | "reconnect") {
+  function connectOAuth(provider: string) {
     if (!canConnect || (adminOnlyProviders.has(provider) && !canManage) || (provider === "slack" && !canManage) || busy) return;
     const connection = cards.find((card) => card.provider === provider)?.connection;
-    oauthIntent.current = intent ?? (connection && connection.status !== "disconnected" ? "reconnect" : "connect");
+    oauthIntent.current = connection && connection.status !== "disconnected" ? "reconnect" : "connect";
     if (provider === "calendly") {
       setExpanded(provider);
       setAccountChoiceProvider(provider);
@@ -976,19 +539,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setNotice(message);
       return;
     }
-    const popup = window.open(
-      "about:blank",
-      "_blank",
-      "popup,width=620,height=760,resizable=yes,scrollbars=yes",
-    );
-    if (!popup) {
-      const message = "The sign-in window was blocked. Allow pop-ups for this site, then try again.";
-      setActionErrors((current) => ({ ...current, [provider]: message }));
-      setNotice(message);
-      setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
-      return;
-    }
-    popup.name = `corral-oauth-${provider}-${Date.now()}`;
     runningProvider.current = provider;
     setBusy(provider);
     setBusyAction(oauthIntent.current);
@@ -999,43 +549,20 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       delete next[provider];
       return next;
     });
-    const attempt = {
-      provider,
-      popup,
-      pollId: 0,
-      timeoutId: 0,
-    };
-    oauthPopupRef.current = attempt;
-    attempt.pollId = window.setInterval(() => {
-      if (popup.closed) {
-        finishClosedOAuthPopup(
-          provider,
-          `${cards.find((card) => card.provider === provider)?.display_name ?? "Provider"} sign-in window closed before completion. Reconnect to try again.`,
-        );
-      }
-    }, 400);
-    attempt.timeoutId = window.setTimeout(() => {
-      finishClosedOAuthPopup(
-        provider,
-        `${cards.find((card) => card.provider === provider)?.display_name ?? "Provider"} sign-in timed out. Reconnect to try again.`,
-      );
-    }, 5 * 60 * 1000);
     try {
       const started = await beginIntegration(provider);
-      if (popup.closed) {
-        finishClosedOAuthPopup(
-          provider,
-          `${cards.find((card) => card.provider === provider)?.display_name ?? "Provider"} sign-in window closed before completion. Reconnect to try again.`,
-        );
-        return;
-      }
-      popup.location.href = apiUrl(started.authorization_url);
+      window.location.assign(apiUrl(started.authorization_url));
     } catch (actionError) {
       const message = oauthConnectFailureMessage(
         provider,
         actionError instanceof Error ? actionError.message : "Authorization could not begin",
       );
-      finishOAuthPopup(provider, "failed", message);
+      setActionErrors((current) => ({ ...current, [provider]: message }));
+      setNotice(message);
+      setBusy(null);
+      setBusyAction(null);
+      runningProvider.current = null;
+      setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
     }
   }
 
@@ -1125,27 +652,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     .filter((section) => section.providers.length > 0);
 
   const focusedLabel = selectedProvider ? cardByProvider.get(selectedProvider)?.display_name || selectedProvider : aiSection ? "AI connection" : callingSection ? "All dialers" : "";
-  const activeGmailSyncs = cards
-    .filter((card) => card.provider === "gmail")
-    .flatMap((card) => (card.connections.length ? card.connections : card.connection ? [card.connection] : [])
-      .map((connection) => ({
-        connection,
-        state: syncStates[connection.id],
-        feedback: syncFeedback[connection.id],
-      })))
-    .filter(({ state, feedback }) =>
-      state?.status === "running"
-      || state?.status === "queued"
-      || state?.status === "cancel_requested"
-      || (syncingProvider === "gmail" && feedback?.kind === "progress"),
-    );
   return <div className={`page-view operational-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
     <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
-    {activeGmailSyncs.map(({ connection, state, feedback }) => <section className="gmail-sync-active-banner" key={connection.id} role="status" aria-live="polite">
-      <span className="gmail-sync-active-indicator" aria-hidden="true" />
-      <div><span className="eyebrow">Gmail · AI review active</span><strong>{state?.status === "cancel_requested" ? "Stopping Gmail sync" : "Sync is still running"}</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
-      <span className="gmail-sync-active-state">{state?.status === "cancel_requested" ? "Stopping" : "In progress"}</span>
-    </section>)}
     {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <div className="integration-category-filter">
       <div className="integration-category-heading">
         <span className="eyebrow">Browse integrations</span>
@@ -1169,23 +677,9 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
        const status = connection?.status ?? "not_connected";
        const comingSoon = section.id === "coming-soon" || card.availability === "future";
        const openAI = card.provider === "openai";
-        const cloudTalk = card.provider === "cloudtalk";
-        const embeddedDialer = isEmbeddedDialerConnection({ provider: card.provider });
-        const canOpenPhone = Boolean(
-          embeddedDialer &&
-            canCallDialer &&
-            connection?.is_active &&
-            connection.status === "verified",
-        );
-        const requiredManualFields = cloudTalk
-          ? ["access_key_id", "access_key_secret"]
-          : card.manual_fields;
-        const reasoningProvider = isReasoningProvider(card.provider);
-       const statusLabel = comingSoon ? "Coming soon" : cloudTalk && connection?.status === "connected" && !connection.metadata.cloudtalk_agent_id
-         ? "Select an agent"
-         : connectionStatusLabel(connection?.status);
+       const statusLabel = comingSoon ? "Coming soon" : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};
-       const open = expandedProviders.has(card.provider);
+      const open = expandedProviders.has(card.provider);
       const activeConnectionStage = connectionStage(connection?.status);
       const syncState = connection ? syncStates[connection.id] : null;
       const crmDirection = card.category === "CRM";
@@ -1193,86 +687,29 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       const outlookDirection = card.provider === "outlook";
        const googleCalendarDirection = card.provider === "google_calendar";
        const calendlyDirection = card.provider === "calendly";
-       const metaWebhookSubscription = card.provider === "instagram"
-         ? "Instagram object · messages"
-         : card.provider === "messenger"
-           ? "Page object · messages"
-           : card.provider === "whatsapp_business"
-             ? "WhatsApp Business Account object · messages"
-             : null;
       const mailDirection = gmailDirection || outlookDirection;
-        const confirmationSource = card.directionality.automatic_inbound
-          ? leadConfirmationSources?.sources.find(
-              (source) => source.source === card.provider,
-            )
-          : undefined;
-       const canConnectProvider = reasoningProvider
+      const canConnectProvider = openAI
         ? canManage
         : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage);
        const slackConnections = card.provider === "slack"
          ? (card.connections.length ? card.connections : connection ? [connection] : [])
            .filter((item) => item.is_active && item.status === "verified" && item.credential_state === "configured")
          : [];
-        const gmailConnections = gmailDirection
-          ? (card.connections.length ? card.connections : connection ? [connection] : [])
-              .filter((item) => item.status !== "disconnected")
-          : [];
-       const selectedReasoningModel = modelSelections[card.provider] ?? connection?.selected_model ?? card.default_model ?? card.supported_models[0] ?? "";
-       const selectedOpenAIModel = selectedReasoningModel;
-        const detailsOpen = card.provider === "slack" ? slackPanelOpen : open;
-        const hasExpandableSettings = Boolean(
-          openAI ||
-          section.id === "ai" ||
-          (card.directionality.automatic_inbound &&
-            !comingSoon &&
-            canManage &&
-            (confirmationSource || leadConfirmationSourcesLoading || leadConfirmationSourceError)) ||
-          canOpenPhone ||
-          (card.provider === "calendly" && accountChoiceProvider === card.provider) ||
-          (cloudTalk && connection && canManage) ||
-          (reasoningProvider && connection && canManage) ||
-          (!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified"),
-        );
-        const expandableSettingsOpen = Boolean(
-          accountChoiceProvider === card.provider ||
-          (connection && syncFeedback[connection.id]) ||
-          leadConfirmationSourceError,
-        );
+      const selectedOpenAIModel = modelSelections[card.provider] ?? connection?.selected_model ?? card.default_model ?? "";
       const oauthConnected =
         (card.provider === "instagram" || card.provider === "messenger") &&
         connection &&
         ["connected", "verified"].includes(connection.status);
-         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : ""}`} key={card.provider}>
-           <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${detailsOpen ? "Close" : "Open"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}><span aria-hidden="true">{detailsOpen ? "−" : "+"}</span></button></div>
-          <ProviderDetailsPanel provider={card.provider} open={detailsOpen} onClose={() => setSlackPanelOpen(false)} id={`integration-details-${card.provider}`}>
+        return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${!open ? " is-collapsed" : ""}`} key={card.provider}>
+          <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${open ? "Collapse" : "Expand"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={open} aria-controls={`integration-details-${card.provider}`} onClick={() => toggleProviderExpanded(card.provider)}><span aria-hidden="true">{open ? "−" : "+"}</span></button></div>
+          <div className="provider-details" id={`integration-details-${card.provider}`} hidden={!open}>
          {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
-           <IntegrationDisclosure title="Setup guidance and permissions">
-             <p>{card.credential_help}</p>
-             {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
-               <span className="eyebrow">Meta inbound message setup</span>
-               <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>
-               <p><strong>Subscribe</strong><br />{metaWebhookSubscription}</p>
-               <p>Use the configured <code>WEBHOOK_SIGNING_SECRET</code> as Meta’s verify token. POST signatures are checked with this provider’s existing Meta app secret.</p>
-               <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
-             </div>}
-             {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
-           </IntegrationDisclosure>
+         <p>{card.credential_help}</p>
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
-          {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
-            accounts={gmailConnections}
-            canConnect={canConnectProvider}
-            canDisconnect={canDisconnect}
-            busy={Boolean(busy)}
-            busyAccountId={busyTargetConnectionId}
-            connecting={busy === "gmail" && busyAction === "connect"}
-            onAdd={() => void connectOAuth("gmail", "connect")}
-            onDisconnect={(gmailAccount) => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)}
-            statusLabel={connectionStatusLabel}
-          />}
+         {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">Choose your account or organization at provider sign-in. Only one account per provider remains active after verification.</p>}
          <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
-             <SlackSetupGuide open={slackGuideOpen} onOpenChange={setSlackGuideOpen} />
            {slackConnections.map((slackConnection) => {
              const channelId = typeof slackConnection.metadata.slack_channel_id === "string" ? slackConnection.metadata.slack_channel_id : "";
              const memberKey = `${slackConnection.id}:${channelId}`;
@@ -1302,218 +739,45 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              canManage={canManage} onSaved={setSlackRouting} onNotice={setNotice}
              loading={!slackRoutingReady} loadError={slackRoutingLoadError} />
          </>}
-        {!comingSoon && <IntegrationDisclosure title="Connection health details" className="connection-health-disclosure">
-          <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>
-          {openAI && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your OpenAI account</b></span></div>}
-          <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
-            {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
-          </div>
-        </IntegrationDisclosure>}
-          {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
-            {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
-            {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
-          </div>}
-         {hasExpandableSettings && <IntegrationDisclosure
-           title={openAI || section.id === "ai" ? "Usage and settings" : crmDirection || mailDirection ? "Sync and settings" : "More settings"}
-           className="integration-settings-disclosure"
-           open={expandableSettingsOpen}
-         >
-         {openAI && <OpenAIUsagePanel />}
-         {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}
-          {card.directionality.automatic_inbound && !comingSoon && canManage && (
-            leadConfirmationSourceError ? (
-              <p className="lead-confirmation-error" role="alert">
-                {card.display_name} confirmation settings could not be loaded: {leadConfirmationSourceError}
-              </p>
-            ) : confirmationSource ? (
-              <section
-                className="integration-guide lead-confirmation-setting"
-                aria-label={`${card.display_name} confirmation email settings`}
-              >
-                <div className="lead-confirmation-setting-copy">
-                  <span className="eyebrow">New-lead email</span>
-                  <strong>Automatic confirmation</strong>
-                  <p>
-                    Control confirmation emails only. New leads still follow the
-                    normal qualification and review rules.
-                  </p>
-                  {confirmationSource.uses_default && (
-                    <small>
-                      Using workspace default ({leadConfirmationSources?.default_enabled ? "On" : "Off"}).
-                    </small>
-                  )}
-                </div>
-                <div className="lead-confirmation-setting-actions">
-                  {!confirmationSource.uses_default && (
-                    <button
-                      className="button-quiet"
-                      type="button"
-                      disabled={leadConfirmationSourceBusy !== null}
-                      onClick={() =>
-                        void updateConfirmationSource(card.provider, null)
-                      }
-                    >
-                      Use default
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className={`email-automation-toggle${confirmationSource.enabled ? " is-on" : ""}`}
-                    role="switch"
-                    aria-checked={confirmationSource.enabled}
-                    aria-label={`Automatic confirmation emails for ${card.display_name}`}
-                    disabled={leadConfirmationSourceBusy !== null}
-                    onClick={() =>
-                      void updateConfirmationSource(
-                        card.provider,
-                        !confirmationSource.enabled,
-                      )
-                    }
-                  >
-                    <span className="email-automation-track" aria-hidden="true">
-                      <i />
-                    </span>
-                    <span>
-                      {leadConfirmationSourceBusy === card.provider
-                        ? "Saving…"
-                        : confirmationSource.enabled
-                          ? "On"
-                          : "Off"}
-                    </span>
-                  </button>
-                </div>
-              </section>
-            ) : leadConfirmationSourcesLoading ? (
-              <p className="lead-confirmation-loading">Loading confirmation setting…</p>
-            ) : null
-          )}
-         {canOpenPhone && <div className="integration-guide phone-session-setup">
-           <span className="eyebrow">Phone sign-in for this browser</span>
-           <strong>Use your own {card.display_name} account</strong>
-           <p>
-             Corral’s integration connection authorizes workspace API actions.
-             Open the phone and sign in with your provider account or organization
-             SSO. The floating phone stays mounted as you move around Corral; the
-             provider may ask you to sign in again after its session expires.
-           </p>
-           {card.provider === "ringcentral" && !ringCentralEmbedClientId && (
-             <p role="note">
-               RingCentral’s live phone also needs a registered Embeddable app
-               client ID. The dock will show its setup instructions until that is
-               configured.
-             </p>
-           )}
-           <div className="card-actions">
-             <button
-               type="button"
-               className="button-quiet"
-               onClick={() =>
-                 window.dispatchEvent(
-                   new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
-                     detail: { connectionId: connection?.id },
-                   }),
-                 )
-               }
-             >
-               Open {card.display_name} phone
-             </button>
-           </div>
-         </div>}
+        {!comingSoon && <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>}
+        {openAI && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your OpenAI account</b></span></div>}
+        {openAI && <OpenAIUsagePanel />}
+        {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}
+        {!comingSoon && <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
+          {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
+        </div>}
+        {!comingSoon && <div className="card-actions">
+           {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
+          <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>
+        </div>}
         {card.provider === "calendly" && accountChoiceProvider === card.provider && <IntegrationAccountChoice
           key={card.provider} provider={card.provider} accountName={connection?.account_name}
           busy={busy === card.provider}
           onContinue={() => void authorizeOAuth(card.provider)}
           onCancel={() => setAccountChoiceProvider(null)}
         />}
-         {cloudTalk && connection && canManage && <div className="integration-guide cloudtalk-agent-picker">
-           <span className="eyebrow">CloudTalk calling agent</span>
-           <p>Store the Access Key ID and Secret first. Loading this list only reads agent names and IDs; it never places a call.</p>
-           <div className="card-actions">
-             <button type="button" className="button-quiet" disabled={Boolean(busy)} onClick={() => void act(card.provider, async () => {
-               const result = await listCloudTalkAgents(connection.id);
-               setCloudTalkAgents((current) => ({ ...current, [connection.id]: result.agents }));
-               if (result.selected_agent_id) {
-                 setCloudTalkAgentSelections((current) => ({ ...current, [connection.id]: result.selected_agent_id! }));
-               }
-             }, "CloudTalk agents loaded.")}>{busy === card.provider ? "Loading agents…" : "Load agents"}</button>
-             {cloudTalkAgents[connection.id] && <>
-               <label>Agent<select value={cloudTalkAgentSelections[connection.id] ?? ""} onChange={(event) => setCloudTalkAgentSelections((current) => ({ ...current, [connection.id]: event.target.value }))}>
-                 <option value="">Choose a CloudTalk agent</option>
-                 {cloudTalkAgents[connection.id].map((agent) => <option key={agent.id} value={agent.id}>{agent.name} · ID {agent.id}</option>)}
-               </select></label>
-               <button type="button" disabled={Boolean(busy) || !cloudTalkAgentSelections[connection.id]} onClick={() => void act(card.provider, async () => {
-                 await selectCloudTalkAgent(connection.id, cloudTalkAgentSelections[connection.id]);
-               }, "CloudTalk agent saved. Verify the connection before placing calls.")}>Save agent</button>
-             </>}
-            </div>
-           {typeof connection.metadata.cloudtalk_agent_name === "string" && <small>Selected: {connection.metadata.cloudtalk_agent_name} · Verify the connection to enable calling.</small>}
-         </div>}
-         {reasoningProvider && connection && canManage && <div className="integration-guide reasoning-model-config"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedReasoningModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button className="button-quiet" onClick={() => void act(card.provider, () => updateReasoningModel(connection.id, selectedReasoningModel), `${card.display_name} model saved. Test the connection before use.`)} disabled={busy === card.provider || !selectedReasoningModel}>Save model</button></div>}
+        {openAI && connection && canManage && <div className="integration-guide openai-model-config"><span className="eyebrow">Model configuration</span><label>Allowed model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label><button className="button-quiet" onClick={() => void act(card.provider, () => updateOpenAIModel(connection.id, selectedOpenAIModel), "OpenAI model saved. Test the connection before use.")} disabled={busy === card.provider || !selectedOpenAIModel}>Save model</button></div>}
         {!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified" && <div className="integration-guide">
           <span className="eyebrow">{mailDirection ? "Automatic inbound email acquisition" : "Inbound CRM synchronization"}</span>
           <strong>{syncState?.enabled ? "Enabled · automatic inbound" : "Disabled"}</strong>
-          {syncState?.enabled && <p>Automatically checks every {syncIntervalLabel(syncState.sync_interval_seconds)}, even when Corral is closed. New records appear without pressing Sync now.</p>}
+          {syncState?.enabled && <p>Automatically checks every {syncState.sync_interval_seconds} seconds, even when Corral is closed. New records appear without pressing Sync now.</p>}
           <p>{syncState?.last_successful_sync_at ? `Last synced ${new Date(syncState.last_successful_sync_at).toLocaleString()} · ${syncState.records_processed.toLocaleString()} records processed.` : "No provider records have been imported yet."}</p>
           {mailDirection && <p>{syncState?.next_sync_at ? `Next sync ${new Date(syncState.next_sync_at).toLocaleString()}.` : `Status: ${syncState?.status ?? "not configured"}.`}{syncState?.status && ` Latest result: ${syncState.status.replaceAll("_", " ")}.`}</p>}
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
-           {(canInboundSync || canManage) && <div className={`card-actions${card.provider === "gmail" ? " gmail-sync-actions" : ""}`}>
+          {(canInboundSync || canManage) && <div className="card-actions">
             {canManage && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${mailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (mailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (mailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
-            {syncState?.enabled && card.provider !== "gmail" && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
-            {syncState && card.provider === "gmail" && <div className="gmail-sync-controls">
-                <label htmlFor={`review-limit-${connection.id}`}>Messages to scan
-                  <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
-                </label>
-                 <p>AI reviews unreviewed messages from the last 30 days and adds matches to the right lead. Each conversation is analyzed once; new replies are rechecked with full thread context. Choose 1–5,000 messages.</p>
-                <div className="gmail-sync-buttons">
-                  <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
-                    {syncingProvider === card.provider ? "Syncing with AI…" : "Sync Gmail with AI"}
-                  </button>
-                  {syncingProvider === card.provider && syncFeedback[connection.id]?.kind === "progress" && <button className="button-quiet gmail-sync-cancel-button" type="button" onClick={() => void cancelGmailSync(connection.id)} disabled={syncCancelRequests[connection.id]} aria-label="Cancel Gmail AI sync">
-                    {syncCancelRequests[connection.id] ? "Stopping…" : "Cancel sync"}
-                  </button>}
-                </div>
-            </div>}
-            {syncFeedback[connection.id] && (syncFeedback[connection.id].kind === "progress"
-              ? <div className="gmail-sync-progress" role="status" aria-live="polite"><span className="gmail-sync-spinner" aria-hidden="true" /><span>{syncFeedback[connection.id].message}</span></div>
-              : syncResults[connection.id]
-                ? (() => {
-                  const result = syncResults[connection.id]!;
-                  const review = parseGmailReviewNotes(result.last_error);
-                  const stats = [
-                    ["Scanned", result.records_fetched],
-                    ["New leads", result.records_created],
-                    ["Updated", result.records_updated],
-                    ["Already known", result.records_unchanged],
-                    ["Skipped", result.records_skipped],
-                    ["Failed", result.records_failed],
-                  ];
-                  return <section className={`gmail-sync-result sync-result-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">
-                    <header><div><span className={`gmail-sync-result-badge sync-result-badge-${syncFeedback[connection.id].kind}`}>{result.status === "cancelled" ? "Cancelled" : result.status === "completed" ? "Complete" : result.status === "completed_with_errors" ? "Needs attention" : "Failed"}</span><strong>{syncFeedback[connection.id].message}</strong></div><time>{new Date(result.created_at).toLocaleString()}</time></header>
-                    <div className="gmail-sync-result-stats">{stats.map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}</div>
-                    {review.general && <p className="gmail-sync-result-summary">{review.general}</p>}
-                    {review.notes.length > 0 && <details className="gmail-sync-review-details">
-                      <summary>AI review notes <span>{review.notes.length}</span></summary>
-                      <ul>{review.notes.map((note, index) => <li key={`${note.outcome}-${index}`} className={`gmail-review-note gmail-review-note-${note.outcome}`}>
-                        <span>{note.outcome === "selected" ? "Lead" : "Skipped"}</span>
-                        <div><strong>{note.title}</strong>{note.detail && <p>{note.detail}</p>}</div>
-                      </li>)}</ul>
-                    </details>}
-                    {!review.notes.length && !review.general && result.last_error && <details className="gmail-sync-review-details"><summary>Run details</summary><pre>{result.last_error}</pre></details>}
-                  </section>;
-                })()
-                : <div className={`notice integration-sync-feedback sync-feedback-${syncFeedback[connection.id].kind}`} role="alert" aria-live="polite">{syncFeedback[connection.id].message}</div>)}
+            {syncState?.enabled && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
+            {syncFeedback[connection.id] && <div className={`notice integration-sync-feedback sync-feedback-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">{syncFeedback[connection.id].message}</div>}
           </div>}
-         </div>}
-         </IntegrationDisclosure>}
-           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className="connection-briefing-disclosure">
-           <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
+        </div>}
+        {!comingSoon && open && <div className="integration-guide">
           <span className="eyebrow">Connection briefing</span>
           <strong>{card.dashboard_path}</strong>
           <p>{card.permission_reason}</p>
           {card.provider === "slack" && <p>New connections also request <code>channels:join</code> to join a public channel you select, and <code>groups:read</code> to list private channels after the app is invited. Corral does not read channel messages or join channels until you choose one.</p>}
-           {reasoningProvider && <>
-             <p>Create a dedicated API key for this workspace in the {card.display_name} console. Restrict its permissions where possible, configure provider-side budgets and limits, and rotate it periodically.</p>
-             <p><strong>{card.display_name} API usage is billed directly to your provider account.</strong></p>
+          {openAI && <>
+            <p>Create a dedicated OpenAI Project and project-scoped API key for this workspace. Restrict its permissions where possible, configure project budgets and limits, and rotate it periodically. Do not use a personal master key.</p>
+            <p><strong>OpenAI API usage is billed directly to your OpenAI account.</strong></p>
           </>}
           <div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div>
           <a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation →</a>
@@ -1522,9 +786,9 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             <span>Secure credential setup</span>
             {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}
             {openAI && !connection && <label>Model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label>}
-            {card.manual_fields.filter((field) => !cloudTalk || field !== "agent_id").map((field) => {
+            {card.manual_fields.map((field) => {
               const secret = /token|secret|jwt|api_key/.test(field);
-              const label = field === "bot_token" ? "Bot User OAuth Token (secure)" : field === "from_number" ? "Phone number (+country code)" : field.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+              const label = field === "from_number" ? "Phone number (+country code)" : field.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
               const inputProps = {
                 spellCheck: false,
                 placeholder: openAI ? "OpenAI project API key" : field === "from_number" ? "+14155550123" : undefined,
@@ -1536,24 +800,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                 : <input type={field === "from_number" ? "tel" : "text"} autoComplete="off" {...inputProps} />}
               </label>;
             })}
-            <button disabled={Boolean(busy) || requiredManualFields.some((field) => !providerCredentials[field]?.trim())} onClick={() => void act(card.provider, async () => {
-              if (connection) {
-                await reconnectIntegration(connection.id, providerCredentials);
-                if (cloudTalk) {
-                  setCloudTalkAgents((current) => ({ ...current, [connection.id]: [] }));
-                  setCloudTalkAgentSelections((current) => ({ ...current, [connection.id]: "" }));
-                }
-              } else {
-                await addIntegrationCredential(card.provider, accountNames[card.provider] || (openAI ? "OpenAI project" : `${card.display_name} account`), card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials, openAI ? { selected_model: selectedOpenAIModel } : {});
-              }
-            }, `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace Key" : connection ? "Replace credentials" : "Store credentials"}</button>
+            <button disabled={Boolean(busy) || card.manual_fields.some((field) => !providerCredentials[field]?.trim())} onClick={() => void act(card.provider, () => connection ? reconnectIntegration(connection.id, providerCredentials) : addIntegrationCredential(card.provider, accountNames[card.provider] || (openAI ? "OpenAI project" : `${card.display_name} account`), card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials, openAI ? { selected_model: selectedOpenAIModel } : {}), `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace Key" : "Store credentials"}</button>
             <small>The key is sent only to the backend, encrypted by the configured secret service, cleared from this form after success, and never returned.</small>
-            </div>}
-            </div>
-          </IntegrationDisclosure>}
+          </div>}
+        </div>}
         {operationFeedback[card.provider] && <div className={`notice notice-${operationFeedback[card.provider].state} integration-operation-feedback operation-${operationFeedback[card.provider].state}`} role={operationFeedback[card.provider].state === "error" ? "alert" : "status"} aria-live="polite" aria-busy={operationFeedback[card.provider].state === "running"}>{operationFeedback[card.provider].message}</div>}
         {actionErrors[card.provider] && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
-          </ProviderDetailsPanel>
+          </div>
        </article>;
     })}</div>
     </section>)}</div>}

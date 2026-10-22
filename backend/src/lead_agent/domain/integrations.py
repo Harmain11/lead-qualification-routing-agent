@@ -13,7 +13,6 @@ ProviderType = Literal[
     "ringcentral",
     "vapi",
     "retell",
-    "cloudtalk",
     "salesforce",
     "hubspot",
     "slack",
@@ -228,7 +227,10 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         preferred_auth="oauth2",
         supported_auth=["oauth2"],
         dashboard_path="Managed by Ingenuity Systems · Microsoft Entra application",
-        credential_help="Sign in with Microsoft and approve read-only access to the Outlook Inbox.",
+        credential_help=(
+            "Microsoft Outlook inbox sync is planned. Connection controls will be enabled in a "
+            "future release."
+        ),
         required_scopes=["openid", "profile", "email", "offline_access", "Mail.Read"],
         permission_reason="Read approved inbound lead messages through Microsoft Graph.",
         documentation_url="https://learn.microsoft.com/graph/auth-v2-user",
@@ -343,37 +345,37 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
     ),
     "gemini": ProviderSetupMetadata(
         provider="gemini",
-        display_name="Google Gemini",
+        display_name="Gemini",
         category="AI analysis",
-        availability="available",
+        availability="foundation",
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="Google AI Studio → API keys",
         credential_help=(
-            "Connect a Google AI Studio API key for this workspace. Gemini API usage is "
-            "billed directly to your Google account."
+            "Connect a Google AI Studio API key for this workspace. Keep the key restricted "
+            "to the projects and models used by Corral."
         ),
-        required_scopes=["Generative Language API access"],
-        permission_reason="Run schema-constrained context and intent analysis.",
+        required_scopes=["Gemini API access"],
+        permission_reason="Run bounded context and intent analysis through Gemini.",
         documentation_url="https://ai.google.dev/gemini-api/docs/api-key",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),
     "claude": ProviderSetupMetadata(
         provider="claude",
-        display_name="Anthropic Claude",
+        display_name="Claude",
         category="AI analysis",
-        availability="available",
+        availability="foundation",
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="Anthropic Console → API keys",
         credential_help=(
-            "Connect an Anthropic API key for this workspace. Claude API usage is "
-            "billed directly to your Anthropic account."
+            "Connect an Anthropic API key for this workspace. Use a key with only the access "
+            "needed for Corral analysis."
         ),
-        required_scopes=["Messages API access"],
-        permission_reason="Run schema-constrained context and intent analysis.",
-        documentation_url="https://docs.anthropic.com/en/api/getting-started",
+        required_scopes=["Anthropic API access"],
+        permission_reason="Run bounded context and intent analysis through Claude.",
+        documentation_url="https://docs.anthropic.com/en/docs/initial-setup",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),
@@ -381,35 +383,35 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
         provider="deepseek",
         display_name="DeepSeek",
         category="AI analysis",
-        availability="available",
+        availability="foundation",
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="DeepSeek Platform → API keys",
         credential_help=(
-            "Connect a DeepSeek API key for this workspace. DeepSeek API usage is "
-            "billed directly to your DeepSeek account."
+            "Connect a DeepSeek API key for this workspace. Set account limits before using "
+            "the key for lead analysis."
         ),
-        required_scopes=["Chat Completions API access"],
-        permission_reason="Run JSON-constrained context and intent analysis.",
+        required_scopes=["DeepSeek API access"],
+        permission_reason="Run bounded context and intent analysis through DeepSeek.",
         documentation_url="https://api-docs.deepseek.com/",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),
     "xai": ProviderSetupMetadata(
         provider="xai",
-        display_name="xAI",
+        display_name="xAI / Grok",
         category="AI analysis",
-        availability="available",
+        availability="foundation",
         preferred_auth="api_key",
         supported_auth=["api_key"],
         dashboard_path="xAI Console → API keys",
         credential_help=(
-            "Connect an xAI API key for this workspace. xAI API usage is billed "
-            "directly to your xAI account."
+            "Connect an xAI API key for this workspace. Configure model and spending limits "
+            "in the xAI console before use."
         ),
-        required_scopes=["Responses API access"],
-        permission_reason="Run schema-constrained context and intent analysis.",
-        documentation_url="https://docs.x.ai/overview",
+        required_scopes=["xAI API access"],
+        permission_reason="Run bounded context and intent analysis through xAI.",
+        documentation_url="https://docs.x.ai/docs/overview",
         manual_fields=["api_key"],
         connection_mode="workspace",
     ),
@@ -493,20 +495,6 @@ _COMMUNICATION_SETUP = {
         (
             "Use your Retell API key, a published voice-agent ID and an owned/imported phone "
             "number. Calls require explicit rep confirmation."
-        ),
-    ),
-    "cloudtalk": (
-        "CloudTalk",
-        "Dialer",
-        "private_token",
-        ["access_key_id", "access_key_secret", "agent_id"],
-        ["Agents", "Calls", "Call history", "Conversation Intelligence"],
-        "https://developers.cloudtalk.io/api-reference/calls/make-a-call",
-        (
-            "Enter your CloudTalk Access Key ID and Access Key Secret, plus the numeric agent "
-            "ID that should place calls. Verification only reads that agent; calls are submitted "
-            "only after a rep confirms them. Call history and Conversation Intelligence use "
-            "CloudTalk's official API endpoints."
         ),
     ),
 }

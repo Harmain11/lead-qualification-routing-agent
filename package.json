@@ -16,7 +16,6 @@
   },
   "homepage": "https://github.com/Harmain11/lead-qualification-routing-agent#readme",
   "dependencies": {
-    "@replit/connectors-sdk": "^0.4.3",
-    "aircall-everywhere": "^2.0.6"
+    "@replit/connectors-sdk": "^0.4.3"
   }
 }

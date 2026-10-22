@@ -96,13 +96,11 @@ above supersedes that guide's SMTP/remote-Redis-only requirements for this deplo
 
 ## Automatic source updates
 
-Verified Gmail connections sync automatically every five minutes by default, with
-a 15-second dispatcher. Existing enabled Gmail mailboxes on the former 60-second
+Verified Gmail and CRM connections sync automatically, normally every 60 seconds,
+with a 15-second dispatcher. Existing enabled mailboxes using the former 300-second
 default are upgraded without discarding checkpoints or historical records; explicit
-pauses and longer custom intervals remain intact. New Gmail connections start from
-their own verification history checkpoint, not by re-importing old mail. Automatic
-Gmail sync uses History API checkpoints; the manual recent-mail AI review skips
-previously reviewed messages and analyzes each conversation once per run.
+pauses and other custom intervals remain intact. New Gmail connections start from
+their own verification history checkpoint, not by re-importing old mail.
 The preview runner has a supervised local scheduler without requiring Redis;
 production continues to use its single Celery beat and worker. Acquisition does
 not depend on an open browser. Visible lead lists poll every 5 seconds; dashboard

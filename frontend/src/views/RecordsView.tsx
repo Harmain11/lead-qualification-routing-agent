@@ -207,7 +207,7 @@ export function RecordsView({
           }
         : {
             name: form.name,
-            domain: form.domain.trim().toLowerCase() || null,
+            domain: form.domain || null,
             website: form.website || null,
             website_reviewed: form.website_reviewed,
             industry: form.industry || null,
@@ -639,7 +639,7 @@ export function RecordsView({
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        domain: event.target.value,
+                        domain: event.target.value.toLowerCase(),
                       })
                     }
                     placeholder="company.com"

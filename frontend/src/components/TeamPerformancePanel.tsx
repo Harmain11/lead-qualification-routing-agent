@@ -6,23 +6,7 @@ const money = (value: number) => new Intl.NumberFormat(undefined, {
   style: "currency", currency: "USD", maximumFractionDigits: 2,
 }).format(value);
 
-export function TeamPerformancePanel({
-  data,
-  fairness = [],
-  fairnessMethod,
-}: {
-  data: RepAnalytics;
-  fairness?: Array<{
-    user_id: string;
-    name: string;
-    closed: number;
-    wins: number;
-    comparable_leads: number;
-    expected_wins: number;
-    adjusted_win_index: number | null;
-  }>;
-  fairnessMethod?: string;
-}) {
+export function TeamPerformancePanel({ data }: { data: RepAnalytics }) {
   const members = data.members ?? [];
   const [selected, setSelected] = useState<string[]>([]);
   const [profileId, setProfileId] = useState("");
@@ -76,19 +60,6 @@ export function TeamPerformancePanel({
         {profile.untyped_wins > 0 && <small>{profile.untyped_wins} earlier wins have no Project/Sale type.</small>}
         {profile.wins_without_value > 0 && <small>{profile.wins_without_value} wins have no recorded value and are not included in revenue.</small>}
       </article>}
-      {fairness.length > 0 && <section className="performance-fairness">
-        <h3>Territory- and lead-quality-adjusted outcomes</h3>
-        <p className="performance-caption">{fairnessMethod ?? "Observed wins are compared within similar recorded lead cohorts."} This is an observational comparison, not a performance verdict.</p>
-        <div className="performance-table-scroll">
-          <table className="performance-comparison"><caption>Adjusted win comparison</caption>
-            <thead><tr><th scope="col">Member</th><th scope="col">Comparable leads</th><th scope="col">Observed wins</th><th scope="col">Expected wins</th><th scope="col">Observed / expected</th></tr></thead>
-            <tbody>{fairness.filter((row) => members.some((member) => member.user_id === row.user_id)).map((row) => <tr key={row.user_id}>
-              <th scope="row">{row.name}</th><td>{row.comparable_leads}</td><td>{row.wins}</td><td>{row.expected_wins}</td>
-              <td>{row.adjusted_win_index == null ? "Insufficient sample" : `${row.adjusted_win_index.toFixed(2)}×`}</td>
-            </tr>)}</tbody>
-          </table>
-        </div>
-      </section>}
     </> : <p className="performance-empty">No workspace members are available for comparison.</p>}
     {!!data.unattributed_leads && <p className="performance-caption">{data.unattributed_leads} leads are not linked to a workspace member and are excluded from member comparisons. Choose a credited member when recording a win.</p>}
     {!members.length && data.reps.length > 0 && <details className="performance-legacy"><summary>Legacy routing representatives (not member accounts)</summary>

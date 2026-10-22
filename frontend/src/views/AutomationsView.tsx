@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { listLeads } from "../api";
 import { createClientId } from "../clientIds";
-import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
 import { OperationsDialog } from "../components/OperationsDialog";
 import {
   opsGet,
@@ -77,23 +77,6 @@ const initial = (kind: "sequence" | "playbook"): AutomationSpec => ({
   ],
 });
 type Editor = { id: string; spec: AutomationSpec };
-type WaitUnit = "hours" | "days" | "weeks";
-const waitUnitHours: Record<WaitUnit, number> = {
-  hours: 1,
-  days: 24,
-  weeks: 168,
-};
-function waitUnitFor(hours: number): WaitUnit {
-  if (hours % waitUnitHours.weeks === 0) return "weeks";
-  if (hours % waitUnitHours.days === 0) return "days";
-  return "hours";
-}
-function formatWait(hours: number) {
-  const unit = waitUnitFor(hours);
-  const amount = hours / waitUnitHours[unit];
-  const singular = unit.slice(0, -1);
-  return `${amount} ${singular}${amount === 1 ? "" : "s"}`;
-}
 export function AutomationsView({
   canManage,
   canEdit,
@@ -111,6 +94,10 @@ export function AutomationsView({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState<Automation | null>(null);
+  const [query, setQuery] = useState("");
+  const [leads, setLeads] = useState<
+    { id: string; full_name: string; company_name: string }[]
+  >([]);
   const [trust, setTrust] = useState<{
     score: number | null;
     sample_size: number;
@@ -153,6 +140,21 @@ export function AutomationsView({
       .catch(() => {});
     return () => controller.abort();
   }, [offset]);
+  useEffect(() => {
+    if (!enrolling) return;
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () =>
+        void listLeads({ search: query, limit: 20 }, controller.signal)
+          .then((data) => setLeads(data.items))
+          .catch(() => {}),
+      250,
+    );
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query, enrolling]);
   function patch(patch: Partial<AutomationSpec>) {
     setEditor((current) =>
       current ? { ...current, spec: { ...current.spec, ...patch } } : null,
@@ -277,10 +279,11 @@ export function AutomationsView({
                   className="secondary-button"
                   disabled={!item.active}
                   onClick={() => {
+                    setQuery("");
                     setEnrolling(item);
                   }}
                 >
-                  Enroll leads
+                  Enroll lead
                 </button>
               )}
             </div>
@@ -597,7 +600,7 @@ export function AutomationsView({
                     <b>{item.type}</b>
                     <small>
                       {item.type === "wait"
-                        ? formatWait(item.wait_hours)
+                        ? `${item.wait_hours} hours`
                         : item.type === "condition"
                           ? item.condition
                           : item.id}
@@ -711,82 +714,24 @@ export function AutomationsView({
                       </label>
                     </>
                   )}
-                  {node.type === "wait" && (
+                  {(node.type === "wait" ||
+                    (node.condition === "stalled" &&
+                      node.type === "condition")) && (
                     <label>
-                      Wait before next step
+                      Hours
                       <input
                         type="number"
                         min={1}
-                        max={Math.floor(2160 / waitUnitHours[waitUnitFor(node.wait_hours)])}
-                        value={
-                          node.wait_hours /
-                          waitUnitHours[waitUnitFor(node.wait_hours)]
-                        }
+                        max={2160}
+                        value={node.wait_hours}
                         onChange={(event) =>
                           patchNode(node.id, {
-                            wait_hours: Math.max(
-                              1,
-                              Math.min(
-                                2160,
-                                Number(event.target.value) *
-                                  waitUnitHours[waitUnitFor(node.wait_hours)],
-                              ),
-                            ),
+                            wait_hours: Number(event.target.value),
                           })
                         }
                       />
                     </label>
                   )}
-                  {node.type === "wait" && (
-                    <label>
-                      Time unit
-                      <select
-                        value={waitUnitFor(node.wait_hours)}
-                        onChange={(event) => {
-                          const unit = event.target.value as WaitUnit;
-                          const amount = Math.max(
-                            1,
-                            Math.round(
-                              node.wait_hours / waitUnitHours[unit],
-                            ),
-                          );
-                          patchNode(node.id, {
-                            wait_hours: Math.min(
-                              2160,
-                              amount * waitUnitHours[unit],
-                            ),
-                          });
-                        }}
-                      >
-                        <option value="hours">Hours</option>
-                        <option value="days">Days</option>
-                        <option value="weeks">Weeks</option>
-                      </select>
-                    </label>
-                  )}
-                  {node.type === "wait" && (
-                    <p className="ops-muted">
-                      Add a wait step before each follow-up draft to set its
-                      cadence, such as every 1 week.
-                    </p>
-                  )}
-                  {node.type === "condition" &&
-                    node.condition === "stalled" && (
-                      <label>
-                        Stalled threshold (hours)
-                        <input
-                          type="number"
-                          min={1}
-                          max={2160}
-                          value={node.wait_hours}
-                          onChange={(event) =>
-                            patchNode(node.id, {
-                              wait_hours: Number(event.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                    )}
                   {node.type === "note" && (
                     <label>
                       Shared note
@@ -873,12 +818,43 @@ export function AutomationsView({
         </OperationsDialog>
       )}
       {enrolling && (
-        <AutomationEnrollmentDialog
-          kind={enrolling.kind}
-          definition={enrolling}
+        <OperationsDialog
+          title={`Enroll in ${enrolling.name}`}
           onClose={() => setEnrolling(null)}
-          onEnrolled={() => void load()}
-        />
+        >
+          <label>
+            Find a lead
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <div className="ops-result-list">
+            {leads.map((lead) => (
+              <button
+                className="secondary-button"
+                key={lead.id}
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  void opsSave(`/v1/automations/${enrolling.id}/enroll`, {
+                    lead_id: lead.id,
+                  })
+                    .then(() => {
+                      setEnrolling(null);
+                      return load();
+                    })
+                    .catch((reason) => setError(reason.message))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                {lead.full_name} · {lead.company_name}
+              </button>
+            ))}
+          </div>
+          {error && <p role="alert">{error}</p>}
+        </OperationsDialog>
       )}
     </div>
   );

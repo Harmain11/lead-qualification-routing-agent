@@ -1,8 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from lead_agent.domain.models import NormalizedLead, RecordedLeadEvidence
-from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.models import NormalizedLead
 from lead_agent.domain.scoring import qualify_lead
 
 
@@ -93,68 +92,6 @@ def test_score_bands_cover_realistic_cases(icp, routing) -> None:
         assert qualify_lead(lead, icp, routing).classification == expected
 
 
-def test_recent_status_or_comment_can_raise_or_lower_qualification(icp, routing) -> None:
-    weak_message = "I am gathering information about your service."
-    baseline = qualify_lead(make_lead(message=weak_message, budget=None), icp, routing)
-    meeting_update = make_lead(
-        message=weak_message,
-        budget=None,
-        recorded_evidence=(
-            RecordedLeadEvidence(
-                source="manual_progress:meeting_scheduled",
-                text="Sales stage meeting_scheduled: A meeting was confirmed.",
-                observed_at=datetime.now(UTC),
-            ),
-        ),
-    )
-    raised = qualify_lead(meeting_update, icp, routing)
-    assert raised.total_score > baseline.total_score
-
-    cooled = make_lead(
-        recorded_evidence=(
-            RecordedLeadEvidence(
-                source="team_note",
-                text="Prospect is no longer interested and declined the proposal.",
-                observed_at=datetime.now(UTC),
-            ),
-        ),
-        original_message=make_lead().message,
-    )
-    lowered = qualify_lead(cooled, icp, routing)
-    assert lowered.total_score < qualify_lead(make_lead(), icp, routing).total_score
-    assert any(
-        "lowered current buying interest" in line.reason
-        for line in lowered.score_breakdown
-        if line.key in {"urgency", "buying_stage"}
-    )
-
-
-def test_team_note_length_does_not_inflate_message_detail_score(icp, routing) -> None:
-    original = "Please send information about your service."
-    note = "Routine follow-up note. " * 80
-    baseline = qualify_lead(make_lead(message=original), icp, routing)
-    with_note = qualify_lead(
-        make_lead(
-            message=f"{original}\n\nTeam notes:\n{note}",
-            original_message=original,
-            recorded_evidence=(
-                RecordedLeadEvidence(
-                    source="team_note",
-                    text=note,
-                    observed_at=datetime.now(UTC),
-                ),
-            ),
-        ),
-        icp,
-        routing,
-    )
-    baseline_detail = next(
-        line for line in baseline.score_breakdown if line.key == "message_detail"
-    )
-    note_detail = next(line for line in with_note.score_breakdown if line.key == "message_detail")
-    assert note_detail.points == baseline_detail.points
-
-
 def test_hard_disqualifier_short_circuits_scoring(icp, routing) -> None:
     result = qualify_lead(
         make_lead(
@@ -173,61 +110,3 @@ def test_hard_disqualifier_short_circuits_scoring(icp, routing) -> None:
     assert result.component_scores == {"icp_fit": 0, "intent_urgency": 0, "engagement_quality": 0}
     assert len(result.score_breakdown) == 3
     assert all("hard disqualifier" in reason.lower() for reason in result.rationale[1:4])
-
-
-def test_unconfigured_icp_is_skipped_and_remaining_score_is_normalized(icp, routing) -> None:
-    lead = make_lead(
-        job_title="Student",
-        product_or_service="School project",
-        message="I need help with homework for a school project.",
-    )
-
-    result = qualify_lead(lead, icp, routing, include_icp=False)
-
-    assert result.hard_disqualified is False
-    assert "icp_fit" not in result.component_scores
-    assert {line.component for line in result.score_breakdown} == {
-        "intent_urgency",
-        "engagement_quality",
-    }
-    assert sum(line.max_points for line in result.score_breakdown) == 60
-    assert result.total_score == round(
-        sum(line.points for line in result.score_breakdown) * 100 / 60
-    )
-    assert any("no published custom ICP" in reason for reason in result.rationale)
-
-
-def test_missing_manual_details_do_not_count_as_contact_completeness(icp, routing) -> None:
-    result = qualify_lead(
-        make_lead(
-            full_name="Name not provided",
-            email="",
-            phone=None,
-            job_title=None,
-            company_name="Company not provided",
-        ),
-        icp,
-        routing,
-    )
-
-    completeness = next(
-        line for line in result.score_breakdown if line.key == "contact_completeness"
-    )
-    assert completeness.points == 0
-
-
-def test_incomplete_manual_lead_is_not_hard_disqualified_for_missing_fields(
-    icp, routing
-) -> None:
-    lead = normalize_lead(
-        {
-            "source_detail": "manual-control-center",
-            "full_name": "Kathi Sitek",
-        },
-        uuid4(),
-    )
-
-    result = qualify_lead(lead, icp, routing)
-
-    assert result.hard_disqualified is False
-    assert result.disqualifier_code is None

@@ -54,23 +54,7 @@
 .navigation-menu-icon svg { width: 19px; height: 19px; }
 .navigation-menu-label { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .navigation-menu-item.is-active > .navigation-menu-trigger > .navigation-menu-label { font-weight: 650; }
-.navigation-menu-notification-count {
-  display: inline-flex;
-  min-width: 21px;
-  height: 20px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border: 1px solid var(--surface);
-  border-radius: 999px;
-  background: var(--green, #1e6b52);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
+.navigation-menu-badge { min-width: 22px; padding: 3px 6px; border-radius: 12px; background: var(--orange); color: #fff; font-size: 13px; text-align: center; }
 
 .navigation-menu-disclosure {
   position: relative;
@@ -139,7 +123,6 @@
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
   font-size: 13px;
   line-height: 1.35;
   text-align: left;
@@ -203,7 +186,6 @@
   border-radius: 7px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
   font: inherit;
   font-size: 13px;
   line-height: 1.35;
@@ -263,7 +245,9 @@
   height: 15px;
   margin: 0;
 }
-.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-label { display: none; }
+.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-label,
+.side-rail nav .navigation-menu-item.is-collapsed > .navigation-menu-trigger > .navigation-menu-badge { display: none; }
+
 .navigation-menu-item.is-collapsed { grid-template-columns: 42px; justify-content: center; }
 .navigation-menu-item.is-collapsed .navigation-menu-trigger {
   width: 42px;
@@ -271,17 +255,8 @@
   justify-items: center;
   padding: 0;
 }
-.navigation-menu-item.is-collapsed .navigation-menu-label { display: none; }
-.navigation-menu-item.is-collapsed .navigation-menu-notification-count {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 3px;
-  border-width: 2px;
-  font-size: 9px;
-}
+.navigation-menu-item.is-collapsed .navigation-menu-label,
+.navigation-menu-item.is-collapsed .navigation-menu-badge { display: none; }
 .navigation-menu-item.is-collapsed .navigation-menu-disclosure {
   position: absolute;
   top: 1px;

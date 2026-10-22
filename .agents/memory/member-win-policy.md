@@ -15,12 +15,6 @@ Manual closing and comments must be visible and easy to find.
 
 **How to apply:** Preserve the working closing/comment form when simplifying lead details, and prioritize it over the long decision trail.
 
-Before saving narrative text in the Status form, ask whether it is a status update or a regular comment. Status updates use the progress workflow; regular comments are saved as team notes without changing sales status.
-
-**Why:** The user asked Corral to distinguish an update from a regular comment before saving.
-
-**How to apply:** Present the intent choice before the text submission, then use the matching progress or team-note save path.
-
 Show the AI's buying-stage assessment beside manual closing, without treating it as a confirmed commercial outcome.
 
 **Why:** The user asked to show what AI thinks the lead's stage is in the closing section. A buying-stage estimate can be inferred or older than the latest recorded outcome.

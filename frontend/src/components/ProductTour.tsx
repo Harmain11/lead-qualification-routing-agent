@@ -6,7 +6,6 @@ import "./ProductTour.css";
 export type TourView =
   | "dashboard"
   | "leads"
-  | "email"
   | "contacts"
   | "pipeline"
   | "agents"

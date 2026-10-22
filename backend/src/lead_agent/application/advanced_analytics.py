@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from lead_agent.application.governance import assert_residency, operations_policy
 from lead_agent.application.territories import matches_territory
-from lead_agent.domain.lead_sources import lead_source_category
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     LeadOutcomeORM,
@@ -110,12 +109,7 @@ def advanced_analytics(
     channel_rows = defaultdict(list)
     cohorts = defaultdict(list)
     for lead in leads:
-        channel_rows[
-            (
-                lead_source_category(lead.source, lead.source_detail),
-                lead.received_at.strftime("%Y-%m"),
-            )
-        ].append(lead)
+        channel_rows[(lead.source, lead.received_at.strftime("%Y-%m"))].append(lead)
         week = lead.received_at.date() - timedelta(days=lead.received_at.weekday())
         campaign = str(
             lead.raw_payload.get("campaign")

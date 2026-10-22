@@ -1,20 +1,13 @@
 import { mutationStatusMessage, notifyActivity } from "./activity";
-import { createClientId } from "./clientIds";
-import { recentReviewBatch } from "./inboundReview";
 import type {
-  AdvancedAnalytics,
   AgentActivity,
   ChannelAnalytics,
   CrmSync,
-  CrmInboundSyncAccepted,
   CrmInboundSyncRun,
   CrmInboundSyncState,
   DashboardAnalytics,
-  ExtendedAnalytics,
   IntegrationCard,
-  LeadApprovalPolicy,
   Lead,
-  LeadAssignmentOption,
   LeadPipelineEvent,
   LeadProgressResult,
   GmailConversationSyncResult,
@@ -33,8 +26,8 @@ import type {
   RoutingConfig,
   PublicIntakeConfig,
   TimeRange,
-  ReasoningUsage,
-  ReasoningUsagePeriod,
+  OpenAIUsage,
+  OpenAIUsagePeriod,
   TimeSeriesAnalytics,
   AuthSession,
   PermissionOverrides,
@@ -47,11 +40,6 @@ import type {
   IcpVersion,
   SlackNotificationConfig,
   WorkspaceEmailTemplate,
-  GmailMailboxMessagePage,
-  GmailThreadMessage,
-  GmailSendRequest,
-  GmailSendResult,
-  GmailSendAccount,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -70,88 +58,6 @@ export class ApiError extends Error {
   }
 }
 
-export type LeadAssistantAction = {
-  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
-  profile_updates: Partial<Pick<Lead, "full_name" | "email" | "phone" | "job_title" | "company_name" | "industry" | "employee_count" | "annual_revenue" | "geography" | "budget" | "product_or_service">>;
-  clear_fields: string[];
-  note: string | null;
-  progress_stage: "contacted" | "responded" | "meeting_scheduled" | "proposal_sent" | "converted" | "lost" | null;
-  progress_note: string | null;
-  conversion_type: "project" | "sale" | null;
-  closed_revenue: number | null;
-  credited_user_id: string | null;
-  email_subject: string | null;
-  email_body: string | null;
-  crm_provider: string | null;
-};
-
-export type LeadAssistantReply = {
-  reply: string;
-  action: LeadAssistantAction;
-};
-
-export type WorkspaceAssistantArea =
-  | "analytics"
-  | "automations"
-  | "icp"
-  | "settings"
-  | "integrations"
-  | "team"
-  | "dialer";
-
-export type AssignmentNotification = {
-  id: string;
-  lead_id: string;
-  lead_name: string;
-  company_name: string;
-  created_at: string;
-  read_at: string | null;
-};
-
-export type WorkspaceAssistantAction = {
-  kind:
-    | "none"
-    | "open_module"
-    | "open_lead"
-    | "set_automation_active"
-    | "create_icp_draft"
-    | "update_routing_config"
-    | "set_lead_confirmation"
-    | "disconnect_integration"
-    | "invite_member"
-    | "update_member_role"
-    | "update_member_permissions"
-    | "suspend_member"
-    | "reactivate_member"
-    | "send_email"
-    | "update_lead_profile"
-    | "add_lead_note"
-    | "record_lead_progress"
-    | "reevaluate_lead";
-  area: WorkspaceAssistantArea | null;
-  title: string;
-  summary: string;
-  target_id: string | null;
-  target_label: string | null;
-  email: string | null;
-  email_recipient: string | null;
-  email_cc: string | null;
-  email_bcc: string | null;
-  email_subject: string | null;
-  email_body: string | null;
-  email_html_body?: string | null;
-  role: string | null;
-  enabled: boolean | null;
-  payload_json: string | null;
-};
-
-export type WorkspaceAssistantReply = {
-  reply: string;
-  action: WorkspaceAssistantAction;
-  context_warnings?: string[];
-  drafting_context?: Record<string, unknown>;
-};
-
 export function setActiveWorkspace(workspaceId: string) {
   activeWorkspaceId = workspaceId;
 }
@@ -164,20 +70,11 @@ export function getRoutingConfig(): Promise<RoutingConfig> {
   return request<RoutingConfig>("/v1/routing/config");
 }
 
-export function updateRoutingConfig(
-  member_percentages?: Record<string, number>,
-  manual_review?: RoutingConfig["manual_review"],
-): Promise<RoutingConfig> {
-  const body: {
-    member_percentages?: Record<string, number>;
-    manual_review?: RoutingConfig["manual_review"];
-  } = {};
-  if (member_percentages) body.member_percentages = member_percentages;
-  if (manual_review) body.manual_review = manual_review;
+export function updateRoutingConfig(member_percentages: Record<string, number>): Promise<RoutingConfig> {
   return request<RoutingConfig>("/v1/routing/config", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ member_percentages }),
   });
 }
 
@@ -212,11 +109,7 @@ function withWorkspace(headers?: HeadersInit): Headers {
   return result;
 }
 
-export async function request<T>(
-  url: string,
-  options?: RequestInit,
-  feedback: { activityToast?: boolean } = {},
-): Promise<T> {
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const method = options?.method?.toUpperCase() ?? "GET";
   const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
   if (key) {
@@ -224,7 +117,7 @@ export async function request<T>(
     if (existing) return existing as Promise<T>;
   }
 
-  const pending = performRequest<T>(url, options, feedback.activityToast !== false);
+  const pending = performRequest<T>(url, options);
   if (!key) return pending;
   inFlightGets.set(key, pending);
   try {
@@ -234,11 +127,7 @@ export async function request<T>(
   }
 }
 
-async function performRequest<T>(
-  url: string,
-  options?: RequestInit,
-  showActivityToast = true,
-): Promise<T> {
+async function performRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(apiUrl(url), {
     ...options,
     credentials: "include",
@@ -267,7 +156,7 @@ async function performRequest<T>(
   }
   const result = response.status === 204 ? undefined : await response.json();
   const method = options?.method?.toUpperCase() ?? "GET";
-  if (showActivityToast && !["GET", "HEAD", "OPTIONS"].includes(method) && !url.startsWith("/v1/auth/")) {
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && !url.startsWith("/v1/auth/")) {
     const status = mutationStatusMessage(url, result);
     notifyActivity(status.message, status.kind);
   }
@@ -315,47 +204,6 @@ export const generateEmailTemplate = (
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(sample),
   });
-
-export type LeadConfirmationAutomation = { enabled: boolean };
-export type LeadConfirmationSource = {
-  source: string;
-  label: string;
-  enabled: boolean;
-  uses_default: boolean;
-};
-export type LeadConfirmationSources = {
-  default_enabled: boolean;
-  sources: LeadConfirmationSource[];
-};
-export const getLeadConfirmationAutomation = () =>
-  request<LeadConfirmationAutomation>(
-    "/v1/settings/email-automation/lead-confirmations",
-  );
-export const setLeadConfirmationAutomation = (enabled: boolean) =>
-  request<LeadConfirmationAutomation>(
-    "/v1/settings/email-automation/lead-confirmations",
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    },
-  );
-export const getLeadConfirmationSources = () =>
-  request<LeadConfirmationSources>(
-    "/v1/settings/email-automation/lead-confirmations/sources",
-  );
-export const setLeadConfirmationSource = (
-  source: string,
-  enabled: boolean | null,
-) =>
-  request<LeadConfirmationSources>(
-    `/v1/settings/email-automation/lead-confirmations/sources/${encodeURIComponent(source)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    },
-  );
 
 export async function signIn(email: string, password: string): Promise<AuthSession> {
   const session = await request<AuthSession>("/v1/auth/signin", {
@@ -458,42 +306,6 @@ export async function listLeads(query: LeadListQuery = {}, signal?: AbortSignal)
   return request<LeadListResponse>(`/v1/leads${suffix}`, { signal });
 }
 
-export const LEAD_EXPORT_COLUMNS = [
-  { key: "lead_name", label: "Lead / Contact Name", defaultSelected: true },
-  { key: "company", label: "Company", defaultSelected: true },
-  { key: "email", label: "Email", defaultSelected: true },
-  { key: "source", label: "Source", defaultSelected: true },
-  { key: "received_date", label: "Received Date", defaultSelected: true },
-  { key: "service_interest", label: "Service / Interest", defaultSelected: true },
-  { key: "icp_score", label: "ICP Score", defaultSelected: true },
-  { key: "intent_score", label: "Intent Score", defaultSelected: true },
-  { key: "engagement_score", label: "Engagement Score", defaultSelected: true },
-  { key: "total_score", label: "Total Score", defaultSelected: true },
-  { key: "qualification_band", label: "Qualification Band", defaultSelected: true },
-  { key: "icp_version", label: "ICP Version", defaultSelected: true },
-  { key: "routing_queue", label: "Routing Queue", defaultSelected: true },
-  { key: "assigned_representative", label: "Assigned Representative", defaultSelected: true },
-  { key: "priority", label: "Priority / Urgency", defaultSelected: true },
-  { key: "crm_provider", label: "CRM Provider", defaultSelected: true },
-  { key: "crm_sync_state", label: "CRM Sync State", defaultSelected: true },
-  { key: "provider_record_id", label: "Provider Record ID", defaultSelected: true },
-  { key: "opportunity_value", label: "Opportunity Value", defaultSelected: true },
-  { key: "revenue_value", label: "Revenue Value", defaultSelected: true },
-  { key: "summary", label: "AI / Grounded Summary", defaultSelected: true },
-  { key: "recommended_action", label: "Recommended Action / Action Plan", defaultSelected: true },
-  { key: "phone", label: "Phone", defaultSelected: false },
-  { key: "job_title", label: "Job Title", defaultSelected: false },
-  { key: "industry", label: "Industry", defaultSelected: false },
-  { key: "employee_count", label: "Employee Count", defaultSelected: false },
-  { key: "annual_revenue", label: "Company Annual Revenue", defaultSelected: false },
-  { key: "geography", label: "Geography", defaultSelected: false },
-  { key: "budget", label: "Budget", defaultSelected: false },
-  { key: "source_detail", label: "Source Detail", defaultSelected: false },
-  { key: "inquiry_message", label: "Original Inquiry", defaultSelected: false },
-] as const;
-
-export type LeadExportColumn = (typeof LEAD_EXPORT_COLUMNS)[number]["key"];
-
 export type LeadExportInput = {
   format: "csv" | "xlsx" | "pdf";
   scope: "current_filters" | "selected" | "all";
@@ -505,7 +317,6 @@ export type LeadExportInput = {
     date_to?: string | null;
   };
   selected_lead_ids?: string[];
-  columns?: LeadExportColumn[];
 };
 
 export async function exportLeads(input: LeadExportInput): Promise<{ blob: Blob; filename: string }> {
@@ -538,57 +349,6 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
 }
 
-export function listLeadApprovalPolicies(): Promise<LeadApprovalPolicy[]> {
-  return jsonRequest<LeadApprovalPolicy[]>("/v1/integrations/lead-approval-policies");
-}
-
-export function updateLeadApprovalPolicy(
-  provider: string,
-  autoApproveLeads: boolean,
-): Promise<LeadApprovalPolicy> {
-  return jsonRequest<LeadApprovalPolicy>(
-    `/v1/integrations/lead-approval-policies/${encodeURIComponent(provider)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auto_approve_leads: autoApproveLeads }),
-    },
-  );
-}
-
-export function listGmailMailboxMessages(
-  connectionId: string,
-  folder: "inbox" | "sent" | "all" | "spam" | "trash" | "archive" = "inbox",
-  query = "",
-  pageToken?: string | null,
-  signal?: AbortSignal,
-): Promise<GmailMailboxMessagePage> {
-  const params = new URLSearchParams({ connection_id: connectionId, folder, query });
-  if (pageToken) params.set("page_token", pageToken);
-  return request(`/v1/email/messages?${params.toString()}`, { signal });
-}
-
-export function getGmailMailboxThread(
-  connectionId: string,
-  threadId: string,
-  signal?: AbortSignal,
-): Promise<{ messages: GmailThreadMessage[] }> {
-  const params = new URLSearchParams({ connection_id: connectionId, thread_id: threadId });
-  return request(`/v1/email/thread?${params.toString()}`, { signal });
-}
-
-export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResult> {
-  return request("/v1/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function listGmailSendAccounts(): Promise<GmailSendAccount[]> {
-  return request("/v1/email/send-accounts");
-}
-
 export function getInboundSyncState(connectionId: string, provider: string = "salesforce"): Promise<CrmInboundSyncState> {
   const objectType = ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead";
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/state?object_type=${objectType}`);
@@ -598,44 +358,25 @@ export function configureInboundSync(
   connectionId: string,
   enabled: boolean,
   provider: string = "salesforce",
-  intervalSeconds?: number,
+  intervalSeconds = 60,
 ): Promise<CrmInboundSyncState> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      enabled,
-      object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead",
-      interval_seconds: intervalSeconds ?? (provider === "gmail" ? 300 : 60),
-    }),
+    body: JSON.stringify({ enabled, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", interval_seconds: intervalSeconds }),
   });
 }
 
 export function runInboundSync(
   connectionId: string,
-  mode: "initial" | "incremental" | "manual" | "review_recent",
+  mode: "initial" | "incremental" | "manual",
   provider: string = "salesforce",
-  reviewLimit = 100,
-): Promise<CrmInboundSyncRun | CrmInboundSyncAccepted> {
-  const review = mode === "review_recent" ? recentReviewBatch(reviewLimit) : null;
-  return jsonRequest<CrmInboundSyncRun | CrmInboundSyncAccepted>(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
+): Promise<CrmInboundSyncRun> {
+  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: review?.limit ?? (["gmail", "outlook"].includes(provider) ? 100 : 500), page_size: review?.pageSize ?? 100, send_confirmation_email: mode !== "review_recent" }),
+    body: JSON.stringify({ mode, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", limit: ["gmail", "outlook"].includes(provider) ? 100 : 500, page_size: 100, send_confirmation_email: false }),
   });
-}
-
-export function getInboundSyncRuns(connectionId: string): Promise<CrmInboundSyncRun[]> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/runs?limit=10`);
-}
-
-export function cancelInboundSync(
-  connectionId: string,
-): Promise<{ status: "cancellation_requested" | "not_running"; message: string }> {
-  return jsonRequest(
-    `/v1/integrations/connections/${connectionId}/inbound-sync/cancel?object_type=message`,
-    { method: "POST" },
-  );
 }
 
 export function sendLeadToCrm(leadId: string, provider?: string): Promise<CrmSync> {
@@ -648,84 +389,6 @@ export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead>
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ job_title: jobTitle }),
-  });
-}
-
-export function updateLeadGenerated(
-  leadId: string,
-  isGenerated: boolean,
-): Promise<Lead> {
-  return jsonRequest<Lead>(`/v1/leads/${leadId}/generated`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ is_generated: isGenerated }),
-  });
-}
-
-export function updateLeadAssignment(
-  leadId: string,
-  assignedRepId: string | null,
-): Promise<Lead> {
-  return jsonRequest<Lead>(`/v1/leads/${leadId}/assignment`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assigned_rep_id: assignedRepId }),
-  });
-}
-
-export function listLeadAssignmentOptions(
-  signal?: AbortSignal,
-): Promise<LeadAssignmentOption[]> {
-  return jsonRequest<LeadAssignmentOption[]>("/v1/leads/assignment-options", {
-    signal,
-  });
-}
-
-export function updateLeadProfile(
-  leadId: string,
-  updates: LeadAssistantAction["profile_updates"],
-): Promise<Lead> {
-  return jsonRequest<Lead>(`/v1/leads/${leadId}/profile`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(updates),
-  });
-}
-
-export function reevaluateLead(leadId: string): Promise<Lead> {
-  return jsonRequest<Lead>(`/v1/leads/${leadId}/reevaluate`, {
-    method: "POST",
-  });
-}
-
-export function chatWithLeadAssistant(
-  leadId: string,
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-): Promise<LeadAssistantReply> {
-  return jsonRequest<LeadAssistantReply>(`/v1/leads/${leadId}/assistant/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
-  });
-}
-
-export function chatWithWorkspaceAssistant(
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-  context: Record<string, unknown> = {},
-): Promise<WorkspaceAssistantReply> {
-  return jsonRequest<WorkspaceAssistantReply>("/v1/agent/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, context }),
-  });
-}
-
-export function saveLeadNote(leadId: string, body: string): Promise<{ id: string; body: string }> {
-  const noteId = createClientId();
-  return jsonRequest(`/v1/collaboration/leads/${leadId}/notes/${noteId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body, version: 0 }),
   });
 }
 
@@ -770,55 +433,17 @@ export function addIntegrationCredential(provider: string, accountName: string, 
   });
 }
 
-export function testIntegration(connectionId: string): Promise<{ connection: ProviderConnection; valid: boolean; verified: boolean; status: string; message: string; retryable: boolean; error_code: string | null; backfill_job_id?: string | null }> {
+export function testIntegration(connectionId: string): Promise<{ connection: ProviderConnection; valid: boolean; verified: boolean; status: string; message: string; retryable: boolean; error_code: string | null }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/test`, { method: "POST" });
 }
 
-export function backfillOpenAI(connectionId: string): Promise<{ status: string; job_id: string; queued_count: number; message: string }> {
+export function backfillOpenAI(connectionId: string): Promise<{ status: string; queued_count: number; message: string }> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-openai`, { method: "POST" });
-}
-
-export type ReasoningBackfillStatus = {
-  job_id: string;
-  status: "queued" | "running" | "completed" | "partial_failure" | "failed" | "no_eligible_leads" | string;
-  total: number;
-  completed: number;
-  failed: number;
-  skipped: number;
-  provider: string;
-  model: string;
-};
-
-export function backfillReasoning(connectionId: string): Promise<{ status: string; job_id: string; queued_count: number; message: string }> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-reasoning`, { method: "POST" });
-}
-
-export function getReasoningBackfillStatus(connectionId: string, jobId: string): Promise<ReasoningBackfillStatus> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/backfill-reasoning/${encodeURIComponent(jobId)}`);
-}
-
-export function activateReasoningProvider(connectionId: string): Promise<ProviderConnection> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/activate-reasoning`, { method: "POST" });
 }
 
 export type SlackChannel = { id: string; name: string; is_member: boolean; is_private: boolean };
 export function listSlackChannels(connectionId: string): Promise<SlackChannel[]> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/slack-channels`);
-}
-
-export type CloudTalkAgent = { id: string; name: string };
-export function listCloudTalkAgents(connectionId: string): Promise<{
-  agents: CloudTalkAgent[];
-  selected_agent_id: string | null;
-}> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/cloudtalk-agents`);
-}
-export function selectCloudTalkAgent(connectionId: string, agentId: string): Promise<ProviderConnection> {
-  return jsonRequest(`/v1/integrations/connections/${connectionId}/cloudtalk-agent`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agent_id: agentId }),
-  });
 }
 
 export type SlackMember = { id: string; name: string };
@@ -879,14 +504,6 @@ export function updateOpenAIModel(connectionId: string, model: string): Promise<
   });
 }
 
-export function updateReasoningModel(connectionId: string, model: string): Promise<ProviderConnection> {
-  return jsonRequest<ProviderConnection>(`/v1/integrations/connections/${connectionId}/reasoning-model`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model }),
-  });
-}
-
 export function getLead(leadId: string, signal?: AbortSignal): Promise<Lead> {
   return jsonRequest<Lead>(`/v1/leads/${leadId}`, { signal });
 }
@@ -899,16 +516,17 @@ export function getLeadFollowUpHistory(leadId: string, signal?: AbortSignal): Pr
   return jsonRequest<FollowUpEmail[]>(`/v1/leads/${leadId}/follow-up/history`, { signal });
 }
 
-export function getReasoningUsage(period: ReasoningUsagePeriod, signal?: AbortSignal): Promise<ReasoningUsage> {
-  return jsonRequest<ReasoningUsage>(`/v1/integrations/reasoning/usage?period=${period}`, { signal });
+export function getOpenAIUsage(period: OpenAIUsagePeriod, signal?: AbortSignal): Promise<OpenAIUsage> {
+  return jsonRequest<OpenAIUsage>(`/v1/integrations/openai/usage?period=${period}`, { signal });
 }
+
 export function getLeadMomentum(leadId: string, signal?: AbortSignal): Promise<import("./types").LeadMomentum> {
   return jsonRequest<import("./types").LeadMomentum>(`/v1/leads/${leadId}/momentum`, { signal });
 }
 
 export function updateLeadProgress(leadId: string, input: {
   stage: string; note: string; conversion_type?: "project" | "sale";
-  closed_revenue?: number | null; credited_user_id?: string | null; send_direct_message?: boolean;
+  closed_revenue?: number | null; credited_user_id?: string | null;
 }): Promise<LeadProgressResult & { outcome?: import("./types").LeadOutcome | null }> {
   return jsonRequest<LeadProgressResult>(`/v1/leads/${leadId}/progress`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
@@ -997,18 +615,6 @@ export const getRepAnalytics = (range: TimeRange, signal?: AbortSignal) => analy
 export const getTimeSeriesAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<TimeSeriesAnalytics>("time-series", range, signal);
 export const getAgentActivity = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<AgentActivity>("agent-activity", range, signal);
 export const getManualReview = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ManualReviewAnalytics>("manual-review", range, signal);
-export const getExtendedAnalytics = (range: TimeRange, signal?: AbortSignal) => analyticsRequest<ExtendedAnalytics>("extended", range, signal);
-export const getAdvancedAnalytics = (months = 6, signal?: AbortSignal) =>
-  jsonRequest<AdvancedAnalytics>(`/v1/intelligence/analytics?months=${months}`, { signal });
-
-export const listAssignmentNotifications = (signal?: AbortSignal) =>
-  jsonRequest<AssignmentNotification[]>("/v1/notifications/assignments", { signal });
-
-export const markAssignmentNotificationRead = (id: string) =>
-  jsonRequest<AssignmentNotification>(
-    `/v1/notifications/assignments/${encodeURIComponent(id)}/read`,
-    { method: "PATCH" },
-  );
 
 export function listMembers(signal?: AbortSignal): Promise<WorkspaceMember[]> {
   return jsonRequest<WorkspaceMember[]>("/v1/members", { signal });

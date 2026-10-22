@@ -62,10 +62,6 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
-    label: "Dialer",
-    permissions: [{ id: "dialer.call", label: "Place calls" }],
-  },
-  {
     label: "CRM",
     permissions: [{ id: "crm.sync", label: "Run permitted CRM synchronization" }],
   },

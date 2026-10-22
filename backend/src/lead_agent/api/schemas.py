@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from lead_agent.domain.analysis import LeadContextAnalysis
-from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDERS
 
 
 class LeadCreateRequest(BaseModel):
@@ -17,18 +16,18 @@ class LeadCreateRequest(BaseModel):
     source_detail: str | None = None
     event_id: str | None = None
     external_id: str | None = None
-    full_name: str | None = None
-    email: str | None = None
+    full_name: str
+    email: str
     phone: str | None = None
     job_title: str | None = None
-    company_name: str | None = None
+    company_name: str
     industry: str | None = None
     employee_count: int | None = Field(default=None, ge=0)
     annual_revenue: float | None = Field(default=None, ge=0)
     geography: str | None = None
     budget: float | None = Field(default=None, ge=0)
-    product_or_service: str | None = None
-    message: str | None = None
+    product_or_service: str
+    message: str
     received_at: datetime | None = None
 
 
@@ -207,7 +206,6 @@ class ConfirmationEmailResponse(BaseModel):
 class LeadOutcomeResponse(BaseModel):
     pipeline_stage: str
     conversion_type: str | None
-    send_direct_message: bool = False
     credited_user_id: UUID | None
     credited_name: str | None
     closed_revenue: float | None
@@ -220,12 +218,10 @@ class LeadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    lead_number: int
     workspace_id: UUID
     source: str
     source_detail: str | None
     external_id: str | None
-    is_generated: bool = False
     full_name: str
     email: str
     phone: str | None
@@ -247,7 +243,6 @@ class LeadResponse(BaseModel):
     crm_sync: CrmSyncResponse | None = None
     confirmation_email: ConfirmationEmailResponse | None = None
     outcome: LeadOutcomeResponse | None = None
-    review_reasons: list[str] = Field(default_factory=list)
 
 
 class LeadListResponse(BaseModel):
@@ -345,8 +340,6 @@ class CrmInboundSyncRunResponse(BaseModel):
     records_unchanged: int
     records_skipped: int
     records_failed: int
-    records_processed: int
-    records_succeeded: int
     error_category: str | None
     error_code: str | None
     last_error: str | None
@@ -354,17 +347,6 @@ class CrmInboundSyncRunResponse(BaseModel):
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
-
-
-class CrmInboundSyncAcceptedResponse(BaseModel):
-    status: Literal["queued"] = "queued"
-    queued_at: datetime
-    message: str
-
-
-class CrmInboundSyncCancellationResponse(BaseModel):
-    status: Literal["cancellation_requested", "not_running"]
-    message: str
 
 
 def crm_inbound_state_response(row: Any) -> CrmInboundSyncStateResponse:
@@ -392,7 +374,6 @@ def crm_inbound_state_response(row: Any) -> CrmInboundSyncStateResponse:
 
 
 def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
-    succeeded = row.records_created + row.records_updated + row.records_unchanged
     return CrmInboundSyncRunResponse(
         id=row.id,
         workspace_id=row.workspace_id,
@@ -410,8 +391,6 @@ def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
         records_unchanged=row.records_unchanged,
         records_skipped=row.records_skipped,
         records_failed=row.records_failed,
-        records_processed=succeeded + row.records_skipped + row.records_failed,
-        records_succeeded=succeeded,
         error_category=row.error_category,
         error_code=row.error_code,
         last_error=row.last_error,
@@ -470,7 +449,7 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         configured=row.credential_state == "configured" and row.secret_reference is not None,
         selected_model=(
             str(row.connection_metadata["selected_model"])
-            if row.provider_type in REASONING_PROVIDERS
+            if row.provider_type == "openai"
             and isinstance(row.connection_metadata.get("selected_model"), str)
             else None
         ),
@@ -604,28 +583,14 @@ def confirmation_email_response(row: Any) -> ConfirmationEmailResponse | None:
 
 
 def lead_response(
-    row: Any,
-    routing: Any = None,
-    crm_sync: Any = None,
-    confirmation_email: Any = None,
-    review_reasons: list[str] | None = None,
+    row: Any, routing: Any = None, crm_sync: Any = None, confirmation_email: Any = None
 ) -> LeadResponse:
-    analysis = row.analysis
-    if review_reasons is None:
-        saved_reason = (
-            analysis.error_message
-            if analysis and analysis.error_code == "manual_review_conditions"
-            else None
-        )
-        review_reasons = [saved_reason] if saved_reason else []
     return LeadResponse(
         id=row.id,
-        lead_number=row.lead_number,
         workspace_id=row.workspace_id,
         source=row.source,
         source_detail=row.source_detail,
         external_id=row.external_id,
-        is_generated=row.is_generated,
         full_name=row.full_name,
         email=row.email,
         phone=row.phone,
@@ -647,7 +612,6 @@ def lead_response(
         crm_sync=crm_sync_response(crm_sync),
         confirmation_email=confirmation_email_response(confirmation_email),
         outcome=outcome_response(row.outcome),
-        review_reasons=review_reasons,
     )
 
 
@@ -656,7 +620,6 @@ def outcome_response(row: Any) -> LeadOutcomeResponse | None:
         return None
     return LeadOutcomeResponse(
         pipeline_stage=row.pipeline_stage, conversion_type=row.conversion_type,
-        send_direct_message=row.send_direct_message,
         credited_user_id=row.credited_user_id,
         credited_name=row.credited_user.display_name if row.credited_user else None,
         closed_revenue=float(row.closed_revenue) if row.closed_revenue is not None else None,

@@ -310,7 +310,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
               onSaveSlack={async (slackId) => {
                 if (!selected) return;
                 await runAction(async () => {
-                  const next = await updateMemberSlackLink(selected.id, slackId.trim().toUpperCase() || null);
+                  const next = await updateMemberSlackLink(selected.id, slackId || null);
                   setMembers((current) => current.map((item) => item.id === next.id ? next : item));
                 }, slackId ? "Slack member linked." : "Slack member link removed.");
               }}
@@ -422,7 +422,7 @@ function MemberDetail({
         <div className="detail-editor-section">
           <div className="section-heading"><div><span className="eyebrow">Personal win notifications</span><h3>Slack member link</h3></div></div>
           <p className="role-edit-help">Copy this person's member ID from their Slack profile (More → Copy member ID). Link it after Slack is verified in Integrations. A win will notify the team channel and send this person a direct congratulations.</p>
-          <label className="follow-up-field">Slack member ID<input value={slackId} disabled={!canManage || saving} placeholder="U0123456789" maxLength={64} onChange={(event) => setSlackId(event.target.value)} onBlur={(event) => setSlackId(event.target.value.trim().toUpperCase())} /></label>
+          <label className="follow-up-field">Slack member ID<input value={slackId} disabled={!canManage || saving} placeholder="U0123456789" maxLength={64} onChange={(event) => setSlackId(event.target.value.trim().toUpperCase())} /></label>
           {member.slack_team_id && <small className="role-edit-help">Linked Slack workspace: {member.slack_team_id}</small>}
           {canManage && slackId !== (member.slack_member_id ?? "") && <button className="secondary-button" disabled={saving || (!!slackId && !/^[UW][A-Z0-9]{8,63}$/.test(slackId))} onClick={async () => { setSaving(true); try { await onSaveSlack(slackId); } finally { setSaving(false); } }}>{saving ? "Saving…" : slackId ? "Save Slack link" : "Remove Slack link"}</button>}
         </div>

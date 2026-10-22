@@ -32,15 +32,12 @@ class ResolvedIcp:
     configuration_hash: str
 
     def trace_result(self, result: QualificationResult) -> QualificationResult:
-        configured = self.source == "workspace"
         return replace(
             result,
             icp_version_id=self.version_id,
-            icp_source=self.source if configured else "not_configured",
-            icp_profile_version=(
-                self.configuration.profile_version if configured else "not_configured"
-            ),
-            icp_configuration_hash=self.configuration_hash if configured else "not_configured",
+            icp_source=self.source,
+            icp_profile_version=self.configuration.profile_version,
+            icp_configuration_hash=self.configuration_hash,
         )
 
 

@@ -16,8 +16,6 @@ from lead_agent.api.routes import (
     contact_records,
     crm,
     crm_inbound,
-    email,
-    email_automation,
     email_templates,
     follow_up,
     governance,
@@ -26,11 +24,8 @@ from lead_agent.api.routes import (
     intake,
     integrations,
     intelligence,
-    lead_assistant,
     leads,
     meetings,
-    meta_webhooks,
-    notifications,
     routing,
     team,
 )
@@ -64,23 +59,17 @@ app.add_middleware(
 )
 install_request_middleware(app, settings)
 app.include_router(health.router)
-app.include_router(lead_assistant.router)
-app.include_router(lead_assistant.workspace_router)
 app.include_router(auth.router)
 app.include_router(routing.config_router)
 app.include_router(routing.router)
 app.include_router(leads.router)
 app.include_router(meetings.router)
-app.include_router(notifications.router)
 app.include_router(follow_up.router)
-app.include_router(email.router)
-app.include_router(email_automation.router)
 app.include_router(email_templates.router)
 app.include_router(intake.router)
 app.include_router(crm.router)
 app.include_router(crm_inbound.router)
 app.include_router(integrations.router)
-app.include_router(meta_webhooks.router)
 app.include_router(analytics.router)
 app.include_router(team.router)
 app.include_router(icp.router)

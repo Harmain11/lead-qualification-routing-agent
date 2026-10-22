@@ -8,26 +8,16 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from lead_agent.application.email_templates import (
-    apply_workspace_email_signature,
-    get_email_template,
-)
-from lead_agent.application.governance import (
-    OutreachBlocked,
-    assert_outreach_allowed,
-    operations_policy,
-)
+from lead_agent.application.email_templates import get_email_template
+from lead_agent.application.governance import OutreachBlocked, assert_outreach_allowed
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
     LeadORM,
-    PipelineEventORM,
     ProviderConnectionORM,
     RoutingDecisionORM,
-    WorkspaceORM,
 )
-from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE, GmailOutboundProvider
 from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
@@ -98,29 +88,6 @@ def generate_follow_up_draft(
         next_kind = f"ai_follow_up:{uuid4().hex[:16]}"
         existing = None
     plan = route.action_plan if isinstance(route.action_plan, dict) else {}
-    activity = list(
-        session.scalars(
-            select(PipelineEventORM)
-            .where(
-                PipelineEventORM.workspace_id == lead.workspace_id,
-                PipelineEventORM.lead_id == lead.id,
-                PipelineEventORM.stage.in_(("manual_progress", "gmail_message")),
-            )
-            .order_by(PipelineEventORM.created_at.desc(), PipelineEventORM.id.desc())
-            .limit(20)
-        )
-    )
-    notes = list(
-        session.scalars(
-            select(LeadNoteORM)
-            .where(
-                LeadNoteORM.workspace_id == lead.workspace_id,
-                LeadNoteORM.lead_id == lead.id,
-            )
-            .order_by(LeadNoteORM.updated_at.desc(), LeadNoteORM.id.desc())
-            .limit(15)
-        )
-    )
     facts = {
         "lead_name": lead.full_name,
         "company": lead.company_name,
@@ -131,50 +98,7 @@ def generate_follow_up_draft(
         "qualification_score": qualification.total_score,
         "next_step_recommendation": str(plan.get("next_step_recommendation", ""))[:500],
         "conversion_goal": str(plan.get("conversion_goal", ""))[:300],
-        "current_outcome": (
-            {
-                "pipeline_stage": lead.outcome.pipeline_stage,
-                "conversion_type": lead.outcome.conversion_type,
-            }
-            if lead.outcome
-            else None
-        ),
-        "recent_activity": [
-            {
-                "type": event.stage,
-                "status": event.status,
-                "updated_at": event.created_at.isoformat(),
-                "stage": str(event.details.get("stage", event.status))
-                if event.stage == "manual_progress"
-                else None,
-                "direction": str(event.details.get("direction", ""))
-                if event.stage == "gmail_message"
-                else None,
-                "note": str(event.details.get("note", ""))[:1600]
-                if event.stage == "manual_progress"
-                else None,
-                "subject": str(event.details.get("subject", ""))[:300]
-                if event.stage == "gmail_message"
-                else None,
-                "body": str(event.details.get("body", ""))[:1600]
-                if event.stage == "gmail_message"
-                else None,
-            }
-            for event in activity
-        ],
-        "team_notes": [
-            {
-                "updated_at": note.updated_at.isoformat(),
-                "body": note.body.strip()[:1200],
-            }
-            for note in notes
-        ],
     }
-    business_profile = operations_policy(
-        session, lead.workspace_id
-    ).business_profile
-    workspace = session.get(WorkspaceORM, lead.workspace_id)
-    facts["workspace_business_profile"] = business_profile.model_dump(mode="json")
     workspace_template = get_email_template(session, lead.workspace_id, "follow_up")
     facts["workspace_email_template"] = {
         "subject": workspace_template["subject"],
@@ -188,16 +112,6 @@ def generate_follow_up_draft(
         )
     try:
         content = FollowUpEmailContent.model_validate(draft_method(facts))
-        content = FollowUpEmailContent.model_validate(
-            {
-                **content.model_dump(),
-                "body": apply_workspace_email_signature(
-                    content.body,
-                    business_profile,
-                    fallback_business_name=workspace.name if workspace else "",
-                ),
-            }
-        )
     except Exception as error:
         raise FollowUpNotEligible(
             "AI drafting did not complete. Check the OpenAI connection and retry. "
@@ -280,20 +194,6 @@ def send_approved_follow_up(
         raise FollowUpNotEligible("Save a complete draft before sending it from connected Gmail.")
     if row.workspace_id != workspace_id:
         raise FollowUpNotEligible("Follow-up draft not found.")
-    if not row.recipient.strip():
-        lead = session.scalar(
-            select(LeadORM).where(
-                LeadORM.id == row.lead_id,
-                LeadORM.workspace_id == workspace_id,
-            )
-        )
-        recipient = lead.email.strip() if lead and lead.email else ""
-        if not recipient:
-            raise FollowUpNotEligible(
-                "This lead does not have an email address. Add one before sending."
-            )
-        row.recipient = recipient
-        session.flush()
     try:
         assert_outreach_allowed(session, workspace_id, row.recipient)
     except OutreachBlocked as error:

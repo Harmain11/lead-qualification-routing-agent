@@ -92,12 +92,3 @@ def manual_review(
     workspace: WorkspaceContext = Depends(require_permission("manual_review.view")),
 ) -> dict[str, Any]:
     return _run(AnalyticsService(session, workspace.workspace_id), "manual_review", range)
-
-
-@router.get("/extended")
-def extended(
-    range: RangeParam = "monthly",
-    session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
-) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "extended", range)

@@ -15,7 +15,6 @@ from lead_agent.domain.analysis import (
 )
 from lead_agent.domain.configuration import IcpConfig
 from lead_agent.domain.models import NormalizedLead
-from lead_agent.domain.operations import WorkspaceBusinessProfile
 
 
 def _norm(value: str | None) -> str:
@@ -107,12 +106,7 @@ class DeterministicReasoningProvider:
     model_name = "rules-v1"
     prompt_version = "phase3-context-v1"
 
-    def analyze(
-        self,
-        lead: NormalizedLead,
-        icp: IcpConfig,
-        business_profile: WorkspaceBusinessProfile | None = None,
-    ) -> ReasoningOutput:
+    def analyze(self, lead: NormalizedLead, icp: IcpConfig) -> ReasoningOutput:
         message = lead.message
         text = _norm(f"{lead.product_or_service} {message}")
 

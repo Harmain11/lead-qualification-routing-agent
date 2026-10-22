@@ -6,7 +6,6 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
-    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -31,9 +30,6 @@ class WorkspaceORM(Base):
     slug: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     is_demo: Mapped[bool] = mapped_column(nullable=False, default=False)
-    last_lead_number: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0")
-    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -59,37 +55,8 @@ class WorkspaceEmailTemplateORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class WorkspaceEmailAutomationSettingORM(Base):
-    """Workspace-level switch for automatic new-lead confirmation emails."""
-
-    __tablename__ = "workspace_email_automation_settings"
-
-    workspace_id: Mapped[UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
-    )
-    lead_confirmation_enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=text("false")
-    )
-    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class WorkspaceEmailAutomationSourceSettingORM(Base):
-    """Platform-specific override for automatic lead confirmation emails."""
-
-    __tablename__ = "workspace_email_automation_source_settings"
-
-    workspace_id: Mapped[UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
-    )
-    source: Mapped[str] = mapped_column(String(32), primary_key=True)
-    lead_confirmation_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class WorkspaceRoutingConfigORM(Base):
-    """Workspace-owned routing weights and manual-review choices."""
+    """Workspace-owned routing weights. An absent member weight means equal share."""
 
     __tablename__ = "workspace_routing_configs"
 
@@ -97,9 +64,6 @@ class WorkspaceRoutingConfigORM(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
     )
     member_weights: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    manual_review_settings: Mapped[dict[str, Any]] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
     updated_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -635,67 +599,9 @@ class SourceEventORM(Base):
     lead: Mapped[LeadORM | None] = relationship(back_populates="source_event", uselist=False)
 
 
-class SocialConversationORM(Base):
-    __tablename__ = "social_conversations"
-    __table_args__ = (
-        UniqueConstraint(
-            "workspace_id", "provider", "connection_id", "external_account_id",
-            "participant_id", "conversation_identity", name="uq_social_conversation_identity",
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    workspace_id: Mapped[UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
-    )
-    connection_id: Mapped[UUID] = mapped_column(
-        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
-    )
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)
-    external_account_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    participant_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    conversation_identity: Mapped[str] = mapped_column(String(255), nullable=False)
-    lead_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
-class SocialMessageORM(Base):
-    __tablename__ = "social_messages"
-    __table_args__ = (
-        UniqueConstraint("connection_id", "provider_event_id", name="uq_social_message_replay"),
-        Index("ix_social_messages_conversation_event", "conversation_id", "event_at"),
-    )
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    workspace_id: Mapped[UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
-    )
-    connection_id: Mapped[UUID] = mapped_column(
-        ForeignKey("provider_connections.id", ondelete="CASCADE"), nullable=False
-    )
-    conversation_id: Mapped[UUID] = mapped_column(
-        ForeignKey("social_conversations.id", ondelete="CASCADE"), nullable=False
-    )
-    provider_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    direction: Mapped[str] = mapped_column(String(16), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    lead_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
-    )
-    event_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class LeadORM(Base):
     __tablename__ = "leads"
     __table_args__ = (
-        UniqueConstraint(
-            "workspace_id", "lead_number", name="uq_leads_workspace_number"
-        ),
         Index(
             "uq_leads_source_event",
             "source_event_id",
@@ -715,16 +621,12 @@ class LeadORM(Base):
         nullable=False,
         default=lambda: DEFAULT_WORKSPACE_ID,
     )
-    lead_number: Mapped[int] = mapped_column(Integer, nullable=False)
     source_event_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("source_events.id"), nullable=True
     )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    is_generated: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=text("false")
-    )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -829,7 +731,6 @@ class AnalysisRunORM(Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (
         Index("ix_analysis_status_created", "status", "created_at"),
-        Index("ix_analysis_request_fingerprint", "analysis_request_fingerprint"),
         UniqueConstraint("lead_id", name="uq_analysis_lead"),
     )
 
@@ -845,7 +746,6 @@ class AnalysisRunORM(Base):
     requires_manual_review: Mapped[bool] = mapped_column(nullable=False, default=False)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    analysis_request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     structured_output: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -912,9 +812,6 @@ class RoutingDecisionORM(Base):
     assigned_queue: Mapped[str] = mapped_column(String(128), nullable=False)
     assigned_rep_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     assigned_rep_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    is_manually_assigned: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=text("false")
-    )
     routing_reason: Mapped[str] = mapped_column(Text, nullable=False)
     matched_rules: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     action_plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -961,40 +858,6 @@ class NotificationORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     routing_decision: Mapped[RoutingDecisionORM] = relationship(back_populates="notifications")
-
-
-class AssignmentNotificationORM(Base):
-    __tablename__ = "assignment_notifications"
-    __table_args__ = (
-        Index(
-            "ix_assignment_notifications_recipient_created",
-            "workspace_id",
-            "recipient_user_id",
-            "created_at",
-        ),
-        Index(
-            "ix_assignment_notifications_recipient_unread",
-            "workspace_id",
-            "recipient_user_id",
-            "read_at",
-        ),
-    )
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    workspace_id: Mapped[UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
-    )
-    recipient_user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    lead_id: Mapped[UUID] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
-    )
-    assigned_by_user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PipelineEventORM(Base):
@@ -1128,7 +991,6 @@ class LeadOutcomeORM(Base):
     )
     pipeline_stage: Mapped[str] = mapped_column(String(64), nullable=False)
     conversion_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    send_direct_message: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     credited_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

@@ -86,16 +86,11 @@ def test_role_catalog_and_deterministic_overrides() -> None:
     assert normalize_role("Sales Manager") == "sales_manager"
     assert role_permissions("owner") == PERMISSION_CATALOG
     assert "leads.export" in role_permissions("sales manager")
-    assert "dialer.call" not in role_permissions("sales manager")
-    assert "dialer.call" not in role_permissions("sales rep")
     assert "integrations.manage" not in role_permissions("sales rep")
     assert "workspace.manage" not in role_permissions("viewer")
     assert "leads.export" not in role_permissions("viewer")
     assert "leads.export" in effective_permissions(
         "sales rep", {"grants": ["leads.export"], "denies": []}
-    )
-    assert "dialer.call" in effective_permissions(
-        "sales rep", {"grants": ["dialer.call"], "denies": []}
     )
     assert "leads.view" not in effective_permissions(
         "owner", {"grants": [], "denies": ["leads.view"]}

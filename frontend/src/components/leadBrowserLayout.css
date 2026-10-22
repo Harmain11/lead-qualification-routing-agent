@@ -68,6 +68,3 @@
   .product-bar .range-picker { min-width: 174px; }
   .product-bar .range-picker button { min-width: 54px; padding-inline: 8px; }
 }
-@container (max-width: 420px) {
-  .lead-browser .lead-toolbar { grid-template-columns: minmax(0, 1fr); }
-}

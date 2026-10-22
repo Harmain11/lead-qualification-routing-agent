@@ -21,8 +21,8 @@ Preserve the complete lead information and actions when splitting the detail vie
 
 **How to apply:** Group information rather than removing it. Keep permission checks and preserve unsaved form state when changing sections.
 
-Show navigation subcategories when the cursor is on the primary navigation item, with equivalent tap and keyboard access. For Integrations, close the provider pane when the pointer returns from it to the same category, while keeping the category column open; hovering a different category switches the pane. Keep the current page and subsection when refreshing.
+Show navigation subcategories when the cursor is on the primary navigation item, with equivalent tap and keyboard access. Keep the current page and subsection when refreshing.
 
 **Why:** The user asked for hover subcategories and reported that refresh always returned them to the home dashboard.
 
-**How to apply:** Preserve these behaviors during future navigation or layout changes; distinguish a return from the provider pane from a first hover over a category, and do not require hover on phones.
+**How to apply:** Preserve these behaviors during future navigation or layout changes; do not require hover on phones.

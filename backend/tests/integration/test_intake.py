@@ -119,8 +119,6 @@ def test_email_delivery_failure_does_not_fail_committed_intake(
         {
             "external_message_id": "mail-email-failure-001",
             "sender": "buyer@example.com",
-            "sender_name": "Buyer Name",
-            "company": "Buyer Company",
             "subject": "Delivery resilience",
             "body": "Please send a demo of the workflow.",
         }
