@@ -15,6 +15,10 @@ from lead_agent.application.governance import assert_outreach_allowed, operation
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_confirmation_sources import lead_confirmation_source_key
 from lead_agent.application.manual_review import workspace_manual_review_config
+from lead_agent.application.reasoning_cache import (
+    find_cached_reasoning_output,
+    reasoning_request_fingerprint,
+)
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.domain.analysis import (
     LeadContextAnalysis,
@@ -298,6 +302,7 @@ def _context_analysis(
     business_profile: WorkspaceBusinessProfile | None = None,
     analyze_hard_disqualified: bool = False,
     icp_enabled: bool = True,
+    cached_reasoning_output: ReasoningOutput | None = None,
 ) -> LeadContextAnalysis:
     fallback = DeterministicReasoningProvider()
     review_config = manual_review_config or routing.manual_review
@@ -413,7 +418,7 @@ def _context_analysis(
 
     active_provider = provider or fallback
     try:
-        provider_output = (
+        provider_output = cached_reasoning_output or (
             active_provider.analyze(lead, analysis_icp, business_profile)
             if business_profile and business_profile.has_context
             else active_provider.analyze(lead, analysis_icp)
@@ -476,7 +481,35 @@ def _analyze_and_qualify(
     business_profile: WorkspaceBusinessProfile | None = None,
     analyze_hard_disqualified: bool = False,
     icp_enabled: bool = True,
+    *,
+    session: Session | None = None,
+    workspace_id: UUID = DEFAULT_WORKSPACE_ID,
 ) -> tuple[LeadContextAnalysis, QualificationResult]:
+    fingerprint: str | None = None
+    cached_reasoning_output: ReasoningOutput | None = None
+    if (
+        session is not None
+        and provider is not None
+        and getattr(provider, "provider_name", "")
+        not in {"", "deterministic", "deterministic-safeguard"}
+    ):
+        fingerprint = reasoning_request_fingerprint(
+            workspace_id=workspace_id,
+            lead=lead,
+            icp=icp,
+            routing=routing,
+            provider=provider,
+            manual_review_config=manual_review_config,
+            business_profile=business_profile,
+            analyze_hard_disqualified=analyze_hard_disqualified,
+            icp_enabled=icp_enabled,
+        )
+        cached_reasoning_output = find_cached_reasoning_output(
+            session,
+            workspace_id=workspace_id,
+            fingerprint=fingerprint,
+            provider=provider,
+        )
     analysis = _context_analysis(
         lead,
         icp,
@@ -486,7 +519,16 @@ def _analyze_and_qualify(
         business_profile,
         analyze_hard_disqualified=analyze_hard_disqualified,
         icp_enabled=icp_enabled,
+        cached_reasoning_output=cached_reasoning_output,
     )
+    if fingerprint and analysis.status in {
+        "completed",
+        "manual_review",
+        "skipped_hard_disqualifier",
+    }:
+        analysis = analysis.model_copy(
+            update={"analysis_request_fingerprint": fingerprint}
+        )
     result = qualify_lead(lead, icp, routing, analysis, include_icp=icp_enabled)
     summary = analysis.summary.model_copy(
         update={
@@ -541,6 +583,8 @@ def process_lead(
         business_profile,
         analyze_hard_disqualified=analyze_hard_disqualified,
         icp_enabled=resolved_icp.source == "workspace",
+        session=session,
+        workspace_id=workspace_id,
     )
     if require_provider_success and analysis.status == "provider_error":
         if analysis.error_code == ReasoningProviderTimeout.code:
@@ -644,6 +688,8 @@ def process_source_event(
             review_config,
             business_profile,
             icp_enabled=resolved_icp.source == "workspace",
+            session=session,
+            workspace_id=workspace_id,
         )
         if effective_manual_review_reason:
             review_update: dict[str, Any] = {"requires_manual_review": True}
@@ -747,6 +793,8 @@ def reprocess_lead(
         review_config,
         business_profile,
         icp_enabled=resolved_icp.source == "workspace",
+        session=session,
+        workspace_id=row.workspace_id,
     )
     if effective_manual_review_reason:
         review_update: dict[str, Any] = {"requires_manual_review": True}

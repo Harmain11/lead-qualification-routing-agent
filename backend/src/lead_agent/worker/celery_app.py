@@ -11,13 +11,18 @@ from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import select
 
+from lead_agent.application.governance import operations_policy
+from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
     finish_queued_inbound_sync_cancellation,
     inbound_sync_lease_is_active,
     run_inbound_sync,
 )
+from lead_agent.application.manual_review import workspace_manual_review_config
+from lead_agent.application.reasoning_cache import reasoning_request_fingerprint
 from lead_agent.application.services import reprocess_lead
+from lead_agent.domain.normalization import normalize_lead
 from lead_agent.infrastructure.crm.inbound_factory import get_workspace_inbound_crm_resolver
 from lead_agent.infrastructure.db.models import (
     CrmInboundSyncStateORM,
@@ -529,8 +534,6 @@ def analyze_workspace_lead(self: object, workspace_id: str, lead_id: str) -> str
         lead = session.get(LeadORM, lead_uuid)
         if lead is None or lead.workspace_id != workspace_uuid:
             return "skipped: lead not found"
-        if lead.analysis is not None and lead.analysis.status == "skipped_hard_disqualifier":
-            return "skipped: hard disqualifier"
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         provider_name = getattr(provider, "provider_name", "")
         model_name = getattr(provider, "model_name", "")
@@ -548,31 +551,13 @@ def analyze_workspace_lead(self: object, workspace_id: str, lead_id: str) -> str
         if connection is None:
             return "skipped: verified workspace connection is unavailable"
         config_key = f"{provider_name}|{model_name}|{prompt_version}"
-        existing = lead.analysis
-        if (
-            existing is not None
-            and existing.provider == provider_name
-            and existing.model == model_name
-            and existing.prompt_version == prompt_version
-            and existing.status in {"completed", "manual_review"}
-        ):
-            return "skipped: lead already analyzed for this configuration"
-        completed_for_config = session.scalar(
-            select(ProviderLifecycleAuditORM.id)
-            .where(
-                ProviderLifecycleAuditORM.workspace_id == workspace_uuid,
-                ProviderLifecycleAuditORM.connection_id == connection.id,
-                ProviderLifecycleAuditORM.action == "reasoning_backfill",
-                ProviderLifecycleAuditORM.outcome == "lead_completed",
-                ProviderLifecycleAuditORM.details["lead_id"].as_string() == str(lead_uuid),
-                ProviderLifecycleAuditORM.details["config_key"].as_string() == config_key,
-            )
-            .limit(1)
-        )
-        if completed_for_config:
-            return "skipped: configuration already completed for this lead"
         icp, routing = settings.load_policies()
-        payload = {
+        resolved_icp = resolve_workspace_icp(session, workspace_uuid, icp)
+        business_profile = operations_policy(session, workspace_uuid).business_profile
+        manual_review_config = workspace_manual_review_config(
+            session, workspace_uuid, routing.manual_review
+        )
+        payload: dict[str, object] = {
             "source": lead.source,
             "source_detail": lead.source_detail,
             "external_id": lead.external_id,
@@ -591,7 +576,54 @@ def analyze_workspace_lead(self: object, workspace_id: str, lead_id: str) -> str
             "product_or_service": lead.product_or_service,
             "message": lead.message,
             "received_at": lead.received_at,
+            "raw_payload": lead.raw_payload,
+            "normalization_version": lead.normalization_version,
         }
+        normalized = normalize_lead(payload, lead.id)
+        request_fingerprint = reasoning_request_fingerprint(
+            workspace_id=workspace_uuid,
+            lead=normalized,
+            icp=resolved_icp.configuration,
+            routing=routing,
+            provider=provider,
+            manual_review_config=manual_review_config,
+            business_profile=business_profile,
+            analyze_hard_disqualified=False,
+            icp_enabled=resolved_icp.source == "workspace",
+        )
+        existing = lead.analysis
+        if (
+            existing is not None
+            and existing.status == "skipped_hard_disqualifier"
+            and existing.analysis_request_fingerprint == request_fingerprint
+        ):
+            return "skipped: unchanged hard disqualifier"
+        if (
+            existing is not None
+            and existing.provider == provider_name
+            and existing.model == model_name
+            and existing.prompt_version == prompt_version
+            and existing.status in {"completed", "manual_review"}
+            and existing.analysis_request_fingerprint == request_fingerprint
+        ):
+            return "skipped: exact analysis input already completed"
+        completed_for_config = session.scalar(
+            select(ProviderLifecycleAuditORM.id)
+            .where(
+                ProviderLifecycleAuditORM.workspace_id == workspace_uuid,
+                ProviderLifecycleAuditORM.connection_id == connection.id,
+                ProviderLifecycleAuditORM.action == "reasoning_backfill",
+                ProviderLifecycleAuditORM.outcome == "lead_completed",
+                ProviderLifecycleAuditORM.details["lead_id"].as_string() == str(lead_uuid),
+                ProviderLifecycleAuditORM.details["config_key"].as_string() == config_key,
+                ProviderLifecycleAuditORM.details[
+                    "analysis_request_fingerprint"
+                ].as_string() == request_fingerprint,
+            )
+            .limit(1)
+        )
+        if completed_for_config:
+            return "skipped: exact analysis request already completed"
         from lead_agent.domain.analysis import (
             ReasoningProviderTimeout,
             ReasoningProviderUnavailable,
@@ -623,6 +655,7 @@ def analyze_workspace_lead(self: object, workspace_id: str, lead_id: str) -> str
                             "provider": provider_name,
                             "model": model_name,
                             "config_key": config_key,
+                            "analysis_request_fingerprint": request_fingerprint,
                             "status": "completed",
                         },
                         created_at=datetime.now(UTC),

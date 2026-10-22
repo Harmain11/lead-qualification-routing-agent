@@ -162,6 +162,12 @@ def create_lead_with_result(
             requires_manual_review=analysis.requires_manual_review,
             error_code=analysis.error_code,
             error_message=analysis.error_message,
+            analysis_request_fingerprint=(
+                analysis.analysis_request_fingerprint
+                if analysis.status
+                in {"completed", "manual_review", "skipped_hard_disqualifier"}
+                else None
+            ),
             structured_output=analysis.model_dump(mode="json"),
             created_at=now,
         )
@@ -258,6 +264,11 @@ def update_lead_with_result(
     analysis_row.requires_manual_review = analysis.requires_manual_review
     analysis_row.error_code = analysis.error_code
     analysis_row.error_message = analysis.error_message
+    analysis_row.analysis_request_fingerprint = (
+        analysis.analysis_request_fingerprint
+        if analysis.status in {"completed", "manual_review", "skipped_hard_disqualifier"}
+        else None
+    )
     analysis_row.structured_output = analysis.model_dump(mode="json")
     analysis_row.created_at = now
 

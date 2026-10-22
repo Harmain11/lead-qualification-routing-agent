@@ -623,6 +623,46 @@ def _forwarded_lead(text: str) -> tuple[str, str, str, str] | None:
     return name.strip(), address, headers.get("subject", ""), authored
 
 
+def _quoted_line_key(line: str) -> str:
+    """Normalize a line only enough to compare repeated quoted text."""
+    unquoted = re.sub(r"^\s*(?:>\s*)+", "", line)
+    return re.sub(r"\s+", " ", unquoted).strip()
+
+
+def _deduplicate_repeated_quoted_lines(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Remove repeated quoted lines from AI context without mutating source messages."""
+
+    def message_order(message: dict[str, Any]) -> int:
+        try:
+            return int(message.get("internal_date") or "0")
+        except (TypeError, ValueError):
+            return 0
+
+    earlier_lines: set[str] = set()
+    cleaned_messages: list[dict[str, Any]] = []
+    removed_count = 0
+
+    for message in sorted(messages, key=message_order):
+        original_body = str(message.get("body", ""))
+        current_lines_seen: set[str] = set()
+        kept_lines: list[str] = []
+        for line in original_body.splitlines():
+            quoted = bool(re.match(r"^\s*>", line))
+            key = _quoted_line_key(line)
+            if quoted and key and (key in earlier_lines or key in current_lines_seen):
+                removed_count += 1
+                continue
+            kept_lines.append(line)
+            if key:
+                current_lines_seen.add(key)
+        cleaned_messages.append({**message, "body": "\n".join(kept_lines)})
+        earlier_lines.update(current_lines_seen)
+
+    return cleaned_messages, removed_count
+
+
 def _thread_from_participants(
     headers: dict[str, str],
     thread_messages: list[dict[str, Any]],
@@ -1458,7 +1498,10 @@ class GmailInboundProvider:
             except (TypeError, ValueError):
                 return 0
 
-        for message in sorted(thread_messages, key=message_order):
+        context_messages, _removed_quoted_lines = _deduplicate_repeated_quoted_lines(
+            thread_messages
+        )
+        for message in sorted(context_messages, key=message_order):
             message_headers = message["headers"]
             header_lines = [
                 f"{name.title()}: {value}"
