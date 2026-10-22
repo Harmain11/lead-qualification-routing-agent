@@ -172,6 +172,9 @@
 }
 .lead-agent-closing-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .lead-agent-email-editor { display: grid; gap: 9px; padding: 11px; border: 1px solid var(--agent-line); border-radius: 9px; background: var(--surface); }
+.lead-agent-email-toolbar { display: flex; min-width: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--agent-line); }
+.lead-agent-email-tab { display: inline-flex; min-height: 34px; align-items: center; padding: 0 10px; border: 1px solid var(--agent-line); border-bottom: 2px solid var(--orange); border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--orange-soft) 30%, var(--surface)); color: var(--text); font-size: 12px; font-weight: 750; }
+.lead-agent-send-email { min-height: 36px !important; padding-inline: 12px !important; font-size: 12px !important; white-space: nowrap; }
 .lead-agent-email-editor label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
 .lead-agent-email-editor input,
 .lead-agent-email-editor textarea { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--agent-line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
