@@ -47,7 +47,7 @@ type ClosingSelection = { conversionType: "" | "project" | "sale"; creditedUserI
 const suggestions = [
   "Summarize this lead and suggest a next step",
   "What details are still missing?",
-  "Draft a follow-up email",
+  "Write and send a follow-up email",
   "I want to call this lead",
 ];
 const fieldLabels: Record<string, string> = {
@@ -100,6 +100,7 @@ export function LeadAssistantPanel({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [quickActionNotice, setQuickActionNotice] = useState("");
   const [closingOptions, setClosingOptions] = useState<ClosingOption[]>([]);
   const [crmOptions, setCrmOptions] = useState<CrmOption[]>([]);
   const [selectedCrm, setSelectedCrm] = useState(lead.crm_sync?.provider || "");
@@ -111,6 +112,7 @@ export function LeadAssistantPanel({
     setMessages([]);
     setDraft("");
     setError("");
+    setQuickActionNotice("");
   }, [lead.id]);
 
   useEffect(() => {
@@ -146,6 +148,7 @@ export function LeadAssistantPanel({
     event?.preventDefault();
     const content = text.trim();
     if (!content || busy || !canUseAgent) return;
+    setQuickActionNotice("");
     const userMessage: ChatMessage = { id: id(), role: "user", content };
     const history = [...messages, userMessage];
     setMessages(history);
@@ -174,6 +177,36 @@ export function LeadAssistantPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function copyLeadPhone() {
+    const phone = lead.phone?.trim();
+    if (!phone) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(phone);
+      setQuickActionNotice("Phone number copied.");
+    } catch {
+      setQuickActionNotice("Copy isn’t available here. Select the phone number to copy it.");
+    }
+  }
+
+  function openLeadPhone() {
+    if (!dialerPhoneConnectionId || !lead.phone?.trim()) {
+      setQuickActionNotice("Select an active embedded phone and save a lead number before opening the phone.");
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
+      detail: { connectionId: dialerPhoneConnectionId },
+    }));
+    setQuickActionNotice("Phone opened. Enter the saved number in its keypad; no call has been started.");
+  }
+
+  function startEmailDraft() {
+    void submit(
+      undefined,
+      `Draft a follow-up email to ${lead.full_name} using the information in this lead. Show it here so I can review and edit it before sending.`,
+    );
   }
 
   function changeMessage(messageId: string, changes: Partial<ChatMessage>) {
@@ -598,8 +631,38 @@ export function LeadAssistantPanel({
   return <section className="lead-agent" aria-label={`Assistant for ${lead.full_name}`}>
     <header className="lead-agent-heading">
       <div className="lead-agent-mark" aria-hidden="true">CA</div>
-      <div><span className="eyebrow">Lead assistant</span><h2>Work with {lead.full_name}</h2><p>Ask a question, add new details, or ask Corral to take a lead action.</p></div>
+      <div><span className="eyebrow">Lead assistant</span><h2>Work with {lead.full_name}</h2><p>Ask Corral to take an action, then review it here before anything is sent or changed.</p></div>
     </header>
+    <section className="lead-agent-quick-actions" aria-label="Quick lead actions">
+      <div className="lead-agent-phone-card">
+        <div className="lead-agent-phone-copy">
+          <span className="eyebrow">Phone number</span>
+          <strong>{lead.phone || "No number saved"}</strong>
+        </div>
+        <div className="lead-agent-quick-buttons">
+          {lead.phone && <button type="button" className="secondary-button" onClick={() => void copyLeadPhone()}>Copy number</button>}
+          {lead.phone && dialerPhoneConnectionId && <button type="button" className="secondary-button" onClick={openLeadPhone}>Open phone</button>}
+          {!lead.phone && canEdit && <button type="button" className="secondary-button" onClick={() => {
+            setDraft(`Add a phone number for ${lead.full_name}: `);
+            window.requestAnimationFrame(() => document.getElementById("lead-agent-input")?.focus());
+          }}>Add number with Corral</button>}
+        </div>
+        {lead.phone && <p>{dialerPhoneConnectionId
+          ? "To call: copy the number or open the selected phone, then dial it yourself. Corral won’t start a call."
+          : "To call: copy the number and dial it using your approved phone. Select an embedded phone to open it here."}</p>}
+      </div>
+      <button
+        className="primary-button lead-agent-email-shortcut"
+        type="button"
+        disabled={!canUseAgent || !canEdit || !lead.email || busy}
+        onClick={startEmailDraft}
+        title={!lead.email ? "Add an email address to this lead first." : !canEdit ? "Lead-edit access is required to create a follow-up." : undefined}
+      >
+        Write follow-up email
+      </button>
+      <small className="lead-agent-email-shortcut-note">Draft, edit, and send it here after review.</small>
+      {quickActionNotice && <p className="lead-agent-quick-notice" role="status">{quickActionNotice}</p>}
+    </section>
     <div className="lead-agent-transcript" ref={transcriptRef} aria-live="polite">
       {!messages.length && <div className="lead-agent-welcome">
         <h3>What would you like to do with this lead?</h3>
