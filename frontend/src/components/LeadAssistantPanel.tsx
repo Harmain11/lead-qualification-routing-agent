@@ -1,28 +1,27 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  approveAndSendLeadFollowUp,
   chatWithLeadAssistant,
   deleteLead,
-  generateLeadFollowUp,
   getLead,
   getLeadClosingOptions,
-  getLeadFollowUp,
   listIntegrations,
   reevaluateLead,
   saveLeadNote,
   sendLeadToCrm,
   syncLeadGmailConversation,
-  updateLeadFollowUp,
   updateLeadProfile,
   updateLeadProgress,
   type LeadAssistantAction,
   type LeadAssistantReply,
 } from "../api";
-import type { FollowUpEmail, Lead } from "../types";
+import type { Lead, ProviderConnection } from "../types";
 import type { LeadDetailSection } from "../leadSections";
 import { OPEN_DIALER_PHONE_EVENT } from "./dialerPhoneConfig";
+import { EmailComposer, type GmailComposerSeed } from "./EmailComposer";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
+import { isFollowUpEmailDraftRequest } from "./leadAssistantIntents";
+import "../views/emailWorkspace.css";
 import "./leadAssistant.css";
 
 type ChatMessage = {
@@ -34,9 +33,6 @@ type ChatMessage = {
   done?: boolean;
   error?: string;
   notice?: string;
-  preview?: FollowUpEmail;
-  emailSubject?: string;
-  emailBody?: string;
   actionResult?: string;
 };
 
@@ -82,6 +78,7 @@ export function LeadAssistantPanel({
   canViewEmail,
   canUseAgent,
   dialerPhoneConnectionId,
+  onNavigateToDialer,
   onUpdated,
   onDeleted,
   onSectionChange,
@@ -92,6 +89,7 @@ export function LeadAssistantPanel({
   canViewEmail: boolean;
   canUseAgent: boolean;
   dialerPhoneConnectionId: string | null;
+  onNavigateToDialer: () => void;
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
   onSectionChange: (section: LeadDetailSection) => void;
@@ -103,21 +101,33 @@ export function LeadAssistantPanel({
   const [quickActionNotice, setQuickActionNotice] = useState("");
   const [closingOptions, setClosingOptions] = useState<ClosingOption[]>([]);
   const [crmOptions, setCrmOptions] = useState<CrmOption[]>([]);
+  const [gmailAccounts, setGmailAccounts] = useState<ProviderConnection[]>([]);
+  const [composeSeed, setComposeSeed] = useState<GmailComposerSeed | null>(null);
+  const [composerRevision, setComposerRevision] = useState(0);
   const [selectedCrm, setSelectedCrm] = useState(lead.crm_sync?.provider || "");
   const [closingSelection, setClosingSelection] = useState<Record<string, ClosingSelection>>({});
   const transcriptRef = useRef<HTMLDivElement>(null);
   const actionInFlightRef = useRef(new Set<string>());
+  const leadClassification = lead.qualification?.classification.toLowerCase();
+  const followUpBlockedReason =
+    Boolean(lead.qualification?.hard_disqualified) ||
+    ["disqualify", "disqualified", "hard_disqualified"].includes(leadClassification || "")
+      ? "This lead is disqualified. Review its qualification before sending outreach."
+      : lead.routing?.manual_review || lead.analysis?.requires_manual_review
+        ? "This lead needs human review before sending outreach."
+        : null;
 
   useEffect(() => {
     setMessages([]);
     setDraft("");
     setError("");
     setQuickActionNotice("");
+    setComposeSeed(null);
   }, [lead.id]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, busy]);
+  }, [messages, busy, composeSeed]);
 
   useEffect(() => {
     if (!canEdit) return;
@@ -125,8 +135,13 @@ export function LeadAssistantPanel({
   }, [canEdit, lead.id]);
 
   useEffect(() => {
-    if (!canCrmSync) return;
+    if (!canCrmSync && !(canUseAgent && canEdit)) return;
     listIntegrations().then((cards) => {
+      if (canUseAgent && canEdit) {
+        const gmail = cards.find((card) => card.provider === "gmail");
+        setGmailAccounts(gmail?.connections.length ? gmail.connections : gmail?.connection ? [gmail.connection] : []);
+      }
+      if (!canCrmSync) return;
       const options = cards
         .filter((card) => card.category.toLowerCase() === "crm" && card.directionality.manual_outbound)
         .flatMap((card) => {
@@ -141,8 +156,11 @@ export function LeadAssistantPanel({
           ? current
           : options.length === 1 ? options[0].provider : "",
       );
-    }).catch(() => setCrmOptions([]));
-  }, [canCrmSync, lead.id]);
+    }).catch(() => {
+      if (canUseAgent && canEdit) setGmailAccounts([]);
+      if (canCrmSync) setCrmOptions([]);
+    });
+  }, [canCrmSync, canEdit, canUseAgent, lead.id]);
 
   async function submit(event?: FormEvent, text = draft) {
     event?.preventDefault();
@@ -155,25 +173,48 @@ export function LeadAssistantPanel({
     setDraft("");
     setBusy(true);
     setError("");
+    const emailDraftRequested = isFollowUpEmailDraftRequest(content);
     try {
       const reply: LeadAssistantReply = await chatWithLeadAssistant(
         lead.id,
         assistantConversation(history),
       );
-      const phoneActionUnavailable =
-        reply.action.kind === "open_dialer" && !dialerPhoneConnectionId;
+      const isDialerAction = reply.action.kind === "open_dialer";
+      const isEmailComposerAction =
+        reply.action.kind === "draft_email" || reply.action.kind === "send_follow_up";
+      const aiComposerOpened = isEmailComposerAction && canEdit && openFollowUpComposer({
+        subject: reply.action.email_subject?.trim() || undefined,
+        body: reply.action.email_body?.trim() || undefined,
+      });
+      const manualComposerFallbackOpened =
+        !aiComposerOpened && emailDraftRequested && canEdit && openFollowUpComposer();
+      const emailComposerOpened = aiComposerOpened || manualComposerFallbackOpened;
       setMessages((current) => [...current, {
         id: id(),
         role: "assistant",
-        content: phoneActionUnavailable
-          ? `${reply.reply} There isn’t an active embedded phone selected, so I can’t open it here yet.`
+        content: emailComposerOpened
+          ? aiComposerOpened
+            ? "I’ve opened an editable follow-up email below. Review and edit the recipient, subject, and message before sending."
+            : "I couldn’t generate a draft from that response, so I opened the full email editor below. Add or edit the recipient, subject, and message there; nothing is sent automatically."
+          : isDialerAction
+          ? `${reply.reply}\n\nClick below to open the Dialer. Corral will not place the call.`
           : reply.reply,
-        action: phoneActionUnavailable
-          ? { ...reply.action, kind: "none" }
-          : reply.action,
+        action: reply.action,
+        ...(aiComposerOpened ? {
+          done: true,
+          actionResult: "The composer is open. Review all fields; nothing will be sent until you choose Send follow-up.",
+        } : {}),
       }]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The assistant could not answer. Try again.");
+      if (emailDraftRequested && canEdit && openFollowUpComposer()) {
+        setMessages((current) => [...current, {
+          id: id(),
+          role: "assistant",
+          content: "AI drafting isn’t available right now, so I opened the full email editor for you to write the follow-up manually. Nothing is sent automatically.",
+        }]);
+      } else {
+        setError(reason instanceof Error ? reason.message : "The assistant could not answer. Try again.");
+      }
     } finally {
       setBusy(false);
     }
@@ -202,39 +243,20 @@ export function LeadAssistantPanel({
     setQuickActionNotice("Phone opened. Enter the saved number in its keypad; no call has been started.");
   }
 
-  async function startEmailDraft() {
-    if (busy || !canUseAgent || !canEdit || !lead.email) return;
-    const userMessage: ChatMessage = {
-      id: id(),
-      role: "user",
-      content: "Write a follow-up email",
-    };
-    const assistantMessage: ChatMessage = {
-      id: id(),
-      role: "assistant",
-      content: "I’ll prepare a draft for you to review. It won’t be sent until you choose Send follow-up.",
-      action: {
-        kind: "draft_email",
-        profile_updates: {},
-        clear_fields: [],
-        note: null,
-        progress_stage: null,
-        progress_note: null,
-        conversion_type: null,
-        closed_revenue: null,
-        credited_user_id: null,
-        email_subject: null,
-        email_body: null,
-        crm_provider: null,
-      },
-    };
-    setMessages((current) => [...current, userMessage, assistantMessage]);
-    setBusy(true);
-    try {
-      await executeAction(assistantMessage);
-    } finally {
-      setBusy(false);
-    }
+  function openFollowUpComposer(seed: GmailComposerSeed = {}) {
+    setQuickActionNotice("");
+    setComposeSeed({
+      ...seed,
+      recipient: seed.recipient ?? lead.email?.trim() ?? "",
+      purpose: "follow_up",
+    });
+    setComposerRevision((current) => current + 1);
+    return true;
+  }
+
+  function startEmailDraft() {
+    if (!canUseAgent || !canEdit || busy) return;
+    void submit(undefined, "Write and send a follow-up email");
   }
 
   function changeMessage(messageId: string, changes: Partial<ChatMessage>) {
@@ -251,105 +273,6 @@ export function LeadAssistantPanel({
         [field]: value,
       },
     }));
-  }
-
-  async function reviewFollowUp(message: ChatMessage) {
-    if (!canEdit) return;
-    changeMessage(message.id, { busy: true, error: undefined });
-    try {
-      let followUp = await getLeadFollowUp(lead.id);
-      if (!followUp || followUp.status === "sent") followUp = await generateLeadFollowUp(lead.id);
-      changeMessage(message.id, {
-        busy: false,
-        preview: followUp,
-        emailSubject: followUp.subject,
-        emailBody: followUp.body || "",
-      });
-    } catch (reason) {
-      changeMessage(message.id, {
-        busy: false,
-        error: reason instanceof Error ? reason.message : "The email draft could not be loaded.",
-      });
-    }
-  }
-
-  async function confirmFollowUpSend(message: ChatMessage) {
-    const followUp = message.preview;
-    if (
-      !canEdit ||
-      !followUp ||
-      followUp.status !== "draft" ||
-      message.done ||
-      message.busy ||
-      message.emailSubject !== followUp.subject ||
-      message.emailBody !== (followUp.body || "") ||
-      actionInFlightRef.current.has(message.id)
-    ) return;
-    actionInFlightRef.current.add(message.id);
-    changeMessage(message.id, { busy: true, error: undefined });
-    try {
-      const sent = await approveAndSendLeadFollowUp(lead.id, followUp.id);
-      changeMessage(message.id, {
-        busy: false,
-        done: sent.status === "sent",
-        preview: sent,
-        actionResult: sent.status === "sent"
-          ? `Email sent to ${sent.recipient}. Subject: ${sent.subject}.`
-          : undefined,
-        error: sent.status === "sent"
-          ? undefined
-          : sent.error_message || "Gmail could not confirm that the email was sent.",
-      });
-      if (sent.status === "sent") void refreshLeadAfterAction(message.id);
-    } catch (reason) {
-      changeMessage(message.id, {
-        busy: false,
-        error: reason instanceof Error ? reason.message : "The email could not be sent.",
-      });
-    } finally {
-      actionInFlightRef.current.delete(message.id);
-    }
-  }
-
-  function editFollowUpDraft(
-    messageId: string,
-    field: "emailSubject" | "emailBody",
-    value: string,
-  ) {
-    changeMessage(messageId, { [field]: value });
-  }
-
-  async function saveFollowUpDraft(message: ChatMessage) {
-    const followUp = message.preview;
-    const subject = message.emailSubject?.trim() || "";
-    const body = message.emailBody || "";
-    if (
-      !canEdit ||
-      !followUp ||
-      followUp.status !== "draft" ||
-      !subject ||
-      body.trim().length < 10 ||
-      actionInFlightRef.current.has(message.id)
-    ) return;
-    actionInFlightRef.current.add(message.id);
-    changeMessage(message.id, { busy: true, error: undefined, notice: undefined });
-    try {
-      const saved = await updateLeadFollowUp(lead.id, followUp.id, { subject, body });
-      changeMessage(message.id, {
-        busy: false,
-        preview: saved,
-        emailSubject: saved.subject,
-        emailBody: saved.body || "",
-        notice: "Draft saved. Review it here, then choose Send follow-up when you’re ready.",
-      });
-    } catch (reason) {
-      changeMessage(message.id, {
-        busy: false,
-        error: reason instanceof Error ? reason.message : "The draft could not be saved.",
-      });
-    } finally {
-      actionInFlightRef.current.delete(message.id);
-    }
   }
 
   async function refreshLeadAfterAction(messageId: string) {
@@ -430,23 +353,20 @@ export function LeadAssistantPanel({
         changeMessage(message.id, { done: true });
         void refreshLeadAfterAction(message.id);
       } else if (action.kind === "draft_email") {
-        let generated = await generateLeadFollowUp(lead.id);
-        if (action.email_subject?.trim() || action.email_body?.trim()) {
-          generated = await updateLeadFollowUp(lead.id, generated.id, {
-            subject: action.email_subject?.trim() || generated.subject,
-            body: action.email_body?.trim() || generated.body || "",
-          });
-        }
+        if (!openFollowUpComposer({
+          subject: action.email_subject?.trim() || undefined,
+          body: action.email_body?.trim() || undefined,
+        })) throw new Error(followUpBlockedReason || "The follow-up composer could not be opened.");
         changeMessage(message.id, {
-          done: false,
-          content: "Review the email details below. Nothing will be sent until you choose Send follow-up.",
-          preview: generated,
-          emailSubject: generated.subject,
-          emailBody: generated.body || "",
-          notice: "Draft created. Review or edit it here. It will not be sent until you choose Send follow-up.",
+          done: true,
+          actionResult: "The follow-up composer is open. Check the sender, recipient, and message, then choose Send follow-up.",
         });
       } else if (action.kind === "send_follow_up") {
-        await reviewFollowUp(message);
+        if (!openFollowUpComposer()) throw new Error(followUpBlockedReason || "The follow-up composer could not be opened.");
+        changeMessage(message.id, {
+          done: true,
+          actionResult: "The follow-up composer is open. Check the sender, recipient, and message, then choose Send follow-up.",
+        });
       } else if (action.kind === "refresh_email") {
         if (!canEdit) throw new Error("You need lead-edit access to refresh Gmail for this lead.");
         await syncLeadGmailConversation(lead.id);
@@ -475,16 +395,18 @@ export function LeadAssistantPanel({
         onSectionChange("follow-ups");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_dialer") {
-        if (!dialerPhoneConnectionId || !lead.phone?.trim()) {
-          throw new Error("No active embedded phone is selected.");
+        if (dialerPhoneConnectionId && lead.phone?.trim()) {
+          window.dispatchEvent(new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
+            detail: { connectionId: dialerPhoneConnectionId },
+          }));
         }
-        window.dispatchEvent(new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
-          detail: { connectionId: dialerPhoneConnectionId },
-        }));
         changeMessage(message.id, {
           done: true,
-          actionResult: `Phone opened. Dial ${lead.phone} from its keypad. Corral has not placed a call.`,
+          actionResult: lead.phone
+            ? `Dialer opened. Dial ${lead.phone} yourself. Corral has not placed a call.`
+            : "Dialer opened. Corral has not placed a call.",
         });
+        onNavigateToDialer();
       } else if (action.kind === "open_closing") {
         onSectionChange("closing");
         changeMessage(message.id, { done: true });
@@ -508,15 +430,15 @@ export function LeadAssistantPanel({
       case "update_profile": return "Update lead details";
       case "add_note": return "Save team note";
       case "record_progress": return "Record lead progress";
-      case "draft_email": return "Email draft";
-      case "send_follow_up": return "Review and send follow-up";
+      case "draft_email": return "Write follow-up email";
+      case "send_follow_up": return "Compose follow-up email";
       case "refresh_email": return "Refresh Gmail conversation";
       case "sync_crm": return "Sync to CRM";
       case "delete_lead": return "Delete this lead";
       case "reevaluate_lead": return "Re-evaluate qualification and routing";
       case "open_email": return "Open email";
       case "open_meetings": return "Review meeting times";
-      case "open_dialer": return "Open phone to call";
+      case "open_dialer": return "Open Dialer to call";
       case "open_closing": return "Open comments and closing";
       case "open_history": return "Open lead history";
       default: return "";
@@ -534,14 +456,14 @@ export function LeadAssistantPanel({
     };
     const needsCredit = action.progress_stage === "converted";
     const editRequired = ["update_profile", "add_note", "record_progress", "draft_email", "send_follow_up", "refresh_email", "delete_lead", "reevaluate_lead"].includes(action.kind);
-    return <details className="lead-agent-action" open={!message.done || message.preview?.status === "draft"}>
-      <summary className="lead-agent-action-title"><span aria-hidden="true">↳</span><strong>{actionTitle(action)}</strong>{message.done && <small>{action.kind === "open_dialer" ? "Phone opened · not called" : action.kind.startsWith("open_") ? "Opened" : "Completed"}</small>}</summary>
+    return <details className="lead-agent-action" open={!message.done}>
+      <summary className="lead-agent-action-title"><span aria-hidden="true">↳</span><strong>{actionTitle(action)}</strong>{message.done && <small>{["draft_email", "send_follow_up"].includes(action.kind) ? "Composer opened" : action.kind === "open_dialer" ? "Dialer opened · not called" : action.kind.startsWith("open_") ? "Opened" : "Completed"}</small>}</summary>
       {action.kind === "update_profile" && <dl className="lead-agent-changes">
         {changes.map(([field, value]) => <div key={field}><dt>{fieldLabels[field] || field}</dt><dd>{String(value)}</dd></div>)}
         {action.clear_fields.map((field) => <div key={`clear-${field}`}><dt>{fieldLabels[field] || field}</dt><dd>Clear this field</dd></div>)}
       </dl>}
       {action.kind === "add_note" && <p className="lead-agent-action-copy">{action.note}</p>}
-      {action.kind === "open_dialer" && <p className="lead-agent-action-copy">Saved number: <b>{lead.phone || "Not available"}</b>. Opens the phone only; you still choose whether to place the call.</p>}
+      {action.kind === "open_dialer" && <p className="lead-agent-action-copy">Saved number: <b>{lead.phone || "Not available"}</b>. Corral will not place the call. {!message.done && <a className="lead-agent-inline-link" href="?view=dialer" onClick={(event) => { event.preventDefault(); void executeAction(message); }}>Click here to open the Dialer</a>}</p>}
       {action.kind === "record_progress" && <>
         <p className="lead-agent-action-copy"><b>{stageLabels[action.progress_stage || ""] || "Progress update"}</b>{action.progress_note && <> · {action.progress_note}</>}</p>
         {needsCredit && !message.done && <div className="lead-agent-closing-fields">
@@ -567,94 +489,17 @@ export function LeadAssistantPanel({
           {crmOptions.map((option) => <option key={option.provider} value={option.provider}>{option.name}</option>)}
         </select>
       </label>}
-      {message.preview && <div className="lead-agent-email-editor">
-        <div className="lead-agent-email-toolbar">
-          <span className="lead-agent-email-tab">Email details</span>
-          {message.preview.status === "draft" && !message.done && <button
-            className="primary-button lead-agent-send-email"
-            type="button"
-            disabled={
-              Boolean(message.busy) ||
-              !(message.emailSubject ?? message.preview.subject).trim() ||
-              (message.emailBody ?? message.preview.body ?? "").trim().length < 10 ||
-              (message.emailSubject ?? message.preview.subject) !== message.preview.subject ||
-              (message.emailBody ?? message.preview.body ?? "") !== (message.preview.body || "")
-            }
-            onClick={() => void confirmFollowUpSend(message)}
-          >
-            {message.busy ? "Sending…" : "Send follow-up"}
-          </button>}
-        </div>
-        <p className="lead-agent-email-recipient"><b>To</b> {message.preview.recipient}</p>
-        {message.preview.status === "sent" ? (
-          <>
-            <p className="lead-agent-email-status">
-              Sent {message.preview.sent_at ? new Date(message.preview.sent_at).toLocaleString() : "successfully"}.
-            </p>
-            <p><b>Subject:</b> {message.preview.subject}</p>
-            <div className="lead-agent-email-body">{message.preview.body}</div>
-          </>
-        ) : message.preview.status === "draft" ? (
-          <>
-            <label>
-              Subject
-              <input
-                type="text"
-                maxLength={180}
-                value={message.emailSubject ?? message.preview.subject}
-                onChange={(event) => editFollowUpDraft(message.id, "emailSubject", event.target.value)}
-                disabled={message.busy}
-              />
-            </label>
-            <label>
-              Message
-              <textarea
-                rows={8}
-                maxLength={5000}
-                value={message.emailBody ?? message.preview.body ?? ""}
-                onChange={(event) => editFollowUpDraft(message.id, "emailBody", event.target.value)}
-                disabled={message.busy}
-              />
-            </label>
-            {message.preview.rationale && <p className="lead-agent-email-meta"><b>Why this draft:</b> {message.preview.rationale}</p>}
-            {message.preview.generation_note && <p className="lead-agent-email-meta">{message.preview.generation_note}</p>}
-            <p className="lead-agent-email-meta">This email stays in Corral until you choose <b>Send follow-up</b>.</p>
-          </>
-        ) : (
-          <p className="lead-agent-email-status">
-            {message.preview.error_message || "This draft is no longer available to edit or send."}
-          </p>
-        )}
-      </div>}
       {message.actionResult && <p className="lead-agent-notice" role="status">{message.actionResult}</p>}
       {message.error && <p className="lead-agent-error" role="alert">{message.error}</p>}
       {message.notice && <p className="lead-agent-notice" role="status">{message.notice}</p>}
-      {message.preview?.status === "draft" && !message.done && <div className="lead-agent-action-buttons">
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={
-            Boolean(message.busy) ||
-            !(message.emailSubject ?? message.preview.subject).trim() ||
-            (message.emailBody ?? message.preview.body ?? "").trim().length < 10 ||
-            (
-              (message.emailSubject ?? message.preview.subject) === message.preview.subject &&
-              (message.emailBody ?? message.preview.body ?? "") === (message.preview.body || "")
-            )
-          }
-          onClick={() => void saveFollowUpDraft(message)}
-        >
-          {message.busy ? "Saving…" : "Save draft changes"}
-        </button>
-      </div>}
-      {!message.done && !message.preview && <div className="lead-agent-action-buttons">
+      {!message.done && action.kind !== "open_dialer" && <div className="lead-agent-action-buttons">
         <button
             className={["sync_crm", "delete_lead", "send_follow_up", "reevaluate_lead"].includes(action.kind) ? "secondary-button" : "primary-button"}
             type="button"
             disabled={message.busy || (editRequired && !canEdit) || (action.kind === "sync_crm" && (!canCrmSync || !selectedCrm)) || (action.kind === "open_email" && !canViewEmail) || (needsCredit && (!selection.conversionType || !selection.creditedUserId))}
             onClick={() => void executeAction(message)}
           >
-            {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "send_follow_up" ? "Review draft" : action.kind === "draft_email" ? "Create draft and review" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
+            {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "send_follow_up" || action.kind === "draft_email" ? "Open email composer" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
           </button>
       </div>}
     </details>;
@@ -663,7 +508,7 @@ export function LeadAssistantPanel({
   return <section className="lead-agent" aria-label={`Assistant for ${lead.full_name}`}>
     <header className="lead-agent-heading">
       <div className="lead-agent-mark" aria-hidden="true">CA</div>
-      <div><span className="eyebrow">Lead assistant</span><h2>Work with {lead.full_name}</h2><p>Ask Corral to take an action, then review it here before anything is sent or changed.</p></div>
+      <div><span className="eyebrow">Lead assistant</span><h2>Work with {lead.full_name}</h2><p>Ask Corral to help with this lead. Check any proposed changes, then choose the action you want.</p></div>
     </header>
     <section className="lead-agent-quick-actions" aria-label="Quick lead actions">
       <div className="lead-agent-phone-card">
@@ -686,19 +531,19 @@ export function LeadAssistantPanel({
       <button
         className="primary-button lead-agent-email-shortcut"
         type="button"
-        disabled={!canUseAgent || !canEdit || !lead.email || busy}
+        disabled={!canUseAgent || !canEdit || busy}
         onClick={startEmailDraft}
-        title={!lead.email ? "Add an email address to this lead first." : !canEdit ? "Lead-edit access is required to create a follow-up." : undefined}
+        title={followUpBlockedReason || (!canEdit ? "Lead-edit access is required to send a follow-up." : undefined)}
       >
-        Write follow-up email
+        Compose follow-up email
       </button>
-      <small className="lead-agent-email-shortcut-note">Draft, edit, and send it here after review.</small>
-      {quickActionNotice && <p className="lead-agent-quick-notice" role="status">{quickActionNotice}</p>}
+      <small className="lead-agent-email-shortcut-note">Choose sender and recipient, format the message, then send it directly.</small>
+      {(quickActionNotice || followUpBlockedReason) && <p className="lead-agent-quick-notice" role="status">{quickActionNotice || followUpBlockedReason}</p>}
     </section>
     <div className="lead-agent-transcript" ref={transcriptRef} aria-live="polite">
       {!messages.length && <div className="lead-agent-welcome">
         <h3>What would you like to do with this lead?</h3>
-        <p>{canUseAgent ? "I can answer from the record, update details, save notes and progress, prepare email drafts, or open the right lead workflow. You’ll confirm email sends, CRM syncs, and deletion." : "Your workspace role does not include AI action access. Ask a workspace admin to grant “Execute permitted agent actions”."}</p>
+        <p>{canUseAgent ? "I can answer from the record, update details, save notes and progress, compose emails, or open the right lead workflow. You’ll confirm email sends, CRM syncs, and deletion." : "Your workspace role does not include AI action access. Ask a workspace admin to grant “Execute permitted agent actions”."}</p>
         {canUseAgent && <div className="lead-agent-suggestions">{suggestions.map((item) => <button type="button" key={item} onClick={() => void submit(undefined, item)}>{item}</button>)}</div>}
       </div>}
       {messages.map((message) => <article className={`lead-agent-message is-${message.role}`} key={message.id}>
@@ -706,6 +551,24 @@ export function LeadAssistantPanel({
         <p>{message.content}</p>
         {message.action && renderAction(message)}
       </article>)}
+      {composeSeed && <div className="lead-agent-email-compose">
+        <EmailComposer
+          key={composerRevision}
+          accounts={gmailAccounts}
+          canSend={canEdit}
+          sendBlockedReason={followUpBlockedReason ?? undefined}
+          leadId={lead.id}
+          seed={composeSeed}
+          onClose={() => setComposeSeed(null)}
+          onSent={() => {
+            setComposeSeed(null);
+            setQuickActionNotice("Follow-up email sent.");
+            void getLead(lead.id).then(onUpdated).catch(() => {
+              setQuickActionNotice("Follow-up email sent. The lead details could not be refreshed.");
+            });
+          }}
+        />
+      </div>}
       {busy && <div className="lead-agent-thinking" role="status"><i /><i /><i /><span>Checking this lead’s record…</span></div>}
       {error && <p className="lead-agent-error" role="alert">{error}</p>}
     </div>
@@ -713,7 +576,7 @@ export function LeadAssistantPanel({
       <label htmlFor="lead-agent-input">Message Corral</label>
       <div><textarea
         id="lead-agent-input"
-        rows={3}
+        rows={5}
         maxLength={3000}
         placeholder="Ask about this lead or describe an update…"
         value={draft}

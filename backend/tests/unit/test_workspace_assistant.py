@@ -236,3 +236,15 @@ def test_workspace_email_action_keeps_the_draft_fields_typed_and_editable() -> N
     assert action.email_bcc == "archive@example.test"
     assert action.email_subject == "Following up"
     assert "Hello Pat" in action.email_body
+
+
+def test_dialer_navigation_is_a_typed_workspace_action() -> None:
+    action = WorkspaceAssistantAction(
+        kind="open_module",
+        area="dialer",
+        title="Open Dialer",
+        summary="Choose a lead or number and place the call yourself.",
+    )
+
+    assert action.kind == "open_module"
+    assert action.area == "dialer"

@@ -6,6 +6,7 @@ from io import BytesIO, StringIO
 from itertools import count
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from sqlalchemy import create_engine, select
@@ -115,6 +116,37 @@ def test_csv_is_utf8_escaped_and_formula_safe() -> None:
     assert "credentials" not in "\n".join(rows[0]).lower()
 
 
+def test_selected_export_columns_are_applied_in_requested_order() -> None:
+    record = _record()
+    record = record.__class__(**{**record.__dict__, "phone": "+1 415 555 0100"})
+    columns = ["phone", "email", "lead_name"]
+
+    csv_rows = list(
+        csv.reader(StringIO(render_csv([record], columns).decode("utf-8-sig")))
+    )
+    assert csv_rows[0] == ["Phone", "Email", "Lead / Contact Name"]
+    assert csv_rows[1] == ["'+1 415 555 0100", "jane@example.test", "Jane Doe"]
+
+    sheet = load_workbook(BytesIO(render_xlsx([record], columns)))["Leads"]
+    assert [sheet.cell(1, index).value for index in range(1, 4)] == [
+        "Phone",
+        "Email",
+        "Lead / Contact Name",
+    ]
+    assert [sheet.cell(2, index).value for index in range(1, 4)] == [
+        "'+1 415 555 0100",
+        "jane@example.test",
+        "Jane Doe",
+    ]
+
+
+def test_export_columns_must_be_nonempty_and_unique() -> None:
+    with pytest.raises(ValueError):
+        LeadExportRequest(format="csv", columns=[])
+    with pytest.raises(ValueError):
+        LeadExportRequest(format="csv", columns=["email", "email"])
+
+
 def test_xlsx_has_business_format_and_formula_safe_cells() -> None:
     record = _record("+SUM(1,1)")
     workbook = load_workbook(BytesIO(render_xlsx([record])))
@@ -128,6 +160,18 @@ def test_xlsx_has_business_format_and_formula_safe_cells() -> None:
 def test_pdf_is_a_report_with_identity_and_summary() -> None:
     payload = render_pdf(
         [_record()], "Acme workspace", "Workspace Owner", LeadExportRequest(format="pdf").filters
+    )
+    assert payload.startswith(b"%PDF")
+    assert len(payload) > 1000
+
+
+def test_pdf_renders_only_requested_export_columns() -> None:
+    payload = render_pdf(
+        [_record()],
+        "Acme workspace",
+        "Workspace Owner",
+        LeadExportRequest(format="pdf").filters,
+        ["email", "lead_name"],
     )
     assert payload.startswith(b"%PDF")
     assert len(payload) > 1000

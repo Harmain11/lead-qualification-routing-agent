@@ -1608,6 +1608,7 @@ function App() {
                   selected={selectedLead}
                   activeSection={leadSection}
                   onSectionChange={changeLeadSection}
+                  onNavigateToDialer={() => navigate("dialer")}
                   isSectionPinned={pinnedSections.pins.some(
                     (pin) =>
                       pin.leadId === selectedLead?.id &&
@@ -1895,6 +1896,7 @@ function App() {
           selectedLead={selectedLead}
           permissions={workspacePermissions}
           onNavigate={(area) => navigate(area)}
+          onNavigateToDialer={() => navigate("dialer")}
           canViewLeads={can(workspacePermissions, "leads.view")}
           canEdit={can(workspacePermissions, "leads.edit")}
           canCrmSync={can(workspacePermissions, "crm.sync")}

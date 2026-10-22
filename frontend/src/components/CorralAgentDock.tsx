@@ -27,6 +27,7 @@ type Props = {
   onRefresh: () => void | Promise<void>;
   permissions: ReadonlySet<string>;
   onNavigate: (area: WorkspaceAssistantArea) => void;
+  onNavigateToDialer: () => void;
 };
 
 export function CorralAgentDock({
@@ -43,6 +44,7 @@ export function CorralAgentDock({
   onRefresh,
   permissions,
   onNavigate,
+  onNavigateToDialer,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [targetLead, setTargetLead] = useState<Lead | null>(selectedLead);
@@ -273,6 +275,7 @@ export function CorralAgentDock({
               canViewEmail={canViewEmail}
               canUseAgent
               dialerPhoneConnectionId={dialerPhoneConnectionId}
+              onNavigateToDialer={onNavigateToDialer}
               onUpdated={(updated) => {
                 setTargetLead(updated);
                 onUpdated(updated);

@@ -8,6 +8,8 @@ const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export type GmailComposerSeed = {
   recipient?: string;
   subject?: string;
+  body?: string;
+  purpose?: "follow_up";
   threadId?: string;
   inReplyTo?: string;
   connectionId?: string;
@@ -16,6 +18,7 @@ export type GmailComposerSeed = {
 type Props = {
   accounts: ProviderConnection[];
   canSend: boolean;
+  sendBlockedReason?: string;
   leadId?: string;
   seed?: GmailComposerSeed;
   onSent?: (result: GmailSendResult) => void;
@@ -42,6 +45,7 @@ function encodeBase64(bytes: Uint8Array) {
 export function EmailComposer({
   accounts,
   canSend,
+  sendBlockedReason,
   leadId,
   seed,
   onSent,
@@ -56,10 +60,10 @@ export function EmailComposer({
   const [recipient, setRecipient] = useState(seed?.recipient ?? "");
   const [cc, setCc] = useState("");
   const [bcc, setBcc] = useState("");
-  const [showCc, setShowCc] = useState(false);
-  const [showBcc, setShowBcc] = useState(false);
+  const [showCc, setShowCc] = useState(seed?.purpose === "follow_up");
+  const [showBcc, setShowBcc] = useState(seed?.purpose === "follow_up");
   const [subject, setSubject] = useState(seed?.subject ?? "");
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState(seed?.body ?? "");
   const [bodyHtml, setBodyHtml] = useState("");
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -82,14 +86,21 @@ export function EmailComposer({
     setRecipient(seed?.recipient ?? "");
   }, [seed?.recipient]);
 
+  useEffect(() => {
+    const initialBody = seed?.body ?? "";
+    setBody(initialBody);
+    setBodyHtml("");
+    if (editorRef.current) editorRef.current.innerText = initialBody;
+  }, [seed?.body]);
+
   function syncBody() {
     const editor = editorRef.current;
     if (!editor) return;
-    setBody(editor.innerText.replace(/\u00a0/g, " ").trim());
+    setBody(editor.innerText.replace(/\u00a0/g, " "));
     setBodyHtml(editor.innerHTML);
   }
 
-  function applyFormat(command: "bold" | "italic" | "underline") {
+  function applyFormat(command: "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrderedList") {
     editorRef.current?.focus();
     document.execCommand(command, false);
     syncBody();
@@ -168,7 +179,7 @@ export function EmailComposer({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!canSend || !connectionId || busy) return;
+    if (!canSend || sendBlockedReason || !connectionId || busy) return;
     setBusy(true);
     setNotice(null);
     setError(null);
@@ -217,7 +228,7 @@ export function EmailComposer({
       subject !== (seed?.subject ?? "");
     if (
       hasUnsentChanges &&
-      !window.confirm("Close this composer and discard the unsent draft?")
+      !window.confirm("Close this composer and discard these unsent changes?")
     ) {
       return;
     }
@@ -228,14 +239,17 @@ export function EmailComposer({
     return <div className="email-composer-empty">You can read this conversation. Sending email requires lead edit permission.</div>;
   }
   if (sendableAccounts.length === 0) {
-    return <div className="email-composer-empty">No verified Gmail account has send permission. Reconnect an account from Integrations to enable sending.</div>;
+    return <div className="email-composer-empty">
+      <span>No verified Gmail account has send permission. Reconnect an account from Integrations to enable sending.</span>
+      {onClose && <button type="button" className="button-quiet" onClick={onClose}>Close composer</button>}
+    </div>;
   }
 
   return <form className="email-composer" onSubmit={(event) => void submit(event)}>
     <div className="email-composer-heading">
-      <div><span className="eyebrow">{seed?.threadId ? "Reply" : "Compose"}</span><h3>{seed?.threadId ? "Reply to email" : "New email"}</h3></div>
+      <div><span className="eyebrow">{seed?.purpose === "follow_up" ? "Lead follow-up" : seed?.threadId ? "Reply" : "Compose"}</span><h3>{seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply to email" : "New email"}</h3></div>
       <div className="email-composer-heading-actions">
-        <small>Review the recipient and message before sending.</small>
+         <small>Check the recipient and message, then send.</small>
         {onClose && <button
           className="email-composer-close button-quiet"
           type="button"
@@ -278,6 +292,8 @@ export function EmailComposer({
         <button type="button" aria-label="Bold" title="Bold" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("bold")}><strong>B</strong></button>
         <button type="button" aria-label="Italic" title="Italic" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("italic")}><em>I</em></button>
         <button type="button" aria-label="Underline" title="Underline" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("underline")}><u>U</u></button>
+        <button type="button" aria-label="Bulleted list" title="Bulleted list" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("insertUnorderedList")}>• List</button>
+        <button type="button" aria-label="Numbered list" title="Numbered list" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("insertOrderedList")}>1. List</button>
         <button type="button" aria-label="Insert link" title="Insert link" onMouseDown={(event) => { event.preventDefault(); saveSelection(); }} onClick={() => { setLinkOpen((value) => !value); setError(null); }}>Link</button>
       </div>
       {linkOpen && <div className="email-link-entry">
@@ -311,9 +327,10 @@ export function EmailComposer({
     </ul>}
     {error && <div className="notice" role="alert">{error}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
+    {sendBlockedReason && <div className="notice" role="status">{sendBlockedReason}</div>}
     <div className="email-composer-footer">
-      <button className="primary-button" type="submit" disabled={busy || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
-        {busy ? "Sending…" : "Send email"}
+      <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
+        {busy ? "Sending…" : sendBlockedReason ? "Human review required" : seed?.purpose === "follow_up" ? "Send follow-up" : "Send email"}
       </button>
     </div>
   </form>;

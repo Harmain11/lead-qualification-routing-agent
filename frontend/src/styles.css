@@ -262,6 +262,17 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .export-dialog legend { padding: 0 5px; color: var(--subtle); font-family: var(--font-mono); font-size: 13px; text-transform: uppercase; letter-spacing: .12em; }
 .export-dialog fieldset label { display: flex; align-items: center; gap: 8px; }
 .export-dialog fieldset input { accent-color: var(--brand-orange); }
+.export-dialog .export-columns-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.export-dialog .export-column-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
+.export-dialog .export-column-controls > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.export-dialog .export-column-controls button { min-height: 32px; padding-inline: 9px; }
+.export-dialog .export-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 14px; max-height: 240px; overflow: auto; padding: 3px; }
+.export-dialog .export-column-grid label { min-width: 0; align-items: flex-start; overflow-wrap: anywhere; }
+.export-dialog .export-column-grid input { flex: 0 0 auto; margin-top: 2px; }
+.export-dialog .export-columns-warning { color: var(--red, #b3443f); }
+@media (max-width: 520px) {
+  .export-dialog .export-column-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .intake-form { padding: 24px; margin-bottom: 20px; }
 .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 6px; }

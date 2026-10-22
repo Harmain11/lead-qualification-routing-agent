@@ -5,9 +5,10 @@ import { GmailInquiryView } from "./GmailInquiryView";
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
 import { LeadEmailPanel } from "./LeadEmailPanel";
 
-import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadClosingOptions, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
-import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome } from "../types";
+import { deleteLead, getLead, getLeadClosingOptions, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadProgress, updateLeadTitle } from "../api";
+import type { CrmSync, Lead, LeadMomentum, LeadOutcome, ProviderConnection } from "../types";
 import { LeadMeetingPanel } from "./LeadMeetingPanel";
+import { EmailComposer } from "./EmailComposer";
 import "./leadOutcomes.css";
 import "./leadDetailTabs.css";
 import { leadDetailSections, leadSectionHref, type LeadDetailSection } from "../leadSections";
@@ -64,6 +65,7 @@ type LeadDetailProps = {
   canViewEmail?: boolean;
   canUseAgent?: boolean;
   dialerPhoneConnectionId?: string | null;
+  onNavigateToDialer: () => void;
   canEnrollAutomations?: boolean;
   onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
@@ -74,7 +76,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canUseAgent = false, dialerPhoneConnectionId = null, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canUseAgent = false, dialerPhoneConnectionId = null, onNavigateToDialer, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -389,6 +391,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
         canViewEmail={canViewEmail}
         canUseAgent={canUseAgent}
         dialerPhoneConnectionId={dialerPhoneConnectionId}
+        onNavigateToDialer={onNavigateToDialer}
         onUpdated={(updated) => onUpdated?.(updated)}
         onDeleted={(leadId) => onDeleted?.(leadId)}
         onSectionChange={onSectionChange}
@@ -571,24 +574,25 @@ function LeadOutcomeReceipt({ outcome, canEdit, busy, onRetry }: {
 }
 
 function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
-  const [draft, setDraft] = useState<FollowUpEmail | null>(null);
-  const [history, setHistory] = useState<FollowUpEmail[]>([]);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerRevision, setComposerRevision] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    const controller = new AbortController();
-    getLeadFollowUp(lead.id, controller.signal).then((value) => {
-      if (controller.signal.aborted) return;
-      setDraft(value); setSubject(value?.subject || ""); setBody(value?.body || "");
-    }).catch((error) => { if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Unable to load follow-up draft"); });
-    getLeadFollowUpHistory(lead.id, controller.signal).then((value) => {
-      if (!controller.signal.aborted) setHistory(value);
-    }).catch(() => { if (!controller.signal.aborted) setNotice("Follow-up history could not be loaded."); });
-    return () => controller.abort();
-  }, [lead.id]);
-  const dirty = Boolean(draft && (subject !== draft.subject || body !== draft.body));
+    if (!canEdit) {
+      setAccounts([]);
+      return;
+    }
+    let active = true;
+    listIntegrations().then((cards) => {
+      if (!active) return;
+      const gmail = cards.find((card) => card.provider === "gmail");
+      setAccounts(gmail?.connections.length ? gmail.connections : gmail?.connection ? [gmail.connection] : []);
+    }).catch((error) => {
+      if (active) setNotice(error instanceof Error ? error.message : "Gmail accounts could not be loaded.");
+    });
+    return () => { active = false; };
+  }, [canEdit, lead.id]);
   const classification = lead.qualification?.classification.toLowerCase();
   const disqualified = Boolean(lead.qualification?.hard_disqualified) || ["disqualify", "disqualified", "hard_disqualified"].includes(classification || "");
   const requiresReview = Boolean(lead.routing?.manual_review || lead.analysis?.requires_manual_review);
@@ -597,32 +601,27 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     : requiresReview
       ? "This lead needs human review first. Add verified context in Sales progress and re-check its qualification before creating outreach."
       : null;
-  const run = async (action: () => Promise<FollowUpEmail>, success: string) => {
-    setBusy(true); setNotice(null);
-    try {
-      const result = await action(); setDraft(result); setSubject(result.subject); setBody(result.body || ""); setNotice(success);
-      try { setHistory(await getLeadFollowUpHistory(lead.id)); }
-      catch { setNotice(`${success} History could not be refreshed.`); }
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Follow-up action failed"); }
-    finally { setBusy(false); }
-  };
-  const statusLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   return <section className="story-section follow-up-composer"><div className="story-index">FU</div><div>
-    <span className="eyebrow">AI follow-up · human approved</span><h3>Draft a personal next step</h3>
-    {!draft && <><p className="story-summary">Create and edit a lead-specific follow-up here. Nothing is sent until you review it and click Send follow-up; Corral uses the connected Gmail account.</p>{blockedReason && <div className="attention-callout follow-up-blocked"><b>{disqualified ? "Outreach paused · disqualified" : "Outreach paused · review required"}</b>{blockedReason}</div>}{canEdit && <button className="secondary-button" disabled={busy || Boolean(blockedReason)} onClick={() => void run(() => generateLeadFollowUp(lead.id), "Draft created. Review and edit it, then click Send follow-up to send through connected Gmail.")}>{busy ? "Preparing draft…" : "Generate follow-up draft"}</button>}</>}
-    {draft && <>
-      {draft.status === "sent" && canEdit && <button className="secondary-button" disabled={busy || Boolean(blockedReason)} onClick={() => void run(() => generateLeadFollowUp(lead.id), "Another AI draft is ready. Review and edit it before sending.")}>{busy ? "Preparing draft…" : "Draft another follow-up"}</button>}
-      <div className={`follow-up-status status-${draft.status}`}><span>{statusLabel(draft.status)}</span>{draft.generation_method && <small>{draft.generation_method === "openai" ? "AI-generated · review required" : "Grounded template"}</small>}</div>
-      {draft.status === "draft" ? <>
-        <p className="follow-up-recipient">To <b>{draft.recipient}</b></p>
-        <label className="follow-up-field">Subject<input value={subject} maxLength={180} onChange={(event) => setSubject(event.target.value)} /></label>
-        <label className="follow-up-field">Message<textarea value={body} rows={8} maxLength={5000} onChange={(event) => setBody(event.target.value)} /></label>
-        {draft.rationale && <p className="follow-up-rationale"><b>Why this draft:</b> {draft.rationale}</p>}
-        {draft.generation_note && <p className="follow-up-rationale">{draft.generation_note}</p>}
-        {canEdit && <div className="follow-up-actions"><button className="secondary-button" disabled={busy || !dirty || !subject.trim() || body.trim().length < 10} onClick={() => void run(() => updateLeadFollowUp(lead.id, draft.id, { subject, body }), "Draft saved.")}>{busy ? "Saving…" : "Save edits"}</button><button className="primary-button" disabled={busy || dirty || !subject.trim() || body.trim().length < 10} onClick={() => { if (window.confirm(`Send this edited email to ${draft.recipient} from the connected Gmail account?`)) void run(() => approveAndSendLeadFollowUp(lead.id, draft.id), "Follow-up sent from the connected Gmail account."); }}>Send follow-up</button></div>}
-      </> : <><p className="follow-up-recipient">To <b>{draft.recipient}</b></p><p className="follow-up-status-copy">{draft.status === "sent" ? `Sent ${draft.sent_at ? new Date(draft.sent_at).toLocaleString() : "successfully"}.` : draft.error_message || "Delivery status is being checked."}</p>{draft.status === "failed" && canEdit && <button className="secondary-button" disabled={busy} onClick={() => void run(() => generateLeadFollowUp(lead.id), "A new editable draft is ready for review.")}>Create a new draft</button>}</>}
-    </>}
-    {history.filter((email) => email.id !== draft?.id && email.status === "sent").length > 0 && <details className="follow-up-history"><summary>Previous sent follow-ups</summary>{history.filter((email) => email.id !== draft?.id && email.status === "sent").map((email) => <article key={email.id}><strong>{email.subject}</strong><p>Sent {email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"} · {email.recipient}</p><p style={{ whiteSpace: "pre-wrap" }}>{email.body}</p></article>)}</details>}
+    <span className="eyebrow">Lead follow-up</span><h3>Write a personal next step</h3>
+    <p className="story-summary">Compose directly with your connected Gmail account. Choose the sender and recipients, format the message, and send when you are ready. Sent emails are recorded in this lead’s email history.</p>
+    {blockedReason && <div className="attention-callout follow-up-blocked"><b>{disqualified ? "Outreach paused · disqualified" : "Outreach paused · review required"}</b>{blockedReason}</div>}
+    {canEdit && !composerOpen && <button className="secondary-button" disabled={Boolean(blockedReason)} onClick={() => {
+      setNotice(null);
+      setComposerOpen(true);
+      setComposerRevision((current) => current + 1);
+    }}>Compose follow-up email</button>}
+    {composerOpen && <EmailComposer
+      key={composerRevision}
+      accounts={accounts}
+      canSend={canEdit}
+      leadId={lead.id}
+      seed={{ recipient: lead.email?.trim() ?? "", purpose: "follow_up" }}
+      onClose={() => setComposerOpen(false)}
+      onSent={() => {
+        setComposerOpen(false);
+        setNotice("Follow-up email sent. It is available in the lead’s email history.");
+      }}
+    />}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>;
 }

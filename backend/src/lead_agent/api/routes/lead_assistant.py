@@ -87,7 +87,7 @@ def chat_with_workspace_assistant(
         "workspace_id": str(workspace.workspace_id),
         "scope": (
             "Corral workspace analytics, automations, ICP, settings, integrations, "
-            "team access, guidance, and content generation"
+            "team access, Dialer navigation, guidance, and content generation"
         ),
     }
     try:
