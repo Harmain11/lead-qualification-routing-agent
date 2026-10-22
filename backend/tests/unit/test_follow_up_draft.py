@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
 from lead_agent.application.follow_up import FollowUpNotEligible, generate_follow_up_draft
+from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.domain.follow_up import FollowUpEmailContent
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -25,6 +27,7 @@ from lead_agent.infrastructure.db.models import (
     RoutingDecisionORM,
     WorkspaceEmailTemplateORM,
 )
+from lead_agent.infrastructure.db.operations import OperationsPolicyORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
 
@@ -128,6 +131,20 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
     with Session(engine) as session:
         workspace_id = uuid4()
         ensure_workspace(session, workspace_id, name="Template QA")
+        session.add(
+            OperationsPolicyORM(
+                workspace_id=workspace_id,
+                configuration={
+                    "business_profile": {
+                        "business_name": "Northstar Labs",
+                        "email_signature": "Harmain Mughal\nNorthstar Labs",
+                    }
+                },
+                version=1,
+                updated_by="qa-user",
+                updated_at=datetime.now(UTC),
+            )
+        )
         lead = _lead(workspace_id)
         session.add(lead)
         session.add(WorkspaceEmailTemplateORM(
@@ -142,7 +159,10 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
             facts_seen.append(facts)
             return FollowUpEmailContent(
                 subject="A fresh next step for Northstar Labs",
-                body="Hi Riley, let's explore your lead workflow automation requirements.",
+                body=(
+                    "Hi Riley, let's explore your lead workflow automation requirements."
+                    "\n\nBest regards,\n[Your Name]"
+                ),
                 rationale="Grounded in the original inquiry.",
             )
         monkeypatch.setattr(
@@ -157,7 +177,12 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
         assert facts_seen[0]["workspace_email_template"]["subject"] == (
             "Hello {{lead_name}} at {{company_name}}"
         )
+        assert facts_seen[0]["workspace_business_profile"]["business_name"] == (
+            "Northstar Labs"
+        )
         assert row.status == "draft"
+        assert "[Your Name]" not in row.body
+        assert row.body.endswith("Harmain Mughal\nNorthstar Labs")
         original_id = row.id
         row.status = "sent"
         row.sent_at = datetime.now(UTC)
@@ -169,6 +194,15 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
         assert session.get(LeadFollowUpEmailORM, original_id).status == "sent"
         assert session.query(LeadFollowUpEmailORM).filter_by(lead_id=lead.id).count() == 2
     engine.dispose()
+
+
+def test_workspace_signature_removes_placeholder_when_no_sender_identity_exists() -> None:
+    profile = WorkspaceBusinessProfile()
+    result = apply_workspace_email_signature(
+        "Thanks for your time.\n\nBest regards,\n[Your Name]",
+        profile,
+    )
+    assert result == "Thanks for your time."
 
 
 @pytest.mark.parametrize("flags", [{"manual_review": True}, {"disqualified": True}])
@@ -214,6 +248,8 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
         )),
     )
     draft = generate_follow_up_draft(session, lead, actor_id="qa-user")
+    draft.recipient = ""
+    session.commit()
     connection = ProviderConnectionORM(
         id=uuid4(), workspace_id=workspace_id, provider_type="gmail",
         external_account_id="qa@example.test", account_name="qa@example.test", auth_type="oauth",
@@ -254,6 +290,7 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
     try:
         with TestClient(app) as client:
             wrong_workspace_send = client.post(f"/v1/leads/{lead.id}/follow-up/{draft.id}/send")
+            draft_view = client.get(f"/v1/leads/{lead.id}/follow-up")
             active_workspace = WorkspaceContext(
                 workspace_id=workspace_id,
                 actor_id="viewer",
@@ -274,6 +311,9 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
                     ),
                 },
             )
+            session.refresh(draft)
+            draft.recipient = ""
+            session.commit()
             sent_response = client.post(f"/v1/leads/{lead.id}/follow-up/{draft.id}/send")
             own = client.get(f"/v1/leads/{lead.id}/follow-up")
             active_workspace = WorkspaceContext(
@@ -286,8 +326,11 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
         assert denied_send.status_code == 403
         assert sent_response.status_code == 200
         assert sent_response.json()["status"] == "sent"
+        assert draft_view.status_code == 200
+        assert draft_view.json()["recipient"] == lead.email
         assert edited.status_code == 200
         assert edited.json()["subject"] == "A personal follow-up"
+        assert edited.json()["recipient"] == lead.email
         assert own.status_code == 200 and own.json()["status"] == "sent"
         assert cross_workspace.status_code == 404
         assert sent_response.json()["approved_by"] == "qa-user"

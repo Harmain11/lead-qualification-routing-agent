@@ -41,6 +41,7 @@ export type WorkspaceBusinessProfile = {
   description: string;
   products_services: string;
   lead_distinction_notes: string;
+  email_signature: string;
 };
 export type Policy = {
   territories: Territory[];

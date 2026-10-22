@@ -163,7 +163,7 @@ export function LeadEmailPanel({
       <div className="lead-email-actions">
         {onAskAgent && <button className="secondary-button" type="button" onClick={onAskAgent}>Ask Corral</button>}
         <button className="primary-button" type="button" onClick={() => {
-          setComposeSeed({ recipient: lead.email || "" });
+          setComposeSeed({ recipient: lead.email?.trim() || "" });
           setComposerRevision((current) => current + 1);
         }}>Compose</button>
         <button className="secondary-button" type="button" onClick={() => void refreshConversation()} disabled={syncBusy || activeAccounts.length === 0}>

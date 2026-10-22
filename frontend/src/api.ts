@@ -111,6 +111,7 @@ export type WorkspaceAssistantAction = {
   kind:
     | "none"
     | "open_module"
+    | "open_lead"
     | "set_automation_active"
     | "create_icp_draft"
     | "update_routing_config"
@@ -129,6 +130,8 @@ export type WorkspaceAssistantAction = {
   target_label: string | null;
   email: string | null;
   email_recipient: string | null;
+  email_cc: string | null;
+  email_bcc: string | null;
   email_subject: string | null;
   email_body: string | null;
   role: string | null;

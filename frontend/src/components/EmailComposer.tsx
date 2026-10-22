@@ -78,6 +78,10 @@ export function EmailComposer({
     }
   }, [accounts, connectionId]);
 
+  useEffect(() => {
+    setRecipient(seed?.recipient ?? "");
+  }, [seed?.recipient]);
+
   function syncBody() {
     const editor = editorRef.current;
     if (!editor) return;

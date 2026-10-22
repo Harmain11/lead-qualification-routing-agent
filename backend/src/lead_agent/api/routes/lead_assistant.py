@@ -11,9 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.governance import operations_policy
+from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
+from lead_agent.domain.lead_assistant import WorkspaceAssistantAction
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import PipelineEventORM
+from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
 from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
@@ -57,9 +60,24 @@ def chat_with_workspace_assistant(
             503,
             "Connect and verify a workspace AI provider before using Corral Agent chat.",
         )
+    workspace_context = {
+        key: value
+        for key, value in request.context.items()
+        if key != "workspace_records"
+    }
+    latest_user_message = next(
+        (message.content for message in reversed(request.messages) if message.role == "user"),
+        "",
+    )
+    if "leads.view" in workspace.permissions and latest_user_message:
+        workspace_context["workspace_records"] = build_workspace_record_context(
+            session,
+            workspace.workspace_id,
+            latest_user_message,
+        )
     payload = {
         "messages": [message.model_dump() for message in request.messages],
-        "workspace_context": request.context,
+        "workspace_context": workspace_context,
         "workspace_id": str(workspace.workspace_id),
         "scope": (
             "Corral workspace analytics, automations, ICP, settings, integrations, "
@@ -72,6 +90,33 @@ def chat_with_workspace_assistant(
         raise HTTPException(502, str(error)) from None
     except Exception:
         raise HTTPException(502, "Corral Agent could not complete this request.") from None
+    if result.action.kind == "open_lead":
+        target_id = result.action.target_id
+        matched_lead_ids = {
+            item.get("id")
+            for item in workspace_context.get("workspace_records", {}).get(
+                "matched_leads", []
+            )
+            if isinstance(item, dict)
+        }
+        try:
+            parsed_target_id = UUID(target_id or "")
+        except ValueError:
+            parsed_target_id = None
+        target_is_available = (
+            parsed_target_id is not None
+            and target_id in matched_lead_ids
+            and "leads.view" in workspace.permissions
+            and session.scalar(
+                select(LeadORM.id).where(
+                    LeadORM.id == parsed_target_id,
+                    LeadORM.workspace_id == workspace.workspace_id,
+                )
+            )
+            is not None
+        )
+        if not target_is_available or not result.action.target_label:
+            result.action = WorkspaceAssistantAction()
     return result.model_dump(mode="json")
 
 
@@ -161,6 +206,9 @@ def chat_with_lead_assistant(
                 else None
             ),
         },
+        "workspace_business_profile": operations_policy(
+            session, workspace.workspace_id
+        ).business_profile.model_dump(mode="json"),
         "recent_history": [
             {
                 "stage": event.stage,

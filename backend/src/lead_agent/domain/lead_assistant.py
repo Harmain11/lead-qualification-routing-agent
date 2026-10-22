@@ -85,6 +85,7 @@ class WorkspaceAssistantAction(BaseModel):
     kind: Literal[
         "none",
         "open_module",
+        "open_lead",
         "set_automation_active",
         "create_icp_draft",
         "update_routing_config",
@@ -111,6 +112,8 @@ class WorkspaceAssistantAction(BaseModel):
     target_label: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=320)
     email_recipient: str | None = Field(default=None, max_length=1024)
+    email_cc: str | None = Field(default=None, max_length=1024)
+    email_bcc: str | None = Field(default=None, max_length=1024)
     email_subject: str | None = Field(default=None, max_length=180)
     email_body: str | None = Field(default=None, max_length=8000)
     role: str | None = Field(default=None, max_length=64)

@@ -47,6 +47,7 @@ class WorkspaceBusinessProfile(StrictModel):
     description: str = Field(default="", max_length=2000)
     products_services: str = Field(default="", max_length=2000)
     lead_distinction_notes: str = Field(default="", max_length=1500)
+    email_signature: str = Field(default="", max_length=1200)
 
     @field_validator("alternate_names", "email_domains")
     @classmethod

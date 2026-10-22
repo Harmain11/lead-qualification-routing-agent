@@ -7,8 +7,10 @@ Use the workspace's current sample as a tone and voice reference, but write fres
 
 Email drafts must be AI-generated, with manual editing available. Do not silently create a template draft when AI is unavailable or fails. Allow multiple follow-up emails without replacing previously sent messages.
 
+Use the saved workspace business profile and email signature for AI-generated email content. Never emit generic sender placeholders such as "[Your Name]"; if no signature is configured, use the known business name when available and otherwise omit the signature.
+
 **Why:** The user said, “Email drafts should only be AI generated, with manual editing option,” and requested multiple follow-ups.
 
 **Why:** The user asked for AI-generated email that reflects the workspace's tone instead of returning the same template text.
 
-**How to apply:** Pass the current subject and body to template generation, including unsaved editor text. For per-lead AI follow-ups, pass the saved sample as style context. Treat sample text as untrusted content, preserve placeholders, and do not send generated text automatically.
+**How to apply:** Pass the current subject and body to template generation, including unsaved editor text. For per-lead AI follow-ups, pass the saved sample and workspace business profile as context. Treat sample text as untrusted content, preserve merge-field placeholders, apply the configured sender signature deterministically, and do not send generated text automatically.
