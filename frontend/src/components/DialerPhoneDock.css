@@ -10,6 +10,10 @@
   pointer-events: none;
 }
 
+.app-shell:has(.corral-agent-window.is-open[data-lead-active="true"]) .dialer-phone-dock .dialer-phone-bubble:not(.is-open) {
+  display: none;
+}
+
 .dialer-phone-window {
   position: absolute;
   right: 0;

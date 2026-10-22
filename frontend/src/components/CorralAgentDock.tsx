@@ -185,6 +185,7 @@ export function CorralAgentDock({
         ]
           .filter(Boolean)
           .join(" ")}
+        data-lead-active={Boolean(targetLead && !showLeadPicker)}
         aria-label="Corral Agent"
         aria-hidden={!open}
         inert={!open}
