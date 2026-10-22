@@ -33,6 +33,59 @@ def _is_simple_acknowledgement(content: str) -> bool:
     return normalized in _SIMPLE_ACKNOWLEDGEMENTS
 
 
+def _is_explicit_lead_write_request(query: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(add|write|save|leave|create|record|update|change|correct|edit|"
+            r"note|re-?evaluate|mark|set|move|delete|remove)\b",
+            query.casefold(),
+        )
+    )
+
+
+def _resolve_unambiguous_lead_mention(
+    matched_leads: list[dict[str, Any]],
+    query: str,
+) -> dict[str, Any] | None:
+    query_normalized = re.sub(r"\s+", " ", query.casefold()).strip()
+    exact_matches = [
+        lead
+        for lead in matched_leads
+        if isinstance(lead.get("name"), str)
+        and lead["name"].casefold() in query_normalized
+        or isinstance(lead.get("email"), str)
+        and lead["email"].casefold() in query_normalized
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if exact_matches or len(matched_leads) >= 8:
+        return None
+
+    ignored_words = {
+        "there", "this", "that", "with", "from", "into", "about", "have",
+        "lead", "leads", "contact", "contacts", "find", "open", "show",
+        "check", "look", "search", "for", "the", "and", "are", "was",
+        "were", "who", "what", "when", "where", "which", "does", "did",
+        "has", "had", "is", "in", "on", "my", "our", "your", "me", "us",
+    }
+    query_words = {
+        word
+        for word in re.findall(r"[^\W_]{3,}", query_normalized)
+        if word not in ignored_words
+    }
+    if not query_words:
+        return None
+    partial_matches = [
+        lead
+        for lead in matched_leads
+        if isinstance(lead.get("name"), str)
+        and query_words.intersection(
+            re.findall(r"[^\W_]{3,}", lead["name"].casefold())
+        )
+    ]
+    return partial_matches[0] if len(partial_matches) == 1 else None
+
+
 class AssistantMessage(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -71,6 +124,10 @@ def chat_with_workspace_assistant(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
     )
+    record_query = " ".join(
+        message.content for message in reversed(request.messages)
+        if message.role == "user"
+    )[:3000]
     simple_acknowledgement = _is_simple_acknowledgement(latest_user_message)
     if simple_acknowledgement:
         # Greetings and thanks need neither a workspace snapshot nor prior turns.
@@ -88,14 +145,10 @@ def chat_with_workspace_assistant(
         and "leads.view" in workspace.permissions
         and latest_user_message
     ):
-        query = " ".join(
-            message.content for message in reversed(request.messages)
-            if message.role == "user"
-        )[:3000]
         try:
             with session.begin_nested():
                 workspace_context["workspace_records"] = build_workspace_record_context(
-                    session, workspace.workspace_id, query,
+                    session, workspace.workspace_id, record_query,
                 )
         except Exception:
             workspace_context.setdefault("context_warnings", []).append(
@@ -129,10 +182,37 @@ def chat_with_workspace_assistant(
             )
             if isinstance(item, dict)
         }
+        matched_leads = [
+            item
+            for item in workspace_context.get("workspace_records", {}).get(
+                "matched_leads", []
+            )
+            if isinstance(item, dict)
+        ]
         try:
             parsed_target_id = UUID(target_id or "")
         except ValueError:
             parsed_target_id = None
+        if not (
+            parsed_target_id is not None
+            and target_id in matched_lead_ids
+        ):
+            mentioned_lead = _resolve_unambiguous_lead_mention(
+                matched_leads, record_query
+            )
+            if mentioned_lead and (
+                result.action.kind == "open_lead"
+                or (
+                    result.action.kind in lead_mutations
+                    and _is_explicit_lead_write_request(record_query)
+                )
+            ):
+                result.action.target_id = str(mentioned_lead.get("id") or "")
+                target_id = result.action.target_id
+                try:
+                    parsed_target_id = UUID(target_id)
+                except ValueError:
+                    parsed_target_id = None
         target_is_available = (
             parsed_target_id is not None
             and target_id in matched_lead_ids

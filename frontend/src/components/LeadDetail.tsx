@@ -5,7 +5,7 @@ import { GmailInquiryView } from "./GmailInquiryView";
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
 import { LeadEmailPanel } from "./LeadEmailPanel";
 
-import { deleteLead, getLead, getLeadClosingOptions, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadProgress, updateLeadTitle } from "../api";
+import { deleteLead, getLead, getLeadClosingOptions, getLeadMomentum, getLeadPipelineHistory, listIntegrations, reevaluateLead, retryLeadCongratulations, saveLeadNote, sendLeadToCrm, syncLeadGmailConversation, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, Lead, LeadMomentum, LeadOutcome, ProviderConnection } from "../types";
 import { LeadMeetingPanel } from "./LeadMeetingPanel";
 import { EmailComposer } from "./EmailComposer";
@@ -105,6 +105,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
   const [selectedProvider, setSelectedProvider] = useState(lead.crm_sync?.provider || "");
   const [meetingRefreshToken, setMeetingRefreshToken] = useState(0);
   const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const [collaborationRefreshToken, setCollaborationRefreshToken] = useState(0);
   const visibleSections = leadDetailSections.filter((section) => section.id !== "email" || canViewEmail);
   const updatedLeadCallback = useRef(onUpdated);
   useEffect(() => { updatedLeadCallback.current = onUpdated; }, [onUpdated]);
@@ -300,6 +301,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
       canEdit={canEdit}
       refreshToken={activityRefreshToken}
       activeSection={activeSection}
+      onNoteSaved={() => setCollaborationRefreshToken((revision) => revision + 1)}
       onConversationSynced={() => {
         setActivityRefreshToken((revision) => revision + 1);
         setMeetingRefreshToken((revision) => revision + 1);
@@ -360,7 +362,12 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
           </div>
         </section>
       </div>
-      <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
+      <CollaborationPanel
+        leadId={lead.id}
+        canEdit={canEdit}
+        refreshKey={collaborationRefreshToken}
+        onLeadUpdated={onUpdated}
+      />
     </div>
     <section id="lead-panel-email" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={activeSection !== "email"}>
       <LeadEmailPanel
@@ -406,12 +413,14 @@ function LeadProgressEditor({
   canEdit,
   refreshToken,
   activeSection,
+  onNoteSaved,
   onConversationSynced,
 }: {
   lead: Lead;
   canEdit: boolean;
   refreshToken: number;
   activeSection: LeadDetailSection;
+  onNoteSaved: () => void;
   onConversationSynced: () => void;
 }) {
   const [events, setEvents] = useState<Awaited<ReturnType<typeof getLeadPipelineHistory>>>([]);
@@ -419,6 +428,7 @@ function LeadProgressEditor({
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [stage, setStage] = useState("contacted");
+  const [entryKind, setEntryKind] = useState<"" | "status" | "comment">("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -487,6 +497,24 @@ function LeadProgressEditor({
   const save = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setNotice(null);
     try {
+      if (entryKind === "comment") {
+        await saveLeadNote(lead.id, note.trim());
+        setNote("");
+        setEntryKind("");
+        onNoteSaved();
+        try {
+          await reevaluateLead(lead.id);
+          setNotice("Comment saved to Team notes and included in the updated AI assessment. Sales status was not changed.");
+        } catch {
+          setNotice("Comment saved to Team notes, but the AI assessment could not be refreshed. Sales status was not changed.");
+        }
+        onConversationSynced();
+        return;
+      }
+      if (entryKind !== "status") {
+        setNotice("Choose whether this is a status update or a regular comment.");
+        return;
+      }
       const closing = stage === "converted" || stage === "lost";
       const result = await updateLeadProgress(lead.id, {
         stage, note,
@@ -495,6 +523,7 @@ function LeadProgressEditor({
         ...(stage === "converted" ? { send_direct_message: sendDirectMessage } : {}),
       });
       setNote("");
+      setEntryKind("");
       if (closing) {
         setOutcome(result.outcome ?? null);
         setNotice(stage === "converted"
@@ -510,8 +539,8 @@ function LeadProgressEditor({
   };
   return <>
   <section id="lead-panel-closing" className="story-section lead-progress" role="tabpanel" aria-labelledby="lead-tab-closing" tabIndex={0} hidden={activeSection !== "closing"}><div className="story-index">↗</div><div>
-    <span className="eyebrow">Comments & closing</span><h3>Record sales progress or close this lead</h3>
-    <p className="story-summary">Add a verified comment with each update. Choose Converted to record a Project or Sale, or Closed / lost to capture the outcome. Closing does not rerun AI or create an external CRM record.</p>
+     <span className="eyebrow">Status</span><h3>Record sales progress or add a comment</h3>
+     <p className="story-summary">Choose whether this is a status update or a regular comment. Status updates change sales progress; comments are saved to Team notes and can inform AI reassessment without changing the sales status.</p>
     {!canEdit && <AiStageAssessment analysis={lead.analysis} />}
     {outcome && <LeadOutcomeReceipt outcome={outcome} canEdit={canEdit} busy={busy} onRetry={async () => {
       setBusy(true); setNotice(null);
@@ -521,21 +550,28 @@ function LeadProgressEditor({
     }} />}
     {canEdit && <div className="lead-progress-sync"><button className="secondary-button" type="button" disabled={syncBusy || busy} onClick={() => void syncConversation()}>{syncBusy ? "Syncing Gmail thread…" : "Sync Gmail conversation & re-check"}</button><small>Read-only sync for messages exchanged with this lead. Imported message text is used as qualification context.</small></div>}
     {canEdit && <form className="lead-progress-form" onSubmit={(event) => void save(event)}>
+       <fieldset className="lead-progress-intent">
+         <legend>What are you adding?</legend>
+         <div className="lead-progress-intent-options">
+           <label><input type="radio" name={`lead-entry-kind-${lead.id}`} value="status" checked={entryKind === "status"} onChange={() => setEntryKind("status")} />Status update</label>
+           <label><input type="radio" name={`lead-entry-kind-${lead.id}`} value="comment" checked={entryKind === "comment"} onChange={() => setEntryKind("comment")} />Regular comment / note</label>
+         </div>
+       </fieldset>
       <div className="lead-stage-context">
       <AiStageAssessment analysis={lead.analysis} />
-      <label className="follow-up-field">Manual progress or closing outcome<select value={stage} onChange={(event) => setStage(event.target.value)}>
+       {entryKind === "status" && <label className="follow-up-field">Sales status or closing outcome<select value={stage} onChange={(event) => setStage(event.target.value)}>
         <option value="contacted">Contacted</option><option value="responded">Responded</option><option value="meeting_scheduled">Meeting scheduled</option><option value="proposal_sent">Proposal sent</option><option value="converted">Converted → Project or Sale</option><option value="lost">Closed / lost</option>
-      </select></label>
+       </select></label>}
       </div>
-      {stage === "converted" && <div className="lead-closing-fields">
+       {entryKind === "status" && stage === "converted" && <div className="lead-closing-fields">
         <label className="follow-up-field">Successful outcome<select value={conversionType} onChange={(event) => setConversionType(event.target.value as "project" | "sale")}><option value="project">Project</option><option value="sale">Sale</option></select></label>
         <label className="follow-up-field">Recorded value (USD, optional)<input type="number" min="0" step="0.01" max="999999999999.99" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Leave blank if unknown" /></label>
       </div>}
-      {(stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. A direct message is sent only if you explicitly select the option below and link their Slack member ID." : "Uses the assigned member if linked; otherwise this win is uncredited."}</small></label>}
-      {stage === "converted" && <label className="follow-up-field slack-win-dm-opt-in"><input type="checkbox" checked={sendDirectMessage} onChange={(event) => setSendDirectMessage(event.target.checked)} disabled={!creditedId} />Also send a private Slack congratulations to the credited member <small>Off by default. Requires the member’s Slack ID and the optional im:write scope. No channel fallback is used for this direct message.</small></label>}
-      <label className="follow-up-field">Comments · verified update<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder="Example: Replied asking for a proposal by Friday; timeline is now this quarter." required /></label>
-      {outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
-      <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save progress & re-check lead"}</button>
+       {entryKind === "status" && (stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. A direct message is sent only if you explicitly select the option below and link their Slack member ID." : "Uses the assigned member if linked; otherwise this win is uncredited."}</small></label>}
+       {entryKind === "status" && stage === "converted" && <label className="follow-up-field slack-win-dm-opt-in"><input type="checkbox" checked={sendDirectMessage} onChange={(event) => setSendDirectMessage(event.target.checked)} disabled={!creditedId} />Also send a private Slack congratulations to the credited member <small>Off by default. Requires the member’s Slack ID and the optional im:write scope. No channel fallback is used for this direct message.</small></label>}
+       {entryKind && <label className="follow-up-field">{entryKind === "status" ? "Status details · verified update" : "Regular comment"}<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder={entryKind === "status" ? "Example: Replied asking for a proposal by Friday; timeline is now this quarter." : "Add a comment or handoff note. It will be saved to Team notes."} required /></label>}
+       {entryKind === "status" && outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
+       {entryKind && <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : entryKind === "comment" ? "Save comment only" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save status & re-check lead"}</button>}
     </form>}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>

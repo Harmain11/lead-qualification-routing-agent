@@ -11,14 +11,14 @@ from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import select
 
-from lead_agent.application.governance import operations_policy
-from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
     finish_queued_inbound_sync_cancellation,
     inbound_sync_lease_is_active,
     run_inbound_sync,
 )
+from lead_agent.application.governance import operations_policy
+from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.manual_review import workspace_manual_review_config
 from lead_agent.application.reasoning_cache import reasoning_request_fingerprint
 from lead_agent.application.services import reprocess_lead
@@ -81,6 +81,32 @@ celery_app.conf.update(
 # Celery has no effective global ``task_max_retries`` configuration key. Set the
 # application task base so every future registered task inherits the configured bound.
 celery_app.Task.max_retries = settings.job_max_retries
+
+
+def _persisted_lead_payload(lead: LeadORM) -> dict[str, object]:
+    """Rebuild the same normalized input for background lead analysis."""
+    return {
+        "source": lead.source,
+        "source_detail": lead.source_detail,
+        "external_id": lead.external_id,
+        "full_name": lead.full_name,
+        "email": lead.email,
+        "phone": lead.phone,
+        "job_title": lead.job_title,
+        "company_name": lead.company_name,
+        "industry": lead.industry,
+        "employee_count": lead.employee_count,
+        "annual_revenue": float(lead.annual_revenue)
+        if isinstance(lead.annual_revenue, Decimal)
+        else lead.annual_revenue,
+        "geography": lead.geography,
+        "budget": float(lead.budget) if isinstance(lead.budget, Decimal) else lead.budget,
+        "product_or_service": lead.product_or_service,
+        "message": lead.message,
+        "received_at": lead.received_at,
+        "raw_payload": lead.raw_payload,
+        "normalization_version": lead.normalization_version,
+    }
 
 
 def _on_task_failure(
@@ -291,6 +317,11 @@ def reanalyze_workspace_leads(
     workspace_uuid = UUID(workspace_id)
     with get_session_factory()() as session:
         icp, routing = settings.load_policies()
+        resolved_icp = resolve_workspace_icp(session, workspace_uuid, icp)
+        business_profile = operations_policy(session, workspace_uuid).business_profile
+        manual_review_config = workspace_manual_review_config(
+            session, workspace_uuid, routing.manual_review
+        )
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         provider_name = getattr(provider, "provider_name", "")
         model_name = getattr(provider, "model_name", "")
@@ -387,14 +418,34 @@ def reanalyze_workspace_leads(
             if lead is None:
                 skipped += 1
                 continue
+            payload = _persisted_lead_payload(lead)
+            normalized = normalize_lead(payload, lead.id)
+            request_fingerprint = reasoning_request_fingerprint(
+                workspace_id=workspace_uuid,
+                lead=normalized,
+                icp=resolved_icp.configuration,
+                routing=routing,
+                provider=provider,
+                manual_review_config=manual_review_config,
+                business_profile=business_profile,
+                analyze_hard_disqualified=False,
+                icp_enabled=resolved_icp.source == "workspace",
+            )
             existing = lead.analysis
-            if (
+            same_successful_analysis = (
                 existing is not None
                 and existing.provider == provider_name
                 and existing.model == model_name
                 and existing.prompt_version == getattr(provider, "prompt_version", "")
                 and existing.status in {"completed", "manual_review"}
-            ):
+                and existing.analysis_request_fingerprint == request_fingerprint
+            )
+            same_hard_disqualifier = (
+                existing is not None
+                and existing.status == "skipped_hard_disqualifier"
+                and existing.analysis_request_fingerprint == request_fingerprint
+            )
+            if same_successful_analysis or same_hard_disqualifier:
                 skipped += 1
                 record("running", {
                     "total": len(lead_ids), "completed": completed,
@@ -411,6 +462,9 @@ def reanalyze_workspace_leads(
                     ProviderLifecycleAuditORM.outcome == "lead_completed",
                     ProviderLifecycleAuditORM.details["lead_id"].as_string() == str(lead_id),
                     ProviderLifecycleAuditORM.details["config_key"].as_string() == config_key,
+                    ProviderLifecycleAuditORM.details[
+                        "analysis_request_fingerprint"
+                    ].as_string() == request_fingerprint,
                 )
                 .limit(1)
             )
@@ -422,37 +476,7 @@ def reanalyze_workspace_leads(
                     "current_lead_id": str(lead_id),
                 })
                 continue
-            if existing is not None and existing.status == "skipped_hard_disqualifier":
-                skipped += 1
-                record("running", {
-                    "total": len(lead_ids), "completed": completed,
-                    "failed": failed, "skipped": skipped,
-                    "current_lead_id": str(lead_id),
-                })
-                continue
             try:
-                payload = {
-                    "source": lead.source,
-                    "source_detail": lead.source_detail,
-                    "external_id": lead.external_id,
-                    "full_name": lead.full_name,
-                    "email": lead.email,
-                    "phone": lead.phone,
-                    "job_title": lead.job_title,
-                    "company_name": lead.company_name,
-                    "industry": lead.industry,
-                    "employee_count": lead.employee_count,
-                    "annual_revenue": float(lead.annual_revenue)
-                    if isinstance(lead.annual_revenue, Decimal)
-                    else lead.annual_revenue,
-                    "geography": lead.geography,
-                    "budget": (
-                        float(lead.budget) if isinstance(lead.budget, Decimal) else lead.budget
-                    ),
-                    "product_or_service": lead.product_or_service,
-                    "message": lead.message,
-                    "received_at": lead.received_at,
-                }
                 for attempt in range(3):
                     try:
                         reprocess_lead(
@@ -484,6 +508,7 @@ def reanalyze_workspace_leads(
                         "completed": completed,
                         "failed": failed,
                         "skipped": skipped,
+                        "analysis_request_fingerprint": request_fingerprint,
                     },
                 )
             except Exception as error:
@@ -557,28 +582,7 @@ def analyze_workspace_lead(self: object, workspace_id: str, lead_id: str) -> str
         manual_review_config = workspace_manual_review_config(
             session, workspace_uuid, routing.manual_review
         )
-        payload: dict[str, object] = {
-            "source": lead.source,
-            "source_detail": lead.source_detail,
-            "external_id": lead.external_id,
-            "full_name": lead.full_name,
-            "email": lead.email,
-            "phone": lead.phone,
-            "job_title": lead.job_title,
-            "company_name": lead.company_name,
-            "industry": lead.industry,
-            "employee_count": lead.employee_count,
-            "annual_revenue": float(lead.annual_revenue)
-            if isinstance(lead.annual_revenue, Decimal)
-            else lead.annual_revenue,
-            "geography": lead.geography,
-            "budget": float(lead.budget) if isinstance(lead.budget, Decimal) else lead.budget,
-            "product_or_service": lead.product_or_service,
-            "message": lead.message,
-            "received_at": lead.received_at,
-            "raw_payload": lead.raw_payload,
-            "normalization_version": lead.normalization_version,
-        }
+        payload = _persisted_lead_payload(lead)
         normalized = normalize_lead(payload, lead.id)
         request_fingerprint = reasoning_request_fingerprint(
             workspace_id=workspace_uuid,

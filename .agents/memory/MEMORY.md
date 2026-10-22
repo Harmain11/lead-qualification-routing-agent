@@ -12,14 +12,14 @@
 - [Dashboard brand alignment](dashboard-brand-alignment.md) — Follow Corral's existing brand, typography, and UI patterns when changing or redesigning screens.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
 - [Salesforce package prerequisite](salesforce-package-prerequisite.md) — install the user-supplied package before OAuth; Connect must present the installer and setup steps.
-- [Member performance and wins](member-win-policy.md) — choose Project or Sale for each win; record in Corral and congratulate the team plus the credited member.
+- [Member performance and wins](member-win-policy.md) — separate status updates from comments and keep Project/Sale credit explicit.
 - [Full-page editors](full-page-editors.md) — use full-page editors, preserve all lead data, and keep navigation subcategories accessible with clear hover-close behavior.
 - [Browser save feedback](browser-save-feedback.md) — embedded-browser ID support and optional notifications must not turn a successful save into an apparent failure.
 - [Browser harness compatibility](browser-harness-compatibility.md) — debugger support differs between the shell Chromium wrapper and installed native Playwright browsers.
 - [Production query results](production-query-results.md) — transaction-only SQL output is not an empty result set, even if the callback reports success.
-- [Reasoning backfill progress](reasoning-backfill-progress.md) — provider lifecycle audit events persist backfill status and per-configuration completion receipts.
+- [Reasoning backfill progress](reasoning-backfill-progress.md) — persist exact-input receipts so backfills skip only unchanged analyses.
 - [CloudTalk API boundaries](cloudtalk-api-boundaries.md) — per-call source selection uses an agent-assigned number and CloudTalk Desktop; call results stay there.
-- [Embedded dialer selection](embedded-dialer-selection.md) — one verified CloudTalk, Aircall, or RingCentral phone is selected globally; other providers keep Corral's call flow.
+- [Embedded dialer selection](embedded-dialer-selection.md) — keep one verified embedded phone; Dialer lead selection offers only Open lead or choose another.
 - [CloudTalk prospect review](cloudtalk-prospect-review.md) — review all recent calls independently of leads; recommend prospects but require an explicit Add lead action.
 - [Slack notification safety](slack-notification-safety.md) — Keep DMs opt-in, fallback explicit, and Slack lead alerts limited to one per lead.
 - [Gmail AI lead sync](gmail-ai-sync.md) — Keep high-recall detection; route personal-email prospects to review and capture evidenced contact details when available.

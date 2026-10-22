@@ -147,7 +147,12 @@ export async function applyWorkspaceAssistantAction(
         const payload = parsePayload(action);
         if (typeof payload.note !== "string" || !payload.note.trim()) throw new Error("Provide a note to save.");
         await saveLeadNote(target, payload.note);
-        return `Saved a note on ${action.target_label || "the lead"}.`;
+        try {
+          await reevaluateLead(target);
+          return `Saved a note on ${action.target_label || "the lead"} and updated its AI assessment.`;
+        } catch {
+          return `Saved the note on ${action.target_label || "the lead"}, but its AI assessment could not be refreshed.`;
+        }
       }
       if (action.kind === "record_lead_progress") {
         const payload = parsePayload(action);

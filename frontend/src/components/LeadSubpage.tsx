@@ -8,7 +8,7 @@ export const leadSubpageCopy: Record<LeadDetailSection, { title: string; descrip
   ai: { title: "AI & qualification", description: "Review recorded qualification scores and classifications. Open a lead’s AI assessment to inspect its evidence and reasoning." },
   "follow-ups": { title: "Follow-ups & meetings", description: "Choose a lead to manage its email follow-ups, meeting requests and scheduling." },
   email: { title: "Lead email threads", description: "Open a lead to review its Gmail conversation or compose a message from a connected mailbox." },
-  closing: { title: "Comments & closing", description: "Review commercial outcomes and credited members. Open a lead to add comments or record a Project or Sale." },
+  closing: { title: "Status", description: "Review a lead’s sales status, comments and commercial outcomes. Open a lead to record a status update or add a regular comment." },
   history: { title: "Lead history", description: "Review intake and delivery status, then open a lead’s full processing and interaction history." },
 };
 const readable = (value?: string | null) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not recorded";

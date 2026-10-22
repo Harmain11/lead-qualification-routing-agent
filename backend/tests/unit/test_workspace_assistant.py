@@ -223,6 +223,162 @@ def test_workspace_chat_only_opens_a_record_returned_by_scoped_search(monkeypatc
     assert result["action"]["target_id"] == str(lead_id)
 
 
+def test_workspace_chat_resolves_unique_partial_lead_name_for_note_proposal(
+    monkeypatch,
+) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    matched = {
+        "matched_leads": [
+            {"id": str(lead_id), "name": "Kethi Ahmed", "email": "kethi@example.test"}
+        ]
+    }
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="I can add that note to Kethi Ahmed.",
+                action=WorkspaceAssistantAction(
+                    kind="add_lead_note",
+                    title="Add lead note",
+                    summary="Record the information on this lead.",
+                    payload_json='{"note":"Revisit the project next month."}',
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: matched,
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(
+                    role="user",
+                    content="Add a note to Kethi that we should revisit the project next month.",
+                )
+            ]
+        ),
+        session=SimpleNamespace(
+            scalar=lambda _query: lead_id,
+            begin_nested=nullcontext,
+        ),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view", "leads.edit"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "add_lead_note"
+    assert result["action"]["target_id"] == str(lead_id)
+    assert result["action"]["target_label"] == "Kethi Ahmed"
+
+
+def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="I found one matching lead.",
+                action=WorkspaceAssistantAction(
+                    kind="open_lead",
+                    title="Open matching lead",
+                    summary="Open the matching lead.",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {
+            "matched_leads": [
+                {"id": str(lead_id), "name": "Kethi Ahmed", "email": "kethi@example.test"}
+            ]
+        },
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Is there a Kethi in my leads?")
+            ]
+        ),
+        session=SimpleNamespace(
+            scalar=lambda _query: lead_id,
+            begin_nested=nullcontext,
+        ),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "open_lead"
+    assert result["action"]["target_id"] == str(lead_id)
+
+
+def test_workspace_chat_does_not_guess_between_partial_name_matches(monkeypatch) -> None:
+    workspace_id = uuid4()
+    first_lead_id = uuid4()
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Open the matching lead.",
+                action=WorkspaceAssistantAction(
+                    kind="open_lead",
+                    title="Open matching lead",
+                    summary="Open the matching lead.",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {
+            "matched_leads": [
+                {"id": str(first_lead_id), "name": "Kethi Ahmed"},
+                {"id": str(uuid4()), "name": "Kethi Iqbal"},
+            ]
+        },
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[AssistantMessage(role="user", content="Open Kethi's lead.")]
+        ),
+        session=SimpleNamespace(
+            scalar=lambda _query: first_lead_id,
+            begin_nested=nullcontext,
+        ),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+
+
 def test_workspace_chat_rejects_unmatched_open_lead_proposal(monkeypatch) -> None:
     workspace_id = uuid4()
     lead_id = uuid4()

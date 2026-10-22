@@ -103,6 +103,7 @@ export function LeadAssistantPanel({
   const [crmOptions, setCrmOptions] = useState<CrmOption[]>([]);
   const [gmailAccounts, setGmailAccounts] = useState<ProviderConnection[]>([]);
   const [composeSeed, setComposeSeed] = useState<GmailComposerSeed | null>(null);
+  const [composerMessageId, setComposerMessageId] = useState<string | null>(null);
   const [composerRevision, setComposerRevision] = useState(0);
   const [selectedCrm, setSelectedCrm] = useState(lead.crm_sync?.provider || "");
   const [closingSelection, setClosingSelection] = useState<Record<string, ClosingSelection>>({});
@@ -123,6 +124,7 @@ export function LeadAssistantPanel({
     setError("");
     setQuickActionNotice("");
     setComposeSeed(null);
+    setComposerMessageId(null);
   }, [lead.id]);
 
   useEffect(() => {
@@ -182,15 +184,16 @@ export function LeadAssistantPanel({
       const isDialerAction = reply.action.kind === "open_dialer";
       const isEmailComposerAction =
         reply.action.kind === "draft_email" || reply.action.kind === "send_follow_up";
+      const assistantMessageId = id();
       const aiComposerOpened = isEmailComposerAction && canEdit && openFollowUpComposer({
         subject: reply.action.email_subject?.trim() || undefined,
         body: reply.action.email_body?.trim() || undefined,
-      });
+      }, assistantMessageId);
       const manualComposerFallbackOpened =
-        !aiComposerOpened && emailDraftRequested && canEdit && openFollowUpComposer();
+        !aiComposerOpened && emailDraftRequested && canEdit && openFollowUpComposer({}, assistantMessageId);
       const emailComposerOpened = aiComposerOpened || manualComposerFallbackOpened;
       setMessages((current) => [...current, {
-        id: id(),
+        id: assistantMessageId,
         role: "assistant",
         content: emailComposerOpened
           ? aiComposerOpened
@@ -206,9 +209,10 @@ export function LeadAssistantPanel({
         } : {}),
       }]);
     } catch (reason) {
-      if (emailDraftRequested && canEdit && openFollowUpComposer()) {
+      const assistantMessageId = id();
+      if (emailDraftRequested && canEdit && openFollowUpComposer({}, assistantMessageId)) {
         setMessages((current) => [...current, {
-          id: id(),
+          id: assistantMessageId,
           role: "assistant",
           content: "AI drafting isn’t available right now, so I opened the full email editor for you to write the follow-up manually. Nothing is sent automatically.",
         }]);
@@ -243,15 +247,24 @@ export function LeadAssistantPanel({
     setQuickActionNotice("Phone opened. Enter the saved number in its keypad; no call has been started.");
   }
 
-  function openFollowUpComposer(seed: GmailComposerSeed = {}) {
+  function openFollowUpComposer(
+    seed: GmailComposerSeed = {},
+    messageId: string,
+  ) {
     setQuickActionNotice("");
     setComposeSeed({
       ...seed,
       recipient: seed.recipient ?? lead.email?.trim() ?? "",
       purpose: "follow_up",
     });
+    setComposerMessageId(messageId);
     setComposerRevision((current) => current + 1);
     return true;
+  }
+
+  function closeFollowUpComposer() {
+    setComposeSeed(null);
+    setComposerMessageId(null);
   }
 
   function startEmailDraft() {
@@ -328,7 +341,19 @@ export function LeadAssistantPanel({
       } else if (action.kind === "add_note") {
         if (!action.note?.trim()) throw new Error("The assistant did not provide a note to save.");
         await saveLeadNote(lead.id, action.note);
-        changeMessage(message.id, { done: true });
+        try {
+          onUpdated(await reevaluateLead(lead.id));
+          changeMessage(message.id, {
+            done: true,
+            actionResult: "Note saved and included in the updated AI assessment.",
+          });
+        } catch {
+          changeMessage(message.id, {
+            done: true,
+            actionResult: "Note saved, but the AI assessment could not be refreshed. Try re-evaluating again later.",
+          });
+          void refreshLeadAfterAction(message.id);
+        }
       } else if (action.kind === "record_progress") {
         if (!action.progress_stage || !action.progress_note?.trim()) {
           throw new Error("A progress stage and note are required.");
@@ -356,13 +381,13 @@ export function LeadAssistantPanel({
         if (!openFollowUpComposer({
           subject: action.email_subject?.trim() || undefined,
           body: action.email_body?.trim() || undefined,
-        })) throw new Error(followUpBlockedReason || "The follow-up composer could not be opened.");
+        }, message.id)) throw new Error(followUpBlockedReason || "The follow-up composer could not be opened.");
         changeMessage(message.id, {
           done: true,
           actionResult: "The follow-up composer is open. Check the sender, recipient, and message, then choose Send follow-up.",
         });
       } else if (action.kind === "send_follow_up") {
-        if (!openFollowUpComposer()) throw new Error(followUpBlockedReason || "The follow-up composer could not be opened.");
+        if (!openFollowUpComposer({}, message.id)) throw new Error(followUpBlockedReason || "The follow-up composer could not be opened.");
         changeMessage(message.id, {
           done: true,
           actionResult: "The follow-up composer is open. Check the sender, recipient, and message, then choose Send follow-up.",
@@ -550,25 +575,26 @@ export function LeadAssistantPanel({
         <span className="lead-agent-role">{message.role === "user" ? "You" : "Corral"}</span>
         <p>{message.content}</p>
         {message.action && renderAction(message)}
+        {composeSeed && composerMessageId === message.id && <div className="lead-agent-email-compose">
+          <EmailComposer
+            key={composerRevision}
+            accounts={gmailAccounts}
+            canSend={canEdit}
+            sendBlockedReason={followUpBlockedReason ?? undefined}
+            leadId={lead.id}
+            seed={composeSeed}
+            onClose={closeFollowUpComposer}
+            onSent={() => {
+              changeMessage(message.id, { actionResult: "Follow-up email sent." });
+              closeFollowUpComposer();
+              setQuickActionNotice("Follow-up email sent.");
+              void getLead(lead.id).then(onUpdated).catch(() => {
+                setQuickActionNotice("Follow-up email sent. The lead details could not be refreshed.");
+              });
+            }}
+          />
+        </div>}
       </article>)}
-      {composeSeed && <div className="lead-agent-email-compose">
-        <EmailComposer
-          key={composerRevision}
-          accounts={gmailAccounts}
-          canSend={canEdit}
-          sendBlockedReason={followUpBlockedReason ?? undefined}
-          leadId={lead.id}
-          seed={composeSeed}
-          onClose={() => setComposeSeed(null)}
-          onSent={() => {
-            setComposeSeed(null);
-            setQuickActionNotice("Follow-up email sent.");
-            void getLead(lead.id).then(onUpdated).catch(() => {
-              setQuickActionNotice("Follow-up email sent. The lead details could not be refreshed.");
-            });
-          }}
-        />
-      </div>}
       {busy && <div className="lead-agent-thinking" role="status"><i /><i /><i /><span>Checking this lead’s record…</span></div>}
       {error && <p className="lead-agent-error" role="alert">{error}</p>}
     </div>
