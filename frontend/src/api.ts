@@ -598,12 +598,16 @@ export function configureInboundSync(
   connectionId: string,
   enabled: boolean,
   provider: string = "salesforce",
-  intervalSeconds = 60,
+  intervalSeconds?: number,
 ): Promise<CrmInboundSyncState> {
   return jsonRequest(`/v1/integrations/connections/${connectionId}/inbound-sync/configuration`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead", interval_seconds: intervalSeconds }),
+    body: JSON.stringify({
+      enabled,
+      object_type: ["hubspot", "gohighlevel"].includes(provider) ? "contacts" : ["gmail", "outlook"].includes(provider) ? "message" : "Lead",
+      interval_seconds: intervalSeconds ?? (provider === "gmail" ? 300 : 60),
+    }),
   });
 }
 

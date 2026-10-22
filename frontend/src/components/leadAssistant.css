@@ -2,10 +2,10 @@
   --agent-line: var(--line);
   --agent-wash: var(--surface-high);
   display: grid;
-  grid-template-rows: auto auto minmax(220px, 1fr) auto;
+  grid-template-rows: auto auto minmax(300px, 1fr) auto;
   width: 100%;
   min-width: 0;
-  min-height: min(690px, calc(100vh - 250px));
+  min-height: min(780px, calc(100dvh - 150px));
   overflow: hidden;
   container-name: lead-agent;
   container-type: inline-size;
@@ -96,7 +96,7 @@
 
 .lead-agent-transcript {
   display: flex;
-  min-height: 250px;
+  min-height: 300px;
   flex-direction: column;
   gap: 13px;
   overflow-y: auto;
@@ -215,8 +215,8 @@
 .lead-agent-composer > div > button { flex: 0 0 auto; }
 .lead-agent-composer textarea {
   width: 100%;
-  min-height: 132px;
-  max-height: 320px;
+  min-height: 88px;
+  max-height: 220px;
   resize: vertical;
   padding: 11px 12px;
   border: 1px solid var(--agent-line);
@@ -232,7 +232,7 @@
 .lead-agent-composer small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 
 @media (max-width: 700px) {
-  .lead-agent { min-height: min(650px, calc(100vh - 230px)); }
+  .lead-agent { min-height: min(760px, max(560px, calc(100dvh - 140px))); }
 }
 
 @container lead-agent (max-width: 700px) {
@@ -245,7 +245,7 @@
   .lead-agent-email-compose .email-composer-address-grid { grid-template-columns: minmax(0, 1fr); }
   .lead-agent-heading { padding: 16px; }
   .lead-agent-heading h2 { font-size: 18px; }
-  .lead-agent-transcript { min-height: 220px; padding: 14px; }
+  .lead-agent-transcript { min-height: 280px; padding: 14px; }
   .lead-agent-message { max-width: 100%; }
   .lead-agent-changes { grid-template-columns: 1fr; }
   .lead-agent-closing-fields { grid-template-columns: 1fr; }

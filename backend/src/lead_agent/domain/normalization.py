@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from lead_agent.domain.lead_sources import MANUAL_SOURCE
 from lead_agent.domain.models import NormalizedLead
 
 
@@ -84,7 +85,11 @@ def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
 
     return NormalizedLead(
         id=lead_id,
-        source=_clean(payload.get("source")) or "website",
+        source=(
+            MANUAL_SOURCE
+            if is_manual_entry
+            else (_clean(payload.get("source")) or "website")
+        ),
         source_detail=source_detail,
         external_id=_clean(payload.get("external_id")),
         full_name=full_name,

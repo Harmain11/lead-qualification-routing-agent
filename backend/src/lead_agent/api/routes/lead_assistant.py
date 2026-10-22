@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal
 from uuid import UUID
 
@@ -24,6 +25,12 @@ from lead_agent.infrastructure.repositories import get_lead
 
 router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
 workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
+_SIMPLE_ACKNOWLEDGEMENTS = {"hi", "hello", "hey", "thanks", "thank you"}
+
+
+def _is_simple_acknowledgement(content: str) -> bool:
+    normalized = re.sub(r"[\W_]+", " ", content.casefold()).strip()
+    return normalized in _SIMPLE_ACKNOWLEDGEMENTS
 
 
 class AssistantMessage(BaseModel):
@@ -60,13 +67,27 @@ def chat_with_workspace_assistant(
             503,
             "Connect and verify a workspace AI provider before using Corral Agent chat.",
         )
-    # Legacy clients may still send context, but it is never a trusted snapshot.
-    workspace_context = build_workspace_assistant_context(session, workspace)
     latest_user_message = next(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
     )
-    if "leads.view" in workspace.permissions and latest_user_message:
+    simple_acknowledgement = _is_simple_acknowledgement(latest_user_message)
+    if simple_acknowledgement:
+        # Greetings and thanks need neither a workspace snapshot nor prior turns.
+        workspace_context = {
+            "permissions": sorted(workspace.permissions),
+            "context_warnings": [],
+        }
+        assistant_messages = [{"role": "user", "content": latest_user_message}]
+    else:
+        # Legacy clients may still send context, but it is never a trusted snapshot.
+        workspace_context = build_workspace_assistant_context(session, workspace)
+        assistant_messages = [message.model_dump() for message in request.messages]
+    if (
+        not simple_acknowledgement
+        and "leads.view" in workspace.permissions
+        and latest_user_message
+    ):
         query = " ".join(
             message.content for message in reversed(request.messages)
             if message.role == "user"
@@ -82,7 +103,7 @@ def chat_with_workspace_assistant(
                 "or propose lead changes."
             )
     payload = {
-        "messages": [message.model_dump() for message in request.messages],
+        "messages": assistant_messages,
         "workspace_context": workspace_context,
         "workspace_id": str(workspace.workspace_id),
         "scope": (

@@ -1,8 +1,22 @@
 import "./_group.css";
 
 export function Current() {
-  return <main className="lead-agent-preview">
-    <section className="lead-agent" aria-label="Assistant for Kathi Sitek">
+  return <main className="lead-agent-preview lead-agent-preview--dock">
+    <section className="corral-agent-window" aria-label="Corral Agent">
+      <header className="corral-agent-window-header">
+        <div className="corral-agent-window-brand">
+          <span className="corral-agent-window-mark" aria-hidden="true">CA</span>
+          <div><strong>Corral Agent</strong><small>Kathi Sitek · Sample Company</small></div>
+        </div>
+        <div className="corral-agent-window-controls">
+          <button className="corral-agent-change-lead" type="button">General chat</button>
+          <button className="corral-agent-change-lead" type="button">Change lead</button>
+          <button className="corral-agent-close" type="button" aria-label="Collapse Corral Agent">×</button>
+        </div>
+      </header>
+      <div className="corral-agent-window-body">
+        <div className="corral-agent-mode">
+          <section className="lead-agent" aria-label="Assistant for Kathi Sitek">
       <header className="lead-agent-heading">
         <div className="lead-agent-mark" aria-hidden="true">CA</div>
         <div>
@@ -39,11 +53,14 @@ export function Current() {
       <form className="lead-agent-composer">
         <label htmlFor="lead-agent-input">Message Corral</label>
         <div>
-          <textarea id="lead-agent-input" rows={5} placeholder="Ask about this lead or describe an update…" />
+          <textarea id="lead-agent-input" rows={4} placeholder="Ask about this lead or describe an update…" />
           <button className="primary-button" type="button">Send</button>
         </div>
         <small>Corral uses this lead’s record and recent history. Review proposed changes before applying them.</small>
       </form>
+          </section>
+        </div>
+      </div>
     </section>
   </main>;
 }

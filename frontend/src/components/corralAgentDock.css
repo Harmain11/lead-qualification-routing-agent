@@ -145,43 +145,134 @@
 }
 
 .corral-agent-window-body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
+}
+
+.corral-agent-window-body > .corral-agent-mode:not([hidden]) {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
 }
 
 .corral-agent-window .lead-agent {
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   border: 0;
   border-radius: 0;
   box-shadow: none;
 }
 
 .corral-agent-window .lead-agent-heading {
-  padding: 14px 16px;
-}
-
-.corral-agent-window .lead-agent-heading h2 {
-  font-size: 16px;
-}
-
-.corral-agent-window .lead-agent-heading p {
-  font-size: 12px;
+  display: none;
 }
 
 .corral-agent-window .lead-agent-transcript {
   min-height: 0;
-  padding: 14px;
+  padding: 10px 12px;
+}
+
+.corral-agent-window .lead-agent-quick-actions {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+  padding: 8px 12px;
+}
+
+.corral-agent-window .lead-agent-phone-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+}
+
+.corral-agent-window .lead-agent-phone-card > p {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.corral-agent-window .lead-agent-email-shortcut-note {
+  display: none;
+}
+
+.corral-agent-window .lead-agent-quick-buttons button,
+.corral-agent-window .lead-agent-email-shortcut {
+  min-height: 36px;
+  padding-inline: 8px;
+  font-size: 11px;
+}
+
+.corral-agent-window .lead-agent-email-shortcut {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  justify-self: start;
+  white-space: nowrap;
+}
+
+.corral-agent-window .lead-agent-quick-notice {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.corral-agent-window .lead-agent-welcome {
+  margin: 0 auto;
+  padding: 4px 2px;
+}
+
+.corral-agent-window .lead-agent-welcome h3 {
+  font-size: 15px;
+}
+
+.corral-agent-window .lead-agent-welcome > p {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.corral-agent-window .lead-agent-suggestions {
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.corral-agent-window .lead-agent-suggestions button {
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: 11px;
 }
 
 .corral-agent-window .lead-agent-composer {
-  padding: 11px 13px;
+  padding: 7px 10px 9px;
+}
+
+.corral-agent-window .lead-agent-composer > label {
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.corral-agent-window .lead-agent-composer > div {
+  align-items: flex-end;
+  flex-direction: row;
+  gap: 6px;
 }
 
 .corral-agent-window .lead-agent-composer textarea {
-  min-height: 58px;
-  max-height: 120px;
+  height: 64px;
+  min-height: 64px;
+  max-height: 160px;
+  padding: 8px 10px;
+}
+
+.corral-agent-window .lead-agent-composer button {
+  min-height: 36px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+
+.corral-agent-window .lead-agent-composer small {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.3;
 }
 
 .corral-agent-start {

@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from lead_agent.application.manual_review import lead_manual_review_reasons
+from lead_agent.domain.lead_sources import lead_source_category
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
     LeadFollowUpEmailORM,
@@ -201,7 +202,7 @@ class AnalyticsService:
         leads = self._leads(window.start, window.end)
         grouped: dict[str, list[LeadORM]] = defaultdict(list)
         for lead in leads:
-            grouped[lead.source].append(lead)
+            grouped[lead_source_category(lead.source, lead.source_detail)].append(lead)
         lead_ids = select(LeadORM.id).where(
             LeadORM.workspace_id == self.workspace_id,
             LeadORM.received_at >= window.start,
@@ -433,7 +434,10 @@ class AnalyticsService:
             "currency": "USD",
             "total_revenue": round(total_revenue, 2),
             "pipeline_value": round(pipeline_value, 2),
-            "by_channel": self._revenue_group(facts, lambda lead: lead.source),
+            "by_channel": self._revenue_group(
+                facts,
+                lambda lead: lead_source_category(lead.source, lead.source_detail),
+            ),
             "by_rep": self._revenue_group(facts, _rep_name),
             "by_service": self._revenue_group(facts, lambda lead: lead.product_or_service),
             "over_time": self._revenue_time_series(facts, window),
@@ -772,7 +776,7 @@ class AnalyticsService:
 
         source_leads: dict[str, list[LeadORM]] = defaultdict(list)
         for lead in leads:
-            source_leads[lead.source].append(lead)
+            source_leads[lead_source_category(lead.source, lead.source_detail)].append(lead)
         comparable_sources = [
             (source, items)
             for source, items in source_leads.items()
@@ -1215,7 +1219,11 @@ class AnalyticsService:
         ]
 
         channel_month_counts: Counter[tuple[str, str]] = Counter(
-            (lead.source, lead.received_at.strftime("%Y-%m")) for lead in leads
+            (
+                lead_source_category(lead.source, lead.source_detail),
+                lead.received_at.strftime("%Y-%m"),
+            )
+            for lead in leads
         )
         channel_mix = [
             {"source": source, "month": month, "leads": count}
@@ -1509,7 +1517,7 @@ class AnalyticsService:
             "id": str(lead.id),
             "name": lead.full_name,
             "company": lead.company_name,
-            "source": lead.source,
+            "source": lead_source_category(lead.source, lead.source_detail),
             "service": lead.product_or_service,
             "score": _qualification(lead).total_score,
             "band": _qualification(lead).classification,

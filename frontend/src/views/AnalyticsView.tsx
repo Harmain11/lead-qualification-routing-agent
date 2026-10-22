@@ -3,6 +3,7 @@ import { Bars, Donut, TrendChart } from "../components/Charts";
 import { AnalyticsInsights } from "../components/AnalyticsInsights";
 import { TeamPerformancePanel } from "../components/TeamPerformancePanel";
 import type { AnalyticsBundle } from "./productShared";
+import { leadSourceLabel } from "../leadSources";
 import {
   defaultSectionSelection,
   Empty,
@@ -119,7 +120,7 @@ export function AnalyticsView({
       id: "closed-revenue",
       label: "Closed revenue",
       rows: revenueChannelRows.map((row) => ({
-        label: `${pretty(row.source)} · ${row.month}`,
+        label: `${leadSourceLabel(row.source)} · ${row.month}`,
         value: row.closed_usd,
         period: row.month,
         note: `Spend ${row.cost_usd == null ? "not configured" : money(row.cost_usd)}`,
@@ -130,7 +131,7 @@ export function AnalyticsView({
       id: "lead-volume",
       label: "Lead volume",
       rows: revenueChannelRows.map((row) => ({
-        label: `${pretty(row.source)} · ${row.month}`,
+        label: `${leadSourceLabel(row.source)} · ${row.month}`,
         value: row.leads,
         period: row.month,
       })),
@@ -139,7 +140,7 @@ export function AnalyticsView({
       id: "qualified-leads",
       label: "Qualified leads",
       rows: revenueChannelRows.map((row) => ({
-        label: `${pretty(row.source)} · ${row.month}`,
+        label: `${leadSourceLabel(row.source)} · ${row.month}`,
         value: row.qualified,
         period: row.month,
       })),
@@ -148,7 +149,7 @@ export function AnalyticsView({
       id: "configured-spend",
       label: "Configured spend",
       rows: revenueChannelRows.filter((row) => row.cost_usd != null).map((row) => ({
-        label: `${pretty(row.source)} · ${row.month}`,
+        label: `${leadSourceLabel(row.source)} · ${row.month}`,
         value: row.cost_usd ?? 0,
         period: row.month,
       })),
@@ -158,7 +159,7 @@ export function AnalyticsView({
       id: "cost-per-qualified",
       label: "Cost per qualified lead",
       rows: revenueChannelRows.filter((row) => row.cost_per_qualified != null).map((row) => ({
-        label: `${pretty(row.source)} · ${row.month}`,
+        label: `${leadSourceLabel(row.source)} · ${row.month}`,
         value: row.cost_per_qualified ?? 0,
         period: row.month,
       })),
@@ -168,7 +169,7 @@ export function AnalyticsView({
       id: "roi",
       label: "ROI",
       rows: revenueChannelRows.filter((row) => row.roi_percent != null).map((row) => ({
-        label: `${pretty(row.source)} · ${row.month}`,
+        label: `${leadSourceLabel(row.source)} · ${row.month}`,
         value: row.roi_percent ?? 0,
         period: row.month,
       })),
@@ -266,7 +267,7 @@ export function AnalyticsView({
                     </div>
                     {data.channels.channels.map((row) => (
                       <div key={row.channel}>
-                        <b>{pretty(row.channel)}</b>
+                        <b>{leadSourceLabel(row.channel)}</b>
                         <span>
                           {row.lead_volume} · {row.share_percent}%
                         </span>
@@ -323,7 +324,7 @@ export function AnalyticsView({
                 <>
                   <Bars
                     rows={data.revenue.by_channel.map((row) => ({
-                      label: pretty(row.label),
+                      label: leadSourceLabel(row.label),
                       value: row.value,
                     }))}
                     formatter={money}

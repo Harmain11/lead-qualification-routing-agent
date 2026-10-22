@@ -1,0 +1,161 @@
+.dialer-contact-directory {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.dialer-contact-directory-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dialer-contact-directory-head h3 {
+  margin: 4px 0;
+  font-size: 17px;
+}
+
+.dialer-contact-directory-head p,
+.dialer-contact-feedback,
+.dialer-contact-call-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dialer-contact-search {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dialer-contact-search input {
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.dialer-contact-list {
+  display: grid;
+  gap: 8px;
+  max-height: 440px;
+  overflow: auto;
+}
+
+.dialer-contact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-high);
+}
+
+.dialer-contact-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dialer-contact-main strong,
+.dialer-contact-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialer-contact-main span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dialer-contact-main bdi {
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dialer-contact-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dialer-contact-action {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.dialer-contact-action:hover:not(:disabled),
+.dialer-contact-action:focus-visible {
+  border-color: var(--workspace-accent, var(--orange));
+  color: var(--workspace-accent, var(--orange));
+}
+
+.dialer-contact-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dialer-contact-action svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.dialer-contact-action:first-child svg path {
+  fill: currentColor;
+  stroke: none;
+}
+
+.dialer-contact-main:focus-visible,
+.dialer-contact-action:focus-visible {
+  outline: 2px solid var(--workspace-accent, var(--orange));
+  outline-offset: 2px;
+}
+
+.dialer-contact-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--danger, #a83232);
+}
+
+@media (max-width: 600px) {
+  .dialer-contact-directory-head {
+    align-items: center;
+  }
+
+  .dialer-contact-row {
+    gap: 8px;
+    padding: 8px;
+  }
+}

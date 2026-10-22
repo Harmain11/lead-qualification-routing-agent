@@ -12,6 +12,7 @@ import { EmailComposer } from "./EmailComposer";
 import "./leadOutcomes.css";
 import "./leadDetailTabs.css";
 import { leadDetailSections, leadSectionHref, type LeadDetailSection } from "../leadSections";
+import { leadSourceLabel } from "../leadSources";
 
 const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 const crmProviderLabel = (provider: string) => provider === "hubspot" ? "HubSpot" : provider === "gohighlevel" ? "GoHighLevel" : title(provider);
@@ -319,7 +320,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
       <div className="lead-overview-grid">
         <section className="story-section">
           <div>
-            <span className="eyebrow">{title(lead.source)} lead</span>
+            <span className="eyebrow">{leadSourceLabel(lead.source, lead.source_detail)} lead</span>
             <h3>
               {lead.source_detail === "manual-control-center"
                 ? "Inquiry / process context"

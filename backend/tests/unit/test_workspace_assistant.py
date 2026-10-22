@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from contextlib import nullcontext
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -64,6 +64,52 @@ def test_workspace_chat_returns_provider_answer_and_conversation(monkeypatch) ->
     ]
     assert "lead_confirmation_setting" not in captured["workspace_context"]
     assert captured["workspace_context"]["permissions"] == ["agents.execute"]
+
+
+def test_workspace_chat_uses_minimal_context_for_standalone_thanks(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Provider:
+        def assist_with_workspace(self, payload):
+            captured.update(payload)
+            return WorkspaceAssistantReply(reply="You're welcome.")
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: pytest.fail("workspace snapshot should not be loaded"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: pytest.fail("record search should not be run"),
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Please draft a follow-up."),
+                AssistantMessage(role="assistant", content="Here is a draft."),
+                AssistantMessage(role="user", content="Thanks!"),
+            ]
+        ),
+        session=object(),
+        workspace=WorkspaceContext(
+            workspace_id=uuid4(),
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+    assert result["reply"] == "You're welcome."
+    assert captured["messages"] == [{"role": "user", "content": "Thanks!"}]
+    assert captured["workspace_context"] == {
+        "permissions": ["agents.execute", "leads.view"],
+        "context_warnings": [],
+    }
 
 
 def test_workspace_chat_requires_a_supported_ai_provider(monkeypatch) -> None:

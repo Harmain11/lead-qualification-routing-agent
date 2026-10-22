@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from lead_agent.api.dependencies import (
@@ -26,6 +26,7 @@ from lead_agent.api.schemas import (
     outcome_response,
     qualification_response,
 )
+from lead_agent.application.assignment_notifications import notify_assigned_member
 from lead_agent.application.exports import (
     ExportEmptyError,
     ExportLimitError,
@@ -35,7 +36,6 @@ from lead_agent.application.exports import (
     render_export,
     write_export_audit,
 )
-from lead_agent.application.assignment_notifications import notify_assigned_member
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
@@ -46,6 +46,7 @@ from lead_agent.application.services import _analyze_and_qualify, process_lead
 from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.lead_assistant import LeadProfileChanges
+from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
@@ -376,6 +377,23 @@ def list_all_leads(
     if source:
         if source in {"salesforce", "hubspot"}:
             conditions.append(LeadORM.source_detail.ilike(f"crm-import:{source}:%"))
+        elif source == MANUAL_SOURCE:
+            conditions.append(
+                or_(
+                    LeadORM.source == MANUAL_SOURCE,
+                    LeadORM.source_detail == MANUAL_SOURCE_DETAIL,
+                )
+            )
+        elif source == "website":
+            conditions.append(
+                and_(
+                    LeadORM.source == source,
+                    or_(
+                        LeadORM.source_detail.is_(None),
+                        LeadORM.source_detail != MANUAL_SOURCE_DETAIL,
+                    ),
+                )
+            )
         else:
             conditions.append(LeadORM.source == source)
     if qualification_band:

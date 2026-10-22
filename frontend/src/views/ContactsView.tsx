@@ -1,6 +1,7 @@
 import { useEffect,useMemo,useState } from "react";
 import { getLeadPipelineHistory,listLeads } from "../api";
 import type { Lead,LeadPipelineEvent } from "../types";
+import { leadSourceDisplay } from "../leadSources";
 import "./ContactsView.css";
 
 type Contact = {
@@ -65,7 +66,7 @@ export function ContactsView({ onInspectLead }: { onInspectLead: (leadId: string
   const filterOptions = useMemo(() => ({
     industries: [...new Set(leads.map((lead) => lead.industry?.trim()).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
     companies: [...new Set(leads.map((lead) => lead.company_name?.trim()).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b)),
-    sources: [...new Set(leads.map((lead) => lead.source_detail?.trim() || lead.source.replaceAll("_", " ")).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    sources: [...new Set(leads.map((lead) => leadSourceDisplay(lead.source, lead.source_detail)).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
   }), [leads]);
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -76,7 +77,7 @@ export function ContactsView({ onInspectLead }: { onInspectLead: (leadId: string
       if (query && !searchable.includes(query)) return false;
       if (industryFilter && !contact.leads.some((lead) => lead.industry?.trim() === industryFilter)) return false;
       if (companyFilter && !contact.leads.some((lead) => lead.company_name?.trim() === companyFilter)) return false;
-      if (sourceFilter && !contact.leads.some((lead) => (lead.source_detail?.trim() || lead.source.replaceAll("_", " ")) === sourceFilter)) return false;
+      if (sourceFilter && !contact.leads.some((lead) => leadSourceDisplay(lead.source, lead.source_detail) === sourceFilter)) return false;
       const latestDate = Date.parse(contact.leads[0]?.received_at ?? "");
       if (from !== null && (!Number.isFinite(latestDate) || latestDate < from)) return false;
       if (to !== null && (!Number.isFinite(latestDate) || latestDate > to)) return false;
@@ -89,7 +90,10 @@ export function ContactsView({ onInspectLead }: { onInspectLead: (leadId: string
       if (sortBy === "name") return compareText(a.name, b.name);
       if (sortBy === "company") return compareText(a.leads[0]?.company_name ?? "", b.leads[0]?.company_name ?? "");
       if (sortBy === "industry") return compareText(a.leads.find((lead) => lead.industry)?.industry ?? "", b.leads.find((lead) => lead.industry)?.industry ?? "");
-      if (sortBy === "source") return compareText(a.leads[0]?.source_detail || a.leads[0]?.source || "", b.leads[0]?.source_detail || b.leads[0]?.source || "");
+      if (sortBy === "source") return compareText(
+        leadSourceDisplay(a.leads[0]?.source || "", a.leads[0]?.source_detail),
+        leadSourceDisplay(b.leads[0]?.source || "", b.leads[0]?.source_detail),
+      );
       return latestB - latestA;
     });
   }, [contacts, search, industryFilter, companyFilter, sourceFilter, dateFrom, dateTo, sortBy]);
@@ -225,7 +229,7 @@ export function ContactsView({ onInspectLead }: { onInspectLead: (leadId: string
                       {selected.leads.slice(0, 20).map((lead) => (
                         <li key={`lead-${lead.id}`}>
                           <time dateTime={lead.received_at}>{displayDate(lead.received_at)}</time>
-                          <strong>{lead.source_detail || lead.source.replaceAll("_", " ")}</strong>
+                          <strong>{leadSourceDisplay(lead.source, lead.source_detail)}</strong>
                           <span>{lead.product_or_service || "Lead received"}</span>
                           {lead.message && <p>{lead.message}</p>}
                           <button onClick={() => onInspectLead(lead.id)}>Open full lead record →</button>

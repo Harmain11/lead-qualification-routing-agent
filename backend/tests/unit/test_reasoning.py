@@ -24,6 +24,10 @@ from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.infrastructure.observability import reset_request_id, set_request_id
 from lead_agent.infrastructure.reasoning import openai_provider
+from lead_agent.infrastructure.reasoning.assistant_prompts import (
+    LEAD_ASSISTANT_SYSTEM_PROMPT,
+    WORKSPACE_ASSISTANT_SYSTEM_PROMPT,
+)
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.reasoning.factory import build_reasoning_provider
 from lead_agent.infrastructure.reasoning.openai_provider import OpenAIReasoningProvider
@@ -57,6 +61,42 @@ def make_lead(**overrides: object) -> NormalizedLead:
     }
     values.update(overrides)
     return NormalizedLead(**values)  # type: ignore[arg-type]
+
+
+def test_shared_assistant_prompts_are_compact_and_keep_safety_rules() -> None:
+    assert len(LEAD_ASSISTANT_SYSTEM_PROMPT) < 2200
+    assert len(WORKSPACE_ASSISTANT_SYSTEM_PROMPT) < 3600
+    assert "latest user message directly asks" in LEAD_ASSISTANT_SYSTEM_PROMPT
+    assert "never starts a call" in LEAD_ASSISTANT_SYSTEM_PROMPT
+    assert "bounded matches, not complete history" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+    assert "Never execute or claim a change until the user explicitly approves it" in (
+        WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+    )
+    assert "Never send automatically or claim sent" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+
+
+def test_openai_workspace_assistant_uses_compact_prompt_and_output_cap() -> None:
+    request: dict[str, object] = {}
+
+    class Responses:
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            request.update(kwargs)
+            return SimpleNamespace(output_parsed={"reply": "Hello."}, usage=None)
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=10,
+        max_retries=0,
+        store_responses=False,
+        client=SimpleNamespace(responses=Responses()),
+    )
+    result = provider.assist_with_workspace({"messages": []})
+
+    assert result.reply == "Hello."
+    assert request["max_output_tokens"] == 1800
+    assert request["input"][0]["content"] == WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+    assert request["input"][1]["content"] == '{"messages":[]}'
 
 
 def test_high_intent_context_is_grounded_and_structured(icp) -> None:

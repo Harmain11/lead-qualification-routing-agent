@@ -576,7 +576,7 @@ export function LeadAssistantPanel({
       <label htmlFor="lead-agent-input">Message Corral</label>
       <div><textarea
         id="lead-agent-input"
-        rows={5}
+        rows={4}
         maxLength={3000}
         placeholder="Ask about this lead or describe an update…"
         value={draft}

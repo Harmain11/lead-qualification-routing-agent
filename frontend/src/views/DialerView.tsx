@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { createLead, listIntegrations, listLeads } from "../api";
+import { createLead, listIntegrations } from "../api";
 import { CallsPanel } from "../components/CallsPanel";
+import { DialerContactDirectory } from "../components/DialerContactDirectory";
 import { DirectDialer } from "../components/DirectDialer";
 import { opsGet } from "../operationsApi";
 import type { IntegrationCard, Lead, LeadPayload } from "../types";
@@ -96,11 +97,7 @@ export function DialerView({
   const [error, setError] = useState("");
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
-  const [leadSearch, setLeadSearch] = useState("");
-  const [leadResults, setLeadResults] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [leadSearchLoading, setLeadSearchLoading] = useState(false);
-  const [leadSearchError, setLeadSearchError] = useState("");
   const callPanelRef = useRef<HTMLDivElement>(null);
   const shouldFocusCallPanel = useRef(false);
 
@@ -136,36 +133,6 @@ export function DialerView({
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, []);
-
-  useEffect(() => {
-    if (!canViewLeads) return;
-    const controller = new AbortController();
-    setLeadSearchLoading(true);
-    setLeadSearchError("");
-    const timeout = window.setTimeout(() => {
-      void listLeads(
-        { limit: 20, search: leadSearch.trim() || undefined },
-        controller.signal,
-      )
-        .then((result) => {
-          if (!controller.signal.aborted) setLeadResults(result.items);
-        })
-        .catch((reason) => {
-          if (!controller.signal.aborted) {
-            setLeadSearchError(
-              reason instanceof Error ? reason.message : "Unable to search leads.",
-            );
-          }
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setLeadSearchLoading(false);
-        });
-    }, 200);
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [canViewLeads, leadSearch]);
 
   async function refreshCalls() {
     setRefreshing(true);
@@ -303,12 +270,16 @@ export function DialerView({
                 <div><span className="eyebrow">Direct calling</span><h2>Call a lead</h2></div>
                 <span className="dialer-panel-count">Each call needs rep confirmation</span>
               </div>
-              <p className="panel-copy">Choose a lead or press Call on a card. Corral uses the phone number saved on that lead, then asks you to confirm before dialing and checks workspace consent.</p>
+              <p className="panel-copy">
+                {embeddedPhoneSelected
+                  ? `Choose a lead below. Call opens ${providerLabel[selectedDialer?.provider ?? ""] ?? "the embedded phone"} and copies its number for you to paste and dial.`
+                  : "Choose a lead below to open Corral’s call confirmation. Calls are checked against workspace permission and consent."}
+              </p>
               {!canViewLeads ? (
                 <p className="dialer-empty">Lead-view permission is required to choose a contact.</p>
               ) : (
                 <>
-                  {selectedLead ? (
+                  {selectedLead && (
                     <>
                       <div className="dialer-selected-lead">
                         <div>
@@ -333,64 +304,21 @@ export function DialerView({
                         />
                       </div>
                     </>
-                  ) : (
-                    <>
-                      <label className="dialer-lead-search">
-                        Search leads by name, company, or email
-                        <input
-                          type="search"
-                          value={leadSearch}
-                          onChange={(event) => setLeadSearch(event.target.value)}
-                          placeholder="Search leads…"
-                        />
-                      </label>
-                      {leadSearchError && <p className="team-alert" role="alert">{leadSearchError}</p>}
-                      {leadSearchLoading ? (
-                        <p role="status">Searching leads…</p>
-                      ) : leadResults.length ? (
-                        <div className="dialer-lead-results" aria-label="Lead search results">
-                          {leadResults.map((lead) => (
-                            <article className="dialer-lead-option" key={lead.id}>
-                              <button
-                                type="button"
-                                className="dialer-lead-option-main"
-                                onClick={() => setSelectedLead(lead)}
-                                aria-label={`View call options for ${lead.full_name}`}
-                              >
-                                <span>
-                                  <strong>{lead.full_name}</strong>
-                                  <small>{lead.company_name || "Company not supplied"} · {lead.phone || "No phone number"}</small>
-                                </span>
-                                <span aria-hidden="true">→</span>
-                              </button>
-                              <button
-                                type="button"
-                                className="dialer-lead-call-action"
-                                disabled={!lead.phone || !canCallLeads || dialerCallActive}
-                                title={
-                                  !lead.phone
-                                    ? "Add a phone number to this lead before calling."
-                                    : dialerCallActive
-                                      ? "End the active call before starting another."
-                                      : !canCallLeads
-                                        ? "Calling requires Dialer, lead-view, and lead-edit permissions."
-                                        : `Open confirmation to call ${lead.full_name}.`
-                                }
-                                onClick={() => {
-                                  shouldFocusCallPanel.current = true;
-                                  setSelectedLead(lead);
-                                }}
-                              >
-                                {lead.phone ? "Call" : "No number"}
-                              </button>
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="dialer-empty">{leadSearch.trim() ? "No matching leads found." : "No leads are available to call yet."}</p>
-                      )}
-                    </>
                   )}
+                  <DialerContactDirectory
+                    canCall={canCall}
+                    canCallLeads={canCallLeads}
+                    embeddedPhoneSelected={embeddedPhoneSelected}
+                    phoneProviderName={
+                      providerLabel[selectedDialer?.provider ?? ""] ?? "selected"
+                    }
+                    preferredDialerId={preferredDialerId}
+                    dialerCallActive={dialerCallActive}
+                    onChooseLead={(lead) => {
+                      shouldFocusCallPanel.current = true;
+                      setSelectedLead(lead);
+                    }}
+                  />
                 </>
               )}
             </section>

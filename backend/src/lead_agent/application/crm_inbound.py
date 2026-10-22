@@ -23,6 +23,7 @@ from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
     CrmInboundProvider,
+    ExternalCrmRecord,
     InboundCursor,
     InboundSyncMode,
 )
@@ -37,6 +38,7 @@ from lead_agent.infrastructure.db.models import (
     CrmSyncORM,
     LeadORM,
     ProviderConnectionORM,
+    ProviderLifecycleAuditORM,
 )
 from lead_agent.infrastructure.db.operations import ConsentEventORM
 from lead_agent.infrastructure.observability import (
@@ -96,7 +98,7 @@ def _state(
         object_type=object_type,
         enabled=False,
         initial_import_completed=False,
-        sync_interval_seconds=60,
+        sync_interval_seconds=300 if connection.provider_type == "gmail" else 60,
         next_sync_at=None,
         status="disabled",
         records_processed=0,
@@ -128,7 +130,7 @@ def configure_inbound_sync(
     *,
     enabled: bool,
     object_type: str = "Lead",
-    interval_seconds: int = 60,
+    interval_seconds: int | None = None,
     actor_id: str,
     initial_cursor: InboundCursor | None = None,
 ) -> CrmInboundSyncStateORM:
@@ -145,7 +147,8 @@ def configure_inbound_sync(
         raise ValueError("provider does not support automatic inbound synchronization")
     if not connection.is_active or connection.status not in {"connected", "verified"}:
         raise ValueError("provider connection is inactive or unavailable")
-    interval = max(60, min(interval_seconds, 86_400))
+    default_interval = 300 if connection.provider_type == "gmail" else 60
+    interval = max(60, min(interval_seconds or default_interval, 86_400))
     state = _state(session, connection, object_type)
     if initial_cursor is not None:
         if state.last_successful_cursor or state.records_processed:
@@ -206,8 +209,10 @@ def list_due_inbound_sync_states(
     )
 
 
-def upgrade_default_mail_sync_intervals(session: Session, *, now: datetime | None = None) -> int:
-    """Upgrade the old five-minute default without unpausing or resetting mail."""
+def upgrade_default_gmail_sync_intervals(
+    session: Session, *, now: datetime | None = None
+) -> int:
+    """Move enabled Gmail mailboxes from the former one-minute default to five minutes."""
     now = now or datetime.now(UTC)
     states = list(
         session.scalars(
@@ -217,16 +222,16 @@ def upgrade_default_mail_sync_intervals(session: Session, *, now: datetime | Non
                 ProviderConnectionORM.id == CrmInboundSyncStateORM.connection_id,
             )
             .where(
-                CrmInboundSyncStateORM.provider.in_({"gmail", "outlook"}),
+                CrmInboundSyncStateORM.provider == "gmail",
                 CrmInboundSyncStateORM.enabled.is_(True),
-                CrmInboundSyncStateORM.sync_interval_seconds == 300,
+                CrmInboundSyncStateORM.sync_interval_seconds == 60,
                 ProviderConnectionORM.is_active.is_(True),
                 ProviderConnectionORM.status == "verified",
             )
         )
     )
     for state in states:
-        state.sync_interval_seconds = 60
+        state.sync_interval_seconds = 300
         # A running sync still owns its lease. Do not discard its checkpoint.
         if state.status != "running":
             state.next_sync_at = now
@@ -234,6 +239,96 @@ def upgrade_default_mail_sync_intervals(session: Session, *, now: datetime | Non
     if states:
         session.commit()
     return len(states)
+
+
+def _gmail_reviewed_message_ids(
+    session: Session, connection: ProviderConnectionORM
+) -> set[str]:
+    """Return Gmail message IDs already imported or terminally reviewed."""
+    cutoff = datetime.now(UTC) - timedelta(days=30)
+    message_ids = set(
+        session.scalars(
+            select(CrmProviderRecordLinkORM.provider_record_id).where(
+                CrmProviderRecordLinkORM.connection_id == connection.id,
+                CrmProviderRecordLinkORM.provider == "gmail",
+                CrmProviderRecordLinkORM.object_type == "message",
+                or_(
+                    CrmProviderRecordLinkORM.provider_modified_at >= cutoff,
+                    CrmProviderRecordLinkORM.provider_modified_at.is_(None),
+                ),
+            )
+        )
+    )
+    events = session.execute(
+        select(ProviderLifecycleAuditORM.action, ProviderLifecycleAuditORM.details).where(
+            ProviderLifecycleAuditORM.connection_id == connection.id,
+            ProviderLifecycleAuditORM.provider == "gmail",
+            ProviderLifecycleAuditORM.action.in_(
+                {"gmail_candidate_skipped", "gmail_thread_reviewed"}
+            ),
+            ProviderLifecycleAuditORM.created_at >= cutoff,
+        )
+    )
+    for action, details in events:
+        if not isinstance(details, dict):
+            continue
+        if action == "gmail_candidate_skipped":
+            # A transient AI failure must remain eligible for retry.
+            reason = str(details.get("reason") or "")
+            if reason.startswith("ai_classification_failed:"):
+                continue
+            message_id = details.get("message_id")
+            if message_id:
+                message_ids.add(str(message_id))
+        else:
+            reviewed = details.get("message_ids")
+            if isinstance(reviewed, list):
+                message_ids.update(str(value) for value in reviewed if value)
+    return message_ids
+
+
+def _record_gmail_thread_review(
+    session: Session,
+    connection: ProviderConnectionORM,
+    record: ExternalCrmRecord,
+    canonicals: list[CanonicalInboundLead] | None = None,
+    *,
+    actor_id: str,
+    correlation_id: str,
+) -> set[str]:
+    """Persist IDs, not email contents, so a recent scan does not reread old threads."""
+    message_ids = {record.record_id}
+    thread_id = str(record.values.get("thread_id") or "")
+    thread_messages = record.values.get("thread_messages")
+    if isinstance(thread_messages, list):
+        message_ids.update(
+            str(item["message_id"])
+            for item in thread_messages
+            if isinstance(item, dict) and item.get("message_id")
+        )
+    for canonical in canonicals or []:
+        metadata = canonical.provider_metadata
+        thread_id = str(metadata.get("gmail_thread_id") or thread_id)
+        thread_messages = metadata.get("gmail_thread_messages")
+        if isinstance(thread_messages, list):
+            message_ids.update(
+                str(item["message_id"])
+                for item in thread_messages
+                if isinstance(item, dict) and item.get("message_id")
+            )
+    record_provider_lifecycle_audit(
+        session,
+        connection,
+        action="gmail_thread_reviewed",
+        outcome="completed",
+        actor_id=actor_id,
+        correlation_id=correlation_id,
+        details={
+            "thread_id": thread_id or None,
+            "message_ids": sorted(message_ids),
+        },
+    )
+    return message_ids
 
 
 def claim_due_inbound_sync_states(
@@ -245,7 +340,7 @@ def claim_due_inbound_sync_states(
     """Claim bounded due work by advancing its next-dispatch time atomically."""
 
     claimed_at = now or datetime.now(UTC)
-    upgrade_default_mail_sync_intervals(session, now=claimed_at)
+    upgrade_default_gmail_sync_intervals(session, now=claimed_at)
     rows = list(
         session.scalars(
             select(CrmInboundSyncStateORM)
@@ -1445,6 +1540,12 @@ def run_inbound_sync(
         session.commit()
 
         final_checkpoint = state.last_successful_cursor
+        gmail_reviewed_message_ids = (
+            _gmail_reviewed_message_ids(session, connection)
+            if mode == "review_recent" and connection.provider_type == "gmail"
+            else set()
+        )
+        gmail_review_threads_seen: set[str] = set()
         while run.records_fetched < bounded_limit:
             if _sync_cancellation_requested(session, run.id):
                 return _finish_cancelled_run(
@@ -1500,23 +1601,23 @@ def run_inbound_sync(
             run.records_fetched += len(page.records)
             session.commit()
             normalized_gmail: dict[str, list[CanonicalInboundLead] | Exception] = {}
+            review_skipped_record_ids: set[str] = set()
             if connection.provider_type == "gmail":
                 normalize_records = page.records
+                if mode == "review_recent":
+                    normalize_records = []
+                    for item in page.records:
+                        if item.record_id in gmail_reviewed_message_ids:
+                            review_skipped_record_ids.add(item.record_id)
+                            continue
+                        thread_id = str(item.values.get("thread_id") or "")
+                        if thread_id and thread_id in gmail_review_threads_seen:
+                            review_skipped_record_ids.add(item.record_id)
+                            continue
+                        if thread_id:
+                            gmail_review_threads_seen.add(thread_id)
+                        normalize_records.append(item)
                 normalize_gmail_records = getattr(provider, "normalize_records", None)
-                if mode == "review_recent" and not callable(normalize_gmail_records):
-                    normalize_records = [
-                        item
-                        for item in page.records
-                        if session.scalar(
-                            select(CrmProviderRecordLinkORM.id).where(
-                                CrmProviderRecordLinkORM.connection_id == connection.id,
-                                CrmProviderRecordLinkORM.provider == "gmail",
-                                CrmProviderRecordLinkORM.object_type == object_type,
-                                CrmProviderRecordLinkORM.provider_record_id == item.record_id,
-                            )
-                        )
-                        is None
-                    ]
                 normalize = (
                     normalize_gmail_records
                     if callable(normalize_gmail_records)
@@ -1554,24 +1655,10 @@ def run_inbound_sync(
                     return _finish_cancelled_run(
                         session, state, run, connection, cursor=page_start
                     )
+                if record.record_id in review_skipped_record_ids:
+                    run.records_unchanged += 1
+                    continue
                 try:
-                    if (
-                        mode == "review_recent"
-                        and connection.provider_type == "gmail"
-                        and not callable(getattr(provider, "normalize_records", None))
-                    ):
-                        existing_link = session.scalar(
-                            select(CrmProviderRecordLinkORM.id).where(
-                                CrmProviderRecordLinkORM.connection_id == connection.id,
-                                CrmProviderRecordLinkORM.provider == "gmail",
-                                CrmProviderRecordLinkORM.object_type == object_type,
-                                CrmProviderRecordLinkORM.provider_record_id == record.record_id,
-                            )
-                        )
-                        if existing_link is not None:
-                            run.records_unchanged += 1
-                            session.commit()
-                            continue
                     canonical = normalized_gmail.get(record.record_id)
                     if isinstance(canonical, Exception):
                         raise canonical
@@ -1579,6 +1666,7 @@ def run_inbound_sync(
                         canonical = [provider.normalize_record(record)]
                     canonicals = canonical if isinstance(canonical, list) else [canonical]
                     candidate_outcomes: list[tuple[CanonicalInboundLead, str]] = []
+                    review_cache_eligible = True
                     for candidate_canonical in canonicals:
                         if _sync_cancellation_requested(session, run.id):
                             return _finish_cancelled_run(
@@ -1602,6 +1690,8 @@ def run_inbound_sync(
                         except ValueError as candidate_error:
                             if connection.provider_type != "gmail":
                                 raise
+                            if str(candidate_error).startswith("ai_classification_failed:"):
+                                review_cache_eligible = False
                             run.records_skipped += 1
                             thread_label = str(
                                 candidate_canonical.provider_metadata.get("gmail_thread_id")
@@ -1620,7 +1710,21 @@ def run_inbound_sync(
                             _store_existing_gmail_contact_history(
                                 session, connection, provider, record
                             )
+                        cached_message_ids: set[str] = set()
+                        if (
+                            connection.provider_type == "gmail"
+                            and mode == "review_recent"
+                            and review_cache_eligible
+                        ):
+                            cached_message_ids = _record_gmail_thread_review(
+                                session,
+                                connection,
+                                record,
+                                actor_id=actor_id,
+                                correlation_id=run.correlation_id,
+                            )
                         session.commit()
+                        gmail_reviewed_message_ids.update(cached_message_ids)
                         continue
                 except ProviderOperationError as error:
                     run = session.get(CrmInboundSyncRunORM, run.id) or run
@@ -1694,7 +1798,21 @@ def run_inbound_sync(
                                 )[:128],
                             },
                         )
+                    cached_message_ids = set()
+                    if (
+                        connection.provider_type == "gmail"
+                        and mode == "review_recent"
+                        and not ai_classification_failed
+                    ):
+                        cached_message_ids = _record_gmail_thread_review(
+                            session,
+                            connection,
+                            record,
+                            actor_id=actor_id,
+                            correlation_id=run.correlation_id,
+                        )
                     session.commit()
+                    gmail_reviewed_message_ids.update(cached_message_ids)
                     continue
                 run = session.get(CrmInboundSyncRunORM, run.id) or run
                 for candidate_index, (candidate_canonical, outcome) in enumerate(
@@ -1745,7 +1863,18 @@ def run_inbound_sync(
                                 f"{why}; {outcome}."
                             ),
                         )
+                cached_message_ids = set()
+                if connection.provider_type == "gmail" and mode == "review_recent":
+                    cached_message_ids = _record_gmail_thread_review(
+                        session,
+                        connection,
+                        record,
+                        [item for item, _ in candidate_outcomes],
+                        actor_id=actor_id,
+                        correlation_id=run.correlation_id,
+                    )
                 session.commit()
+                gmail_reviewed_message_ids.update(cached_message_ids)
 
             if _sync_cancellation_requested(session, run.id):
                 return _finish_cancelled_run(

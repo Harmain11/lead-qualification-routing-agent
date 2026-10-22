@@ -25,7 +25,7 @@ from lead_agent.application.crm_inbound import (
     get_inbound_sync_state,
     request_inbound_sync_cancellation,
     run_inbound_sync,
-    upgrade_default_mail_sync_intervals,
+    upgrade_default_gmail_sync_intervals,
 )
 from lead_agent.application.gmail_history import gmail_history_messages
 from lead_agent.application.lead_approval import update_lead_approval_policy
@@ -221,14 +221,15 @@ def _session(tmp_path, name: str = "inbound.db") -> Session:
 
 
 @pytest.mark.parametrize("provider,enabled,interval,active,expected", [
-    ("gmail", True, 300, True, 60),
-    ("outlook", True, 300, True, 60),
-    ("gmail", False, 300, True, 300),
+    ("gmail", True, 60, True, 300),
+    ("gmail", False, 60, True, 60),
+    ("gmail", True, 300, True, 300),
     ("gmail", True, 600, True, 600),
-    ("gmail", True, 300, False, 300),
-    ("salesforce", True, 300, True, 300),
+    ("gmail", True, 60, False, 60),
+    ("outlook", True, 60, True, 60),
+    ("salesforce", True, 60, True, 60),
 ])
-def test_fast_mail_default_preserves_pause_custom_interval_and_checkpoint(
+def test_gmail_five_minute_default_preserves_pause_custom_interval_and_checkpoint(
     tmp_path, provider, enabled, interval, active, expected,
 ):
     with _session(tmp_path) as session:
@@ -242,12 +243,174 @@ def test_fast_mail_default_preserves_pause_custom_interval_and_checkpoint(
         state.records_processed = 7
         connection.is_active = active
         session.commit()
-        count = upgrade_default_mail_sync_intervals(session)
+        count = upgrade_default_gmail_sync_intervals(session)
         assert count == int(expected != interval)
         assert state.sync_interval_seconds == expected
         assert state.enabled == enabled
         assert state.last_successful_cursor == {"history_id": "saved-checkpoint"}
         assert state.initial_import_completed and state.records_processed == 7
+
+
+def test_new_gmail_auto_sync_defaults_to_five_minutes(tmp_path):
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        state = configure_inbound_sync(
+            session,
+            connection,
+            enabled=True,
+            object_type="message",
+            actor_id="test-user",
+        )
+        assert state.sync_interval_seconds == 300
+
+
+def test_manual_gmail_review_skips_reviewed_messages_and_deduplicates_threads(
+    tmp_path, icp, routing,
+):
+    class GmailReviewProvider(FakeInboundProvider):
+        provider_name = "gmail"
+
+        def __init__(self, connection_id, records):
+            super().__init__(connection_id, records)
+            self.reviewed: list[str] = []
+
+        def list_records(self, *, object_type, cursor, limit):
+            assert object_type == "message"
+            self.calls.append(cursor)
+            return InboundCrmPage(records=self.records[:limit])
+
+        def normalize_records(self, record):
+            self.reviewed.append(record.record_id)
+            raise ValueError("ai_classified_not_a_genuine_inquiry")
+
+    def gmail_record(message_id: str, thread_messages: list[dict[str, str]]):
+        record = _record(message_id, f"{message_id}@example.test").model_copy(
+            update={
+                "provider": "gmail",
+                "object_type": "message",
+                "values": {
+                    "thread_id": "shared-thread",
+                    "thread_messages": thread_messages,
+                },
+            }
+        )
+        return record
+
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        thread_messages = [{"message_id": "msg-1"}, {"message_id": "msg-2"}]
+        records = [
+            gmail_record("msg-1", thread_messages),
+            gmail_record("msg-2", thread_messages),
+        ]
+        first_provider = GmailReviewProvider(connection.id, records)
+        first_run = _run(
+            session,
+            connection,
+            first_provider,
+            icp,
+            routing,
+            object_type="message",
+            mode="review_recent",
+            limit=10,
+            page_size=10,
+        )
+        assert first_run.records_skipped == 1
+        assert first_provider.reviewed == ["msg-1"]
+
+        repeated_provider = GmailReviewProvider(connection.id, records)
+        repeated_run = _run(
+            session,
+            connection,
+            repeated_provider,
+            icp,
+            routing,
+            object_type="message",
+            mode="review_recent",
+            limit=10,
+            page_size=10,
+        )
+        assert repeated_run.records_unchanged == 2
+        assert repeated_provider.reviewed == []
+
+        updated_thread = [
+            *thread_messages,
+            {"message_id": "msg-3"},
+        ]
+        updated_provider = GmailReviewProvider(
+            connection.id,
+            [
+                gmail_record("msg-1", updated_thread),
+                gmail_record("msg-2", updated_thread),
+                gmail_record("msg-3", updated_thread),
+            ],
+        )
+        updated_run = _run(
+            session,
+            connection,
+            updated_provider,
+            icp,
+            routing,
+            object_type="message",
+            mode="review_recent",
+            limit=10,
+            page_size=10,
+        )
+        assert updated_run.records_skipped == 1
+        assert updated_run.records_unchanged == 2
+        assert updated_provider.reviewed == ["msg-3"]
+
+
+def test_manual_gmail_review_retries_transient_ai_failures(tmp_path, icp, routing):
+    class TransientFailureProvider(FakeInboundProvider):
+        provider_name = "gmail"
+
+        def __init__(self, connection_id, records):
+            super().__init__(connection_id, records)
+            self.reviewed: list[str] = []
+
+        def list_records(self, *, object_type, cursor, limit):
+            assert object_type == "message"
+            self.calls.append(cursor)
+            return InboundCrmPage(records=self.records[:limit])
+
+        def normalize_records(self, record):
+            self.reviewed.append(record.record_id)
+            raise ValueError("ai_classification_failed:ai_timeout")
+
+    record = _record("retry-me", "retry@example.test").model_copy(
+        update={
+            "provider": "gmail",
+            "object_type": "message",
+            "values": {"thread_id": "retry-thread"},
+        }
+    )
+    with _session(tmp_path) as session:
+        connection = _connection(session, uuid4(), provider_type="gmail")
+        first_provider = TransientFailureProvider(connection.id, [record])
+        first_run = _run(
+            session,
+            connection,
+            first_provider,
+            icp,
+            routing,
+            object_type="message",
+            mode="review_recent",
+        )
+        assert first_run.records_failed == 1
+
+        retry_provider = TransientFailureProvider(connection.id, [record])
+        retry_run = _run(
+            session,
+            connection,
+            retry_provider,
+            icp,
+            routing,
+            object_type="message",
+            mode="review_recent",
+        )
+        assert retry_run.records_failed == 1
+        assert retry_provider.reviewed == ["retry-me"]
 
 
 def _connection(
