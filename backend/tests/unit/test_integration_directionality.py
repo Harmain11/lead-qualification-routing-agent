@@ -439,6 +439,16 @@ def test_background_analysis_retries_provider_failure_and_remembers_completion(
         )
         assert attempts == 3
 
+        # A same-provider receipt is not enough after the lead changes.
+        lead.message = "The lead now has a different inquiry context."
+        session.commit()
+        assert worker.analyze_workspace_lead.run(str(workspace_id), str(lead.id)) == "completed"
+        assert attempts == 4
+        assert worker.analyze_workspace_lead.run(str(workspace_id), str(lead.id)).startswith(
+            "skipped:"
+        )
+        assert attempts == 4
+
 
 def test_new_connection_is_disabled_until_deliberately_enabled(tmp_path) -> None:
     workspace_id = uuid4()

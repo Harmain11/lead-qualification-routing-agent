@@ -829,6 +829,7 @@ class AnalysisRunORM(Base):
     __tablename__ = "analysis_runs"
     __table_args__ = (
         Index("ix_analysis_status_created", "status", "created_at"),
+        Index("ix_analysis_request_fingerprint", "analysis_request_fingerprint"),
         UniqueConstraint("lead_id", name="uq_analysis_lead"),
     )
 
@@ -844,6 +845,7 @@ class AnalysisRunORM(Base):
     requires_manual_review: Mapped[bool] = mapped_column(nullable=False, default=False)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analysis_request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     structured_output: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

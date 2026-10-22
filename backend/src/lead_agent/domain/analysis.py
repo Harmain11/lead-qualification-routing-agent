@@ -114,6 +114,7 @@ class LeadContextAnalysis(ReasoningOutput):
     requires_manual_review: bool = False
     error_code: str | None = None
     error_message: str | None = None
+    analysis_request_fingerprint: str | None = Field(default=None, exclude=True, repr=False)
 
 
 class ReasoningProvider(Protocol):

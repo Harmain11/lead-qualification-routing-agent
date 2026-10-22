@@ -987,7 +987,11 @@ def test_gmail_ai_uses_forwarded_message_identity_and_content() -> None:
 
 
 def test_gmail_fetch_record_supplies_full_multi_message_thread_to_ai() -> None:
-    body = "Could we discuss a project this week?"
+    body = (
+        "Could we discuss a project this week?\n\n"
+        "> We are comparing providers for our project.\n"
+        "> Unique detail: our pilot starts in March."
+    )
     thread_messages = [
         {
             "id": "older",
@@ -1060,9 +1064,14 @@ def test_gmail_fetch_record_supplies_full_multi_message_thread_to_ai() -> None:
     canonical = provider.normalize_record(fetched)
 
     assert len(received) == 1
-    assert "We are comparing providers for our project." in received[0]
+    assert received[0].count("We are comparing providers for our project.") == 1
     assert "Could we discuss a project this week?" in received[0]
+    assert "Unique detail: our pilot starts in March." in received[0]
     assert "Cc: ops@example.test" in received[0]
+    assert (
+        "> We are comparing providers for our project."
+        in fetched.values["thread_messages"][1]["body"]
+    )
     assert canonical.normalized_payload["email"] == "mira@client.example"
     assert canonical.normalized_payload["gmail_thread_id"] == "thread-full"
 

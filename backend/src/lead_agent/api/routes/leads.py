@@ -1168,6 +1168,8 @@ def _reanalyze_lead_with_history(
         reasoning_provider,
         business_profile=operations_policy(session, workspace_id).business_profile,
         icp_enabled=resolved_icp.source == "workspace",
+        session=session,
+        workspace_id=workspace_id,
     )
     result = resolved_icp.trace_result(result)
     previous = {
