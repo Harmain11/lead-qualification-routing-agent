@@ -11,6 +11,12 @@ The user wants information added to existing leads directly from workspace chat,
 
 Lead follow-up drafting, review, editing, and sending should stay inside the AI agent conversation. Do not route the user to the separate Follow-ups section for these steps.
 
+For direct call requests, state that Corral Agent cannot place or start the call. When the user has Dialer permission, provide a clickable action to open Dialer so they can choose the lead or number and start the call themselves.
+
+**Why:** the user asked for call requests to explain that the AI cannot place calls and to provide a clickable route to Dialer.
+
+**How to apply:** Only show the Dialer action when the current user has dialer.call access. Keep call-history questions read-only and never invoke a call-start action from chat.
+
 Workspace snapshots must come from the server under the current permissions, not from browser-supplied context. UI-reported action outcomes may inform follow-up conversation, but never authorize a write or replace the target API's permission checks.
 
 **Why:** the user asked for a workspace-customized assistant that can search all records they can access on demand, update leads directly from chat, keep follow-up email work in the agent, take actions across nearly all app areas, and include Cc/Bcc in reviewed email drafts; external sends and other mutations still require explicit approval. Browser-supplied snapshots are not authoritative, and custom permission overrides can separate agent execution from lead viewing.

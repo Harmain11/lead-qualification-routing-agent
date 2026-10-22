@@ -96,3 +96,27 @@ test("opening a lead is read-only and sending remains in the email approval card
   );
   assert.equal(requests.length, 0);
 });
+
+test("opening the Dialer requires dialer access and never places a call", async () => {
+  const action = { ...proposal("open_module"), area: "dialer" as const };
+  const allowed = new Set(["dialer.call"]);
+  const denied = new Set<string>();
+  let opened = "";
+
+  assert.equal(actions.canOpenAssistantArea("dialer", allowed), true);
+  assert.equal(actions.canOpenAssistantArea("dialer", denied), false);
+  const result = await actions.applyWorkspaceAssistantAction(
+    action,
+    allowed,
+    (area) => { opened = area; },
+    noNavigate,
+  );
+
+  assert.equal(opened, "dialer");
+  assert.equal(result, "Opened the Dialer. Corral has not placed a call.");
+  assert.equal(requests.length, 0);
+  await assert.rejects(
+    actions.applyWorkspaceAssistantAction(action, denied, noNavigate, noNavigate),
+    /access/,
+  );
+});

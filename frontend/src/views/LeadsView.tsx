@@ -6,11 +6,13 @@ import {
   bulkSendLeadsToCrm,
   createLead,
   exportLeads,
+  LEAD_EXPORT_COLUMNS,
   listIntegrations,
   listLeadAssignmentOptions,
   listLeads,
   updateLeadAssignment,
   updateLeadGenerated,
+  type LeadExportColumn,
 } from "../api";
 import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
 import { LeadDetail } from "../components/LeadDetail";
@@ -101,6 +103,7 @@ export function LeadsView({
   canViewEmail = false,
   canUseAgent = false,
   dialerPhoneConnectionId = null,
+  onNavigateToDialer,
   canEnrollAutomations = false,
   onOpenAutomations,
 }: {
@@ -123,6 +126,7 @@ export function LeadsView({
   canViewEmail?: boolean;
   canUseAgent?: boolean;
   dialerPhoneConnectionId?: string | null;
+  onNavigateToDialer: () => void;
   canEnrollAutomations?: boolean;
   onOpenAutomations?: () => void;
 }) {
@@ -427,6 +431,7 @@ export function LeadsView({
             canViewEmail={canViewEmail}
             canUseAgent={canUseAgent}
             dialerPhoneConnectionId={dialerPhoneConnectionId}
+            onNavigateToDialer={onNavigateToDialer}
             canEdit={canEdit}
             canEnrollAutomations={canEnrollAutomations}
             onEnrollAutomation={(kind) =>
@@ -807,8 +812,23 @@ function ExportDialog({
   const [scope, setScope] = useState<"current_filters" | "selected" | "all">(
     "current_filters",
   );
+  const [columns, setColumns] = useState<LeadExportColumn[]>(() =>
+    LEAD_EXPORT_COLUMNS
+      .filter((column) => column.defaultSelected)
+      .map((column) => column.key),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  function toggleColumn(column: LeadExportColumn, checked: boolean) {
+    setColumns((current) => {
+      const selected = new Set(current);
+      if (checked) selected.add(column);
+      else selected.delete(column);
+      return LEAD_EXPORT_COLUMNS
+        .filter((option) => selected.has(option.key))
+        .map((option) => option.key);
+    });
+  }
   async function submit() {
     setBusy(true);
     setError(null);
@@ -816,6 +836,7 @@ function ExportDialog({
       const result = await exportLeads({
         format,
         scope,
+        columns,
         filters:
           scope === "current_filters"
             ? {
@@ -927,6 +948,56 @@ function ExportDialog({
             All permitted workspace leads
           </label>
         </fieldset>
+        <fieldset className="export-columns">
+          <legend>Columns</legend>
+          <p className="export-columns-note">
+            Choose the fields to include in your CSV, Excel workbook, or PDF. The selected columns keep this order.
+          </p>
+          <div className="export-column-controls">
+            <span>{columns.length} of {LEAD_EXPORT_COLUMNS.length} selected</span>
+            <div>
+              <button
+                className="button-quiet"
+                type="button"
+                disabled={busy || columns.length === LEAD_EXPORT_COLUMNS.length}
+                onClick={() => setColumns(LEAD_EXPORT_COLUMNS.map((column) => column.key))}
+              >
+                Select all
+              </button>
+              <button
+                className="button-quiet"
+                type="button"
+                disabled={busy || columns.length === 0}
+                onClick={() => setColumns([])}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="export-column-grid">
+            {LEAD_EXPORT_COLUMNS.map((column) => (
+              <label key={column.key}>
+                <input
+                  type="checkbox"
+                  checked={columns.includes(column.key)}
+                  disabled={busy}
+                  onChange={(event) => toggleColumn(column.key, event.currentTarget.checked)}
+                />
+                {column.label}
+              </label>
+            ))}
+          </div>
+          {columns.length === 0 && (
+            <small className="export-columns-warning" role="alert">
+              Select at least one column before downloading.
+            </small>
+          )}
+          {format === "pdf" && columns.length > 10 && (
+            <small className="export-columns-note">
+              For a more readable PDF, consider selecting fewer columns.
+            </small>
+          )}
+        </fieldset>
         {error && (
           <p className="team-alert" role="alert">
             {error}
@@ -939,7 +1010,7 @@ function ExportDialog({
           <button
             className="primary-button"
             onClick={() => void submit()}
-            disabled={busy || (scope === "selected" && !selectedCount)}
+            disabled={busy || columns.length === 0 || (scope === "selected" && !selectedCount)}
           >
             {busy ? "Preparing…" : "Download export"}
           </button>

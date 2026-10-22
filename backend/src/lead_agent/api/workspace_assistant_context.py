@@ -39,6 +39,7 @@ def build_workspace_assistant_context(
                 ),
                 "integrations": "integrations.view" in permissions,
                 "team": "members.view" in permissions,
+                "dialer": "dialer.call" in permissions,
             }.items() if allowed
         ],
         "context_warnings": [],

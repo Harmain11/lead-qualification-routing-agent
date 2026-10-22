@@ -21,8 +21,14 @@ test("representative free-form fields keep the exact typed value", async () => {
   const records = await readSource("../src/views/RecordsView.tsx");
   const lead = await readSource("../src/views/LeadsView.tsx");
   const detail = await readSource("../src/components/LeadDetail.tsx");
+  const composer = await readSource("../src/components/EmailComposer.tsx");
+  const assistantChat = await readSource("../src/components/WorkspaceAssistantChat.tsx");
 
   assert.match(records, /value=\{form\.name\}[\s\S]*?onChange=\{\(event\) =>\s*setForm\(\{ \.\.\.form, name: event\.target\.value \}\)/);
   assert.match(lead, /onChange=\{\(event\) => set\("message", event\.target\.value\)\}/);
-  assert.match(detail, /<textarea value=\{body\}[\s\S]*?onChange=\{\(event\) => setBody\(event\.target\.value\)\}/);
+  assert.match(detail, /<EmailComposer/);
+  assert.match(composer, /contentEditable=\{!busy\}[\s\S]*?onInput=\{syncBody\}/);
+  assert.match(composer, /setBody\(editor\.innerText\.replace\(/);
+  assert.match(assistantChat, /contentEditable=\{message\.actionStatus !== "sending"[\s\S]*?onInput=\{\(event\) => updateEmailBody/);
+  assert.match(assistantChat, /const body = editor\.innerText\.replace\(/);
 });

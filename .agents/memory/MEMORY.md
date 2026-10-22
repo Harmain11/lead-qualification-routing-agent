@@ -1,7 +1,7 @@
 - [OpenAI credential prompts](openai-credential-prompts.md) — a stored workspace key should stop repeated setup prompts; only missing or invalid credentials should prompt again.
 - [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
-- [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
+- [Email drafting style](email-drafting-style.md) — generate workspace-voice drafts; direct lead follow-up requests open the full editable composer.
 - [Email composer behavior](email-composer-behavior.md) — collapse conversation messages by default, but keep the reply composer open when requested and offer a safe close action.
 - [Integration card presentation](integration-card-presentation.md) — Non-AI cards expand independently; AI providers share one selector card with separate underlying state.
 - [Email lead relevance](email-lead-relevance.md) — exclude unrelated mail before lead creation; existing sales-thread replies remain interactions.
@@ -33,9 +33,10 @@
 - [Alembic branch merges](alembic-branch-merges.md) — Merge concurrent migration heads explicitly and keep revision IDs within the database version column's 32-character limit.
 - [Analytics metric integrity](analytics-metric-integrity.md) — Use recorded workspace data only; show missing inputs as untracked instead of estimating values.
 - [Dashboard selection submission](dashboard-selection-submission.md) — Keep checkbox changes staged until the user submits; only then update and save visible plots/cards.
+- [Lead export flexibility](lead-export-flexibility.md) — Let users choose lead fields across export formats so files can match destination import schemas.
 - [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
 - [ICP scoring activation](icp-scoring-activation.md) — Until a custom workspace ICP is published, score urgency and engagement only; built-in ICP fit and exclusions stay inactive.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
-- [Corral Agent scope and approvals](corral-agent-scope.md) — Make the assistant available across Corral and require explicit approval before applying any change.
+- [Corral Agent scope and approvals](corral-agent-scope.md) — Keep the assistant workspace-wide, require approval for changes, and route call requests to Dialer without placing calls.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.

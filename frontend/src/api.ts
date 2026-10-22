@@ -96,7 +96,8 @@ export type WorkspaceAssistantArea =
   | "icp"
   | "settings"
   | "integrations"
-  | "team";
+  | "team"
+  | "dialer";
 
 export type AssignmentNotification = {
   id: string;
@@ -138,6 +139,7 @@ export type WorkspaceAssistantAction = {
   email_bcc: string | null;
   email_subject: string | null;
   email_body: string | null;
+  email_html_body?: string | null;
   role: string | null;
   enabled: boolean | null;
   payload_json: string | null;
@@ -456,6 +458,42 @@ export async function listLeads(query: LeadListQuery = {}, signal?: AbortSignal)
   return request<LeadListResponse>(`/v1/leads${suffix}`, { signal });
 }
 
+export const LEAD_EXPORT_COLUMNS = [
+  { key: "lead_name", label: "Lead / Contact Name", defaultSelected: true },
+  { key: "company", label: "Company", defaultSelected: true },
+  { key: "email", label: "Email", defaultSelected: true },
+  { key: "source", label: "Source", defaultSelected: true },
+  { key: "received_date", label: "Received Date", defaultSelected: true },
+  { key: "service_interest", label: "Service / Interest", defaultSelected: true },
+  { key: "icp_score", label: "ICP Score", defaultSelected: true },
+  { key: "intent_score", label: "Intent Score", defaultSelected: true },
+  { key: "engagement_score", label: "Engagement Score", defaultSelected: true },
+  { key: "total_score", label: "Total Score", defaultSelected: true },
+  { key: "qualification_band", label: "Qualification Band", defaultSelected: true },
+  { key: "icp_version", label: "ICP Version", defaultSelected: true },
+  { key: "routing_queue", label: "Routing Queue", defaultSelected: true },
+  { key: "assigned_representative", label: "Assigned Representative", defaultSelected: true },
+  { key: "priority", label: "Priority / Urgency", defaultSelected: true },
+  { key: "crm_provider", label: "CRM Provider", defaultSelected: true },
+  { key: "crm_sync_state", label: "CRM Sync State", defaultSelected: true },
+  { key: "provider_record_id", label: "Provider Record ID", defaultSelected: true },
+  { key: "opportunity_value", label: "Opportunity Value", defaultSelected: true },
+  { key: "revenue_value", label: "Revenue Value", defaultSelected: true },
+  { key: "summary", label: "AI / Grounded Summary", defaultSelected: true },
+  { key: "recommended_action", label: "Recommended Action / Action Plan", defaultSelected: true },
+  { key: "phone", label: "Phone", defaultSelected: false },
+  { key: "job_title", label: "Job Title", defaultSelected: false },
+  { key: "industry", label: "Industry", defaultSelected: false },
+  { key: "employee_count", label: "Employee Count", defaultSelected: false },
+  { key: "annual_revenue", label: "Company Annual Revenue", defaultSelected: false },
+  { key: "geography", label: "Geography", defaultSelected: false },
+  { key: "budget", label: "Budget", defaultSelected: false },
+  { key: "source_detail", label: "Source Detail", defaultSelected: false },
+  { key: "inquiry_message", label: "Original Inquiry", defaultSelected: false },
+] as const;
+
+export type LeadExportColumn = (typeof LEAD_EXPORT_COLUMNS)[number]["key"];
+
 export type LeadExportInput = {
   format: "csv" | "xlsx" | "pdf";
   scope: "current_filters" | "selected" | "all";
@@ -467,6 +505,7 @@ export type LeadExportInput = {
     date_to?: string | null;
   };
   selected_lead_ids?: string[];
+  columns?: LeadExportColumn[];
 };
 
 export async function exportLeads(input: LeadExportInput): Promise<{ blob: Blob; filename: string }> {

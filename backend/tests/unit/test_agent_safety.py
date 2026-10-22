@@ -56,6 +56,22 @@ def test_context_without_view_permissions_never_reads_database():
     assert context == {"permissions": ["agents.execute"], "available_areas": [], "context_warnings": []}
 
 
+def test_context_exposes_dialer_only_when_call_permission_is_granted():
+    for permissions, expected in [
+        ({"agents.execute"}, []),
+        ({"agents.execute", "dialer.call"}, ["dialer"]),
+    ]:
+        context = build_workspace_assistant_context(
+            object(),
+            WorkspaceContext(
+                workspace_id=uuid4(),
+                actor_id="qa",
+                permissions=frozenset(permissions),
+            ),
+        )
+        assert context["available_areas"] == expected
+
+
 def test_trusted_context_can_load_all_permitted_sections_from_database():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

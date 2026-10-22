@@ -110,6 +110,7 @@ class WorkspaceAssistantAction(BaseModel):
         "settings",
         "integrations",
         "team",
+        "dialer",
     ] | None = None
     title: str = Field(default="", max_length=120)
     summary: str = Field(default="", max_length=800)

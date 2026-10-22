@@ -10,11 +10,14 @@ import {
 import type { GmailSendAccount, Lead } from "../types";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
+import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
 import {
   applyWorkspaceAssistantAction,
   applyWorkspaceEmailSignature,
+  canOpenAssistantArea,
   canApplyWorkspaceAssistantAction,
 } from "./workspaceAssistantActions";
+import "../views/emailWorkspace.css";
 
 type Message = {
   id: string;
@@ -62,6 +65,7 @@ export function WorkspaceAssistantChat({
   const [sendAccountsError, setSendAccountsError] = useState("");
   const [selectedSendAccountId, setSelectedSendAccountId] = useState("");
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const emailEditorsRef = useRef(new Map<string, HTMLDivElement>());
   const sendingMessageIdsRef = useRef(new Set<string>());
   const applyingMessageIdsRef = useRef(new Set<string>());
   const canSendEmail = permissions.has("leads.edit");
@@ -124,11 +128,37 @@ export function WorkspaceAssistantChat({
     setDraft("");
     setBusy(true);
     setError("");
+    const directCallRequested = isDirectPhoneCallRequest(content);
+    const dialerAction: WorkspaceAssistantAction | undefined =
+      directCallRequested && canOpenAssistantArea("dialer", permissions)
+        ? {
+            kind: "open_module",
+            area: "dialer",
+            title: "Open Dialer",
+            summary: "Choose the lead or enter a number, then start the call yourself. Corral Agent cannot place calls.",
+            target_id: null,
+            target_label: null,
+            email: null,
+            email_recipient: null,
+            email_cc: null,
+            email_bcc: null,
+            email_subject: null,
+            email_body: null,
+            role: null,
+            enabled: null,
+            payload_json: null,
+          }
+        : undefined;
+    const callInstruction = dialerAction
+      ? "I can’t place or start phone calls for you. Open the Dialer below, choose the lead or enter their number, then start the call yourself."
+      : "I can’t place or start phone calls for you, and your account doesn’t have Dialer access. Ask a workspace admin to grant it.";
     try {
       const result = await chatWithWorkspaceAssistant(
         assistantConversation(nextMessages),
       );
-      const action = result.action?.kind === "send_email"
+      const action = directCallRequested
+        ? dialerAction
+        : result.action?.kind === "send_email"
         ? {
             ...result.action,
             email_body: applyWorkspaceEmailSignature(
@@ -142,17 +172,29 @@ export function WorkspaceAssistantChat({
         {
           id: createClientId(),
           role: "assistant",
-          content: result.reply,
+          content: directCallRequested ? callInstruction : result.reply,
           action: action?.kind !== "none" ? action : undefined,
           contextWarnings: result.context_warnings,
         },
       ]);
     } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "Corral Agent could not answer. Try again.",
-      );
+      if (directCallRequested) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: createClientId(),
+            role: "assistant",
+            content: callInstruction,
+            ...(dialerAction ? { action: dialerAction } : {}),
+          },
+        ]);
+      } else {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Corral Agent could not answer. Try again.",
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -219,7 +261,8 @@ export function WorkspaceAssistantChat({
       | "email_cc"
       | "email_bcc"
       | "email_subject"
-      | "email_body",
+      | "email_body"
+      | "email_html_body",
     value: string,
   ) {
     setMessages((current) =>
@@ -229,6 +272,23 @@ export function WorkspaceAssistantChat({
           : message,
       ),
     );
+  }
+
+  function updateEmailBody(messageId: string, editor: HTMLDivElement) {
+    const body = editor.innerText.replace(/\u00a0/g, " ");
+    updateEmailDraft(messageId, "email_body", body);
+    updateEmailDraft(messageId, "email_html_body", editor.innerHTML);
+  }
+
+  function formatEmailBody(
+    messageId: string,
+    command: "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrderedList",
+  ) {
+    const editor = emailEditorsRef.current.get(messageId);
+    if (!editor) return;
+    editor.focus();
+    document.execCommand(command, false);
+    updateEmailBody(messageId, editor);
   }
 
   async function handleSendEmail(
@@ -245,6 +305,7 @@ export function WorkspaceAssistantChat({
       !recipient ||
       !subject ||
       !body.trim() ||
+      body.length > 8000 ||
       sendingMessageIdsRef.current.has(messageId)
     ) {
       return;
@@ -265,6 +326,9 @@ export function WorkspaceAssistantChat({
         bcc: action.email_bcc?.trim() ?? "",
         subject,
         body,
+        ...(action.email_html_body?.trim()
+          ? { html_body: action.email_html_body }
+          : {}),
       });
       const account = sendAccounts.find(
         (item) => item.id === selectedSendAccountId,
@@ -478,25 +542,43 @@ export function WorkspaceAssistantChat({
                         }
                       />
                     </label>
-                    <label>
-                      Message
-                      <textarea
-                        rows={7}
-                        maxLength={8000}
-                        value={message.action.email_body ?? ""}
-                        onChange={(event) =>
-                          updateEmailDraft(
-                            message.id,
-                            "email_body",
-                            event.target.value,
-                          )
-                        }
-                        disabled={
-                          message.actionStatus === "sending" ||
-                          message.actionStatus === "applied"
-                        }
+                    <div className="corral-workspace-email-rich">
+                      <span className="email-field-label">Message</span>
+                      <div className="email-format-toolbar" role="toolbar" aria-label="Message formatting">
+                        <button type="button" aria-label="Bold" title="Bold" disabled={message.actionStatus === "sending" || message.actionStatus === "applied"} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEmailBody(message.id, "bold")}><strong>B</strong></button>
+                        <button type="button" aria-label="Italic" title="Italic" disabled={message.actionStatus === "sending" || message.actionStatus === "applied"} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEmailBody(message.id, "italic")}><em>I</em></button>
+                        <button type="button" aria-label="Underline" title="Underline" disabled={message.actionStatus === "sending" || message.actionStatus === "applied"} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEmailBody(message.id, "underline")}><u>U</u></button>
+                        <button type="button" aria-label="Bulleted list" title="Bulleted list" disabled={message.actionStatus === "sending" || message.actionStatus === "applied"} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEmailBody(message.id, "insertUnorderedList")}>• List</button>
+                        <button type="button" aria-label="Numbered list" title="Numbered list" disabled={message.actionStatus === "sending" || message.actionStatus === "applied"} onMouseDown={(event) => event.preventDefault()} onClick={() => formatEmailBody(message.id, "insertOrderedList")}>1. List</button>
+                      </div>
+                      <div
+                        ref={(element) => {
+                          if (!element) {
+                            emailEditorsRef.current.delete(message.id);
+                            return;
+                          }
+                          emailEditorsRef.current.set(message.id, element);
+                          if (element.dataset.messageId !== message.id) {
+                            element.innerText = message.action?.email_body ?? "";
+                            element.dataset.messageId = message.id;
+                          }
+                        }}
+                        className="email-rich-editor-input"
+                        contentEditable={message.actionStatus !== "sending" && message.actionStatus !== "applied"}
+                        role="textbox"
+                        aria-label="Message"
+                        aria-multiline="true"
+                        aria-required="true"
+                        data-placeholder="Write your message…"
+                        onInput={(event) => updateEmailBody(message.id, event.currentTarget)}
+                        onPaste={(event) => {
+                          event.preventDefault();
+                          document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+                          updateEmailBody(message.id, event.currentTarget);
+                        }}
                       />
-                    </label>
+                      {(message.action.email_body?.length ?? 0) > 8000 && <small className="corral-workspace-email-unavailable" role="alert">Keep the message under 8,000 characters to send it.</small>}
+                    </div>
                     {!canSendEmail && (
                       <p className="corral-workspace-email-unavailable">
                         You need lead-edit access to send email.
@@ -604,7 +686,8 @@ export function WorkspaceAssistantChat({
                           !selectedSendAccountId ||
                           !message.action.email_recipient?.trim() ||
                           !message.action.email_subject?.trim() ||
-                          !message.action.email_body?.trim()
+                          !message.action.email_body?.trim() ||
+                          message.action.email_body.length > 8000
                         }
                         onClick={() =>
                           void handleSendEmail(message.id, message.action!)
@@ -645,7 +728,9 @@ export function WorkspaceAssistantChat({
                         {message.actionStatus === "applying"
                           ? "Applying…"
                           : message.action.kind === "open_module"
-                            ? `Open ${message.action.area ?? "workspace"}`
+                            ? message.action.area === "dialer"
+                              ? "Open Dialer"
+                              : `Open ${message.action.area ?? "workspace"}`
                             : message.action.kind === "open_lead"
                               ? "Open lead"
                             : "Approve and apply"}

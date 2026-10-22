@@ -14,3 +14,9 @@ Use the saved workspace business profile and email signature for AI-generated em
 **Why:** The user asked for AI-generated email that reflects the workspace's tone instead of returning the same template text.
 
 **How to apply:** Pass the current subject and body to template generation, including unsaved editor text. For per-lead AI follow-ups, pass the saved sample and workspace business profile as context. Treat sample text as untrusted content, preserve merge-field placeholders, apply the configured sender signature deterministically, and do not send generated text automatically.
+
+In the Leads assistant, a direct request to write, draft, or compose a follow-up email should open the full editable email composer rather than asking for the subject or key points in chat. Keep the sender, recipient, subject, and message fields editable, and never send automatically.
+
+**Why:** the user asked for all follow-up email work to open the subject and message fields for editing instead of gathering those details through chat.
+
+**How to apply:** Auto-open the composer for follow-up draft actions and keep explicit review and send safeguards in place.

@@ -88,6 +88,7 @@ export function canOpenAssistantArea(
     settings: ["routing.view", "integrations.view", "workspace.manage"],
     integrations: ["integrations.view"],
     team: ["members.view"],
+    dialer: ["dialer.call"],
   };
   return permissionByArea[area].some((permission) => permissions.has(permission));
 }
@@ -161,7 +162,9 @@ export async function applyWorkspaceAssistantAction(
         throw new Error("You do not have access to that workspace area.");
       }
       onNavigate(action.area);
-      return `Opened ${action.area}.`;
+      return action.area === "dialer"
+        ? "Opened the Dialer. Corral has not placed a call."
+        : `Opened ${action.area}.`;
     case "open_lead":
       requirePermission(permissions, "leads.view");
       if (!action.target_id) {
