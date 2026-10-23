@@ -5,11 +5,17 @@ description: The requested scope and confirmation rule for Corral's app-wide ass
 
 Corral Agent is intended to be available throughout the workspace and support guidance, content generation, and tasks across leads/qualification/routing/follow-ups; email/meetings/CRM; dashboard/analytics/reports/automations; and ICP/integrations/settings/team access. Email requests should produce an editable draft with a clear send button and optional editable Cc/Bcc fields; only include Cc/Bcc recipients when the user asks or supplies them. The user must explicitly approve sending, the sender mailbox must remain selectable when multiple Gmail accounts are connected, and the assistant must not claim success until sending succeeds. Every other data or configuration mutation must also be proposed and receive explicit user approval before execution. Chat answers and generated drafts may be returned without changing workspace state.
 
+Corral Agent should work in a fully agentic way so users can do most of their work directly from the agent. Treat examples as representative of many different cases, not as the limits of its intended scope.
+
+**Why:** The user said their main purpose is for users to do most of their work directly here and asked to keep the fully agentic direction in mind.
+
+**How to apply:** Prefer completing supported workflows within the conversation over giving instructions or navigation links. Carry context through multi-step work, retrieve relevant records, prepare editable drafts, execute approved actions, verify results, and recover clearly from failures. Preserve the existing permission and approval boundaries; this goal does not mean every workflow is already implemented.
+
 Customize the assistant using the saved workspace business profile and identity. General chat may retrieve relevant records on demand only within the current workspace and the user's permissions. Search is limited to bounded matches from records already stored in Corral; do not imply a complete history or a live search of external Gmail, CRM, or dialer archives.
 
-When an assistant reply identifies one or more specific leads, show a green open button for each verified lead in both workspace and lead-specific chat. Opening a button is read-only; it must not confirm a fuzzy match or approve a proposed change.
+Only show lead-open buttons when the current user explicitly asks to find, show, or open a lead, or confirms a pending match selection. Do not add them to ordinary replies merely because a lead is mentioned. Opening a button is read-only; it must not confirm a fuzzy match or approve a proposed change.
 
-**Why:** the user asked for a lead button whenever Corral identifies a specific lead, with separate buttons when multiple leads match.
+**Why:** The user clarified that lead buttons should appear only when specifically requested, not with every message.
 
 **How to apply:** Build buttons only from server-side, workspace-scoped, permission-checked lead matches. Render every distinct match and make each button navigate to its own lead without authorizing a mutation.
 
