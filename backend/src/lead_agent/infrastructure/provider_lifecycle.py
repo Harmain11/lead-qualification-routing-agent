@@ -230,6 +230,13 @@ class WorkspaceAuthorizedConnectionResolver:
                 if allow_unverified
                 else {"connected", "verified"}
             )
+            reasoning_provider = (
+                locked is not None
+                and locked.provider_type
+                in {"openai", "gemini", "claude", "deepseek", "xai"}
+            )
+            if allow_unverified and reasoning_provider:
+                usable_statuses.add("needs_reauthorization")
             # OAuth rows remain inactive until a low-risk identity probe verifies
             # the account and required scopes.
             unverified_mailbox_probe = (
@@ -240,9 +247,13 @@ class WorkspaceAuthorizedConnectionResolver:
             )
             reasoning_connection_probe = (
                 allow_unverified
-                and locked is not None
-                and locked.provider_type in {"openai", "gemini", "claude", "deepseek", "xai"}
-                and locked.status in {"connected", "verified"}
+                and reasoning_provider
+                and locked.status in {
+                    "connected",
+                    "verified",
+                    "error",
+                    "needs_reauthorization",
+                }
             )
             if (
                 locked is None

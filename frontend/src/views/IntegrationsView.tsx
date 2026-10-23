@@ -1258,6 +1258,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
            </IntegrationDisclosure>
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
+          {reasoningProvider && connection?.credential_state === "invalid" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message} Replace the saved API key, then test the connection again.</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}
             canConnect={canConnectProvider}
