@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from pydantic import Field
+from pydantic import Field, field_validator
 from sqlalchemy import Select, func, inspect, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
@@ -24,8 +24,14 @@ from lead_agent.api.operations_schemas import (
 )
 from lead_agent.api.schemas import lead_response
 from lead_agent.application.governance import audit_operation, hosting_region, operations_policy
+from lead_agent.application.intelligence import suggest_workspace_business_profile
 from lead_agent.domain.auth import AuthenticatedIdentity
-from lead_agent.domain.operations import ConsentInput, OperationsPolicy, StrictModel
+from lead_agent.domain.operations import (
+    ConsentInput,
+    OperationsPolicy,
+    StrictModel,
+    safe_website,
+)
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import (
@@ -57,6 +63,15 @@ router = APIRouter(prefix="/v1/ops", tags=["workspace governance"])
 class PolicyUpdate(StrictModel):
     configuration: OperationsPolicy
     version: int = Field(ge=0)
+
+
+class WorkspaceBusinessProfileWebsiteRequest(StrictModel):
+    website: str = Field(min_length=1, max_length=500)
+
+    @field_validator("website")
+    @classmethod
+    def website_is_public_https(cls, value: str) -> str:
+        return safe_website(value)
 
 
 @router.get("/policy")
@@ -97,6 +112,25 @@ def get_policy(
             for user_id, name in members
         ],
     }
+
+
+@router.post("/business-profile/analyze")
+def analyze_business_profile_website(
+    request: WorkspaceBusinessProfileWebsiteRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("workspace.manage")),
+) -> Any:
+    try:
+        return suggest_workspace_business_profile(
+            session, workspace.workspace_id, request.website
+        )
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+    except Exception:
+        raise HTTPException(
+            502,
+            "Website analysis is unavailable. Check the public page and workspace AI connection.",
+        ) from None
 
 
 @router.put("/policy")

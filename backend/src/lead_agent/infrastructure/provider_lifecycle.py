@@ -238,9 +238,19 @@ class WorkspaceAuthorizedConnectionResolver:
                 and locked.provider_type in {"gmail", "outlook", "google_calendar", "calendly"}
                 and locked.status == "connected"
             )
+            reasoning_connection_probe = (
+                allow_unverified
+                and locked is not None
+                and locked.provider_type in {"openai", "gemini", "claude", "deepseek", "xai"}
+                and locked.status in {"connected", "verified"}
+            )
             if (
                 locked is None
-                or (not locked.is_active and not unverified_mailbox_probe)
+                or (
+                    not locked.is_active
+                    and not unverified_mailbox_probe
+                    and not reasoning_connection_probe
+                )
                 or locked.status not in usable_statuses
             ):
                 return None
@@ -470,6 +480,9 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
     from lead_agent.infrastructure.gmail import GmailConnectionValidator
     from lead_agent.infrastructure.outlook import OutlookConnectionValidator
     from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
+    from lead_agent.infrastructure.reasoning.structured_api import (
+        StructuredAPIConnectionValidator,
+    )
     from lead_agent.infrastructure.slack import SlackConnectionValidator
     from lead_agent.infrastructure.social import SocialConnectionValidator
 
@@ -495,9 +508,22 @@ def get_provider_connection_validator() -> ProviderConnectionValidator:
             "calendly": CalendlyConnectionValidator(timeout_seconds=settings.crm_timeout_seconds),
             **{
                 key: CommunicationsValidator()
-                for key in ("gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell")
+                for key in (
+                    "gohighlevel", "twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"
+                )
             },
             "openai": OpenAIConnectionValidator(timeout_seconds=settings.openai_timeout_seconds),
+            **{
+                provider: StructuredAPIConnectionValidator(
+                    provider=provider,
+                    timeout_seconds=(
+                        settings.xai_timeout_seconds
+                        if provider == "xai"
+                        else settings.openai_timeout_seconds
+                    ),
+                )
+                for provider in ("gemini", "claude", "deepseek", "xai")
+            },
             **{
                 provider: SocialConnectionValidator()
                 for provider in ("instagram", "messenger", "whatsapp_business", "clutch")
@@ -534,6 +560,7 @@ def get_provider_revoker() -> ProviderRevoker:
                     "ringcentral",
                     "vapi",
                     "retell",
+                    "cloudtalk",
                     "instagram",
                     "messenger",
                     "whatsapp_business",

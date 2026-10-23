@@ -335,6 +335,49 @@ def test_gmail_reconnect_does_not_inherit_across_mailbox_or_workspace(
         )
         assert new_state is not None and new_state.enabled
         assert new_state.initial_import_completed
-        assert new_state.sync_interval_seconds == 60
+        assert new_state.sync_interval_seconds == 300
         assert new_state.last_successful_cursor == {"history_id": "990"}
         assert new_state.records_processed == 0
+
+
+def test_connecting_a_second_gmail_mailbox_keeps_the_first_active(tmp_path: Path) -> None:
+    engine = _db(tmp_path)
+    workspace_id = uuid4()
+    with Session(engine, expire_on_commit=False) as session:
+        ensure_workspace(session, workspace_id, name="Multiple Gmail accounts")
+        first = _connection(
+            workspace_id, "first@example.test", status="verified", active=True
+        )
+        second = _connection(
+            workspace_id, "second@example.test", status="connected", active=False
+        )
+        session.add_all([first, second])
+        session.commit()
+
+        _persist_validation(
+            session,
+            second,
+            ConnectionValidation(
+                valid=True,
+                verified=True,
+                status="connected",
+                credential_state="configured",
+                message="Gmail access verified.",
+                metadata={"gmail_email": "second@example.test", "history_id": "991"},
+            ),
+            "gmail-admin",
+        )
+
+        assert first.is_active
+        assert first.status == "verified"
+        assert second.is_active
+        active_mailboxes = set(
+            session.scalars(
+                select(ProviderConnectionORM.account_name).where(
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "gmail",
+                    ProviderConnectionORM.is_active.is_(True),
+                )
+            )
+        )
+        assert active_mailboxes == {"first@example.test", "second@example.test"}

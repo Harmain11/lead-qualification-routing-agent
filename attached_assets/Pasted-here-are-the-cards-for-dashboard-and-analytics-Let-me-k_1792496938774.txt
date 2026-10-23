@@ -1,0 +1,59 @@
+here are the cards for dashboard and analytics. Let me know what you think and implement them
+
+Dashboard (26)
+Already in place
+
+Qualification pulse — live snapshot of current qualification activity.
+Total leads — running count of all inbound leads.
+Qualification rate — % of leads that cleared your qualification bar.
+Hot leads — count of leads at highest priority.
+Signal velocity — speed at which new inbound signals arrive.
+Qualification mix — breakdown of leads by tier.
+Pipeline pulse — live snapshot of pipeline movement.
+Qualification rate by source — qualification rate per channel.
+Upgraded
+ 9. Active pipeline value — now split into AI-sourced vs. manually-added.
+ 10. Manual review — now ranked by urgency instead of listed by recency.
+ 11. Attention queue — now ranked by a combined fit/urgency/value score.
+ 12. Channel intelligence — now shows qualified and booked rate per channel, not just volume.
+ 13. Revenue trend — now split into new business vs. expansion/renewal.
+ 14. Lead quality by source — now ranked by actual closed deals, not just qualification rate.
+New
+ 15. Speed to Qualify — average time from inquiry to a score being assigned.
+ 16. SLA Compliance — % of hot leads routed within your target window.
+ 17. Override Rate — how often a rep changes the AI’s score.
+ 18. Qualified → Booked Rate — % of qualified leads that become booked meetings.
+ 19. Funnel Bottleneck View — full inquiry-to-booked funnel with the slow stage flagged.
+ 20. Rep Capacity & Load — open leads per rep against their close rate.
+ 21. Pipeline Coverage vs. Target — pipeline value measured against quota.
+ 22. Decay / Momentum Alerts — flags cooling leads and the best window to re-engage.
+ 23. Forecast Narrative — one auto-written line on where the pipeline stands.
+ 24. First-Response Leaderboard — ranks reps by how fast they personally respond.
+ 25. Escalation Alerts — leads that have actually breached SLA.
+ 26. Agent Activity Snapshot — live feed of what each AI agent just did.
+Analytics (21)
+Already in place
+
+Channel performance — how each channel is performing overall.
+Lead trajectory — lead volume trend over time.
+Revenue by service — revenue broken out by service line.
+Revenue trajectory — revenue trend over time.
+Qualification mix — tier breakdown, analytics view.
+Revenue by representative — revenue attributed per rep.
+Upgraded
+ 7. Team member performance — now adjusted for territory/lead-quality fairness.
+ 8. Revenue by channel — now trended against cost per channel, where known.
+New
+ 9. Cohort Analysis — follows a lead cohort from a given week/campaign through to close.
+ 10. Forecast Commentary Block — a full written paragraph on pipeline trajectory.
+ 11. Score Calibration Report — checks how well each ICP weight predicted closed deals.
+ 12. Sales Cycle Length by Segment — average time to close, by customer segment.
+ 13. Lead Source Payback — real cost to close a deal, by source.
+ 14. Win/Loss Reason Analysis — why deals are lost, matched against their original score.
+ 15. ICP Fit Distribution — how well incoming leads match your ideal profile over time.
+ 16. Response-Pattern Heatmap — when leads actually reply or book, by day/hour.
+ 17. Deal Velocity by Stage — average time spent in each pipeline stage.
+ 18. Competitive Mention Tracker — frequency and outcome of leads mentioning a named competitor.
+ 19. Channel Mix Shift — month-over-month change in lead source distribution.
+ 20. Team Utilization Trend — rep workload over time against headcount.
+ 21. Quarterly Scorecard — this quarter’s key metrics against last quarter.

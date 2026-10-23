@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-InboundSyncMode = Literal["initial", "incremental", "manual"]
+InboundSyncMode = Literal["initial", "incremental", "manual", "review_recent"]
 InboundCursor = dict[str, Any]
 
 

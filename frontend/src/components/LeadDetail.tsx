@@ -1,14 +1,18 @@
-import { CallsPanel } from "./CallsPanel";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AiStageAssessment } from "./AiStageAssessment";
+import { GmailInquiryView } from "./GmailInquiryView";
+import { LeadAssistantPanel } from "./LeadAssistantPanel";
+import { LeadEmailPanel } from "./LeadEmailPanel";
 
-import { approveAndSendLeadFollowUp, deleteLead, generateLeadFollowUp, getLead, getLeadClosingOptions, getLeadFollowUp, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, retryLeadCongratulations, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
-import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome } from "../types";
+import { deleteLead, getLead, getLeadClosingOptions, getLeadMomentum, getLeadPipelineHistory, listIntegrations, reevaluateLead, retryLeadCongratulations, saveLeadNote, sendLeadToCrm, syncLeadGmailConversation, updateLeadProgress, updateLeadTitle } from "../api";
+import type { CrmSync, Lead, LeadMomentum, LeadOutcome, ProviderConnection } from "../types";
 import { LeadMeetingPanel } from "./LeadMeetingPanel";
+import { EmailComposer } from "./EmailComposer";
 import "./leadOutcomes.css";
 import "./leadDetailTabs.css";
 import { leadDetailSections, leadSectionHref, type LeadDetailSection } from "../leadSections";
+import { leadSourceLabel } from "../leadSources";
 
 const title = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 const crmProviderLabel = (provider: string) => provider === "hubspot" ? "HubSpot" : provider === "gohighlevel" ? "GoHighLevel" : title(provider);
@@ -59,7 +63,12 @@ type LeadDetailProps = {
   lead: Lead;
   canCrmSync?: boolean;
   canEdit?: boolean;
-  canCall?: boolean;
+  canViewEmail?: boolean;
+  canUseAgent?: boolean;
+  dialerPhoneConnectionId?: string | null;
+  onNavigateToDialer: () => void;
+  canEnrollAutomations?: boolean;
+  onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
   onDeleted?: (leadId: string) => void;
   activeSection: LeadDetailSection;
@@ -68,7 +77,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall = false, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canUseAgent = false, dialerPhoneConnectionId = null, onNavigateToDialer, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -96,8 +105,13 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
   const [selectedProvider, setSelectedProvider] = useState(lead.crm_sync?.provider || "");
   const [meetingRefreshToken, setMeetingRefreshToken] = useState(0);
   const [activityRefreshToken, setActivityRefreshToken] = useState(0);
+  const [collaborationRefreshToken, setCollaborationRefreshToken] = useState(0);
+  const visibleSections = leadDetailSections.filter((section) => section.id !== "email" || canViewEmail);
   const updatedLeadCallback = useRef(onUpdated);
   useEffect(() => { updatedLeadCallback.current = onUpdated; }, [onUpdated]);
+  useEffect(() => {
+    if (activeSection === "email" && !canViewEmail) onSectionChange("overview");
+  }, [activeSection, canViewEmail, onSectionChange]);
   useEffect(() => {
     if (!activityRefreshToken || !updatedLeadCallback.current) return;
     let active = true;
@@ -127,6 +141,33 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
   const analysis = lead.analysis;
   const qualification = lead.qualification;
   const route = lead.routing;
+  const requiresManualReview = Boolean(
+    route?.manual_review ||
+    analysis?.requires_manual_review
+  );
+  const genericRoutingReviewReason =
+    "Lead matches an enabled manual-review condition.";
+  const legacyRoutingReviewReason =
+    "Manual-review precedence: analysis uncertainty or provider failure requires human review.";
+  const routedReviewReason = route?.manual_review
+    ? route.routing_reason.replace(" No rep assignment is applicable.", "").trim()
+    : "";
+  const analysisReviewReason =
+    !lead.review_reasons?.length && analysis?.error_code === "manual_review_conditions"
+      ? analysis.error_message?.trim() || ""
+      : "";
+  const manualReviewReasons = [
+    ...(lead.review_reasons ?? []),
+    routedReviewReason &&
+      routedReviewReason !== genericRoutingReviewReason &&
+      !routedReviewReason.startsWith(legacyRoutingReviewReason)
+      ? routedReviewReason
+      : "",
+    analysisReviewReason &&
+      !routedReviewReason.startsWith(analysisReviewReason)
+      ? analysisReviewReason
+      : "",
+  ].filter((reason, index, reasons) => Boolean(reason) && reasons.indexOf(reason) === index);
   const crm = crmResult?.lead_id === lead.id ? crmResult : lead.crm_sync;
   const icpRows = analysis ? [
     ["Industry", analysis.icp_evaluation.industry_fit],
@@ -144,20 +185,40 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
         <h2>{lead.company_name}</h2>
         <p>{lead.full_name} · {lead.job_title || "Role not supplied"}</p>
       </div>
-      {(qualification || canEdit) && <div className="story-head-side">
+      {(qualification || canEdit || canEnrollAutomations) && <div className="story-head-side">
         {qualification && <div className={`score-orb band-${qualification.classification.toLowerCase().replaceAll("_", "-")}`}>
           <strong>{qualification.total_score}</strong>
           <span>{title(qualification.classification)}</span>
         </div>}
-        {canEdit && <div className="story-head-actions">
-          {!editingTitle && <button className="button-quiet" type="button" onClick={() => {
-            setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null);
-          }}>Edit title</button>}
-          <button className="danger-button" type="button" onClick={async () => {
-            if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
-            try { await deleteLead(lead.id); onDeleted?.(lead.id); }
-            catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); }
-          }}>Delete lead</button>
+        {(canEdit || canEnrollAutomations) && <div className="story-head-actions">
+          {canEdit && <>
+            {!editingTitle && <button className="button-quiet" type="button" onClick={() => {
+              setJobTitle(lead.job_title || ""); setEditingTitle(true); setEditNotice(null);
+            }}>Edit title</button>}
+            <button className="danger-button" type="button" onClick={async () => {
+              if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
+              try { await deleteLead(lead.id); onDeleted?.(lead.id); }
+              catch (error) { setEditNotice(error instanceof Error ? error.message : "Unable to delete lead"); }
+            }}>Delete lead</button>
+          </>}
+          {canEnrollAutomations && <div className="lead-detail-automation-actions">
+            <button
+              className="button-quiet"
+              type="button"
+              aria-label={`Enroll ${lead.full_name || "lead"} in a sequence`}
+              onClick={() => onEnrollAutomation?.("sequence")}
+            >
+              Sequence
+            </button>
+            <button
+              className="button-quiet"
+              type="button"
+              aria-label={`Enroll ${lead.full_name || "lead"} in a playbook`}
+              onClick={() => onEnrollAutomation?.("playbook")}
+            >
+              Playbook
+            </button>
+          </div>}
         </div>}
       </div>}
       {canEdit && editingTitle && <form className="story-title-form" onSubmit={async (event) => {
@@ -177,9 +238,32 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
       </form>}
       {editNotice && <div className="notice story-head-notice" role="status">{editNotice}</div>}
     </header>
+    {analysis?.status === "provider_error" && <div className="notice lead-analysis-status" role="status">
+      <b>Analysis could not complete</b>
+      <span>A fallback assessment was used. Provider failures appear in Manual Review only when that rule is enabled or another selected rule applies.</span>
+    </div>}
+    {requiresManualReview && <aside className="attention-callout lead-review-reason" role="status" aria-labelledby={`manual-review-title-${lead.id}`}>
+      <span className="lead-review-status-mark" aria-hidden="true">!</span>
+      <div className="lead-review-content">
+        <div className="lead-review-heading">
+          <b id={`manual-review-title-${lead.id}`}>Human review required</b>
+          <span className="lead-review-state">Review hold</span>
+        </div>
+        <p className="lead-review-summary">This lead is on a human-review hold.</p>
+        <details className="lead-review-details">
+          <summary>View matched conditions and field evidence</summary>
+          <div className="lead-review-evidence">
+            {(manualReviewReasons.length
+              ? manualReviewReasons
+              : ["This lead is held for human review. Check the lead details and analysis evidence below."]
+            ).map((reason, index) => <p className={index > 0 ? "lead-review-secondary-reason" : undefined} key={`${index}-${reason}`}>{reason}</p>)}
+          </div>
+        </details>
+      </div>
+    </aside>}
     <nav className="lead-detail-navigation" aria-label="Lead detail sections">
       <div ref={detailTabsRef} className="lead-detail-tabs" role="tablist" aria-label="Lead detail">
-        {leadDetailSections.map((section, index) => <a
+        {visibleSections.map((section, index) => <a
           key={section.id}
           id={`lead-tab-${section.id}`}
           className="lead-detail-tab"
@@ -195,13 +279,13 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
           }}
           onKeyDown={(event) => {
             let nextIndex: number | null = null;
-            if (event.key === "ArrowRight") nextIndex = (index + 1) % leadDetailSections.length;
-            if (event.key === "ArrowLeft") nextIndex = (index - 1 + leadDetailSections.length) % leadDetailSections.length;
+            if (event.key === "ArrowRight") nextIndex = (index + 1) % visibleSections.length;
+            if (event.key === "ArrowLeft") nextIndex = (index - 1 + visibleSections.length) % visibleSections.length;
             if (event.key === "Home") nextIndex = 0;
-            if (event.key === "End") nextIndex = leadDetailSections.length - 1;
+            if (event.key === "End") nextIndex = visibleSections.length - 1;
             if (nextIndex !== null) {
               event.preventDefault();
-              const next = leadDetailSections[nextIndex];
+              const next = visibleSections[nextIndex];
               document.getElementById(`lead-tab-${next.id}`)?.focus();
               onSectionChange(next.id);
             }
@@ -217,6 +301,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
       canEdit={canEdit}
       refreshToken={activityRefreshToken}
       activeSection={activeSection}
+      onNoteSaved={() => setCollaborationRefreshToken((revision) => revision + 1)}
       onConversationSynced={() => {
         setActivityRefreshToken((revision) => revision + 1);
         setMeetingRefreshToken((revision) => revision + 1);
@@ -237,9 +322,19 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
       <div className="lead-overview-grid">
         <section className="story-section">
           <div>
-            <span className="eyebrow">{title(lead.source)} lead</span>
-            <h3>Original inquiry</h3>
-            <blockquote>{lead.message}</blockquote>
+            <span className="eyebrow">{leadSourceLabel(lead.source, lead.source_detail)} lead</span>
+            <h3>
+              {lead.source_detail === "manual-control-center"
+                ? "Inquiry / process context"
+                : "Original inquiry"}
+            </h3>
+            <GmailInquiryView
+              message={lead.message}
+              source={lead.source}
+              leadEmail={lead.email}
+              receivedAt={lead.received_at}
+              displayAsContext={lead.source_detail === "manual-control-center"}
+            />
             <p className="lead-received">Received {new Date(lead.received_at).toLocaleString()}</p>
             <details className="lead-source-evidence">
               <summary>View source details</summary>
@@ -267,18 +362,49 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canCall 
           </div>
         </section>
       </div>
-      <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
-      <CallsPanel leadId={lead.id} leadPhone={lead.phone} canEdit={canEdit} canCall={canCall} />
+      <CollaborationPanel
+        leadId={lead.id}
+        canEdit={canEdit}
+        refreshKey={collaborationRefreshToken}
+        onLeadUpdated={onUpdated}
+      />
     </div>
+    <section id="lead-panel-email" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={activeSection !== "email"}>
+      <LeadEmailPanel
+        lead={lead}
+        active={activeSection === "email"}
+        canView={canViewEmail}
+        canSend={canEdit}
+        onAskAgent={() => onSectionChange("agent")}
+        onConversationSynced={() => {
+          setActivityRefreshToken((revision) => revision + 1);
+          setMeetingRefreshToken((revision) => revision + 1);
+        }}
+      />
+    </section>
     <div id="lead-panel-ai" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-ai" tabIndex={0} hidden={activeSection !== "ai"}>
       <LeadMomentumPanel lead={lead} />
       <AiStageAssessment analysis={analysis} />
-    <section className="story-section"><div className="story-index">03</div><div><span className="eyebrow">AI context / intent</span><h3>{analysis ? `${title(analysis.intent_level)} intent · ${Math.round(analysis.overall_confidence * 100)}% confidence` : "Analysis unavailable"}</h3>{analysis && <><p className="story-summary">{analysis.summary.need} {analysis.summary.pain_point}</p><div className="signal-strip"><Signal name="Urgency" value={analysis.context.urgency.value} kind={analysis.context.urgency.information_kind} /><Signal name="Timeline" value={analysis.context.explicit_timeline.value} kind={analysis.context.explicit_timeline.information_kind} /><Signal name="Budget" value={analysis.context.budget_information.value} kind={analysis.context.budget_information.information_kind} /><Signal name="Buying stage" value={analysis.context.buying_stage.value} kind={analysis.context.buying_stage.information_kind} /></div>{analysis.requires_manual_review && <div className="attention-callout"><b>Human review required</b>{analysis.error_message || "Analysis confidence needs validation."}</div>}</>}</div></section>
-    <section className="story-section"><div className="story-index">04</div><div><span className="eyebrow">ICP evaluation</span><h3>{analysis?.icp_evaluation.profile_name || "Profile unavailable"}</h3><div className="icp-matrix">{icpRows.map(([name, criterion]) => <div key={name}><i className={criterion.status} /><span>{name}</span><b>{title(criterion.status)}</b><small>{criterion.rationale}</small></div>)}</div></div></section>
+    <section className="story-section"><div className="story-index">03</div><div><span className="eyebrow">AI context / intent</span><h3>{analysis ? `${title(analysis.intent_level)} intent · ${Math.round(analysis.overall_confidence * 100)}% confidence` : "Analysis unavailable"}</h3>{analysis && <><p className="story-summary">{analysis.summary.need} {analysis.summary.pain_point}</p><div className="signal-strip"><Signal name="Urgency" value={analysis.context.urgency.value} kind={analysis.context.urgency.information_kind} /><Signal name="Timeline" value={analysis.context.explicit_timeline.value} kind={analysis.context.explicit_timeline.information_kind} /><Signal name="Budget" value={analysis.context.budget_information.value} kind={analysis.context.budget_information.information_kind} /><Signal name="Buying stage" value={analysis.context.buying_stage.value} kind={analysis.context.buying_stage.information_kind} /></div></>}</div></section>
+    <section className="story-section"><div className="story-index">04</div><div><span className="eyebrow">ICP evaluation</span><h3>{qualification?.icp_source === "not_configured" ? "No custom ICP published" : analysis?.icp_evaluation.profile_name || "Profile unavailable"}</h3>{qualification?.icp_source === "not_configured" ? <p className="panel-copy">ICP fit and ICP hard exclusions are skipped until a custom workspace ICP is published.</p> : <div className="icp-matrix">{icpRows.map(([name, criterion]) => <div key={name}><i className={criterion.status} /><span>{name}</span><b>{title(criterion.status)}</b><small>{criterion.rationale}</small></div>)}</div>}</div></section>
     <section className="story-section"><div className="story-index">05</div><div><span className="eyebrow">Qualification</span><h3>{qualification ? `${title(qualification.classification)} · Score ${qualification.total_score} of 100` : "Not qualified"}</h3>{qualification && <><div className="score-contract">{Object.entries(qualification.component_scores).map(([component, score]) => { const maximum = component === "icp_fit" ? 40 : component === "intent_urgency" ? 35 : 25; return <div key={component}><span>{title(component)}</span><b>{score}<small> of {maximum}</small></b><i><span style={{ transform: `scaleX(${score / maximum})` }} /></i></div>; })}</div><ul className="evidence-list">{qualification.rationale.map((reason) => <li key={reason}>{reason}</li>)}</ul></>}</div></section>
     <section className="story-section"><div className="story-index">06</div><div><span className="eyebrow">Routing / action plan</span><h3>{route ? `${title(route.assigned_queue)}${route.assigned_rep_name ? ` · ${route.assigned_rep_name}` : ""}` : "Routing pending"}</h3>{route && <><p className="story-summary">{route.routing_reason}</p><div className="action-command"><span>Recommended immediate action</span><b>{route.action_plan.immediate_action}</b><p>{route.action_plan.next_step_recommendation}</p></div><div className="split-list"><div><span className="eyebrow">Talking points</span>{route.action_plan.talking_points.map((item) => <p className="list-item" key={item}><i aria-hidden="true">•</i>{item}</p>)}</div><div><span className="eyebrow">Open questions</span>{route.action_plan.unanswered_questions.length ? route.action_plan.unanswered_questions.map((item) => <p className="list-item" key={item}><i aria-hidden="true">•</i>{item}</p>) : <p>No open qualification questions.</p>}</div></div></>}</div></section>
     <section className="story-section story-delivery"><div className="story-index">07</div><div><span className="eyebrow">Notification / email / CRM delivery</span><h3>External system state</h3><div className="delivery-grid"><div><span>Notification</span><b>{route ? title(route.notification_state) : "Pending"}</b><small>{route?.notifications[0]?.provider || "No provider event"}</small></div><div><span>Confirmation email</span><b>{lead.confirmation_email ? title(lead.confirmation_email.status) : "Not attempted"}</b><small>{lead.confirmation_email?.error_message || lead.confirmation_email?.recipient || "Requires a verified Gmail connection"}</small></div><div><span>CRM</span><b>{crm ? `${crmProviderLabel(crm.provider)} · ${title(crm.status)}` : "Not synchronized"}</b><small>{crm?.provider_entity_ids.contact_id || "No provider record ID"}</small></div></div>{canCrmSync && <div className="crm-action-controls">{crmProviders.length > 1 && <label>CRM provider <select aria-label="CRM provider" value={selectedProvider} onChange={(event) => setSelectedProvider(event.target.value)}><option value="">Select a CRM</option>{crmProviders.map((provider) => <option key={provider} value={provider}>{crmProviderLabel(provider)}</option>)}</select></label>}<button className="primary-button" disabled={sending || !selectedProvider} onClick={async () => { setSending(true); setSendNotice(null); try { const result = await sendLeadToCrm(lead.id, selectedProvider); setCrmResult(result); setSendNotice(result.status === "synced" ? `${crmProviderLabel(selectedProvider)} synchronized by your explicit request.` : `${crmProviderLabel(selectedProvider)} write ${title(result.status)}.`); try { onUpdated?.(await getLead(lead.id)); } catch { setSendNotice(`${crmProviderLabel(selectedProvider)} write ${title(result.status)}. Refresh lead details to see the latest state.`); } } catch (error) { setSendNotice(error instanceof Error ? error.message : "CRM write failed"); } finally { setSending(false); } }}>{sending ? "Sending…" : crm?.provider === selectedProvider && crm.status === "failed" ? `Retry ${crmProviderLabel(selectedProvider)}` : crm?.provider === selectedProvider && crm.status === "synced" ? `Update ${crmProviderLabel(selectedProvider)}` : `Send to ${crmProviderLabel(selectedProvider || "CRM")}`}</button></div>}{sendNotice && <div className="notice" role="status">{sendNotice}</div>}{crm?.last_error && <div className="attention-callout"><b>{crm.error_category || "CRM delivery issue"}</b>{crm.last_error}</div>}</div></section>
     </div>
+    <section id="lead-panel-agent" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-agent" tabIndex={0} hidden={activeSection !== "agent"}>
+      <LeadAssistantPanel
+        lead={lead}
+        canEdit={canEdit}
+        canCrmSync={canCrmSync}
+        canViewEmail={canViewEmail}
+        canUseAgent={canUseAgent}
+        dialerPhoneConnectionId={dialerPhoneConnectionId}
+        onNavigateToDialer={onNavigateToDialer}
+        onUpdated={(updated) => onUpdated?.(updated)}
+        onDeleted={(leadId) => onDeleted?.(leadId)}
+        onSectionChange={onSectionChange}
+      />
+    </section>
   </article>;
 }
 
@@ -287,12 +413,14 @@ function LeadProgressEditor({
   canEdit,
   refreshToken,
   activeSection,
+  onNoteSaved,
   onConversationSynced,
 }: {
   lead: Lead;
   canEdit: boolean;
   refreshToken: number;
   activeSection: LeadDetailSection;
+  onNoteSaved: () => void;
   onConversationSynced: () => void;
 }) {
   const [events, setEvents] = useState<Awaited<ReturnType<typeof getLeadPipelineHistory>>>([]);
@@ -300,6 +428,7 @@ function LeadProgressEditor({
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [stage, setStage] = useState("contacted");
+  const [entryKind, setEntryKind] = useState<"" | "status" | "comment">("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -307,10 +436,12 @@ function LeadProgressEditor({
   const [conversionType, setConversionType] = useState<"project" | "sale">(lead.outcome?.conversion_type ?? "project");
   const [value, setValue] = useState(lead.outcome?.closed_revenue?.toString() ?? "");
   const [creditedId, setCreditedId] = useState(lead.outcome?.credited_user_id ?? lead.routing?.assigned_rep_id ?? "");
+  const [sendDirectMessage, setSendDirectMessage] = useState(lead.outcome?.send_direct_message ?? false);
   const [members, setMembers] = useState<Awaited<ReturnType<typeof getLeadClosingOptions>>>([]);
   const [outcome, setOutcome] = useState<LeadOutcome | null>(lead.outcome ?? null);
   useEffect(() => {
     setOutcome(lead.outcome ?? null);
+    setSendDirectMessage(lead.outcome?.send_direct_message ?? false);
   }, [lead.outcome]);
   useEffect(() => {
     if (!canEdit) return;
@@ -366,18 +497,38 @@ function LeadProgressEditor({
   const save = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setNotice(null);
     try {
+      if (entryKind === "comment") {
+        await saveLeadNote(lead.id, note.trim());
+        setNote("");
+        setEntryKind("");
+        onNoteSaved();
+        try {
+          await reevaluateLead(lead.id);
+          setNotice("Comment saved to Team notes and included in the updated AI assessment. Sales status was not changed.");
+        } catch {
+          setNotice("Comment saved to Team notes, but the AI assessment could not be refreshed. Sales status was not changed.");
+        }
+        onConversationSynced();
+        return;
+      }
+      if (entryKind !== "status") {
+        setNotice("Choose whether this is a status update or a regular comment.");
+        return;
+      }
       const closing = stage === "converted" || stage === "lost";
       const result = await updateLeadProgress(lead.id, {
         stage, note,
         ...(stage === "converted" ? { conversion_type: conversionType, closed_revenue: value === "" ? null : Number(value) } : {}),
         ...(closing ? { credited_user_id: creditedId || null } : {}),
+        ...(stage === "converted" ? { send_direct_message: sendDirectMessage } : {}),
       });
       setNote("");
+      setEntryKind("");
       if (closing) {
         setOutcome(result.outcome ?? null);
         setNotice(stage === "converted"
-          ? `${title(conversionType)} win recorded in Corral. Qualification is unchanged; no CRM record was created.`
-          : "Closed / lost recorded. Qualification is unchanged.");
+          ? `${title(conversionType)} win recorded in Corral. AI re-evaluated qualification as ${title(result.classification)} (${result.score}/100); no CRM record was created.`
+          : `Closed / lost recorded. AI re-evaluated qualification as ${title(result.classification)} (${result.score}/100).`);
       } else {
         setNotice(`Progress saved. AI re-evaluated this lead as ${title(result.classification)} (${result.score}/100).`);
       }
@@ -388,8 +539,8 @@ function LeadProgressEditor({
   };
   return <>
   <section id="lead-panel-closing" className="story-section lead-progress" role="tabpanel" aria-labelledby="lead-tab-closing" tabIndex={0} hidden={activeSection !== "closing"}><div className="story-index">↗</div><div>
-    <span className="eyebrow">Comments & closing</span><h3>Record sales progress or close this lead</h3>
-    <p className="story-summary">Add a verified comment with each update. Choose Converted to record a Project or Sale, or Closed / lost to capture the outcome. Closing does not rerun AI or create an external CRM record.</p>
+     <span className="eyebrow">Status</span><h3>Record sales progress or add a comment</h3>
+     <p className="story-summary">Choose whether this is a status update or a regular comment. Status updates change sales progress; comments are saved to Team notes and can inform AI reassessment without changing the sales status.</p>
     {!canEdit && <AiStageAssessment analysis={lead.analysis} />}
     {outcome && <LeadOutcomeReceipt outcome={outcome} canEdit={canEdit} busy={busy} onRetry={async () => {
       setBusy(true); setNotice(null);
@@ -399,20 +550,28 @@ function LeadProgressEditor({
     }} />}
     {canEdit && <div className="lead-progress-sync"><button className="secondary-button" type="button" disabled={syncBusy || busy} onClick={() => void syncConversation()}>{syncBusy ? "Syncing Gmail thread…" : "Sync Gmail conversation & re-check"}</button><small>Read-only sync for messages exchanged with this lead. Imported message text is used as qualification context.</small></div>}
     {canEdit && <form className="lead-progress-form" onSubmit={(event) => void save(event)}>
+       <fieldset className="lead-progress-intent">
+         <legend>What are you adding?</legend>
+         <div className="lead-progress-intent-options">
+           <label><input type="radio" name={`lead-entry-kind-${lead.id}`} value="status" checked={entryKind === "status"} onChange={() => setEntryKind("status")} />Status update</label>
+           <label><input type="radio" name={`lead-entry-kind-${lead.id}`} value="comment" checked={entryKind === "comment"} onChange={() => setEntryKind("comment")} />Regular comment / note</label>
+         </div>
+       </fieldset>
       <div className="lead-stage-context">
       <AiStageAssessment analysis={lead.analysis} />
-      <label className="follow-up-field">Manual progress or closing outcome<select value={stage} onChange={(event) => setStage(event.target.value)}>
+       {entryKind === "status" && <label className="follow-up-field">Sales status or closing outcome<select value={stage} onChange={(event) => setStage(event.target.value)}>
         <option value="contacted">Contacted</option><option value="responded">Responded</option><option value="meeting_scheduled">Meeting scheduled</option><option value="proposal_sent">Proposal sent</option><option value="converted">Converted → Project or Sale</option><option value="lost">Closed / lost</option>
-      </select></label>
+       </select></label>}
       </div>
-      {stage === "converted" && <div className="lead-closing-fields">
+       {entryKind === "status" && stage === "converted" && <div className="lead-closing-fields">
         <label className="follow-up-field">Successful outcome<select value={conversionType} onChange={(event) => setConversionType(event.target.value as "project" | "sale")}><option value="project">Project</option><option value="sale">Sale</option></select></label>
         <label className="follow-up-field">Recorded value (USD, optional)<input type="number" min="0" step="0.01" max="999999999999.99" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Leave blank if unknown" /></label>
       </div>}
-      {(stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. Slack DMs require their member link in Users & permissions." : "Uses the assigned workspace member when linked. Otherwise the win is uncredited; choose a member for individual analytics and a direct congratulations."}</small></label>}
-      <label className="follow-up-field">Comments · verified update<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder="Example: Replied asking for a proposal by Friday; timeline is now this quarter." required /></label>
-      {outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
-      <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save progress & re-check lead"}</button>
+       {entryKind === "status" && (stage === "converted" || stage === "lost") && <label className="follow-up-field">Credited team member<select value={creditedId} onChange={(event) => setCreditedId(event.target.value)}><option value="">Use assigned member if linked</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{member.display_name}{!member.slack_linked ? " · Slack link needed" : ""}</option>)}</select><small>{creditedId ? "This member receives analytics credit. A direct message is sent only if you explicitly select the option below and link their Slack member ID." : "Uses the assigned member if linked; otherwise this win is uncredited."}</small></label>}
+       {entryKind === "status" && stage === "converted" && <label className="follow-up-field slack-win-dm-opt-in"><input type="checkbox" checked={sendDirectMessage} onChange={(event) => setSendDirectMessage(event.target.checked)} disabled={!creditedId} />Also send a private Slack congratulations to the credited member <small>Off by default. Requires the member’s Slack ID and the optional im:write scope. No channel fallback is used for this direct message.</small></label>}
+       {entryKind && <label className="follow-up-field">{entryKind === "status" ? "Status details · verified update" : "Regular comment"}<textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} minLength={3} maxLength={2000} placeholder={entryKind === "status" ? "Example: Replied asking for a proposal by Friday; timeline is now this quarter." : "Add a comment or handoff note. It will be saved to Team notes."} required /></label>}
+       {entryKind === "status" && outcome && ["closed_won", "closed_lost"].includes(outcome.pipeline_stage) && <small className="closing-edit-note">A closing stage corrects the existing outcome. Already-sent congratulations will not be sent again.</small>}
+       {entryKind && <button className="secondary-button" type="submit" disabled={busy || note.trim().length < 3}>{busy ? "Saving…" : entryKind === "comment" ? "Save comment only" : stage === "converted" ? `Record ${title(conversionType)} win` : stage === "lost" ? "Record closed / lost" : "Save status & re-check lead"}</button>}
     </form>}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>
@@ -452,24 +611,25 @@ function LeadOutcomeReceipt({ outcome, canEdit, busy, onRetry }: {
 }
 
 function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
-  const [draft, setDraft] = useState<FollowUpEmail | null>(null);
-  const [history, setHistory] = useState<FollowUpEmail[]>([]);
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerRevision, setComposerRevision] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    const controller = new AbortController();
-    getLeadFollowUp(lead.id, controller.signal).then((value) => {
-      if (controller.signal.aborted) return;
-      setDraft(value); setSubject(value?.subject || ""); setBody(value?.body || "");
-    }).catch((error) => { if (!controller.signal.aborted) setNotice(error instanceof Error ? error.message : "Unable to load follow-up draft"); });
-    getLeadFollowUpHistory(lead.id, controller.signal).then((value) => {
-      if (!controller.signal.aborted) setHistory(value);
-    }).catch(() => { if (!controller.signal.aborted) setNotice("Follow-up history could not be loaded."); });
-    return () => controller.abort();
-  }, [lead.id]);
-  const dirty = Boolean(draft && (subject !== draft.subject || body !== draft.body));
+    if (!canEdit) {
+      setAccounts([]);
+      return;
+    }
+    let active = true;
+    listIntegrations().then((cards) => {
+      if (!active) return;
+      const gmail = cards.find((card) => card.provider === "gmail");
+      setAccounts(gmail?.connections.length ? gmail.connections : gmail?.connection ? [gmail.connection] : []);
+    }).catch((error) => {
+      if (active) setNotice(error instanceof Error ? error.message : "Gmail accounts could not be loaded.");
+    });
+    return () => { active = false; };
+  }, [canEdit, lead.id]);
   const classification = lead.qualification?.classification.toLowerCase();
   const disqualified = Boolean(lead.qualification?.hard_disqualified) || ["disqualify", "disqualified", "hard_disqualified"].includes(classification || "");
   const requiresReview = Boolean(lead.routing?.manual_review || lead.analysis?.requires_manual_review);
@@ -478,32 +638,27 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
     : requiresReview
       ? "This lead needs human review first. Add verified context in Sales progress and re-check its qualification before creating outreach."
       : null;
-  const run = async (action: () => Promise<FollowUpEmail>, success: string) => {
-    setBusy(true); setNotice(null);
-    try {
-      const result = await action(); setDraft(result); setSubject(result.subject); setBody(result.body || ""); setNotice(success);
-      try { setHistory(await getLeadFollowUpHistory(lead.id)); }
-      catch { setNotice(`${success} History could not be refreshed.`); }
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Follow-up action failed"); }
-    finally { setBusy(false); }
-  };
-  const statusLabel = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   return <section className="story-section follow-up-composer"><div className="story-index">FU</div><div>
-    <span className="eyebrow">AI follow-up · human approved</span><h3>Draft a personal next step</h3>
-    {!draft && <><p className="story-summary">Create and edit a lead-specific follow-up here. Nothing is sent until you review it and click Send follow-up; Corral uses the connected Gmail account.</p>{blockedReason && <div className="attention-callout follow-up-blocked"><b>{disqualified ? "Outreach paused · disqualified" : "Outreach paused · review required"}</b>{blockedReason}</div>}{canEdit && <button className="secondary-button" disabled={busy || Boolean(blockedReason)} onClick={() => void run(() => generateLeadFollowUp(lead.id), "Draft created. Review and edit it, then click Send follow-up to send through connected Gmail.")}>{busy ? "Preparing draft…" : "Generate follow-up draft"}</button>}</>}
-    {draft && <>
-      {draft.status === "sent" && canEdit && <button className="secondary-button" disabled={busy || Boolean(blockedReason)} onClick={() => void run(() => generateLeadFollowUp(lead.id), "Another AI draft is ready. Review and edit it before sending.")}>{busy ? "Preparing draft…" : "Draft another follow-up"}</button>}
-      <div className={`follow-up-status status-${draft.status}`}><span>{statusLabel(draft.status)}</span>{draft.generation_method && <small>{draft.generation_method === "openai" ? "AI-generated · review required" : "Grounded template"}</small>}</div>
-      {draft.status === "draft" ? <>
-        <p className="follow-up-recipient">To <b>{draft.recipient}</b></p>
-        <label className="follow-up-field">Subject<input value={subject} maxLength={180} onChange={(event) => setSubject(event.target.value)} /></label>
-        <label className="follow-up-field">Message<textarea value={body} rows={8} maxLength={5000} onChange={(event) => setBody(event.target.value)} /></label>
-        {draft.rationale && <p className="follow-up-rationale"><b>Why this draft:</b> {draft.rationale}</p>}
-        {draft.generation_note && <p className="follow-up-rationale">{draft.generation_note}</p>}
-        {canEdit && <div className="follow-up-actions"><button className="secondary-button" disabled={busy || !dirty || !subject.trim() || body.trim().length < 10} onClick={() => void run(() => updateLeadFollowUp(lead.id, draft.id, { subject, body }), "Draft saved.")}>{busy ? "Saving…" : "Save edits"}</button><button className="primary-button" disabled={busy || dirty || !subject.trim() || body.trim().length < 10} onClick={() => { if (window.confirm(`Send this edited email to ${draft.recipient} from the connected Gmail account?`)) void run(() => approveAndSendLeadFollowUp(lead.id, draft.id), "Follow-up sent from the connected Gmail account."); }}>Send follow-up</button></div>}
-      </> : <><p className="follow-up-recipient">To <b>{draft.recipient}</b></p><p className="follow-up-status-copy">{draft.status === "sent" ? `Sent ${draft.sent_at ? new Date(draft.sent_at).toLocaleString() : "successfully"}.` : draft.error_message || "Delivery status is being checked."}</p>{draft.status === "failed" && canEdit && <button className="secondary-button" disabled={busy} onClick={() => void run(() => generateLeadFollowUp(lead.id), "A new editable draft is ready for review.")}>Create a new draft</button>}</>}
-    </>}
-    {history.filter((email) => email.id !== draft?.id && email.status === "sent").length > 0 && <details className="follow-up-history"><summary>Previous sent follow-ups</summary>{history.filter((email) => email.id !== draft?.id && email.status === "sent").map((email) => <article key={email.id}><strong>{email.subject}</strong><p>Sent {email.sent_at ? new Date(email.sent_at).toLocaleString() : "—"} · {email.recipient}</p><p style={{ whiteSpace: "pre-wrap" }}>{email.body}</p></article>)}</details>}
+    <span className="eyebrow">Lead follow-up</span><h3>Write a personal next step</h3>
+    <p className="story-summary">Compose directly with your connected Gmail account. Choose the sender and recipients, format the message, and send when you are ready. Sent emails are recorded in this lead’s email history.</p>
+    {blockedReason && <div className="attention-callout follow-up-blocked"><b>{disqualified ? "Outreach paused · disqualified" : "Outreach paused · review required"}</b>{blockedReason}</div>}
+    {canEdit && !composerOpen && <button className="secondary-button" disabled={Boolean(blockedReason)} onClick={() => {
+      setNotice(null);
+      setComposerOpen(true);
+      setComposerRevision((current) => current + 1);
+    }}>Compose follow-up email</button>}
+    {composerOpen && <EmailComposer
+      key={composerRevision}
+      accounts={accounts}
+      canSend={canEdit}
+      leadId={lead.id}
+      seed={{ recipient: lead.email?.trim() ?? "", purpose: "follow_up" }}
+      onClose={() => setComposerOpen(false)}
+      onSent={() => {
+        setComposerOpen(false);
+        setNotice("Follow-up email sent. It is available in the lead’s email history.");
+      }}
+    />}
     {notice && <div className="notice" role="status">{notice}</div>}
   </div></section>;
 }

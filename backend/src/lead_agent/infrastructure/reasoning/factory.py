@@ -10,14 +10,20 @@ from sqlalchemy.orm import Session, sessionmaker
 from lead_agent.domain.analysis import ReasoningProvider
 from lead_agent.domain.integrations import SecretStore
 from lead_agent.infrastructure.db.models import ProviderConnectionORM, ProviderLifecycleAuditORM
-from lead_agent.infrastructure.reasoning.configuration import validate_openai_model
+from lead_agent.infrastructure.reasoning.configuration import (
+    REASONING_PROVIDERS,
+    validate_reasoning_model,
+)
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.reasoning.openai_provider import OpenAIReasoningProvider
+from lead_agent.infrastructure.reasoning.structured_api import StructuredAPIReasoningProvider
 from lead_agent.infrastructure.secrets import get_secret_store
 from lead_agent.settings.config import Settings, get_settings
 
 
-def _workspace_usage_recorder(session: Session, workspace_id: UUID):
+def _workspace_usage_recorder(
+    session: Session, workspace_id: UUID, provider: str = "openai"
+):
     """Store metering separately from the lead transaction; never store request content."""
     writer = sessionmaker(bind=session.get_bind(), autoflush=False, expire_on_commit=False)
 
@@ -34,9 +40,9 @@ def _workspace_usage_recorder(session: Session, workspace_id: UUID):
         with writer() as audit_session:
             audit_session.add(ProviderLifecycleAuditORM(
                 workspace_id=workspace_id,
-                provider="openai",
+                provider=provider,
                 actor_id="workspace-usage-meter",
-                action="openai_api_usage",
+                action="openai_api_usage" if provider == "openai" else "reasoning_api_usage",
                 outcome=str(details.get("outcome", "unknown"))[:64],
                 correlation_id=str(operation_id or uuid4())[:255],
                 details=details,
@@ -87,7 +93,7 @@ def resolve_workspace_reasoning_provider(
         select(ProviderConnectionORM)
         .where(
             ProviderConnectionORM.workspace_id == workspace_id,
-            ProviderConnectionORM.provider_type == "openai",
+            ProviderConnectionORM.provider_type.in_(REASONING_PROVIDERS),
             ProviderConnectionORM.is_active.is_(True),
             ProviderConnectionORM.status == "verified",
         )
@@ -96,10 +102,13 @@ def resolve_workspace_reasoning_provider(
     if connection is None or connection.secret_reference is None:
         return DeterministicReasoningProvider()
     try:
-        model = validate_openai_model(connection.connection_metadata.get("selected_model"), active)
+        provider_name = connection.provider_type
+        model = validate_reasoning_model(
+            provider_name, connection.connection_metadata.get("selected_model"), active
+        )
         credentials = (secret_store or get_secret_store()).retrieve_for_workspace(
             workspace_id,
-            "openai",
+            provider_name,
             connection.secret_reference,
         )
     except (KeyError, RuntimeError, ValueError):
@@ -107,14 +116,27 @@ def resolve_workspace_reasoning_provider(
     api_key = (credentials or {}).get("api_key", "")
     if not api_key:
         return DeterministicReasoningProvider()
-    return OpenAIReasoningProvider(
+    usage_recorder = _workspace_usage_recorder(session, workspace_id, provider_name)
+    if provider_name == "openai":
+        return OpenAIReasoningProvider(
+            api_key=api_key,
+            model=model,
+            organization=None,
+            timeout_seconds=active.openai_timeout_seconds,
+            max_retries=0,
+            store_responses=active.openai_store_responses,
+            usage_recorder=usage_recorder,
+        )
+    return StructuredAPIReasoningProvider(
+        provider=provider_name,
         api_key=api_key,
         model=model,
-        organization=None,
-        timeout_seconds=active.openai_timeout_seconds,
-        max_retries=0,
-        store_responses=active.openai_store_responses,
-        usage_recorder=_workspace_usage_recorder(session, workspace_id),
+        timeout_seconds=(
+            active.xai_timeout_seconds
+            if provider_name == "xai"
+            else active.openai_timeout_seconds
+        ),
+        usage_recorder=usage_recorder,
     )
 
 

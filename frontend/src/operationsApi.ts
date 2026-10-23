@@ -33,6 +33,16 @@ export type Capacity = {
   available: boolean;
   available_until: string | null;
 };
+export type WorkspaceBusinessProfile = {
+  business_name: string;
+  alternate_names: string[];
+  website: string;
+  email_domains: string[];
+  description: string;
+  products_services: string;
+  lead_distinction_notes: string;
+  email_signature: string;
+};
 export type Policy = {
   territories: Territory[];
   capacity: Capacity[];
@@ -54,6 +64,7 @@ export type Policy = {
   brand_accent: string;
   custom_domain: string | null;
   monthly_quota_usd: number | null;
+  business_profile: WorkspaceBusinessProfile;
 };
 export type PolicyResponse = {
   configuration: Policy;
@@ -165,6 +176,16 @@ export type Run = {
     timing?: { timezone: string; hour: number; method: string };
   };
 };
+export type AutomationEnrollmentBatch = {
+  definition_id: string;
+  enrolled: number;
+  already_enrolled: number;
+  items: {
+    lead_id: string;
+    run_id: string;
+    status: "enrolled" | "already_enrolled";
+  }[];
+};
 export type Consent = {
   id: string;
   email: string;
@@ -238,9 +259,14 @@ export type AdvancedAnalytics = {
 };
 export const opsGet = <T>(path: string, signal?: AbortSignal) =>
   request<T>(path, { signal });
-export const opsSave = <T>(path: string, data: unknown, method = "POST") =>
+export const opsSave = <T>(
+  path: string,
+  data: unknown,
+  method = "POST",
+  feedback?: { activityToast?: boolean },
+) =>
   request<T>(path, {
     method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
+  }, feedback);

@@ -19,7 +19,8 @@ from lead_agent.api.schemas import (
     routing_response,
 )
 from lead_agent.application.routing import retry_current_notification, route_and_notify
-from lead_agent.domain.configuration import RoutingConfig
+from lead_agent.application.manual_review import workspace_manual_review_settings
+from lead_agent.domain.configuration import ManualReviewSettings, RoutingConfig
 from lead_agent.domain.rbac import effective_permissions, normalize_role
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -51,6 +52,7 @@ class RerouteRequest(BaseModel):
 class RoutingConfigRequest(BaseModel):
     member_weights: dict[UUID, float] | None = None
     member_percentages: dict[UUID, float] | None = None
+    manual_review: ManualReviewSettings | None = None
 
 
 def _routing_config_response(session: Session, workspace_id: UUID) -> dict[str, object]:
@@ -85,6 +87,9 @@ def _routing_config_response(session: Session, workspace_id: UUID) -> dict[str, 
         "workspace_id": str(workspace_id),
         "default_strategy": "equal",
         "updated_at": config.updated_at if config is not None else None,
+        "manual_review": workspace_manual_review_settings(
+            session, workspace_id
+        ).model_dump(),
         "members": [
             {
                 "user_id": str(user.id),
@@ -114,6 +119,7 @@ def update_routing_config(
     workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
 ) -> dict[str, object]:
     current = _routing_config_response(session, workspace.workspace_id)
+    config = session.get(WorkspaceRoutingConfigORM, workspace.workspace_id)
     current_members = current["members"]
     allowed = {str(item["user_id"]) for item in current_members}  # type: ignore[index]
     if request.member_weights is not None and request.member_percentages is not None:
@@ -144,8 +150,10 @@ def update_routing_config(
         if not isclose(sum(percentages.values()), 100, rel_tol=0, abs_tol=0.005):
             raise HTTPException(status_code=422, detail="Routing percentages must total 100")
         raw_weights = percentages
+    elif request.member_weights is not None:
+        raw_weights = request.member_weights
     else:
-        raw_weights = request.member_weights or {}
+        raw_weights = config.member_weights if config is not None else {}
     unknown = {str(user_id) for user_id in raw_weights} - allowed
     if unknown:
         raise HTTPException(
@@ -158,18 +166,30 @@ def update_routing_config(
             detail="Routing weights must be greater than 0 and no more than 100",
         )
     weights = {str(user_id): round(value, 4) for user_id, value in raw_weights.items()}
-    config = session.get(WorkspaceRoutingConfigORM, workspace.workspace_id)
+    manual_review_settings = (
+        request.manual_review.model_dump()
+        if request.manual_review is not None
+        else (
+            config.manual_review_settings
+            if config is not None
+            else ManualReviewSettings().model_dump()
+        )
+    )
     now = datetime.now(UTC)
     if config is None:
         config = WorkspaceRoutingConfigORM(
             workspace_id=workspace.workspace_id,
             member_weights=weights,
+            manual_review_settings=manual_review_settings,
             updated_by=workspace.user_id,
             updated_at=now,
         )
         session.add(config)
     else:
-        config.member_weights = weights
+        if request.member_weights is not None or request.member_percentages is not None:
+            config.member_weights = weights
+        if request.manual_review is not None:
+            config.manual_review_settings = manual_review_settings
         config.updated_by = workspace.user_id
         config.updated_at = now
     session.commit()

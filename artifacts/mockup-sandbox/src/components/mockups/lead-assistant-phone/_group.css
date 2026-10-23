@@ -1,0 +1,162 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --surface: #fff;
+  --surface-high: #f0f4f6;
+  --line: #dfe6eb;
+  --text: #0f1b2d;
+  --muted: #526471;
+  --subtle: #627480;
+  --orange: #1e6b52;
+  --orange-hot: #1e6b52;
+  --orange-soft: rgba(30, 107, 82, .09);
+  --green: #1e6b52;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
+body { background: #eef2f5; color: var(--text); }
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+
+.lead-agent-preview { min-height: 100vh; padding: 0; }
+.lead-agent-preview--dock { display: flex; justify-content: flex-end; background: #eef2f5; }
+.corral-agent-window { display: grid; width: min(390px, calc(100vw - 54px)); height: 100dvh; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-left: 1px solid var(--line); background: var(--surface); box-shadow: -14px 0 42px rgba(18, 35, 27, .16); }
+.corral-agent-window-header { display: flex; min-height: 72px; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 11px; border-bottom: 1px solid var(--line); background: #f8faf9; }
+.corral-agent-window-brand, .corral-agent-window-controls { display: flex; min-width: 0; align-items: center; gap: 7px; }
+.corral-agent-window-mark { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(30, 107, 82, .32); border-radius: 11px; background: var(--orange-soft); color: var(--orange); font-size: 10px; font-weight: 850; }
+.corral-agent-window-brand > div { display: grid; min-width: 0; gap: 2px; }
+.corral-agent-window-brand strong { font-size: 13px; }
+.corral-agent-window-brand small { max-width: 125px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.corral-agent-change-lead, .corral-agent-close { display: inline-grid; min-height: 32px; place-items: center; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.corral-agent-change-lead { padding: 0 7px; font-size: 10px; font-weight: 650; white-space: nowrap; }
+.corral-agent-close { width: 32px; font-size: 20px; line-height: 1; }
+.corral-agent-window-body { display: grid; min-height: 0; grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.corral-agent-window-body > .corral-agent-mode:not([hidden]) { display: grid; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.corral-agent-mode { width: 100%; height: 100%; min-height: 0; }
+.lead-agent {
+  --agent-line: var(--line);
+  --agent-wash: var(--surface-high);
+  display: grid;
+  grid-template-rows: auto auto minmax(300px, 1fr) auto;
+  width: 100%;
+  min-width: 0;
+  min-height: min(780px, calc(100dvh - 150px));
+  overflow: hidden;
+  container-name: lead-agent;
+  container-type: inline-size;
+  border: 1px solid var(--agent-line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+}
+.lead-agent-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 23px 17px;
+  border-bottom: 1px solid var(--agent-line);
+  background: #f8faf9;
+}
+.lead-agent-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(30, 107, 82, .32);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 800;
+}
+.lead-agent-heading .eyebrow { margin: 0 0 4px; }
+.lead-agent-heading > div:last-child { min-width: 0; }
+.lead-agent-heading h2 { margin: 0; font-size: 20px; line-height: 1.3; overflow-wrap: anywhere; }
+.lead-agent-heading p { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.eyebrow { color: var(--muted); font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+
+.lead-agent-quick-actions {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px clamp(14px, 3vw, 28px);
+  border-bottom: 1px solid var(--agent-line);
+}
+.lead-agent-phone-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px 12px;
+  min-width: 0;
+}
+.lead-agent-phone-copy { display: grid; min-width: 0; gap: 3px; }
+.lead-agent-phone-copy .eyebrow { margin: 0; font-size: 10px; }
+.lead-agent-phone-copy strong { overflow-wrap: anywhere; font-size: 13px; }
+.lead-agent-quick-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.lead-agent-quick-buttons button,
+.lead-agent-email-shortcut { min-height: 36px; padding: 0 11px; font-size: 11px; }
+.lead-agent-quick-buttons button { max-width: 100%; white-space: normal; }
+.lead-agent-email-shortcut { width: auto; max-width: 100%; min-width: 0; justify-self: stretch; overflow-wrap: anywhere; }
+.lead-agent-email-shortcut-note { grid-column: 2; margin-top: -6px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.lead-agent-phone-card > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.lead-agent-quick-notice { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; }
+
+.lead-agent-transcript { display: flex; min-height: 300px; flex-direction: column; gap: 13px; overflow-y: auto; padding: 20px clamp(14px, 3vw, 28px); }
+.lead-agent-welcome { max-width: 690px; margin: auto; padding: 13px 4px; }
+.lead-agent-welcome h3 { margin: 0 0 7px; font-size: 18px; }
+.lead-agent-welcome > p { max-width: 650px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.lead-agent-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
+.lead-agent-suggestions button { min-height: 36px; padding: 7px 11px; border: 1px solid var(--agent-line); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 12px; font-weight: 650; text-align: left; }
+.lead-agent-composer { padding: 14px clamp(14px, 3vw, 28px) 16px; border-top: 1px solid var(--agent-line); background: var(--surface); }
+.lead-agent-composer > label { display: block; margin-bottom: 7px; color: var(--text); font-size: 12px; font-weight: 700; }
+.lead-agent-composer > div { display: flex; align-items: flex-end; gap: 10px; }
+.lead-agent-composer textarea { width: 100%; min-width: 0; min-height: 88px; max-height: 220px; flex: 1 1 auto; resize: vertical; padding: 11px 12px; border: 1px solid var(--agent-line); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 13px; line-height: 1.5; }
+.primary-button, .secondary-button { min-height: 40px; padding: 0 16px; border: 1px solid var(--orange); border-radius: 9px; font-size: 13px; font-weight: 700; }
+.primary-button { background: var(--orange); color: #fff; }
+.secondary-button { background: var(--surface); color: var(--text); }
+.lead-agent-composer button { min-height: 42px; flex: 0 0 auto; padding-inline: 18px; }
+.lead-agent-composer small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+@container lead-agent (max-width: 700px) {
+  .lead-agent-quick-actions { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .lead-agent-phone-card { grid-template-columns: minmax(0, 1fr); }
+  .lead-agent-quick-buttons { justify-content: flex-start; }
+  .lead-agent-email-shortcut { width: 100%; }
+  .lead-agent-email-shortcut-note { grid-column: 1; margin-top: -5px; }
+  .lead-agent-email-compose .email-composer { padding: 12px; }
+  .lead-agent-email-compose .email-composer-address-grid { grid-template-columns: minmax(0, 1fr); }
+  .lead-agent-heading { padding: 16px; }
+  .lead-agent-heading h2 { font-size: 18px; }
+  .lead-agent { min-height: min(760px, max(560px, calc(100dvh - 140px))); }
+  .lead-agent-transcript { min-height: 280px; padding: 14px; }
+  .lead-agent-composer { padding: 12px 14px; }
+  .lead-agent-composer > div { align-items: stretch; flex-direction: column; }
+  .lead-agent-composer button { align-self: flex-end; }
+}
+
+.corral-agent-window .lead-agent { height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr) auto; border: 0; border-radius: 0; box-shadow: none; }
+.corral-agent-window .lead-agent-heading { display: none; }
+.corral-agent-window .lead-agent-quick-actions { grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 6px; padding: 8px 12px; }
+.corral-agent-window .lead-agent-phone-card { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; }
+.corral-agent-window .lead-agent-phone-card > p { font-size: 10px; line-height: 1.3; }
+.corral-agent-window .lead-agent-email-shortcut-note { display: none; }
+.corral-agent-window .lead-agent-quick-buttons button, .corral-agent-window .lead-agent-email-shortcut { min-height: 36px; padding-inline: 8px; font-size: 11px; }
+.corral-agent-window .lead-agent-email-shortcut { width: auto; max-width: 100%; min-width: 0; justify-self: start; white-space: nowrap; }
+.corral-agent-window .lead-agent-quick-notice { font-size: 10px; line-height: 1.3; }
+.corral-agent-window .lead-agent-transcript { min-height: 0; padding: 10px 12px; }
+.corral-agent-window .lead-agent-welcome { margin: 0 auto; padding: 4px 2px; }
+.corral-agent-window .lead-agent-welcome h3 { font-size: 15px; }
+.corral-agent-window .lead-agent-welcome > p { font-size: 12px; line-height: 1.4; }
+.corral-agent-window .lead-agent-suggestions { gap: 5px; margin-top: 8px; }
+.corral-agent-window .lead-agent-suggestions button { min-height: 32px; padding: 5px 9px; font-size: 11px; }
+.corral-agent-window .lead-agent-composer { padding: 7px 10px 9px; }
+.corral-agent-window .lead-agent-composer > label { margin-bottom: 4px; font-size: 11px; }
+.corral-agent-window .lead-agent-composer > div { align-items: flex-end; flex-direction: row; gap: 6px; }
+.corral-agent-window .lead-agent-composer textarea { height: 64px; min-height: 64px; max-height: 160px; padding: 8px 10px; }
+.corral-agent-window .lead-agent-composer button { min-height: 36px; padding-inline: 10px; font-size: 12px; }
+.corral-agent-window .lead-agent-composer small { margin-top: 4px; font-size: 10px; line-height: 1.3; }

@@ -13,9 +13,11 @@ import {
 import {
   changeWorkspace,
   getActiveWorkspace,
+  getAdvancedAnalytics,
   getAgentActivity,
   getChannelAnalytics,
   getDashboard,
+  getExtendedAnalytics,
   getLead,
   getManualReview,
   getPipelineAnalytics,
@@ -34,9 +36,21 @@ import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
+import { DialerPhoneDock } from "./components/DialerPhoneDock";
+import {
+  OPEN_DIALER_PHONE_EVENT,
+  isDialerPhoneAvailable,
+  isEmbeddedDialerConnection,
+  ringCentralEmbedClientId,
+  type DialerPhoneConnection,
+} from "./components/dialerPhoneConfig";
 import { ActivityToasts } from "./components/ActivityToasts";
+import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
+import { useAssignmentNotifications } from "./useAssignmentNotifications";
+import { CorralAgentDock } from "./components/CorralAgentDock";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { NativeSelectEnhancer } from "./components/NativeSelectEnhancer";
+import { notifyActivity } from "./activity";
 const IntegrationsView = lazy(() =>
   import("./views/IntegrationsView").then((module) => ({
     default: module.IntegrationsView,
@@ -81,8 +95,15 @@ const AdvancedAnalyticsPanel = lazy(() =>
     default: module.AdvancedAnalyticsPanel,
   })),
 );
+const EmailWorkspace = lazy(() =>
+  import("./views/EmailWorkspace").then((module) => ({
+    default: module.EmailWorkspace,
+  })),
+);
 import { CommandPalette } from "./components/CommandPalette";
+import { useNewLeadIndicators } from "./useNewLeadIndicators";
 import { opsGet } from "./operationsApi";
+import { relayOAuthCallbackFromPopup } from "./oauthPopup";
 import {
   PinnedLeadNavigation,
   usePinnedLeadSections,
@@ -112,6 +133,7 @@ import type { AnalyticsBundle } from "./views/ProductViews";
 type View =
   | "dashboard"
   | "leads"
+  | "email"
   | "contacts"
   | "pipeline"
   | "agents"
@@ -141,23 +163,25 @@ function savedTheme(): Theme {
 }
 
 const navigation: Array<{ id: View; label: string; group?: string }> = [
-  { id: "dashboard", label: "Dashboard" },
+  { id: "dashboard", label: "Dashboard", group: "Workspace" },
   { id: "leads", label: "Leads" },
+  { id: "email", label: "Email" },
   { id: "contacts", label: "Contacts" },
   { id: "accounts", label: "Companies" },
   { id: "pipeline", label: "Pipeline" },
   { id: "agents", label: "Agents / AI Activity" },
   { id: "analytics", label: "Analytics" },
-  { id: "review", label: "Manual Review", group: "Control" },
+  { id: "review", label: "Manual Review", group: "Operations" },
   { id: "integrations", label: "Integrations" },
   { id: "dialer", label: "Dialer" },
-  { id: "team", label: "Users" },
+  { id: "team", label: "Users", group: "Administration" },
   { id: "settings", label: "Settings" },
 ];
 
 const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   dashboard: "analytics.view",
   leads: "leads.view",
+  email: "integrations.view",
   contacts: "leads.view",
   accounts: "leads.view",
   intelligence: "agents.view",
@@ -169,7 +193,7 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   analytics: "analytics.view",
   review: "manual_review.view",
   integrations: "integrations.view",
-  dialer: "integrations.view",
+  dialer: "dialer.call",
 };
 
 function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
@@ -217,6 +241,13 @@ function NavIcon({ id }: { id: View }) {
         <svg {...shared}>
           <circle cx="9" cy="8" r="3" />
           <path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20" />
+        </svg>
+      );
+    case "email":
+      return (
+        <svg {...shared}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="m4 7 8 6 8-6" />
         </svg>
       );
     case "contacts":
@@ -330,6 +361,10 @@ function NavIcon({ id }: { id: View }) {
 }
 
 function App() {
+  useEffect(() => {
+    relayOAuthCallbackFromPopup();
+  }, []);
+
   const [branding, setBranding] = useState<{
     name: string | null;
     logo_url: string | null;
@@ -340,6 +375,100 @@ function App() {
   const [view, setView] = useState<AppView>(() =>
     pageFromSearch(window.location.search),
   );
+  const [dialerConnections, setDialerConnections] = useState<DialerPhoneConnection[]>([]);
+  const [preferredDialerId, setPreferredDialerId] = useState("");
+  const [dialerPhoneOpen, setDialerPhoneOpen] = useState(false);
+  const [dialerCallActive, setDialerCallActive] = useState(false);
+  const preferredDialerRef = useRef("");
+  const dialerPreferenceKey =
+    auth?.user.id && auth.current_workspace_id
+      ? `corral-preferred-dialer:v1:${auth.user.id}:${auth.current_workspace_id}`
+      : null;
+  const selectedDialer = dialerConnections.find(
+    (connection) => connection.id === preferredDialerId,
+  ) ?? null;
+
+  useEffect(() => {
+    preferredDialerRef.current = preferredDialerId;
+  }, [preferredDialerId]);
+
+  useEffect(() => {
+    preferredDialerRef.current = "";
+    setDialerConnections([]);
+    setPreferredDialerId("");
+    setDialerPhoneOpen(false);
+    setDialerCallActive(false);
+    const preferenceKey = dialerPreferenceKey ?? "";
+    if (!preferenceKey) return;
+
+    let active = true;
+    async function refreshDialerConnections() {
+      try {
+        const cards = await listIntegrations();
+        if (!active) return;
+        const available = cards
+          .filter((card) => /dialer|voice/i.test(card.category))
+          .flatMap((card) =>
+            card.connections
+              .filter(
+                (connection) =>
+                  connection.is_active && connection.status === "verified",
+              )
+              .map((connection) => ({
+                id: connection.id,
+                provider: card.provider,
+                account_name: connection.account_name,
+                status: connection.status,
+                is_active: connection.is_active,
+              })),
+          );
+        const currentId = preferredDialerRef.current;
+        const savedId = window.localStorage.getItem(preferenceKey);
+        const next =
+          available.find((connection) => connection.id === savedId) ??
+          available.find((connection) => connection.id === currentId) ??
+          available.find(isEmbeddedDialerConnection) ??
+          available[0] ??
+          null;
+        const nextId = next?.id ?? "";
+        setDialerConnections(available);
+        preferredDialerRef.current = nextId;
+        setPreferredDialerId(nextId);
+        if (nextId !== currentId) {
+          setDialerPhoneOpen(false);
+          setDialerCallActive(false);
+        }
+        if (nextId) {
+          window.localStorage.setItem(preferenceKey, nextId);
+        } else {
+          window.localStorage.removeItem(preferenceKey);
+        }
+      } catch (error) {
+        console.warn("Unable to refresh connected dialers", error);
+      }
+    }
+
+    const onIntegrationsChanged = () => void refreshDialerConnections();
+    window.addEventListener("corral:integrations-changed", onIntegrationsChanged);
+    void refreshDialerConnections();
+    return () => {
+      active = false;
+      window.removeEventListener("corral:integrations-changed", onIntegrationsChanged);
+    };
+  }, [dialerPreferenceKey]);
+
+  const selectPreferredDialer = useCallback((connectionId: string) => {
+    if (dialerCallActive) return;
+    const next = dialerConnections.find((connection) => connection.id === connectionId);
+    const nextId = next?.id ?? "";
+    preferredDialerRef.current = nextId;
+    setPreferredDialerId(nextId);
+    if (dialerPreferenceKey) {
+      if (nextId) window.localStorage.setItem(dialerPreferenceKey, nextId);
+      else window.localStorage.removeItem(dialerPreferenceKey);
+    }
+    setDialerPhoneOpen(false);
+  }, [dialerCallActive, dialerConnections, dialerPreferenceKey]);
   const [pageSection, setPageSection] = useState(() =>
     sectionFromSearch(
       window.location.search,
@@ -352,6 +481,27 @@ function App() {
   });
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadNotificationSnapshot, setLeadNotificationSnapshot] = useState<{
+    workspaceId: string;
+    leads: Lead[];
+  }>({ workspaceId: "", leads: [] });
+  const {
+    unseenLeadIds,
+    observeLeadSnapshot,
+    markSeen: markLeadSeen,
+  } = useNewLeadIndicators(auth?.user.id, auth?.current_workspace_id);
+  const notificationLeads =
+    leadNotificationSnapshot.workspaceId === auth?.current_workspace_id
+      ? leadNotificationSnapshot.leads
+      : [];
+  const unseenLeadIdSet = useMemo(
+    () => new Set(unseenLeadIds),
+    [unseenLeadIds],
+  );
+  const unseenManualReviewLeadCount = useMemo(
+    () => data?.review?.items.filter((lead) => unseenLeadIdSet.has(lead.id)).length ?? 0,
+    [data?.review?.items, unseenLeadIdSet],
+  );
   const [leadRevision, setLeadRevision] = useState(0);
   const [tourOpen, setTourOpen] = useState(false);
   const [openaiSetupCard, setOpenaiSetupCard] =
@@ -369,9 +519,7 @@ function App() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [navOpen, setNavOpen] = useState(
-    () => window.matchMedia("(min-width: 761px)").matches,
-  );
+  const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(savedTheme);
   const activeWorkspace = auth?.workspaces.find(
     (item) => item.id === auth.current_workspace_id,
@@ -380,12 +528,54 @@ function App() {
     () => new Set(activeWorkspace?.effective_permissions ?? []),
     [activeWorkspace],
   );
+  const {
+    notifications: assignmentNotifications,
+    markRead: markAssignmentRead,
+  } = useAssignmentNotifications(
+    auth?.user.id,
+    auth?.current_workspace_id,
+    workspacePermissions.has("leads.view") ||
+      workspacePermissions.has("leads.edit"),
+  );
+  useEffect(() => {
+    function openPhone(event: Event) {
+      const detail = (event as CustomEvent<{ connectionId?: unknown }>).detail;
+      if (
+        typeof detail?.connectionId !== "string" ||
+        !can(workspacePermissions, "dialer.call")
+      ) {
+        return;
+      }
+      const next = dialerConnections.find(
+        (connection) => connection.id === detail.connectionId,
+      );
+      if (!next || !isDialerPhoneAvailable(next)) return;
+      if (dialerCallActive && next.id !== preferredDialerRef.current) {
+        notifyActivity(
+          "Finish the active call before switching the embedded phone.",
+          "info",
+        );
+        return;
+      }
+      if (next.id !== preferredDialerRef.current) {
+        selectPreferredDialer(next.id);
+      }
+      setDialerPhoneOpen(true);
+    }
+    window.addEventListener(OPEN_DIALER_PHONE_EVENT, openPhone);
+    return () => window.removeEventListener(OPEN_DIALER_PHONE_EVENT, openPhone);
+  }, [
+    dialerCallActive,
+    dialerConnections,
+    selectPreferredDialer,
+    workspacePermissions,
+  ]);
   const refreshVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const leadRequestVersion = useRef(0);
   const leadController = useRef<AbortController | null>(null);
   const leadSignature = useRef<string | null>(null);
-  const openaiPromptDismissed = useRef(new Set<string>());
+  const reasoningPromptDismissed = useRef(new Set<string>());
   const tourSeenKey = auth?.current_workspace_id
     ? `corral-product-tour-seen:v1:${auth.current_workspace_id}`
     : null;
@@ -431,7 +621,9 @@ function App() {
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 761px)");
-    const syncNavigation = () => setNavOpen(media.matches);
+    const syncNavigation = () => {
+      if (!media.matches) setNavOpen(false);
+    };
     media.addEventListener("change", syncNavigation);
     return () => media.removeEventListener("change", syncNavigation);
   }, []);
@@ -462,6 +654,8 @@ function App() {
           series,
           agents,
           review,
+          extended,
+          advanced,
           leadRows,
         ] = await Promise.all([
           canViewAnalytics
@@ -488,8 +682,14 @@ function App() {
           canViewReview
             ? getManualReview(activeRange, controller.signal)
             : Promise.resolve(null),
+          canViewAnalytics
+            ? getExtendedAnalytics(activeRange, controller.signal)
+            : Promise.resolve(null),
+          canViewAnalytics
+            ? getAdvancedAnalytics(6, controller.signal)
+            : Promise.resolve(null),
           canViewLeads
-            ? listLeads({ limit: 1 }, controller.signal)
+            ? listLeads({ limit: 50 }, controller.signal)
             : Promise.resolve(null),
         ]);
         if (requestVersion !== refreshVersion.current) return;
@@ -501,7 +701,9 @@ function App() {
             reps ||
             series ||
             agents ||
-            review
+            review ||
+            extended ||
+            advanced
             ? {
                 dashboard,
                 channels,
@@ -511,11 +713,25 @@ function App() {
                 series,
                 agents,
                 review,
+                extended,
+                advanced,
               }
             : null,
         );
         const nextLeads = leadRows?.items ?? [];
-        setLeads(nextLeads);
+        const newArrivalIds = observeLeadSnapshot(nextLeads);
+        setLeadNotificationSnapshot({
+          workspaceId: auth?.current_workspace_id ?? "",
+          leads: nextLeads,
+        });
+        if (newArrivalIds.length) {
+          const example = nextLeads.find((lead) => newArrivalIds.includes(lead.id));
+          const message = newArrivalIds.length === 1
+            ? `New lead arrived${example?.full_name ? `: ${example.full_name}` : ""}.`
+            : `${newArrivalIds.length} new leads arrived.`;
+          notifyActivity(message, "info");
+        }
+        setLeads(nextLeads.slice(0, 1));
         if (leadRows) {
           const nextSignature = JSON.stringify([
             leadRows.total,
@@ -580,7 +796,7 @@ function App() {
         if (requestVersion === refreshVersion.current) setLoading(false);
       }
     },
-    [range, auth?.current_workspace_id, auth?.workspaces],
+    [range, auth?.current_workspace_id, auth?.workspaces, observeLeadSnapshot],
   );
 
   useEffect(() => {
@@ -678,8 +894,12 @@ function App() {
     if (auth) return;
     setOpenaiSetupCard(null);
     setAiSetupCards([]);
-    openaiPromptDismissed.current.clear();
+    reasoningPromptDismissed.current.clear();
   }, [auth]);
+
+  useEffect(() => {
+    if (selectedLead) markLeadSeen(selectedLead.id, selectedLead.created_at);
+  }, [selectedLead?.id, markLeadSeen]);
 
   useEffect(() => {
     if (!auth) return;
@@ -703,7 +923,7 @@ function App() {
     );
     if (
       !workspace?.effective_permissions.includes("integrations.manage") ||
-      openaiPromptDismissed.current.has(auth.current_workspace_id)
+      reasoningPromptDismissed.current.has(auth.current_workspace_id)
     )
       return;
     let active = true;
@@ -712,9 +932,17 @@ function App() {
         if (!active) return;
         setAiSetupCards(cards.filter((card) => card.category.toLowerCase().includes("ai analysis")));
         const openai = cards.find((card) => card.provider === "openai");
+        const resume = cards.find((card) => {
+          const connectionId = card.connection?.id;
+          return (
+            card.category.toLowerCase().includes("ai analysis") &&
+            connectionId !== undefined &&
+            window.localStorage.getItem(`corral:reasoning-backfill:${connectionId}`) !== null
+          );
+        });
         // A saved key can be `connected` before verification; only ask for a key when none is stored.
         setOpenaiSetupCard(
-          openai?.connection?.configured ? null : (openai ?? null),
+          resume ?? (openai?.connection?.configured ? null : (openai ?? null)),
         );
       })
       .catch(() => {
@@ -935,6 +1163,11 @@ function App() {
 
   function navigationActiveChild(id: View) {
     if (view === "leads") return leadSection;
+    if (view === "settings" && id === "settings") {
+      return pageSection === "user" || pageSection === "users"
+        ? "user"
+        : "company";
+    }
     if (view === id) return pageSection;
     return navigationChildren(id).some((child) => child.view === view) ? view : pageSection;
   }
@@ -1105,6 +1338,8 @@ function App() {
             onClick={() => setNavOpen(false)}
             aria-label="Collapse navigation"
             title="Collapse navigation"
+            aria-controls="corral-navigation"
+            aria-expanded={navOpen}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="m14.5 5-5 7 5 7" />
@@ -1114,7 +1349,12 @@ function App() {
         <nav aria-label="Primary navigation">
           {visibleNavigation.map((item, index) => (
             <div key={item.id}>
-              {item.group && <span className="nav-group">{item.group}</span>}
+              {item.group && (
+                <>
+                  {index > 0 && <span className="nav-separator" aria-hidden="true" />}
+                  <span className="nav-group">{item.group}</span>
+                </>
+              )}
               <NavigationMenuItem
                 item={{ ...item, children: navigationChildren(item.id) }}
                 enabled={navOpen}
@@ -1123,10 +1363,18 @@ function App() {
                   navigationItemActive(item) || (item.id === "settings" && view === "icp")
                 }
                 activeChild={navigationActiveChild(item.id)}
-                badge={item.id === "review" ? data?.review?.total : undefined}
+                notificationCount={
+                  item.id === "leads"
+                    ? unseenLeadIds.length
+                    : item.id === "review" ? unseenManualReviewLeadCount : 0
+                }
+                notificationLabel={
+                  item.id === "review"
+                    ? `${unseenManualReviewLeadCount} new lead${unseenManualReviewLeadCount === 1 ? "" : "s"} for manual review`
+                    : `${unseenLeadIds.length} new lead${unseenLeadIds.length === 1 ? "" : "s"}`
+                }
                 onNavigate={(child) => navigateChild(item.id, child)}
               />
-              {index === 4 && <span className="nav-separator" />}
             </div>
           ))}
         </nav>
@@ -1178,21 +1426,34 @@ function App() {
             <span aria-hidden="true">›</span>
           </button>
           <nav className="mini-rail-nav" aria-label="Primary navigation">
-            {visibleNavigation.map((item) => {
+            {visibleNavigation.map((item, index) => {
               const active =
                 navigationItemActive(item) ||
                 (item.id === "settings" && (view === "team" || view === "icp"));
               return (
-                <NavigationMenuItem
-                  key={item.id}
-                  item={{ ...item, children: navigationChildren(item.id) }}
-                  icon={<NavIcon id={item.id} />}
-                  active={active}
-                  collapsed
-                  activeChild={navigationActiveChild(item.id)}
-                  badge={item.id === "review" ? data?.review?.total : undefined}
-                  onNavigate={(child) => navigateChild(item.id, child)}
-                />
+                <div className="mini-rail-entry" key={item.id}>
+                  {item.group && index > 0 && (
+                    <span className="mini-rail-separator" aria-hidden="true" />
+                  )}
+                  <NavigationMenuItem
+                    item={{ ...item, children: navigationChildren(item.id) }}
+                    icon={<NavIcon id={item.id} />}
+                    active={active}
+                    collapsed
+                    activeChild={navigationActiveChild(item.id)}
+                    notificationCount={
+                      item.id === "leads"
+                        ? unseenLeadIds.length
+                        : item.id === "review" ? unseenManualReviewLeadCount : 0
+                    }
+                    notificationLabel={
+                      item.id === "review"
+                        ? `${unseenManualReviewLeadCount} new lead${unseenManualReviewLeadCount === 1 ? "" : "s"} for manual review`
+                        : `${unseenLeadIds.length} new lead${unseenLeadIds.length === 1 ? "" : "s"}`
+                    }
+                    onNavigate={(child) => navigateChild(item.id, child)}
+                  />
+                </div>
               );
             })}
           </nav>
@@ -1223,6 +1484,20 @@ function App() {
             </div>
           </div>
           <div className="bar-actions">
+            {(can(workspacePermissions, "leads.view") ||
+              can(workspacePermissions, "leads.edit")) && (
+              <LeadNotificationCenter
+                unseenLeadIds={unseenLeadIds}
+                leads={notificationLeads}
+                assignmentNotifications={assignmentNotifications}
+                onOpenLead={(leadId) => {
+                  if (can(workspacePermissions, "leads.view")) {
+                    handleInspectLead(leadId);
+                  }
+                }}
+                onMarkAssignmentRead={markAssignmentRead}
+              />
+            )}
             <div className="header-shortcuts" aria-label="Quick shortcuts">
               {headerShortcuts.map((shortcut) => <div className="header-shortcut" key={shortcut.id}>
                 <button
@@ -1333,6 +1608,7 @@ function App() {
                   selected={selectedLead}
                   activeSection={leadSection}
                   onSectionChange={changeLeadSection}
+                  onNavigateToDialer={() => navigate("dialer")}
                   isSectionPinned={pinnedSections.pins.some(
                     (pin) =>
                       pin.leadId === selectedLead?.id &&
@@ -1347,14 +1623,30 @@ function App() {
                       });
                   }}
                   revision={leadRevision}
+                  newLeadIds={unseenLeadIdSet}
                   onInspect={handleInspectLead}
                   onClose={closeLead}
                   canEdit={can(workspacePermissions, "leads.edit")}
+                  canManageRouting={can(workspacePermissions, "routing.manage")}
                   canExport={can(workspacePermissions, "leads.export")}
                   canCrmSync={can(workspacePermissions, "crm.sync")}
-                  canCall={can(workspacePermissions, "agents.execute") && can(workspacePermissions, "leads.edit")}
+                  canViewEmail={can(workspacePermissions, "integrations.view")}
+                  canUseAgent={can(workspacePermissions, "agents.execute")}
+                  dialerPhoneConnectionId={
+                    can(workspacePermissions, "dialer.call") &&
+                    isDialerPhoneAvailable(selectedDialer)
+                      ? selectedDialer?.id ?? null
+                      : null
+                  }
+                  canEnrollAutomations={
+                    can(workspacePermissions, "agents.view") &&
+                    can(workspacePermissions, "leads.edit")
+                  }
+                  onOpenAutomations={() => navigate("automations")}
                   onUpdated={(lead) => {
-                    setSelectedLead(lead);
+                    setSelectedLead((current) =>
+                      current?.id === lead.id ? lead : current,
+                    );
                     setLeads((current) =>
                       current.map((item) =>
                         item.id === lead.id ? lead : item,
@@ -1363,6 +1655,7 @@ function App() {
                   }}
                   onDeleted={(leadId) => {
                     closeLead();
+                    markLeadSeen(leadId);
                     pinnedSections.removeLead(leadId);
                     setLeads((current) =>
                       current.filter((item) => item.id !== leadId),
@@ -1414,6 +1707,7 @@ function App() {
               {view === "review" && (
                 <ManualReviewView
                   data={data?.review ?? null}
+                  newLeadIds={unseenLeadIdSet}
                   onInspect={(id) => {
                     openLeadSection(id, "ai");
                   }}
@@ -1465,8 +1759,34 @@ function App() {
                   selectedSection={pageSection}
                 />
               )}
+              {view === "email" && (
+                <EmailWorkspace
+                  canSend={can(workspacePermissions, "leads.edit")}
+                  onOpenIntegrations={() => navigate("integrations", "gmail")}
+                />
+              )}
               {view === "dialer" && (
-                <DialerView selectedSection={pageSection} onOpenIntegrations={() => navigate("integrations", "calling")} />
+                <DialerView
+                  selectedSection={pageSection}
+                  onOpenIntegrations={() => navigate("integrations", "calling")}
+                  onOpenLead={handleInspectLead}
+                  canViewLeads={can(workspacePermissions, "leads.view")}
+                  canEditLeads={
+                    can(workspacePermissions, "leads.view") &&
+                    can(workspacePermissions, "leads.edit")
+                  }
+                  canCall={can(workspacePermissions, "dialer.call")}
+                  canCallLeads={
+                    can(workspacePermissions, "dialer.call") &&
+                    can(workspacePermissions, "leads.view") &&
+                    can(workspacePermissions, "leads.edit")
+                  }
+                  canViewIntegrations={can(workspacePermissions, "integrations.view")}
+                  preferredDialerId={preferredDialerId}
+                  onPreferredDialerChange={selectPreferredDialer}
+                  dialerCallActive={dialerCallActive}
+                  ringCentralEmbedReady={Boolean(ringCentralEmbedClientId)}
+                />
               )}
               {view === "settings" && (
                 <SettingsView
@@ -1475,8 +1795,14 @@ function App() {
                   onIntegrations={() => navigate("integrations")}
                   onTeam={() => navigate("team")}
                   onIcp={() => navigate("icp")}
+                  onPolicies={() => navigate("policies")}
+                  onCompliance={() => navigate("compliance")}
+                  onOpenSection={(section) => navigate("settings", section)}
                   canViewTeam={can(workspacePermissions, "members.view")}
+                  canManageWorkspace={can(workspacePermissions, "workspace.manage")}
                   canViewIcp={can(workspacePermissions, "icp.view")}
+                  canViewPolicies={can(workspacePermissions, "routing.view")}
+                  canViewCompliance={can(workspacePermissions, "workspace.manage")}
                   canViewRouting={can(workspacePermissions, "routing.view")}
                   canManageRouting={can(workspacePermissions, "routing.manage")}
                   canViewPublicIntake={can(
@@ -1543,15 +1869,15 @@ function App() {
           card={openaiSetupCard}
           cards={aiSetupCards}
           onVerified={() => {
-            setOpenaiSetupCard(null);
             void refresh();
           }}
+          onClose={() => setOpenaiSetupCard(null)}
           onLater={() => {
-            openaiPromptDismissed.current.add(auth.current_workspace_id);
+            reasoningPromptDismissed.current.add(auth.current_workspace_id);
             setOpenaiSetupCard(null);
           }}
           onSettings={() => {
-            openaiPromptDismissed.current.add(auth.current_workspace_id);
+            reasoningPromptDismissed.current.add(auth.current_workspace_id);
             setOpenaiSetupCard(null);
             setView("integrations");
           }}
@@ -1564,6 +1890,59 @@ function App() {
         onDismiss={closeTour}
         onComplete={closeTour}
       />
+      {can(workspacePermissions, "agents.execute") && (
+        <CorralAgentDock
+          key={auth.current_workspace_id}
+          selectedLead={selectedLead}
+          permissions={workspacePermissions}
+          onNavigate={(area) => navigate(area)}
+          onNavigateToDialer={() => navigate("dialer")}
+          canViewLeads={can(workspacePermissions, "leads.view")}
+          canEdit={can(workspacePermissions, "leads.edit")}
+          canCrmSync={can(workspacePermissions, "crm.sync")}
+          canViewEmail={can(workspacePermissions, "integrations.view")}
+          dialerPhoneConnectionId={
+            can(workspacePermissions, "dialer.call") &&
+            isDialerPhoneAvailable(selectedDialer)
+              ? selectedDialer?.id ?? null
+              : null
+          }
+          onInspectLead={handleInspectLead}
+          onUpdated={(lead) => {
+            setSelectedLead((current) =>
+              current?.id === lead.id ? lead : current,
+            );
+            void refresh();
+          }}
+          onDeleted={(leadId) => {
+            if (selectedLead?.id === leadId) closeLead();
+            void refresh();
+          }}
+          onOpenLeadSection={openLeadSection}
+          onRefresh={refresh}
+        />
+      )}
+      {can(workspacePermissions, "dialer.call") && (
+        <DialerPhoneDock
+          connection={selectedDialer}
+          open={dialerPhoneOpen}
+          callActive={dialerCallActive}
+          notificationPreferenceKey={
+            dialerPreferenceKey
+              ? `${dialerPreferenceKey}:cloudtalk-alerts:v1`
+              : null
+          }
+          onOpen={() => setDialerPhoneOpen(true)}
+          onToggle={() => {
+            if (dialerCallActive && dialerPhoneOpen) return;
+            setDialerPhoneOpen((current) => !current);
+          }}
+          onClose={() => {
+            if (!dialerCallActive) setDialerPhoneOpen(false);
+          }}
+          onCallActiveChange={setDialerCallActive}
+        />
+      )}
     </div>
   );
 }

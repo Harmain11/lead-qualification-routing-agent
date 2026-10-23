@@ -76,6 +76,10 @@
 .timed-area-chart circle { fill: var(--surface); stroke: var(--orange); stroke-width: 2; }
 .timed-area-chart .trend-line { fill: none; stroke: var(--orange); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .timed-area-labels { display: flex; justify-content: space-between; gap: 12px; margin: 0 14px; color: var(--muted); font: 13px/1.4 var(--font-mono); }
+.insight-conversion-breakdown { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.insight-conversion-breakdown > b { color: var(--text); font-size: 13px; }
+.insight-conversion-breakdown > span,
+.insight-conversion-breakdown > small { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .chart-data-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));

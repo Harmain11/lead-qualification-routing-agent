@@ -1,3 +1,267 @@
+.direct-dialer-panel { display: grid; gap: var(--space-6); }
+.direct-dialer-panel > .dialer-panel-head { flex-wrap: wrap; min-width: 0; gap: var(--space-3) var(--space-6); margin-bottom: 0; }
+.direct-dialer-panel > .dialer-panel-head > div { min-width: 0; flex: 1 1 220px; }
+.direct-dialer-panel .dialer-panel-count { flex: 0 1 210px; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.direct-dialer-panel > .panel-copy { margin: 0; max-width: 78ch; line-height: 1.55; }
+.direct-dialer-form { display: grid; gap: var(--space-6); padding: var(--card-padding); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-soft); }
+.direct-dialer-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6); align-items: start; }
+.direct-dialer-number-field, .direct-dialer-account-field { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
+.direct-dialer-keypad { display: grid; gap: var(--space-2); width: 100%; max-width: 320px; margin-top: var(--space-2); }
+.direct-dialer-keypad-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.direct-dialer-keypad-head span { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.direct-dialer-keypad-head button.direct-dialer-clear { min-height: 30px; border: 0; padding: 2px 4px; color: var(--workspace-accent, var(--green)); background: transparent; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.direct-dialer-keypad-head button:disabled { opacity: .5; cursor: not-allowed; }
+.direct-dialer-keypad-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.direct-dialer-key { display: grid; align-content: center; justify-items: center; min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--text); background: var(--surface-solid); font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.direct-dialer-key strong { font-size: 16px; line-height: 1.1; }
+.direct-dialer-key small { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .08em; line-height: 1; }
+.direct-dialer-key:hover:not(:disabled) { border-color: var(--workspace-accent, var(--orange)); background: var(--surface-high); transform: translateY(-1px); }
+.direct-dialer-key:focus-visible, .direct-dialer-keypad-head button:focus-visible { outline: 2px solid var(--workspace-accent, var(--green)); outline-offset: 2px; }
+.direct-dialer-key:disabled { opacity: .55; cursor: not-allowed; }
+.direct-dialer-fields label, .direct-call-lead-form label { display: grid; gap: var(--space-2); color: var(--muted); font-size: var(--font-control); font-weight: 650; }
+.direct-dialer-fields input, .direct-dialer-fields select, .direct-call-lead-form input, .direct-call-lead-form textarea { width: 100%; min-height: var(--control-height); padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); font: inherit; }
+.direct-dialer-fields small, .direct-dialer-actions > small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.direct-dialer-account-field > label { margin: 0; }
+.direct-dialer-caller-ids { display: grid; gap: 7px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-high); }
+.direct-dialer-caller-ids > label { margin: 0; color: var(--text); }
+.direct-dialer-caller-ids > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.direct-dialer-caller-ids > small { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.direct-dialer-status { display: grid; grid-template-columns: 9px minmax(0, 1fr); align-items: start; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-high); }
+.direct-dialer-status > span { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb, var(--green) 40%, transparent); }
+.direct-dialer-status > div { display: grid; gap: var(--space-1); min-width: 0; }
+.direct-dialer-status strong { font-size: var(--font-control); }
+.direct-dialer-status p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.direct-dialer-status.is-unavailable, .direct-dialer-status.has-error { border-color: color-mix(in srgb, var(--red) 35%, var(--line)); }
+.direct-dialer-status.is-unavailable > span, .direct-dialer-status.has-error > span { background: var(--red); box-shadow: none; }
+.direct-dialer-status.has-notice > span { background: var(--workspace-accent, var(--green)); }
+.direct-dialer-panel .direct-dialer-confirm { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: var(--space-3); margin: 0; }
+.direct-dialer-confirm input { width: 16px; height: 16px; margin: 3px 0 0; }
+.direct-dialer-confirm > span { display: grid; gap: var(--space-1); color: var(--text); }
+.direct-dialer-confirm > span strong { font-size: var(--font-control); line-height: 1.45; }
+.direct-dialer-confirm > span small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.direct-dialer-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); }
+.direct-dialer-actions > small { flex: 1 1 280px; }
+.direct-call-result { display: grid; gap: 8px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-high); }
+.direct-call-result > div:first-child { display: grid; gap: 4px; }
+.direct-call-result strong { font-size: 13px; }
+.direct-call-result span, .direct-call-result p { color: var(--muted); font-size: 11px; }
+.direct-call-result p { margin: 0; }
+.direct-call-handoff { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-high); }
+.direct-call-handoff > div { display: grid; gap: 5px; min-width: 0; }
+.direct-call-handoff strong { font-size: 13px; overflow-wrap: anywhere; }
+.direct-call-handoff p, .direct-call-handoff > small { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.direct-call-handoff .primary-button { justify-self: start; text-decoration: none; }
+.direct-call-handoff .primary-button[aria-disabled="true"] { opacity: .55; pointer-events: none; }
+.direct-call-history { display: grid; gap: 10px; }
+.direct-call-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.direct-call-history-head h3 { margin: 0; font-size: 14px; }
+.direct-call-history ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.direct-call-history li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-solid); }
+.direct-call-history-copy { display: grid; min-width: 0; gap: 4px; }
+.direct-call-history-copy strong { overflow-wrap: anywhere; font-size: 12px; }
+.direct-call-history-copy span, .direct-call-history-copy small { color: var(--muted); font-size: 10px; }
+.direct-call-lead-form { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-solid); }
+.direct-call-lead-form > strong { font-size: 12px; }
+.direct-call-lead-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+
+/* Calls & voice activity panel */
+.calls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: clamp(18px, 2.2vw, 26px);
+  border-color: color-mix(in srgb, var(--green) 16%, var(--line));
+  border-radius: var(--radius-lg);
+  background: var(--surface-solid);
+  box-shadow: 0 12px 34px rgba(28, 43, 61, .07);
+}
+.calls-panel .calls-panel-toolbar { align-items: flex-start; gap: 16px 22px; }
+.calls-panel-heading { display: flex; align-items: flex-start; gap: 14px; min-width: 0; flex: 1 1 300px; }
+.calls-heading-mark {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--green) 9%, var(--surface));
+  color: var(--green);
+}
+.calls-heading-mark svg { width: 20px; height: 20px; }
+.calls-heading-copy { min-width: 0; }
+.calls-heading-copy .eyebrow { color: var(--green); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.calls-heading-copy h3 { margin: 5px 0 8px; font-size: clamp(20px, 2.4vw, 23px); }
+.calls-lead-number { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.calls-lead-number::before { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--green); content: ""; }
+.calls-panel .secondary-button.calls-sync {
+  min-height: 38px;
+  margin: 0;
+  padding: 0 13px;
+  border-color: var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  transition: border-color var(--fast), background var(--fast), transform var(--fast);
+}
+.calls-panel .secondary-button.calls-sync:hover:not(:disabled) { border-color: var(--green); background: color-mix(in srgb, var(--green) 7%, var(--surface)); transform: translateY(-1px); }
+.calls-panel .secondary-button.calls-sync:disabled { opacity: .55; cursor: not-allowed; }
+.app-shell .calls-panel .calls-notice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-high);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.app-shell .calls-panel .calls-notice[role="alert"] { border-color: color-mix(in srgb, var(--red) 30%, var(--line)); background: color-mix(in srgb, var(--red) 7%, var(--surface)); color: var(--red); }
+.app-shell .calls-panel .calls-notice-success { border-color: color-mix(in srgb, var(--green) 26%, var(--line)); background: color-mix(in srgb, var(--green) 7%, var(--surface)); color: var(--green); }
+.app-shell .calls-panel .calls-consent-notice { border-color: color-mix(in srgb, var(--amber) 28%, var(--line)); background: color-mix(in srgb, var(--amber) 8%, var(--surface)); color: var(--amber); }
+.calls-loading { margin: 0; color: var(--muted); font-size: 13px; }
+.calls-form { display: grid; gap: 15px; min-width: 0; }
+.calls-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.calls-form-grid:has(> label:only-child) { grid-template-columns: minmax(0, 1fr); }
+.calls-panel .calls-form label:not(.ops-check) {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.calls-panel .calls-form select,
+.calls-panel .calls-form input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-bright);
+  border-radius: 9px;
+  background: var(--surface-solid);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 450;
+  transition: border-color var(--fast), box-shadow var(--fast);
+}
+.calls-panel .calls-form select:focus-visible,
+.calls-panel .calls-form input:not([type="checkbox"]):focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-color: var(--green); }
+.calls-panel .calls-form select:disabled,
+.calls-panel .calls-form input:disabled { opacity: .65; cursor: not-allowed; }
+.calls-panel .calls-form small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.5; }
+.calls-provider-note {
+  margin: -1px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--green);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-high);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.calls-panel .direct-call-handoff .primary-button { border-color: var(--green); background: var(--green); color: var(--surface); box-shadow: 0 4px 12px color-mix(in srgb, var(--green) 18%, transparent); }
+.calls-action-group { display: grid; gap: 10px; }
+.calls-panel .ops-check.calls-confirm {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  min-height: 0;
+  margin: 0;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--green) 4%, var(--surface));
+  color: var(--text);
+}
+.calls-panel .calls-confirm input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--green);
+}
+.calls-panel .calls-confirm > span { display: grid; gap: 3px; min-width: 0; }
+.calls-panel .calls-confirm strong { font-size: 12px; line-height: 1.4; }
+.calls-panel .calls-confirm small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.45; }
+.calls-panel .calls-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--green);
+  border-radius: 9px;
+  background: var(--green);
+  color: var(--surface);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--green) 17%, transparent);
+  transition: transform var(--fast), box-shadow var(--fast), background var(--fast);
+}
+.calls-panel .calls-submit::after { content: "→"; font-size: 16px; line-height: 1; }
+.calls-panel .calls-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px color-mix(in srgb, var(--green) 23%, transparent); }
+.calls-panel .calls-submit:disabled { border-color: var(--line); background: var(--surface-high); color: var(--muted); cursor: not-allowed; box-shadow: none; }
+.calls-permission-note { margin: 0; padding: 12px 14px; border-radius: 9px; background: var(--surface-high); color: var(--muted); font-size: 12px; line-height: 1.5; }
+.calls-provider-empty { display: grid; gap: 8px; }
+.calls-provider-empty > * { margin: 0; }
+.calls-provider-empty strong { color: var(--text); font-size: 14px; }
+.calls-provider-empty p, .calls-provider-empty a { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.calls-provider-empty a { color: var(--green); font-weight: 700; text-decoration: none; }
+.calls-provider-empty a:hover { text-decoration: underline; }
+.calls-history { display: grid; gap: 10px; min-width: 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.calls-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.calls-history-head h4 { margin: 0; color: var(--text); font-size: 15px; letter-spacing: -.015em; }
+.calls-history-empty {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  border: 1px dashed var(--line-bright);
+  border-radius: 10px;
+  background: var(--surface-high);
+}
+.calls-history-empty > span:first-child { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-solid); color: var(--muted); }
+.calls-history-empty svg { width: 18px; height: 18px; }
+.calls-history-empty > span:last-child { display: grid; gap: 3px; min-width: 0; }
+.calls-history-empty strong { color: var(--text); font-size: 12px; }
+.calls-history-empty small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.calls-footnote { color: var(--muted); font-size: 10px; line-height: 1.5; }
+
+@media (max-width: 640px) {
+  .calls-panel { gap: 17px; padding: 17px; }
+  .calls-panel .calls-panel-toolbar { align-items: stretch; }
+  .calls-panel .calls-panel-toolbar > button { width: 100%; }
+  .calls-panel-heading { gap: 11px; }
+  .calls-heading-mark { flex-basis: 38px; width: 38px; height: 38px; border-radius: 11px; }
+  .calls-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .calls-panel *, .calls-panel *::before, .calls-panel *::after { transition: none !important; }
+}
+
+@media (max-width: 780px) {
+  .direct-dialer-fields { grid-template-columns: minmax(0, 1fr); }
+  .direct-call-history li { align-items: flex-start; flex-direction: column; }
+  .direct-dialer-panel .dialer-panel-count { text-align: left; }
+}
+@media (max-width: 480px) {
+  .direct-dialer-form { padding: var(--space-4); }
+  .direct-dialer-actions > button { width: 100%; }
+}
 .dialer-page { gap: 20px; }
 .dialer-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
 .dialer-head h1 { margin:4px 0 6px; }
@@ -20,14 +284,73 @@
 .dialer-provider-copy { min-width:0; }.dialer-provider-copy h3 { margin:0; font-size:16px; }.dialer-provider-copy p { margin:3px 0 0; overflow:hidden; color:var(--muted); text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
 .dialer-status { grid-column:2; color:var(--muted); font-size:12px; font-weight:700; }.dialer-status.is-connected { color:var(--workspace-accent,var(--orange)); }
 .dialer-provider-action { grid-column:3; grid-row:1 / span 2; min-height:36px; border:1px solid var(--line-bright); border-radius:8px; padding:0 12px; color:var(--text); background:var(--surface); font-weight:700; }
+.dialer-provider-action-hint { grid-column:3; grid-row:1 / span 2; align-self:center; color:var(--muted); font-size:12px; line-height:1.4; }
 .dialer-workflow-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .dialer-workflow-grid article { display:flex; gap:12px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
 .dialer-workflow-grid h3 { margin:0 0 4px; font-size:15px; }.dialer-workflow-grid p { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
 .dialer-step { display:flex; align-items:center; justify-content:center; width:30px; height:30px; flex:0 0 30px; border-radius:9px; color:var(--workspace-accent,var(--orange)); background:var(--surface-high); font:700 11px ui-monospace,monospace; }
 .dialer-history-panel { min-width:0; }.dialer-lead-select { display:grid; grid-template-columns:auto minmax(190px,1fr); align-items:center; gap:10px; min-width:310px; }.dialer-lead-select select { margin:0; }
 .dialer-empty { margin:20px 0 2px; color:var(--muted); }
-.dialer-record-list { display:flex; flex-direction:column; gap:10px; }.dialer-record { padding:15px; border:1px solid var(--line); border-radius:11px; background:var(--surface-high); }
-.dialer-record-head { display:flex; justify-content:space-between; gap:14px; }.dialer-record-head strong { display:block; }.dialer-record-head span { display:block; margin-top:3px; color:var(--muted); font-size:13px; }.dialer-record-head b { color:var(--workspace-accent,var(--orange)); font-size:12px; text-transform:capitalize; }
-.dialer-record p { margin:12px 0 8px; color:var(--muted); }.dialer-record a { color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record details { margin-top:12px; }.dialer-record summary { cursor:pointer; color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record pre { max-height:260px; margin:10px 0 0; overflow:auto; padding:12px; border-radius:8px; background:var(--surface); color:var(--text); font:13px/1.55 ui-monospace,monospace; white-space:pre-wrap; }
+.dialer-record-list { display:flex; flex-direction:column; gap:12px; }.dialer-record { display:grid; gap:12px; min-width:0; padding:18px 20px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.dialer-record-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.dialer-contact { display:grid; gap:3px; min-width:0; }.dialer-contact h3 { margin:0; font-size:17px; line-height:1.35; }.dialer-direction { color:var(--muted); font-size:12px; font-weight:700; text-transform:capitalize; }
+.dialer-phone { width:max-content; color:var(--workspace-accent,var(--orange)); font-size:14px; font-weight:700; text-decoration:none; }
+.dialer-call-facts,.call-record-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0; }
+.dialer-call-facts > div,.call-record-facts > div { min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--surface-high); }
+.dialer-call-facts dt,.call-record-facts dt { color:var(--muted); font-size:11px; font-weight:700; }
+.dialer-call-facts dd,.call-record-facts dd { margin:3px 0 0; font-size:13px; font-weight:650; overflow-wrap:anywhere; }
+.dialer-insights-button { justify-self:start; }.dialer-insights-loading,.call-detail-note { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
+.dialer-call-action { justify-self:start; }
+.dialer-linked-lead { color:var(--workspace-accent,var(--orange)) !important; font-size:13px; font-weight:700; }
+.dialer-lead-assessment { display:flex; flex-direction:column; gap:3px; margin-top:14px; padding:11px 12px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }
+.dialer-lead-assessment strong { font-size:13px; }.dialer-lead-assessment span { color:var(--muted); font-size:13px; line-height:1.45; }
+.dialer-add-lead { margin-top:12px; }.dialer-add-lead form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; max-width:720px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.dialer-add-lead form > strong,.dialer-add-lead form > label:nth-of-type(5),.dialer-add-lead form > .team-alert { grid-column:1 / -1; }
+.dialer-add-lead label { display:grid; gap:5px; color:var(--muted); font-size:13px; font-weight:700; }
+.dialer-add-lead input,.dialer-add-lead textarea { width:100%; min-width:0; border:1px solid var(--line-bright); border-radius:7px; padding:9px 10px; color:var(--text); background:var(--surface-high); font:inherit; }
+.dialer-add-lead form button { justify-self:start; }
+.dialer-record p { margin:0; color:var(--muted); }.dialer-record a { color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record details { margin-top:4px; }.dialer-record summary { cursor:pointer; color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record pre { max-height:260px; margin:10px 0 0; overflow:auto; padding:12px; border-radius:8px; background:var(--surface-high); color:var(--text); font:13px/1.55 ui-monospace,monospace; white-space:pre-wrap; }
 .dialer-analysis-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }.dialer-analysis-row span { padding:5px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:12px; }.dialer-analysis-row .dialer-analysis-good { color:var(--workspace-accent,var(--orange)); border-color:color-mix(in srgb,var(--workspace-accent,var(--orange)) 35%,var(--line)); }
+.call-insights { display:grid; gap:10px; margin-top:2px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--surface-high); }
+.call-insights > h4 { margin:0; font-size:15px; }
+.call-insight-summary { padding:12px; border-left:3px solid var(--workspace-accent,var(--orange)); border-radius:0 8px 8px 0; background:var(--surface-high); }
+.call-insight-summary p { margin:6px 0 0; color:var(--text); line-height:1.55; }
+.call-insight-label { display:block; margin-bottom:4px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.call-insight-unavailable { margin:4px 0 0; color:var(--muted); font-size:13px; font-style:italic; }
+.call-insight-facts { display:grid; grid-template-columns:minmax(130px,.65fr) minmax(0,1.35fr); gap:12px; }
+.call-insight-facts > div { min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:8px; }
+.call-insight-facts strong { font-size:14px; text-transform:capitalize; }
+.call-insight-sentiment { justify-self:start; padding:4px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:12px; font-weight:700; text-transform:capitalize; }
+.call-insight-topics ul,.call-insight-group ul { display:flex; flex-wrap:wrap; gap:6px; margin:7px 0 0; padding:0; list-style:none; }
+.call-insight-topics li { display:flex; align-items:center; gap:8px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; font-size:12px; }
+.call-insight-topics li small { color:var(--muted); }
+.call-insight-notes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.call-insight-group { min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:8px; }
+.call-insight-group h5 { margin:0; font-size:13px; }
+.call-insight-group li { display:flex; flex-direction:column; gap:3px; width:100%; color:var(--text); font-size:13px; line-height:1.45; }
+.call-insight-group li strong { color:var(--workspace-accent,var(--orange)); font-size:12px; }
+.call-insight-ratio ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+.call-insight-ratio li { padding:8px; border-radius:6px; background:var(--surface-high); }
+.dialer-call-launch { display:grid; gap:16px; }
+.dialer-call-launch > .dialer-panel-head { margin-bottom:0; }
+.dialer-lead-search { display:grid; gap:7px; max-width:520px; color:var(--muted); font-size:13px; font-weight:700; }
+.dialer-lead-search input { width:100%; min-width:0; border:1px solid var(--line-bright); border-radius:8px; padding:10px 12px; color:var(--text); background:var(--surface-high); font:inherit; }
+.dialer-lead-results { display:grid; gap:8px; max-height:320px; overflow:auto; }
+.dialer-lead-option { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; padding:8px 10px 8px 14px; border:1px solid var(--line); border-radius:9px; background:var(--surface-high); }
+.dialer-lead-option-main { display:flex; flex:1 1 auto; align-items:center; justify-content:space-between; gap:16px; min-width:0; min-height:42px; padding:2px 4px 2px 0; border:0; color:var(--text); background:transparent; text-align:left; cursor:pointer; }
+.dialer-lead-option-main:hover,.dialer-lead-option-main:focus-visible { color:var(--workspace-accent,var(--orange)); }
+.dialer-lead-option-main > span:first-child { display:grid; gap:3px; min-width:0; }
+.dialer-lead-option strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dialer-lead-option small,.dialer-selected-lead span { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+.dialer-lead-option-main > span:last-child { flex:0 0 auto; color:var(--workspace-accent,var(--orange)); font-size:20px; }
+.dialer-lead-call-action { min-height:36px; flex:0 0 auto; padding:0 13px; border:1px solid var(--workspace-accent,var(--orange)); border-radius:8px; color:#fff; background:var(--workspace-accent,var(--orange)); font:inherit; font-size:13px; font-weight:750; cursor:pointer; }
+.dialer-lead-call-action:hover:not(:disabled) { filter:brightness(.94); }
+.dialer-lead-call-action:focus-visible,.dialer-lead-option-main:focus-visible { outline:2px solid var(--workspace-accent,var(--orange)); outline-offset:2px; }
+.dialer-lead-call-action:disabled { border-color:var(--line); color:var(--muted); background:var(--surface); cursor:not-allowed; }
+.dialer-selected-lead { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 15px; border:1px solid var(--line); border-radius:10px; background:var(--surface-high); }
+.dialer-selected-lead > div:first-child { display:grid; gap:4px; min-width:0; }
+.dialer-selected-lead strong { font-size:15px; }
+.dialer-selected-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.dialer-call-launch .calls-panel { margin-top:0; }
+@media (max-width:600px) { .call-insight-facts,.call-insight-notes,.dialer-call-facts { grid-template-columns:1fr; }.dialer-record { padding:15px; }.dialer-record-top { align-items:flex-start; }.dialer-selected-lead { align-items:flex-start; flex-direction:column; }.dialer-selected-actions { justify-content:flex-start; } }
 @media (max-width:800px) { .dialer-head { flex-direction:column; }.dialer-head > button { width:100%; }.dialer-provider-grid,.dialer-workflow-grid { grid-template-columns:1fr; }.dialer-summary-grid { grid-template-columns:1fr; }.dialer-panel-head { flex-direction:column; }.dialer-lead-select { width:100%; min-width:0; } }

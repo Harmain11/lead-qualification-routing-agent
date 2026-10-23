@@ -40,6 +40,7 @@ from lead_agent.infrastructure.secrets import DevelopmentSecretStore
 from lead_agent.infrastructure.slack import (
     SLACK_REQUIRED_SCOPES,
     SlackConnectionValidator,
+    SlackNotificationProvider,
     SlackProviderRevoker,
     SlackWebApi,
     WorkspaceSlackNotificationResolver,
@@ -50,6 +51,66 @@ from lead_agent.settings.config import Settings
 
 def slack_client(handler) -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_slack_direct_message_opens_dm_before_posting():
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, request.content.decode()))
+        if request.url.path.endswith("/conversations.open"):
+            return httpx.Response(200, json={"ok": True, "channel": {"id": "D123"}})
+        return httpx.Response(200, json={"ok": True, "ts": "message-ts"})
+
+    provider = SlackNotificationProvider(
+        connection=SimpleNamespace(
+            connection_id=uuid4(), workspace_id=uuid4(), credentials={"access_token": "test"}
+        ),
+        channel_id="C123",
+        client=slack_client(handler),
+    )
+    result = provider.send_direct(
+        "U12345678",
+        NotificationMessage(deduplication_key="direct-test", priority="normal", text="Hello"),
+    )
+    assert result.state == "sent"
+    assert [call[0] for call in calls] == [
+        "/api/conversations.open", "/api/chat.postMessage",
+    ]
+    assert "channel=D123" in calls[1][1]
+
+
+@pytest.mark.parametrize("fallback_enabled,expected_calls", [(False, 1), (True, 2)])
+def test_slack_dm_failure_uses_channel_only_when_fallback_is_selected(
+    fallback_enabled, expected_calls
+):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("/conversations.open"):
+            return httpx.Response(200, json={"ok": False, "error": "user_not_found"})
+        return httpx.Response(200, json={"ok": True, "ts": "fallback-ts"})
+
+    provider = SlackNotificationProvider(
+        connection=SimpleNamespace(
+            connection_id=uuid4(), workspace_id=uuid4(), credentials={"access_token": "test"}
+        ),
+        channel_id="U12345678",
+        destination_type="direct_message",
+        fallback_to_channel=fallback_enabled,
+        fallback_channel_id="C123",
+        client=slack_client(handler),
+    )
+    result = provider.send(
+        NotificationMessage(deduplication_key="fallback-test", priority="normal", text="Hello")
+    )
+    assert len(calls) == expected_calls
+    assert (result.state == "sent") is fallback_enabled
+    if fallback_enabled:
+        assert "configured fallback channel" in result.error_message
+    else:
+        assert "Verify the member ID" in result.error_message
 
 
 def database(tmp_path) -> Session:

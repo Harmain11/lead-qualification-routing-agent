@@ -16,7 +16,15 @@ were completed in Phase 7C8 on 2026-09-26 using automatic scheduled Gmail inboun
    and timestamps are recorded in `phase-7c-provider-certification.md`.
 
 Do not add a manual reprocess UI solely for certification. The existing ingestion and
-reprocessing behavior is the path under acceptance; Slack behavior remains unchanged.
+reprocessing behavior is the path under acceptance; the checks above record the
+notification behavior at that time.
+
+## Current one-notification-per-lead policy
+
+The Phase 7C8 second-notification check above records historical behavior. The current
+product policy, confirmed 2026-10-19, suppresses any additional Slack alert for a lead
+when an earlier alert is pending, retryable, or sent. Retry the original notification
+record instead of creating another alert through a later routing decision.
 
 ## Slack app setup for the next live phase
 

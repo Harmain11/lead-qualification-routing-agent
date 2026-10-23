@@ -1,21 +1,31 @@
 import { OperationsDialog } from "../components/OperationsDialog";
 import type { FormEvent } from "react";
 import { memo, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   bulkDeleteLeads,
   bulkSendLeadsToCrm,
   createLead,
   exportLeads,
+  LEAD_EXPORT_COLUMNS,
   listIntegrations,
+  listLeadAssignmentOptions,
   listLeads,
+  updateLeadAssignment,
+  updateLeadGenerated,
+  type LeadExportColumn,
 } from "../api";
+import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
 import { LeadDetail } from "../components/LeadDetail";
 import { LeadRowIdentity } from "../components/LeadRowIdentity";
 import { LeadSubpage, leadSubpageCopy } from "../components/LeadSubpage";
 import { SelectMenu } from "../components/SelectMenu";
 import type { LeadDetailSection } from "../leadSections";
-import type { Lead, LeadPayload } from "../types";
+import type { Lead, LeadAssignmentOption, LeadPayload } from "../types";
+import {
+  leadSourceCategory,
+  leadSourceDetailLabel,
+  leadSourceLabel,
+} from "../leadSources";
 import {
   Empty,
   pretty,
@@ -24,7 +34,7 @@ import {
 } from "./productShared";
 
 const emptyLead: LeadPayload = {
-  source: "website",
+  source: "manual",
   source_detail: "manual-control-center",
   full_name: "",
   email: "",
@@ -59,6 +69,7 @@ const emptyLeadFilters = (): LeadFilterState => ({
 });
 
 const LEAD_SOURCE_OPTIONS = [
+  "manual",
   "email",
   "website",
   "offline",
@@ -90,10 +101,17 @@ export function LeadsView({
   onCreated,
   onUpdated,
   onDeleted,
+  newLeadIds,
   canEdit = true,
+  canManageRouting = false,
   canExport = false,
   canCrmSync = false,
-  canCall = false,
+  canViewEmail = false,
+  canUseAgent = false,
+  dialerPhoneConnectionId = null,
+  onNavigateToDialer,
+  canEnrollAutomations = false,
+  onOpenAutomations,
 }: {
   selected: Lead | null;
   activeSection: LeadDetailSection;
@@ -106,10 +124,17 @@ export function LeadsView({
   onCreated: (lead: Lead) => void;
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
+  newLeadIds: ReadonlySet<string>;
   canEdit?: boolean;
+  canManageRouting?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
-  canCall?: boolean;
+  canViewEmail?: boolean;
+  canUseAgent?: boolean;
+  dialerPhoneConnectionId?: string | null;
+  onNavigateToDialer: () => void;
+  canEnrollAutomations?: boolean;
+  onOpenAutomations?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [band, setBand] = useState("all");
@@ -130,8 +155,51 @@ export function LeadsView({
   const [showExport, setShowExport] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [crmNotice, setCrmNotice] = useState<string | null>(null);
+  const [leadControlError, setLeadControlError] = useState<string | null>(null);
   const [crmProviders, setCrmProviders] = useState<string[]>([]);
   const [bulkProvider, setBulkProvider] = useState("");
+  const [assignmentOptions, setAssignmentOptions] = useState<LeadAssignmentOption[]>([]);
+  const [assignmentOptionsLoading, setAssignmentOptionsLoading] = useState(false);
+  const [assignmentOptionsError, setAssignmentOptionsError] = useState<string | null>(null);
+  const [savingAssignmentIds, setSavingAssignmentIds] = useState<Set<string>>(new Set());
+  const [savingGeneratedIds, setSavingGeneratedIds] = useState<Set<string>>(new Set());
+  const [automationEnrollment, setAutomationEnrollment] = useState<{
+    kind: "sequence" | "playbook";
+    leadId: string;
+    leadLabel: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!canManageRouting) {
+      setAssignmentOptions([]);
+      setAssignmentOptionsLoading(false);
+      setAssignmentOptionsError(null);
+      return;
+    }
+    let active = true;
+    const controller = new AbortController();
+    setAssignmentOptionsLoading(true);
+    setAssignmentOptionsError(null);
+    void listLeadAssignmentOptions(controller.signal)
+      .then((options) => {
+        if (active) setAssignmentOptions(options);
+      })
+      .catch((error) => {
+        if (active && !controller.signal.aborted) {
+          setAssignmentOptionsError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load workspace representatives.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setAssignmentOptionsLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [canManageRouting]);
   useEffect(() => {
     if (!canCrmSync) return;
     let active = true;
@@ -234,6 +302,51 @@ export function LeadsView({
       else next.add(id);
       return next;
     });
+  const updateLeadRow = (lead: Lead) => {
+    setRows((current) =>
+      current.map((item) => (item.id === lead.id ? lead : item)),
+    );
+    onUpdated(lead);
+  };
+  const changeLeadGenerated = async (leadId: string, isGenerated: boolean) => {
+    setLeadControlError(null);
+    setSavingGeneratedIds((current) => new Set(current).add(leadId));
+    try {
+      updateLeadRow(await updateLeadGenerated(leadId, isGenerated));
+    } catch (error) {
+      setLeadControlError(
+        error instanceof Error ? error.message : "Unable to update lead status.",
+      );
+    } finally {
+      setSavingGeneratedIds((current) => {
+        const next = new Set(current);
+        next.delete(leadId);
+        return next;
+      });
+    }
+  };
+  const changeLeadAssignment = async (
+    leadId: string,
+    assignedRepId: string | null,
+  ) => {
+    setLeadControlError(null);
+    setSavingAssignmentIds((current) => new Set(current).add(leadId));
+    try {
+      updateLeadRow(await updateLeadAssignment(leadId, assignedRepId));
+    } catch (error) {
+      setLeadControlError(
+        error instanceof Error
+          ? error.message
+          : "Unable to update the assigned representative.",
+      );
+    } finally {
+      setSavingAssignmentIds((current) => {
+        const next = new Set(current);
+        next.delete(leadId);
+        return next;
+      });
+    }
+  };
   const selectVisible = () =>
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -299,6 +412,59 @@ export function LeadsView({
       className="page-view operational-page focused-page"
       data-lead-page={activeSection}
     >
+      {selected ? (
+        <section className="lead-full-page lead-drawer" aria-label="Lead details">
+          <div className="lead-drawer-toolbar">
+            <span>Lead details · {selected.source}</span>
+            <button
+              className="lead-drawer-close"
+              type="button"
+              autoFocus
+              aria-label="Back to leads"
+              onClick={onClose}
+            >
+              <span aria-hidden="true">←</span> Back to leads
+            </button>
+          </div>
+          <LeadDetail
+            key={selected.id}
+            lead={selected}
+            activeSection={activeSection}
+            onSectionChange={onSectionChange}
+            isSectionPinned={isSectionPinned}
+            onTogglePin={onTogglePin}
+            canCrmSync={canCrmSync}
+            canViewEmail={canViewEmail}
+            canUseAgent={canUseAgent}
+            dialerPhoneConnectionId={dialerPhoneConnectionId}
+            onNavigateToDialer={onNavigateToDialer}
+            canEdit={canEdit}
+            canEnrollAutomations={canEnrollAutomations}
+            onEnrollAutomation={(kind) =>
+              setAutomationEnrollment({
+                kind,
+                leadId: selected.id,
+                leadLabel: `${selected.full_name || "Unnamed lead"} · ${selected.company_name || "No company"}`,
+              })
+            }
+            onUpdated={(lead) => {
+              onUpdated(lead);
+              setRows((current) =>
+                current.map((item) => (item.id === lead.id ? lead : item)),
+              );
+            }}
+            onDeleted={(leadId) => {
+              onDeleted(leadId);
+              setRows((current) =>
+                current.filter((item) => item.id !== leadId),
+              );
+              onClose();
+              setRefreshKey((value) => value + 1);
+            }}
+          />
+        </section>
+      ) : (
+        <>
       <header className="page-hero compact-hero">
         <div>
           <span className="eyebrow">
@@ -347,7 +513,7 @@ export function LeadsView({
           </label>
           <label><span>Qualification band</span>
           <SelectMenu
-            aria-label="Qualification band"
+            ariaLabel="Qualification band"
             value={band}
             onChange={setBand}
             options={[{ value: "all", label: "All qualification bands" }, ...["hot", "warm", "needs_qualifying", "nurture", "disqualify"].map((item) => ({ value: item, label: qualificationLabel(item) }))]}
@@ -355,10 +521,10 @@ export function LeadsView({
           </label>
           <label><span>Lead source</span>
           <SelectMenu
-            aria-label="Lead source"
+            ariaLabel="Lead source"
             value={source}
             onChange={setSource}
-            options={[{ value: "all", label: "All channels" }, ...LEAD_SOURCE_OPTIONS.map((item) => ({ value: item, label: item }))]}
+            options={[{ value: "all", label: "All channels" }, ...LEAD_SOURCE_OPTIONS.map((item) => ({ value: item, label: leadSourceLabel(item) }))]}
           />
           </label>
           <label className="date-filter">
@@ -420,7 +586,7 @@ export function LeadsView({
                 <label className="lead-transfer-control">
                   <span>Transfer to</span>
                   <SelectMenu
-                    aria-label="Bulk CRM provider"
+                    ariaLabel="Bulk CRM provider"
                     value={bulkProvider}
                     onChange={setBulkProvider}
                     options={[{ value: "", label: "Select CRM" }, ...crmProviders.map((provider) => ({ value: provider, label: provider === "hubspot" ? "HubSpot" : pretty(provider) }))]}
@@ -509,6 +675,11 @@ export function LeadsView({
             loading={loading}
           />
         )}
+        {(leadControlError || assignmentOptionsError) && (
+          <p className="form-error" role="alert">
+            {leadControlError || assignmentOptionsError}
+          </p>
+        )}
         <div
           className="lead-table-wrap"
           hidden={activeSection !== "overview"}
@@ -525,7 +696,8 @@ export function LeadsView({
                 <th>Source</th>
                 <th>Score</th>
                 <th>Routing</th>
-                <th>Representative</th>
+                <th>Assigned rep</th>
+                <th>Lead generated</th>
                 <th>Received</th>
               </tr>
             </thead>
@@ -534,10 +706,20 @@ export function LeadsView({
                 <LeadTableRow
                   key={lead.id}
                   lead={lead}
-                  selected={selected?.id === lead.id}
+                  isNew={newLeadIds.has(lead.id)}
+                  selected={false}
                   checked={selectedIds.has(lead.id)}
+                  canEditGenerated={canEdit}
+                  canManageRouting={canManageRouting}
+                  assignmentOptions={assignmentOptions}
+                  assignmentOptionsLoading={assignmentOptionsLoading}
+                  assignmentOptionsError={Boolean(assignmentOptionsError)}
+                  savingAssignment={savingAssignmentIds.has(lead.id)}
+                  savingGenerated={savingGeneratedIds.has(lead.id)}
                   onToggle={toggleSelected}
                   onInspect={onInspect}
+                  onAssignmentChange={changeLeadAssignment}
+                  onGeneratedChange={changeLeadGenerated}
                 />
               ))}
             </tbody>
@@ -597,49 +779,18 @@ export function LeadsView({
           selectedIds={[...selectedIds]}
         />
       )}
-      {selected &&
-        createPortal(
-          <OperationsDialog title={`${selected.company_name} lead details`} className="lead-drawer" showHeader={false} onClose={onClose}>
-              <div className="lead-drawer-toolbar">
-                <span>Lead details · {selected.source}</span>
-                <button
-                  className="lead-drawer-close"
-                  type="button"
-                  autoFocus
-                  aria-label="Close lead details and return to leads"
-                  onClick={onClose}
-                >
-                  <span aria-hidden="true">←</span> Back to leads
-                </button>
-              </div>
-              <LeadDetail
-                key={selected.id}
-                lead={selected}
-                activeSection={activeSection}
-                onSectionChange={onSectionChange}
-                isSectionPinned={isSectionPinned}
-                onTogglePin={onTogglePin}
-                canCrmSync={canCrmSync}
-                canCall={canCall}
-                canEdit={canEdit}
-                onUpdated={(lead) => {
-                  onUpdated(lead);
-                  setRows((current) =>
-                    current.map((item) => (item.id === lead.id ? lead : item)),
-                  );
-                }}
-                onDeleted={(leadId) => {
-                  onDeleted(leadId);
-                  setRows((current) =>
-                    current.filter((item) => item.id !== leadId),
-                  );
-                  onClose();
-                  setRefreshKey((value) => value + 1);
-                }}
-              />
-          </OperationsDialog>,
-          document.body,
-        )}
+        </>
+      )}
+      {automationEnrollment && (
+        <AutomationEnrollmentDialog
+          key={`${automationEnrollment.kind}-${automationEnrollment.leadId}`}
+          kind={automationEnrollment.kind}
+          fixedLeadIds={[automationEnrollment.leadId]}
+          fixedLeadLabel={automationEnrollment.leadLabel}
+          onClose={() => setAutomationEnrollment(null)}
+          onOpenAutomations={onOpenAutomations}
+        />
+      )}
     </div>
   );
 }
@@ -667,8 +818,23 @@ function ExportDialog({
   const [scope, setScope] = useState<"current_filters" | "selected" | "all">(
     "current_filters",
   );
+  const [columns, setColumns] = useState<LeadExportColumn[]>(() =>
+    LEAD_EXPORT_COLUMNS
+      .filter((column) => column.defaultSelected)
+      .map((column) => column.key),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  function toggleColumn(column: LeadExportColumn, checked: boolean) {
+    setColumns((current) => {
+      const selected = new Set(current);
+      if (checked) selected.add(column);
+      else selected.delete(column);
+      return LEAD_EXPORT_COLUMNS
+        .filter((option) => selected.has(option.key))
+        .map((option) => option.key);
+    });
+  }
   async function submit() {
     setBusy(true);
     setError(null);
@@ -676,6 +842,7 @@ function ExportDialog({
       const result = await exportLeads({
         format,
         scope,
+        columns,
         filters:
           scope === "current_filters"
             ? {
@@ -709,7 +876,7 @@ function ExportDialog({
   const summary =
     scope === "all"
       ? "All permitted workspace leads"
-      : `${scope === "selected" ? selectedCount : count} leads${filters.band !== "all" ? ` · ${qualificationLabel(filters.band)}` : ""}${filters.source !== "all" ? ` · ${pretty(filters.source)}` : ""}${filters.dateFrom || filters.dateTo ? ` · ${filters.dateFrom || "Any"} – ${filters.dateTo || "Any"}` : ""}`;
+      : `${scope === "selected" ? selectedCount : count} leads${filters.band !== "all" ? ` · ${qualificationLabel(filters.band)}` : ""}${filters.source !== "all" ? ` · ${leadSourceLabel(filters.source)}` : ""}${filters.dateFrom || filters.dateTo ? ` · ${filters.dateFrom || "Any"} – ${filters.dateTo || "Any"}` : ""}`;
   return (
     <OperationsDialog title="Take leads with you" className="team-modal export-dialog" showHeader={false} onClose={() => { if (!busy) onClose(); }}>
         <div className="team-modal-head">
@@ -787,6 +954,56 @@ function ExportDialog({
             All permitted workspace leads
           </label>
         </fieldset>
+        <fieldset className="export-columns">
+          <legend>Columns</legend>
+          <p className="export-columns-note">
+            Choose the fields to include in your CSV, Excel workbook, or PDF. The selected columns keep this order.
+          </p>
+          <div className="export-column-controls">
+            <span>{columns.length} of {LEAD_EXPORT_COLUMNS.length} selected</span>
+            <div>
+              <button
+                className="button-quiet"
+                type="button"
+                disabled={busy || columns.length === LEAD_EXPORT_COLUMNS.length}
+                onClick={() => setColumns(LEAD_EXPORT_COLUMNS.map((column) => column.key))}
+              >
+                Select all
+              </button>
+              <button
+                className="button-quiet"
+                type="button"
+                disabled={busy || columns.length === 0}
+                onClick={() => setColumns([])}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="export-column-grid">
+            {LEAD_EXPORT_COLUMNS.map((column) => (
+              <label key={column.key}>
+                <input
+                  type="checkbox"
+                  checked={columns.includes(column.key)}
+                  disabled={busy}
+                  onChange={(event) => toggleColumn(column.key, event.currentTarget.checked)}
+                />
+                {column.label}
+              </label>
+            ))}
+          </div>
+          {columns.length === 0 && (
+            <small className="export-columns-warning" role="alert">
+              Select at least one column before downloading.
+            </small>
+          )}
+          {format === "pdf" && columns.length > 10 && (
+            <small className="export-columns-note">
+              For a more readable PDF, consider selecting fewer columns.
+            </small>
+          )}
+        </fieldset>
         {error && (
           <p className="team-alert" role="alert">
             {error}
@@ -799,7 +1016,7 @@ function ExportDialog({
           <button
             className="primary-button"
             onClick={() => void submit()}
-            disabled={busy || (scope === "selected" && !selectedCount)}
+            disabled={busy || columns.length === 0 || (scope === "selected" && !selectedCount)}
           >
             {busy ? "Preparing…" : "Download export"}
           </button>
@@ -816,6 +1033,16 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
     setForm((current) => ({ ...current, [key]: value }));
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const hasKnownDetail = Object.entries(form).some(
+      ([key, value]) =>
+        !["source", "source_detail"].includes(key) &&
+        value !== null &&
+        String(value).trim().length > 0,
+    );
+    if (!hasKnownDetail) {
+      setError("Enter at least one known lead detail; the other fields can stay blank.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -840,9 +1067,12 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
           <h2>Add a lead</h2>
         </div>
         <span className="flow-status">
-          <i /> Deterministic safeguards active
+          <i /> AI context analysis · deterministic scoring safeguards
         </span>
       </div>
+      <p className="intake-form-note">
+        All fields are optional. Enter at least one detail you know; leave the rest blank.
+      </p>
       <div className="form-grid">
         <Field
           label="Full name"
@@ -896,18 +1126,21 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
         />
       </div>
       <label className="field wide">
-        <span>Original inquiry</span>
+        <span>Inquiry / process context</span>
+        <small className="inquiry-context-hint">
+          Paste the original inquiry or summarize steps taken and where the person is in the
+          process. AI treats this as context, not necessarily a verbatim quote.
+        </small>
         <textarea
-          required
           value={form.message}
           onChange={(event) => set("message", event.target.value)}
           rows={5}
-          placeholder="Pain, desired outcome, budget, timeline and technical context…"
+          placeholder="Customer need, steps taken, current stage, open questions, timing, or a short summary…"
         />
       </label>
       {error && <p className="form-error">{error}</p>}
       <button className="primary-button" disabled={busy}>
-        {busy ? "Processing signal…" : "Create and qualify lead"}
+        {busy ? "Analyzing with AI…" : "Analyze and create lead"}
       </button>
     </form>
   );
@@ -915,16 +1148,36 @@ function LeadForm({ onCreated }: { onCreated: (lead: Lead) => void }) {
 
 const LeadTableRow = memo(function LeadTableRow({
   lead,
+  isNew,
   selected,
   checked,
+  canEditGenerated,
+  canManageRouting,
+  assignmentOptions,
+  assignmentOptionsLoading,
+  assignmentOptionsError,
+  savingAssignment,
+  savingGenerated,
   onToggle,
   onInspect,
+  onAssignmentChange,
+  onGeneratedChange,
 }: {
   lead: Lead;
+  isNew: boolean;
   selected: boolean;
   checked: boolean;
+  canEditGenerated: boolean;
+  canManageRouting: boolean;
+  assignmentOptions: LeadAssignmentOption[];
+  assignmentOptionsLoading: boolean;
+  assignmentOptionsError: boolean;
+  savingAssignment: boolean;
+  savingGenerated: boolean;
   onToggle: (id: string) => void;
   onInspect: (id: string) => void;
+  onAssignmentChange: (leadId: string, assignedRepId: string | null) => void;
+  onGeneratedChange: (leadId: string, isGenerated: boolean) => void;
 }) {
   const origin = crmOrigin(lead);
   return (
@@ -933,6 +1186,7 @@ const LeadTableRow = memo(function LeadTableRow({
       onClick={() => onInspect(lead.id)}
       tabIndex={0}
       onKeyDown={(event) => {
+        if ((event.target as HTMLElement).closest("button, input, select")) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onInspect(lead.id);
@@ -949,16 +1203,16 @@ const LeadTableRow = memo(function LeadTableRow({
         />
       </td>
       <td className="lead-identity-cell">
-        <LeadRowIdentity lead={lead} />
+        <LeadRowIdentity lead={lead} isNew={isNew} />
       </td>
       <td data-label="Source">
         <span
-          className={`source-tag source-${origin?.toLowerCase() || lead.source}`}
+          className={`source-tag source-${origin?.toLowerCase() || leadSourceCategory(lead.source, lead.source_detail)}`}
         >
-          {origin || pretty(lead.source)}
+          {origin || leadSourceLabel(lead.source, lead.source_detail)}
         </span>
         <small>
-          {origin ? "CRM import" : lead.source_detail || "Original intake"}
+          {origin ? "CRM import" : leadSourceDetailLabel(lead.source_detail)}
         </small>
       </td>
       <td data-label="Score">
@@ -977,7 +1231,55 @@ const LeadTableRow = memo(function LeadTableRow({
         {pretty(lead.routing?.assigned_queue || "Pending")}
       </td>
       <td data-label="Representative">
-        {lead.routing?.assigned_rep_name || "Unassigned"}
+        {canManageRouting ? (
+          lead.routing ? (
+            <select
+              className="lead-rep-select"
+              aria-label={`Assigned representative for ${lead.full_name}`}
+              value={lead.routing.assigned_rep_id || ""}
+              disabled={
+                savingAssignment ||
+                assignmentOptionsLoading ||
+                assignmentOptionsError
+              }
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) =>
+                onAssignmentChange(lead.id, event.target.value || null)
+              }
+            >
+              <option value="">Unassigned</option>
+              {lead.routing.assigned_rep_id &&
+                !assignmentOptions.some(
+                  (option) => option.user_id === lead.routing?.assigned_rep_id,
+                ) && (
+                  <option value={lead.routing.assigned_rep_id}>
+                    {lead.routing.assigned_rep_name || "Current representative"}
+                  </option>
+                )}
+              {assignmentOptions.map((option) => (
+                <option key={option.user_id} value={option.user_id}>
+                  {option.display_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span>Routing pending</span>
+          )
+        ) : (
+          lead.routing?.assigned_rep_name || "Unassigned"
+        )}
+      </td>
+      <td className="lead-generated-cell" data-label="Lead generated">
+        <input
+          type="checkbox"
+          aria-label={`Lead generated for ${lead.full_name}`}
+          checked={lead.is_generated}
+          disabled={!canEditGenerated || savingGenerated}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) =>
+            onGeneratedChange(lead.id, event.target.checked)
+          }
+        />
       </td>
       <td data-label="Received">
         {new Date(lead.received_at).toLocaleDateString()}
@@ -1001,7 +1303,6 @@ function Field({
     <label className="field">
       <span>{label}</span>
       <input
-        required={["Full name", "Email", "Company", "Service"].includes(label)}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}

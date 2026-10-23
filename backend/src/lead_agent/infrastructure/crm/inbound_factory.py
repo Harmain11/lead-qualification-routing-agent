@@ -3,21 +3,28 @@ from __future__ import annotations
 from functools import lru_cache
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lead_agent.application.governance import operations_policy
 from lead_agent.domain.crm_inbound import CrmInboundProvider
 from lead_agent.domain.integrations import SecretStore
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.crm.gohighlevel import GoHighLevelCrmProvider
 from lead_agent.infrastructure.crm.hubspot import HubSpotInboundCrmProvider
 from lead_agent.infrastructure.crm.salesforce import SalesforceInboundCrmProvider
-from lead_agent.infrastructure.db.models import ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    ProviderConnectionORM,
+    UserORM,
+    WorkspaceMembershipORM,
+)
 from lead_agent.infrastructure.gmail import GmailInboundProvider
 from lead_agent.infrastructure.outlook import OutlookInboundProvider
 from lead_agent.infrastructure.provider_lifecycle import (
     WorkspaceAuthorizedConnectionResolver,
     get_workspace_connection_resolver,
 )
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.secrets import get_secret_store
 from lead_agent.settings.config import Settings, get_settings
 
@@ -78,11 +85,67 @@ class WorkspaceInboundCrmProviderResolver:
                     category="configuration",
                     retryable=False,
                 )
+            member_emails = set(
+                session.scalars(
+                    select(UserORM.email)
+                    .join(WorkspaceMembershipORM, WorkspaceMembershipORM.user_id == UserORM.id)
+                    .where(
+                        WorkspaceMembershipORM.workspace_id == workspace_id,
+                        WorkspaceMembershipORM.status == "active",
+                    )
+                )
+            )
+            internal_domains = {
+                mailbox.rsplit("@", 1)[-1].lower(),
+                *(
+                    email.rsplit("@", 1)[-1].lower()
+                    for email in member_emails
+                    if "@" in email
+                    and email.rsplit("@", 1)[-1].lower()
+                    not in {
+                        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
+                        "live.com", "yahoo.com", "icloud.com", "aol.com",
+                        "proton.me", "protonmail.com",
+                    }
+                ),
+            }
+            business_profile = operations_policy(session, workspace_id).business_profile
+            internal_domains.update(business_profile.email_domains)
+            configured_domains = (
+                metadata.get("internal_domains", []) if isinstance(metadata, dict) else []
+            )
+            if isinstance(configured_domains, list):
+                internal_domains.update(
+                    value.strip().lower()
+                    for value in configured_domains
+                    if isinstance(value, str) and value.strip()
+                )
+            extractor = None
+            fallback_reason = "verified_workspace_openai_unavailable"
+            try:
+                workspace_reasoning = resolve_workspace_reasoning_provider(
+                    session,
+                    workspace_id,
+                    settings=self.settings,
+                    secret_store=self.secret_store,
+                )
+                if getattr(workspace_reasoning, "provider_name", "") == "openai":
+                    extractor = getattr(workspace_reasoning, "extract_gmail_lead", None)
+                    fallback_reason = (
+                        "" if callable(extractor) else "workspace_openai_extractor_unavailable"
+                    )
+            except Exception:
+                fallback_reason = "workspace_openai_resolution_failed"
             return GmailInboundProvider(
                 connection_id=resolved.connection_id,
                 access_token=resolved.credentials.get("access_token", ""),
                 mailbox_email=mailbox,
                 timeout_seconds=self.settings.crm_timeout_seconds,
+                lead_extractor=extractor,
+                ai_fallback_reason=fallback_reason or "workspace_openai_extractor_unavailable",
+                internal_domains=internal_domains,
+                internal_emails=member_emails,
+                business_profile=business_profile,
             )
         if resolved.provider == "outlook":
             connection = session.get(ProviderConnectionORM, resolved.connection_id)

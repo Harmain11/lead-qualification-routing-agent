@@ -47,9 +47,9 @@ class CanonicalCrmPayload(BaseModel):
     summary: str
     qualification_score: int = Field(ge=0, le=100)
     qualification_band: str
-    icp_score: int = Field(ge=0, le=40)
+    icp_score: int | None = Field(default=None, ge=0, le=40)
     icp_version_id: UUID | None = None
-    icp_source: str = "system_default"
+    icp_source: str = "not_configured"
     icp_profile_version: str = "legacy"
     icp_configuration_hash: str = "legacy"
     intent_urgency_score: int = Field(ge=0, le=35)

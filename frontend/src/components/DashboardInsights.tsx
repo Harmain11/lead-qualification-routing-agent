@@ -1,12 +1,15 @@
 import type { ChannelAnalytics, RevenueAnalytics } from "../types";
+import type { ExtendedAnalytics } from "../types";
 import type { ReactNode } from "react";
-import { Bars, TimedAreaChart } from "./Charts";
+import { Bars, TrendChart } from "./Charts";
 import "./dashboardInsights.css";
 
 type DashboardInsightsProps = {
   channels: ChannelAnalytics | null;
   revenue: RevenueAnalytics | null;
+  extended: ExtendedAnalytics | null;
   visible: ReadonlySet<string>;
+  settingsPrefix: string;
 };
 
 const readable = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -32,7 +35,13 @@ function InsightPanel({ eyebrow, title, detail, children, kind = "source" }: {
   </section>;
 }
 
-export function DashboardInsights({ channels, revenue, visible }: DashboardInsightsProps) {
+export function DashboardInsights({
+  channels,
+  revenue,
+  extended,
+  visible,
+  settingsPrefix,
+}: DashboardInsightsProps) {
   const activePanels = ["revenue-trend", "source-qualification", "source-quality"].filter((id) => visible.has(id));
   if (activePanels.length === 0) return null;
 
@@ -49,17 +58,15 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
       note: `${source.qualified_leads !== undefined ? `${source.qualified_leads} qualified / ` : ""}${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
     }));
   const qualityRows = [...sources]
-    .filter((source) => Number.isFinite(source.average_score) && source.scored_leads !== 0)
-    .sort((a, b) => b.average_score - a.average_score || b.lead_volume - a.lead_volume)
+    .sort((a, b) => (b.closed_won_count ?? 0) - (a.closed_won_count ?? 0)
+      || b.closed_won_conversion_rate - a.closed_won_conversion_rate
+      || b.lead_volume - a.lead_volume)
     .map((source) => ({
       label: readable(source.channel),
-      value: source.average_score,
-      note: source.scored_leads !== undefined
-        ? `${source.scored_leads} scored / ${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`
-        : `${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
+      value: source.closed_won_count ?? 0,
+      note: `${source.closed_won_conversion_rate}% win rate · ${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
     }));
   const qualificationFormat = (value: number) => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
-  const scoreFormat = (value: number) => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}/100`;
 
   return <div className="dashboard-insights">
     {visible.has("revenue-trend") && <InsightPanel
@@ -76,11 +83,51 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
         <b>No revenue points in this period</b><span>The selected range contains no recorded time-series values.</span><small>Data status: {revenueStatus.toLowerCase()}</small>
       </div> : <div className="insight-chart">
         <div className={`insight-provenance provenance-${revenue.data_status}`}><span>Revenue data</span><b>{revenueStatus}</b></div>
-        <TimedAreaChart
-          points={revenue.over_time.map((point) => ({ timestamp: point.period, value: point.value }))}
-          formatValue={(value) => currency!.format(value)}
-          ariaLabel={`Revenue trend in ${revenue.currency}; ${revenueStatus.toLowerCase()} data`}
+        <TrendChart
+          values={revenue.over_time.map((point) => point.value)}
+          labels={revenue.over_time.map((point) => point.period)}
+          settingsId={`${settingsPrefix}:revenue-trend`}
+          series={[{
+            id: "revenue",
+            label: "Revenue",
+            values: revenue.over_time.map((point) => point.value),
+            formatter: (value) => currency!.format(value),
+          }]}
         />
+        <div className="insight-conversion-breakdown">
+          <b>Recorded conversion type</b>
+          {extended?.revenue_by_conversion_type.length ? (
+            <Bars
+              rows={extended.revenue_by_conversion_type.map((row) => ({
+                label: readable(row.type),
+                value: row.revenue,
+              }))}
+              formatter={(value) => currency!.format(value)}
+              settingsId={`${settingsPrefix}:conversion-type-revenue`}
+              metricOptions={[
+                {
+                  id: "revenue",
+                  label: "Recorded revenue",
+                  rows: extended.revenue_by_conversion_type.map((row) => ({
+                    label: readable(row.type),
+                    value: row.revenue,
+                  })),
+                  formatter: (value) => currency!.format(value),
+                },
+                {
+                  id: "wins",
+                  label: "Closed-won deals",
+                  rows: extended.revenue_by_conversion_type.map((row) => ({
+                    label: readable(row.type),
+                    value: row.won,
+                  })),
+                  formatter: (value) => `${value} wins`,
+                },
+              ]}
+            />
+          ) : <span>No project/sale revenue breakdown recorded for this period.</span>}
+          <small>Project and Sale are the stored labels; they do not identify new business versus expansion or renewal.</small>
+        </div>
       </div>}
     </InsightPanel>}
     {visible.has("source-qualification") && <InsightPanel
@@ -90,17 +137,91 @@ export function DashboardInsights({ channels, revenue, visible }: DashboardInsig
     >
       {!channels ? <div className="insight-empty" role="status"><b>Source analytics unavailable</b><span>Qualification rates will appear when channel analytics are available.</span></div>
         : qualificationRows.length === 0 ? <div className="insight-empty" role="status"><b>No source has recorded lead volume</b><span>Sources without leads are excluded rather than shown as zero-rate results.</span></div>
-           : <><Bars rows={qualificationRows} formatter={qualificationFormat} scaleMaximum={100} />
+            : <><Bars
+              rows={qualificationRows}
+              formatter={qualificationFormat}
+              scaleMaximum={100}
+              settingsId={`${settingsPrefix}:source-qualification`}
+              metricOptions={[
+                {
+                  id: "qualification-rate",
+                  label: "Qualification rate",
+                  rows: qualificationRows,
+                  formatter: qualificationFormat,
+                  scaleMaximum: 100,
+                },
+                {
+                  id: "booked-rate",
+                  label: "Booked rate",
+                  rows: sources.map((source) => ({
+                    label: readable(source.channel),
+                    value: source.booked_rate ?? 0,
+                  })),
+                  formatter: qualificationFormat,
+                  scaleMaximum: 100,
+                },
+                {
+                  id: "sql-rate",
+                  label: "SQL conversion rate",
+                  rows: sources.map((source) => ({
+                    label: readable(source.channel),
+                    value: source.sql_conversion_rate,
+                  })),
+                  formatter: qualificationFormat,
+                  scaleMaximum: 100,
+                },
+              ]}
+            />
              {qualificationRows.every((row) => row.value === 0) && <p className="panel-copy">No leads in these sources currently meet the qualification criteria. A 0% rate is not a missing score.</p>}</>}
     </InsightPanel>}
     {visible.has("source-quality") && <InsightPanel
       eyebrow="Lead source · assessment signal"
       title="Lead quality by source"
-       detail="Average recorded qualification score out of 100. Bars use a fixed 0–100 scale."
+       detail="Sources ranked by recorded closed-won deals, with win rate and lead volume for context."
     >
       {!channels ? <div className="insight-empty" role="status"><b>Source analytics unavailable</b><span>Lead scores will appear when channel analytics are available.</span></div>
-        : qualityRows.length === 0 ? <div className="insight-empty" role="status"><b>No scored leads with recorded volume</b><span>Sources without leads are excluded from this ranking.</span></div>
-           : <Bars rows={qualityRows} formatter={scoreFormat} scaleMaximum={100} />}
+        : qualityRows.length === 0 ? <div className="insight-empty" role="status"><b>No source has recorded lead volume</b><span>Sources without leads are excluded from this ranking.</span></div>
+            : <Bars
+              rows={qualityRows}
+              formatter={(value) => `${value} won`}
+              settingsId={`${settingsPrefix}:source-quality`}
+              metricOptions={[
+                {
+                  id: "closed-won",
+                  label: "Closed-won deals",
+                  rows: qualityRows,
+                  formatter: (value) => `${value} won`,
+                },
+                {
+                  id: "win-rate",
+                  label: "Win rate",
+                  rows: sources.map((source) => ({
+                    label: readable(source.channel),
+                    value: source.closed_won_conversion_rate,
+                  })),
+                  formatter: qualificationFormat,
+                  scaleMaximum: 100,
+                },
+                {
+                  id: "lead-volume",
+                  label: "Lead volume",
+                  rows: sources.map((source) => ({
+                    label: readable(source.channel),
+                    value: source.lead_volume,
+                  })),
+                },
+                {
+                  id: "average-score",
+                  label: "Average recorded score",
+                  rows: sources.map((source) => ({
+                    label: readable(source.channel),
+                    value: source.average_score,
+                  })),
+                  formatter: (value) => value.toFixed(1),
+                  scaleMaximum: 100,
+                },
+              ]}
+            />}
     </InsightPanel>}
   </div>;
 }
