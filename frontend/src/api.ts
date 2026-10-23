@@ -88,6 +88,7 @@ export type LeadAssistantAction = {
 export type LeadAssistantReply = {
   reply: string;
   action: LeadAssistantAction;
+  lead_links?: WorkspaceAssistantLeadLink[];
 };
 
 export type WorkspaceAssistantArea =

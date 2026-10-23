@@ -13,6 +13,7 @@ import {
   updateLeadProgress,
   type LeadAssistantAction,
   type LeadAssistantReply,
+  type WorkspaceAssistantLeadLink,
 } from "../api";
 import type { Lead, ProviderConnection } from "../types";
 import type { LeadDetailSection } from "../leadSections";
@@ -29,6 +30,7 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   action?: LeadAssistantAction;
+  leadLinks?: WorkspaceAssistantLeadLink[];
   busy?: boolean;
   done?: boolean;
   error?: string;
@@ -79,6 +81,7 @@ export function LeadAssistantPanel({
   canUseAgent,
   dialerPhoneConnectionId,
   onNavigateToDialer,
+  onOpenLead,
   onUpdated,
   onDeleted,
   onSectionChange,
@@ -90,6 +93,7 @@ export function LeadAssistantPanel({
   canUseAgent: boolean;
   dialerPhoneConnectionId: string | null;
   onNavigateToDialer: () => void;
+  onOpenLead: (leadId: string) => void;
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
   onSectionChange: (section: LeadDetailSection) => void;
@@ -203,6 +207,7 @@ export function LeadAssistantPanel({
           ? `${reply.reply}\n\nClick below to open the Dialer. Corral will not place the call.`
           : reply.reply,
         action: reply.action,
+        leadLinks: reply.lead_links,
         ...(aiComposerOpened ? {
           done: true,
           actionResult: "The composer is open. Review all fields; nothing will be sent until you choose Send follow-up.",
@@ -577,6 +582,30 @@ export function LeadAssistantPanel({
       {messages.map((message) => <article className={`lead-agent-message is-${message.role}`} key={message.id}>
         <span className="lead-agent-role">{message.role === "user" ? "You" : "Corral"}</span>
         <p>{message.content}</p>
+        {message.role === "assistant" && Boolean(message.leadLinks?.length) && (
+          <div className="lead-agent-open-lead-links" role="group" aria-label="Matching leads">
+            {message.leadLinks!.map((matchedLead) => (
+              <button
+                className="primary-button lead-agent-open-lead"
+                key={matchedLead.id}
+                type="button"
+                aria-label={
+                  matchedLead.suggested
+                    ? `Open suggested match ${matchedLead.name}`
+                    : `Open lead ${matchedLead.name}`
+                }
+                onClick={() => onOpenLead(matchedLead.id)}
+              >
+                <strong>{matchedLead.name}</strong>
+                <span>
+                  {[matchedLead.company, matchedLead.suggested ? "View match" : "Open lead"]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {message.action && renderAction(message)}
         {composeSeed && composerMessageId === message.id && <div className="lead-agent-email-compose">
           <EmailComposer

@@ -67,6 +67,7 @@ type LeadDetailProps = {
   canUseAgent?: boolean;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
+  onOpenLead?: (leadId: string) => void;
   canEnrollAutomations?: boolean;
   onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
@@ -77,7 +78,7 @@ type LeadDetailProps = {
   onTogglePin?: () => void;
 };
 
-export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canUseAgent = false, dialerPhoneConnectionId = null, onNavigateToDialer, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
+export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewEmail = false, canUseAgent = false, dialerPhoneConnectionId = null, onNavigateToDialer, onOpenLead, canEnrollAutomations = false, onEnrollAutomation, onUpdated, onDeleted, activeSection, onSectionChange, isSectionPinned = false, onTogglePin }: LeadDetailProps) {
   const [sending, setSending] = useState(false);
   const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -400,6 +401,9 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
         canUseAgent={canUseAgent}
         dialerPhoneConnectionId={dialerPhoneConnectionId}
         onNavigateToDialer={onNavigateToDialer}
+        onOpenLead={onOpenLead ?? ((leadId) => {
+          if (leadId === lead.id) onSectionChange("overview");
+        })}
         onUpdated={(updated) => onUpdated?.(updated)}
         onDeleted={(leadId) => onDeleted?.(leadId)}
         onSectionChange={onSectionChange}

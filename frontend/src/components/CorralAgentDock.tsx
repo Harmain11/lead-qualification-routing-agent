@@ -276,6 +276,7 @@ export function CorralAgentDock({
               canUseAgent
               dialerPhoneConnectionId={dialerPhoneConnectionId}
               onNavigateToDialer={onNavigateToDialer}
+              onOpenLead={(leadId) => onOpenLeadSection(leadId, "overview")}
               onUpdated={(updated) => {
                 setTargetLead(updated);
                 onUpdated(updated);
