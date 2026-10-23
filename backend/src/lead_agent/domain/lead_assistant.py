@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ProgressStage = Literal[
     "contacted",
@@ -72,6 +72,19 @@ class LeadAssistantAction(BaseModel):
     email_body: str | None = Field(default=None, max_length=20000)
     crm_provider: str | None = Field(default=None, max_length=64)
 
+    @model_validator(mode="after")
+    def route_note_only_changes(self) -> LeadAssistantAction:
+        # A note is narrative context, not a profile field. Some provider
+        # responses use update_profile with only note populated.
+        if (
+            self.kind == "update_profile"
+            and self.note and self.note.strip()
+            and not self.clear_fields
+            and not any(value is not None for value in self.profile_updates.model_dump().values())
+        ):
+            self.kind = "add_note"
+        return self
+
 
 class LeadAssistantReply(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -87,6 +100,7 @@ class WorkspaceAssistantAction(BaseModel):
         "none",
         "open_module",
         "open_lead",
+        "create_lead",
         "set_automation_active",
         "create_icp_draft",
         "update_routing_config",

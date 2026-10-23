@@ -101,7 +101,51 @@ test("opening a lead is read-only and sending remains in the email approval card
   assert.equal(requests.length, 0);
 });
 
+test("note drafts stay unsaved until approval and save the edited text", async () => {
+  requests.length = 0;
+  const original = proposal("add_lead_note", { note: "Original draft" });
+  const edited = actions.editWorkspaceNoteDraft(original, "  Reviewed customer comment  ");
+  assert.equal(actions.workspaceNoteDraft(edited), "  Reviewed customer comment  ");
+  assert.equal(actions.workspaceNoteDraft(original), "Original draft");
+  assert.equal(requests.length, 0);
+  await actions.applyWorkspaceAssistantAction(edited, permissions, noNavigate, noNavigate);
+  assert.equal(requests[0].method, "PUT");
+  assert.equal(requests[0].body.body, "Reviewed customer comment");
+  assert.equal(requests[0].body.version, 0);
+  assert.match(requests[0].url, /\/notes\/[0-9a-f-]{36}$/);
+  assert.equal(requests.some((request) => request.url.endsWith("/progress")), false);
+});
+
+test("blank note drafts never write or change lead status", async () => {
+  requests.length = 0;
+  const draft = actions.editWorkspaceNoteDraft(proposal("add_lead_note", { note: "Draft" }), " \n ");
+  await assert.rejects(
+    actions.applyWorkspaceAssistantAction(draft, permissions, noNavigate, noNavigate),
+    /Provide a note/,
+  );
+  assert.equal(requests.length, 0);
+});
+
+test("failed note save preserves the draft for retry and does not reevaluate", async () => {
+  requests.length = 0;
+  const fetchBeforeFailure = globalThis.fetch;
+  const draft = proposal("add_lead_note", { note: "Keep my edited draft" });
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: "Save unavailable" }), { status: 503 });
+    await assert.rejects(
+      actions.applyWorkspaceAssistantAction(draft, permissions, noNavigate, noNavigate),
+      /Save unavailable/,
+    );
+    assert.equal(actions.workspaceNoteDraft(draft), "Keep my edited draft");
+  } finally {
+    globalThis.fetch = fetchBeforeFailure;
+  }
+  await actions.applyWorkspaceAssistantAction(draft, permissions, noNavigate, noNavigate);
+  assert.equal(requests[0].body.body, "Keep my edited draft");
+});
+
 test("opening the Dialer requires dialer access and never places a call", async () => {
+  requests.length = 0;
   const action = { ...proposal("open_module"), area: "dialer" as const };
   const allowed = new Set(["dialer.call"]);
   const denied = new Set<string>();
@@ -123,4 +167,46 @@ test("opening the Dialer requires dialer access and never places a call", async 
     actions.applyWorkspaceAssistantAction(action, denied, noNavigate, noNavigate),
     /access/,
   );
+});
+
+test("creating a reviewed partial lead uses the normal AI-backed API and does not auto-save its note", async () => {
+  requests.length = 0;
+  const action = proposal("create_lead", {
+    full_name: "Alex Demo", phone: "03000000000",
+    follow_up_note: "Discuss AI services.",
+  });
+  action.target_id = null;
+  assert.equal(actions.canApplyWorkspaceAssistantAction(action, permissions), true);
+  await actions.createWorkspaceLead(action, permissions);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/v1/leads");
+  assert.equal(requests[0].method, "POST");
+  assert.deepEqual(requests[0].body, {
+    full_name: "Alex Demo", phone: "03000000000",
+    source: "manual", source_detail: "manual-control-center",
+  });
+  assert.equal(actions.leadCreationDraft(action).follow_up_note, "Discuss AI services.");
+});
+
+test("creation denies missing permissions, blank drafts and unapproved source overrides", async () => {
+  requests.length = 0;
+  const action = proposal("create_lead", { full_name: "Alex" });
+  await assert.rejects(actions.createWorkspaceLead(action, new Set(["leads.view"])), /leads.edit/);
+  await assert.rejects(actions.createWorkspaceLead(proposal("create_lead", { full_name: "" }), permissions), /at least one/);
+  await assert.rejects(actions.createWorkspaceLead(proposal("create_lead", { full_name: "Alex", source: "email" }), permissions), /unsupported/);
+  assert.equal(requests.length, 0);
+});
+
+test("AI analysis failure keeps the original creation draft and never creates or saves a note", async () => {
+  requests.length = 0;
+  const beforeFailure = globalThis.fetch;
+  const action = proposal("create_lead", { full_name: "Alex", follow_up_note: "Review later" });
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: "AI analysis failed; the lead was not created." }), { status: 503 });
+    await assert.rejects(actions.createWorkspaceLead(action, permissions), /AI analysis failed/);
+    assert.deepEqual(actions.leadCreationDraft(action), { full_name: "Alex", follow_up_note: "Review later" });
+    assert.equal(requests.length, 0);
+  } finally {
+    globalThis.fetch = beforeFailure;
+  }
 });

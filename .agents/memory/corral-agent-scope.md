@@ -33,4 +33,6 @@ For read-only questions about whether a lead exists or for its details, search s
 
 **Why:** the user expects Corral Agent to verify current-workspace lead records rather than returning a generic action-target error, and asked for likely typo matches to be confirmed before use and matching leads to open directly when clicked.
 
-**How to apply:** Keep exact and fuzzy searches server-side and workspace-scoped; never search another workspace or live external CRM/mail archives. Render verified matches as clickable lead-detail links. Clicking a fuzzy suggestion only opens that lead and never approves a mutation. Do not use a fuzzy candidate as an action target until the user confirms it, and never report no match when search failed.
+**How to apply:** Keep exact and fuzzy searches server-side and workspace-scoped; never search another workspace or live external CRM/mail archives. Render verified matches as clickable lead-detail links only when the current user explicitly asks to find, show, or open a lead (or confirms a pending match selection). Do not attach buttons to ordinary replies merely because a lead is mentioned. Clicking a fuzzy suggestion only opens that lead and never approves a mutation. Do not use a fuzzy candidate as an action target until the user confirms it, and never report no match when search failed.
+
+**Why:** The user clarified that lead buttons should appear only when specifically requested, not with every message.

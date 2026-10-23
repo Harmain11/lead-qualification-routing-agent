@@ -114,6 +114,7 @@ export type WorkspaceAssistantAction = {
     | "none"
     | "open_module"
     | "open_lead"
+    | "create_lead"
     | "set_automation_active"
     | "create_icp_draft"
     | "update_routing_config"
@@ -440,7 +441,7 @@ export async function changeWorkspace(workspaceId: string): Promise<AuthSession>
   return session;
 }
 
-export async function createLead(payload: LeadPayload): Promise<Lead> {
+export async function createLead(payload: Partial<LeadPayload>): Promise<Lead> {
   return request<Lead>("/v1/leads", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -729,13 +730,25 @@ export function chatWithWorkspaceAssistant(
   });
 }
 
-export function saveLeadNote(leadId: string, body: string): Promise<{ id: string; body: string }> {
+export const LEAD_NOTE_SAVED_EVENT = "corral:lead-note-saved";
+
+export async function saveLeadNote(leadId: string, body: string): Promise<{ id: string; body: string }> {
+  const text = body.trim();
+  if (!text || text.length > 5000) throw new Error("Enter a note between 1 and 5,000 characters.");
   const noteId = createClientId();
-  return jsonRequest(`/v1/collaboration/leads/${leadId}/notes/${noteId}`, {
+  const result = await jsonRequest<{ id: string; body: string }>(`/v1/collaboration/leads/${leadId}/notes/${noteId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body, version: 0 }),
+    body: JSON.stringify({ body: text, version: 0 }),
   });
+  // Refresh visible notes immediately, but optional browser feedback must never
+  // turn a successful write into an apparent failure.
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(LEAD_NOTE_SAVED_EVENT, { detail: { leadId } }));
+    }
+  } catch { /* The persisted note remains saved. */ }
+  return result;
 }
 
 export function deleteLead(leadId: string): Promise<void> {

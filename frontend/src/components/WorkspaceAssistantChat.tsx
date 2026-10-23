@@ -12,12 +12,18 @@ import type { GmailSendAccount, Lead } from "../types";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { AssistantNoteDraft } from "./AssistantNoteDraft";
+import { AssistantLeadDraft } from "./AssistantLeadDraft";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
 import {
   applyWorkspaceAssistantAction,
   applyWorkspaceEmailSignature,
   canOpenAssistantArea,
   canApplyWorkspaceAssistantAction,
+  workspaceNoteDraft,
+  editWorkspaceNoteDraft,
+  leadCreationDraft,
+  createWorkspaceLead,
 } from "./workspaceAssistantActions";
 import "../views/emailWorkspace.css";
 
@@ -215,6 +221,39 @@ export function WorkspaceAssistantChat({
       ),
     );
     try {
+      if (action.kind === "create_lead") {
+        const draft = leadCreationDraft(action);
+        const followUpNote = typeof draft.follow_up_note === "string"
+          ? draft.follow_up_note.trim() : "";
+        const noteMessageId = followUpNote ? createClientId() : null;
+        const created = await createWorkspaceLead(action, permissions);
+        // Mark creation complete before optional refreshes; a failed refresh
+        // must never offer a retry that creates a duplicate lead.
+        setMessages((current) => [
+          ...current.map((message): Message => message.id === messageId ? {
+            ...message,
+            actionStatus: "applied",
+            actionResult: `Created ${created.full_name || "the lead"} successfully.${followUpNote ? " The follow-up note below is still an unsaved draft." : ""}`,
+          } : message),
+          ...(noteMessageId ? [{
+            id: noteMessageId,
+            role: "assistant" as const,
+            content: "The lead was created. Review or edit this follow-up note, then choose Save note. It has not been saved yet.",
+            action: {
+              ...action,
+              kind: "add_lead_note" as const,
+              target_id: created.id,
+              target_label: created.full_name,
+              title: "Draft follow-up note",
+              summary: "Save this note only after reviewing it. Sales status will not change.",
+              payload_json: JSON.stringify({ note: followUpNote }),
+            },
+          }] : []),
+        ]);
+        void Promise.resolve().then(() => onLeadUpdated?.(created)).catch(() => undefined);
+        void Promise.resolve().then(() => onRefresh?.()).catch(() => undefined);
+        return;
+      }
       const result = await applyWorkspaceAssistantAction(
         action,
         permissions,
@@ -678,7 +717,31 @@ export function WorkspaceAssistantChat({
                         )}
                       </dl>
                     )}
-                    {message.action.payload_json && (
+                    {message.action.kind === "create_lead" && message.actionStatus !== "applied" && message.actionStatus !== "dismissed" && (
+                      <AssistantLeadDraft
+                        value={leadCreationDraft(message.action)}
+                        disabled={message.actionStatus === "applying" || !canApplyWorkspaceAssistantAction(message.action, permissions)}
+                        onChange={(value) => setMessages((current) => current.map((item) =>
+                          item.id === message.id && item.action ? {
+                            ...item, action: { ...item.action, payload_json: JSON.stringify(value) },
+                            actionError: undefined,
+                          } : item,
+                        ))}
+                      />
+                    )}
+                    {message.action.kind === "add_lead_note" && message.actionStatus !== "applied" && message.actionStatus !== "dismissed" && (
+                      <AssistantNoteDraft
+                        value={workspaceNoteDraft(message.action) ?? ""}
+                        disabled={message.actionStatus === "applying" || !canApplyWorkspaceAssistantAction(message.action, permissions)}
+                        onChange={(note) => setMessages((current) => current.map((item) =>
+                          item.id === message.id && item.action ? {
+                            ...item, action: editWorkspaceNoteDraft(item.action, note),
+                            actionError: undefined,
+                          } : item,
+                        ))}
+                      />
+                    )}
+                    {message.action.payload_json && !["add_lead_note", "create_lead"].includes(message.action.kind) && (
                       <details open={["update_lead_profile", "add_lead_note", "record_lead_progress"].includes(message.action.kind) || undefined}>
                         <summary>Review exact changes</summary>
                         <pre>{message.action.payload_json}</pre>
@@ -751,6 +814,7 @@ export function WorkspaceAssistantChat({
                         disabled={
                           busy ||
                           message.actionStatus === "applying" ||
+                          (message.action.kind === "add_lead_note" && !workspaceNoteDraft(message.action)?.trim()) ||
                           !canApplyWorkspaceAssistantAction(message.action, permissions)
                         }
                         onClick={() =>
@@ -765,6 +829,8 @@ export function WorkspaceAssistantChat({
                               : `Open ${message.action.area ?? "workspace"}`
                             : message.action.kind === "open_lead"
                               ? "Open lead"
+                            : message.action.kind === "add_lead_note" ? "Save note"
+                            : message.action.kind === "create_lead" ? "Create lead"
                             : "Approve and apply"}
                       </button>
                       {message.action.kind !== "open_module" && (
@@ -774,7 +840,7 @@ export function WorkspaceAssistantChat({
                           disabled={message.actionStatus === "applying"}
                           onClick={() => dismissAction(message.id)}
                         >
-                          Not now
+                          {["add_lead_note", "create_lead"].includes(message.action.kind) ? "Discard draft" : "Not now"}
                         </button>
                       )}
                     </div>

@@ -6,7 +6,7 @@ import {
   type Collaboration,
   type Note,
 } from "../operationsApi";
-import { getLead, reevaluateLead } from "../api";
+import { getLead, reevaluateLead, LEAD_NOTE_SAVED_EVENT } from "../api";
 import type { Lead } from "../types";
 export function CollaborationPanel({
   leadId,
@@ -49,6 +49,10 @@ export function CollaborationPanel({
       }).catch(() => {});
     void load();
     void heartbeat();
+    const onNoteSaved = (event: Event) => {
+      if ((event as CustomEvent<{ leadId: string }>).detail?.leadId === leadId) void load();
+    };
+    window.addEventListener(LEAD_NOTE_SAVED_EVENT, onNoteSaved);
     const timer = setInterval(() => {
       void load();
       void heartbeat();
@@ -57,6 +61,7 @@ export function CollaborationPanel({
       active = false;
       controller.abort();
       clearInterval(timer);
+      window.removeEventListener(LEAD_NOTE_SAVED_EVENT, onNoteSaved);
     };
   }, [leadId, refreshKey]);
   const edit = (note: Note) => {

@@ -1,5 +1,6 @@
 import {
   createIcpDraft,
+  createLead,
   disconnectIntegration,
   inviteMember,
   reactivateMember,
@@ -16,7 +17,7 @@ import {
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
 } from "../api";
-import type { IcpConfiguration } from "../types";
+import type { IcpConfiguration, Lead, LeadPayload } from "../types";
 import { opsGet, opsSave, type Automation } from "../operationsApi";
 
 export function applyWorkspaceEmailSignature(
@@ -65,6 +66,49 @@ function parsePayload(action: WorkspaceAssistantAction): Record<string, unknown>
     throw new Error("The proposed values are not a valid object.");
   }
   return parsed as Record<string, unknown>;
+}
+
+export function workspaceNoteDraft(action: WorkspaceAssistantAction): string | null {
+  if (action.kind !== "add_lead_note") return null;
+  try {
+    const payload = parsePayload(action);
+    return typeof payload.note === "string" ? payload.note : "";
+  } catch {
+    return "";
+  }
+}
+
+export function editWorkspaceNoteDraft(
+  action: WorkspaceAssistantAction, note: string,
+): WorkspaceAssistantAction {
+  if (action.kind !== "add_lead_note") throw new Error("This proposal is not a note draft.");
+  return { ...action, payload_json: JSON.stringify({ note }) };
+}
+
+export function leadCreationDraft(action: WorkspaceAssistantAction): Record<string, unknown> {
+  if (action.kind !== "create_lead") throw new Error("This proposal is not a new lead draft.");
+  return parsePayload(action);
+}
+
+export async function createWorkspaceLead(
+  action: WorkspaceAssistantAction, permissions: ReadonlySet<string>,
+): Promise<Lead> {
+  requirePermission(permissions, "leads.edit");
+  const { follow_up_note: _note, ...fields } = leadCreationDraft(action);
+  const allowed = new Set([
+    "full_name", "email", "phone", "company_name", "job_title", "industry",
+    "employee_count", "annual_revenue", "geography", "budget", "product_or_service", "message",
+  ]);
+  if (Object.keys(fields).some((key) => !allowed.has(key))) {
+    throw new Error("The new lead draft includes unsupported fields.");
+  }
+  if (!Object.values(fields).some((value) =>
+    typeof value === "string" ? Boolean(value.trim()) : typeof value === "number" && value >= 0,
+  )) throw new Error("Enter at least one known lead detail.");
+  return createLead({
+    ...fields as Partial<LeadPayload>,
+    source: "manual", source_detail: "manual-control-center",
+  });
 }
 
 function requirePermission(
@@ -118,6 +162,7 @@ export function canApplyWorkspaceAssistantAction(
     suspend_member: "members.manage",
     reactivate_member: "members.manage",
     send_email: "leads.edit",
+    create_lead: "leads.edit",
   };
   const required = requiredPermission[action.kind];
   return action.kind === "none" || Boolean(required && permissions.has(required));
@@ -130,6 +175,8 @@ export async function applyWorkspaceAssistantAction(
   onInspectLead: (leadId: string) => void,
 ): Promise<string> {
   switch (action.kind) {
+    case "create_lead":
+      throw new Error("Create this lead from its reviewed draft card.");
     case "update_lead_profile":
     case "add_lead_note":
     case "record_lead_progress":
@@ -146,7 +193,7 @@ export async function applyWorkspaceAssistantAction(
       if (action.kind === "add_lead_note") {
         const payload = parsePayload(action);
         if (typeof payload.note !== "string" || !payload.note.trim()) throw new Error("Provide a note to save.");
-        await saveLeadNote(target, payload.note);
+        await saveLeadNote(target, payload.note.trim());
         try {
           await reevaluateLead(target);
           return `Saved a note on ${action.target_label || "the lead"} and updated its AI assessment.`;
