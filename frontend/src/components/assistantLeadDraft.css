@@ -1,0 +1,155 @@
+.assistant-lead-draft {
+  --lead-draft-line: var(--line);
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--lead-draft-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-high) 74%, var(--surface));
+  color: var(--text);
+}
+
+.assistant-lead-draft__header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assistant-lead-draft__intro {
+  min-width: 0;
+}
+
+.assistant-lead-draft__intro h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.assistant-lead-draft__intro p {
+  max-width: 52ch;
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.assistant-lead-draft__badge {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--orange) 34%, var(--lead-draft-line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--orange-soft) 58%, var(--surface));
+  color: var(--orange);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .045em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.assistant-lead-draft__fields {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.assistant-lead-draft__field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.assistant-lead-draft__field--wide {
+  grid-column: 1 / -1;
+}
+
+.assistant-lead-draft__field input,
+.assistant-lead-draft__field textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--lead-draft-line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.45;
+}
+
+.assistant-lead-draft__field input {
+  min-height: 38px;
+}
+
+.assistant-lead-draft__field textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.assistant-lead-draft__field input::placeholder,
+.assistant-lead-draft__field textarea::placeholder {
+  color: var(--muted);
+  opacity: .75;
+}
+
+.assistant-lead-draft__field input:focus-visible,
+.assistant-lead-draft__field textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--orange) 48%, transparent);
+  outline-offset: 2px;
+}
+
+.assistant-lead-draft__field input:disabled,
+.assistant-lead-draft__field textarea:disabled {
+  cursor: not-allowed;
+  opacity: .68;
+}
+
+.assistant-lead-draft__section-note {
+  margin: -7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.assistant-lead-draft__follow-up {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding-top: 12px;
+  border-top: 1px solid var(--lead-draft-line);
+}
+
+.assistant-lead-draft__follow-up > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+  .assistant-lead-draft {
+    gap: 12px;
+    padding: 11px;
+  }
+
+  .assistant-lead-draft__fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .assistant-lead-draft__field--wide {
+    grid-column: auto;
+  }
+}

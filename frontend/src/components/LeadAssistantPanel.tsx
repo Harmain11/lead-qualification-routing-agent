@@ -22,6 +22,7 @@ import { EmailComposer, type GmailComposerSeed } from "./EmailComposer";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
 import { isFollowUpEmailDraftRequest } from "./leadAssistantIntents";
+import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import "../views/emailWorkspace.css";
 import "./leadAssistant.css";
 
@@ -345,7 +346,11 @@ export function LeadAssistantPanel({
         changeMessage(message.id, { done: true });
       } else if (action.kind === "add_note") {
         if (!action.note?.trim()) throw new Error("The assistant did not provide a note to save.");
-        await saveLeadNote(lead.id, action.note);
+        await saveLeadNote(lead.id, action.note.trim());
+        changeMessage(message.id, {
+          done: true,
+          actionResult: "Note saved to Team notes. Sales status was not changed.",
+        });
         try {
           onUpdated(await reevaluateLead(lead.id));
           changeMessage(message.id, {
@@ -461,7 +466,7 @@ export function LeadAssistantPanel({
   function actionTitle(action: LeadAssistantAction) {
     switch (action.kind) {
       case "update_profile": return "Update lead details";
-      case "add_note": return "Save team note";
+      case "add_note": return "Draft note / comment";
       case "record_progress": return "Record lead progress";
       case "draft_email": return "Write follow-up email";
       case "send_follow_up": return "Compose follow-up email";
@@ -495,7 +500,15 @@ export function LeadAssistantPanel({
         {changes.map(([field, value]) => <div key={field}><dt>{fieldLabels[field] || field}</dt><dd>{String(value)}</dd></div>)}
         {action.clear_fields.map((field) => <div key={`clear-${field}`}><dt>{fieldLabels[field] || field}</dt><dd>Clear this field</dd></div>)}
       </dl>}
-      {action.kind === "add_note" && <p className="lead-agent-action-copy">{action.note}</p>}
+      {action.kind === "add_note" && (message.done
+        ? <p className="lead-agent-action-copy">{action.note}</p>
+        : <AssistantNoteDraft
+            value={action.note ?? ""}
+            disabled={message.busy || !canEdit}
+            onChange={(note) => changeMessage(message.id, {
+              action: { ...action, note }, error: undefined,
+            })}
+          />)}
       {action.kind === "open_dialer" && <p className="lead-agent-action-copy">Saved number: <b>{lead.phone || "Not available"}</b>. Corral will not place the call. {!message.done && <a className="lead-agent-inline-link" href="?view=dialer" onClick={(event) => { event.preventDefault(); void executeAction(message); }}>Click here to open the Dialer</a>}</p>}
       {action.kind === "record_progress" && <>
         <p className="lead-agent-action-copy"><b>{stageLabels[action.progress_stage || ""] || "Progress update"}</b>{action.progress_note && <> · {action.progress_note}</>}</p>
@@ -529,11 +542,21 @@ export function LeadAssistantPanel({
         <button
             className={["sync_crm", "delete_lead", "send_follow_up", "reevaluate_lead"].includes(action.kind) ? "secondary-button" : "primary-button"}
             type="button"
-            disabled={message.busy || (editRequired && !canEdit) || (action.kind === "sync_crm" && (!canCrmSync || !selectedCrm)) || (action.kind === "open_email" && !canViewEmail) || (needsCredit && (!selection.conversionType || !selection.creditedUserId))}
+            disabled={message.busy || (action.kind === "add_note" && !action.note?.trim()) || (editRequired && !canEdit) || (action.kind === "sync_crm" && (!canCrmSync || !selectedCrm)) || (action.kind === "open_email" && !canViewEmail) || (needsCredit && (!selection.conversionType || !selection.creditedUserId))}
             onClick={() => void executeAction(message)}
           >
             {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "send_follow_up" || action.kind === "draft_email" ? "Open email composer" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
           </button>
+          {action.kind === "add_note" && <button
+            className="secondary-button"
+            type="button"
+            disabled={message.busy}
+            onClick={() => changeMessage(message.id, {
+              done: true, action: undefined, error: undefined,
+              actionResult: "Draft discarded. No note was saved.",
+              content: "Draft discarded. No note was saved.",
+            })}
+          >Discard draft</button>}
       </div>}
     </details>;
   }

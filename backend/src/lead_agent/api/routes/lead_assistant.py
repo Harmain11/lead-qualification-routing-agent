@@ -16,6 +16,7 @@ from lead_agent.api.workspace_assistant_context import build_workspace_assistant
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
+from lead_agent.domain.assistant_capabilities import workspace_action_capabilities
 from lead_agent.domain.lead_assistant import (
     LeadAssistantAction,
     WorkspaceAssistantAction,
@@ -131,9 +132,8 @@ def _is_read_only_lead_lookup(query: str) -> bool:
         return False
     return bool(
         re.search(
-            r"\b(is there|are there|do (?:i|we|you) have|does .* have|whether|"
-            r"find|search|look(?:\s+up)?|check|show|list|who|which|details?|"
-            r"tell me about|any)\b",
+            r"\b(is there|are there|do (?:i|we|you) have|"
+            r"find|search|look\s+up|show|list)\b",
             normalized,
         )
     )
@@ -238,6 +238,8 @@ def _lead_assistant_links(
     lead: LeadORM,
     reply: str,
 ) -> list[dict[str, Any]]:
+    if not _wants_lead_links(messages):
+        return []
     search_query = _lead_assistant_search_query(messages)
     records: dict[str, Any] = {}
     if search_query:
@@ -273,6 +275,56 @@ def _lead_assistant_links(
             }
         )
     return links
+
+
+def _wants_lead_links(messages: list[AssistantMessage]) -> bool:
+    latest = next((message.content for message in reversed(messages) if message.role == "user"), "")
+    normalized = re.sub(r"[\W_]+", " ", latest.casefold()).strip()
+    # A brief confirmation can continue an actual lead-match selection, but
+    # thanks/done/corrections must not resurrect earlier searches.
+    if normalized in {"yes", "yes please", "that one", "thats the one"}:
+        previous = next((message.content for message in reversed(messages) if message.role == "assistant"), "")
+        if not re.search(r"\b(match|matches|which lead|which one)\b", previous.casefold()):
+            return False
+        latest = _lead_assistant_search_query(messages)
+    return (_is_read_only_lead_lookup(latest) and bool(re.search(
+        r"\b(is there|are there|do (?:i|we|you) have|show|list|find|search|look(?:\s+up)?)\b",
+        latest.casefold(),
+    ))) or bool(re.search(
+        r"\b(open|view)\b.{0,35}\b(lead|prospect|contact|profile|record)\b",
+        latest.casefold(),
+    )) or (
+        bool(re.search(r"\b(find|search|look\s+up)\b", latest.casefold()))
+        and not re.search(r"\b(notes?|comments?|e-?mails?|calls?|meetings?|history|progress)\b", latest.casefold())
+    )
+
+
+def _is_conversation_only_message(messages: list[AssistantMessage]) -> bool:
+    latest = next((message.content for message in reversed(messages) if message.role == "user"), "")
+    normalized = re.sub(r"[\W_]+", " ", latest.casefold()).strip()
+    return normalized in {
+        "thanks", "thank you", "ok", "okay", "done", "sorry", "my mistake",
+        "sorry my mistake", "that was a mistake", "i made a mistake",
+        "sorry i made a mistake", "i meant something else", "never mind", "nevermind",
+        "right", "correct", "got it", "understood",
+    }
+
+
+def _is_lead_creation_request(messages: list[AssistantMessage]) -> bool:
+    if _is_conversation_only_message(messages):
+        return False
+    latest = next((message.content for message in reversed(messages) if message.role == "user"), "")
+    creation = r"\b(?:new\s+lead|(?:create|add|enter|register)\s+(?:(?:a|the|new)\s+){0,2}lead)\b"
+    if re.search(creation, latest, re.I):
+        return True
+    previous = next((message.content for message in reversed(messages) if message.role == "assistant"), "")
+    # Comma-separated details may answer the previous request to create a lead.
+    # A UI-reported successful creation ends that pending workflow.
+    return bool(
+        re.search(creation, previous, re.I)
+        and not re.search(r'"state"\s*:\s*"(?:applied|completed|dismissed)"', previous)
+        and latest.strip()
+    )
 
 
 def _lead_lookup_reply(
@@ -426,6 +478,7 @@ def chat_with_workspace_assistant(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
     )
+    creation_requested = _is_lead_creation_request(request.messages)
     record_query = " ".join(
         message.content for message in reversed(request.messages)
         if message.role == "user"
@@ -483,6 +536,8 @@ def chat_with_workspace_assistant(
             "Corral workspace analytics, automations, ICP, settings, integrations, "
             "team access, Dialer navigation, guidance, and content generation"
         ),
+        "requested_workflow": "create_lead_draft" if creation_requested else None,
+        "available_actions": workspace_action_capabilities(workspace.permissions),
     }
     records = workspace_context.get("workspace_records")
     similar_leads = records.get("similar_leads", []) if isinstance(records, dict) else []
@@ -495,7 +550,9 @@ def chat_with_workspace_assistant(
                 "the leads saved in this workspace."
             ),
         )
-    elif read_only_lead_lookup or similar_leads or (
+    elif (not creation_requested) and (read_only_lead_lookup or (similar_leads and (
+        _wants_lead_links(request.messages) or _is_explicit_lead_write_request(latest_user_message)
+    )) or (
         confirmation_state == "confirmed"
         and not (
             isinstance(records, dict)
@@ -504,7 +561,7 @@ def chat_with_workspace_assistant(
     ) or (
         confirmation_state == "confirmed"
         and _is_read_only_lead_lookup(search_query)
-    ):
+    )):
         result = WorkspaceAssistantReply(
             reply=_lead_lookup_reply(workspace_context, workspace.permissions),
         )
@@ -538,6 +595,22 @@ def chat_with_workspace_assistant(
         result.reply = (
             "I found the lead, but need a specific update request before proposing a change."
         )
+    if _is_conversation_only_message(request.messages) and result.action.kind != "none":
+        result.action = WorkspaceAssistantAction()
+        result.reply = "No new changes were made. If you meant to correct something, tell me what should change."
+    if result.action.kind == "open_lead" and not _wants_lead_links(request.messages):
+        result.action = WorkspaceAssistantAction()
+    if result.action.kind == "create_lead":
+        if "leads.edit" not in workspace.permissions:
+            result.action = WorkspaceAssistantAction()
+            result.reply = "You need lead-edit access to create a lead."
+        else:
+            from lead_agent.api.workspace_lead_actions import validate_lead_creation_proposal
+            try:
+                validate_lead_creation_proposal(result.action)
+            except ValueError as error:
+                result.action = WorkspaceAssistantAction()
+                result.reply = f"The new lead draft needs clarification: {error}"[:3000]
     if result.action.kind == "open_lead" or result.action.kind in lead_mutations:
         target_id = result.action.target_id
         matched_lead_ids = {
@@ -635,7 +708,7 @@ def chat_with_workspace_assistant(
                     )[:3000]
     response = result.model_dump(mode="json")
     response["context_warnings"] = workspace_context.get("context_warnings", [])
-    if "leads.view" in workspace.permissions:
+    if "leads.view" in workspace.permissions and _wants_lead_links(request.messages):
         lead_links = _workspace_lead_links(workspace_context)
         if lead_links:
             response["lead_links"] = lead_links
@@ -759,6 +832,8 @@ def chat_with_lead_assistant(
         raise HTTPException(502, str(error)) from None
     except Exception:
         raise HTTPException(502, "The lead assistant could not complete this request.") from None
+    if _is_conversation_only_message(request.messages):
+        result.action = LeadAssistantAction()
     if result.action.kind == "open_dialer" and (
         "dialer.call" not in workspace.permissions or not lead.phone
     ):
