@@ -153,6 +153,7 @@ export type WorkspaceAssistantReply = {
   lead_links?: WorkspaceAssistantLeadLink[];
   context_warnings?: string[];
   drafting_context?: Record<string, unknown>;
+  conversation_id?: string | null;
 };
 
 export type WorkspaceAssistantLeadLink = {
@@ -160,6 +161,27 @@ export type WorkspaceAssistantLeadLink = {
   name: string;
   company: string | null;
   suggested: boolean;
+};
+
+export type WorkspaceAgentConversationMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  action?: WorkspaceAssistantAction;
+  actionStatus?: "applying" | "sending" | "applied" | "dismissed";
+  actionResult?: string;
+  actionError?: string;
+  contextWarnings?: string[];
+  leadLinks?: WorkspaceAssistantLeadLink[];
+  needsVerification?: boolean;
+};
+
+export type WorkspaceAgentConversationSummary = {
+  id: string;
+  title: string;
+  updated_at: string;
+  message_count: number;
+  preview: string;
 };
 
 export function setActiveWorkspace(workspaceId: string) {
@@ -722,11 +744,51 @@ export function chatWithLeadAssistant(
 export function chatWithWorkspaceAssistant(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   context: Record<string, unknown> = {},
+  conversationId: string | null = null,
+  messageCount = messages.length,
 ): Promise<WorkspaceAssistantReply> {
   return jsonRequest<WorkspaceAssistantReply>("/v1/agent/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, context }),
+    body: JSON.stringify({
+      messages,
+      context,
+      conversation_id: conversationId,
+      message_count: messageCount,
+    }),
+  });
+}
+
+export function listWorkspaceAgentConversations(): Promise<{ items: WorkspaceAgentConversationSummary[] }> {
+  return jsonRequest("/v1/agent/conversations");
+}
+
+export function createWorkspaceAgentConversation(): Promise<{ id: string; title: string; messages: WorkspaceAgentConversationMessage[] }> {
+  return jsonRequest("/v1/agent/conversations", { method: "POST" });
+}
+
+export function getWorkspaceAgentConversation(id: string): Promise<{
+  id: string;
+  title: string;
+  messages: WorkspaceAgentConversationMessage[];
+}> {
+  return jsonRequest(`/v1/agent/conversations/${encodeURIComponent(id)}`);
+}
+
+export function saveWorkspaceAgentConversation(
+  id: string,
+  messages: WorkspaceAgentConversationMessage[],
+): Promise<{ id: string; title: string; message_count: number }> {
+  return jsonRequest(`/v1/agent/conversations/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+}
+
+export function deleteWorkspaceAgentConversation(id: string): Promise<void> {
+  return jsonRequest(`/v1/agent/conversations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 

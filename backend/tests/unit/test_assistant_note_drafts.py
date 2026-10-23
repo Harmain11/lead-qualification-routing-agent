@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -202,6 +202,108 @@ def test_capabilities_cover_all_typed_actions_and_respect_permissions():
     assert kinds == {"open_lead"}
     kinds = {item["kind"] for item in workspace_action_capabilities({"leads.edit"})}
     assert kinds == {"create_lead", "send_email"}
+
+
+def test_saved_agent_history_is_private_resumable_and_supplies_relevant_context():
+    from datetime import datetime, timezone
+    from fastapi import HTTPException
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from lead_agent.api.routes.lead_assistant import (
+        AssistantChatRequest,
+        AssistantConversationSave,
+        AssistantTranscriptMessage,
+        _history_before_latest_request,
+        create_agent_conversation,
+        get_agent_conversation,
+        list_agent_conversations,
+        save_agent_conversation,
+        delete_agent_conversation,
+    )
+    from lead_agent.domain.workspaces import WorkspaceContext
+    from lead_agent.infrastructure.db.base import Base
+    from lead_agent.infrastructure.db.models import WorkspaceORM
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        owner = WorkspaceContext(workspace_id=uuid4(), actor_id="user-one")
+        session.add(WorkspaceORM(id=owner.workspace_id, name="Owner", slug="history-owner",
+            status="active", is_demo=False, created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)))
+        session.commit()
+        created = create_agent_conversation(session, owner)
+        conversation_id = UUID(created["id"])
+        history = AssistantConversationSave(messages=[
+            AssistantTranscriptMessage(id=f"m-{i}", role=role, content=text)
+            for i, (role, text) in enumerate([
+                ("user", "Look up Acme Workshop"),
+                ("assistant", "We discussed Acme Workshop and renewal dates."),
+                ("user", "Add a note about the renewal"),
+                ("assistant", "Review this unsaved note."),
+                ("user", "Renewal follows the April call"),
+                ("assistant", "Draft ready to review."),
+            ])
+        ])
+        saved = save_agent_conversation(conversation_id, history, session, owner)
+        assert saved["message_count"] == 6
+        assert saved["title"] == "Look up Acme Workshop"
+        loaded = get_agent_conversation(conversation_id, session, owner)
+        assert loaded["messages"][-1]["content"] == "Draft ready to review."
+
+        request = AssistantChatRequest(
+            conversation_id=conversation_id,
+            message_count=6,
+            messages=[
+                {"role": "user", "content": "Renewal follows the April call"},
+                {"role": "assistant", "content": "Draft ready to review."},
+            ],
+        )
+        current, related = _history_before_latest_request(session, owner, request)
+        assert [item["content"] for item in current] == [
+            "Look up Acme Workshop", "We discussed Acme Workshop and renewal dates.",
+            "Add a note about the renewal", "Review this unsaved note.",
+        ]
+        assert related == []
+        assert list_agent_conversations(session, owner)["items"][0]["message_count"] == 6
+
+        other = WorkspaceContext(workspace_id=owner.workspace_id, actor_id="user-two")
+        with pytest.raises(HTTPException) as error:
+            get_agent_conversation(conversation_id, session, other)
+        assert error.value.status_code == 404
+
+        related_chat = create_agent_conversation(session, owner)
+        save_agent_conversation(
+            UUID(related_chat["id"]),
+            AssistantConversationSave(messages=[
+                AssistantTranscriptMessage(id="past-1", role="user", content="Plan Acme Workshop renewal"),
+                AssistantTranscriptMessage(id="past-2", role="assistant", content="Use the April renewal review."),
+            ]),
+            session, owner,
+        )
+        other_chat = create_agent_conversation(session, other)
+        save_agent_conversation(
+            UUID(other_chat["id"]),
+            AssistantConversationSave(messages=[
+                AssistantTranscriptMessage(id="private", role="user", content="Acme Workshop secret renewal"),
+            ]),
+            session, other,
+        )
+        _, related = _history_before_latest_request(
+            session, owner,
+            AssistantChatRequest(
+                conversation_id=conversation_id,
+                message_count=6,
+                messages=[{"role": "user", "content": "Tell me about Acme Workshop renewal"}],
+            ),
+        )
+        assert any("April renewal review" in item["content"] for item in related)
+        assert not any("secret" in item["content"] for item in related)
+
+        delete_agent_conversation(conversation_id, session, owner)
+        with pytest.raises(HTTPException) as error:
+            get_agent_conversation(conversation_id, session, owner)
+        assert error.value.status_code == 404
 
 
 @pytest.mark.parametrize("allowed", [True, False])
