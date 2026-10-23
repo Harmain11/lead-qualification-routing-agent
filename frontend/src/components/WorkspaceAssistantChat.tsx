@@ -11,6 +11,7 @@ import {
 import type { GmailSendAccount, Lead } from "../types";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
 import {
   applyWorkspaceAssistantAction,
@@ -415,7 +416,9 @@ export function WorkspaceAssistantChat({
           <div className="corral-workspace-message-group" key={message.id}>
             <article className={`corral-workspace-message is-${message.role}`}>
               <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
-              <p>{message.content}</p>
+              {message.role === "assistant"
+                ? <AssistantMarkdown content={message.content} />
+                : <p>{message.content}</p>}
               {Boolean(message.leadLinks?.length) && (
                 <div
                   className="corral-workspace-lead-links"
@@ -429,18 +432,15 @@ export function WorkspaceAssistantChat({
                       type="button"
                       aria-label={
                         lead.suggested
-                          ? `Confirm and open suggested lead ${lead.name}`
+                          ? `Open suggested match ${lead.name}`
                           : `Open lead ${lead.name}`
                       }
                       onClick={() => onInspectLead(lead.id)}
                     >
                       <strong>{lead.name}</strong>
-                      {lead.company && <span>{lead.company}</span>}
-                      <small>
-                        {lead.suggested
-                          ? "Suggested match · open to confirm"
-                          : "Open lead"}
-                      </small>
+                      {lead.company && (
+                        <span className="corral-workspace-lead-company">{lead.company}</span>
+                      )}
                     </button>
                   ))}
                 </div>
