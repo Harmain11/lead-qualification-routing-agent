@@ -106,6 +106,60 @@ def test_openai_key_is_workspace_scoped_never_returned_and_audited(tmp_path: Pat
         assert API_KEY_A not in str(audit.details)
 
 
+@pytest.mark.parametrize("padding", [" ", "\r\n\t", "\u00a0"])
+def test_openai_setup_and_replacement_trim_boundary_whitespace(
+    tmp_path: Path, padding: str,
+) -> None:
+    sessions = _factory(tmp_path)
+    store = DevelopmentSecretStore()
+    with sessions() as session:
+        for _ in range(2):
+            workspace = uuid4()
+            request = _request(f"{padding}{API_KEY_A}{padding}")
+            connection = create_manual_connection(
+                session, workspace, "openai", request, store
+            )
+            reference = connection.secret_reference or ""
+            assert store.retrieve_for_workspace(workspace, "openai", reference) == {
+                "api_key": API_KEY_A
+            }
+            # Do not mutate caller-owned input while normalizing the stored key.
+            assert request.credentials["api_key"] == f"{padding}{API_KEY_A}{padding}"
+            reconnect_connection(
+                session, workspace, connection.id,
+                {"api_key": f"{padding}{API_KEY_B}{padding}"}, store,
+            )
+            assert store.retrieve_for_workspace(workspace, "openai", reference) == {
+                "api_key": API_KEY_B
+            }
+
+
+@pytest.mark.parametrize("separator", [" ", "\n", "\t", "\u00a0"])
+def test_openai_malformed_paste_does_not_replace_existing_key(
+    tmp_path: Path, separator: str,
+) -> None:
+    sessions = _factory(tmp_path)
+    store = DevelopmentSecretStore()
+    malformed_key = f"{API_KEY_A}{separator}extra"
+    with sessions() as session:
+        workspace = uuid4()
+        with pytest.raises(ValueError, match="contains spaces or line breaks") as error:
+            create_manual_connection(
+                session, workspace, "openai", _request(malformed_key), store
+            )
+        assert malformed_key not in str(error.value)
+        connection = create_manual_connection(
+            session, workspace, "openai", _request(API_KEY_A), store
+        )
+        with pytest.raises(ValueError, match="contains spaces or line breaks"):
+            reconnect_connection(
+                session, workspace, connection.id, {"api_key": malformed_key}, store
+            )
+        assert store.retrieve_for_workspace(
+            workspace, "openai", connection.secret_reference or ""
+        ) == {"api_key": API_KEY_A}
+
+
 def test_openai_replace_model_test_and_disconnect_have_safe_audits(tmp_path: Path) -> None:
     sessions = _factory(tmp_path)
     store = DevelopmentSecretStore()
