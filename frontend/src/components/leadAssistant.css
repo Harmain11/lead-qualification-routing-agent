@@ -142,6 +142,35 @@
 }
 .lead-agent-role { display: block; margin-bottom: 4px; color: var(--orange); font-size: 11px; font-weight: 750; }
 .lead-agent-message p { margin: 0; color: var(--text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lead-agent-open-lead-links {
+  display: grid;
+  width: min(100%, 280px);
+  gap: 6px;
+  margin-top: 8px;
+}
+.lead-agent-open-lead-links > .lead-agent-open-lead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: min(100%, 280px);
+  min-height: 52px;
+  padding: 10px 16px;
+  border-radius: 9px;
+  text-align: center;
+  white-space: normal;
+}
+.lead-agent-open-lead strong {
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.lead-agent-open-lead span {
+  color: rgba(255,255,255,.82);
+  font-size: 11px;
+  line-height: 1.35;
+}
 
 .lead-agent-action {
   display: grid;

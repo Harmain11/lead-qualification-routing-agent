@@ -7,6 +7,12 @@ Corral Agent is intended to be available throughout the workspace and support gu
 
 Customize the assistant using the saved workspace business profile and identity. General chat may retrieve relevant records on demand only within the current workspace and the user's permissions. Search is limited to bounded matches from records already stored in Corral; do not imply a complete history or a live search of external Gmail, CRM, or dialer archives.
 
+When an assistant reply identifies one or more specific leads, show a green open button for each verified lead in both workspace and lead-specific chat. Opening a button is read-only; it must not confirm a fuzzy match or approve a proposed change.
+
+**Why:** the user asked for a lead button whenever Corral identifies a specific lead, with separate buttons when multiple leads match.
+
+**How to apply:** Build buttons only from server-side, workspace-scoped, permission-checked lead matches. Render every distinct match and make each button navigate to its own lead without authorizing a mutation.
+
 The user wants information added to existing leads directly from workspace chat, not only navigation to a lead page. Keep lead detail changes, notes, progress, and re-evaluation behind explicit review of the target and values. Save evidenced facts as profile data; do not silently turn AI recommendations into facts.
 
 Lead follow-up drafting, review, editing, and sending should stay inside the AI agent conversation. Do not route the user to the separate Follow-ups section for these steps.

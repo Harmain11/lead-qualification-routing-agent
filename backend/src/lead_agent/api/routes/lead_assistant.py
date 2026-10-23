@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import json
 import re
 from typing import Any, Literal
@@ -31,6 +32,12 @@ router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
 workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
 _SIMPLE_ACKNOWLEDGEMENTS = {"hi", "hello", "hey", "thanks", "thank you"}
 _LEAD_CONFIRMATION_MARKER = "Reply yes to confirm this lead"
+_LEAD_ASSISTANT_ACKNOWLEDGEMENTS = {
+    "yes", "yeah", "yep", "yup", "sure", "correct", "right", "exactly",
+    "ok", "okay", "open it", "go ahead", "that s right", "that is right",
+    "that s the one", "the first one", "the second one",
+}
+logger = logging.getLogger(__name__)
 
 
 def _is_simple_acknowledgement(content: str) -> bool:
@@ -181,40 +188,90 @@ def _workspace_lead_links(
     records = workspace_context.get("workspace_records")
     if not isinstance(records, dict):
         return []
-    raw_suggestions = records.get("similar_leads")
-    suggested = isinstance(raw_suggestions, list) and bool(raw_suggestions)
-    candidates = (
-        raw_suggestions
-        if suggested
-        else records.get("matched_leads", [])
-    )
-    if not isinstance(candidates, list):
-        return []
 
     links: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
-    for lead in candidates:
-        if not isinstance(lead, dict):
+    for key, suggested in (("similar_leads", True), ("matched_leads", False)):
+        candidates = records.get(key)
+        if not isinstance(candidates, list):
             continue
-        lead_id = lead.get("id")
-        name = lead.get("name")
-        if not isinstance(lead_id, (str, UUID)) or not isinstance(name, str):
+        for lead in candidates:
+            if not isinstance(lead, dict):
+                continue
+            lead_id = lead.get("id")
+            name = lead.get("name")
+            if not isinstance(lead_id, (str, UUID)) or not isinstance(name, str):
+                continue
+            normalized_id = str(lead_id)
+            if not normalized_id or not name.strip() or normalized_id in seen_ids:
+                continue
+            company = lead.get("company")
+            links.append(
+                {
+                    "id": normalized_id,
+                    "name": name.strip(),
+                    "company": company.strip()
+                    if isinstance(company, str) and company.strip()
+                    else None,
+                    "suggested": suggested,
+                }
+            )
+            seen_ids.add(normalized_id)
+    return links
+
+
+def _lead_assistant_search_query(messages: list[AssistantMessage]) -> str:
+    for message in reversed(messages):
+        if message.role != "user":
             continue
-        normalized_id = str(lead_id)
-        if not normalized_id or not name.strip() or normalized_id in seen_ids:
+        normalized = re.sub(r"[\W_]+", " ", message.content.casefold()).strip()
+        if not normalized or normalized in _LEAD_ASSISTANT_ACKNOWLEDGEMENTS:
             continue
-        company = lead.get("company")
+        return message.content.strip()[:3000]
+    return ""
+
+
+def _lead_assistant_links(
+    session: Session,
+    workspace: WorkspaceContext,
+    messages: list[AssistantMessage],
+    lead: LeadORM,
+    reply: str,
+) -> list[dict[str, Any]]:
+    search_query = _lead_assistant_search_query(messages)
+    records: dict[str, Any] = {}
+    if search_query:
+        try:
+            with session.begin_nested():
+                records = build_workspace_record_context(
+                    session, workspace.workspace_id, search_query,
+                )
+        except Exception:
+            logger.warning("lead_assistant.lead_link_search_unavailable", exc_info=True)
+
+    links = _workspace_lead_links({"workspace_records": records})
+    reply_folded = reply.casefold()
+    if search_query and not (
+        _is_read_only_lead_lookup(search_query)
+        or re.search(r"\b(find|search|look(?:\s+up)?|check|show|list)\b", search_query.casefold())
+    ):
+        links = [
+            link for link in links
+            if link["name"].casefold() in reply_folded
+        ]
+
+    lead_id = str(lead.id)
+    if lead.full_name.casefold() in reply_folded and not any(
+        link["id"] == lead_id for link in links
+    ):
         links.append(
             {
-                "id": normalized_id,
-                "name": name.strip(),
-                "company": company.strip()
-                if isinstance(company, str) and company.strip()
-                else None,
-                "suggested": suggested,
+                "id": lead_id,
+                "name": lead.full_name,
+                "company": lead.company_name,
+                "suggested": False,
             }
         )
-        seen_ids.add(normalized_id)
     return links
 
 
@@ -716,4 +773,11 @@ def chat_with_lead_assistant(
                 f"{lead.full_name}’s saved number is {lead.phone}, but you don’t have "
                 "permission to open the phone from this workspace. Ask an admin for Dialer access."
             )
-    return result.model_dump(mode="json")
+    response = result.model_dump(mode="json")
+    if "leads.view" in workspace.permissions:
+        lead_links = _lead_assistant_links(
+            session, workspace, request.messages, lead, result.reply,
+        )
+        if lead_links:
+            response["lead_links"] = lead_links
+    return response

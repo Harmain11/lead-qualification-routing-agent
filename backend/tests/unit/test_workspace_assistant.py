@@ -542,6 +542,153 @@ def test_workspace_chat_returns_all_similar_lead_options(monkeypatch) -> None:
     assert all(link["suggested"] for link in result["lead_links"])
 
 
+def test_workspace_lead_links_include_exact_and_similar_matches() -> None:
+    exact_id = str(uuid4())
+    similar_ids = [str(uuid4()), str(uuid4())]
+
+    links = lead_assistant._workspace_lead_links(
+        {
+            "workspace_records": {
+                "matched_leads": [
+                    {"id": exact_id, "name": "Harmain Mughal", "company": "Corral"}
+                ],
+                "similar_leads": [
+                    {"id": similar_id, "name": f"Harmain M. {index}", "company": None}
+                    for index, similar_id in enumerate(similar_ids, start=1)
+                ],
+            }
+        }
+    )
+
+    assert [link["id"] for link in links] == [*similar_ids, exact_id]
+    assert [link["suggested"] for link in links] == [True, True, False]
+
+
+def test_lead_assistant_keeps_all_matched_lead_links_after_yes(monkeypatch) -> None:
+    workspace_id = uuid4()
+    current_id = str(uuid4())
+    candidates = [
+        {
+            "id": str(uuid4()),
+            "name": f"Harmain Mughal {index}",
+            "company": f"Company {index}",
+        }
+        for index in range(2)
+    ]
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args, **_kwargs: {"matched_leads": [], "similar_leads": candidates},
+    )
+    messages = [
+        AssistantMessage(role="user", content="is there any lead name harmain"),
+        AssistantMessage(role="assistant", content="I found a possible lead match."),
+        AssistantMessage(role="user", content="yes"),
+    ]
+
+    links = lead_assistant._lead_assistant_links(
+        SimpleNamespace(begin_nested=nullcontext),
+        WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+        messages,
+        SimpleNamespace(
+            id=current_id,
+            full_name="Harmain Mughal",
+            company_name="Corral",
+        ),
+        "The lead is Harmain Mughal. I found two other close matches.",
+    )
+
+    assert len(links) == 3
+    assert links[0]["id"] == candidates[0]["id"]
+    assert links[1]["id"] == candidates[1]["id"]
+    assert links[2]["id"] == current_id
+
+
+def test_lead_assistant_chat_returns_multiple_openable_matches(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    from lead_agent.domain.lead_assistant import LeadAssistantAction, LeadAssistantReply
+
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    candidate_ids = [str(lead_id), str(uuid4()), str(uuid4())]
+    candidates = [
+        {
+            "id": candidate_id,
+            "name": f"Harmain Mughal {index}",
+            "company": f"Company {index}",
+        }
+        for index, candidate_id in enumerate(candidate_ids, start=1)
+    ]
+    lead = SimpleNamespace(
+        id=lead_id,
+        full_name="Harmain Mughal 1",
+        company_name="Company 1",
+        email=None,
+        phone=None,
+        job_title=None,
+        industry=None,
+        employee_count=None,
+        annual_revenue=None,
+        geography=None,
+        budget=None,
+        product_or_service=None,
+        message=None,
+        source="manual",
+        received_at=datetime.now(timezone.utc),
+        qualification=None,
+        outcome=None,
+    )
+    monkeypatch.setattr(lead_assistant, "get_lead", lambda *_args: lead)
+    monkeypatch.setattr(
+        lead_assistant,
+        "operations_policy",
+        lambda *_args: SimpleNamespace(
+            business_profile=SimpleNamespace(model_dump=lambda **_kwargs: {})
+        ),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: SimpleNamespace(
+            assist_with_lead=lambda _payload: LeadAssistantReply(
+                reply="I found three matching leads: Harmain Mughal 1, Harmain Mughal 2, and Harmain Mughal 3.",
+                action=LeadAssistantAction(),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args, **_kwargs: {
+            "matched_leads": [],
+            "similar_leads": candidates,
+        },
+    )
+    session = SimpleNamespace(scalars=lambda *_args: [], begin_nested=nullcontext)
+
+    result = lead_assistant.chat_with_lead_assistant(
+        lead_id,
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="is there any lead name harmain")
+            ]
+        ),
+        session,
+        WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert [link["id"] for link in result["lead_links"]] == candidate_ids
+
+
 def test_workspace_chat_uses_a_similar_lead_only_after_confirmation(monkeypatch) -> None:
     workspace_id = uuid4()
     candidate_id = str(uuid4())

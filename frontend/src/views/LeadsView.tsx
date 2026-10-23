@@ -438,6 +438,7 @@ export function LeadsView({
             canUseAgent={canUseAgent}
             dialerPhoneConnectionId={dialerPhoneConnectionId}
             onNavigateToDialer={onNavigateToDialer}
+            onOpenLead={onInspect}
             canEdit={canEdit}
             canEnrollAutomations={canEnrollAutomations}
             onEnrollAutomation={(kind) =>
