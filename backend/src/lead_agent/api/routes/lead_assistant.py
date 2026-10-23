@@ -175,6 +175,51 @@ def _format_lead_lookup_item(lead: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _workspace_lead_links(
+    workspace_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    records = workspace_context.get("workspace_records")
+    if not isinstance(records, dict):
+        return []
+    raw_suggestions = records.get("similar_leads")
+    suggested = isinstance(raw_suggestions, list) and bool(raw_suggestions)
+    candidates = (
+        raw_suggestions
+        if suggested
+        else records.get("matched_leads", [])
+    )
+    if not isinstance(candidates, list):
+        return []
+
+    links: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for lead in candidates:
+        if not isinstance(lead, dict):
+            continue
+        lead_id = lead.get("id")
+        name = lead.get("name")
+        if not isinstance(lead_id, (str, UUID)) or not isinstance(name, str):
+            continue
+        normalized_id = str(lead_id)
+        if not normalized_id or not name.strip() or normalized_id in seen_ids:
+            continue
+        company = lead.get("company")
+        links.append(
+            {
+                "id": normalized_id,
+                "name": name.strip(),
+                "company": company.strip()
+                if isinstance(company, str) and company.strip()
+                else None,
+                "suggested": suggested,
+            }
+        )
+        seen_ids.add(normalized_id)
+        if len(links) == 8:
+            break
+    return links
+
+
 def _lead_lookup_reply(
     workspace_context: dict[str, Any],
     permissions: frozenset[str],
@@ -535,6 +580,10 @@ def chat_with_workspace_assistant(
                     )[:3000]
     response = result.model_dump(mode="json")
     response["context_warnings"] = workspace_context.get("context_warnings", [])
+    if "leads.view" in workspace.permissions:
+        lead_links = _workspace_lead_links(workspace_context)
+        if lead_links:
+            response["lead_links"] = lead_links
     response["drafting_context"] = {
         "workspace_profile": workspace_context.get("workspace_profile", {}),
     }

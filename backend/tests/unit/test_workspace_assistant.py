@@ -283,6 +283,7 @@ def test_workspace_chat_resolves_unique_partial_lead_name_for_note_proposal(
 
 def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch) -> None:
     workspace_id = uuid4()
+    lead_id = str(uuid4())
     monkeypatch.setattr(lead_assistant, "resolve_workspace_reasoning_provider",
                         lambda *_args: pytest.fail("read-only lookup should not need AI"))
     monkeypatch.setattr(
@@ -296,7 +297,7 @@ def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch
         lambda *_args: {
             "matched_leads": [
                 {
-                    "id": str(uuid4()),
+                    "id": lead_id,
                     "name": "Kethi Ahmed",
                     "email": "kethi@example.test",
                     "phone": "+1 555 010 2000",
@@ -328,12 +329,22 @@ def test_workspace_chat_resolves_unique_partial_name_for_lead_search(monkeypatch
     assert "+1 555 010 2000" in result["reply"]
     assert "Northstar" in result["reply"]
     assert "Operations Director" in result["reply"]
+    assert result["lead_links"] == [
+        {
+            "id": lead_id,
+            "name": "Kethi Ahmed",
+            "company": "Northstar",
+            "suggested": False,
+        }
+    ]
 
 
 def test_workspace_chat_asks_for_full_name_when_lead_lookup_has_multiple_matches(
     monkeypatch,
 ) -> None:
     workspace_id = uuid4()
+    first_lead_id = str(uuid4())
+    second_lead_id = str(uuid4())
     monkeypatch.setattr(
         lead_assistant,
         "resolve_workspace_reasoning_provider",
@@ -350,13 +361,13 @@ def test_workspace_chat_asks_for_full_name_when_lead_lookup_has_multiple_matches
         lambda *_args: {
             "matched_leads": [
                 {
-                    "id": str(uuid4()),
+                    "id": first_lead_id,
                     "name": "Kethi Ahmed",
                     "email": "kethi.ahmed@example.test",
                     "company": "Northstar",
                 },
                 {
-                    "id": str(uuid4()),
+                    "id": second_lead_id,
                     "name": "Kethi Iqbal",
                     "email": "kethi.iqbal@example.test",
                     "company": "Bluebird",
@@ -386,6 +397,10 @@ def test_workspace_chat_asks_for_full_name_when_lead_lookup_has_multiple_matches
     assert "Kethi Iqbal" in result["reply"]
     assert "Northstar" in result["reply"]
     assert "Bluebird" in result["reply"]
+    assert [lead["id"] for lead in result["lead_links"]] == [
+        first_lead_id,
+        second_lead_id,
+    ]
 
 
 def test_workspace_chat_reports_no_matching_lead_from_search_results(monkeypatch) -> None:
@@ -471,6 +486,14 @@ def test_workspace_chat_asks_before_using_a_similar_lead(monkeypatch) -> None:
     assert "John Smith" in result["reply"]
     assert "Lunar Robotics" in result["reply"]
     assert "Reply yes to confirm this lead" in result["reply"]
+    assert result["lead_links"] == [
+        {
+            "id": candidate_id,
+            "name": "John Smith",
+            "company": "Lunar Robotics",
+            "suggested": True,
+        }
+    ]
 
 
 def test_workspace_chat_uses_a_similar_lead_only_after_confirmation(monkeypatch) -> None:

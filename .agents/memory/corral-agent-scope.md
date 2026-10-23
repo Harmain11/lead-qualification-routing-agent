@@ -25,6 +25,6 @@ Workspace snapshots must come from the server under the current permissions, not
 
 For read-only questions about whether a lead exists or for its details, search stored leads only within the current workspace and the user's lead-view permission. If an exact name search misses, compare all saved lead names in that workspace and suggest close matches, but ask before selecting or using one. When several leads match, list their names and ask which one the user means. Distinguish no match from search failure or missing permission.
 
-**Why:** the user expects Corral Agent to verify current-workspace lead records rather than returning a generic action-target error, and asked for likely typo matches to be confirmed before use.
+**Why:** the user expects Corral Agent to verify current-workspace lead records rather than returning a generic action-target error, and asked for likely typo matches to be confirmed before use and matching leads to open directly when clicked.
 
-**How to apply:** Keep exact and fuzzy searches server-side and workspace-scoped; never search another workspace or live external CRM/mail archives. Do not use a fuzzy candidate as an action target until the user confirms it, and never report no match when search failed.
+**How to apply:** Keep exact and fuzzy searches server-side and workspace-scoped; never search another workspace or live external CRM/mail archives. Render verified matches as clickable lead-detail links. Clicking a fuzzy suggestion only opens that lead and never approves a mutation. Do not use a fuzzy candidate as an action target until the user confirms it, and never report no match when search failed.

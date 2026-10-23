@@ -6,6 +6,7 @@ import {
   sendGmailEmail,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
+  type WorkspaceAssistantLeadLink,
 } from "../api";
 import type { GmailSendAccount, Lead } from "../types";
 import { createClientId } from "../clientIds";
@@ -28,6 +29,7 @@ type Message = {
   actionResult?: string;
   actionError?: string;
   contextWarnings?: string[];
+  leadLinks?: WorkspaceAssistantLeadLink[];
 };
 
 const prompts = [
@@ -174,6 +176,7 @@ export function WorkspaceAssistantChat({
           role: "assistant",
           content: directCallRequested ? callInstruction : result.reply,
           action: action?.kind !== "none" ? action : undefined,
+          leadLinks: result.lead_links,
           contextWarnings: result.context_warnings,
         },
       ]);
@@ -413,6 +416,35 @@ export function WorkspaceAssistantChat({
             <article className={`corral-workspace-message is-${message.role}`}>
               <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
               <p>{message.content}</p>
+              {Boolean(message.leadLinks?.length) && (
+                <div
+                  className="corral-workspace-lead-links"
+                  role="group"
+                  aria-label="Matching leads"
+                >
+                  {message.leadLinks!.map((lead) => (
+                    <button
+                      className="corral-workspace-lead-link"
+                      key={lead.id}
+                      type="button"
+                      aria-label={
+                        lead.suggested
+                          ? `Confirm and open suggested lead ${lead.name}`
+                          : `Open lead ${lead.name}`
+                      }
+                      onClick={() => onInspectLead(lead.id)}
+                    >
+                      <strong>{lead.name}</strong>
+                      {lead.company && <span>{lead.company}</span>}
+                      <small>
+                        {lead.suggested
+                          ? "Suggested match · open to confirm"
+                          : "Open lead"}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              )}
               {Boolean(message.contextWarnings?.length) && (
                 <p role="status">Some workspace information could not be loaded or was limited: {message.contextWarnings!.join(" ")}</p>
               )}
