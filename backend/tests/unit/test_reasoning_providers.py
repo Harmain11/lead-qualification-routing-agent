@@ -350,6 +350,21 @@ def test_workspace_resolution_isolated_and_verified_provider_can_be_switched(
         resolved_b = factory.resolve_workspace_reasoning_provider(
             session, workspace_b, settings=settings, secret_store=secret_store
         )
+        resolved_inactive = factory.resolve_workspace_reasoning_provider(
+            session,
+            workspace_a,
+            settings=settings,
+            secret_store=secret_store,
+            provider_type="gemini",
+            include_inactive=True,
+        )
+        inactive_without_opt_in = factory.resolve_workspace_reasoning_provider(
+            session,
+            workspace_a,
+            settings=settings,
+            secret_store=secret_store,
+            provider_type="gemini",
+        )
     assert (resolved_a.provider_name, resolved_a.model_name, resolved_a.api_key) == (
         "claude",
         _MODELS["claude"],
@@ -360,6 +375,12 @@ def test_workspace_resolution_isolated_and_verified_provider_can_be_switched(
         _MODELS["claude"],
         workspace_b_key,
     )
+    assert (
+        resolved_inactive.provider_name,
+        resolved_inactive.model_name,
+        resolved_inactive.api_key,
+    ) == ("gemini", _MODELS["gemini"], _KEYS["gemini"])
+    assert isinstance(inactive_without_opt_in, factory.DeterministicReasoningProvider)
 
 
 def test_failed_provider_verification_preserves_the_current_workspace_provider(
