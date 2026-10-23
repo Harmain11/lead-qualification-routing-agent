@@ -148,8 +148,16 @@ export type WorkspaceAssistantAction = {
 export type WorkspaceAssistantReply = {
   reply: string;
   action: WorkspaceAssistantAction;
+  lead_links?: WorkspaceAssistantLeadLink[];
   context_warnings?: string[];
   drafting_context?: Record<string, unknown>;
+};
+
+export type WorkspaceAssistantLeadLink = {
+  id: string;
+  name: string;
+  company: string | null;
+  suggested: boolean;
 };
 
 export function setActiveWorkspace(workspaceId: string) {

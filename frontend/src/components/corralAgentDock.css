@@ -659,6 +659,62 @@
   justify-items: start;
 }
 
+.corral-workspace-lead-links {
+  display: grid;
+  width: min(100%, 360px);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.corral-workspace-lead-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.corral-workspace-lead-link:hover {
+  border-color: var(--orange);
+  background: color-mix(in srgb, var(--orange-soft) 20%, var(--surface));
+}
+
+.corral-workspace-lead-link:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+.corral-workspace-lead-link strong,
+.corral-workspace-lead-link span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.corral-workspace-lead-link strong {
+  font-size: 12px;
+}
+
+.corral-workspace-lead-link span,
+.corral-workspace-lead-link small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.corral-workspace-lead-link small {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  text-align: right;
+}
+
 .corral-workspace-action {
   width: min(100%, 390px);
   display: grid;
