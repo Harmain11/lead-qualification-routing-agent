@@ -424,7 +424,7 @@ export function WorkspaceAssistantChat({
                 >
                   {message.leadLinks!.map((lead) => (
                     <button
-                      className="corral-workspace-lead-link"
+                      className="primary-button corral-workspace-lead-link"
                       key={lead.id}
                       type="button"
                       aria-label={

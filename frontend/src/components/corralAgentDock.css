@@ -662,11 +662,13 @@
 .corral-workspace-lead-links {
   display: grid;
   width: min(100%, 360px);
+  max-height: 320px;
   gap: 6px;
   margin-top: 8px;
+  overflow-y: auto;
 }
 
-.corral-workspace-lead-link {
+.app-shell .corral-workspace-lead-links .corral-workspace-lead-link {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -674,18 +676,20 @@
   width: 100%;
   min-height: 48px;
   padding: 8px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--workspace-accent, #1e6b52);
   border-radius: 9px;
-  background: var(--surface);
-  color: var(--text);
+  background: var(--workspace-accent, #1e6b52);
+  color: var(--workspace-accent-text, #fff);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.corral-workspace-lead-link:hover {
-  border-color: var(--orange);
-  background: color-mix(in srgb, var(--orange-soft) 20%, var(--surface));
+.app-shell .corral-workspace-lead-links .corral-workspace-lead-link:hover:not(:disabled) {
+  border-color: var(--workspace-accent, #1e6b52);
+  background: var(--workspace-accent, #1e6b52);
+  color: var(--workspace-accent-text, #fff);
+  filter: brightness(.92);
 }
 
 .corral-workspace-lead-link:focus-visible {
@@ -703,9 +707,9 @@
   font-size: 12px;
 }
 
-.corral-workspace-lead-link span,
-.corral-workspace-lead-link small {
-  color: var(--muted);
+.app-shell .corral-workspace-lead-link span,
+.app-shell .corral-workspace-lead-link small {
+  color: color-mix(in srgb, var(--workspace-accent-text, #fff) 78%, transparent);
   font-size: 10px;
 }
 
