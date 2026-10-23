@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
@@ -45,11 +46,13 @@ from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.email import EmailDeliveryError, EmailProvider, get_email_provider
 from lead_agent.infrastructure.google_auth import GoogleAuthClient, get_google_auth_client
 from lead_agent.infrastructure.oauth import pkce_challenge
+from lead_agent.infrastructure.observability import current_request_id
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.repositories import ensure_workspace
 from lead_agent.settings.config import Settings
 
 router = APIRouter(prefix="/v1/auth", tags=["authentication"])
+_LOGGER = logging.getLogger("lead_agent.api.auth")
 
 
 class SignUpRequest(BaseModel):
@@ -480,6 +483,19 @@ def _google_redirect(settings: Settings, *, error: str | None = None) -> Redirec
     )
 
 
+def _log_google_callback_failure(stage: str, error: Exception) -> None:
+    _LOGGER.warning(
+        "google.auth.callback_failed",
+        extra={
+            "fields": {
+                "request_id": current_request_id(),
+                "stage": stage,
+                "error_type": type(error).__name__,
+            }
+        },
+    )
+
+
 @router.get(
     "/google/start",
     include_in_schema=False,
@@ -553,23 +569,27 @@ def google_callback(
         ) from exception
     if error or not code:
         return _google_redirect(settings, error="google_authorization_denied")
+    stage = "google_identity_exchange"
     try:
         google_identity = google_client.exchange(
             code=code,
             code_verifier=auth_state.code_verifier,
             redirect_uri=auth_state.redirect_uri,
         )
+        stage = "local_account_session_creation"
         issued = complete_google_login(
             session,
             google_identity,
             invitation_token=auth_state.invitation_token,
             duration_hours=settings.auth_session_hours,
         )
-    except (AuthenticationError, AuthorizationError, ValueError):
+    except (AuthenticationError, AuthorizationError, ValueError) as exception:
         session.rollback()
+        _log_google_callback_failure(stage, exception)
         return _google_redirect(settings, error="google_authentication_failed")
-    except Exception:
+    except Exception as exception:
         session.rollback()
+        _log_google_callback_failure(stage, exception)
         return _google_redirect(settings, error="google_authentication_failed")
     revoke_session_token(session, request.cookies.get(settings.auth_session_cookie_name))
     redirect = _google_redirect(settings)
