@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import re
 import secrets
 from dataclasses import dataclass
 from functools import lru_cache
@@ -9,9 +11,30 @@ from urllib.parse import urlencode
 
 import httpx
 
+from lead_agent.infrastructure.observability import current_request_id
 from lead_agent.settings.config import Settings, get_settings
 
 GOOGLE_SCOPES = ("openid", "email", "profile")
+_LOGGER = logging.getLogger("lead_agent.google_auth")
+_SAFE_PROVIDER_ERROR_CODE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+
+
+def _log_provider_http_failure(stage: str, response: httpx.Response) -> None:
+    fields: dict[str, str | int] = {
+        "request_id": current_request_id(),
+        "provider": "google",
+        "stage": stage,
+        "http_status": response.status_code,
+    }
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        candidate = payload.get("error")
+        if isinstance(candidate, str) and _SAFE_PROVIDER_ERROR_CODE.fullmatch(candidate):
+            fields["provider_error_code"] = candidate
+    _LOGGER.warning("google.oauth.request_failed", extra={"fields": fields})
 
 
 @dataclass(frozen=True)
@@ -92,7 +115,11 @@ class ProviderGoogleAuthClient:
                 "code_verifier": code_verifier,
             },
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError:
+            _log_provider_http_failure("token_exchange", response)
+            raise
         token_payload = response.json()
         access_token = token_payload.get("access_token")
         if not isinstance(access_token, str) or not access_token:
@@ -101,7 +128,11 @@ class ProviderGoogleAuthClient:
             "https://openidconnect.googleapis.com/v1/userinfo",
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        userinfo.raise_for_status()
+        try:
+            userinfo.raise_for_status()
+        except httpx.HTTPStatusError:
+            _log_provider_http_failure("userinfo", userinfo)
+            raise
         claims = userinfo.json()
         subject = claims.get("sub")
         email = claims.get("email")
