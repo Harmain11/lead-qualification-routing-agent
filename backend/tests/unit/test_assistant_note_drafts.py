@@ -266,6 +266,15 @@ def test_saved_agent_history_is_private_resumable_and_supplies_relevant_context(
         ]
         assert related == []
         assert list_agent_conversations(session, owner)["items"][0]["message_count"] == 6
+        history.messages[3].action = WorkspaceAssistantAction(
+            kind="add_lead_note", title="Renewal note", payload_json='{"note":"Review renewal"}',
+        ).model_dump(mode="json")
+        history.messages[3].actionStatus = "applied"
+        history.messages[3].actionResult = "Note saved successfully."
+        save_agent_conversation(conversation_id, history, session, owner)
+        current, _ = _history_before_latest_request(session, owner, request)
+        assert '"state": "applied"' in current[3]["content"]
+        assert "Note saved successfully." in current[3]["content"]
 
         other = WorkspaceContext(workspace_id=owner.workspace_id, actor_id="user-two")
         with pytest.raises(HTTPException) as error:
