@@ -111,11 +111,22 @@ def _safe_metadata(metadata: dict[str, object]) -> dict[str, object]:
 
 def _validate_manual_credentials(
     provider: str, auth_type: str, credentials: dict[str, str]
-) -> None:
+) -> dict[str, str]:
+    credentials = dict(credentials)
+    if provider == "openai" and "api_key" in credentials:
+        # Pasted boundary whitespace is not part of an OpenAI key. Normalize
+        # both initial setup and replacement before persisting the secret.
+        api_key = credentials["api_key"].strip()
+        if any(character.isspace() for character in api_key):
+            raise ValueError(
+                "The OpenAI API key contains spaces or line breaks. "
+                "Copy the complete key again without changing its contents."
+            )
+        credentials["api_key"] = api_key
     if not credentials or any(not value.strip() for value in credentials.values()):
         raise ValueError("credential values are required")
     if provider == "mock":
-        return
+        return credentials
     setup = PROVIDER_SETUP.get(provider)
     if setup is None:
         raise ValueError(f"unsupported provider: {provider}")
@@ -132,6 +143,7 @@ def _validate_manual_credentials(
     unexpected = sorted(credentials.keys() - allowed)
     if unexpected:
         raise ValueError(f"unsupported credential fields: {', '.join(unexpected)}")
+    return credentials
 
 
 def _activate_connection(session: Session, connection: ProviderConnectionORM) -> None:
@@ -349,7 +361,9 @@ def create_manual_connection(
     secret_store: SecretStore,
     actor_id: str = "system",
 ) -> ProviderConnectionORM:
-    _validate_manual_credentials(provider, request.auth_type, request.credentials)
+    credentials = _validate_manual_credentials(
+        provider, request.auth_type, request.credentials
+    )
     metadata = _safe_metadata(request.metadata)
     if provider in REASONING_PROVIDERS:
         metadata = {
@@ -359,7 +373,7 @@ def create_manual_connection(
         }
     ensure_workspace(session, workspace_id)
     session.commit()
-    reference = secret_store.store(workspace_id, provider, request.credentials)
+    reference = secret_store.store(workspace_id, provider, credentials)
     now = datetime.now(UTC)
     row = ProviderConnectionORM(
         id=uuid4(),
@@ -1165,7 +1179,7 @@ def reconnect_connection(
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
         raise LookupError("provider connection not found")
-    _validate_manual_credentials(row.provider_type, row.auth_type, credentials)
+    credentials = _validate_manual_credentials(row.provider_type, row.auth_type, credentials)
     if row.secret_reference:
         row.secret_reference = secret_store.replace_for_workspace(
             workspace_id, row.provider_type, row.secret_reference, credentials
