@@ -128,16 +128,15 @@ def _similar_workspace_leads(
     if not query_terms:
         return []
 
-    # Compare only names from this workspace, then load full records for the
-    # few candidates shown to the user. This never searches external providers.
+    # Compare only names from this workspace. This never searches external providers.
     name_rows = session.execute(
-        select(LeadORM.id, LeadORM.full_name).where(
+        select(LeadORM.id, LeadORM.full_name, LeadORM.company_name).where(
             LeadORM.workspace_id == workspace_id
         )
     ).all()
     scored = [
-        (score, lead_id, name)
-        for lead_id, name in name_rows
+        (score, lead_id, name, company)
+        for lead_id, name, company in name_rows
         if (score := _lead_name_similarity(query_terms, name)) >= 0.72
         and score < 0.999
     ]
@@ -148,26 +147,16 @@ def _similar_workspace_leads(
     best_score = scored[0][0]
     close_matches = [
         item for item in scored if best_score - item[0] <= 0.08
-    ][:3]
-    candidate_ids = [item[1] for item in close_matches]
-    candidates_by_id = {
-        lead.id: lead
-        for lead in session.scalars(
-            select(LeadORM).where(
-                LeadORM.workspace_id == workspace_id,
-                LeadORM.id.in_(candidate_ids),
-            )
-        )
-    }
-    results = []
-    for score, lead_id, _name in close_matches:
-        lead = candidates_by_id.get(lead_id)
-        if lead is None:
-            continue
-        summary = _lead_summary(lead)
-        summary["similarity"] = round(score, 3)
-        results.append(summary)
-    return results
+    ]
+    return [
+        {
+            "id": str(lead_id),
+            "name": name,
+            "company": company,
+            "similarity": round(score, 3),
+        }
+        for score, lead_id, name, company in close_matches
+    ]
 
 
 def _text_filter(columns: tuple[Any, ...], terms: list[str]) -> Any:
@@ -318,7 +307,7 @@ def build_workspace_record_context(
     *,
     confirm_similar_lead: bool = False,
 ) -> dict[str, Any]:
-    """Retrieve a bounded, workspace-scoped set of records relevant to one chat turn."""
+    """Retrieve workspace-scoped context and all close lead-name candidates."""
     query = query[:3000]
     terms = _terms(query)
     folded_query = query.casefold()
@@ -767,6 +756,8 @@ def build_workspace_record_context(
             "and items support it. Ask for a narrower name, topic, or date range when needed."
         ),
     }
+    # Preserve every close-name option; fuzzy matches are handled deterministically
+    # by the chat route and are not sent to the reasoning provider.
     while len(json.dumps(context, ensure_ascii=False, default=str)) > 10_000:
         if context["recent_emails_and_meetings"]:
             context["recent_emails_and_meetings"].pop()
@@ -774,8 +765,6 @@ def build_workspace_record_context(
             context["calls"].pop()
         elif context["lead_notes"]:
             context["lead_notes"].pop()
-        elif context["similar_leads"]:
-            context["similar_leads"].pop()
         elif context["matched_leads"]:
             context["matched_leads"].pop()
         elif context["saved_follow_up_emails"]:

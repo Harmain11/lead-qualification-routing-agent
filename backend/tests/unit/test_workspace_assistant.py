@@ -496,6 +496,52 @@ def test_workspace_chat_asks_before_using_a_similar_lead(monkeypatch) -> None:
     ]
 
 
+def test_workspace_chat_returns_all_similar_lead_options(monkeypatch) -> None:
+    workspace_id = uuid4()
+    candidates = [
+        {
+            "id": str(uuid4()),
+            "name": f"John Smith {index}",
+            "company": f"Lunar Robotics {index}",
+            "similarity": 0.82,
+        }
+        for index in range(9)
+    ]
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("fuzzy matches must be confirmed before AI use"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {"matched_leads": [], "similar_leads": candidates},
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[AssistantMessage(role="user", content="Find the lead Jhon Smth.")]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert len(result["lead_links"]) == len(candidates)
+    assert {link["id"] for link in result["lead_links"]} == {
+        candidate["id"] for candidate in candidates
+    }
+    assert all(link["suggested"] for link in result["lead_links"])
+
+
 def test_workspace_chat_uses_a_similar_lead_only_after_confirmation(monkeypatch) -> None:
     workspace_id = uuid4()
     candidate_id = str(uuid4())

@@ -215,8 +215,6 @@ def _workspace_lead_links(
             }
         )
         seen_ids.add(normalized_id)
-        if len(links) == 8:
-            break
     return links
 
 

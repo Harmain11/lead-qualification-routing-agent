@@ -205,3 +205,36 @@ def test_fuzzy_lead_name_lookup_uses_only_saved_leads_in_current_workspace(tmp_p
     ]
     assert confirmed["similar_leads"] == []
     engine.dispose()
+
+
+def test_fuzzy_lead_name_lookup_returns_all_close_matches_from_current_workspace(
+    tmp_path,
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'multiple-fuzzy-leads.db'}")
+    Base.metadata.create_all(engine)
+    workspace_id, other_workspace_id = uuid4(), uuid4()
+    candidates = [
+        _lead(workspace_id, "John Smith", f"Lunar Robotics {index}", index + 1)
+        for index in range(4)
+    ]
+    candidate_ids = {str(lead.id) for lead in candidates}
+    outside_candidate = _lead(other_workspace_id, "John Smith", "Private Robotics", 1)
+
+    with Session(engine) as session:
+        ensure_workspace(session, workspace_id, name="Multiple Match QA")
+        ensure_workspace(session, other_workspace_id, name="Other Workspace")
+        session.add_all([*candidates, outside_candidate])
+        session.commit()
+
+        context = build_workspace_record_context(
+            session,
+            workspace_id,
+            "Is there a Jhon Smth in my leads?",
+        )
+
+    assert {lead["id"] for lead in context["similar_leads"]} == {
+        *candidate_ids
+    }
+    assert len(context["similar_leads"]) == 4
+    assert all(lead["company"].startswith("Lunar Robotics") for lead in context["similar_leads"])
+    engine.dispose()

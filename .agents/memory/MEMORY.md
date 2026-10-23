@@ -40,3 +40,4 @@
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
 - [Corral Agent scope and approvals](corral-agent-scope.md) — Search accessible leads and clarify duplicate matches; keep changes approved and call requests routed to Dialer.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
+- [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
