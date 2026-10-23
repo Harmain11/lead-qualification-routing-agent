@@ -11,6 +11,12 @@ Corral Agent should work in a fully agentic way so users can do most of their wo
 
 **How to apply:** Prefer completing supported workflows within the conversation over giving instructions or navigation links. Carry context through multi-step work, retrieve relevant records, prepare editable drafts, execute approved actions, verify results, and recover clearly from failures. Preserve the existing permission and approval boundaries; this goal does not mean every workflow is already implemented.
 
+Conversation history should be resumable and available as context, including relevant prior chats, so users do not need to repeat details. If history does not resolve an ambiguous reference or a required value is missing, ask one focused question; otherwise, continue with the supported task.
+
+**Why:** The user specifically requested chat history for context and said the agent should ask questions when there is not enough information.
+
+**How to apply:** Retain history per user and workspace, show saved conversations in the agent UI, use relevant earlier turns when answering, and do not treat old proposals or outcomes as current authorization.
+
 Customize the assistant using the saved workspace business profile and identity. General chat may retrieve relevant records on demand only within the current workspace and the user's permissions. Search is limited to bounded matches from records already stored in Corral; do not imply a complete history or a live search of external Gmail, CRM, or dialer archives.
 
 Only show lead-open buttons when the current user explicitly asks to find, show, or open a lead, or confirms a pending match selection. Do not add them to ordinary replies merely because a lead is mentioned. Opening a button is read-only; it must not confirm a fuzzy match or approve a proposed change.

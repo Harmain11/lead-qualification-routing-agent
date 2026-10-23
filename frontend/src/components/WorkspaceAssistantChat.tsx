@@ -3,6 +3,13 @@ import {
   chatWithWorkspaceAssistant,
   listGmailSendAccounts,
   getLead,
+  listWorkspaceAgentConversations,
+  createWorkspaceAgentConversation,
+  getWorkspaceAgentConversation,
+  saveWorkspaceAgentConversation,
+  deleteWorkspaceAgentConversation,
+  type WorkspaceAgentConversationMessage,
+  type WorkspaceAgentConversationSummary,
   sendGmailEmail,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
@@ -37,6 +44,7 @@ type Message = {
   actionError?: string;
   contextWarnings?: string[];
   leadLinks?: WorkspaceAssistantLeadLink[];
+  needsVerification?: boolean;
 };
 
 const prompts = [
@@ -66,6 +74,15 @@ export function WorkspaceAssistantChat({
   onLeadUpdated,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  const [conversations, setConversations] = useState<WorkspaceAgentConversationSummary[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const autosaveTimerRef = useRef<number | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -78,6 +95,157 @@ export function WorkspaceAssistantChat({
   const sendingMessageIdsRef = useRef(new Set<string>());
   const applyingMessageIdsRef = useRef(new Set<string>());
   const canSendEmail = permissions.has("leads.edit");
+
+  function saveTranscript(
+    id: string,
+    transcript: Message[],
+  ): Promise<{ id: string; title: string; message_count: number }> {
+    const savedMessages: WorkspaceAgentConversationMessage[] = transcript.map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      ...(message.action ? { action: message.action } : {}),
+      ...(message.actionStatus ? { actionStatus: message.actionStatus } : {}),
+      ...(message.actionResult ? { actionResult: message.actionResult } : {}),
+      ...(message.actionError ? { actionError: message.actionError } : {}),
+      ...(message.contextWarnings ? { contextWarnings: message.contextWarnings } : {}),
+      ...(message.leadLinks ? { leadLinks: message.leadLinks } : {}),
+      ...(message.needsVerification ? { needsVerification: true } : {}),
+    }));
+    const next = saveQueueRef.current.catch(() => undefined).then(() =>
+      saveWorkspaceAgentConversation(id, savedMessages),
+    );
+    saveQueueRef.current = next;
+    return next;
+  }
+
+  async function flushActiveConversation() {
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    const activeId = conversationIdRef.current;
+    if (activeId && messages.length) await saveTranscript(activeId, messages);
+    await saveQueueRef.current.catch(() => undefined);
+  }
+
+  useEffect(() => {
+    let active = true;
+    void listWorkspaceAgentConversations()
+      .then(async ({ items }) => {
+        if (!active) return;
+        setConversations(items);
+        if (!items.length) return;
+        const saved = await getWorkspaceAgentConversation(items[0].id);
+        if (!active) return;
+        const restored = saved.messages.map((message): Message => ({
+          ...message,
+          ...(message.actionStatus === "applying" || message.actionStatus === "sending"
+            ? {
+                actionStatus: undefined,
+                needsVerification: true,
+                actionError: "This action was in progress when the chat closed. Check whether it completed before trying again.",
+              }
+            : {}),
+        }));
+        conversationIdRef.current = saved.id;
+        setConversationId(saved.id);
+        setMessages(restored);
+      })
+      .catch((reason) => {
+        if (active) setHistoryError(reason instanceof Error ? reason.message : "Chat history could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!conversationId || !messages.length) return;
+    const timer = window.setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void saveTranscript(conversationId, messages)
+        .then((saved) => {
+          setConversations((current) => [
+            {
+              id: saved.id,
+              title: saved.title,
+              message_count: saved.message_count,
+              preview: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
+              updated_at: new Date().toISOString(),
+            },
+            ...current.filter((item) => item.id !== saved.id),
+          ].slice(0, 100));
+          setHistoryError("");
+        })
+        .catch(() => setHistoryError("This chat could not be saved. Your messages are still visible here."));
+    }, 400);
+    autosaveTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (autosaveTimerRef.current === timer) autosaveTimerRef.current = null;
+    };
+  }, [conversationId, messages]);
+
+  async function openConversation(id: string) {
+    if (busy || id === conversationIdRef.current) {
+      setHistoryOpen(false);
+      return;
+    }
+    try {
+      await flushActiveConversation();
+      const saved = await getWorkspaceAgentConversation(id);
+      const restored = saved.messages.map((message): Message => ({
+        ...message,
+        ...(message.actionStatus === "applying" || message.actionStatus === "sending"
+          ? {
+              actionStatus: undefined,
+              needsVerification: true,
+              actionError: "This action was in progress when the chat closed. Check whether it completed before trying again.",
+            }
+          : {}),
+      }));
+      conversationIdRef.current = saved.id;
+      setConversationId(saved.id);
+      setMessages(restored);
+      setHistoryOpen(false);
+      setHistoryError("");
+    } catch (reason) {
+      setHistoryError(reason instanceof Error ? reason.message : "That conversation could not be opened.");
+    }
+  }
+
+  async function startNewConversation() {
+    if (busy) return;
+    try {
+      await flushActiveConversation();
+      conversationIdRef.current = null;
+      setConversationId(null);
+      setMessages([]);
+      setHistoryOpen(false);
+      setError("");
+      setHistoryError("");
+    } catch {
+      setHistoryError("The previous chat could not be saved.");
+    }
+  }
+
+  async function removeConversation(id: string) {
+    try {
+      await flushActiveConversation();
+      await deleteWorkspaceAgentConversation(id);
+      setConfirmDeleteId(null);
+      setConversations((current) => current.filter((item) => item.id !== id));
+      if (id === conversationIdRef.current) {
+        conversationIdRef.current = null;
+        setConversationId(null);
+        setMessages([]);
+      }
+    } catch (reason) {
+      setHistoryError(reason instanceof Error ? reason.message : "That conversation could not be deleted.");
+    }
+  }
 
   useEffect(() => {
     if (!canSendEmail) {
@@ -128,6 +296,10 @@ export function WorkspaceAssistantChat({
     event?.preventDefault();
     const content = text.trim();
     if (!content || busy) return;
+    if (messages.length >= 500) {
+      setError("This chat reached its history limit. Start a new conversation to continue.");
+      return;
+    }
 
     const nextMessages = [
       ...messages,
@@ -162,8 +334,21 @@ export function WorkspaceAssistantChat({
       ? "I can’t place or start phone calls for you. Open the Dialer below, choose the lead or enter their number, then start the call yourself."
       : "I can’t place or start phone calls for you, and your account doesn’t have Dialer access. Ask a workspace admin to grant it.";
     try {
+      let activeConversationId = conversationIdRef.current;
+      if (!activeConversationId) {
+        const created = await createWorkspaceAgentConversation();
+        activeConversationId = created.id;
+        conversationIdRef.current = created.id;
+        setConversationId(created.id);
+      }
+      // Save the user's turn before asking the model; this preserves context
+      // if the provider request fails or the browser closes.
+      await saveTranscript(activeConversationId, nextMessages);
       const result = await chatWithWorkspaceAssistant(
         assistantConversation(nextMessages),
+        {},
+        activeConversationId,
+        nextMessages.length,
       );
       const action = directCallRequested
         ? dialerAction
@@ -187,6 +372,9 @@ export function WorkspaceAssistantChat({
           contextWarnings: result.context_warnings,
         },
       ]);
+      if (result.conversation_id && result.conversation_id !== activeConversationId) {
+        setHistoryError("The reply was returned for a different chat. Start a new conversation and try again.");
+      }
     } catch (reason) {
       if (directCallRequested) {
         setMessages((current) => [
@@ -221,6 +409,13 @@ export function WorkspaceAssistantChat({
       ),
     );
     try {
+      const activeConversationId = conversationIdRef.current;
+      if (activeConversationId) {
+        const inProgress = messages.map((message) =>
+          message.id === messageId ? { ...message, actionStatus: "applying" as const } : message,
+        );
+        await saveTranscript(activeConversationId, inProgress);
+      }
       if (action.kind === "create_lead") {
         const draft = leadCreationDraft(action);
         const followUpNote = typeof draft.follow_up_note === "string"
@@ -343,6 +538,7 @@ export function WorkspaceAssistantChat({
     const body = action.email_body ?? "";
     if (
       action.kind !== "send_email" ||
+      messages.find((message) => message.id === messageId)?.needsVerification ||
       !canApplyWorkspaceAssistantAction(action, permissions) ||
       !selectedSendAccountId ||
       !recipient ||
@@ -362,6 +558,13 @@ export function WorkspaceAssistantChat({
       ),
     );
     try {
+      const activeConversationId = conversationIdRef.current;
+      if (activeConversationId) {
+        const inProgress = messages.map((message) =>
+          message.id === messageId ? { ...message, actionStatus: "sending" as const } : message,
+        );
+        await saveTranscript(activeConversationId, inProgress);
+      }
       const result = await sendGmailEmail({
         connection_id: selectedSendAccountId,
         recipient,
@@ -419,11 +622,89 @@ export function WorkspaceAssistantChat({
 
   return (
     <section className="corral-workspace-chat" aria-label="Chat with Corral Agent">
+      <header className="corral-workspace-chat-toolbar">
+        <div className="corral-workspace-chat-toolbar__title">
+          <strong>
+            {conversations.find((conversation) => conversation.id === conversationId)?.title
+              || "Corral Agent"}
+          </strong>
+          {historyError && <span role="status">{historyError}</span>}
+        </div>
+        <div className="corral-workspace-chat-toolbar__actions">
+          <button type="button" className="secondary-button" onClick={() => void startNewConversation()} disabled={busy || historyLoading}>
+            New chat
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            aria-pressed={historyOpen}
+            onClick={() => setHistoryOpen((open) => !open)}
+            disabled={busy || historyLoading}
+          >
+            {historyOpen ? "Back to chat" : "History"}
+          </button>
+        </div>
+      </header>
       <div
         className="corral-workspace-transcript"
         ref={transcriptRef}
         aria-live="polite"
       >
+        {historyOpen ? (
+          <section className="corral-agent-history" aria-label="Saved conversations">
+            <div className="corral-agent-history__heading">
+              <div>
+                <h2>Chat history</h2>
+                <p>Your conversations are private to your account in this workspace.</p>
+              </div>
+            </div>
+            {historyLoading ? (
+              <p role="status">Loading chat history…</p>
+            ) : conversations.length ? (
+              <div className="corral-agent-history__list">
+                {conversations.map((conversation) => (
+                  <article className="corral-agent-history__item" key={conversation.id}>
+                    <button
+                      type="button"
+                      className="corral-agent-history__open"
+                      onClick={() => void openConversation(conversation.id)}
+                      disabled={busy}
+                    >
+                      <strong>{conversation.title}</strong>
+                      <span>{conversation.preview}</span>
+                      <small>{new Date(conversation.updated_at).toLocaleString()} · {conversation.message_count} messages</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="corral-agent-history__delete"
+                      aria-label={`Delete conversation: ${conversation.title}`}
+                      onClick={() => setConfirmDeleteId((current) => current === conversation.id ? null : conversation.id)}
+                      disabled={busy}
+                    >
+                      {confirmDeleteId === conversation.id ? "Cancel" : "Delete"}
+                    </button>
+                    {confirmDeleteId === conversation.id && (
+                      <div className="corral-agent-history__confirm">
+                        <span>This permanently deletes the saved conversation.</span>
+                        <button
+                          type="button"
+                          className="corral-agent-history__delete"
+                          onClick={() => void removeConversation(conversation.id)}
+                          disabled={busy}
+                        >
+                          Delete chat
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p>No saved conversations yet. Start a chat and it will appear here.</p>
+            )}
+          </section>
+        ) : (
+        <>
         {!messages.length && (
           <div className="corral-workspace-welcome">
             <span className="corral-workspace-welcome-mark" aria-hidden="true">
@@ -771,6 +1052,7 @@ export function WorkspaceAssistantChat({
                         type="button"
                         disabled={
                           busy ||
+                          message.needsVerification ||
                           message.actionStatus === "sending" ||
                           !canApplyWorkspaceAssistantAction(
                             message.action,
@@ -858,6 +1140,8 @@ export function WorkspaceAssistantChat({
           <p className="corral-workspace-error" role="alert">
             {error}
           </p>
+        )}
+        </>
         )}
       </div>
       <form

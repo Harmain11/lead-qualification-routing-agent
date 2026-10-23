@@ -160,6 +160,30 @@ class UserORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceAgentConversationORM(Base):
+    """A user's private, workspace-scoped transcript with Corral Agent."""
+
+    __tablename__ = "workspace_agent_conversations"
+    __table_args__ = (
+        Index(
+            "ix_workspace_agent_conversations_owner_updated",
+            "workspace_id",
+            "actor_id",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="New conversation")
+    messages: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ExternalIdentityORM(Base):
     """Stable login identity mapping; deliberately separate from provider connections."""
 

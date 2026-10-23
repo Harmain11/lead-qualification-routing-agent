@@ -4,9 +4,10 @@ import logging
 import json
 import re
 from typing import Any, Literal
-from uuid import UUID
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,7 +24,11 @@ from lead_agent.domain.lead_assistant import (
     WorkspaceAssistantReply,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
+from lead_agent.infrastructure.db.models import (
+    LeadORM,
+    PipelineEventORM,
+    WorkspaceAgentConversationORM,
+)
 from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
@@ -458,6 +463,8 @@ class AssistantChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     messages: list[AssistantMessage] = Field(min_length=1, max_length=16)
+    conversation_id: UUID | None = None
+    message_count: int | None = Field(default=None, ge=1, le=500)
     context: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("context")
@@ -468,12 +475,220 @@ class AssistantChatRequest(BaseModel):
         return value
 
 
+class AssistantTranscriptMessage(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    id: str = Field(min_length=1, max_length=128)
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=3000)
+    action: dict[str, Any] | None = None
+    actionStatus: Literal["applying", "sending", "applied", "dismissed"] | None = None
+    actionResult: str | None = Field(default=None, max_length=1000)
+    actionError: str | None = Field(default=None, max_length=1000)
+    needsVerification: bool = False
+    contextWarnings: list[str] | None = None
+    leadLinks: list[dict[str, Any]] | None = None
+
+
+class AssistantConversationSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    messages: list[AssistantTranscriptMessage] = Field(min_length=1, max_length=500)
+
+    @field_validator("messages")
+    @classmethod
+    def bound_transcript_size(cls, value: list[AssistantTranscriptMessage]) -> list[AssistantTranscriptMessage]:
+        if len(json.dumps([message.model_dump(mode="json") for message in value])) > 500_000:
+            raise ValueError("Conversation history is too large")
+        return value
+
+
+def _owned_conversation(
+    session: Session,
+    workspace: WorkspaceContext,
+    conversation_id: UUID,
+) -> WorkspaceAgentConversationORM:
+    row = session.scalar(
+        select(WorkspaceAgentConversationORM).where(
+            WorkspaceAgentConversationORM.id == conversation_id,
+            WorkspaceAgentConversationORM.workspace_id == workspace.workspace_id,
+            WorkspaceAgentConversationORM.actor_id == workspace.actor_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return row
+
+
+@workspace_router.get("/conversations")
+def list_agent_conversations(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+) -> dict[str, object]:
+    rows = list(session.scalars(
+        select(WorkspaceAgentConversationORM)
+        .where(
+            WorkspaceAgentConversationORM.workspace_id == workspace.workspace_id,
+            WorkspaceAgentConversationORM.actor_id == workspace.actor_id,
+        )
+        .order_by(WorkspaceAgentConversationORM.updated_at.desc())
+        .limit(100)
+    ))
+    return {"items": [
+        {
+            "id": str(row.id),
+            "title": row.title,
+            "updated_at": row.updated_at.isoformat(),
+            "message_count": len(row.messages),
+            "preview": next(
+                (message["content"] for message in reversed(row.messages)
+                 if message.get("role") == "user" and isinstance(message.get("content"), str)),
+                "",
+            )[:180],
+        }
+        for row in rows
+    ]}
+
+
+@workspace_router.post("/conversations", status_code=status.HTTP_201_CREATED)
+def create_agent_conversation(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+) -> dict[str, object]:
+    now = datetime.now(timezone.utc)
+    row = WorkspaceAgentConversationORM(
+        id=uuid4(),
+        workspace_id=workspace.workspace_id,
+        actor_id=workspace.actor_id,
+        title="New conversation",
+        messages=[],
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(row)
+    session.commit()
+    return {"id": str(row.id), "title": row.title, "messages": []}
+
+
+@workspace_router.get("/conversations/{conversation_id}")
+def get_agent_conversation(
+    conversation_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+) -> dict[str, object]:
+    row = _owned_conversation(session, workspace, conversation_id)
+    return {
+        "id": str(row.id),
+        "title": row.title,
+        "messages": row.messages,
+        "updated_at": row.updated_at.isoformat(),
+    }
+
+
+@workspace_router.put("/conversations/{conversation_id}")
+def save_agent_conversation(
+    conversation_id: UUID,
+    request: AssistantConversationSave,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+) -> dict[str, object]:
+    row = _owned_conversation(session, workspace, conversation_id)
+    transcript = [message.model_dump(mode="json", exclude_none=True) for message in request.messages]
+    first_user_text = next((item["content"] for item in transcript if item["role"] == "user"), "")
+    row.messages = transcript
+    if first_user_text:
+        row.title = first_user_text[:117] + ("…" if len(first_user_text) > 117 else "")
+    row.updated_at = datetime.now(timezone.utc)
+    session.commit()
+    return {"id": str(row.id), "title": row.title, "message_count": len(transcript)}
+
+
+@workspace_router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent_conversation(
+    conversation_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
+) -> Response:
+    row = _owned_conversation(session, workspace, conversation_id)
+    session.delete(row)
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _history_before_latest_request(
+    session: Session, workspace: WorkspaceContext, request: AssistantChatRequest
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    if request.conversation_id is None:
+        return [], []
+    row = _owned_conversation(session, workspace, request.conversation_id)
+    stored = [item for item in row.messages if item.get("role") in {"user", "assistant"}]
+    def contextual_text(item: dict[str, Any]) -> str:
+        text = item.get("content", "")
+        if not isinstance(text, str):
+            return ""
+        if item.get("role") == "assistant" and isinstance(item.get("action"), dict):
+            action = item["action"]
+            outcome = {
+                "kind": action.get("kind"),
+                "title": action.get("title"),
+                "state": item.get("actionStatus", "awaiting_approval"),
+                "result": item.get("actionResult"),
+                "error": item.get("actionError"),
+            }
+            text = f"{text}\n[Previously reviewed action state, not a new request]\n{json.dumps(outcome, ensure_ascii=False)}"
+        return text[:3000]
+
+    message_count = request.message_count or len(stored)
+    incoming_count = len(request.messages)
+    cut = max(0, min(len(stored), message_count - incoming_count))
+    current_history = [
+        {"role": item["role"], "content": contextual_text(item)}
+        for item in stored[:cut]
+        if isinstance(item.get("content"), str)
+    ][-18:]
+
+    latest = next((item.content for item in reversed(request.messages) if item.role == "user"), "")
+    query_terms = {
+        token for token in re.findall(r"[^\W_]{4,}", latest.casefold())
+        if token not in {"this", "that", "with", "from", "have", "about", "what", "when"}
+    }
+    related: list[tuple[int, list[dict[str, str]]]] = []
+    if query_terms:
+        rows = session.scalars(
+            select(WorkspaceAgentConversationORM).where(
+                WorkspaceAgentConversationORM.workspace_id == workspace.workspace_id,
+                WorkspaceAgentConversationORM.actor_id == workspace.actor_id,
+                WorkspaceAgentConversationORM.id != request.conversation_id,
+            ).order_by(WorkspaceAgentConversationORM.updated_at.desc()).limit(20)
+        )
+        for past in rows:
+            turns = [
+                {"role": item["role"], "content": contextual_text(item)}
+                for item in past.messages[-12:]
+                if item.get("role") in {"user", "assistant"}
+                and isinstance(item.get("content"), str)
+            ]
+            matches = sum(
+                bool(query_terms & set(re.findall(r"[^\W_]{4,}", turn["content"].casefold())))
+                for turn in turns if turn["role"] == "user"
+            )
+            if matches:
+                related.append((matches, turns))
+    related.sort(key=lambda item: item[0], reverse=True)
+    related_context = [
+        {"role": item["role"], "content": item["content"][:900]}
+        for _, turns in related[:2] for item in turns[-4:]
+    ]
+    return current_history, related_context
+
+
 @workspace_router.post("/chat")
 def chat_with_workspace_assistant(
     request: AssistantChatRequest,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
 ) -> dict[str, object]:
+    conversation_history, related_conversation_history = _history_before_latest_request(
+        session, workspace, request,
+    )
     latest_user_message = next(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
@@ -538,6 +753,8 @@ def chat_with_workspace_assistant(
         ),
         "requested_workflow": "create_lead_draft" if creation_requested else None,
         "available_actions": workspace_action_capabilities(workspace.permissions),
+        "conversation_history": conversation_history,
+        "related_conversation_history": related_conversation_history,
     }
     records = workspace_context.get("workspace_records")
     similar_leads = records.get("similar_leads", []) if isinstance(records, dict) else []
@@ -715,6 +932,9 @@ def chat_with_workspace_assistant(
     response["drafting_context"] = {
         "workspace_profile": workspace_context.get("workspace_profile", {}),
     }
+    response["conversation_id"] = (
+        str(request.conversation_id) if request.conversation_id is not None else None
+    )
     return response
 
 

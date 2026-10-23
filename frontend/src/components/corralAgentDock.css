@@ -572,8 +572,144 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--surface);
+}
+
+.corral-workspace-chat-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.corral-workspace-chat-toolbar__title {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.corral-workspace-chat-toolbar__title strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corral-workspace-chat-toolbar__title span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.corral-workspace-chat-toolbar__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.corral-workspace-chat-toolbar__actions button {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+.corral-agent-history {
+  width: 100%;
+  max-width: 560px;
+  align-self: flex-start;
+  margin: 0 auto;
+}
+
+.corral-agent-history__heading h2 {
+  margin: 0 0 5px;
+  font-size: 17px;
+}
+
+.corral-agent-history__heading p,
+.corral-agent-history > p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.corral-agent-history__list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.corral-agent-history__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.corral-agent-history__open {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.corral-agent-history__open strong,
+.corral-agent-history__open span,
+.corral-agent-history__open small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.corral-agent-history__open strong {
+  font-size: 12px;
+}
+
+.corral-agent-history__open span,
+.corral-agent-history__open small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.corral-agent-history__delete {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.corral-agent-history__delete:hover {
+  border-color: var(--danger, #b42318);
+  color: var(--danger, #b42318);
+}
+
+.corral-agent-history__confirm {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .corral-workspace-transcript {
