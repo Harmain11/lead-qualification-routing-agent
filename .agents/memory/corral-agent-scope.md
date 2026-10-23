@@ -23,8 +23,8 @@ Workspace snapshots must come from the server under the current permissions, not
 
 **How to apply:** Add capabilities through typed, permission-scoped tools backed by existing APIs. Retrieve only relevant stored records for each request, disclose when results are bounded, use the saved business profile for workspace identity, and keep a clear review-and-approve step before every mutation.
 
-For read-only questions about whether a lead exists or for its details, search stored leads within the current workspace and the user's lead-view permission. Report matching details; when several leads match, list their full names and details and ask which full name the user means. Distinguish no match from search failure or missing permission.
+For read-only questions about whether a lead exists or for its details, search stored leads only within the current workspace and the user's lead-view permission. If an exact name search misses, compare all saved lead names in that workspace and suggest close matches, but ask before selecting or using one. When several leads match, list their names and ask which one the user means. Distinguish no match from search failure or missing permission.
 
-**Why:** the user expects Corral Agent to verify lead records and answer with details rather than returning a generic action-target error.
+**Why:** the user expects Corral Agent to verify current-workspace lead records rather than returning a generic action-target error, and asked for likely typo matches to be confirmed before use.
 
-**How to apply:** Use the server's scoped lead search for lookup questions, do not require an AI-generated open-lead action to answer, and never report no match when search failed.
+**How to apply:** Keep exact and fuzzy searches server-side and workspace-scoped; never search another workspace or live external CRM/mail archives. Do not use a fuzzy candidate as an action target until the user confirms it, and never report no match when search failed.

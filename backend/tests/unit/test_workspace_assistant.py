@@ -424,6 +424,189 @@ def test_workspace_chat_reports_no_matching_lead_from_search_results(monkeypatch
     assert "couldn’t find a matching lead" in result["reply"]
 
 
+def test_workspace_chat_asks_before_using_a_similar_lead(monkeypatch) -> None:
+    workspace_id = uuid4()
+    candidate_id = str(uuid4())
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("fuzzy matches must be confirmed before AI use"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {
+            "matched_leads": [],
+            "similar_leads": [
+                {
+                    "id": candidate_id,
+                    "name": "John Smith",
+                    "company": "Lunar Robotics",
+                    "similarity": 0.78,
+                }
+            ],
+        },
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Find the lead Jhon Smth.")
+            ]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "John Smith" in result["reply"]
+    assert "Lunar Robotics" in result["reply"]
+    assert "Reply yes to confirm this lead" in result["reply"]
+
+
+def test_workspace_chat_uses_a_similar_lead_only_after_confirmation(monkeypatch) -> None:
+    workspace_id = uuid4()
+    candidate_id = str(uuid4())
+    retrieval_calls: list[tuple[object, str, dict[str, object]]] = []
+    candidate = {"id": candidate_id, "name": "John Smith", "company": "Lunar Robotics"}
+
+    def confirmed_retrieval(_session, current_workspace_id, query, **kwargs):
+        assert current_workspace_id == workspace_id
+        assert query == "Find the lead Jhon Smth."
+        assert kwargs == {"confirm_similar_lead": True}
+        retrieval_calls.append((current_workspace_id, query, kwargs))
+        return {
+            "matched_leads": [candidate],
+            "similar_leads": [],
+            "lead_match_confirmed": True,
+        }
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: pytest.fail("confirmed read-only lookups do not need AI"),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        confirmed_retrieval,
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Find the lead Jhon Smth."),
+                AssistantMessage(
+                    role="assistant",
+                    content=(
+                        "I found a close match. Reply yes to confirm this lead, "
+                        "or tell me another name."
+                    ),
+                ),
+                AssistantMessage(role="user", content="Yes, that's the one."),
+            ]
+        ),
+        session=SimpleNamespace(begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert "Yes — I found this matching lead" in result["reply"]
+    assert "John Smith" in result["reply"]
+    assert len(retrieval_calls) == 1
+
+
+def test_confirming_a_lead_name_does_not_authorize_an_unrequested_write(
+    monkeypatch,
+) -> None:
+    workspace_id = uuid4()
+    candidate_id = str(uuid4())
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="I can update the lead.",
+                action=WorkspaceAssistantAction(
+                    kind="update_lead_profile",
+                    title="Update lead",
+                    summary="Change the lead's job title.",
+                    target_id=candidate_id,
+                    payload_json='{"job_title":"VP"}',
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_assistant_context",
+        lambda *_args: {"context_warnings": []},
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args, **_kwargs: {
+            "matched_leads": [
+                {
+                    "id": candidate_id,
+                    "name": "John Smith",
+                    "company": "Lunar Robotics",
+                }
+            ],
+            "similar_leads": [],
+            "lead_match_confirmed": True,
+        },
+    )
+
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(role="user", content="Open the lead Jhon Smth."),
+                AssistantMessage(
+                    role="assistant",
+                    content=(
+                        "I found a close match. Reply yes to confirm this lead, "
+                        "or tell me another name."
+                    ),
+                ),
+                AssistantMessage(role="user", content="Correct."),
+            ]
+        ),
+        session=SimpleNamespace(
+            begin_nested=nullcontext,
+            scalar=lambda *_args: pytest.fail("unrequested writes must be blocked"),
+        ),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view", "leads.edit"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "specific update request" in result["reply"]
+
+
 def test_workspace_chat_does_not_claim_no_match_when_search_is_unavailable(
     monkeypatch,
 ) -> None:

@@ -149,7 +149,10 @@ def test_workspace_retrieval_returns_related_records_and_stays_workspace_scoped(
     assert context["record_counts"]["leads"] == 1
     assert [lead["name"] for lead in context["matched_leads"]] == ["Mina Chen"]
     assert [contact["name"] for contact in context["matched_contacts"]] == ["Mina Chen"]
-    assert any("pricing proposal" in (call["transcript_excerpt"] or "") for call in context["calls"])
+    assert any(
+        "pricing proposal" in (call["transcript_excerpt"] or "")
+        for call in context["calls"]
+    )
     assert any(
         event["details"].get("subject") == "Workflow automation pricing"
         for event in context["recent_emails_and_meetings"]
@@ -159,4 +162,46 @@ def test_workspace_retrieval_returns_related_records_and_stays_workspace_scoped(
         event["details"].get("subject") != "Private other workspace message"
         for event in context["recent_emails_and_meetings"]
     )
+    engine.dispose()
+
+
+def test_fuzzy_lead_name_lookup_uses_only_saved_leads_in_current_workspace(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'fuzzy-workspace-records.db'}")
+    Base.metadata.create_all(engine)
+    workspace_id, other_workspace_id = uuid4(), uuid4()
+    query = "Is there a Jhon Smth in my leads?"
+
+    with Session(engine) as session:
+        ensure_workspace(session, workspace_id, name="Fuzzy Search QA")
+        ensure_workspace(session, other_workspace_id, name="Other Workspace")
+        distractors = [
+            _lead(workspace_id, f"Taylor Prospect {index}", f"Company {index}", index + 1)
+            for index in range(10)
+        ]
+        saved_lead = _lead(workspace_id, "John Smith", "Lunar Robotics", 11)
+        other_workspace_lead = _lead(
+            other_workspace_id, "John Smith", "Private Robotics", 1
+        )
+        session.add_all([*distractors, saved_lead, other_workspace_lead])
+        session.commit()
+
+        suggestion = build_workspace_record_context(session, workspace_id, query)
+        confirmed = build_workspace_record_context(
+            session,
+            workspace_id,
+            query,
+            confirm_similar_lead=True,
+        )
+
+    assert suggestion["record_counts"]["leads"] == 11
+    assert suggestion["matched_leads"] == []
+    assert [lead["id"] for lead in suggestion["similar_leads"]] == [
+        str(saved_lead.id)
+    ]
+    assert suggestion["similar_leads"][0]["company"] == "Lunar Robotics"
+    assert confirmed["lead_match_confirmed"] is True
+    assert [lead["id"] for lead in confirmed["matched_leads"]] == [
+        str(saved_lead.id)
+    ]
+    assert confirmed["similar_leads"] == []
     engine.dispose()

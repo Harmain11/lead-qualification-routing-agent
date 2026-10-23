@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -53,6 +54,120 @@ def _terms(query: str) -> list[str]:
         if len(found) == 8:
             break
     return found
+
+
+def _word_similarity(left: str, right: str) -> float:
+    """Return an edit-distance score that treats a single transposition as one typo."""
+    if left == right:
+        return 1.0
+    if not left or not right:
+        return 0.0
+
+    previous = list(range(len(right) + 1))
+    for left_index, left_character in enumerate(left, start=1):
+        current = [left_index]
+        for right_index, right_character in enumerate(right, start=1):
+            current.append(
+                min(
+                    current[-1] + 1,
+                    previous[right_index] + 1,
+                    previous[right_index - 1] + (left_character != right_character),
+                )
+            )
+        previous = current
+
+    distance = previous[-1]
+    if len(left) == len(right):
+        for index in range(len(left) - 1):
+            transposed = (
+                left[:index]
+                + left[index + 1]
+                + left[index]
+                + left[index + 2 :]
+            )
+            if transposed == right:
+                distance = min(distance, 1)
+                break
+    return 1.0 - distance / max(len(left), len(right))
+
+
+def _normalize_name_tokens(value: str) -> list[str]:
+    folded = unicodedata.normalize("NFKD", value.casefold())
+    unaccented = "".join(character for character in folded if not unicodedata.combining(character))
+    return re.findall(r"[^\W_]{2,}", unaccented)
+
+
+def _lead_name_similarity(query_terms: list[str], lead_name: str | None) -> float:
+    if not lead_name:
+        return 0.0
+    name_tokens = _normalize_name_tokens(lead_name)
+    if not name_tokens:
+        return 0.0
+
+    similarities = []
+    for term in query_terms:
+        if "@" in term:
+            continue
+        query_token = _normalize_name_tokens(term)
+        if not query_token:
+            continue
+        best = max(
+            _word_similarity(query_token[0], name_token)
+            for name_token in name_tokens
+        )
+        if best >= 0.55:
+            similarities.append(best)
+    return sum(similarities) / len(similarities) if similarities else 0.0
+
+
+def _similar_workspace_leads(
+    session: Session,
+    workspace_id: UUID,
+    query_terms: list[str],
+) -> list[dict[str, Any]]:
+    if not query_terms:
+        return []
+
+    # Compare only names from this workspace, then load full records for the
+    # few candidates shown to the user. This never searches external providers.
+    name_rows = session.execute(
+        select(LeadORM.id, LeadORM.full_name).where(
+            LeadORM.workspace_id == workspace_id
+        )
+    ).all()
+    scored = [
+        (score, lead_id, name)
+        for lead_id, name in name_rows
+        if (score := _lead_name_similarity(query_terms, name)) >= 0.72
+        and score < 0.999
+    ]
+    if not scored:
+        return []
+
+    scored.sort(key=lambda item: (-item[0], (item[2] or "").casefold(), str(item[1])))
+    best_score = scored[0][0]
+    close_matches = [
+        item for item in scored if best_score - item[0] <= 0.08
+    ][:3]
+    candidate_ids = [item[1] for item in close_matches]
+    candidates_by_id = {
+        lead.id: lead
+        for lead in session.scalars(
+            select(LeadORM).where(
+                LeadORM.workspace_id == workspace_id,
+                LeadORM.id.in_(candidate_ids),
+            )
+        )
+    }
+    results = []
+    for score, lead_id, _name in close_matches:
+        lead = candidates_by_id.get(lead_id)
+        if lead is None:
+            continue
+        summary = _lead_summary(lead)
+        summary["similarity"] = round(score, 3)
+        results.append(summary)
+    return results
 
 
 def _text_filter(columns: tuple[Any, ...], terms: list[str]) -> Any:
@@ -200,6 +315,8 @@ def build_workspace_record_context(
     session: Session,
     workspace_id: UUID,
     query: str,
+    *,
+    confirm_similar_lead: bool = False,
 ) -> dict[str, Any]:
     """Retrieve a bounded, workspace-scoped set of records relevant to one chat turn."""
     query = query[:3000]
@@ -296,6 +413,33 @@ def build_workspace_record_context(
                 .limit(8)
             )
         )
+
+    similar_leads = (
+        _similar_workspace_leads(session, workspace_id, terms)
+        if terms and (wants_leads or wants_calls or wants_emails or wants_meetings or wants_notes)
+        else []
+    )
+    similar_ids = {lead["id"] for lead in similar_leads}
+    if similar_ids:
+        leads = [lead for lead in leads if str(lead.id) not in similar_ids]
+
+    lead_match_confirmed = False
+    if confirm_similar_lead and len(similar_leads) == 1:
+        confirmed_id = UUID(similar_leads[0]["id"])
+        confirmed_lead = session.scalar(
+            select(LeadORM).where(
+                LeadORM.id == confirmed_id,
+                LeadORM.workspace_id == workspace_id,
+            )
+        )
+        if confirmed_lead is not None:
+            leads = [confirmed_lead]
+            similar_leads = []
+            lead_match_confirmed = True
+    elif confirm_similar_lead:
+        # A yes only confirms a still-unique candidate; do not fall back to an
+        # unrelated partial text hit if the candidate disappeared or became ambiguous.
+        leads = []
 
     company_columns = (
         CompanyORM.name,
@@ -585,6 +729,8 @@ def build_workspace_record_context(
         "search_terms": terms,
         "record_counts": counts,
         "matched_leads": [_lead_summary(lead) for lead in leads[:8]],
+        "similar_leads": similar_leads,
+        "lead_match_confirmed": lead_match_confirmed,
         "matched_contacts": contact_summaries,
         "matched_companies": company_summaries,
         "recent_emails_and_meetings": [
@@ -615,6 +761,8 @@ def build_workspace_record_context(
         "retrieval_note": (
             "These are bounded matches from records already stored in this Corral workspace, "
             "not a live search of complete external provider archives. "
+            "similar_leads are tentative name matches and are not selected records until the "
+            "user confirms one. "
             "They may be incomplete; do not claim a full history unless the returned counts "
             "and items support it. Ask for a narrower name, topic, or date range when needed."
         ),
@@ -626,6 +774,8 @@ def build_workspace_record_context(
             context["calls"].pop()
         elif context["lead_notes"]:
             context["lead_notes"].pop()
+        elif context["similar_leads"]:
+            context["similar_leads"].pop()
         elif context["matched_leads"]:
             context["matched_leads"].pop()
         elif context["saved_follow_up_emails"]:

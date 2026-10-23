@@ -30,11 +30,76 @@ from lead_agent.infrastructure.repositories import get_lead
 router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
 workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
 _SIMPLE_ACKNOWLEDGEMENTS = {"hi", "hello", "hey", "thanks", "thank you"}
+_LEAD_CONFIRMATION_MARKER = "Reply yes to confirm this lead"
 
 
 def _is_simple_acknowledgement(content: str) -> bool:
     normalized = re.sub(r"[\W_]+", " ", content.casefold()).strip()
     return normalized in _SIMPLE_ACKNOWLEDGEMENTS
+
+
+def _lead_confirmation_state(
+    messages: list[AssistantMessage],
+) -> tuple[str | None, str | None]:
+    latest_user_index = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if messages[index].role == "user"
+        ),
+        None,
+    )
+    if latest_user_index is None:
+        return None, None
+
+    latest_user_message = messages[latest_user_index].content
+    normalized = re.sub(
+        r"[\W_]+",
+        " ",
+        latest_user_message.casefold().replace("’", "").replace("'", ""),
+    ).strip()
+    assistant_index = next(
+        (
+            index
+            for index in range(latest_user_index - 1, -1, -1)
+            if messages[index].role == "assistant"
+        ),
+        None,
+    )
+    if assistant_index is None or _LEAD_CONFIRMATION_MARKER.casefold() not in (
+        messages[assistant_index].content.casefold()
+    ):
+        return None, None
+
+    original_query = next(
+        (
+            messages[index].content
+            for index in range(assistant_index - 1, -1, -1)
+            if messages[index].role == "user"
+        ),
+        None,
+    )
+    if not original_query:
+        return None, None
+
+    if normalized in {
+        "yes",
+        "yeah",
+        "yep",
+        "correct",
+        "thats right",
+        "thats the one",
+        "that one",
+        "yes please",
+        "yes thats right",
+        "yes thats the one",
+        "use this lead",
+        "use that lead",
+    }:
+        return "confirmed", original_query
+    if normalized in {"no", "nope", "no thanks", "not that one", "not this one"}:
+        return "declined", original_query
+    return "correction", latest_user_message
 
 
 def _is_explicit_lead_write_request(query: str) -> bool:
@@ -140,6 +205,33 @@ def _lead_lookup_reply(
     matched_leads = [
         lead for lead in records["matched_leads"] if isinstance(lead, dict)
     ]
+    raw_similar_leads = records.get("similar_leads", [])
+    similar_leads = (
+        [lead for lead in raw_similar_leads if isinstance(lead, dict)]
+        if isinstance(raw_similar_leads, list)
+        else []
+    )
+    if similar_leads:
+        suggestions = []
+        for lead in similar_leads:
+            name = lead.get("name") if isinstance(lead.get("name"), str) else "Unnamed lead"
+            company = lead.get("company")
+            suggestions.append(
+                f"**{name}**"
+                + (f" — {company}" if isinstance(company, str) and company.strip() else "")
+            )
+        if len(suggestions) == 1:
+            return (
+                "I couldn’t find an exact name, but I found a close match among the leads "
+                f"saved in this workspace: {suggestions[0]}. Is this the lead you mean? "
+                f"{_LEAD_CONFIRMATION_MARKER}, or tell me another name, company, or email."
+            )
+        return (
+            "I couldn’t find an exact name. These are the closest leads saved in this "
+            "workspace:\n\n" + "\n".join(f"- {item}" for item in suggestions)
+            + "\n\nWhich one do you mean? Reply with the name or company."
+        )
+
     if not matched_leads:
         return (
             "I couldn’t find a matching lead in the stored Corral workspace records. "
@@ -238,8 +330,10 @@ def chat_with_workspace_assistant(
         message.content for message in reversed(request.messages)
         if message.role == "user"
     )[:3000]
+    confirmation_state, confirmation_query = _lead_confirmation_state(request.messages)
     simple_acknowledgement = _is_simple_acknowledgement(latest_user_message)
     read_only_lead_lookup = _is_read_only_lead_lookup(latest_user_message)
+    declined_lead_match = confirmation_state == "declined"
     if simple_acknowledgement:
         # Greetings and thanks need neither a workspace snapshot nor prior turns.
         workspace_context = {
@@ -251,17 +345,31 @@ def chat_with_workspace_assistant(
         # Legacy clients may still send context, but it is never a trusted snapshot.
         workspace_context = build_workspace_assistant_context(session, workspace)
         assistant_messages = [message.model_dump() for message in request.messages]
-    search_query = latest_user_message if read_only_lead_lookup else record_query
+    if confirmation_state == "confirmed":
+        search_query = confirmation_query or record_query
+    elif confirmation_state == "correction":
+        search_query = latest_user_message
+    else:
+        search_query = latest_user_message if read_only_lead_lookup else record_query
     if (
         not simple_acknowledgement
+        and not declined_lead_match
         and "leads.view" in workspace.permissions
         and latest_user_message
     ):
         try:
             with session.begin_nested():
-                workspace_context["workspace_records"] = build_workspace_record_context(
-                    session, workspace.workspace_id, search_query,
-                )
+                if confirmation_state == "confirmed":
+                    workspace_context["workspace_records"] = build_workspace_record_context(
+                        session,
+                        workspace.workspace_id,
+                        search_query,
+                        confirm_similar_lead=True,
+                    )
+                else:
+                    workspace_context["workspace_records"] = build_workspace_record_context(
+                        session, workspace.workspace_id, search_query,
+                    )
         except Exception:
             workspace_context.setdefault("context_warnings", []).append(
                 "Workspace record search is unavailable; do not infer lead details "
@@ -276,7 +384,27 @@ def chat_with_workspace_assistant(
             "team access, Dialer navigation, guidance, and content generation"
         ),
     }
-    if read_only_lead_lookup:
+    records = workspace_context.get("workspace_records")
+    similar_leads = records.get("similar_leads", []) if isinstance(records, dict) else []
+    if not isinstance(similar_leads, list):
+        similar_leads = []
+    if declined_lead_match:
+        result = WorkspaceAssistantReply(
+            reply=(
+                "No problem. Tell me another name, company, or email and I’ll search "
+                "the leads saved in this workspace."
+            ),
+        )
+    elif read_only_lead_lookup or similar_leads or (
+        confirmation_state == "confirmed"
+        and not (
+            isinstance(records, dict)
+            and records.get("lead_match_confirmed") is True
+        )
+    ) or (
+        confirmation_state == "confirmed"
+        and _is_read_only_lead_lookup(search_query)
+    ):
         result = WorkspaceAssistantReply(
             reply=_lead_lookup_reply(workspace_context, workspace.permissions),
         )
@@ -297,6 +425,19 @@ def chat_with_workspace_assistant(
     lead_mutations = {
         "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead",
     }
+    lead_write_query = (
+        confirmation_query
+        if confirmation_state == "confirmed"
+        else record_query
+    )
+    if (
+        result.action.kind in lead_mutations
+        and not _is_explicit_lead_write_request(lead_write_query)
+    ):
+        result.action = WorkspaceAssistantAction()
+        result.reply = (
+            "I found the lead, but need a specific update request before proposing a change."
+        )
     if result.action.kind == "open_lead" or result.action.kind in lead_mutations:
         target_id = result.action.target_id
         matched_lead_ids = {
@@ -328,7 +469,7 @@ def chat_with_workspace_assistant(
                 result.action.kind == "open_lead"
                 or (
                     result.action.kind in lead_mutations
-                    and _is_explicit_lead_write_request(record_query)
+                    and _is_explicit_lead_write_request(lead_write_query)
                 )
             ):
                 result.action.target_id = str(mentioned_lead.get("id") or "")
