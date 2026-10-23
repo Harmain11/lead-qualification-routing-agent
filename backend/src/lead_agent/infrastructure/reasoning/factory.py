@@ -74,10 +74,16 @@ def resolve_workspace_reasoning_provider(
     *,
     settings: Settings | None = None,
     secret_store: SecretStore | None = None,
+    provider_type: str | None = None,
+    include_inactive: bool = False,
 ) -> ReasoningProvider:
     """Resolve one workspace's verified key/model without any cross-workspace fallback."""
 
     active = settings or get_settings()
+    if provider_type is not None and provider_type not in REASONING_PROVIDERS:
+        raise ValueError("unsupported reasoning provider")
+    if include_inactive and provider_type is None:
+        raise ValueError("provider_type is required when resolving inactive providers")
     mode = active.llm_provider.strip().lower()
     if mode in {"", "none", "deterministic", "mock"}:
         return DeterministicReasoningProvider()
@@ -89,14 +95,18 @@ def resolve_workspace_reasoning_provider(
     if mode != "workspace":
         return DeterministicReasoningProvider()
 
-    connection = session.scalar(
-        select(ProviderConnectionORM)
-        .where(
+    filters = [
             ProviderConnectionORM.workspace_id == workspace_id,
             ProviderConnectionORM.provider_type.in_(REASONING_PROVIDERS),
-            ProviderConnectionORM.is_active.is_(True),
             ProviderConnectionORM.status == "verified",
-        )
+        ]
+    if not include_inactive:
+        filters.append(ProviderConnectionORM.is_active.is_(True))
+    if provider_type is not None:
+        filters.append(ProviderConnectionORM.provider_type == provider_type)
+    connection = session.scalar(
+        select(ProviderConnectionORM)
+        .where(*filters)
         .order_by(ProviderConnectionORM.updated_at.desc())
     )
     if connection is None or connection.secret_reference is None:

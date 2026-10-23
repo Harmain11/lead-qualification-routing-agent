@@ -81,6 +81,8 @@ export function WorkspaceAssistantChat({
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [historyChanging, setHistoryChanging] = useState(false);
+  const historyChangingRef = useRef(false);
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const autosaveTimerRef = useRef<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -95,6 +97,8 @@ export function WorkspaceAssistantChat({
   const sendingMessageIdsRef = useRef(new Set<string>());
   const applyingMessageIdsRef = useRef(new Set<string>());
   const canSendEmail = permissions.has("leads.edit");
+  const threadBusy = busy || historyLoading || historyChanging
+    || messages.some((message) => message.actionStatus === "applying" || message.actionStatus === "sending");
 
   function saveTranscript(
     id: string,
@@ -189,10 +193,13 @@ export function WorkspaceAssistantChat({
   }, [conversationId, messages]);
 
   async function openConversation(id: string) {
-    if (busy || id === conversationIdRef.current) {
+    if (threadBusy || historyChangingRef.current) return;
+    if (id === conversationIdRef.current) {
       setHistoryOpen(false);
       return;
     }
+    historyChangingRef.current = true;
+    setHistoryChanging(true);
     try {
       await flushActiveConversation();
       const saved = await getWorkspaceAgentConversation(id);
@@ -209,29 +216,45 @@ export function WorkspaceAssistantChat({
       conversationIdRef.current = saved.id;
       setConversationId(saved.id);
       setMessages(restored);
+      setDraft("");
+      setError("");
+      setConfirmDeleteId(null);
       setHistoryOpen(false);
       setHistoryError("");
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : "That conversation could not be opened.");
+    } finally {
+      historyChangingRef.current = false;
+      setHistoryChanging(false);
     }
   }
 
   async function startNewConversation() {
-    if (busy) return;
+    if (threadBusy || historyChangingRef.current) return;
+    historyChangingRef.current = true;
+    setHistoryChanging(true);
     try {
       await flushActiveConversation();
       conversationIdRef.current = null;
       setConversationId(null);
       setMessages([]);
+      setDraft("");
+      setConfirmDeleteId(null);
       setHistoryOpen(false);
       setError("");
       setHistoryError("");
     } catch {
       setHistoryError("The previous chat could not be saved.");
+    } finally {
+      historyChangingRef.current = false;
+      setHistoryChanging(false);
     }
   }
 
   async function removeConversation(id: string) {
+    if (threadBusy || historyChangingRef.current) return;
+    historyChangingRef.current = true;
+    setHistoryChanging(true);
     try {
       await flushActiveConversation();
       await deleteWorkspaceAgentConversation(id);
@@ -241,9 +264,14 @@ export function WorkspaceAssistantChat({
         conversationIdRef.current = null;
         setConversationId(null);
         setMessages([]);
+        setDraft("");
+        setError("");
       }
     } catch (reason) {
       setHistoryError(reason instanceof Error ? reason.message : "That conversation could not be deleted.");
+    } finally {
+      historyChangingRef.current = false;
+      setHistoryChanging(false);
     }
   }
 
@@ -295,7 +323,8 @@ export function WorkspaceAssistantChat({
   async function submit(event?: FormEvent, text = draft) {
     event?.preventDefault();
     const content = text.trim();
-    if (!content || busy) return;
+    if (!content || threadBusy || historyChangingRef.current
+      || applyingMessageIdsRef.current.size || sendingMessageIdsRef.current.size) return;
     if (messages.length >= 500) {
       setError("This chat reached its history limit. Start a new conversation to continue.");
       return;
@@ -399,7 +428,9 @@ export function WorkspaceAssistantChat({
   }
 
   async function handleAction(messageId: string, action: WorkspaceAssistantAction) {
-    if (applyingMessageIdsRef.current.has(messageId)) return;
+    if (threadBusy || historyChangingRef.current
+      || applyingMessageIdsRef.current.size || sendingMessageIdsRef.current.size
+      || messages.find((message) => message.id === messageId)?.needsVerification) return;
     applyingMessageIdsRef.current.add(messageId);
     setMessages((current) =>
       current.map((message) =>
@@ -538,6 +569,7 @@ export function WorkspaceAssistantChat({
     const body = action.email_body ?? "";
     if (
       action.kind !== "send_email" ||
+      threadBusy || historyChangingRef.current || applyingMessageIdsRef.current.size > 0 ||
       messages.find((message) => message.id === messageId)?.needsVerification ||
       !canApplyWorkspaceAssistantAction(action, permissions) ||
       !selectedSendAccountId ||
@@ -631,7 +663,7 @@ export function WorkspaceAssistantChat({
           {historyError && <span role="status">{historyError}</span>}
         </div>
         <div className="corral-workspace-chat-toolbar__actions">
-          <button type="button" className="secondary-button" onClick={() => void startNewConversation()} disabled={busy || historyLoading}>
+          <button type="button" className="secondary-button" onClick={() => void startNewConversation()} disabled={threadBusy}>
             New chat
           </button>
           <button
@@ -639,7 +671,7 @@ export function WorkspaceAssistantChat({
             className="secondary-button"
             aria-pressed={historyOpen}
             onClick={() => setHistoryOpen((open) => !open)}
-            disabled={busy || historyLoading}
+            disabled={threadBusy}
           >
             {historyOpen ? "Back to chat" : "History"}
           </button>
@@ -668,7 +700,7 @@ export function WorkspaceAssistantChat({
                       type="button"
                       className="corral-agent-history__open"
                       onClick={() => void openConversation(conversation.id)}
-                      disabled={busy}
+                      disabled={threadBusy}
                     >
                       <strong>{conversation.title}</strong>
                       <span>{conversation.preview}</span>
@@ -679,7 +711,7 @@ export function WorkspaceAssistantChat({
                       className="corral-agent-history__delete"
                       aria-label={`Delete conversation: ${conversation.title}`}
                       onClick={() => setConfirmDeleteId((current) => current === conversation.id ? null : conversation.id)}
-                      disabled={busy}
+                      disabled={threadBusy}
                     >
                       {confirmDeleteId === conversation.id ? "Cancel" : "Delete"}
                     </button>
@@ -690,7 +722,7 @@ export function WorkspaceAssistantChat({
                           type="button"
                           className="corral-agent-history__delete"
                           onClick={() => void removeConversation(conversation.id)}
-                          disabled={busy}
+                          disabled={threadBusy}
                         >
                           Delete chat
                         </button>
@@ -724,7 +756,7 @@ export function WorkspaceAssistantChat({
                   type="button"
                   key={prompt}
                   onClick={() => void submit(undefined, prompt)}
-                  disabled={busy}
+                  disabled={threadBusy}
                 >
                   {prompt}
                 </button>
@@ -1001,7 +1033,7 @@ export function WorkspaceAssistantChat({
                     {message.action.kind === "create_lead" && message.actionStatus !== "applied" && message.actionStatus !== "dismissed" && (
                       <AssistantLeadDraft
                         value={leadCreationDraft(message.action)}
-                        disabled={message.actionStatus === "applying" || !canApplyWorkspaceAssistantAction(message.action, permissions)}
+                        disabled={threadBusy || message.needsVerification || !canApplyWorkspaceAssistantAction(message.action, permissions)}
                         onChange={(value) => setMessages((current) => current.map((item) =>
                           item.id === message.id && item.action ? {
                             ...item, action: { ...item.action, payload_json: JSON.stringify(value) },
@@ -1013,7 +1045,7 @@ export function WorkspaceAssistantChat({
                     {message.action.kind === "add_lead_note" && message.actionStatus !== "applied" && message.actionStatus !== "dismissed" && (
                       <AssistantNoteDraft
                         value={workspaceNoteDraft(message.action) ?? ""}
-                        disabled={message.actionStatus === "applying" || !canApplyWorkspaceAssistantAction(message.action, permissions)}
+                        disabled={threadBusy || message.needsVerification || !canApplyWorkspaceAssistantAction(message.action, permissions)}
                         onChange={(note) => setMessages((current) => current.map((item) =>
                           item.id === message.id && item.action ? {
                             ...item, action: editWorkspaceNoteDraft(item.action, note),
@@ -1041,7 +1073,9 @@ export function WorkspaceAssistantChat({
                   </p>
                 )}
                 {message.actionStatus === "dismissed" && (
-                  <p className="corral-workspace-action-result">No change made.</p>
+                  <p className="corral-workspace-action-result">
+                    {message.needsVerification ? "Proposal dismissed; no further action taken. Verify whether the earlier attempt completed." : "No change made."}
+                  </p>
                 )}
                 {message.action.kind === "send_email" &&
                   message.actionStatus !== "applied" &&
@@ -1051,7 +1085,7 @@ export function WorkspaceAssistantChat({
                         className="primary-button"
                         type="button"
                         disabled={
-                          busy ||
+                          threadBusy ||
                           message.needsVerification ||
                           message.actionStatus === "sending" ||
                           !canApplyWorkspaceAssistantAction(
@@ -1094,7 +1128,8 @@ export function WorkspaceAssistantChat({
                         className="primary-button"
                         type="button"
                         disabled={
-                          busy ||
+                          threadBusy ||
+                          message.needsVerification ||
                           message.actionStatus === "applying" ||
                           (message.action.kind === "add_lead_note" && !workspaceNoteDraft(message.action)?.trim()) ||
                           !canApplyWorkspaceAssistantAction(message.action, permissions)
@@ -1168,7 +1203,7 @@ export function WorkspaceAssistantChat({
           <button
             className="primary-button"
             type="submit"
-            disabled={busy || !draft.trim()}
+            disabled={threadBusy || !draft.trim()}
           >
             {busy ? "Thinking…" : "Send"}
           </button>

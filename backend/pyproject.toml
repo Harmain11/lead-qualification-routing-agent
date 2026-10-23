@@ -33,6 +33,7 @@ where = ["src"]
 
 [project.scripts]
 production-check = "lead_agent.production_check:main"
+evaluate-lead-assistant = "lead_agent.evaluations.assistant_semantics:main"
 
 [project.optional-dependencies]
 dev = [
