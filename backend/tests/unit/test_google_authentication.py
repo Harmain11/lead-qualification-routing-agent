@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import parse_qs, urlparse
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from test_authentication import auth_harness, csrf, signup
@@ -11,8 +14,10 @@ from lead_agent.infrastructure.db.models import ExternalIdentityORM, WorkspaceOR
 from lead_agent.infrastructure.google_auth import (
     GOOGLE_SCOPES,
     GoogleIdentity,
+    ProviderGoogleAuthClient,
     get_google_auth_client,
 )
+from lead_agent.settings.config import Settings
 
 
 class FakeGoogleClient:
@@ -26,6 +31,11 @@ class FakeGoogleClient:
         assert code_verifier
         assert redirect_uri.endswith("/v1/auth/google/callback")
         return self.identity
+
+
+class FailingGoogleClient(FakeGoogleClient):
+    def exchange(self, *, code: str, code_verifier: str, redirect_uri: str) -> GoogleIdentity:
+        raise RuntimeError("sensitive@example.test code=do-not-log")
 
 
 def _complete_google(client: TestClient, identity: GoogleIdentity) -> tuple[object, str]:
@@ -106,3 +116,124 @@ def test_google_state_is_single_use_and_does_not_request_gmail_scope(tmp_path) -
     finally:
         app.dependency_overrides.clear()
         session.close()
+
+
+def test_google_callback_logs_failure_stage_without_exception_details(tmp_path, caplog) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        app.dependency_overrides[get_google_auth_client] = lambda: FailingGoogleClient(
+            GoogleIdentity("unused", "unused@example.test", "Unused", True)
+        )
+        caplog.set_level(logging.WARNING, logger="lead_agent.api.auth")
+        with TestClient(app) as client:
+            started = client.get("/v1/auth/google/start", follow_redirects=False)
+            state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+            callback = client.get(
+                "/v1/auth/google/callback",
+                params={"state": state, "code": "sensitive-google-code"},
+                follow_redirects=False,
+            )
+
+        assert callback.status_code == 303
+        assert "google_authentication_failed" in callback.headers["location"]
+        failure = next(
+            record
+            for record in caplog.records
+            if record.name == "lead_agent.api.auth"
+            and record.getMessage() == "google.auth.callback_failed"
+        )
+        assert failure.fields["stage"] == "google_identity_exchange"
+        assert failure.fields["error_type"] == "RuntimeError"
+        assert failure.fields["request_id"] != "-"
+        assert "sensitive@example.test" not in caplog.text
+        assert "do-not-log" not in caplog.text
+        assert "sensitive-google-code" not in caplog.text
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_google_callback_logs_local_account_stage_for_rejected_identity(tmp_path, caplog) -> None:
+    session = auth_harness(tmp_path)
+    try:
+        app.dependency_overrides[get_google_auth_client] = lambda: FakeGoogleClient(
+            GoogleIdentity("unverified-sub", "unverified@example.test", "Unverified", False)
+        )
+        caplog.set_level(logging.WARNING, logger="lead_agent.api.auth")
+        with TestClient(app) as client:
+            started = client.get("/v1/auth/google/start", follow_redirects=False)
+            state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+            callback = client.get(
+                "/v1/auth/google/callback",
+                params={"state": state, "code": "sensitive-google-code"},
+                follow_redirects=False,
+            )
+
+        assert callback.status_code == 303
+        failure = next(
+            record
+            for record in caplog.records
+            if record.name == "lead_agent.api.auth"
+            and record.getMessage() == "google.auth.callback_failed"
+        )
+        assert failure.fields["stage"] == "local_account_session_creation"
+        assert failure.fields["error_type"] == "AuthenticationError"
+        assert "unverified@example.test" not in caplog.text
+        assert "sensitive-google-code" not in caplog.text
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+@pytest.mark.parametrize(
+    ("failure_at", "expected_stage", "expected_status", "expected_code"),
+    [
+        ("token", "token_exchange", 400, "invalid_grant"),
+        ("userinfo", "userinfo", 401, "invalid_token"),
+    ],
+)
+def test_google_provider_errors_log_only_safe_status_and_code(
+    caplog,
+    failure_at: str,
+    expected_stage: str,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if failure_at == "userinfo" and request.url.path.endswith("/token"):
+            return httpx.Response(200, json={"access_token": "sensitive-access-token"})
+        return httpx.Response(
+            expected_status,
+            json={"error": expected_code, "error_description": "sensitive error details"},
+            request=request,
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(respond))
+    provider = ProviderGoogleAuthClient(
+        Settings(google_client_id="test-client", google_client_secret="test-secret"),
+        client=client,
+    )
+    caplog.set_level(logging.WARNING, logger="lead_agent.google_auth")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        provider.exchange(
+            code="sensitive-google-code",
+            code_verifier="sensitive-verifier",
+            redirect_uri="https://corralai.tech/v1/auth/google/callback",
+        )
+
+    failure = next(
+        record
+        for record in caplog.records
+        if record.name == "lead_agent.google_auth"
+        and record.getMessage() == "google.oauth.request_failed"
+    )
+    assert failure.fields["stage"] == expected_stage
+    assert failure.fields["http_status"] == expected_status
+    assert failure.fields["provider_error_code"] == expected_code
+    assert "sensitive error details" not in caplog.text
+    assert "sensitive-google-code" not in caplog.text
+    assert "sensitive-verifier" not in caplog.text
+    assert "sensitive-access-token" not in caplog.text
+    assert "test-secret" not in caplog.text
+    client.close()
