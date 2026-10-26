@@ -315,6 +315,46 @@ try {
       primaryActionsChecked += 1;
     }
     if (label === "Integrations") {
+      await evaluate(`(() => {
+        const link = [...document.querySelectorAll(".v-sidebar-nav a.v-navitem")]
+          .find(item => item.querySelector(".v-navitem-label")?.textContent.trim() === "Integrations");
+        document.activeElement?.blur();
+        link?.focus();
+        link?.parentElement?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: null }));
+      })()`);
+      await wait(`Boolean(document.querySelector(".v-flyout"))`);
+      const flyoutBounds = JSON.parse(await evaluate(`(() => {
+        const flyout = document.querySelector(".v-flyout");
+        const rect = flyout?.getBoundingClientRect();
+        return JSON.stringify({
+          left: rect?.left ?? -1,
+          right: rect?.right ?? Infinity,
+          viewport: document.documentElement.clientWidth,
+          labels: flyout?.innerText ?? ""
+        });
+      })()`));
+      assert.ok(flyoutBounds.left >= 0, "Integration flyouts must not be clipped by the left viewport edge.");
+      assert.ok(flyoutBounds.right <= flyoutBounds.viewport + 1, "Integration flyouts must fit within the viewport.");
+      assert.match(flyoutBounds.labels, /Integrations/);
+      await evaluate(`(() => {
+        const fixture = document.createElement("button");
+        fixture.type = "button";
+        fixture.className = "gmail-mailbox-add";
+        fixture.textContent = "Add account";
+        fixture.style.position = "fixed";
+        fixture.style.left = "-10000px";
+        document.querySelector(".v-app")?.append(fixture);
+        const style = getComputedStyle(fixture);
+        window.__gmailButtonStyleSmoke = {
+          color: style.color,
+          background: style.backgroundColor
+        };
+        fixture.remove();
+      })()`);
+      const gmailButtonStyle = JSON.parse(await evaluate(`JSON.stringify(window.__gmailButtonStyleSmoke)`));
+      assert.equal(gmailButtonStyle.color, "rgb(255, 255, 255)", "Add account text must remain white.");
+      assert.equal(gmailButtonStyle.background, "rgb(30, 107, 82)", "Add account must use the Corral green fill.");
+
       const inlineCardOpened = await evaluate(`(() => {
         const card = [...document.querySelectorAll(".integration-card")].find(item => !item.classList.contains("provider-slack"));
         const toggle = card?.querySelector(".provider-collapse-toggle");

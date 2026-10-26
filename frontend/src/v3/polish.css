@@ -197,6 +197,37 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   --primary-action-foreground: #fff;
 }
 
+.v-app .gmail-mailbox-add {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-background) !important;
+  border-color: transparent !important;
+}
+
+.v-app .gmail-mailbox-add:hover:not(:disabled) {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-hover) !important;
+}
+
+.v-app .gmail-mailbox-add:active:not(:disabled) {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-pressed) !important;
+}
+
+.v-app .gmail-mailbox-add:focus-visible {
+  color: var(--primary-action-foreground) !important;
+  outline: 3px solid var(--focus) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 2px var(--surface) !important;
+}
+
+.v-app .gmail-mailbox-add:disabled {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-background) !important;
+  border-color: transparent !important;
+  opacity: 1 !important;
+  cursor: not-allowed;
+}
+
 .v-app :is(
   .primary-button,
   .button-primary,
