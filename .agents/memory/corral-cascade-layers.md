@@ -8,3 +8,9 @@ Legacy CSS is grouped into a cascade layer, while v3 styles are unlayered. For `
 **Why:** A hard-coded operations-page gradient continued to override shared primary-action hover and pressed colors in the browser, despite the v3 override being later in the source.
 
 **How to apply:** When a shared v3 style does not appear in the browser, inspect important declarations in the legacy layer first. Update or remove redundant legacy rules instead of stacking more specificity in an unlayered stylesheet.
+
+Unlayered compatibility selectors can also override later screen styles when their specificity is higher, especially broad role-based selected-tab rules.
+
+**Why:** Settings tabs inherited a high-contrast global background, while their explicitly colored title and caption no longer contrasted with it.
+
+**How to apply:** Inspect computed styles and selector specificity for selected states; override the full role-based selector and set child text colors explicitly, then verify contrast in both themes.

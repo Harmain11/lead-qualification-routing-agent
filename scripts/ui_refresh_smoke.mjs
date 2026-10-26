@@ -17,14 +17,17 @@ const browser = spawn(process.env.CORRAL_BROWSER_PATH || "chromium", [
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let socket;
 try {
-  let pages;
+  let pageTarget;
   for (let i = 0; i < 80; i++) {
-    try { pages = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); } catch {}
-    if (pages?.length) break;
+    try {
+      const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      pageTarget = targets.find((target) => target.type === "page" && target.url === "about:blank");
+    } catch {}
+    if (pageTarget) break;
     await pause(100);
   }
-  assert(pages?.length, "Browser debugger did not start.");
-  socket = new WebSocket(pages[0].webSocketDebuggerUrl);
+  assert(pageTarget, "Browser page target did not start.");
+  socket = new WebSocket(pageTarget.webSocketDebuggerUrl);
   await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
   let seq = 0;
   const pending = new Map();
@@ -108,6 +111,7 @@ try {
   assert.ok(navigation.length >= 15, `Expected the full workspace navigation; found ${navigation.length} pages.`);
   const pageChecks = [];
   let primaryActionsChecked = 0;
+  const requestedVisualChecks = { records: 0, contacts: 0, settingsThemes: 0, emailBody: 0, integrationCards: 0 };
   for (const label of navigation) {
     const found = await evaluate(`(() => {
       const item = [...document.querySelectorAll(".v-sidebar-nav a.v-navitem")]
@@ -124,6 +128,172 @@ try {
     })`));
     assert.ok(page.heading, `Page should render a heading after opening ${label}.`);
     assert.ok(page.documentWidth <= page.viewport + 1, `${label} overflows the desktop page width.`);
+    if (label === "Contacts") await capture("contacts-page-v5");
+    if (label === "Companies") await capture("companies-page-v5");
+    const nameDecorations = JSON.parse(await evaluate(`JSON.stringify({
+      record: [...document.querySelectorAll(".records-card-name")].find(element => element.getClientRects().length)
+        ? getComputedStyle([...document.querySelectorAll(".records-card-name")].find(element => element.getClientRects().length)).textDecorationLine : null,
+      contactRow: [...document.querySelectorAll(".contact-row")].find(element => element.getClientRects().length)
+        ? getComputedStyle([...document.querySelectorAll(".contact-row")].find(element => element.getClientRects().length)).textDecorationLine : null,
+      contactName: [...document.querySelectorAll(".contact-row strong")].find(element => element.getClientRects().length)
+        ? getComputedStyle([...document.querySelectorAll(".contact-row strong")].find(element => element.getClientRects().length)).textDecorationLine : null
+    })`));
+    if (nameDecorations.record !== null) {
+      assert.equal(nameDecorations.record, "none", `${label}: record names must not be underlined.`);
+      requestedVisualChecks.records += 1;
+      await capture("records-v5");
+    }
+    if (nameDecorations.contactRow !== null) {
+      assert.equal(nameDecorations.contactRow, "none", `${label}: contact rows must not be underlined.`);
+      assert.equal(nameDecorations.contactName, "none", `${label}: contact names must not be underlined.`);
+      requestedVisualChecks.contacts += 1;
+      await capture("contacts-v5");
+    }
+    if (label === "Contacts" && nameDecorations.contactRow === null) {
+      const fixtureDecorations = JSON.parse(await evaluate(`(() => {
+        const fixture = document.createElement("aside");
+        fixture.className = "v5-name-style-fixture";
+        fixture.innerHTML = '<button class="records-card-name" type="button">Sample company</button><div class="contact-row"><strong>Sample contact</strong></div>';
+        Object.assign(fixture.style, {
+          position: "fixed", left: "-10000px", top: "0", visibility: "hidden"
+        });
+        document.querySelector(".v-app")?.append(fixture);
+        const record = fixture.querySelector(".records-card-name");
+        record.focus();
+        const contact = fixture.querySelector(".contact-row");
+        const contactName = fixture.querySelector(".contact-row strong");
+        const result = {
+          record: getComputedStyle(record).textDecorationLine,
+          contact: getComputedStyle(contact).textDecorationLine,
+          contactName: getComputedStyle(contactName).textDecorationLine
+        };
+        fixture.remove();
+        return JSON.stringify(result);
+      })()`));
+      assert.deepEqual(fixtureDecorations, { record: "none", contact: "none", contactName: "none" });
+      requestedVisualChecks.records += 1;
+      requestedVisualChecks.contacts += 1;
+    }
+    if (await evaluate(`Boolean(document.querySelector(".settings-category-tabs"))`)) {
+      const measureTabs = async () => JSON.parse(await evaluate(`JSON.stringify(
+        [...document.querySelectorAll(".settings-category-tabs [role='tab']")].map(tab => {
+          const title = tab.children[1].getBoundingClientRect();
+          const caption = tab.children[2].getBoundingClientRect();
+          const style = getComputedStyle(tab);
+          return {
+            selected: tab.getAttribute("aria-selected"),
+            display: style.display,
+            color: getComputedStyle(tab.children[1]).color,
+            background: style.backgroundColor,
+            surface: getComputedStyle(tab.parentElement).backgroundColor,
+            captionColor: getComputedStyle(tab.children[2]).color,
+            titleLeft: title.left,
+            captionLeft: caption.left,
+            titleTop: title.top,
+            captionTop: caption.top
+          };
+        })
+      )`));
+      const verifyTabs = (tabs, theme) => {
+        assert.equal(tabs.length, 2, `${theme}: both settings tabs should render.`);
+        const color = (value) => {
+          const channels = value.match(/[\d.]+/g).map(Number);
+          return [channels[0], channels[1], channels[2], channels.length > 3 ? channels[3] : 1];
+        };
+        const composite = (foreground, background) => {
+          const front = color(foreground);
+          const back = color(background);
+          return front.slice(0, 3).map((channel, index) => channel * front[3] + back[index] * (1 - front[3]));
+        };
+        const luminance = (channels) => channels.map(channel => {
+          const value = channel / 255;
+          return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+        const contrast = (foreground, background) => {
+          const foregroundLuminance = luminance(color(foreground).slice(0, 3));
+          const backgroundLuminance = luminance(composite(background, tabs[0].surface));
+          return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+            (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+        };
+        for (const tab of tabs) {
+          assert.equal(tab.display, "grid", `${theme}: tab labels should use aligned rows.`);
+          assert.ok(Math.abs(tab.titleLeft - tab.captionLeft) < 1, `${theme}: tab title and caption should align.`);
+          assert.ok(tab.titleTop < tab.captionTop, `${theme}: tab title should be above its caption.`);
+          assert.ok(contrast(tab.color, tab.background) >= 4.5, `${theme}: tab titles need readable contrast.`);
+          assert.ok(contrast(tab.captionColor, tab.background) >= 4.5, `${theme}: tab captions need readable contrast.`);
+        }
+        assert.equal(tabs.filter(tab => tab.selected === "true").length, 1, `${theme}: exactly one category is selected.`);
+      };
+      await evaluate(`document.documentElement.dataset.theme = "light"`);
+      await pause(100);
+      verifyTabs(await measureTabs(), "light");
+      await capture("settings-v5-light");
+      await evaluate(`document.querySelector("#settings-user-tab")?.click()`);
+      await wait(`document.querySelector("#settings-user-tab")?.getAttribute("aria-selected") === "true"`);
+      await evaluate(`document.documentElement.dataset.theme = "dark"`);
+      await pause(150);
+      verifyTabs(await measureTabs(), "dark");
+      await capture("settings-v5-dark");
+      await evaluate(`document.documentElement.dataset.theme = "light"`);
+      await evaluate(`document.querySelector("#settings-company-tab")?.click()`);
+      requestedVisualChecks.settingsThemes += 1;
+    }
+    if (label === "Inbox") {
+      const sampleEmail = [
+        "Hi Alex,",
+        "The meeting is confirmed for Thursday at 2 PM. Please bring the revised forecast and account handoff notes.",
+        "",
+        "WARNING: External email. This message came from outside the organization.",
+        "Manage your email preferences or unsubscribe here.",
+        "This email is confidential and intended only for the named recipient.",
+      ].join("\n");
+      await evaluate(`(async () => {
+        const [reactModule, reactDomModule, { ProviderEmailBody }] = await Promise.all([
+          import("/node_modules/.vite/deps/react.js"),
+          import("/node_modules/.vite/deps/react-dom_client.js"),
+          import("/src/components/ProviderEmailBody.tsx")
+        ]);
+        const React = reactModule.default ?? reactModule;
+        const ReactDOM = reactDomModule.default ?? reactDomModule;
+        const createRoot = reactDomModule.createRoot ?? ReactDOM.createRoot;
+        const host = document.createElement("section");
+        host.className = "email-v5-smoke-fixture";
+        Object.assign(host.style, {
+          position: "fixed", zIndex: "999999", left: "50%", top: "50%",
+          transform: "translate(-50%, -50%)", width: "min(780px, 90vw)",
+          maxHeight: "80vh", overflow: "auto", padding: "20px",
+          background: "var(--surface)", border: "1px solid var(--separator)",
+          borderRadius: "16px", boxShadow: "0 20px 60px rgba(0,0,0,.25)"
+        });
+        const heading = document.createElement("h2");
+        heading.textContent = "Provider email display check";
+        host.append(heading);
+        document.querySelector(".v-app")?.append(host);
+        window.__corralEmailSmokeRoot = createRoot(host);
+        window.__corralEmailSmokeRoot.render(React.createElement(ProviderEmailBody, { content: ${JSON.stringify(sampleEmail)} }));
+        return Boolean(document.querySelector(".v-app"));
+      })()`);
+      await wait(`Boolean(document.querySelector(".email-v5-smoke-fixture .provider-email-body-main"))`);
+      const emailCheck = JSON.parse(await evaluate(`JSON.stringify((() => {
+        const fixture = document.querySelector(".email-v5-smoke-fixture");
+        const body = fixture?.querySelector(".provider-email-body-main");
+        const details = [...(fixture?.querySelectorAll(".provider-email-disclosure") ?? [])];
+        return {
+          text: body?.innerText ?? "",
+          fontSize: body ? getComputedStyle(body).fontSize : "",
+          disclosures: details.length,
+          collapsed: details.filter(item => !item.open).length
+        };
+      })())`));
+      assert.match(emailCheck.text, /meeting is confirmed/i);
+      assert.doesNotMatch(emailCheck.text, /external email|unsubscribe|confidential/i);
+      assert.equal(emailCheck.fontSize, "14px");
+      assert.ok(emailCheck.disclosures > 0);
+      assert.equal(emailCheck.collapsed, emailCheck.disclosures);
+      await capture("email-v5-body");
+      await evaluate(`window.__corralEmailSmokeRoot?.unmount(); document.querySelector(".email-v5-smoke-fixture")?.remove()`);
+      requestedVisualChecks.emailBody += 1;
+    }
     const primaryActions = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll(
       ".v-app .primary-button, .v-app .button-primary, .v-app .primary-action, .v-app .auth-submit, .v-app .a-submit, .v-app .ct-tour-button-primary, .v-app .records-add-button, .v-app .records-filter-close, .v-app .slack-routing-actions > button, .v-app .v-btn[data-kind='filled']"
     )].filter(button => button.getClientRects().length).map(button => {
@@ -145,6 +315,36 @@ try {
       primaryActionsChecked += 1;
     }
     if (label === "Integrations") {
+      const inlineCardOpened = await evaluate(`(() => {
+        const card = [...document.querySelectorAll(".integration-card")].find(item => !item.classList.contains("provider-slack"));
+        const toggle = card?.querySelector(".provider-collapse-toggle");
+        toggle?.click();
+        return Boolean(card && toggle);
+      })()`);
+      assert.ok(inlineCardOpened, "An inline integration card should be expandable.");
+      await wait(`Boolean([...document.querySelectorAll(".integration-card .provider-details")].some(details => !details.hidden))`);
+      const integrationMetrics = JSON.parse(await evaluate(`JSON.stringify((() => {
+        const details = [...document.querySelectorAll(".integration-card .provider-details")].find(item => !item.hidden);
+        const card = details?.closest(".integration-card");
+        const grid = card?.closest(".integration-grid");
+        const style = details ? getComputedStyle(details) : null;
+        return {
+          gridColumn: card ? getComputedStyle(card).gridColumn : "",
+          cardWidth: card?.getBoundingClientRect().width ?? 0,
+          detailsWidth: details?.getBoundingClientRect().width ?? 0,
+          maxHeight: style?.maxHeight ?? "none",
+          overflowY: style?.overflowY ?? "",
+          gridWidth: grid?.getBoundingClientRect().width ?? 0
+        };
+      })())`));
+      assert.equal(integrationMetrics.gridColumn, "auto", "Expanded integration cards must remain in one grid cell.");
+      assert.notEqual(integrationMetrics.maxHeight, "none", "Integration details need a bounded height.");
+      assert.equal(integrationMetrics.overflowY, "auto", "Integration details should scroll inside their card.");
+      assert.ok(integrationMetrics.detailsWidth <= integrationMetrics.cardWidth + 1, "Expanded details must stay inside their card.");
+      assert.ok(integrationMetrics.cardWidth <= integrationMetrics.gridWidth + 1, "Expanded cards must stay inside the integration grid.");
+      await capture("integration-v5-expanded");
+      await evaluate(`document.querySelector(".integration-card .provider-details:not([hidden])")?.closest(".integration-card")?.querySelector(".provider-collapse-toggle")?.click()`);
+      requestedVisualChecks.integrationCards += 1;
       const opened = await evaluate(`(() => {
         const toggle = document.querySelector(".integration-card.provider-slack .provider-collapse-toggle");
         toggle?.click();
@@ -200,6 +400,7 @@ try {
   await wait(`document.querySelector(".v-app")?.dataset.sidebar === "shown"`);
   await pause(350);
   console.log(`Checked ${pageChecks.length} main pages, ${primaryActionsChecked} visible primary actions, both Agent scopes, and the collapsed sidebar. No page-level horizontal overflow at desktop.`);
+  console.log(`V5 targeted checks: ${JSON.stringify(requestedVisualChecks)}.`);
 
   await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await pause(500);
