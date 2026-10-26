@@ -243,7 +243,7 @@ try {
       selector: focusSelector,
     });
     assert.ok(focusNode.nodeId, `${mode}: lead choice should exist for keyboard-focus styling.`);
-    await cdp("CSS.forcePseudoState", { nodeId: focusNode.nodeId, pseudoClasses: ["focus-visible"] });
+    await cdp("CSS.forcePseudoState", { nodeId: focusNode.nodeId, forcedPseudoClasses: ["focus-visible"] });
     const focus = JSON.parse(await evaluate(`JSON.stringify((() => {
       const target = document.querySelector(${JSON.stringify(focusSelector)});
       const style = target ? getComputedStyle(target) : null;
@@ -257,7 +257,7 @@ try {
     assert.equal(focus.isChoice, true, `${mode}: lead choices should use native buttons.`);
     assert.equal(focus.visibleFocus, true, `${mode}: lead choice should expose keyboard-visible focus.`);
     assert.ok(focus.outlineWidth >= 2 && focus.outlineStyle !== "none", `${mode}: lead choice focus ring should be visible.`);
-    await cdp("CSS.forcePseudoState", { nodeId: focusNode.nodeId, pseudoClasses: [] });
+    await cdp("CSS.forcePseudoState", { nodeId: focusNode.nodeId, forcedPseudoClasses: [] });
 
     const selectedRowSelector = `[data-agent-smoke-fixture="${mode}"] .corral-agent-choice-list .corral-agent-choice:nth-of-type(2)`;
     await evaluate(`document.querySelector(${JSON.stringify(selectedRowSelector)})?.click()`);
@@ -349,6 +349,15 @@ try {
     assert.ok(report.prompt.font >= 16 && report.prompt.height >= 44, `${label}: suggested prompt should be readable and easy to tap.`);
     assert.ok(report.actionButtons.every(button => button.height >= 44 && button.font >= 16), `${label}: approval buttons must meet touch and text-size targets.`);
     assert.deepEqual(report.overflowers, [], `${label}: cards must not create nested scroll regions.`);
+    const takeFixtureScreenshot =
+      (mode === "workspace" && device.label === "portrait-430" && theme === "dark") ||
+      (mode === "lead" && device.label === "portrait-430" && theme === "light");
+    if (takeFixtureScreenshot) {
+      await evaluate(`document.querySelector('[data-agent-smoke-fixture="${mode}"]')?.scrollIntoView({ block: "start", behavior: "instant" })`);
+      await pause(150);
+      await capture(`agent-choice-cards-${mode}-${theme}`);
+      await evaluate(`document.querySelector(".${mode === "workspace" ? "corral-workspace-transcript" : "lead-agent-transcript"}")?.scrollTo({ top: 0 })`);
+    }
   };
   await evaluate(`document.documentElement.dataset.theme = "light"`);
   await pause(100);
