@@ -6,6 +6,7 @@ import {
 } from "../api";
 import type { GmailComposerSeed } from "./EmailComposer";
 import { EmailComposer } from "./EmailComposer";
+import { ProviderEmailBody } from "./ProviderEmailBody";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -214,7 +215,7 @@ export function LeadEmailPanel({
               <header><div><span className="eyebrow">{direction === "outbound" ? "Sent" : "Received"}</span></div>
                 <time>{new Date(event.created_at).toLocaleString()}</time></header>
               <div className="lead-email-addresses"><span>From <b>{sender || "Unknown"}</b></span>{recipients && <span>To <b>{recipients}</b></span>}{mailboxName && <span>Mailbox <b>{mailboxName}</b></span>}</div>
-              <p className="lead-email-body">{body || "No message text was stored."}</p>
+              <ProviderEmailBody content={body} />
               {canSend && <button className="button-quiet" type="button" onClick={() => replyTo(event)}>Reply</button>}
             </article>;
           })}</div>

@@ -10,7 +10,7 @@ ignorePorts = false
 
 [nix]
 channel = "stable-25_05"
-packages = ["mailpit", "redis"]
+packages = ["mailpit", "redis", "codex"]
 
 [workflows]
 runButton = "Project"
