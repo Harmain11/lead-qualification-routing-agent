@@ -75,8 +75,8 @@
 .records-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--workspace-accent, var(--orange)) 45%, var(--line)); box-shadow: 0 8px 20px color-mix(in srgb, var(--text) 11%, transparent); }
 .records-card-topline { display: flex; align-items: center; gap: 9px; padding: 13px 13px 8px; }
 .records-avatar { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: 0 0 30px; border: 1px solid var(--line-bright); border-radius: 9px; color: var(--workspace-accent, var(--orange)); background: var(--surface-high); font-size: 11px; font-weight: 800; }
-.records-card-name { min-width: 0; overflow: hidden; border: 0; padding: 0; color: var(--text); background: transparent; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.records-card-name:hover { color: var(--workspace-accent, var(--orange)); text-decoration: underline; text-underline-offset: 3px; }
+.records-card-name { min-width: 0; overflow: hidden; border: 0; padding: 0; color: var(--text); background: transparent; font-weight: 750; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.records-card-name:hover { color: var(--workspace-accent, var(--orange)); text-decoration: none; }
 .records-card-menu { margin-left: auto; border: 0; padding: 1px 4px; color: var(--muted); background: transparent; letter-spacing: 2px; }
 .records-card-meta { display: flex; flex-direction: column; gap: 4px; padding: 0 13px 12px 52px; color: var(--muted); font-size: 12px; line-height: 1.35; }
 .records-card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

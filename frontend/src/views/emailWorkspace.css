@@ -13,7 +13,7 @@
 .email-workspace-grid { display: grid; grid-template-columns: minmax(300px, .78fr) minmax(0, 1.22fr); align-items: start; gap: 14px; }
 .email-message-list, .email-thread-detail { min-width: 0; padding: 16px; }
 .email-message-list > header, .email-thread-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.email-message-list > header h2, .email-thread-heading h2 { margin: 4px 0 0; font-size: 17px; overflow-wrap: anywhere; }
+.email-message-list > header h2, .email-thread-heading h2 { margin: 4px 0 0; font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .email-message-list > header > span { color: var(--muted); font-size: 11px; }
 .email-message-list-rows { display: grid; gap: 6px; }
 .email-message-row { display: grid; gap: 5px; width: 100%; padding: 11px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--text); text-align: left; }
@@ -111,7 +111,7 @@
 .lead-email-thread > summary:hover { background: var(--surface-high); }
 .lead-email-thread > summary:focus-visible { outline: 2px solid var(--green); outline-offset: -3px; }
 .lead-email-thread-heading { display: grid; min-width: 0; gap: 3px; }
-.lead-email-thread-heading strong { color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+.lead-email-thread-heading strong { color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .lead-email-thread-summary-meta { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
 .lead-email-thread-messages { display: grid; gap: 8px; padding: 0 12px 12px; }
 .lead-email-message { padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-solid); }

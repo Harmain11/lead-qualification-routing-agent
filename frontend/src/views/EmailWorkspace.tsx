@@ -5,6 +5,7 @@ import {
   listIntegrations,
 } from "../api";
 import { EmailComposer, type GmailComposerSeed } from "../components/EmailComposer";
+import { getProviderEmailPreview, ProviderEmailBody } from "../components/ProviderEmailBody";
 import type {
   GmailMailboxMessage,
   GmailThreadMessage,
@@ -257,10 +258,8 @@ export function EmailWorkspace({
           <div className="email-thread-messages">
             {thread.map((message, index) => {
               const expanded = expandedMessageIds.has(message.message_id);
-              const body = message.body || "No message text was included.";
-              const preview = body.replace(/\s+/g, " ").trim();
-              const excerpt =
-                preview.length > 140 ? `${preview.slice(0, 137)}…` : preview;
+              const body = message.body || "";
+              const excerpt = getProviderEmailPreview(body);
               const bodyId = `email-thread-message-body-${index}`;
               return <article className={`email-thread-message${message.direction === "outbound" ? " is-outbound" : ""}`} key={message.message_id}>
                 <button
@@ -285,7 +284,7 @@ export function EmailWorkspace({
                 </button>
                 {expanded && <div className="email-thread-message-body" id={bodyId}>
                   <div className="email-thread-addresses"><span>To</span>{message.recipients || "Not listed"}</div>
-                  <p>{body}</p>
+                  <ProviderEmailBody content={body} />
                 </div>}
               </article>;
             })}

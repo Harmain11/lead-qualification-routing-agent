@@ -148,3 +148,19 @@ riley@example.test
   assert.equal(sections.footers.filter((item) => item === disclaimer).length, 1);
   assert.match(sections.footers[1], /Operations Director/);
 });
+
+test("separates external-email warnings, opt-outs, and confidentiality notices from the visible body", () => {
+  const sections = splitGmailBodyForDisplay(`The meeting is confirmed for Thursday at 2 PM.
+
+WARNING: External email. This message came from outside the organization. Use caution with links and attachments.
+
+Manage your email preferences or unsubscribe here.
+
+This email is confidential and intended only for the named recipient.`);
+
+  assert.equal(sections.primary, "The meeting is confirmed for Thursday at 2 PM.");
+  assert.equal(sections.footers.length, 3);
+  assert.match(sections.footers.join(" "), /External email/);
+  assert.match(sections.footers.join(" "), /unsubscribe/i);
+  assert.match(sections.footers.join(" "), /confidential/i);
+});

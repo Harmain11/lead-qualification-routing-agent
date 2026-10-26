@@ -3333,7 +3333,7 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
 .gmail-inquiry-message-meta time span { color: var(--subtle); font-weight: 700; }
 .gmail-inquiry-subject { display: grid; gap: 3px; margin: 13px 0 0; min-width: 0; }
 .gmail-inquiry-subject > span { color: var(--subtle); font-size: 9px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
-.gmail-inquiry-subject h4 { margin: 0; color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.gmail-inquiry-subject h4 { margin: 0; color: var(--text); font-size: 14px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
 .gmail-inquiry-recipients { display: grid; gap: 5px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .gmail-inquiry-recipient { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .gmail-inquiry-recipient > span { color: var(--subtle); font-weight: 750; }
