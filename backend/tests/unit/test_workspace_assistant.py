@@ -223,6 +223,156 @@ def test_workspace_chat_only_opens_a_record_returned_by_scoped_search(monkeypatc
     assert result["action"]["target_id"] == str(lead_id)
 
 
+def test_workspace_chat_opens_deal_desk_only_for_a_verified_quote_lead(monkeypatch) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    matched = {"matched_leads": [{"id": str(lead_id), "name": "Mina Chen"}]}
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Open the existing Deal Desk for the quote.",
+                action=WorkspaceAssistantAction(
+                    kind="open_deal_desk",
+                    title="Open Mina Chen's Deal Desk",
+                    summary="Read-only navigation to the verified lead.",
+                    target_id=str(lead_id),
+                    target_label="Mina Chen",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: matched,
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(
+                    role="user",
+                    content="Open Deal Desk for a quote for Mina Chen.",
+                )
+            ]
+        ),
+        session=SimpleNamespace(scalar=lambda _query: lead_id, begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "open_deal_desk"
+    assert result["action"]["target_id"] == str(lead_id)
+    assert result["action"]["target_label"] == "Mina Chen"
+
+
+def test_workspace_chat_rejects_unverified_deal_desk_target(monkeypatch) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Opening the lead's Deal Desk.",
+                action=WorkspaceAssistantAction(
+                    kind="open_deal_desk",
+                    title="Open Deal Desk",
+                    summary="Open the requested lead's Deal Desk.",
+                    target_id=str(lead_id),
+                    target_label="Mina Chen",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: {"matched_leads": []},
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(
+                    role="user",
+                    content="Open Deal Desk for a quote for Mina Chen.",
+                )
+            ]
+        ),
+        session=SimpleNamespace(scalar=lambda _query: lead_id, begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "could not verify" in result["reply"].casefold()
+
+
+def test_workspace_chat_does_not_choose_a_deal_desk_lead_without_an_exact_name(
+    monkeypatch,
+) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    matched = {"matched_leads": [{"id": str(lead_id), "name": "Mina Chen"}]}
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Opening the only matching lead.",
+                action=WorkspaceAssistantAction(
+                    kind="open_deal_desk",
+                    title="Open Deal Desk",
+                    summary="Read-only Deal Desk navigation.",
+                    target_id=str(lead_id),
+                    target_label="Mina Chen",
+                ),
+            )
+
+    monkeypatch.setattr(
+        lead_assistant,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: Provider(),
+    )
+    monkeypatch.setattr(
+        lead_assistant,
+        "build_workspace_record_context",
+        lambda *_args: matched,
+    )
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(
+            messages=[
+                AssistantMessage(
+                    role="user",
+                    content="Open Deal Desk for a quote.",
+                )
+            ]
+        ),
+        session=SimpleNamespace(scalar=lambda _query: lead_id, begin_nested=nullcontext),
+        workspace=WorkspaceContext(
+            workspace_id=workspace_id,
+            actor_id="qa-user",
+            permissions=frozenset({"agents.execute", "leads.view"}),
+        ),
+    )
+
+    assert result["action"]["kind"] == "none"
+    assert "full name or email" in result["reply"]
+    assert "Nothing has been created" in result["reply"]
+
+
 def test_workspace_chat_resolves_unique_partial_lead_name_for_note_proposal(
     monkeypatch,
 ) -> None:

@@ -32,6 +32,7 @@ def build_workspace_assistant_context(
         "available_areas": [
             area for area, allowed in {
                 "analytics": "analytics.view" in permissions,
+                "agents": "agents.view" in permissions,
                 "automations": "agents.view" in permissions,
                 "icp": "icp.view" in permissions,
                 "settings": bool(
@@ -42,6 +43,14 @@ def build_workspace_assistant_context(
                 "dialer": "dialer.call" in permissions,
             }.items() if allowed
         ],
+        "knowledge_sources": {
+            "status": "not_connected",
+            "document_sources": [],
+            "note": (
+                "No workspace document source is connected. Do not answer document-specific "
+                "questions as if a playbook, pricing sheet, policy, or product document were available."
+            ),
+        },
         "context_warnings": [],
     }
 
@@ -107,7 +116,8 @@ def build_workspace_assistant_context(
     # Trimming is disclosed rather than rejecting all chat in a large workspace.
     while len(json.dumps(context, ensure_ascii=False)) > 24_000:
         candidates = [key for key in context if key not in {
-            "permissions", "available_areas", "context_warnings", "workspace_profile",
+            "permissions", "available_areas", "knowledge_sources", "context_warnings",
+            "workspace_profile",
         }]
         if not candidates:
             break

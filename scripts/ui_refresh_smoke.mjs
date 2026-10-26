@@ -32,9 +32,16 @@ try {
   let seq = 0;
   const pending = new Map();
   const errors = [];
+  const failedRequests = [];
   socket.addEventListener("message", ({ data }) => {
     const result = JSON.parse(String(data));
     if (result.method === "Runtime.exceptionThrown") errors.push(result.params.exceptionDetails.text);
+    if (result.method === "Network.loadingFailed") {
+      failedRequests.push({ requestId: result.params.requestId, error: result.params.errorText });
+    }
+    if (result.method === "Network.responseReceived" && result.params.response.status >= 400) {
+      failedRequests.push({ url: result.params.response.url, status: result.params.response.status });
+    }
     const job = pending.get(result.id);
     if (!job) return;
     pending.delete(result.id);
@@ -55,8 +62,14 @@ try {
       if (await evaluate(expression)) return;
       await pause(100);
     }
-    const diagnostic = await evaluate(`JSON.stringify({ title: document.title, text: document.body?.innerText.slice(0, 450) })`);
-    throw new Error(`UI did not become ready: ${expression}\n${diagnostic}`);
+    const diagnostic = await evaluate(`JSON.stringify({
+      title: document.title,
+      readyState: document.readyState,
+      text: document.body?.innerText.slice(0, 450),
+      html: document.body?.innerHTML.slice(0, 1400),
+      scripts: [...document.scripts].map(script => script.src || "inline")
+    })`);
+    throw new Error(`UI did not become ready: ${expression}\n${diagnostic}\nRuntime exceptions: ${JSON.stringify(errors)}\nFailed requests: ${JSON.stringify(failedRequests)}`);
   };
   const click = async (text) => assert(await evaluate(`(() => {
     const button = [...document.querySelectorAll("button, a")].find(el =>
@@ -70,6 +83,7 @@ try {
   };
   await cdp("Page.enable");
   await cdp("Runtime.enable");
+  await cdp("Network.enable");
   await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await cdp("Page.navigate", { url: `${origin}/` });
   await wait(`Boolean([...document.querySelectorAll("button")].find(el => el.textContent.trim() === "Continue to local workspace"))`);
@@ -90,6 +104,262 @@ try {
   const initialScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
   assert.deepEqual(JSON.parse(initialScope), [["Lead", "false"], ["Workspace", "true"]]);
   await capture("agent-workspace");
+  const workspaceCapabilityCopy = JSON.parse(await evaluate(`JSON.stringify({
+    knowledge: document.querySelector('[aria-label="Workspace document source status"]')?.innerText ?? "",
+    audit: document.querySelector('[aria-label="Approval and audit guidance"]')?.innerText ?? "",
+    prompts: [...document.querySelectorAll(".corral-workspace-prompts button")].map(button => button.textContent.trim())
+  })`));
+  assert.match(workspaceCapabilityCopy.knowledge, /Not connected/);
+  assert.match(workspaceCapabilityCopy.knowledge, /won.t guess/);
+  assert.match(workspaceCapabilityCopy.audit, /review/i);
+  assert.match(workspaceCapabilityCopy.audit, /reversal/i);
+  for (const prompt of [
+    "Start a quote or proposal",
+    "Use a sequence or playbook",
+    "Coach the pipeline from recorded data",
+    "Check workspace document sources",
+    "Explain approvals and audit history",
+  ]) {
+    assert.ok(workspaceCapabilityCopy.prompts.includes(prompt), `Missing workspace prompt: ${prompt}`);
+  }
+  const originalAgentTheme = await evaluate(`document.documentElement.dataset.theme || "light"`);
+  const verifyWorkspaceCards = async (theme) => {
+    const cards = JSON.parse(await evaluate(`JSON.stringify(
+      [...document.querySelectorAll(".corral-workspace-status-card")].map(card => ({
+        background: getComputedStyle(card).backgroundColor,
+        title: getComputedStyle(card.querySelector("strong")).color,
+        body: getComputedStyle(card.querySelector("p")).color,
+        width: card.getBoundingClientRect().width,
+        right: card.getBoundingClientRect().right,
+        viewportWidth: window.innerWidth
+      }))
+    )`));
+    assert.equal(cards.length, 2, `${theme}: both workspace capability cards should render.`);
+    const channels = value => value.match(/[\d.]+/g).map(Number).slice(0, 3);
+    const luminance = value => channels(value).map(channel => {
+      const normalized = channel / 255;
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const contrast = (foreground, background) => {
+      const front = luminance(foreground);
+      const back = luminance(background);
+      return (Math.max(front, back) + 0.05) / (Math.min(front, back) + 0.05);
+    };
+    for (const card of cards) {
+      assert.ok(card.width > 0 && card.right <= card.viewportWidth, `${theme}: capability card should fit the viewport.`);
+      assert.ok(contrast(card.title, card.background) >= 4.5, `${theme}: card title contrast is too low.`);
+      assert.ok(contrast(card.body, card.background) >= 4.5, `${theme}: card text contrast is too low.`);
+    }
+  };
+  const agentCardFixtureMarkup = {
+    workspace: `
+      <div class="corral-workspace-message-group">
+        <article class="corral-workspace-message is-assistant">
+          <span>Corral</span>
+          <p>For a quote, choose the lead you want to continue with.</p>
+          <div class="agent-smoke-choice-host"></div>
+        </article>
+        <details class="corral-workspace-action" open aria-label="Review proposed action">
+          <summary class="corral-workspace-action-heading">
+            <strong>Review proposed action</strong>
+            <p>Check the proposed details before approving.</p>
+          </summary>
+          <pre>Proposed draft content wraps safely when it reaches the edge of the card.</pre>
+          <p class="corral-workspace-action-result" role="status">Draft is ready for review.</p>
+          <div class="corral-workspace-action-buttons">
+            <button class="primary-button" type="button">Approve and apply</button>
+            <button class="secondary-button" type="button">Not now</button>
+          </div>
+        </details>
+        <div class="corral-workspace-prompts">
+          <button type="button">Start a quote or proposal</button>
+        </div>
+        <p class="corral-workspace-error" role="alert">Example error for the responsive review.</p>
+      </div>`,
+    lead: `
+      <article class="lead-agent-message is-assistant">
+        <span class="lead-agent-role">Corral</span>
+        <p>For a quote, choose the lead you want to continue with.</p>
+        <div class="agent-smoke-choice-host"></div>
+        <details class="lead-agent-action" open>
+          <summary class="lead-agent-action-title">
+            <span aria-hidden="true">↳</span>
+            <strong>Review proposed action</strong>
+          </summary>
+          <pre>Proposed draft content wraps safely when it reaches the edge of the card.</pre>
+          <p class="lead-agent-notice" role="status">Draft is ready for review.</p>
+          <p class="lead-agent-error" role="alert">Example error for the responsive review.</p>
+          <div class="lead-agent-action-buttons">
+            <button class="primary-button" type="button">Approve and apply</button>
+            <button class="secondary-button" type="button">Not now</button>
+          </div>
+        </details>
+        <div class="lead-agent-suggestions">
+          <button type="button">Start a quote or proposal</button>
+        </div>
+      </article>`,
+  };
+  const mountAgentCardFixture = async (mode) => {
+    await evaluate(`(async () => {
+      const mode = ${JSON.stringify(mode)};
+      const oldRoot = window.__corralAgentSmokeRoots?.[mode];
+      if (oldRoot) oldRoot.unmount();
+      document.querySelectorAll('[data-agent-smoke-fixture="' + mode + '"]').forEach(fixture => fixture.remove());
+      const transcriptClass = mode === "workspace" ? ".corral-workspace-transcript" : ".lead-agent-transcript";
+      const transcript = document.querySelector(".corral-agent-window " + transcriptClass);
+      if (!transcript) throw new Error("Missing Agent transcript for " + mode);
+      const fixture = document.createElement("div");
+      fixture.dataset.agentSmokeFixture = mode;
+      fixture.innerHTML = ${JSON.stringify(agentCardFixtureMarkup[mode])};
+      transcript.append(fixture);
+      const [reactModule, reactDomModule, { AgentLeadChoices }] = await Promise.all([
+        import("/node_modules/.vite/deps/react.js"),
+        import("/node_modules/.vite/deps/react-dom_client.js"),
+        import("/src/components/AgentLeadChoices.tsx")
+      ]);
+      const React = reactModule.default ?? reactModule;
+      const ReactDOM = reactDomModule.default ?? reactDomModule;
+      const createRoot = reactDomModule.createRoot ?? ReactDOM.createRoot;
+      const root = createRoot(fixture.querySelector(".agent-smoke-choice-host"));
+      window.__corralAgentSmokeRoots ??= {};
+      window.__corralAgentSmokeRoots[mode] = root;
+      root.render(React.createElement(AgentLeadChoices, {
+        leads: [
+          { id: "smoke-kathi", name: "Kathi Sitek", company: "Mosaic Systems", suggested: true },
+          { id: "smoke-les", name: "Les Lehman", company: "North Harbor Group", suggested: false }
+        ],
+        onSelect: leadId => { window.__corralAgentSmokeSelection = { mode, leadId }; }
+      }));
+      return true;
+    })()`);
+    await wait(`Boolean(document.querySelector(${JSON.stringify(`[data-agent-smoke-fixture="${mode}"] .corral-agent-choice`)}))`);
+
+    const focusSelector = `[data-agent-smoke-fixture="${mode}"] .corral-agent-choice`;
+    await cdp("DOM.enable");
+    await cdp("CSS.enable");
+    const documentNode = await cdp("DOM.getDocument", { depth: 0 });
+    const focusNode = await cdp("DOM.querySelector", {
+      nodeId: documentNode.root.nodeId,
+      selector: focusSelector,
+    });
+    assert.ok(focusNode.nodeId, `${mode}: lead choice should exist for keyboard-focus styling.`);
+    await cdp("CSS.forcePseudoState", { nodeId: focusNode.nodeId, pseudoClasses: ["focus-visible"] });
+    const focus = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const target = document.querySelector(${JSON.stringify(focusSelector)});
+      const style = target ? getComputedStyle(target) : null;
+      return {
+        isChoice: target?.tagName === "BUTTON",
+        visibleFocus: Boolean(target?.matches(":focus-visible")),
+        outlineWidth: parseFloat(style?.outlineWidth ?? "0"),
+        outlineStyle: style?.outlineStyle ?? "none"
+      };
+    })())`));
+    assert.equal(focus.isChoice, true, `${mode}: lead choices should use native buttons.`);
+    assert.equal(focus.visibleFocus, true, `${mode}: lead choice should expose keyboard-visible focus.`);
+    assert.ok(focus.outlineWidth >= 2 && focus.outlineStyle !== "none", `${mode}: lead choice focus ring should be visible.`);
+    await cdp("CSS.forcePseudoState", { nodeId: focusNode.nodeId, pseudoClasses: [] });
+
+    const selectedRowSelector = `[data-agent-smoke-fixture="${mode}"] .corral-agent-choice-list .corral-agent-choice:nth-of-type(2)`;
+    await evaluate(`document.querySelector(${JSON.stringify(selectedRowSelector)})?.click()`);
+    await wait(`document.querySelector(${JSON.stringify(`${selectedRowSelector}[aria-pressed="true"]`)})?.getAttribute("aria-pressed") === "true"`);
+    const selection = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const fixture = document.querySelector('[data-agent-smoke-fixture="${mode}"]');
+      return {
+        pressed: [...fixture.querySelectorAll(".corral-agent-choice")].map(row => row.getAttribute("aria-pressed")),
+        selectedId: window.__corralAgentSmokeSelection?.leadId
+      };
+    })())`));
+    assert.deepEqual(selection.pressed, ["false", "true"], `${mode}: selecting one lead should expose the selected state without color alone.`);
+    assert.equal(selection.selectedId, "smoke-les", `${mode}: selecting a lead should invoke the existing selection callback.`);
+  };
+  const verifyAgentCardFixture = async (mode, theme, device) => {
+    const headingSelector = `[data-agent-smoke-fixture="${mode}"] .corral-agent-choice-heading`;
+    if (!(await evaluate(`Boolean(document.querySelector(${JSON.stringify(headingSelector)}))`))) {
+      await mountAgentCardFixture(mode);
+    }
+    const report = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const fixture = document.querySelector('[data-agent-smoke-fixture="${mode}"]');
+      const group = fixture?.querySelector(".corral-agent-choice-list");
+      const heading = fixture?.querySelector(".corral-agent-choice-heading");
+      const rows = [...(group?.querySelectorAll(".corral-agent-choice") ?? [])];
+      const rowBoxes = rows.map(row => row.getBoundingClientRect());
+      const message = fixture?.querySelector(${JSON.stringify(mode === "workspace" ? ".corral-workspace-message.is-assistant > p" : ".lead-agent-message.is-assistant > p")});
+      const action = fixture?.querySelector(${JSON.stringify(mode === "workspace" ? ".corral-workspace-action" : ".lead-agent-action")});
+      const actionSummary = fixture?.querySelector(${JSON.stringify(mode === "workspace" ? ".corral-workspace-action-heading" : ".lead-agent-action-title")});
+      const status = fixture?.querySelector('[role="status"]');
+      const error = fixture?.querySelector('[role="alert"]');
+      const prompt = fixture?.querySelector(${JSON.stringify(mode === "workspace" ? ".corral-workspace-prompts button" : ".lead-agent-suggestions button")});
+      const actionButtons = [...(fixture?.querySelectorAll(${JSON.stringify(mode === "workspace" ? ".corral-workspace-action-buttons button" : ".lead-agent-action-buttons button")}) ?? [])];
+      const overflowers = [...(fixture?.querySelectorAll("*") ?? [])].filter(element => {
+        const style = getComputedStyle(element);
+        return ["auto", "scroll"].includes(style.overflowY) && element.scrollHeight > element.clientHeight + 1;
+      }).map(element => element.className || element.tagName.toLowerCase());
+      const font = element => element ? parseFloat(getComputedStyle(element).fontSize) : 0;
+      const style = element => element ? getComputedStyle(element) : null;
+      const rect = element => {
+        const box = element?.getBoundingClientRect();
+        return box ? { width: box.width, height: box.height, right: box.right } : null;
+      };
+      return {
+        heading: heading?.textContent.trim(),
+        role: group?.getAttribute("role"),
+        correctlyLabelled: group?.getAttribute("aria-labelledby") === heading?.id,
+        rows: rows.map((row, index) => ({
+          width: rowBoxes[index]?.width ?? 0,
+          height: rowBoxes[index]?.height ?? 0,
+          nameFont: font(row.querySelector("strong")),
+          borderStyle: style(row).borderStyle,
+          borderWidth: parseFloat(style(row).borderTopWidth),
+          background: style(row).backgroundColor,
+          pressed: row.getAttribute("aria-pressed")
+        })),
+        primaryBackground: style(fixture?.querySelector(".primary-button"))?.backgroundColor,
+        messageFont: font(message),
+        messageLineHeight: style(message)?.lineHeight,
+        action: rect(action),
+        actionPadding: action ? ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].map(key => parseFloat(style(action)[key])) : [],
+        summaryHeight: rect(actionSummary)?.height ?? 0,
+        statusFont: font(status),
+        errorFont: font(error),
+        prompt: { font: font(prompt), height: rect(prompt)?.height ?? 0 },
+        actionButtons: actionButtons.map(button => ({
+          height: button.getBoundingClientRect().height,
+          font: font(button)
+        })),
+        overflowers,
+        fixture: rect(fixture),
+        transcript: rect(fixture?.parentElement)
+      };
+    })())`));
+    const label = `${mode}/${device.label}/${theme}`;
+    assert.equal(report.heading, "Choose a lead", `${label}: lead choices should have a clear heading.`);
+    assert.equal(report.role, "group", `${label}: lead choices should be an accessible button group.`);
+    assert.equal(report.correctlyLabelled, true, `${label}: lead-choice group should be labelled by its heading.`);
+    assert.equal(report.rows.length, 2, `${label}: both candidate leads should render.`);
+    assert.ok(report.rows.every(row => row.width >= 44 && row.height >= 44), `${label}: all lead-choice rows must meet 44px touch targets.`);
+    assert.ok(Math.max(...report.rows.map(row => row.width)) - Math.min(...report.rows.map(row => row.width)) <= 1, `${label}: choices must use consistent widths.`);
+    assert.ok(report.rows.every(row => row.nameFont >= 16), `${label}: lead names must be at least 16px.`);
+    assert.ok(report.rows.every(row => row.borderStyle === "solid" && row.borderWidth >= 1), `${label}: lead choices should be outlined rows.`);
+    assert.ok(report.rows.every(row => row.background !== report.primaryBackground), `${label}: lead choices must not use the solid primary-button fill.`);
+    assert.ok(report.messageFont >= 16 && report.messageLineHeight === "24px", `${label}: reply text should be 16px with 1.5 line height (${report.messageFont}px, ${report.messageLineHeight}).`);
+    assert.ok(report.action?.width > 0 && report.action.right <= report.transcript.right + 1, `${label}: action-review card should fit the transcript.`);
+    assert.ok(report.actionPadding.every(padding => padding >= 14), `${label}: action cards should have balanced padding.`);
+    assert.ok(report.summaryHeight >= 44, `${label}: action review disclosure should meet touch-target height.`);
+    assert.ok(report.statusFont >= 16 && report.errorFont >= 16, `${label}: approval and error states must remain readable.`);
+    assert.ok(report.prompt.font >= 16 && report.prompt.height >= 44, `${label}: suggested prompt should be readable and easy to tap.`);
+    assert.ok(report.actionButtons.every(button => button.height >= 44 && button.font >= 16), `${label}: approval buttons must meet touch and text-size targets.`);
+    assert.deepEqual(report.overflowers, [], `${label}: cards must not create nested scroll regions.`);
+  };
+  await evaluate(`document.documentElement.dataset.theme = "light"`);
+  await pause(100);
+  await verifyWorkspaceCards("light");
+  await capture("agent-workspace-light");
+  await evaluate(`document.documentElement.dataset.theme = "dark"`);
+  await pause(150);
+  await verifyWorkspaceCards("dark");
+  await capture("agent-workspace-dark");
+  await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(originalAgentTheme)}`);
+  await mountAgentCardFixture("workspace");
 
   await evaluate(`document.querySelector('.v-agent-scope button[aria-pressed="false"]')?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-lead-option"))`);
@@ -99,6 +369,7 @@ try {
   await pause(450);
   const leadScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
   assert.deepEqual(JSON.parse(leadScope), [["Lead", "true"], ["Workspace", "false"]]);
+  await mountAgentCardFixture("lead");
   await capture("agent-lead");
 
   await evaluate(`document.querySelector('.v-agent-scope button[aria-pressed="false"]')?.click()`);
@@ -558,21 +829,244 @@ try {
   console.log(`Checked ${pageChecks.length} main pages, ${primaryActionsChecked} visible primary actions, both Agent scopes, and the collapsed sidebar. No page-level horizontal overflow at desktop.`);
   console.log(`V5 targeted checks: ${JSON.stringify(requestedVisualChecks)}.`);
 
-  await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 667, deviceScaleFactor: 1, mobile: true });
   await pause(500);
   await evaluate(`document.querySelector("[data-ask-corral]")?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-window.is-open"))`);
   await pause(350);
-  const mobileAgent = JSON.parse(await evaluate(`JSON.stringify({
-    viewport: document.documentElement.clientWidth,
-    documentWidth: document.documentElement.scrollWidth,
-    innerWidth: window.innerWidth,
-    panelLeft: document.querySelector(".corral-agent-window").getBoundingClientRect().left,
-    panelRight: document.querySelector(".corral-agent-window").getBoundingClientRect().right
-  })`));
-  assert.ok(mobileAgent.panelLeft >= -1 && mobileAgent.panelRight <= mobileAgent.viewport + 1);
-  assert.ok(mobileAgent.documentWidth <= mobileAgent.viewport + 1, "The Agent dock must fit the mobile viewport.");
-  await capture("agent-mobile");
+  const mobileLayouts = [
+    { label: "portrait-320", width: 320, height: 667 },
+    { label: "portrait-375", width: 375, height: 812 },
+    { label: "portrait-430", width: 430, height: 932 },
+    { label: "landscape-667", width: 667, height: 375 },
+  ];
+  const inspectWorkspaceLayout = async (theme, device) => {
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width: device.width, height: device.height, deviceScaleFactor: 1, mobile: true,
+    });
+    await pause(220);
+    const layout = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const panel = document.querySelector(".corral-agent-window");
+      const transcript = panel?.querySelector(".corral-workspace-transcript");
+      const composer = panel?.querySelector(".corral-workspace-composer");
+      const rect = element => {
+        const box = element?.getBoundingClientRect();
+        return box ? { top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height } : null;
+      };
+      const visible = element => {
+        const style = getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
+      };
+      const scrollRegions = [...panel.querySelectorAll("*")].filter(element => {
+        const style = getComputedStyle(element);
+        return visible(element) && ["auto", "scroll"].includes(style.overflowY) &&
+          !element.matches("textarea,input,select,[contenteditable=true]") &&
+          !element.closest(".corral-workspace-composer,.lead-agent-composer");
+      }).map(element => typeof element.className === "string" ? element.className : element.tagName.toLowerCase());
+      const buttons = [...panel.querySelectorAll("button")].filter(visible).map(button => ({
+        label: button.innerText.trim(),
+        width: button.getBoundingClientRect().width,
+        height: button.getBoundingClientRect().height,
+        fontSize: parseFloat(getComputedStyle(button).fontSize)
+      }));
+      const text = [...panel.querySelectorAll(".corral-workspace-transcript p,.corral-workspace-transcript small,.corral-workspace-message,.corral-workspace-composer label,.corral-workspace-composer-footer small,.corral-workspace-composer textarea")].filter(visible).map(element => parseFloat(getComputedStyle(element).fontSize));
+      return {
+        panel: rect(panel), transcript: rect(transcript), composer: rect(composer),
+        panelPaddingBottom: parseFloat(getComputedStyle(panel).paddingBottom),
+        viewportWidth: window.innerWidth, viewportClientWidth: document.documentElement.clientWidth,
+        viewportHeight: window.innerHeight,
+        visualWidth: window.visualViewport?.width ?? window.innerWidth,
+        visualHeight: window.visualViewport?.height ?? window.innerHeight,
+        visualTop: window.visualViewport?.offsetTop ?? 0,
+        documentWidth: document.documentElement.scrollWidth,
+        pageScrollLocked: getComputedStyle(document.documentElement).overflow === "hidden" &&
+          getComputedStyle(document.body).overflow === "hidden",
+        transcriptWidth: transcript?.clientWidth ?? 0,
+        transcriptScrollWidth: transcript?.scrollWidth ?? 0,
+        composerWidth: composer?.clientWidth ?? 0,
+        composerScrollWidth: composer?.scrollWidth ?? 0,
+        scrollRegions, buttons, text,
+        guide: rect([...panel.querySelectorAll("button")].find(button => /guide/i.test(button.innerText))),
+        close: rect(panel.querySelector('[aria-label="Close Ask Corral"]')),
+        scope: [...panel.querySelectorAll(".v-agent-scope button")].map(rect),
+        send: rect(composer?.querySelector('button[type="submit"]'))
+      };
+    })())`));
+    assert.ok(layout.panel && layout.composer && layout.transcript, `${device.label}/${theme}: workspace regions should render.`);
+    assert.ok(layout.panel.width <= layout.visualWidth + 1, `${device.label}/${theme}: panel should fit the visual viewport.`);
+    assert.ok(layout.panel.right <= layout.viewportClientWidth + 1, `${device.label}/${theme}: panel must not extend beyond the usable viewport width.`);
+    assert.ok(layout.panel.top >= layout.visualTop - 1, `${device.label}/${theme}: panel should start within the visible viewport.`);
+    assert.ok(layout.panel.bottom <= layout.visualTop + layout.visualHeight + 1, `${device.label}/${theme}: panel should fit above the keyboard/safe area.`);
+    assert.ok(layout.composer.bottom <= layout.panel.bottom - layout.panelPaddingBottom + 1, `${device.label}/${theme}: composer should remain above the safe-area inset.`);
+    assert.ok(layout.transcript.bottom <= layout.composer.top + 1, `${device.label}/${theme}: transcript should end above the fixed composer.`);
+    assert.equal(layout.documentWidth <= layout.viewportClientWidth + 1, true, `${device.label}/${theme}: no page-level horizontal overflow.`);
+    assert.equal(layout.pageScrollLocked, true, `${device.label}/${theme}: the page behind the full-screen panel must not scroll.`);
+    assert.ok(layout.transcriptScrollWidth <= layout.transcriptWidth + 1, `${device.label}/${theme}: conversation should not scroll horizontally.`);
+    assert.ok(layout.composerScrollWidth <= layout.composerWidth + 1, `${device.label}/${theme}: composer should not scroll horizontally.`);
+    assert.deepEqual(layout.scrollRegions, ["corral-workspace-transcript"], `${device.label}/${theme}: use one conversation scroller.`);
+    assert.ok(layout.close.width >= 44 && layout.close.height >= 44, `${device.label}/${theme}: close target must be at least 44px.`);
+    assert.ok(layout.guide?.width >= 44 && layout.guide?.height >= 44, `${device.label}/${theme}: Guide target must be at least 44px.`);
+    assert.equal(layout.scope.length, 2, `${device.label}/${theme}: both scope controls should be present.`);
+    assert.ok(layout.scope.every(target => target.width >= 44 && target.height >= 44), `${device.label}/${theme}: scope targets must be at least 44px.`);
+    assert.ok(layout.buttons.every(button => button.width >= 44 && button.height >= 44), `${device.label}/${theme}: visible buttons must be at least 44px.`);
+    assert.ok(layout.buttons.every(button => button.fontSize >= 16), `${device.label}/${theme}: button text must be at least 16px.`);
+    assert.ok(layout.text.every(size => size >= 16), `${device.label}/${theme}: body and composer text must be at least 16px.`);
+    assert.ok(layout.send?.width >= 44 && layout.send?.height >= 44, `${device.label}/${theme}: Send target must be at least 44px.`);
+    await verifyWorkspaceCards(theme);
+    await verifyAgentCardFixture("workspace", theme, device);
+    await capture(`agent-${device.label}-${theme}`);
+  };
+
+  for (const theme of ["light", "dark"]) {
+    await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+    await pause(120);
+    for (const device of mobileLayouts) await inspectWorkspaceLayout(theme, device);
+  }
+
+  // A shorter visual viewport stands in for the space occupied by the on-screen keyboard.
+  for (const theme of ["light", "dark"]) {
+    await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+    await cdp("Emulation.setDeviceMetricsOverride", { width: 375, height: 360, deviceScaleFactor: 1, mobile: true });
+    await pause(220);
+    await evaluate(`document.querySelector("#corral-workspace-prompt")?.focus()`);
+    await pause(180);
+    const keyboardLayout = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const panel = document.querySelector(".corral-agent-window").getBoundingClientRect();
+      const composer = document.querySelector(".corral-workspace-composer").getBoundingClientRect();
+      const visual = window.visualViewport;
+      return {
+        panelBottom: panel.bottom,
+        safeBottom: parseFloat(getComputedStyle(document.querySelector(".corral-agent-window")).paddingBottom),
+        composerBottom: composer.bottom,
+        visualBottom: (visual?.offsetTop ?? 0) + (visual?.height ?? window.innerHeight),
+        inputFontSize: parseFloat(getComputedStyle(document.querySelector("#corral-workspace-prompt")).fontSize)
+      };
+    })())`));
+    assert.ok(keyboardLayout.composerBottom <= keyboardLayout.panelBottom - keyboardLayout.safeBottom + 1, `${theme}: keyboard-height composer must fit above the safe area.`);
+    assert.ok(keyboardLayout.composerBottom <= keyboardLayout.visualBottom + 1, `${theme}: keyboard-height composer must remain visible.`);
+    assert.ok(keyboardLayout.inputFontSize >= 16, `${theme}: mobile input text must avoid iOS auto-zoom.`);
+  }
+
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 320, height: 667, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`document.documentElement.dataset.theme = "dark"`);
+  await evaluate(`document.querySelector(".v-agent-scope button[aria-pressed=\\"false\\"]")?.click()`);
+  await pause(250);
+  if (!(await evaluate(`Boolean(document.querySelector(".corral-agent-window .lead-agent")?.getClientRects().length)`))) {
+    await wait(`Boolean(document.querySelector(".corral-agent-window .corral-agent-lead-option")?.getClientRects().length)`);
+    await evaluate(`document.querySelector(".corral-agent-window .corral-agent-lead-option")?.click()`);
+    await wait(`Boolean(document.querySelector(".corral-agent-window .lead-agent")?.getClientRects().length)`);
+  }
+  for (const theme of ["light", "dark"]) {
+    await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+    for (const device of mobileLayouts) {
+      await cdp("Emulation.setDeviceMetricsOverride", {
+        width: device.width, height: device.height, deviceScaleFactor: 1, mobile: true,
+      });
+      await pause(220);
+      const leadLayout = JSON.parse(await evaluate(`JSON.stringify((() => {
+        const panel = document.querySelector(".corral-agent-window");
+        const transcript = panel.querySelector(".lead-agent-transcript");
+        const composer = panel.querySelector(".lead-agent-composer");
+        const rect = element => {
+          const box = element?.getBoundingClientRect();
+          return box ? { top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height } : null;
+        };
+        const visible = element => {
+          const style = getComputedStyle(element);
+          return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
+        };
+        const scrollRegions = [...panel.querySelectorAll("*")].filter(element => {
+          const style = getComputedStyle(element);
+          return visible(element) && ["auto", "scroll"].includes(style.overflowY) &&
+            !element.matches("textarea,input,select,[contenteditable=true]") &&
+            !element.closest(".lead-agent-composer,.corral-workspace-composer");
+        }).map(element => typeof element.className === "string" ? element.className : element.tagName.toLowerCase());
+        const text = [...panel.querySelectorAll(".lead-agent p,.lead-agent small,.lead-agent label,.lead-agent span,.lead-agent strong,.lead-agent b,.lead-agent dt,.lead-agent dd,.lead-agent summary,.lead-agent time,.lead-agent a")].filter(visible).map(element => parseFloat(getComputedStyle(element).fontSize));
+        const buttons = [...panel.querySelectorAll("button")].filter(visible).map(button => ({
+          width: button.getBoundingClientRect().width,
+          height: button.getBoundingClientRect().height,
+          fontSize: parseFloat(getComputedStyle(button).fontSize)
+        }));
+        const visual = window.visualViewport;
+        return {
+          panel: rect(panel), transcript: rect(transcript), composer: rect(composer),
+          lead: rect(panel.querySelector(".lead-agent")),
+          input: rect(composer.querySelector("textarea")),
+          send: rect(composer.querySelector('button[type="submit"]')),
+          panelPaddingBottom: parseFloat(getComputedStyle(panel).paddingBottom),
+          visualBottom: (visual?.offsetTop ?? 0) + (visual?.height ?? window.innerHeight),
+          visualWidth: visual?.width ?? window.innerWidth,
+          viewportWidth: window.innerWidth,
+          viewportClientWidth: document.documentElement.clientWidth,
+          pageScrollLocked: getComputedStyle(document.documentElement).overflow === "hidden" &&
+            getComputedStyle(document.body).overflow === "hidden",
+          scrollRegions, text, buttons,
+          leadClientWidth: panel.querySelector(".lead-agent").clientWidth,
+          leadScrollWidth: panel.querySelector(".lead-agent").scrollWidth,
+          transcriptWidth: transcript.clientWidth,
+          transcriptScrollWidth: transcript.scrollWidth
+        };
+      })())`));
+      assert.ok(leadLayout.panel && leadLayout.transcript && leadLayout.composer && leadLayout.input, `${device.label}/${theme}: Lead regions should render.`);
+      assert.ok(leadLayout.composer.bottom <= leadLayout.panel.bottom - leadLayout.panelPaddingBottom + 1, `${device.label}/${theme}: Lead composer must stay above the safe area.`);
+      assert.ok(leadLayout.composer.bottom <= leadLayout.visualBottom + 1, `${device.label}/${theme}: Lead composer must remain visible.`);
+      assert.ok(leadLayout.transcript.bottom <= leadLayout.composer.top + 1, `${device.label}/${theme}: Lead transcript must end above the composer.`);
+      assert.ok(leadLayout.panel.right <= leadLayout.visualWidth + 1, `${device.label}/${theme}: Lead panel must fit the visual viewport.`);
+      assert.equal(leadLayout.pageScrollLocked, true, `${device.label}/${theme}: the page behind the Lead panel must not scroll.`);
+      assert.ok(leadLayout.leadScrollWidth <= leadLayout.leadClientWidth + 1, `${device.label}/${theme}: Lead content must not overflow horizontally.`);
+      assert.ok(leadLayout.transcriptScrollWidth <= leadLayout.transcriptWidth + 1, `${device.label}/${theme}: Lead transcript must not scroll horizontally.`);
+      assert.deepEqual(leadLayout.scrollRegions, ["lead-agent-transcript"], `${device.label}/${theme}: Lead view must have one content scroller.`);
+      assert.ok(leadLayout.input.height >= 44 && leadLayout.send?.height >= 44, `${device.label}/${theme}: Lead composer controls must be at least 44px.`);
+      assert.ok(leadLayout.buttons.every(button => button.width >= 43.5 && button.height >= 43.5), `${device.label}/${theme}: Lead buttons must meet 44px touch-target size within subpixel rounding. ${JSON.stringify(leadLayout.buttons.filter(button => button.width < 43.5 || button.height < 43.5))}`);
+      assert.ok(leadLayout.buttons.every(button => button.fontSize >= 16), `${device.label}/${theme}: Lead button labels must be at least 16px.`);
+      assert.ok(leadLayout.text.every(size => size >= 16), `${device.label}/${theme}: Lead body text must be at least 16px.`);
+      await verifyAgentCardFixture("lead", theme, device);
+      if ((device.label === "portrait-320" && theme === "dark") || (device.label === "landscape-667" && theme === "light")) {
+        await capture(`agent-lead-${device.label}-${theme}`);
+      }
+    }
+  }
+  for (const theme of ["light", "dark"]) {
+    await evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
+    await cdp("Emulation.setDeviceMetricsOverride", { width: 375, height: 360, deviceScaleFactor: 1, mobile: true });
+    await pause(220);
+    await evaluate(`document.querySelector(".corral-agent-window .lead-agent-composer textarea")?.focus()`);
+    await pause(180);
+    const leadKeyboardLayout = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const panelElement = document.querySelector(".corral-agent-window");
+      const panel = panelElement.getBoundingClientRect();
+      const lead = panelElement.querySelector(".lead-agent");
+      const mode = lead?.closest(".corral-agent-mode");
+      const composerElement = panelElement.querySelector(".lead-agent-composer");
+      const composer = composerElement.getBoundingClientRect();
+      const input = composerElement.querySelector("textarea");
+      const visual = window.visualViewport;
+      return {
+        panelBottom: panel.bottom,
+        composerBottom: composer.bottom,
+        composerHeight: composer.height,
+        composerDisplay: getComputedStyle(composerElement).display,
+        leadDisplay: lead ? getComputedStyle(lead).display : "missing",
+        leadModeHidden: mode?.hidden ?? null,
+        activeScope: [...panelElement.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]),
+        inputRect: input ? { top: input.getBoundingClientRect().top, bottom: input.getBoundingClientRect().bottom, height: input.getBoundingClientRect().height } : null,
+        visualBottom: (visual?.offsetTop ?? 0) + (visual?.height ?? window.innerHeight),
+        safeBottom: parseFloat(getComputedStyle(panelElement).paddingBottom),
+        inputFontSize: parseFloat(getComputedStyle(input).fontSize),
+        viewport: [window.innerWidth, window.innerHeight, visual?.width, visual?.height],
+        pageScrollLocked: getComputedStyle(document.documentElement).overflow === "hidden" &&
+          getComputedStyle(document.body).overflow === "hidden"
+      };
+    })())`));
+    assert.ok(leadKeyboardLayout.composerBottom <= leadKeyboardLayout.panelBottom - leadKeyboardLayout.safeBottom + 1, `${theme}: keyboard-height Lead composer must fit above the safe area. ${JSON.stringify(leadKeyboardLayout)}`);
+    assert.ok(leadKeyboardLayout.composerBottom <= leadKeyboardLayout.visualBottom + 1, `${theme}: keyboard-height Lead composer must remain visible.`);
+    assert.ok(leadKeyboardLayout.inputFontSize >= 16, `${theme}: Lead input text must avoid iOS auto-zoom. ${JSON.stringify(leadKeyboardLayout)}`);
+    assert.equal(leadKeyboardLayout.pageScrollLocked, true, `${theme}: keyboard-height Lead view must keep background scrolling locked.`);
+  }
+  await evaluate(`(() => {
+    for (const root of Object.values(window.__corralAgentSmokeRoots ?? {})) root.unmount();
+    document.querySelectorAll("[data-agent-smoke-fixture]").forEach(fixture => fixture.remove());
+  })()`);
   await evaluate(`document.querySelector('[aria-label="Close Ask Corral"]')?.click()`);
   await wait(`!document.querySelector(".corral-agent-window.is-open")`);
   await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });

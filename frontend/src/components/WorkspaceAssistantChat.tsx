@@ -20,6 +20,7 @@ import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
 import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AssistantLeadDraft } from "./AssistantLeadDraft";
+import { AgentLeadChoices } from "./AgentLeadChoices";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
 import {
   applyWorkspaceAssistantAction,
@@ -46,21 +47,55 @@ type Message = {
   needsVerification?: boolean;
 };
 
-const prompts = [
-  "Find a lead and summarize recent emails, calls, or meetings",
-  "Explain how Corral qualifies and routes leads",
-  "Summarize this month’s workspace analytics",
-  "Review our active automations and recommend improvements",
-  "Help me update our ICP or workspace settings",
-  "Show me integration and team access options",
-  "Draft an email for me to review before sending",
-  "Update a lead’s details or add a note after review",
+const prompts: Array<{
+  label: string;
+  prompt: string;
+  requires?: string[];
+}> = [
+  {
+    label: "Start a quote or proposal",
+    prompt: "I need a quote or proposal. If no lead is verified yet, ask for its exact name or email. Then open that lead's existing Deal Desk. Do not create, approve, or send anything.",
+    requires: ["leads.view"],
+  },
+  {
+    label: "Use a sequence or playbook",
+    prompt: "Explain how to enroll a lead in an existing sequence or playbook, personalize steps, pause or resume a run, detect replies, and review approval-gated outgoing drafts. Do not enroll anyone or send anything.",
+    requires: ["agents.view"],
+  },
+  {
+    label: "Coach the pipeline from recorded data",
+    prompt: "Coach the pipeline using only recorded analytics and verified workspace records. Flag stalled or at-risk deals only when actual data supports it, recommend next actions, and do not invent forecasts or probabilities.",
+    requires: ["analytics.view"],
+  },
+  {
+    label: "Check workspace document sources",
+    prompt: "Tell me whether a connected workspace document source is available and what you can cite. If none is connected, say so; do not guess about document content.",
+  },
+  {
+    label: "Explain approvals and audit history",
+    prompt: "Explain where proposals stay reviewable, where completed actions are auditable, which data or provider source is actually recorded, and whether a specific action supports reversal. Do not claim universal undo.",
+  },
+  {
+    label: "Find a lead and summarize recent interactions",
+    prompt: "Find a lead and summarize recent emails, calls, or meetings.",
+    requires: ["leads.view"],
+  },
+  {
+    label: "Draft an email for review",
+    prompt: "Draft an email for me to review before sending.",
+    requires: ["leads.edit"],
+  },
+  {
+    label: "Update a lead after review",
+    prompt: "Update a lead’s details or add a note after review.",
+    requires: ["leads.view", "leads.edit"],
+  },
 ];
 
 type Props = {
   permissions: ReadonlySet<string>;
   onNavigate: (area: WorkspaceAssistantArea) => void;
-  onInspectLead: (leadId: string) => void;
+  onInspectLead: (leadId: string, section?: "deal") => void;
   onRefresh?: () => void | Promise<void>;
   onLeadUpdated?: (lead: Lead) => void;
 };
@@ -743,21 +778,49 @@ export function WorkspaceAssistantChat({
             </span>
             <h2>Ask, plan, or create</h2>
             <p>
-              Search Corral's stored leads, contacts, and synced email, call,
-              meeting, and note history alongside analytics, automations, ICP,
-              settings, integrations, and team access. Corral Agent retrieves
-              relevant records on demand. It will not send or apply changes
-              until you approve them.
+              Search permitted workspace records, get help with existing workflows,
+              and prepare changes for review. Corral uses recorded data and will
+              say when required information or a source is unavailable.
             </p>
+            <div className="corral-workspace-status-grid">
+              <section className="corral-workspace-status-card" aria-label="Workspace document source status">
+                <div className="corral-workspace-status-heading">
+                  <strong>Workspace documents</strong>
+                  <span className="corral-workspace-status-badge">Not connected</span>
+                </div>
+                <p>
+                  Corral can cite connected workspace documents only. None are
+                  connected here, so it won’t guess what a playbook, pricing,
+                  policy, or product document says.
+                </p>
+              </section>
+              <section className="corral-workspace-status-card" aria-label="Approval and audit guidance">
+                <div className="corral-workspace-status-heading">
+                  <strong>Review and audit</strong>
+                  {permissions.has("agents.view") && (
+                    <button type="button" onClick={() => onNavigate("agents")}>Open AI Activity</button>
+                  )}
+                </div>
+                <p>
+                  Proposed changes stay in this saved conversation until you
+                  approve or dismiss them. The conversation keeps the outcome;
+                  AI Activity and record history show events logged by those
+                  workflows. Reversal is available only when a specific action
+                  supports it.
+                </p>
+              </section>
+            </div>
             <div className="corral-workspace-prompts">
-              {prompts.map((prompt) => (
+              {prompts.filter((prompt) =>
+                !prompt.requires || prompt.requires.every((permission) => permissions.has(permission))
+              ).map((prompt) => (
                 <button
                   type="button"
-                  key={prompt}
-                  onClick={() => void submit(undefined, prompt)}
+                  key={prompt.label}
+                  onClick={() => void submit(undefined, prompt.prompt)}
                   disabled={threadBusy}
                 >
-                  {prompt}
+                  {prompt.label}
                 </button>
               ))}
             </div>
@@ -769,30 +832,10 @@ export function WorkspaceAssistantChat({
               <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
               <p>{message.content}</p>
               {Boolean(message.leadLinks?.length) && (
-                <div
-                  className="corral-workspace-lead-links"
-                  role="group"
-                  aria-label="Matching leads"
-                >
-                  {message.leadLinks!.map((lead) => (
-                    <button
-                      className="primary-button corral-workspace-lead-link"
-                      key={lead.id}
-                      type="button"
-                      aria-label={
-                        lead.suggested
-                          ? `Open suggested match ${lead.name}`
-                          : `Open lead ${lead.name}`
-                      }
-                      onClick={() => onInspectLead(lead.id)}
-                    >
-                      <strong>{lead.name}</strong>
-                      {lead.company && (
-                        <span className="corral-workspace-lead-company">{lead.company}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
+                <AgentLeadChoices
+                  leads={message.leadLinks!}
+                  onSelect={onInspectLead}
+                />
               )}
               {Boolean(message.contextWarnings?.length) && (
                 <p role="status">Some workspace information could not be loaded or was limited: {message.contextWarnings!.join(" ")}</p>
@@ -812,6 +855,12 @@ export function WorkspaceAssistantChat({
                   <strong>{message.action.title || "Review proposed action"}</strong>
                   <p>{message.action.summary}</p>
                 </summary>
+                {message.action.kind === "open_deal_desk" && (
+                  <p className="corral-workspace-readonly-note">
+                    Read-only navigation. Opening the Deal Desk does not create,
+                    approve, or send a quote or proposal.
+                  </p>
+                )}
                 {message.action.kind === "send_email" ? (
                   <div className="corral-workspace-email-review">
                     <label>
@@ -999,7 +1048,7 @@ export function WorkspaceAssistantChat({
                           <>
                             <dt>Target</dt>
                             <dd>
-                              {["open_lead", "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(message.action.kind)
+                              {["open_lead", "open_deal_desk", "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(message.action.kind)
                                 ? message.action.target_label ?? "Selected lead"
                                 : message.action.target_label
                                 ? `${message.action.target_label} (${message.action.target_id})`
@@ -1140,9 +1189,13 @@ export function WorkspaceAssistantChat({
                           : message.action.kind === "open_module"
                             ? message.action.area === "dialer"
                               ? "Open Dialer"
+                              : message.action.area === "agents"
+                                ? "Open AI Activity"
                               : `Open ${message.action.area ?? "workspace"}`
                             : message.action.kind === "open_lead"
                               ? "Open lead"
+                              : message.action.kind === "open_deal_desk"
+                                ? "Open Deal Desk"
                             : message.action.kind === "add_lead_note" ? "Save note"
                             : message.action.kind === "create_lead" ? "Create lead"
                             : "Approve and apply"}

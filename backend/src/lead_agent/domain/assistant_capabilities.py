@@ -6,6 +6,7 @@ from collections.abc import Collection
 WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "open_module": (),
     "open_lead": ("leads.view",),
+    "open_deal_desk": ("leads.view",),
     "create_lead": ("leads.edit",),
     "update_lead_profile": ("leads.view", "leads.edit"),
     "add_lead_note": ("leads.view", "leads.edit"),
@@ -27,6 +28,7 @@ WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
 _REQUIRED_FIELDS = {
     "open_module": ["area"],
     "open_lead": ["target_id"],
+    "open_deal_desk": ["target_id: verified workspace lead"],
     "create_lead": ["payload_json: at least one known lead detail; no target_id"],
     "update_lead_profile": ["target_id", "payload_json: supported profile fields"],
     "add_lead_note": ["target_id", "payload_json: note"],
@@ -49,6 +51,7 @@ _REQUIRED_FIELDS = {
 def workspace_action_capabilities(permissions: Collection[str]) -> list[dict[str, object]]:
     area_permissions = {
         "analytics": ("analytics.view",),
+        "agents": ("agents.view",),
         "automations": ("agents.view",),
         "icp": ("icp.view",),
         "settings": ("routing.view", "integrations.view", "workspace.manage"),
@@ -64,7 +67,9 @@ def workspace_action_capabilities(permissions: Collection[str]) -> list[dict[str
         {
             "kind": kind,
             "required_fields": _REQUIRED_FIELDS[kind],
-            "requires_review_and_approval": kind not in {"open_module", "open_lead"},
+            "requires_review_and_approval": kind not in {
+                "open_module", "open_lead", "open_deal_desk",
+            },
             **({"allowed_areas": areas} if kind == "open_module" else {}),
         }
         for kind, required in WORKSPACE_ACTION_PERMISSIONS.items()

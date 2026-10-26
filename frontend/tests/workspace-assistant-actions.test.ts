@@ -210,3 +210,40 @@ test("AI analysis failure keeps the original creation draft and never creates or
     globalThis.fetch = beforeFailure;
   }
 });
+
+test("opening a verified lead's Deal Desk only navigates and states that no quote was sent", async () => {
+  requests.length = 0;
+  const action = proposal("open_deal_desk");
+  action.target_id = targetId;
+  action.target_label = "Mina Chen";
+  const opened: Array<{ leadId: string; section?: string }> = [];
+
+  assert.equal(actions.canApplyWorkspaceAssistantAction(action, permissions), true);
+  const result = await actions.applyWorkspaceAssistantAction(
+    action,
+    permissions,
+    noNavigate,
+    (leadId, section) => opened.push({ leadId, section }),
+  );
+
+  assert.deepEqual(opened, [{ leadId: targetId, section: "deal" }]);
+  assert.match(result, /No quote was created, approved, or sent/);
+  assert.equal(requests.length, 0);
+});
+
+test("AI Activity navigation is gated by its view permission", async () => {
+  const action = proposal("open_module");
+  action.area = "agents";
+  assert.equal(actions.canApplyWorkspaceAssistantAction(action, new Set()), false);
+  const permissions = new Set(["agents.view"]);
+  assert.equal(actions.canApplyWorkspaceAssistantAction(action, permissions), true);
+  let navigated = "";
+  const result = await actions.applyWorkspaceAssistantAction(
+    action,
+    permissions,
+    (area) => { navigated = area; },
+    () => {},
+  );
+  assert.equal(navigated, "agents");
+  assert.equal(result, "Opened AI Activity.");
+});

@@ -817,6 +817,15 @@ def chat_with_workspace_assistant(
         result.reply = "No new changes were made. If you meant to correct something, tell me what should change."
     if result.action.kind == "open_lead" and not _wants_lead_links(request.messages):
         result.action = WorkspaceAssistantAction()
+    if result.action.kind == "open_deal_desk" and not any(
+        term in record_query.casefold()
+        for term in ("quote", "proposal", "pricing", "discount", "deal desk")
+    ):
+        result.action = WorkspaceAssistantAction()
+        result.reply = (
+            "I can only open the Deal Desk for a quote, proposal, pricing, or discount "
+            "request. Tell me the verified lead’s name or email."
+        )
     if result.action.kind == "create_lead":
         if "leads.edit" not in workspace.permissions:
             result.action = WorkspaceAssistantAction()
@@ -828,7 +837,7 @@ def chat_with_workspace_assistant(
             except ValueError as error:
                 result.action = WorkspaceAssistantAction()
                 result.reply = f"The new lead draft needs clarification: {error}"[:3000]
-    if result.action.kind == "open_lead" or result.action.kind in lead_mutations:
+    if result.action.kind in {"open_lead", "open_deal_desk"} or result.action.kind in lead_mutations:
         target_id = result.action.target_id
         matched_lead_ids = {
             item.get("id")
@@ -844,6 +853,30 @@ def chat_with_workspace_assistant(
             )
             if isinstance(item, dict)
         ]
+        if result.action.kind == "open_deal_desk":
+            folded_query = record_query.casefold()
+            explicitly_named = [
+                item for item in matched_leads
+                if (
+                    isinstance(item.get("name"), str)
+                    and item["name"].casefold() in folded_query
+                ) or (
+                    isinstance(item.get("email"), str)
+                    and item["email"].casefold() in folded_query
+                )
+            ]
+            if len(explicitly_named) != 1:
+                result.action = WorkspaceAssistantAction()
+                result.reply = (
+                    "Please name one verified lead by full name or email before I open "
+                    "the Deal Desk. Nothing has been created, approved, or sent."
+                )
+            else:
+                result.action.target_id = str(explicitly_named[0].get("id") or "")
+                result.action.target_label = (
+                    explicitly_named[0].get("name") or "Selected lead"
+                )
+                target_id = result.action.target_id
         try:
             parsed_target_id = UUID(target_id or "")
         except ValueError:
@@ -856,7 +889,7 @@ def chat_with_workspace_assistant(
                 matched_leads, record_query
             )
             if mentioned_lead and (
-                result.action.kind == "open_lead"
+                result.action.kind in {"open_lead", "open_deal_desk"}
                 or (
                     result.action.kind in lead_mutations
                     and _is_explicit_lead_write_request(lead_write_query)

@@ -59,10 +59,97 @@ export function CorralAgentDock({
   const [panelVisible, setPanelVisible] = useState(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const wasOpen = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
   const openingFrameRef = useRef<number | null>(null);
   const openRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    const visualViewport = window.visualViewport;
+    if (!panel || !visualViewport) return;
+    const root = document.documentElement;
+    const body = document.body;
+    const previousRootOverflow = root.style.getPropertyValue("overflow");
+    const previousRootOverflowPriority = root.style.getPropertyPriority("overflow");
+    const previousBodyOverflow = body.style.getPropertyValue("overflow");
+    const previousBodyOverflowPriority = body.style.getPropertyPriority("overflow");
+    const previousRootOverscroll = root.style.getPropertyValue("overscroll-behavior");
+    const previousRootOverscrollPriority = root.style.getPropertyPriority("overscroll-behavior");
+    const previousBodyOverscroll = body.style.getPropertyValue("overscroll-behavior");
+    const previousBodyOverscrollPriority = body.style.getPropertyPriority("overscroll-behavior");
+    let pageScrollLocked = false;
+
+    const setStyleOrRestore = (
+      element: HTMLElement,
+      property: string,
+      value: string,
+      previousValue: string,
+      previousPriority: string,
+    ) => {
+      if (value) element.style.setProperty(property, value);
+      else if (previousValue) element.style.setProperty(property, previousValue, previousPriority);
+      else element.style.removeProperty(property);
+    };
+
+    const restorePageScroll = () => {
+      if (!pageScrollLocked) return;
+      setStyleOrRestore(root, "overflow", "", previousRootOverflow, previousRootOverflowPriority);
+      setStyleOrRestore(body, "overflow", "", previousBodyOverflow, previousBodyOverflowPriority);
+      setStyleOrRestore(root, "overscroll-behavior", "", previousRootOverscroll, previousRootOverscrollPriority);
+      setStyleOrRestore(body, "overscroll-behavior", "", previousBodyOverscroll, previousBodyOverscrollPriority);
+      pageScrollLocked = false;
+    };
+
+    const syncVisualViewport = () => {
+      if (!window.matchMedia("(max-width: 767px)").matches) {
+        panel.style.removeProperty("--corral-agent-visual-height");
+        panel.style.removeProperty("--corral-agent-visual-top");
+        panel.style.removeProperty("--corral-agent-visual-width");
+        panel.style.removeProperty("--corral-agent-visual-left");
+        restorePageScroll();
+        return;
+      }
+      setStyleOrRestore(root, "overflow", "hidden", previousRootOverflow, previousRootOverflowPriority);
+      setStyleOrRestore(body, "overflow", "hidden", previousBodyOverflow, previousBodyOverflowPriority);
+      setStyleOrRestore(root, "overscroll-behavior", "none", previousRootOverscroll, previousRootOverscrollPriority);
+      setStyleOrRestore(body, "overscroll-behavior", "none", previousBodyOverscroll, previousBodyOverscrollPriority);
+      pageScrollLocked = true;
+      panel.style.setProperty(
+        "--corral-agent-visual-height",
+        `${Math.ceil(visualViewport.height)}px`,
+      );
+      panel.style.setProperty(
+        "--corral-agent-visual-top",
+        `${Math.max(0, Math.floor(visualViewport.offsetTop))}px`,
+      );
+      panel.style.setProperty(
+        "--corral-agent-visual-width",
+        `${Math.ceil(visualViewport.width)}px`,
+      );
+      panel.style.setProperty(
+        "--corral-agent-visual-left",
+        `${Math.max(0, Math.floor(visualViewport.offsetLeft))}px`,
+      );
+    };
+
+    syncVisualViewport();
+    visualViewport.addEventListener("resize", syncVisualViewport);
+    visualViewport.addEventListener("scroll", syncVisualViewport);
+    window.addEventListener("resize", syncVisualViewport);
+    return () => {
+      visualViewport.removeEventListener("resize", syncVisualViewport);
+      visualViewport.removeEventListener("scroll", syncVisualViewport);
+      window.removeEventListener("resize", syncVisualViewport);
+      panel.style.removeProperty("--corral-agent-visual-height");
+      panel.style.removeProperty("--corral-agent-visual-top");
+      panel.style.removeProperty("--corral-agent-visual-width");
+      panel.style.removeProperty("--corral-agent-visual-left");
+      restorePageScroll();
+    };
+  }, [open]);
 
   const openAgent = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -220,6 +307,7 @@ export function CorralAgentDock({
   return (
     <div className="corral-agent-dock">
       <section
+        ref={panelRef}
         id="corral-agent-window"
         className={[
           "corral-agent-window",
@@ -310,7 +398,9 @@ export function CorralAgentDock({
             <WorkspaceAssistantChat
               permissions={permissions}
               onNavigate={onNavigate}
-              onInspectLead={onInspectLead}
+              onInspectLead={(leadId, section) =>
+                section ? onOpenLeadSection(leadId, section) : onInspectLead(leadId)
+              }
               onRefresh={onRefresh}
               onLeadUpdated={onUpdated}
             />
