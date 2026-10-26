@@ -164,3 +164,20 @@ This email is confidential and intended only for the named recipient.`);
   assert.match(sections.footers.join(" "), /unsubscribe/i);
   assert.match(sections.footers.join(" "), /confidential/i);
 });
+
+test("extracts inline sender/security banners and deduplicates flat-text legal notices", () => {
+  const sections = splitGmailBodyForDisplay(
+    `You don't often get email from reese.maddox@ingenuity-systems.cloud. Learn why this is important [2]
+    [EXTERNAL EMAIL] DMCU Security Advisory: This email was received from an external source. Do not open attachments, click on links, or trust the content from an unexpected source. If you are suspicious, contact I.T. Hello Kathi, I'm looking forward to a 10-minute Zoom call about a potential tech collaboration. Let me know a suitable time. Best Regards, Reese Maddox, Manager Customer Success. PS: If you want to opt out of our email list, reply with STOP.
+    CONFIDENTIALITY NOTICE: This email is confidential and intended only for the named recipient. CONFIDENTIALITY NOTICE: This email is confidential and intended only for the named recipient. Links: ----- [1] https://aka.ms/security [2] https://aka.ms/sender-identification`,
+  );
+
+  assert.match(sections.primary, /Hello Kathi/);
+  assert.match(sections.primary, /potential tech collaboration/);
+  assert.match(sections.primary, /Best Regards/);
+  assert.doesNotMatch(sections.primary, /You don't often get email|EXTERNAL EMAIL|Security Advisory|confidentiality notice|opt out|aka\.ms/i);
+  assert.equal(sections.footers.filter((footer) => /CONFIDENTIALITY NOTICE/i.test(footer)).length, 1);
+  assert.match(sections.footers.join(" "), /EXTERNAL EMAIL/);
+  assert.match(sections.footers.join(" "), /opt out/);
+  assert.match(sections.footers.join(" "), /aka\.ms/);
+});

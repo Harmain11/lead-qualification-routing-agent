@@ -145,10 +145,16 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
   overflow: auto;
   overscroll-behavior: contain;
 }
-.v-menu, .v-flyout, .lead-notification-inbox, .select-menu-popover {
+.v-menu, .lead-notification-inbox, .select-menu-popover {
   max-width: min(360px, calc(100vw - 24px));
   max-height: min(70dvh, 560px);
   overflow: auto;
+  overscroll-behavior: contain;
+}
+.v-flyout {
+  max-width: min(360px, calc(100vw - 24px));
+  max-height: min(70dvh, 560px);
+  overflow: visible;
   overscroll-behavior: contain;
 }
 

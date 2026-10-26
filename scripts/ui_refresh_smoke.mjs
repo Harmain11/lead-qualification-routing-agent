@@ -240,12 +240,7 @@ try {
     }
     if (label === "Inbox") {
       const sampleEmail = [
-        "Hi Alex,",
-        "The meeting is confirmed for Thursday at 2 PM. Please bring the revised forecast and account handoff notes.",
-        "",
-        "WARNING: External email. This message came from outside the organization.",
-        "Manage your email preferences or unsubscribe here.",
-        "This email is confidential and intended only for the named recipient.",
+        "You don't often get email from reese.maddox@ingenuity-systems.cloud. Learn why this is important [2] [EXTERNAL EMAIL] DMCU Security Advisory: This email was received from an external source. Do not open attachments, click links, or trust the content. If you are suspicious, contact I.T. Hello Kathi, I'm looking forward to a 10-minute Zoom call about a potential tech collaboration. Let me know a suitable time. Best Regards, Reese Maddox, Manager Customer Success. PS: If you want to opt out of our email list, reply with STOP. CONFIDENTIALITY NOTICE: This email is confidential and intended only for the named recipient. CONFIDENTIALITY NOTICE: This email is confidential and intended only for the named recipient. Links: ----- [1] https://aka.ms/security [2] https://aka.ms/sender-identification",
       ].join("\n");
       await evaluate(`(async () => {
         const [reactModule, reactDomModule, { ProviderEmailBody }] = await Promise.all([
@@ -279,19 +274,72 @@ try {
         const body = fixture?.querySelector(".provider-email-body-main");
         const details = [...(fixture?.querySelectorAll(".provider-email-disclosure") ?? [])];
         return {
-          text: body?.innerText ?? "",
+          text: body?.textContent ?? "",
           fontSize: body ? getComputedStyle(body).fontSize : "",
+          fontWeight: body ? getComputedStyle(body).fontWeight : "",
           disclosures: details.length,
           collapsed: details.filter(item => !item.open).length
         };
       })())`));
-      assert.match(emailCheck.text, /meeting is confirmed/i);
-      assert.doesNotMatch(emailCheck.text, /external email|unsubscribe|confidential/i);
+      assert.match(emailCheck.text, /Hello Kathi/i);
+      assert.match(emailCheck.text, /potential tech collaboration/i);
+      assert.doesNotMatch(emailCheck.text, /external email|security advisory|unsubscribe|confidential/i);
       assert.equal(emailCheck.fontSize, "14px");
+      assert.equal(emailCheck.fontWeight, "400");
       assert.ok(emailCheck.disclosures > 0);
       assert.equal(emailCheck.collapsed, emailCheck.disclosures);
       await capture("email-v5-body");
       await evaluate(`window.__corralEmailSmokeRoot?.unmount(); document.querySelector(".email-v5-smoke-fixture")?.remove()`);
+      await evaluate(`(async () => {
+        const [reactModule, reactDomModule, { GmailInquiryView }] = await Promise.all([
+          import("/node_modules/.vite/deps/react.js"),
+          import("/node_modules/.vite/deps/react-dom_client.js"),
+          import("/src/components/GmailInquiryView.tsx")
+        ]);
+        const React = reactModule.default ?? reactModule;
+        const ReactDOM = reactDomModule.default ?? reactDomModule;
+        const createRoot = reactDomModule.createRoot ?? ReactDOM.createRoot;
+        const host = document.createElement("section");
+        host.className = "gmail-inquiry-v5-smoke-fixture";
+        Object.assign(host.style, { position: "fixed", left: "-10000px", top: "0", visibility: "hidden" });
+        document.querySelector(".v-app")?.append(host);
+        const message = [
+          "--- Gmail message ui-smoke ---",
+          "From: Reese Maddox <reese.maddox@example.test>",
+          "To: Kathi <kathi@example.test>",
+          "Subject: Kathi Can I call you on Thursday?",
+          "",
+          ${JSON.stringify(sampleEmail)}
+        ].join(String.fromCharCode(10));
+        window.__corralInquirySmokeRoot = createRoot(host);
+        window.__corralInquirySmokeRoot.render(React.createElement(GmailInquiryView, {
+          message, source: "gmail", leadEmail: "kathi@example.test"
+        }));
+        return true;
+      })()`);
+      await wait(`Boolean(document.querySelector(".gmail-inquiry-v5-smoke-fixture .gmail-inquiry-body-content"))`);
+      const inquiryEmailCheck = JSON.parse(await evaluate(`JSON.stringify((() => {
+        const fixture = document.querySelector(".gmail-inquiry-v5-smoke-fixture");
+        const body = fixture?.querySelector(".gmail-inquiry-body-content");
+        const paragraph = body?.querySelector("p");
+        const details = [...(fixture?.querySelectorAll(".gmail-inquiry-disclosure") ?? [])];
+        return {
+          text: body?.textContent ?? "",
+          fontSize: paragraph ? getComputedStyle(paragraph).fontSize : "",
+          fontWeight: paragraph ? getComputedStyle(paragraph).fontWeight : "",
+          disclosures: details.length,
+          collapsed: details.filter(item => !item.open).length,
+          emptyState: Boolean(fixture?.querySelector(".gmail-inquiry-empty"))
+        };
+      })())`));
+      assert.match(inquiryEmailCheck.text, /Hello Kathi/i);
+      assert.doesNotMatch(inquiryEmailCheck.text, /external email|security advisory|unsubscribe|confidential/i);
+      assert.equal(inquiryEmailCheck.fontSize, "14px");
+      assert.equal(inquiryEmailCheck.fontWeight, "400");
+      assert.ok(inquiryEmailCheck.disclosures > 0);
+      assert.equal(inquiryEmailCheck.collapsed, inquiryEmailCheck.disclosures);
+      assert.equal(inquiryEmailCheck.emptyState, false);
+      await evaluate(`window.__corralInquirySmokeRoot?.unmount(); document.querySelector(".gmail-inquiry-v5-smoke-fixture")?.remove()`);
       requestedVisualChecks.emailBody += 1;
     }
     const primaryActions = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll(
@@ -315,6 +363,8 @@ try {
       primaryActionsChecked += 1;
     }
     if (label === "Integrations") {
+      await cdp("Emulation.setDeviceMetricsOverride", { width: 810, height: 720, deviceScaleFactor: 1, mobile: false });
+      await pause(250);
       await evaluate(`(() => {
         const link = [...document.querySelectorAll(".v-sidebar-nav a.v-navitem")]
           .find(item => item.querySelector(".v-navitem-label")?.textContent.trim() === "Integrations");
@@ -322,7 +372,14 @@ try {
         link?.focus();
         link?.parentElement?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: null }));
       })()`);
+      await evaluate(`(() => {
+        const style = document.createElement("style");
+        style.id = "ui-smoke-emulate-hover-flyout";
+        style.textContent = "@media (hover: none) { .v-flyout { display: block !important; } }";
+        document.head.append(style);
+      })()`);
       await wait(`Boolean(document.querySelector(".v-flyout"))`);
+      await pause(250);
       const flyoutBounds = JSON.parse(await evaluate(`(() => {
         const flyout = document.querySelector(".v-flyout");
         const rect = flyout?.getBoundingClientRect();
@@ -330,12 +387,60 @@ try {
           left: rect?.left ?? -1,
           right: rect?.right ?? Infinity,
           viewport: document.documentElement.clientWidth,
+          display: flyout ? getComputedStyle(flyout).display : "missing",
+          visibility: flyout ? getComputedStyle(flyout).visibility : "missing",
+          opacity: flyout ? getComputedStyle(flyout).opacity : "0",
+          hoverNone: matchMedia("(hover: none)").matches,
+          pointerFine: matchMedia("(pointer: fine)").matches,
+          overflowX: flyout ? getComputedStyle(flyout).overflowX : "",
           labels: flyout?.innerText ?? ""
         });
       })()`));
+      assert.notEqual(flyoutBounds.display, "none", `Integration flyouts must be visible when opened: ${JSON.stringify(flyoutBounds)}`);
+      assert.equal(flyoutBounds.visibility, "visible", "Integration flyouts must not be hidden.");
+      assert.ok(Number(flyoutBounds.opacity) > 0, "Integration flyouts must be visible when opened.");
       assert.ok(flyoutBounds.left >= 0, "Integration flyouts must not be clipped by the left viewport edge.");
       assert.ok(flyoutBounds.right <= flyoutBounds.viewport + 1, "Integration flyouts must fit within the viewport.");
+      assert.equal(flyoutBounds.overflowX, "visible", "Nested flyouts must not create a horizontal scrollbar.");
       assert.match(flyoutBounds.labels, /Integrations/);
+      await evaluate(`(() => {
+        const crm = [...document.querySelectorAll(".v-flyout-group > .v-flyout-item")]
+          .find(button => button.textContent.trim() === "CRM");
+        crm?.click();
+        return Boolean(crm);
+      })()`);
+      await wait(`Boolean([...document.querySelectorAll(".v-flyout-group")].find(group => group.querySelector(".v-flyout-submenu")) && [...document.querySelectorAll(".v-flyout-submenu")].some(menu => getComputedStyle(menu).display !== "none"))`);
+      const submenuBounds = JSON.parse(await evaluate(`(() => {
+        const submenu = [...document.querySelectorAll(".v-flyout-submenu")].find(menu => getComputedStyle(menu).display !== "none");
+        const group = submenu?.closest(".v-flyout-group");
+        const flyout = document.querySelector(".v-flyout");
+        const rect = submenu?.getBoundingClientRect();
+        const groupRect = group?.getBoundingClientRect();
+        const flyoutRect = flyout?.getBoundingClientRect();
+        return JSON.stringify({
+          left: rect?.left ?? -1,
+          right: rect?.right ?? Infinity,
+          top: rect?.top ?? -1,
+          groupTop: groupRect?.top ?? -1,
+          flyoutRight: flyoutRect?.right ?? Infinity,
+          text: submenu?.innerText ?? "",
+          viewport: document.documentElement.clientWidth
+        });
+      })()`));
+      assert.ok(submenuBounds.left >= 0, "Integration submenus must not be clipped by the left viewport edge.");
+      assert.ok(submenuBounds.left >= submenuBounds.flyoutRight + 4, "Integration submenus must open beside, not over, the main flyout.");
+      assert.ok(Math.abs(submenuBounds.top - submenuBounds.groupTop) <= 1, "Integration submenus must align with the selected category.");
+      assert.ok(submenuBounds.right <= submenuBounds.viewport + 1, "Integration submenus must fit within the viewport.");
+      assert.match(submenuBounds.text, /Salesforce/);
+      assert.match(submenuBounds.text, /HubSpot/);
+      assert.match(submenuBounds.text, /GoHighLevel/);
+      await pause(300);
+      await capture("integration-flyout-v5");
+      await evaluate(`document.querySelector("#ui-smoke-emulate-hover-flyout")?.remove()`);
+      await evaluate(`document.querySelector('.v-sidebar-nav a.v-navitem[aria-label="Integrations"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+      await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+      await pause(250);
+
       await evaluate(`(() => {
         const fixture = document.createElement("button");
         fixture.type = "button";
