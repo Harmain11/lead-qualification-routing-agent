@@ -10,6 +10,7 @@ import "./v3/compat.css";
 import "./v3/auth.css";
 import "./v3/v4.css";
 import "./v3/polish.css";
+import "./v3/audit.css";
 import App from "./App";
 
 createRoot(document.getElementById("root")!).render(

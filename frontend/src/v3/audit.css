@@ -1,0 +1,241 @@
+/*
+ * Cross-screen UI audit pass.
+ *
+ * This is intentionally loaded after the compatibility layer. It keeps older
+ * feature modules on the same type, colour and responsive-layout system as the
+ * current workspace without changing their markup or behavior.
+ */
+
+/* Legacy modules occasionally set a literal light surface. Keep these regions
+ * readable when the active appearance changes. */
+.v-app :is(
+  .email-thread-message,
+  .email-composer,
+  .email-attachment-list li,
+  .direct-dialer-key,
+  .direct-call-history li,
+  .direct-call-lead-form,
+  .calls-panel,
+  .calls-history-empty,
+  .gmail-inquiry-card,
+  .gmail-review-card,
+  .lead-notification-inbox
+) {
+  color: var(--label);
+  background-color: var(--surface) !important;
+}
+
+.v-app :is(
+  .email-thread-message.is-outbound,
+  .email-composer,
+  .direct-dialer-form,
+  .direct-dialer-caller-ids,
+  .direct-dialer-status,
+  .direct-call-result,
+  .direct-call-handoff,
+  .calls-provider-note,
+  .calls-permission-note,
+  .calls-history-empty
+) {
+  background-color: var(--fill) !important;
+}
+
+/* Native form controls need an explicit appearance and a reliable focus state
+ * in both colour schemes. */
+.v-app :is(input, select, textarea), .a-shell :is(input, select, textarea) {
+  color-scheme: light;
+}
+html[data-theme="dark"] .v-app :is(input, select, textarea),
+html[data-theme="dark"] .a-shell :is(input, select, textarea) {
+  color-scheme: dark;
+}
+.v-app :is(input, select, textarea)::placeholder, .a-shell input::placeholder {
+  color: var(--label-3);
+  opacity: 1;
+}
+.v-app :is(input, select, textarea):disabled, .a-shell :is(input, select, textarea):disabled {
+  color: var(--label-3) !important;
+  background-color: var(--fill-hover) !important;
+  opacity: 1;
+}
+
+/* Avoid clipping real customer names, emails, URLs, and external provider text. */
+.v-app :is(
+  .email-thread-message,
+  .email-thread-message-body,
+  .email-thread-addresses,
+  .email-attachment-list li,
+  .direct-dialer-status,
+  .direct-call-result,
+  .direct-call-handoff,
+  .calls-provider-note,
+  .calls-history-empty,
+  .provider-email-body,
+  .provider-email-disclosure-content,
+  .integration-section-disclosure-content,
+  .lead-agent-message,
+  .assistant-message
+) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Bring older, dense operational UI up to the shared readable metadata scale. */
+.v-app :is(
+  .email-message-list > header > span,
+  .email-row-top time,
+  .email-row-snippet,
+  .email-thread-message-sender > span,
+  .email-thread-message-summary-header time,
+  .email-thread-message-preview,
+  .email-thread-message-toggle-label,
+  .email-thread-addresses,
+  .email-composer-heading-actions > small,
+  .email-composer label,
+  .email-composer label small,
+  .email-field-label,
+  .email-attachment-list li,
+  .gmail-account-row small,
+  .lead-email-thread-summary-meta,
+  .lead-email-message time,
+  .lead-email-addresses,
+  .direct-dialer-key small,
+  .direct-call-history-copy span,
+  .direct-call-history-copy small,
+  .calls-panel .calls-form small,
+  .calls-panel .calls-confirm small,
+  .calls-history-empty small,
+  .calls-footnote,
+  .lead-agent-phone-copy .eyebrow,
+  .lead-agent-role,
+  .lead-agent-action-title small,
+  .lead-agent-changes dt,
+  .lead-agent-composer small
+) {
+  font-size: 12px !important;
+  line-height: 1.45;
+}
+
+.v-app :is(
+  .email-message-row > b,
+  .email-row-top strong,
+  .email-thread-message-sender strong,
+  .email-thread-message-body > p,
+  .email-composer input,
+  .email-composer select,
+  .email-composer textarea,
+  .direct-dialer-fields input,
+  .direct-dialer-fields select,
+  .direct-call-lead-form input,
+  .direct-call-lead-form textarea,
+  .calls-panel .calls-form select,
+  .calls-panel .calls-form input:not([type="checkbox"]),
+  .lead-agent-email-shortcut
+) {
+  font-size: 14px !important;
+}
+
+/* Every dialog/popover remains within the viewport and lets its content, not
+ * the page beneath it, scroll. */
+:is(.v-sheet, .ops-dialog, .team-modal, .workspace-chooser, dialog.command-palette) {
+  max-width: calc(100vw - 32px);
+  max-height: min(86dvh, 860px);
+}
+.ops-dialog, .team-modal, .workspace-chooser, dialog.command-palette {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.v-menu, .v-flyout, .lead-notification-inbox, .select-menu-popover {
+  max-width: min(360px, calc(100vw - 24px));
+  max-height: min(70dvh, 560px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* Dense toolbars and action strips can wrap instead of covering content. */
+.v-app :is(
+  .email-thread-heading,
+  .email-composer-heading,
+  .lead-email-heading,
+  .direct-dialer-actions,
+  .calls-panel-toolbar,
+  .records-head-actions,
+  .card-actions,
+  .lead-email-actions
+) {
+  flex-wrap: wrap;
+}
+.v-app :is(.email-thread-heading-actions, .email-composer-heading-actions, .lead-email-actions) {
+  min-width: 0;
+}
+.v-selectionbar {
+  flex-wrap: wrap;
+  justify-content: center;
+  max-height: min(40dvh, 260px);
+  padding-block: 10px;
+}
+
+/* Tables and boards preserve their data hierarchy but no longer create page-
+ * level horizontal overflow. */
+.v-app :is(.v-tablewrap, .ops-table-wrap, .lead-table-wrap, .q-review-table, .records-board) {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+}
+.v-app :is(.v-tablewrap, .ops-table-wrap, .lead-table-wrap, .q-review-table) {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 767px) {
+  /* Keep mobile controls comfortably tappable without expanding dense desktop UI. */
+  .v-btn:not([data-size="sm"]),
+  .v-filterbtn,
+  .v-lens,
+  .v-searchfield,
+  .v-popup,
+  .v-app :is(.primary-button, .secondary-button, .danger-button, .button-quiet, .card-actions button),
+  .a-theme,
+  .a-modes,
+  .a-modes button {
+    min-height: 40px;
+  }
+  .v-popup { height: 40px; }
+
+  .v-app :is(.email-workspace-grid, .email-composer-address-grid, .direct-dialer-fields, .calls-form-grid) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .v-app .email-mailbox-toolbar > label,
+  .v-app .email-search,
+  .v-app .integration-category-filter label {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .v-app .email-folder-switch {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .v-app .email-folder-switch button { flex: 1 0 auto; }
+  .v-app :is(.email-thread-heading-actions, .lead-email-actions, .direct-dialer-actions > *, .calls-panel .calls-panel-toolbar > *) {
+    width: 100%;
+  }
+  .v-app .lead-email-actions :is(button, a) { flex: 1 1 140px; }
+  .v-app .records-board {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+  }
+  .v-app .records-column { flex: 0 0 min(86vw, 320px); scroll-snap-align: start; }
+  .v-app .q-review td:not(:first-child) { white-space: normal; }
+  .v-app .v-pager { align-items: flex-start; flex-wrap: wrap; }
+}
+
+@media (max-width: 420px) {
+  .a-shell { padding: 72px 16px 20px; }
+  .a-card { border-radius: 20px; }
+  .a-foot { gap: 10px 14px; padding-top: 22px; }
+  .v-app .email-composer-heading, .v-app .lead-email-heading { align-items: stretch; }
+  .v-app .email-recipient-options { align-items: flex-start; flex-wrap: wrap; }
+}
