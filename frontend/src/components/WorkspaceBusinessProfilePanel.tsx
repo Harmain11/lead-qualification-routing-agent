@@ -6,7 +6,6 @@ import {
   type PolicyResponse,
   type WorkspaceBusinessProfile,
 } from "../operationsApi";
-import "./workspaceBusinessProfile.css";
 
 type BusinessProfileForm = {
   business_name: string;

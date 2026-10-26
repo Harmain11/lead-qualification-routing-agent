@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClientId } from "../clientIds";
+import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave, type Company, type Contact } from "../operationsApi";
-import "./RecordsView.css";
 type Touch = {
   id: string;
   source: string;
@@ -339,12 +339,11 @@ export function RecordsView({
       </header>
       <nav className="records-view-tabs" aria-label={`${recordLabelPlural} views`}>
         <button className={savedView === "all" ? "is-active" : ""} onClick={() => setSavedView("all")} aria-pressed={savedView === "all"}>
-          <span aria-hidden="true">▦</span> All {recordLabelPlural} <strong>{total}</strong>
+          All {recordLabelPlural} <strong>{total}</strong>
         </button>
         <button className={savedView === "mine" ? "is-active" : ""} onClick={() => setSavedView("mine")} aria-pressed={savedView === "mine"}>
-          <span aria-hidden="true">▧</span> My {recordLabelPlural}
+          My {recordLabelPlural}
         </button>
-        <button className="records-add-view" aria-label="Create saved view" title="Create saved view">+</button>
       </nav>
       {error && (
         <p role="alert" className="team-alert">
@@ -366,17 +365,17 @@ export function RecordsView({
           />
         </label>
         <button className={`records-filter-button ${filtersOpen ? "is-active" : ""}`} onClick={() => setFiltersOpen((value) => !value)}>
-          <span aria-hidden="true">☷</span> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
+          <Icon name="filter" size={16} /> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
         </button>
         <button className="records-filter-button" onClick={() => setFiltersOpen(true)}>
-          <span aria-hidden="true">↕</span> Sort by
+          <Icon name="chevronUpDown" size={16} /> Sort by
         </button>
         <div className="records-toolbar-spacer" />
         <div className="records-view-switcher" role="group" aria-label="View mode">
-          <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}>▦ Board</button>
-          <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}>▤ Table</button>
+          <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}><Icon name="layers" size={16} /> Board</button>
+          <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}><Icon name="dashboard" size={16} /> Table</button>
         </div>
-        <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}>↻</button>
+        <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}><Icon name="refresh" size={18} /></button>
       </div>
       {filtersOpen && (
         <div className="records-filter-panel">

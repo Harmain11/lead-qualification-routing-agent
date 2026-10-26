@@ -531,9 +531,7 @@ function MetricCard({
 }
 
 function useCountUp(value: number) {
-  const [display, setDisplay] = useState(() =>
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches ? value : 0,
-  );
+  const [display, setDisplay] = useState(value);
   const displayRef = useRef(display);
   useLayoutEffect(() => {
     const setCurrent = (next: number) => {

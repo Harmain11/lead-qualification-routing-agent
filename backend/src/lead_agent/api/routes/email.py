@@ -277,7 +277,7 @@ def _gmail_connection(
 @router.get("/messages", response_model=MailboxMessagePageResponse)
 def list_mailbox_messages(
     connection_id: UUID,
-    folder: Literal["inbox", "sent", "all", "spam", "trash", "archive"] = "inbox",
+    folder: Literal["inbox", "sent", "all", "drafts", "spam", "trash", "archive"] = "inbox",
     query: str = Query(default="", max_length=200),
     page_token: str | None = Query(default=None, max_length=1024),
     limit: int = Query(default=25, ge=1, le=50),

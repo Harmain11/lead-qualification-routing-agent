@@ -13,7 +13,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from lead_agent.application.manual_review import lead_manual_review_reasons
+from lead_agent.application.commercial import pipeline_value_usd
 from lead_agent.domain.lead_sources import lead_source_category
+from lead_agent.infrastructure.db.deals import DealORM
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
     LeadFollowUpEmailORM,
@@ -42,6 +44,7 @@ SALES_PIPELINE_STAGES = (
     ("opportunity", "Opportunity"),
     ("proposal_sent", "Proposal sent"),
     ("negotiation", "Negotiation"),
+    ("contract", "Contract & SLA"),
     ("closed_won", "Converted → Project or Sale"),
     ("closed_lost", "Closed / lost"),
 )
@@ -144,6 +147,12 @@ class AnalyticsService:
     def __init__(self, session: Session, workspace_id: UUID) -> None:
         self.session = session
         self.workspace_id = workspace_id
+        self.deals = {row.lead_id: row.data for row in session.scalars(
+            select(DealORM).where(DealORM.workspace_id == workspace_id)
+        )}
+
+    def _pipeline_amount(self, lead: LeadORM) -> float:
+        return pipeline_value_usd(lead, self.deals.get(lead.id))
 
     def metadata(self, window: AnalyticsWindow) -> dict[str, Any]:
         workspace = self._workspace()
@@ -286,8 +295,10 @@ class AnalyticsService:
             "opportunity": [
                 lead
                 for lead in leads
-                if lead.outcome is not None
-                and lead.outcome.pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
+                if (
+                    lead.outcome is not None
+                    and lead.outcome.pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
+                ) or self._pipeline_amount(lead) > 0
             ],
             "closed": [
                 lead
@@ -302,9 +313,7 @@ class AnalyticsService:
                 "count": len(items),
                 "value": round(
                     fsum(
-                        _money(_outcome(item).opportunity_value)
-                        for item in items
-                        if item.outcome is not None
+                        self._pipeline_amount(item) for item in items
                     ),
                     2,
                 ),
@@ -389,6 +398,11 @@ class AnalyticsService:
                     else:
                         advance(lead.id, outcome_stage)
 
+        commercial_stages = {"new": "new_lead", "contacted": "contacted", "engaged": "responded", "quoted": "proposal_sent", "negotiation": "negotiation", "contract": "contract"}
+        for lead in leads:
+            candidate = commercial_stages.get(self.deals.get(lead.id, {}).get("stage"))
+            if candidate and current_stage[lead.id] not in terminal_stages:
+                current_stage[lead.id] = candidate
         stage_members: dict[str, list[LeadORM]] = {
             stage: [] for stage, _ in SALES_PIPELINE_STAGES
         }
@@ -400,7 +414,7 @@ class AnalyticsService:
                 "stage": stage,
                 "label": label,
                 "count": len(items),
-                "value": None,
+                "value": round(fsum(self._pipeline_amount(item) for item in items), 2),
                 "leads": [self._lead_card(item) for item in items[:12]],
             }
             for stage, label in SALES_PIPELINE_STAGES
@@ -412,11 +426,7 @@ class AnalyticsService:
         leads = self._leads(window.start, window.end)
         facts = [lead for lead in leads if lead.outcome is not None]
         total_revenue = fsum(_money(_outcome(lead).closed_revenue) for lead in facts)
-        pipeline_value = fsum(
-            _money(_outcome(lead).opportunity_value)
-            for lead in facts
-            if _outcome(lead).pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
-        )
+        pipeline_value = fsum(self._pipeline_amount(lead) for lead in leads)
         source_types = {_outcome(lead).data_source for lead in facts}
         if not facts:
             status = "unavailable"
@@ -435,8 +445,7 @@ class AnalyticsService:
             "total_revenue": round(total_revenue, 2),
             "pipeline_value": round(pipeline_value, 2),
             "by_channel": self._revenue_group(
-                facts,
-                lambda lead: lead_source_category(lead.source, lead.source_detail),
+                facts, lambda lead: lead_source_category(lead.source, lead.source_detail)
             ),
             "by_rep": self._revenue_group(facts, _rep_name),
             "by_service": self._revenue_group(facts, lambda lead: lead.product_or_service),
@@ -776,7 +785,7 @@ class AnalyticsService:
 
         source_leads: dict[str, list[LeadORM]] = defaultdict(list)
         for lead in leads:
-            source_leads[lead_source_category(lead.source, lead.source_detail)].append(lead)
+            source_leads[lead.source].append(lead)
         comparable_sources = [
             (source, items)
             for source, items in source_leads.items()
@@ -1219,11 +1228,7 @@ class AnalyticsService:
         ]
 
         channel_month_counts: Counter[tuple[str, str]] = Counter(
-            (
-                lead_source_category(lead.source, lead.source_detail),
-                lead.received_at.strftime("%Y-%m"),
-            )
-            for lead in leads
+            (lead.source, lead.received_at.strftime("%Y-%m")) for lead in leads
         )
         channel_mix = [
             {"source": source, "month": month, "leads": count}
@@ -1342,18 +1347,17 @@ class AnalyticsService:
             },
         ]
 
-    @staticmethod
-    def _active_pipeline_by_origin(leads: list[LeadORM]) -> list[dict[str, Any]]:
+    def _active_pipeline_by_origin(self, leads: list[LeadORM]) -> list[dict[str, Any]]:
         totals: Counter[str] = Counter()
         for lead in leads:
-            if lead.outcome is None or lead.outcome.pipeline_stage not in ACTIVE_OPPORTUNITY_STAGES:
+            if self._pipeline_amount(lead) <= 0:
                 continue
             origin = (
                 "manual"
                 if lead.source_detail == "manual-control-center" or lead.source == "manual"
                 else "source_intake"
             )
-            totals[origin] += _money(lead.outcome.opportunity_value)
+            totals[origin] += self._pipeline_amount(lead)
         return [
             {"origin": origin, "value": round(value, 2)}
             for origin, value in sorted(totals.items())
@@ -1452,10 +1456,7 @@ class AnalyticsService:
             ),
             "active_pipeline_value": round(
                 fsum(
-                    _money(_outcome(lead).opportunity_value)
-                    for lead in leads
-                    if lead.outcome is not None
-                    and lead.outcome.pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
+                    self._pipeline_amount(lead) for lead in leads
                 ),
                 2,
             ),
@@ -1517,7 +1518,7 @@ class AnalyticsService:
             "id": str(lead.id),
             "name": lead.full_name,
             "company": lead.company_name,
-            "source": lead_source_category(lead.source, lead.source_detail),
+            "source": lead.source,
             "service": lead.product_or_service,
             "score": _qualification(lead).total_score,
             "band": _qualification(lead).classification,

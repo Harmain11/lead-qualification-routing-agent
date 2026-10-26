@@ -2,10 +2,10 @@
   --agent-line: var(--line);
   --agent-wash: var(--surface-high);
   display: grid;
-  grid-template-rows: auto auto minmax(300px, 1fr) auto;
+  grid-template-rows: auto auto minmax(380px, 1fr) auto;
   width: 100%;
   min-width: 0;
-  min-height: min(780px, calc(100dvh - 150px));
+  min-height: min(900px, calc(100dvh - 120px));
   overflow: hidden;
   container-name: lead-agent;
   container-type: inline-size;
@@ -96,7 +96,7 @@
 
 .lead-agent-transcript {
   display: flex;
-  min-height: 300px;
+  min-height: 380px;
   flex-direction: column;
   gap: 13px;
   overflow-y: auto;
@@ -112,15 +112,18 @@
 
 .lead-agent-welcome h3 { margin: 0 0 7px; font-size: 18px; }
 .lead-agent-welcome > p { margin: 0; max-width: 650px; color: var(--muted); font-size: 14px; line-height: 1.6; }
-.lead-agent-suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
+.lead-agent-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .lead-agent-suggestions button {
-  min-height: 36px;
-  padding: 7px 11px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 5px 9px;
   border: 1px solid var(--agent-line);
   border-radius: 9px;
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.3;
   font-weight: 650;
   text-align: left;
   cursor: pointer;
@@ -142,35 +145,6 @@
 }
 .lead-agent-role { display: block; margin-bottom: 4px; color: var(--orange); font-size: 11px; font-weight: 750; }
 .lead-agent-message p { margin: 0; color: var(--text); font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.lead-agent-open-lead-links {
-  display: grid;
-  width: min(100%, 280px);
-  gap: 6px;
-  margin-top: 8px;
-}
-.lead-agent-open-lead-links > .lead-agent-open-lead {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: min(100%, 280px);
-  min-height: 52px;
-  padding: 10px 16px;
-  border-radius: 9px;
-  text-align: center;
-  white-space: normal;
-}
-.lead-agent-open-lead strong {
-  color: #fff;
-  font-size: 13px;
-  line-height: 1.3;
-}
-.lead-agent-open-lead span {
-  color: rgba(255,255,255,.82);
-  font-size: 11px;
-  line-height: 1.35;
-}
 
 .lead-agent-action {
   display: grid;
@@ -244,8 +218,8 @@
 .lead-agent-composer > div > button { flex: 0 0 auto; }
 .lead-agent-composer textarea {
   width: 100%;
-  min-height: 88px;
-  max-height: 220px;
+  min-height: 72px;
+  max-height: 180px;
   resize: vertical;
   padding: 11px 12px;
   border: 1px solid var(--agent-line);
@@ -261,7 +235,7 @@
 .lead-agent-composer small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 
 @media (max-width: 700px) {
-  .lead-agent { min-height: min(760px, max(560px, calc(100dvh - 140px))); }
+  .lead-agent { min-height: min(900px, max(640px, calc(100dvh - 110px))); }
 }
 
 @container lead-agent (max-width: 700px) {
@@ -274,13 +248,14 @@
   .lead-agent-email-compose .email-composer-address-grid { grid-template-columns: minmax(0, 1fr); }
   .lead-agent-heading { padding: 16px; }
   .lead-agent-heading h2 { font-size: 18px; }
-  .lead-agent-transcript { min-height: 280px; padding: 14px; }
+  .lead-agent { grid-template-rows: auto auto minmax(360px, 1fr) auto; }
+  .lead-agent-transcript { min-height: 360px; padding: 12px; }
   .lead-agent-message { max-width: 100%; }
   .lead-agent-changes { grid-template-columns: 1fr; }
   .lead-agent-closing-fields { grid-template-columns: 1fr; }
-  .lead-agent-composer { padding: 12px 14px; }
-  .lead-agent-composer > div { align-items: stretch; flex-direction: column; }
-  .lead-agent-composer button { align-self: flex-end; }
+  .lead-agent-composer { padding: 9px 12px; }
+  .lead-agent-composer > div { align-items: flex-end; flex-direction: row; gap: 7px; }
+  .lead-agent-composer button { align-self: auto; min-height: 38px; padding-inline: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

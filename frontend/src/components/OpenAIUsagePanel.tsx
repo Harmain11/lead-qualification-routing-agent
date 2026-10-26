@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { getReasoningUsage } from "../api";
 import type { ReasoningUsage, ReasoningUsagePeriod, ReasoningUsageProvider } from "../types";
 import { estimateModelCostUsd } from "./aiUsagePricing";
-import "./OpenAIUsagePanel.css";
 
 type ModelUsageRow = {
   provider: ReasoningUsageProvider["provider"];

@@ -317,6 +317,7 @@ export type LeadAssignmentOption = {
 
 export type LeadOutcome = {
   pipeline_stage: string;
+  opportunity_value?: number | null;
   conversion_type: "project" | "sale" | null;
   send_direct_message: boolean;
   credited_user_id: string | null;

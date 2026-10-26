@@ -1208,6 +1208,7 @@ class GmailInboundProvider:
             "inbox": "in:inbox",
             "sent": "in:sent",
             "all": "in:anywhere -in:spam -in:trash",
+            "drafts": "in:drafts",
             "spam": "in:spam",
             "trash": "in:trash",
             "archive": "-in:inbox -in:sent -in:spam -in:trash -in:drafts",

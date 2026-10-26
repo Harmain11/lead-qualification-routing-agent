@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from math import fsum
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from lead_agent.application.governance import assert_residency, operations_policy
-from lead_agent.application.territories import matches_territory
+from lead_agent.application.commercial import pipeline_value_usd
 from lead_agent.domain.lead_sources import lead_source_category
+from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM
+from lead_agent.application.territories import matches_territory
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     LeadOutcomeORM,
@@ -60,34 +63,15 @@ def advanced_analytics(
         )
         or 0
     )
-    pipeline = float(
-        session.scalar(
-            select(func.sum(LeadOutcomeORM.opportunity_value))
-            .join(LeadORM, LeadORM.id == LeadOutcomeORM.lead_id)
-            .where(
-                LeadORM.workspace_id == workspace_id,
-                LeadOutcomeORM.pipeline_stage.not_in(("closed_won", "closed_lost")),
-                LeadOutcomeORM.currency == "USD",
-            )
-        )
-        or 0
-    )
-    unvalued = (
-        session.scalar(
-            select(func.count())
-            .select_from(LeadORM)
-            .outerjoin(LeadOutcomeORM, LeadOutcomeORM.lead_id == LeadORM.id)
-            .where(
-                LeadORM.workspace_id == workspace_id,
-                LeadOutcomeORM.opportunity_value.is_(None),
-                LeadOutcomeORM.id.is_(None)
-                | LeadOutcomeORM.pipeline_stage.not_in(("closed_won", "closed_lost")),
-            )
-        )
-        or 0
-    )
+    deals = {row.lead_id: row.data for row in session.scalars(select(DealORM).where(DealORM.workspace_id == workspace_id))}
+    current_leads = session.scalars(select(LeadORM).where(LeadORM.workspace_id == workspace_id).options(selectinload(LeadORM.outcome)))
+    values = [pipeline_value_usd(lead, deals.get(lead.id)) for lead in current_leads if not lead.outcome or lead.outcome.pipeline_stage not in {"closed_won", "closed_lost"}]
+    pipeline = fsum(values)
+    unvalued = sum(value <= 0 for value in values)
     expected = pipeline * probability if probability is not None else None
-    quota = config.monthly_quota_usd
+    commercial_settings = session.get(CommercialSettingsORM, workspace_id)
+    shared_goal = commercial_settings.data.get("monthlyGoal") if commercial_settings else None
+    quota = shared_goal if shared_goal is not None else config.monthly_quota_usd
     forecast = {
         "closed_usd_this_month": round(usd_won, 2),
         "open_pipeline_usd": round(pipeline, 2),
@@ -110,12 +94,7 @@ def advanced_analytics(
     channel_rows = defaultdict(list)
     cohorts = defaultdict(list)
     for lead in leads:
-        channel_rows[
-            (
-                lead_source_category(lead.source, lead.source_detail),
-                lead.received_at.strftime("%Y-%m"),
-            )
-        ].append(lead)
+        channel_rows[(lead_source_category(lead.source, lead.source_detail), lead.received_at.strftime("%Y-%m"))].append(lead)
         week = lead.received_at.date() - timedelta(days=lead.received_at.weekday())
         campaign = str(
             lead.raw_payload.get("campaign")

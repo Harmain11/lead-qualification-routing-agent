@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { opsGet, opsSave } from "../operationsApi";
 import { createClientId } from "../clientIds";
+import { PHONE_CALL_ENDED } from "./phoneBridge";
 import { CallInsights, hasCallInsightData, type CallInsightsData } from "./CallInsights";
 
 const providerNames: Record<string, string> = { twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI", cloudtalk: "CloudTalk" };
@@ -27,6 +28,12 @@ export function CallsPanel({ leadId, leadName, companyName, representativeName, 
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
   const callFormRef = useRef<HTMLFormElement>(null);
+  const [callRevision, setCallRevision] = useState(0);
+  useEffect(() => {
+    const ended = () => setCallRevision((value) => value + 1);
+    window.addEventListener(PHONE_CALL_ENDED, ended);
+    return () => window.removeEventListener(PHONE_CALL_ENDED, ended);
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     opsGet<Activity>(`/v1/calling/leads/${leadId}`, controller.signal).then((value) => {
@@ -35,7 +42,7 @@ export function CallsPanel({ leadId, leadName, companyName, representativeName, 
       setConnectionId((current) => value.connections.some((item) => item.id === current) ? current : value.connections.length === 1 ? value.connections[0].id : "");
     }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Call activity could not be loaded."); });
     return () => controller.abort();
-  }, [leadId]);
+  }, [leadId, callRevision]);
   const selected = data?.connections.find((item) => item.id === connectionId);
   const voiceAgent = selected?.provider === "vapi" || selected?.provider === "retell";
   const needsRep = selected?.provider === "twilio";

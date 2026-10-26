@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AssignmentNotification } from "../api";
 import type { Lead } from "../types";
-import "./LeadNotificationCenter.css";
 
 function leadTimestamp(lead?: Lead): number {
   if (!lead) return 0;

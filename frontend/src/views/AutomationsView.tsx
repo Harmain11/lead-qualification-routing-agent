@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createClientId } from "../clientIds";
+import { FeatureGuide } from "../components/FeatureGuide";
 import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
 import { OperationsDialog } from "../components/OperationsDialog";
 import {
@@ -35,26 +36,26 @@ const initial = (kind: "sequence" | "playbook"): AutomationSpec => ({
       type: "start",
       x: 40,
       y: 60,
-      next: "wait",
+      next: kind === "playbook" ? "note" : "wait",
       otherwise: null,
       wait_hours: 24,
       condition: "hot",
       text: "",
     },
     {
-      id: "wait",
-      type: "wait",
+      id: kind === "playbook" ? "note" : "wait",
+      type: kind === "playbook" ? "note" : "wait",
       x: 270,
       y: 60,
-      next: "draft",
+      next: kind === "playbook" ? "end" : "draft",
       otherwise: null,
       wait_hours: 24,
       condition: "hot",
-      text: "",
+      text: kind === "playbook" ? "Qualification handoff: review the lead’s fit, need, decision maker, timeline and next action. Record verified details before outreach." : "",
     },
-    {
+    ...(kind === "sequence" ? [{
       id: "draft",
-      type: "draft",
+      type: "draft" as const,
       x: 500,
       y: 60,
       next: "end",
@@ -62,7 +63,7 @@ const initial = (kind: "sequence" | "playbook"): AutomationSpec => ({
       wait_hours: 24,
       condition: "hot",
       text: "",
-    },
+    }] : []),
     {
       id: "end",
       type: "end",
@@ -147,12 +148,18 @@ export function AutomationsView({
       controller.signal,
     )
       .then((data) => setRuns(data.items))
-      .catch(() => {});
+      .catch((reason) => { if (!controller.signal.aborted) setError(reason.message); });
     opsGet<typeof trust>("/v1/automations/trust/summary", controller.signal)
       .then(setTrust)
-      .catch(() => {});
+      .catch((reason) => { if (!controller.signal.aborted) setError(reason.message); });
     return () => controller.abort();
   }, [offset]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !editor) void load();
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [offset, editor]);
   function patch(patch: Partial<AutomationSpec>) {
     setEditor((current) =>
       current ? { ...current, spec: { ...current.spec, ...patch } } : null,
@@ -236,6 +243,7 @@ export function AutomationsView({
           {error}
         </p>
       )}
+      <div className="ops-actions"><FeatureGuide topic="sequence" /><FeatureGuide topic="playbook" /></div>
       {trust && (
         <p className="ops-muted">
           Operational trust:{" "}
@@ -258,6 +266,14 @@ export function AutomationsView({
               {item.specification.timezone}
             </p>
             <div className="ops-actions">
+              {canManage && (
+                <button className={item.active ? "button-quiet" : "primary-button"} disabled={busy} onClick={async () => {
+                  setBusy(true); setError("");
+                  try { await opsSave(`/v1/automations/${item.id}`, { ...item.specification, version: item.version, active: !item.active }, "PUT"); await load(); }
+                  catch (reason) { setError(reason instanceof Error ? reason.message : "The definition could not be updated."); }
+                  finally { setBusy(false); }
+                }}>{item.active ? "Pause definition" : "Activate definition"}</button>
+              )}
               {canManage && (
                 <button
                   className="secondary-button"
@@ -610,7 +626,7 @@ export function AutomationsView({
               <section className="ops-panel">
                 <h3>Selected step: {node.id}</h3>
                 <div className="ops-form-grid">
-                  {node.type !== "start" && (
+                  {node.type !== "start" && node.type !== "end" && (
                     <label>
                       Action
                       <select
@@ -834,15 +850,17 @@ export function AutomationsView({
                 disabled={editor.spec.nodes.length >= 50}
                 onClick={() => {
                   const id = "step_" + createClientId().slice(0, 8);
+                  const predecessor = selected === "end" ? editor.spec.nodes.find((item) => item.next === "end") : editor.spec.nodes.find((item) => item.id === selected);
+                  if (!predecessor) return;
                   patch({
                     nodes: [
-                      ...editor.spec.nodes,
+                      ...editor.spec.nodes.map((item) => item.id === predecessor.id ? { ...item, next: id } : item),
                       {
                         id,
                         type: "note",
                         x: 60,
                         y: 160 + editor.spec.nodes.length * 25,
-                        next: "end",
+                        next: predecessor.next || "end",
                         otherwise: null,
                         wait_hours: 24,
                         condition: "hot",

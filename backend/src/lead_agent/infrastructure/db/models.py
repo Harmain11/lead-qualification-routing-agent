@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Register commercial tables in the same metadata used by migrations and tests.
+from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM  # noqa: F401
+
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4

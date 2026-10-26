@@ -10,7 +10,6 @@ import type {
   GmailThreadMessage,
   ProviderConnection,
 } from "../types";
-import "./emailWorkspace.css";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
@@ -30,7 +29,7 @@ export function EmailWorkspace({
 }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [connectionId, setConnectionId] = useState("");
-  const [folder, setFolder] = useState<"inbox" | "sent" | "all" | "spam" | "trash" | "archive">("inbox");
+  const [folder, setFolder] = useState<"inbox" | "sent" | "drafts" | "spam" | "trash" | "archive">("inbox");
   const [messages, setMessages] = useState<GmailMailboxMessage[]>([]);
   const [selected, setSelected] = useState<GmailMailboxMessage | null>(null);
   const [thread, setThread] = useState<GmailThreadMessage[]>([]);
@@ -167,7 +166,7 @@ export function EmailWorkspace({
   const folderLabel = {
     inbox: "Inbox",
     sent: "Sent",
-    all: "All Mail",
+    drafts: "Drafts",
     spam: "Spam",
     trash: "Trash",
     archive: "Archive",
@@ -194,7 +193,7 @@ export function EmailWorkspace({
         {([
           ["inbox", "Inbox"],
           ["sent", "Sent"],
-          ["all", "All Mail"],
+          ["drafts", "Drafts"],
           ["spam", "Spam"],
           ["trash", "Trash"],
           ["archive", "Archive"],

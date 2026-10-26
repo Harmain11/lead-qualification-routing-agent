@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import type { AnalyticsBundle } from "../views/productShared";
 import { Bars, PlotSettings, usePlotPreferences } from "./Charts";
 import { Empty, Panel, money, pretty } from "../views/productShared";
-import "./analyticsInsights.css";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 

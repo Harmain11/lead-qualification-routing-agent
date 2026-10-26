@@ -1,10 +1,12 @@
 export const leadDetailSections = [
   { id: "overview", label: "Overview" },
+  { id: "deal", label: "Deal" },
+  { id: "calls", label: "Calls" },
   { id: "agent", label: "Ask Corral" },
   { id: "ai", label: "AI & qualification" },
   { id: "follow-ups", label: "Follow-ups & meetings" },
   { id: "email", label: "Email" },
-  { id: "closing", label: "Status" },
+  { id: "closing", label: "Comments & closing" },
   { id: "history", label: "History" },
 ] as const;
 

@@ -1,3 +1,4 @@
+import type React from "react";
 import type { FormEvent } from "react";
 import { useEffect,useState } from "react";
 
@@ -99,84 +100,88 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
     startGoogleAuth();
   }
 
+  const heading = mode === "signin"
+    ? "Sign in to Corral"
+    : mode === "access"
+      ? "Join your team’s workspace"
+      : step === 1 ? "Create your account" : "Name your workspace";
+  const lede = mode === "signin"
+    ? "Every lead, understood and ready for your team."
+    : mode === "access"
+      ? "Use the workspace ID and one-time code from your admin. Your work email becomes your username; new invitees choose a password here."
+      : step === 1 ? "Leads, analytics and connections stay private to each workspace." : "You can rename it later in Settings.";
+  const field = (label: string, input: React.ReactNode) => <label className="a-field"><span>{label}</span>{input}</label>;
   return (
-    <main className="auth-shell">
-      <section className="auth-story">
-        <div className="auth-product-brand"><img className="auth-logo" src={`${BRAND}/corral-mark.png`} alt="" /><span><strong>Corral</strong><small>Powered by Ingenuity Systems</small></span></div>
-        <div>
-          <span className="eyebrow">AI revenue operations control center</span>
-          <h1>Every signal.<br /><em>Understood and acted on.</em></h1>
-          <p>One controlled intelligence layer from inbound intent to qualification, routing, notification, and CRM delivery.</p>
+    <main className="a-shell">
+      <button type="button" className="a-theme" onClick={onToggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} appearance`}>
+        {theme === "light" ? "Dark" : "Light"}
+      </button>
+      <section className="a-card" aria-labelledby="auth-title">
+        <img className="a-mark" src={`${BRAND}/corral-mark.png`} alt="Corral" width="64" height="64" />
+        <h1 id="auth-title">{heading}</h1>
+        <p className="a-lede">{lede}</p>
+
+        <div className="a-modes" role="tablist" aria-label="How you’re signing in" style={{ "--a-index": mode === "signin" ? 0 : mode === "signup" ? 1 : 2 } as React.CSSProperties}>
+          <span className="a-modes-thumb" aria-hidden="true" />
+          <button role="tab" type="button" aria-selected={mode === "signin"} onClick={() => switchMode("signin")}>Sign In</button>
+          <button role="tab" type="button" aria-selected={mode === "signup"} onClick={() => switchMode("signup")}>New Account</button>
+          <button role="tab" type="button" aria-selected={mode === "access"} onClick={() => switchMode("access")}>Team Code</button>
         </div>
-        <div className="auth-stage-list" aria-label="Lead intelligence stages">
-          {['Intake', 'Context', 'Qualification', 'Action'].map((item, index) => <span key={item}><i>{index + 1}</i>{item}</span>)}
-        </div>
-      </section>
-      <section className="auth-panel" aria-labelledby="auth-title">
-        <div className="auth-panel-brand">
-          <img src={`${BRAND}/corral-mark.png`} alt="" />
-          <span>Workspace access</span>
-          <button className="theme-toggle auth-theme-toggle" onClick={onToggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}><span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span><span className="theme-label">{theme === "light" ? "Dark" : "Light"}</span></button>
-        </div>
-        <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
-          <button role="tab" aria-selected={mode === "signin"} className={mode === "signin" ? "active" : ""} onClick={() => switchMode("signin")}>Sign in</button>
-          <button role="tab" aria-selected={mode === "signup"} className={mode === "signup" ? "active" : ""} onClick={() => switchMode("signup")}>Create account</button>
-          <button role="tab" aria-selected={mode === "access"} className={mode === "access" ? "active" : ""} onClick={() => switchMode("access")}>Staff access</button>
-        </div>
-        <div className="auth-copy">
-          <span className="eyebrow">{mode === "signin" ? "Welcome back" : mode === "access" ? "Admin-issued access" : step === 1 ? "Your identity" : "Workspace setup"}</span>
-          <h2 id="auth-title">{mode === "signin" ? "Enter the control center." : mode === "access" ? "Set up staff access." : step === 1 ? "Create your secure account." : "Name your operations workspace."}</h2>
-          <p>{mode === "signin" ? "Sign in with your work email and password." : mode === "access" ? "Use the workspace ID and one-time code from your admin. Your work email is your username. New invitees set a password here for future sign-ins; existing accounts keep their current password." : "Workspace ownership keeps leads, analytics, and provider accounts isolated."}</p>
-        </div>
-        {mode !== "access" && <button type="button" className="google-auth-button" onClick={continueWithGoogle} disabled={busy}>
-          <img className="google-auth-logo" src={`${BRAND}/google-g.png`} width="20" height="20" alt="" aria-hidden="true" /> Continue with Google
-        </button>}
-        {mode !== "access" && <div className="auth-divider"><span>or</span></div>}
+
+        {mode !== "access" && (
+          <>
+            <button type="button" className="a-google" onClick={continueWithGoogle} disabled={busy}>
+              <img src={`${BRAND}/google-g.png`} width="18" height="18" alt="" aria-hidden="true" />
+              Continue with Google
+            </button>
+            <div className="a-or"><span>or</span></div>
+          </>
+        )}
+
         {mode === "signup" && !passwordSignupEnabled ? (
-          <div className="auth-verification-state" role="status">
-            Email signup is temporarily unavailable. Continue with Google to create your workspace.
-          </div>
+          <div className="a-state" role="status">Email sign-up is unavailable right now. Continue with Google to create your workspace.</div>
         ) : awaitingVerification ? (
-          <div className="auth-verification-state" role="status">
-            <strong>Check your email</strong>
-            <span>We sent a verification link. Your workspace activates after you verify this address.</span>
-            {error && <div className="auth-error" role="alert">{error}</div>}
-            <button type="button" className="auth-submit" onClick={() => void resend()} disabled={busy}>Resend verification</button>
+          <div className="a-state" role="status">
+            <b>Check your email</b>
+            <span>We sent a verification link. Your workspace opens once you’ve confirmed this address.</span>
+            {error && <div className="a-error" role="alert">{error}</div>}
+            <button type="button" className="a-submit" onClick={() => void resend()} disabled={busy}>Resend Link</button>
           </div>
         ) : (
-          <form className="auth-form" onSubmit={submit}>
-            {mode === "access" && <>
-              <label>Workspace ID<input required autoFocus value={form.workspace_id} onChange={(event) => setForm({ ...form, workspace_id: event.target.value })} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" /></label>
-              <label>Staff access code<input required type="password" autoComplete="one-time-code" value={form.access_code} onChange={(event) => setForm({ ...form, access_code: event.target.value })} placeholder="Paste the code from your admin" /></label>
-              <label>Your work email<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" /></label>
-              <label>Your name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>
-            <label>Password for future sign-ins (new accounts)<input minLength={10} type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 10 characters" /></label>
-            </>}
-            {mode === "signup" && step === 1 && <label>Full name<input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" /></label>}
-            {(mode === "signin" || (mode === "signup" && step === 1)) && <>
-              <label>Work email<input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" /></label>
-              <label>Password<input required minLength={mode === "signup" ? 10 : 1} type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="••••••••••" /></label>
-            </>}
-            {mode === "signup" && step === 2 && <label>Workspace name<input required autoFocus value={form.workspace_name} onChange={(event) => setForm({ ...form, workspace_name: event.target.value })} placeholder="Acme Revenue Operations" /></label>}
-            {error && <div className="auth-error" role="alert">{error}</div>}
-            <button className="auth-submit" disabled={busy}>{busy ? "Securing session…" : mode === "access" ? "Set up account & enter workspace" : mode === "signin" ? "Sign in" : step === 1 ? "Continue to workspace" : "Create workspace"}</button>
-            {mode === "signup" && step === 2 && <button type="button" className="auth-back" onClick={() => setStep(1)}>← Back to account details</button>}
+          <form className="a-form" onSubmit={submit}>
+            <div className="a-fields">
+              {mode === "access" && <>
+                {field("Workspace ID", <input required autoFocus value={form.workspace_id} onChange={(event) => setForm({ ...form, workspace_id: event.target.value })} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />)}
+                {field("Access code", <input required type="password" autoComplete="one-time-code" value={form.access_code} onChange={(event) => setForm({ ...form, access_code: event.target.value })} placeholder="From your admin" />)}
+                {field("Work email", <input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" />)}
+                {field("Your name", <input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" />)}
+                {field("Password for next time", <input minLength={10} type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="At least 10 characters" />)}
+              </>}
+              {mode === "signup" && step === 1 && field("Full name", <input required autoComplete="name" value={form.display_name} onChange={(event) => setForm({ ...form, display_name: event.target.value })} placeholder="Alex Morgan" />)}
+              {(mode === "signin" || (mode === "signup" && step === 1)) && <>
+                {field("Work email", <input required type="email" autoComplete="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="alex@company.com" />)}
+                {field("Password", <input required minLength={mode === "signup" ? 10 : 1} type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={mode === "signup" ? "At least 10 characters" : "Password"} />)}
+              </>}
+              {mode === "signup" && step === 2 && field("Workspace name", <input required autoFocus value={form.workspace_name} onChange={(event) => setForm({ ...form, workspace_name: event.target.value })} placeholder="Acme Revenue" />)}
+            </div>
+            {error && <div className="a-error" role="alert">{error}</div>}
+            <button className="a-submit" disabled={busy}>{busy ? "Signing in…" : mode === "access" ? "Join Workspace" : mode === "signin" ? "Sign In" : step === 1 ? "Continue" : "Create Workspace"}</button>
+            {mode === "signup" && step === 2 && <button type="button" className="a-link" onClick={() => setStep(1)}>Back</button>}
           </form>
         )}
-        {import.meta.env.DEV && <>
-          <div className="auth-divider"><span>development tools</span></div>
-          <button className="demo-session" onClick={() => void localWorkspace()} disabled={busy}>Continue to local workspace</button>
-        </>}
-        <small className="auth-security">
-          <span>Opaque session · HttpOnly cookie</span>
-          <span>Workspace membership verified server-side</span>
-        </small>
-        <nav className="auth-legal-links" aria-label="Legal information">
-          <a href="/terms.html">Terms of Service</a>
-          <a href="/privacy.html">Privacy Policy</a>
+        {import.meta.env.DEV && (
+          <button className="a-link a-dev" type="button" onClick={() => void localWorkspace()} disabled={busy}>Continue to local workspace</button>
+        )}
+      </section>
+      <footer className="a-foot">
+        <span>Sessions use a secure HttpOnly cookie; workspace access is checked on the server.</span>
+        <nav aria-label="Legal information">
+          <a href="/terms.html">Terms</a>
+          <a href="/privacy.html">Privacy</a>
           <a href="mailto:harmainmughal8@gmail.com">Contact</a>
         </nav>
-      </section>
+        <span>Corral by Ingenuity Systems</span>
+      </footer>
     </main>
   );
 }

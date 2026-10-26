@@ -109,6 +109,9 @@ def test_dashboard_channel_pipeline_and_revenue_analytics(
             routing,
             workspace_id=workspace_id,
         )
+        # Analytics consumes recorded bands; do not depend on a published workspace ICP.
+        website.qualification.classification = "hot"
+        email.qualification.classification = "hot"
         _add_outcome(
             session,
             website.id,
@@ -239,10 +242,14 @@ def test_sales_pipeline_uses_recorded_progress_followups_and_outcomes(
         "opportunity": 1,
         "proposal_sent": 1,
         "negotiation": 1,
+        "contract": 0,
         "closed_won": 1,
         "closed_lost": 1,
     }
-    assert all(stage["value"] is None for stage in pipeline["sales_stages"])
+    values = {stage["stage"]: stage["value"] for stage in pipeline["sales_stages"]}
+    assert values["proposal_sent"] == 5000
+    assert values["negotiation"] == 5000
+    assert values["contract"] == 0
 
 
 def test_channel_percentages_and_scores_use_recorded_results(

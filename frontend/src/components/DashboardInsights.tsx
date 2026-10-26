@@ -2,7 +2,6 @@ import type { ChannelAnalytics, RevenueAnalytics } from "../types";
 import type { ExtendedAnalytics } from "../types";
 import type { ReactNode } from "react";
 import { Bars, TrendChart } from "./Charts";
-import "./dashboardInsights.css";
 
 type DashboardInsightsProps = {
   channels: ChannelAnalytics | null;

@@ -8,7 +8,6 @@ import {
   pretty,
 } from "../views/productShared";
 import type { AnalyticsBundle } from "../views/productShared";
-import "./dashboardSignals.css";
 
 type DashboardWidgetSet = ReadonlySet<string>;
 

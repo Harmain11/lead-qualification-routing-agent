@@ -206,6 +206,7 @@ class ConfirmationEmailResponse(BaseModel):
 
 class LeadOutcomeResponse(BaseModel):
     pipeline_stage: str
+    opportunity_value: float | None = None
     conversion_type: str | None
     send_direct_message: bool = False
     credited_user_id: UUID | None
@@ -656,6 +657,7 @@ def outcome_response(row: Any) -> LeadOutcomeResponse | None:
         return None
     return LeadOutcomeResponse(
         pipeline_stage=row.pipeline_stage, conversion_type=row.conversion_type,
+        opportunity_value=float(row.opportunity_value) if row.opportunity_value is not None else None,
         send_direct_message=row.send_direct_message,
         credited_user_id=row.credited_user_id,
         credited_name=row.credited_user.display_name if row.credited_user else None,

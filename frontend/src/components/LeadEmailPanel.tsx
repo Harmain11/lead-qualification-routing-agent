@@ -7,7 +7,6 @@ import {
 import type { GmailComposerSeed } from "./EmailComposer";
 import { EmailComposer } from "./EmailComposer";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
-import "../views/emailWorkspace.css";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
