@@ -799,7 +799,7 @@ export function WorkspaceAssistantChat({
                   <strong>Review and audit</strong>
                   {permissions.has("agents.view") && (
                     <button
-                      className="corral-workspace-status-link"
+                      className="secondary-button corral-workspace-status-link"
                       type="button"
                       onClick={() => onNavigate("agents")}
                     >

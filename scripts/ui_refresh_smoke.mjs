@@ -140,27 +140,44 @@ try {
       const rect = link?.getBoundingClientRect();
       const cardRect = link?.closest(".corral-workspace-status-card")?.getBoundingClientRect();
       const heading = link?.closest(".corral-workspace-status-heading");
+      const reference = document.querySelector(".corral-workspace-chat-toolbar__actions button.secondary-button");
+      const referenceStyle = reference ? getComputedStyle(reference) : null;
       return {
         visible: Boolean(link?.getClientRects().length),
+        usesSecondaryButton: Boolean(link?.classList.contains("secondary-button")),
+        hasReference: Boolean(reference),
         textDecoration: style?.textDecorationLine ?? "",
         fontSize: parseFloat(style?.fontSize ?? "0"),
         height: rect?.height ?? 0,
         borderStyle: style?.borderTopStyle ?? "",
         borderWidth: parseFloat(style?.borderTopWidth ?? "0"),
+        borderColor: style?.borderTopColor ?? "",
+        borderRadius: style?.borderTopLeftRadius ?? "",
+        color: style?.color ?? "",
         right: rect?.right ?? 0,
         cardRight: cardRect?.right ?? 0,
         headingWidth: heading?.clientWidth ?? 0,
         headingScrollWidth: heading?.scrollWidth ?? 0,
         background: style?.backgroundColor ?? "",
+        referenceBackground: referenceStyle?.backgroundColor ?? "",
+        referenceBorderStyle: referenceStyle?.borderTopStyle ?? "",
+        referenceBorderColor: referenceStyle?.borderTopColor ?? "",
+        referenceBorderRadius: referenceStyle?.borderTopLeftRadius ?? "",
+        referenceColor: referenceStyle?.color ?? "",
         viewportWidth: window.innerWidth
       };
     })())`));
     assert.equal(cards.length, 2, `${theme}: both workspace capability cards should render.`);
     assert.equal(action.visible, true, `${theme}: AI Activity navigation should be visible.`);
+    assert.equal(action.usesSecondaryButton, true, `${theme}: AI Activity should use the shared secondary button type.`);
+    assert.equal(action.hasReference, true, `${theme}: the standard workspace secondary button should be available for comparison.`);
     assert.equal(action.textDecoration, "none", `${theme}: AI Activity navigation should not look like a browser-default link.`);
-    assert.ok(action.fontSize >= 14 && action.height >= 44, `${theme}: AI Activity button should remain readable and easy to tap.`);
-    assert.equal(action.borderStyle, "solid", `${theme}: AI Activity button should have a visible button treatment.`);
-    assert.ok(action.borderWidth >= 1 && action.background !== "rgba(0, 0, 0, 0)", `${theme}: AI Activity button should have a clear surface and outline.`);
+    assert.ok(action.fontSize >= 13, `${theme}: AI Activity button should remain readable.`);
+    assert.equal(action.background, action.referenceBackground, `${theme}: AI Activity should match the standard secondary button background.`);
+    assert.equal(action.borderStyle, action.referenceBorderStyle, `${theme}: AI Activity should match the standard secondary button border style.`);
+    assert.equal(action.borderColor, action.referenceBorderColor, `${theme}: AI Activity should match the standard secondary button border color.`);
+    assert.equal(action.borderRadius, action.referenceBorderRadius, `${theme}: AI Activity should match the standard secondary button shape.`);
+    assert.equal(action.color, action.referenceColor, `${theme}: AI Activity should match the standard secondary button text color.`);
     assert.ok(action.right <= action.cardRight + 1, `${theme}: AI Activity button should fit inside its card.`);
     assert.ok(action.headingScrollWidth <= action.headingWidth + 1, `${theme}: status heading should wrap instead of overflowing.`);
     const channels = value => value.match(/[\d.]+/g).map(Number).slice(0, 3);
