@@ -80,6 +80,84 @@ try {
     await pause(150);
   }
   await capture("start");
+  await evaluate(`document.querySelector("[data-ask-corral]")?.click()`);
+  await wait(`Boolean(document.querySelector(".corral-agent-window.is-open"))`);
+  await wait(`Boolean(document.querySelector(".corral-workspace-chat"))`);
+  const initialScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
+  assert.deepEqual(JSON.parse(initialScope), [["Lead", "false"], ["Workspace", "true"]]);
+  await capture("agent-workspace");
+
+  await evaluate(`document.querySelector('.v-agent-scope button[aria-pressed="false"]')?.click()`);
+  await wait(`Boolean(document.querySelector(".corral-agent-lead-option"))`);
+  await evaluate(`document.querySelector(".corral-agent-lead-option")?.click()`);
+  await wait(`Boolean(document.querySelector(".corral-agent-window .lead-agent"))`);
+  const leadScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
+  assert.deepEqual(JSON.parse(leadScope), [["Lead", "true"], ["Workspace", "false"]]);
+  await capture("agent-lead");
+
+  await evaluate(`document.querySelector('.v-agent-scope button[aria-pressed="false"]')?.click()`);
+  await wait(`Boolean(document.querySelector('.corral-agent-mode:not([hidden]) .corral-workspace-chat'))`);
+  await evaluate(`document.querySelector('[aria-label="Close Ask Corral"]')?.click()`);
+  await wait(`!document.querySelector(".corral-agent-window.is-open")`);
+
+  // Visit every main workspace page and check the page frame for horizontal overflow.
+  const navigation = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll(".v-sidebar-nav a.v-navitem")].filter(item => !item.closest(".v-pin")).map(item => item.querySelector(".v-navitem-label")?.textContent.trim()).filter(Boolean))`));
+  assert.ok(navigation.length >= 15, `Expected the full workspace navigation; found ${navigation.length} pages.`);
+  const pageChecks = [];
+  for (const label of navigation) {
+    const found = await evaluate(`(() => {
+      const item = [...document.querySelectorAll(".v-sidebar-nav a.v-navitem")]
+        .find(link => !link.closest(".v-pin") && link.querySelector(".v-navitem-label")?.textContent.trim() === ${JSON.stringify(label)});
+      item?.click();
+      return Boolean(item);
+    })()`);
+    assert.ok(found, `Navigation entry should be clickable: ${label}`);
+    await pause(650);
+    const page = JSON.parse(await evaluate(`JSON.stringify({
+      heading: document.querySelector("main h1")?.textContent.trim() || "",
+      viewport: document.documentElement.clientWidth,
+      documentWidth: document.documentElement.scrollWidth
+    })`));
+    assert.ok(page.heading, `Page should render a heading after opening ${label}.`);
+    assert.ok(page.documentWidth <= page.viewport + 1, `${label} overflows the desktop page width.`);
+    pageChecks.push([label, page.heading]);
+  }
+  await evaluate(`document.querySelector('button[aria-label="Hide sidebar"]')?.click()`);
+  await wait(`document.querySelector(".v-app")?.dataset.sidebar === "hidden"`);
+  const collapsedSidebar = JSON.parse(await evaluate(`JSON.stringify({
+    sidebarWidth: document.querySelector(".v-sidebar")?.getBoundingClientRect().width ?? 0,
+    viewport: document.documentElement.clientWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    visibility: getComputedStyle(document.querySelector(".v-sidebar")).visibility,
+    sidebarDisplay: getComputedStyle(document.querySelector(".v-sidebar")).display,
+    appColumns: getComputedStyle(document.querySelector(".v-app")).gridTemplateColumns,
+    labels: [...document.querySelectorAll(".v-navitem-label")].slice(0, 3).map(label => getComputedStyle(label).display)
+  })`));
+  console.log("Collapsed sidebar visual check:", collapsedSidebar);
+  assert.ok(collapsedSidebar.sidebarWidth <= 80 && collapsedSidebar.visibility === "visible");
+  assert.ok(collapsedSidebar.documentWidth <= collapsedSidebar.viewport + 1, "Collapsed sidebar must not cause horizontal overflow.");
+  await evaluate(`document.querySelector('button[aria-label="Show sidebar"]')?.click()`);
+  await wait(`document.querySelector(".v-app")?.dataset.sidebar === "shown"`);
+  console.log(`Checked ${pageChecks.length} main pages and both Agent scopes. No page-level horizontal overflow at desktop.`);
+
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await pause(500);
+  await evaluate(`document.querySelector("[data-ask-corral]")?.click()`);
+  await wait(`Boolean(document.querySelector(".corral-agent-window.is-open"))`);
+  const mobileAgent = JSON.parse(await evaluate(`JSON.stringify({
+    viewport: document.documentElement.clientWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    panelLeft: document.querySelector(".corral-agent-window").getBoundingClientRect().left,
+    panelRight: document.querySelector(".corral-agent-window").getBoundingClientRect().right
+  })`));
+  assert.ok(mobileAgent.panelLeft >= -1 && mobileAgent.panelRight <= mobileAgent.viewport + 1);
+  assert.ok(mobileAgent.documentWidth <= mobileAgent.viewport + 1, "The Agent dock must fit the mobile viewport.");
+  await capture("agent-mobile");
+  await evaluate(`document.querySelector('[aria-label="Close Ask Corral"]')?.click()`);
+  await wait(`!document.querySelector(".corral-agent-window.is-open")`);
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await pause(300);
+
   await click("Pipeline");
   await wait(`Boolean(document.body.innerText.includes("Contract & SLA"))`);
   await capture("pipeline");

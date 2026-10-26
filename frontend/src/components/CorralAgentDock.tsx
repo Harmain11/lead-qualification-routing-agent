@@ -251,11 +251,10 @@ export function CorralAgentDock({
           </button>
         </header>
         <div className="v-agent-context" role="group" aria-label="What Corral is working on">
-          <div className="v-agent-scope" role="radiogroup" aria-label="Conversation scope">
+          <div className="v-agent-scope" role="group" aria-label="Conversation scope">
             <button
               type="button"
-              role="radio"
-              aria-checked={Boolean(targetLead) || showLeadPicker}
+              aria-pressed={Boolean(targetLead) || showLeadPicker}
               disabled={!canViewLeads}
               onClick={() => {
                 if (targetLead) setShowLeadPicker(false);
@@ -269,8 +268,7 @@ export function CorralAgentDock({
             </button>
             <button
               type="button"
-              role="radio"
-              aria-checked={!targetLead && !showLeadPicker}
+              aria-pressed={!targetLead && !showLeadPicker}
               onClick={() => {
                 setTargetLead(null);
                 setShowLeadPicker(false);
