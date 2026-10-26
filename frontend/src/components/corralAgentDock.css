@@ -1704,40 +1704,9 @@
 }
 
 .corral-workspace-status-link {
-  display: inline-flex;
   flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--green, #22634f) 34%, var(--line));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--green, #22634f) 7%, var(--surface));
-  color: var(--green, #22634f);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 750;
-  line-height: 1.25;
-  text-decoration: none;
+  margin: 0;
   white-space: nowrap;
-  cursor: pointer;
-  transition: border-color 140ms ease, background-color 140ms ease, transform 100ms ease;
-}
-
-.corral-workspace-status-link:hover:not(:disabled) {
-  border-color: var(--green, #22634f);
-  background: color-mix(in srgb, var(--green, #22634f) 12%, var(--surface));
-  text-decoration: none;
-}
-
-.corral-workspace-status-link:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.corral-workspace-status-link:focus-visible {
-  outline: 2px solid var(--orange);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--surface);
 }
 
 .corral-workspace-status-card p,
