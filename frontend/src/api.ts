@@ -93,6 +93,7 @@ export type LeadAssistantReply = {
 
 export type WorkspaceAssistantArea =
   | "analytics"
+  | "agents"
   | "automations"
   | "icp"
   | "settings"
@@ -114,6 +115,7 @@ export type WorkspaceAssistantAction = {
     | "none"
     | "open_module"
     | "open_lead"
+    | "open_deal_desk"
     | "create_lead"
     | "set_automation_active"
     | "create_icp_draft"

@@ -23,6 +23,7 @@ import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
 import { isFollowUpEmailDraftRequest } from "./leadAssistantIntents";
 import { AssistantNoteDraft } from "./AssistantNoteDraft";
+import { AgentLeadChoices } from "./AgentLeadChoices";
 import "../views/emailWorkspace.css";
 import "./leadAssistant.css";
 
@@ -606,28 +607,10 @@ export function LeadAssistantPanel({
         <span className="lead-agent-role">{message.role === "user" ? "You" : "Corral"}</span>
         <p>{message.content}</p>
         {message.role === "assistant" && Boolean(message.leadLinks?.length) && (
-          <div className="lead-agent-open-lead-links" role="group" aria-label="Matching leads">
-            {message.leadLinks!.map((matchedLead) => (
-              <button
-                className="primary-button lead-agent-open-lead"
-                key={matchedLead.id}
-                type="button"
-                aria-label={
-                  matchedLead.suggested
-                    ? `Open suggested match ${matchedLead.name}`
-                    : `Open lead ${matchedLead.name}`
-                }
-                onClick={() => onOpenLead(matchedLead.id)}
-              >
-                <strong>{matchedLead.name}</strong>
-                <span>
-                  {[matchedLead.company, matchedLead.suggested ? "View match" : "Open lead"]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </button>
-            ))}
-          </div>
+          <AgentLeadChoices
+            leads={message.leadLinks!}
+            onSelect={onOpenLead}
+          />
         )}
         {message.action && renderAction(message)}
         {composeSeed && composerMessageId === message.id && <div className="lead-agent-email-compose">

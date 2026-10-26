@@ -100,6 +100,7 @@ class WorkspaceAssistantAction(BaseModel):
         "none",
         "open_module",
         "open_lead",
+        "open_deal_desk",
         "create_lead",
         "set_automation_active",
         "create_icp_draft",
@@ -119,6 +120,7 @@ class WorkspaceAssistantAction(BaseModel):
     ] = "none"
     area: Literal[
         "analytics",
+        "agents",
         "automations",
         "icp",
         "settings",

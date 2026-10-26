@@ -127,6 +127,7 @@ export function canOpenAssistantArea(
   if (!area) return false;
   const permissionByArea: Record<WorkspaceAssistantArea, string[]> = {
     analytics: ["analytics.view"],
+    agents: ["agents.view"],
     automations: ["agents.view"],
     icp: ["icp.view"],
     settings: ["routing.view", "integrations.view", "workspace.manage"],
@@ -145,6 +146,9 @@ export function canApplyWorkspaceAssistantAction(
     return canOpenAssistantArea(action.area, permissions);
   }
   if (action.kind === "open_lead") {
+    return Boolean(action.target_id && permissions.has("leads.view"));
+  }
+  if (action.kind === "open_deal_desk") {
     return Boolean(action.target_id && permissions.has("leads.view"));
   }
   if (["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(action.kind)) {
@@ -172,7 +176,7 @@ export async function applyWorkspaceAssistantAction(
   action: WorkspaceAssistantAction,
   permissions: ReadonlySet<string>,
   onNavigate: (area: WorkspaceAssistantArea) => void,
-  onInspectLead: (leadId: string) => void,
+  onInspectLead: (leadId: string, section?: "deal") => void,
 ): Promise<string> {
   switch (action.kind) {
     case "create_lead":
@@ -219,6 +223,8 @@ export async function applyWorkspaceAssistantAction(
       onNavigate(action.area);
       return action.area === "dialer"
         ? "Opened the Dialer. Corral has not placed a call."
+        : action.area === "agents"
+          ? "Opened AI Activity."
         : `Opened ${action.area}.`;
     case "open_lead":
       requirePermission(permissions, "leads.view");
@@ -227,6 +233,13 @@ export async function applyWorkspaceAssistantAction(
       }
       onInspectLead(action.target_id);
       return `Opened ${action.target_label || "the selected lead"}.`;
+    case "open_deal_desk":
+      requirePermission(permissions, "leads.view");
+      if (!action.target_id) {
+        throw new Error("Choose a verified lead before opening its Deal Desk.");
+      }
+      onInspectLead(action.target_id, "deal");
+      return `Opened the Deal Desk for ${action.target_label || "the verified lead"}. No quote was created, approved, or sent.`;
     case "set_automation_active": {
       requirePermission(permissions, "workspace.manage");
       if (!action.target_id || typeof action.enabled !== "boolean") {
