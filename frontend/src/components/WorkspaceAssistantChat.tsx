@@ -798,7 +798,13 @@ export function WorkspaceAssistantChat({
                 <div className="corral-workspace-status-heading">
                   <strong>Review and audit</strong>
                   {permissions.has("agents.view") && (
-                    <button type="button" onClick={() => onNavigate("agents")}>Open AI Activity</button>
+                    <button
+                      className="corral-workspace-status-link"
+                      type="button"
+                      onClick={() => onNavigate("agents")}
+                    >
+                      Open AI Activity
+                    </button>
                   )}
                 </div>
                 <p>

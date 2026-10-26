@@ -134,7 +134,35 @@ try {
         viewportWidth: window.innerWidth
       }))
     )`));
+    const action = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const link = document.querySelector(".corral-workspace-status-link");
+      const style = link ? getComputedStyle(link) : null;
+      const rect = link?.getBoundingClientRect();
+      const cardRect = link?.closest(".corral-workspace-status-card")?.getBoundingClientRect();
+      const heading = link?.closest(".corral-workspace-status-heading");
+      return {
+        visible: Boolean(link?.getClientRects().length),
+        textDecoration: style?.textDecorationLine ?? "",
+        fontSize: parseFloat(style?.fontSize ?? "0"),
+        height: rect?.height ?? 0,
+        borderStyle: style?.borderTopStyle ?? "",
+        borderWidth: parseFloat(style?.borderTopWidth ?? "0"),
+        right: rect?.right ?? 0,
+        cardRight: cardRect?.right ?? 0,
+        headingWidth: heading?.clientWidth ?? 0,
+        headingScrollWidth: heading?.scrollWidth ?? 0,
+        background: style?.backgroundColor ?? "",
+        viewportWidth: window.innerWidth
+      };
+    })())`));
     assert.equal(cards.length, 2, `${theme}: both workspace capability cards should render.`);
+    assert.equal(action.visible, true, `${theme}: AI Activity navigation should be visible.`);
+    assert.equal(action.textDecoration, "none", `${theme}: AI Activity navigation should not look like a browser-default link.`);
+    assert.ok(action.fontSize >= 14 && action.height >= 44, `${theme}: AI Activity button should remain readable and easy to tap.`);
+    assert.equal(action.borderStyle, "solid", `${theme}: AI Activity button should have a visible button treatment.`);
+    assert.ok(action.borderWidth >= 1 && action.background !== "rgba(0, 0, 0, 0)", `${theme}: AI Activity button should have a clear surface and outline.`);
+    assert.ok(action.right <= action.cardRight + 1, `${theme}: AI Activity button should fit inside its card.`);
+    assert.ok(action.headingScrollWidth <= action.headingWidth + 1, `${theme}: status heading should wrap instead of overflowing.`);
     const channels = value => value.match(/[\d.]+/g).map(Number).slice(0, 3);
     const luminance = value => channels(value).map(channel => {
       const normalized = channel / 255;
@@ -149,6 +177,12 @@ try {
       assert.ok(card.width > 0 && card.right <= card.viewportWidth, `${theme}: capability card should fit the viewport.`);
       assert.ok(contrast(card.title, card.background) >= 4.5, `${theme}: card title contrast is too low.`);
       assert.ok(contrast(card.body, card.background) >= 4.5, `${theme}: card text contrast is too low.`);
+    }
+    if (action.viewportWidth === 430 && theme === "light") {
+      await evaluate(`document.querySelector(".corral-workspace-status-grid")?.scrollIntoView({ block: "center", behavior: "instant" })`);
+      await pause(150);
+      await capture("agent-workspace-status-430-light");
+      await evaluate(`document.querySelector(".corral-workspace-transcript")?.scrollTo({ top: 0 })`);
     }
   };
   const agentCardFixtureMarkup = {
