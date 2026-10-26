@@ -261,3 +261,196 @@
 @media (prefers-reduced-motion: reduce) {
   .lead-agent-thinking i { animation: none; }
 }
+
+/* Lead-mode visual QA refinements, scoped to the assistant panel. */
+.lead-agent {
+  border-color: color-mix(in srgb, var(--agent-line) 84%, var(--green, #22634f));
+  box-shadow: 0 14px 38px rgba(20, 39, 31, .07);
+}
+
+.lead-agent-heading {
+  align-items: center;
+  gap: 15px;
+  padding-block: 18px;
+  background: color-mix(in srgb, var(--orange-soft) 30%, var(--surface));
+}
+
+.lead-agent-mark {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7), 0 2px 6px rgba(20, 39, 31, .05);
+}
+
+.lead-agent-heading h2,
+.lead-agent-welcome h3 {
+  letter-spacing: -.025em;
+}
+
+.lead-agent-quick-actions {
+  gap: 11px 16px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-high));
+}
+
+.lead-agent-phone-card {
+  padding: 2px 0;
+}
+
+.lead-agent-phone-copy strong {
+  line-height: 1.35;
+}
+
+.lead-agent-transcript {
+  gap: 15px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--green, #22634f) 24%, var(--agent-line)) transparent;
+}
+
+.lead-agent-transcript::-webkit-scrollbar {
+  width: 8px;
+}
+
+.lead-agent-transcript::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--green, #22634f) 24%, var(--agent-line));
+  background-clip: padding-box;
+}
+
+.lead-agent-welcome {
+  padding-block: 18px;
+}
+
+.lead-agent-welcome h3 {
+  line-height: 1.3;
+}
+
+.lead-agent-welcome > p {
+  text-wrap: pretty;
+}
+
+.lead-agent-suggestions button {
+  border-color: color-mix(in srgb, var(--agent-line) 86%, var(--green, #22634f));
+  transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.lead-agent-suggestions button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(20, 39, 31, .07);
+}
+
+.lead-agent-message {
+  border-color: color-mix(in srgb, var(--agent-line) 85%, var(--green, #22634f));
+  box-shadow: 0 1px 3px rgba(20, 39, 31, .035);
+}
+
+.lead-agent-message.is-user {
+  border-color: color-mix(in srgb, var(--orange) 38%, var(--agent-line));
+}
+
+.lead-agent-action {
+  gap: 11px;
+  padding: 13px;
+  border-color: color-mix(in srgb, var(--orange) 38%, var(--agent-line));
+  box-shadow: 0 3px 12px rgba(20, 39, 31, .045);
+}
+
+.lead-agent-action-title {
+  min-height: 22px;
+  border-radius: 5px;
+}
+
+.lead-agent-action-title:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
+}
+
+.lead-agent-changes {
+  gap: 9px 16px;
+}
+
+.lead-agent-changes dd {
+  line-height: 1.4;
+}
+
+.lead-agent-provider-choice select,
+.lead-agent-closing-fields select,
+.lead-agent-closing-fields input {
+  border-color: color-mix(in srgb, var(--agent-line) 88%, var(--green, #22634f));
+  line-height: 1.4;
+}
+
+.lead-agent-composer {
+  padding-top: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--surface-high));
+}
+
+.lead-agent-composer textarea {
+  border-color: color-mix(in srgb, var(--agent-line) 88%, var(--green, #22634f));
+}
+
+.lead-agent :is(button, input, textarea, select, summary, a):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--orange) 84%, var(--text));
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--orange) 15%, transparent);
+}
+
+.lead-agent :is(input, select, textarea):disabled,
+.lead-agent button:disabled {
+  opacity: .58;
+  cursor: not-allowed;
+}
+
+.lead-agent-error,
+.lead-agent-notice {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--red, #b3443f) 25%, var(--agent-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red, #b3443f) 6%, var(--surface));
+}
+
+.lead-agent-notice {
+  border-color: color-mix(in srgb, var(--green, #22634f) 26%, var(--agent-line));
+  background: color-mix(in srgb, var(--green, #22634f) 6%, var(--surface));
+}
+
+@container lead-agent (max-width: 500px) {
+  .lead-agent-heading {
+    gap: 11px;
+    padding: 13px;
+  }
+
+  .lead-agent-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .lead-agent-heading p {
+    font-size: 12px;
+  }
+
+  .lead-agent-quick-buttons {
+    gap: 6px;
+  }
+
+  .lead-agent-quick-buttons button,
+  .lead-agent-email-shortcut {
+    min-height: 36px;
+  }
+
+  .lead-agent-composer > div {
+    align-items: stretch;
+  }
+
+  .lead-agent-composer > div > button {
+    min-height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lead-agent *,
+  .lead-agent *::before,
+  .lead-agent *::after {
+    scroll-behavior: auto;
+    transition-duration: .01ms;
+    animation-duration: .01ms;
+    animation-iteration-count: 1;
+  }
+}

@@ -188,3 +188,248 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   .v-app .integration-card { padding: 16px; }
   .v-app .section-picker-option span { white-space: normal; }
 }
+
+/* Keep every filled Corral action legible, including legacy page controls. */
+:root {
+  --primary-action-background: #1e6b52;
+  --primary-action-hover: #195c46;
+  --primary-action-pressed: #144b39;
+  --primary-action-foreground: #fff;
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+) {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-background) !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  text-decoration: none;
+  text-shadow: none;
+  transition:
+    background-color var(--d-fast) ease,
+    color var(--d-fast) ease,
+    box-shadow var(--d-fast) ease,
+    transform var(--d-fast) var(--ease-out);
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+):hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-hover) !important;
+  border-color: transparent !important;
+  filter: none;
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+):active:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-pressed) !important;
+  border-color: transparent !important;
+  transform: translateY(1px);
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+):focus-visible {
+  color: var(--primary-action-foreground) !important;
+  outline: 3px solid var(--focus) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 2px var(--surface) !important;
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+):is(:disabled, [aria-disabled="true"], [aria-busy="true"], [data-loading="true"], .is-loading) {
+  color: var(--primary-action-foreground) !important;
+  background: var(--primary-action-background) !important;
+  border-color: transparent !important;
+  opacity: 1 !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+):is(:disabled, [aria-disabled="true"]) {
+  cursor: not-allowed;
+}
+
+.v-app :is(
+  .primary-button,
+  .button-primary,
+  .primary-action,
+  .auth-submit,
+  .a-submit,
+  .ct-tour-button-primary,
+  .records-add-button,
+  .records-filter-close,
+  .slack-routing-actions > button,
+  .v-btn[data-kind="filled"]
+):is([aria-busy="true"], [data-loading="true"], .is-loading) {
+  cursor: progress;
+}
+
+/* Keep disabled secondary controls readable without making them look active. */
+.v-app :is(
+  .v-btn,
+  .secondary-button,
+  .button-quiet,
+  .danger-button
+):disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Agent surfaces use the same low-noise surfaces and controls as the rest of Corral. */
+.v-app .corral-agent-window,
+.v-app .lead-agent {
+  border: 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-sheet);
+}
+
+.v-app .corral-agent-window .v-agent-head,
+.v-app .corral-agent-window .v-agent-context,
+.v-app .corral-workspace-chat-toolbar,
+.v-app .lead-agent-heading {
+  background: var(--surface);
+}
+
+.v-app .corral-agent-window .v-agent-scope {
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--fill);
+}
+
+.v-app .corral-agent-window .v-agent-scope button {
+  border: 0;
+  border-radius: var(--r-pill);
+  color: var(--label-2);
+}
+
+.v-app .corral-agent-window .v-agent-scope button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--label);
+  box-shadow: var(--elev-1);
+}
+
+.v-app .corral-agent-window .corral-workspace-prompts button,
+.v-app .lead-agent-suggestions button {
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--fill);
+  color: var(--label);
+  box-shadow: none;
+}
+
+.v-app .corral-agent-window .corral-workspace-prompts button:hover:not(:disabled),
+.v-app .lead-agent-suggestions button:hover:not(:disabled) {
+  background: var(--fill-hover);
+  color: var(--label);
+  box-shadow: none;
+  transform: none;
+}
+
+.v-app .corral-workspace-message,
+.v-app .lead-agent-message {
+  border: 0;
+  background: var(--fill);
+  box-shadow: none;
+}
+
+.v-app .corral-workspace-message.is-user,
+.v-app .lead-agent-message.is-user {
+  border: 0;
+  background: var(--fill-hover);
+}
+
+.v-app .corral-workspace-action,
+.v-app .lead-agent-action {
+  border: 0;
+  background: var(--surface-high);
+  box-shadow: none;
+}
+
+.v-app .corral-workspace-email-review :is(input, select, textarea),
+.v-app .corral-workspace-composer textarea,
+.v-app .corral-agent-search input,
+.v-app .lead-agent :is(input, select, textarea) {
+  border: 0 !important;
+  border-radius: var(--r-sm) !important;
+  background: var(--fill) !important;
+  color: var(--label);
+}
+
+.v-app .corral-workspace-email-review :is(input, select, textarea):disabled,
+.v-app .corral-workspace-composer textarea:disabled,
+.v-app .corral-agent-search input:disabled,
+.v-app .lead-agent :is(input, select, textarea):disabled {
+  opacity: 1;
+  background: var(--fill-hover) !important;
+  color: var(--label-3);
+  cursor: not-allowed;
+}
+
+.v-app .lead-agent :is(button, input, textarea, select, summary, a):focus-visible,
+.v-app .corral-agent-dock :is(button, input, textarea, select, summary, a):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
