@@ -129,10 +129,36 @@ test("formats a flat email and collapses inline security and confidentiality not
   assert.match(primary, /Hello Kathi/);
   assert.match(primary, /potential tech collaboration/);
   assert.match(primary, /Best Regards/);
+  assert.match(primary, /<\/p><p>Best Regards,<br\/>Reese Maddox/);
   assert.doesNotMatch(primary, /EXTERNAL EMAIL|Security Advisory|confidentiality notice|opt out|aka\.ms/i);
   assert.match(footer, /Show footer and disclaimer/);
   assert.equal(footer.split("CONFIDENTIALITY NOTICE").length - 1, 1);
   assert.doesNotMatch(readableCard, /No message text was included/);
+});
+
+test("recovers the inquiry when Gmail appends the message to a flat Subject header", () => {
+  const message = `--- Gmail message flat-subject ---
+From: Reese Maddox <reese.maddox@ingenuity-systems.cloud>
+To: Kathi <kathi@example.test>
+Date: Wed, 14 Oct 2026 11:50:00 +0000
+Subject: Kathi Can I call you on Thursday? You don't often get email from reese.maddox@ingenuity-systems.cloud. Learn why this is important [2] [2] [EXTERNAL EMAIL] DMCU Security Advisory: This email was received from an external source. Do not open attachments, click links, or trust the content from an unexpected source. If you are suspicious, contact I.T. Hello Kathi, I'm looking forward to hopping on a 10-minute Zoom call sometime this week to discuss a potential tech collaboration between Pill Pouch and our AI solutions. Let me know of a suitable time to connect. Best Regards, Reese Maddox, Manager Customer Success Ingenuity Systems. PS: If you want to opt out of our email list, simply hit reply with STOP in the subject line. CONFIDENTIALITY NOTICE: The information contained in this email is privileged, confidential and intended only for the individuals to whom it is addressed. Then delete this email and any attachments. Any unauthorized use, distribution or copying of this information is strictly prohibited. CONFIDENTIALITY NOTICE: The information contained in this email is privileged, confidential and intended only for the individuals to whom it is addressed. Then delete this email and any attachments. Any unauthorized use, distribution or copying of this information is strictly prohibited. Links: ----- [1] https://aka.ms/o0ukef [2] https://aka.ms/LearnAboutSenderIdentification Links: ----- [1] https://aka.ms/o0ukef [2] https://aka.ms/LearnAboutSenderIdentification`;
+  const html = render(message);
+  const subject = html.match(/<div class="gmail-inquiry-subject">[\s\S]*?<\/div>/)?.[0] || "";
+  const bodyStart = html.indexOf('class="gmail-inquiry-message-body"');
+  const footerStart = html.indexOf('class="gmail-inquiry-disclosure gmail-inquiry-footer"');
+  const rawStart = html.indexOf('class="gmail-inquiry-raw"');
+  const primary = html.slice(bodyStart, footerStart);
+  const footer = html.slice(footerStart, rawStart);
+
+  assert.match(subject, /<h4>Kathi Can I call you on Thursday\?<\/h4>/);
+  assert.doesNotMatch(subject, /You don't often get email|DMCU Security Advisory|EXTERNAL EMAIL/i);
+  assert.match(primary, /Hello Kathi/);
+  assert.match(primary, /potential tech collaboration/);
+  assert.match(primary, /Best Regards/);
+  assert.doesNotMatch(primary, /EXTERNAL EMAIL|Security Advisory|confidentiality notice|opt out|aka\.ms/i);
+  assert.equal(footer.split("CONFIDENTIALITY NOTICE").length - 1, 1);
+  assert.equal(footer.split("Links:").length - 1, 1);
+  assert.doesNotMatch(html.slice(0, rawStart), /No message text was included/);
 });
 
 test("does not call a notice-only email empty while its footer details are available", () => {

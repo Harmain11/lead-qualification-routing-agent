@@ -59,6 +59,15 @@ function parseHeadersAndBody(source: string) {
   if (separator < 0 && firstBodyLine >= 0) {
     body = lines.slice(firstBodyLine).join("\n").trim();
   }
+  if (headers.subject) {
+    const inlineBodyStart = /(?:you (?:don't|do not) often get email from\b|\[(?:external email|external message)\]|\bDMCU Security Advisory\s*:)/i
+      .exec(headers.subject);
+    if (inlineBodyStart && inlineBodyStart.index > 0) {
+      const inlineBody = headers.subject.slice(inlineBodyStart.index).trim();
+      headers.subject = headers.subject.slice(0, inlineBodyStart.index).trim();
+      body = [inlineBody, body].filter(Boolean).join("\n");
+    }
+  }
   return { headers, body };
 }
 
@@ -318,12 +327,20 @@ function formatFlatEmailBody(source: string): string {
       "$1\n\n",
     )
     .replace(
-      /\s+(?=(?:best|kind|warm)\s+regards|regards|sincerely|thank you|thanks)[,!:]/gi,
-      "\n\n",
+      /\s+((?:(?:best|kind|warm)\s+regards)|regards|sincerely|thank you|thanks)([,!:])/gi,
+      (match, signOff: string, punctuation: string, offset: number, source: string) => {
+        if (
+          /^regards$/i.test(signOff)
+          && /\b(?:best|kind|warm)\s+$/i.test(source.slice(0, offset))
+        ) {
+          return match;
+        }
+        return `\n\n${signOff}${punctuation}`;
+      },
     )
     .replace(
-      /((?:best|kind|warm)\s+regards|regards|sincerely|thank you|thanks)[,!:]\s+(?=\S)/gi,
-      "$1\n",
+      /((?:best|kind|warm)\s+regards|regards|sincerely|thank you|thanks)([,!:])\s+(?=\S)/gi,
+      "$1$2\n",
     )
     .replace(/\s+(?=P\.?\s*S\.?:)/gi, "\n\n");
 }
@@ -376,8 +393,12 @@ function splitInlineFooterNotices(source: string): { primary: string; footers: s
     if (end > optOut.index) ranges.push({ start: optOut.index, end });
   }
 
-  const linksStart = /\bLinks?\s*:\s*-{2,}\s*\[\d+\]/i.exec(source);
-  if (linksStart) ranges.push({ start: linksStart.index, end: source.length });
+  const linksMarkers = Array.from(source.matchAll(/\bLinks?\s*:\s*-{2,}\s*\[\d+\]/gi));
+  linksMarkers.forEach((marker, index) => {
+    const start = marker.index ?? 0;
+    const end = linksMarkers[index + 1]?.index ?? source.length;
+    if (end > start) ranges.push({ start, end });
+  });
 
   ranges.sort((left, right) => left.start - right.start);
   const merged: Array<{ start: number; end: number }> = [];

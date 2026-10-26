@@ -301,15 +301,22 @@ try {
         const createRoot = reactDomModule.createRoot ?? ReactDOM.createRoot;
         const host = document.createElement("section");
         host.className = "gmail-inquiry-v5-smoke-fixture";
-        Object.assign(host.style, { position: "fixed", left: "-10000px", top: "0", visibility: "hidden" });
+        Object.assign(host.style, {
+          position: "fixed", zIndex: "999999", left: "50%", top: "50%",
+          transform: "translate(-50%, -50%)", width: "min(780px, 90vw)",
+          maxHeight: "80vh", overflow: "auto", padding: "20px",
+          background: "var(--surface)", border: "1px solid var(--separator)",
+          borderRadius: "16px", boxShadow: "0 20px 60px rgba(0,0,0,.25)"
+        });
+        const heading = document.createElement("h2");
+        heading.textContent = "Gmail inquiry display check";
+        host.append(heading);
         document.querySelector(".v-app")?.append(host);
         const message = [
           "--- Gmail message ui-smoke ---",
           "From: Reese Maddox <reese.maddox@example.test>",
           "To: Kathi <kathi@example.test>",
-          "Subject: Kathi Can I call you on Thursday?",
-          "",
-          ${JSON.stringify(sampleEmail)}
+          "Subject: Kathi Can I call you on Thursday? " + ${JSON.stringify(sampleEmail)}
         ].join(String.fromCharCode(10));
         window.__corralInquirySmokeRoot = createRoot(host);
         window.__corralInquirySmokeRoot.render(React.createElement(GmailInquiryView, {
@@ -325,6 +332,7 @@ try {
         const details = [...(fixture?.querySelectorAll(".gmail-inquiry-disclosure") ?? [])];
         return {
           text: body?.textContent ?? "",
+          subject: fixture?.querySelector(".gmail-inquiry-subject h4")?.textContent ?? "",
           fontSize: paragraph ? getComputedStyle(paragraph).fontSize : "",
           fontWeight: paragraph ? getComputedStyle(paragraph).fontWeight : "",
           disclosures: details.length,
@@ -334,11 +342,14 @@ try {
       })())`));
       assert.match(inquiryEmailCheck.text, /Hello Kathi/i);
       assert.doesNotMatch(inquiryEmailCheck.text, /external email|security advisory|unsubscribe|confidential/i);
+      assert.equal(inquiryEmailCheck.subject, "Kathi Can I call you on Thursday?");
       assert.equal(inquiryEmailCheck.fontSize, "14px");
       assert.equal(inquiryEmailCheck.fontWeight, "400");
       assert.ok(inquiryEmailCheck.disclosures > 0);
       assert.equal(inquiryEmailCheck.collapsed, inquiryEmailCheck.disclosures);
       assert.equal(inquiryEmailCheck.emptyState, false);
+      await pause(200);
+      await capture("gmail-inquiry-v5-body");
       await evaluate(`window.__corralInquirySmokeRoot?.unmount(); document.querySelector(".gmail-inquiry-v5-smoke-fixture")?.remove()`);
       requestedVisualChecks.emailBody += 1;
     }
