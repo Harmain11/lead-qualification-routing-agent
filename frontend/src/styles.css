@@ -2620,42 +2620,6 @@ html[data-theme] .app-shell .icp-page .icp-sections button i {
   font-weight: 650;
 }
 
-/* Settings actions always use the Corral green, including workspace-config forms. */
-html[data-theme] body .app-shell [data-settings-page] button.primary-button {
-  border-color: #1E6B52 !important;
-  background: linear-gradient(135deg, #1E6B52, #155640) !important;
-  color: #fff !important;
-  box-shadow: 0 8px 22px rgba(30,107,82,.17) !important;
-}
-
-html[data-theme] body .app-shell [data-settings-page] button.primary-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #247d60, #1E6B52) !important;
-  border-color: #1E6B52 !important;
-}
-
-/* Operational settings tabs (including Compliance) use the same action color. */
-html[data-theme] body .app-shell .ops-page button.primary-button {
-  border-color: #1E6B52 !important;
-  background: linear-gradient(135deg, #1E6B52, #155640) !important;
-  color: #fff !important;
-  box-shadow: 0 8px 22px rgba(30,107,82,.17) !important;
-}
-
-/* Team actions stay on the shared Corral green even when a workspace has a custom accent. */
-html[data-theme] body .app-shell .team-heading-actions button.primary-button,
-html[data-theme] body .app-shell .team-modal-actions button.primary-button {
-  border-color: #1E6B52 !important;
-  background: linear-gradient(135deg, #1E6B52, #155640) !important;
-  color: #fff !important;
-  box-shadow: 0 8px 22px rgba(30,107,82,.17) !important;
-}
-
-html[data-theme] body .app-shell .team-heading-actions button.primary-button:hover:not(:disabled),
-html[data-theme] body .app-shell .team-modal-actions button.primary-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #247d60, #1E6B52) !important;
-  border-color: #1E6B52 !important;
-}
-
 /* Keep the compact navigation rail present across every authenticated page. */
 .app-shell.nav-collapsed .side-rail { transform: translateX(-105%); }
 .app-shell.nav-expanded .side-rail { transform: translateX(0); }

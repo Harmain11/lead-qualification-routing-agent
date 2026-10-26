@@ -10,6 +10,7 @@
 - [Slack channel visibility](slack-channel-visibility.md) — user's Slack has channels; list public channels before the app is invited, and don't show inactive workspaces as connected.
 - [Production service constraints](production-services.md) — prefer no-separate-subscription services; Gmail Python SDK instructions may require the official JS SDK instead.
 - [Dashboard brand alignment](dashboard-brand-alignment.md) — Follow Corral's existing brand, typography, and UI patterns when changing or redesigning screens.
+- [Corral cascade layers](corral-cascade-layers.md) — Legacy-layer `!important` rules can outrank unlayered v3 overrides; update or remove duplicate declarations before adding specificity.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
 - [Salesforce package prerequisite](salesforce-package-prerequisite.md) — install the user-supplied package before OAuth; Connect must present the installer and setup steps.
 - [Member performance and wins](member-win-policy.md) — separate status updates from comments and keep Project/Sale credit explicit.

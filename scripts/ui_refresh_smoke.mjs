@@ -82,6 +82,7 @@ try {
   await capture("start");
   await evaluate(`document.querySelector("[data-ask-corral]")?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-window.is-open"))`);
+  await pause(350);
   await wait(`Boolean(document.querySelector(".corral-workspace-chat"))`);
   const initialScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
   assert.deepEqual(JSON.parse(initialScope), [["Lead", "false"], ["Workspace", "true"]]);
@@ -89,8 +90,10 @@ try {
 
   await evaluate(`document.querySelector('.v-agent-scope button[aria-pressed="false"]')?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-lead-option"))`);
+  await pause(200);
   await evaluate(`document.querySelector(".corral-agent-lead-option")?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-window .lead-agent"))`);
+  await pause(450);
   const leadScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
   assert.deepEqual(JSON.parse(leadScope), [["Lead", "true"], ["Workspace", "false"]]);
   await capture("agent-lead");
@@ -104,6 +107,7 @@ try {
   const navigation = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll(".v-sidebar-nav a.v-navitem")].filter(item => !item.closest(".v-pin")).map(item => item.querySelector(".v-navitem-label")?.textContent.trim()).filter(Boolean))`));
   assert.ok(navigation.length >= 15, `Expected the full workspace navigation; found ${navigation.length} pages.`);
   const pageChecks = [];
+  let primaryActionsChecked = 0;
   for (const label of navigation) {
     const found = await evaluate(`(() => {
       const item = [...document.querySelectorAll(".v-sidebar-nav a.v-navitem")]
@@ -120,10 +124,67 @@ try {
     })`));
     assert.ok(page.heading, `Page should render a heading after opening ${label}.`);
     assert.ok(page.documentWidth <= page.viewport + 1, `${label} overflows the desktop page width.`);
+    const primaryActions = JSON.parse(await evaluate(`JSON.stringify([...document.querySelectorAll(
+      ".v-app .primary-button, .v-app .button-primary, .v-app .primary-action, .v-app .auth-submit, .v-app .a-submit, .v-app .ct-tour-button-primary, .v-app .records-add-button, .v-app .records-filter-close, .v-app .slack-routing-actions > button, .v-app .v-btn[data-kind='filled']"
+    )].filter(button => button.getClientRects().length).map(button => {
+      const style = getComputedStyle(button);
+      return {
+        label: button.innerText.trim(),
+        className: button.className,
+        disabled: button.disabled,
+        color: style.color,
+        background: style.backgroundColor,
+        backgroundImage: style.backgroundImage,
+        opacity: style.opacity
+      };
+    }))`));
+    for (const action of primaryActions) {
+      assert.equal(action.color, "rgb(255, 255, 255)", `${label}: primary action text must stay white (${action.label}).`);
+      assert.ok(action.background !== "rgba(0, 0, 0, 0)", `${label}: primary action needs a solid readable fill (${JSON.stringify(action)}).`);
+      assert.equal(action.opacity, "1", `${label}: primary action must not fade its label (${action.label}).`);
+      primaryActionsChecked += 1;
+    }
+    if (label === "Integrations") {
+      const opened = await evaluate(`(() => {
+        const toggle = document.querySelector(".integration-card.provider-slack .provider-collapse-toggle");
+        toggle?.click();
+        return Boolean(toggle);
+      })()`);
+      assert.ok(opened, "The Slack routing settings should be reachable from Integrations.");
+      await wait(`Boolean(document.querySelector(".slack-connection-dialog .slack-routing-actions > button"))`);
+      await pause(250);
+      const slackAction = JSON.parse(await evaluate(`(() => {
+        const button = document.querySelector(".slack-connection-dialog .slack-routing-actions > button");
+        const style = getComputedStyle(button);
+        return JSON.stringify({
+          visible: Boolean(button.getClientRects().length),
+          label: button.innerText.trim(),
+          color: style.color,
+          background: style.backgroundColor,
+          opacity: style.opacity
+        });
+      })()`));
+      assert.equal(slackAction.visible, true);
+      assert.equal(slackAction.label, "Save Slack routing");
+      assert.equal(slackAction.color, "rgb(255, 255, 255)");
+      assert.notEqual(slackAction.background, "rgba(0, 0, 0, 0)");
+      assert.equal(slackAction.opacity, "1");
+      await evaluate(`document.querySelector(".slack-connection-dialog .slack-routing-actions > button")?.scrollIntoView({ block: "center" })`);
+      await pause(200);
+      const slackActionBounds = JSON.parse(await evaluate(`(() => {
+        const rect = document.querySelector(".slack-connection-dialog .slack-routing-actions > button").getBoundingClientRect();
+        return JSON.stringify({ top: rect.top, bottom: rect.bottom, viewport: window.innerHeight });
+      })()`));
+      assert.ok(slackActionBounds.top >= 0 && slackActionBounds.bottom <= slackActionBounds.viewport, "Save Slack routing should be fully reachable by scrolling its dialog.");
+      await capture("slack-routing");
+      await evaluate(`document.querySelector(".integration-card.provider-slack .provider-collapse-toggle")?.click()`);
+      await wait(`!document.querySelector(".slack-connection-dialog")`);
+    }
     pageChecks.push([label, page.heading]);
   }
   await evaluate(`document.querySelector('button[aria-label="Hide sidebar"]')?.click()`);
   await wait(`document.querySelector(".v-app")?.dataset.sidebar === "hidden"`);
+  await pause(350);
   const collapsedSidebar = JSON.parse(await evaluate(`JSON.stringify({
     sidebarWidth: document.querySelector(".v-sidebar")?.getBoundingClientRect().width ?? 0,
     viewport: document.documentElement.clientWidth,
@@ -133,20 +194,22 @@ try {
     appColumns: getComputedStyle(document.querySelector(".v-app")).gridTemplateColumns,
     labels: [...document.querySelectorAll(".v-navitem-label")].slice(0, 3).map(label => getComputedStyle(label).display)
   })`));
-  console.log("Collapsed sidebar visual check:", collapsedSidebar);
   assert.ok(collapsedSidebar.sidebarWidth <= 80 && collapsedSidebar.visibility === "visible");
   assert.ok(collapsedSidebar.documentWidth <= collapsedSidebar.viewport + 1, "Collapsed sidebar must not cause horizontal overflow.");
   await evaluate(`document.querySelector('button[aria-label="Show sidebar"]')?.click()`);
   await wait(`document.querySelector(".v-app")?.dataset.sidebar === "shown"`);
-  console.log(`Checked ${pageChecks.length} main pages and both Agent scopes. No page-level horizontal overflow at desktop.`);
+  await pause(350);
+  console.log(`Checked ${pageChecks.length} main pages, ${primaryActionsChecked} visible primary actions, both Agent scopes, and the collapsed sidebar. No page-level horizontal overflow at desktop.`);
 
   await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await pause(500);
   await evaluate(`document.querySelector("[data-ask-corral]")?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-window.is-open"))`);
+  await pause(350);
   const mobileAgent = JSON.parse(await evaluate(`JSON.stringify({
     viewport: document.documentElement.clientWidth,
     documentWidth: document.documentElement.scrollWidth,
+    innerWidth: window.innerWidth,
     panelLeft: document.querySelector(".corral-agent-window").getBoundingClientRect().left,
     panelRight: document.querySelector(".corral-agent-window").getBoundingClientRect().right
   })`));
@@ -181,6 +244,7 @@ try {
   const quoteButton = await evaluate(`document.body.innerText.includes("Build Quote") ? "Build Quote" : "New Version"`);
   await click(quoteButton);
   await wait(`Boolean(document.querySelector('[role="dialog"], dialog[open]'))`);
+  await pause(450);
   await capture("quote");
   await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await pause(400);
