@@ -117,6 +117,32 @@ ${notice}`);
   assert.equal(html.split(notice).length - 1, 3);
 });
 
+test("formats a flat email and collapses inline security and confidentiality notices", () => {
+  const body = `You don't often get email from reese.maddox@ingenuity-systems.cloud. Learn why this is important [2] [EXTERNAL EMAIL] DMCU Security Advisory: This email was received from an external source. Do not open attachments, click links, or trust the content. If you are suspicious, contact I.T. Hello Kathi, I'm looking forward to a 10-minute Zoom call about a potential tech collaboration. Let me know a suitable time. Best Regards, Reese Maddox, Manager Customer Success. PS: If you want to opt out of our email list, reply with STOP. CONFIDENTIALITY NOTICE: This email is confidential and intended only for the named recipient. CONFIDENTIALITY NOTICE: This email is confidential and intended only for the named recipient. Links: ----- [1] https://aka.ms/security [2] https://aka.ms/sender-identification`;
+  const html = render(sourceEmail(body));
+  const readableCard = html.slice(0, html.indexOf('class="gmail-inquiry-raw"'));
+  const bodyStart = readableCard.indexOf('class="gmail-inquiry-body-content"');
+  const footerStart = readableCard.indexOf('class="gmail-inquiry-disclosure');
+  const primary = readableCard.slice(bodyStart, footerStart);
+  const footer = readableCard.slice(footerStart);
+
+  assert.match(primary, /Hello Kathi/);
+  assert.match(primary, /potential tech collaboration/);
+  assert.match(primary, /Best Regards/);
+  assert.doesNotMatch(primary, /EXTERNAL EMAIL|Security Advisory|confidentiality notice|opt out|aka\.ms/i);
+  assert.match(footer, /Show footer and disclaimer/);
+  assert.equal(footer.split("CONFIDENTIALITY NOTICE").length - 1, 1);
+  assert.doesNotMatch(readableCard, /No message text was included/);
+});
+
+test("does not call a notice-only email empty while its footer details are available", () => {
+  const html = render(sourceEmail("This email is confidential and intended only for the named recipient."));
+  const readableCard = html.slice(0, html.indexOf('class="gmail-inquiry-raw"'));
+
+  assert.match(readableCard, /Show footer and disclaimer/);
+  assert.doesNotMatch(readableCard, /No message text was included/);
+});
+
 test("wraps long URLs as safe links in the message body", () => {
   const longUrl = `https://example.test/${"customer-onboarding/".repeat(14)}review`;
   const html = render(sourceEmail(`Reference: ${longUrl}`));

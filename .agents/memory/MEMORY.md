@@ -43,3 +43,5 @@
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
 - [Completed source bundles](source-bundle-integration.md) — Integrate supplied complete workflows, not reduced substitutes; preserve newer behavior from the current app.
+- [Gmail message presentation](gmail-message-presentation.md) — Show the inquiry cleanly; collapse sender warnings, opt-outs, legal footers and duplicate notices.
+- [Nested flyout alignment](nested-flyout-alignment.md) — Keep category submenus beside and aligned to their selected row, without overlap or horizontal scrolling.

@@ -311,12 +311,107 @@ function uniqueBlocks(blocks: string[]): string[] {
   });
 }
 
+function formatFlatEmailBody(source: string): string {
+  return normalizeReadableEmailText(source)
+    .replace(
+      /\b((?:hi|hello|dear)(?:\s+[^,\n]{1,80})?[,!:])\s+(?=\S)/i,
+      "$1\n\n",
+    )
+    .replace(
+      /\s+(?=(?:best|kind|warm)\s+regards|regards|sincerely|thank you|thanks)[,!:]/gi,
+      "\n\n",
+    )
+    .replace(
+      /((?:best|kind|warm)\s+regards|regards|sincerely|thank you|thanks)[,!:]\s+(?=\S)/gi,
+      "$1\n",
+    )
+    .replace(/\s+(?=P\.?\s*S\.?:)/gi, "\n\n");
+}
+
+function splitInlineFooterNotices(source: string): { primary: string; footers: string[] } {
+  const ranges: Array<{ start: number; end: number }> = [];
+  const externalNotice = /\[(?:external email|external message)\]|\bDMCU Security Advisory\s*:/i.exec(source);
+  const senderWarning = /\byou (?:don't|do not) often get email from\b/i.exec(source);
+
+  if (externalNotice) {
+    const senderWarningIsNearby = senderWarning
+      && senderWarning.index < externalNotice.index
+      && externalNotice.index - senderWarning.index < 360;
+    const start = senderWarningIsNearby ? senderWarning.index : externalNotice.index;
+    const remainder = source.slice(externalNotice.index + externalNotice[0].length);
+    const greeting = /\b(?:hi|hello|dear)(?:\s+[^,\n]{1,80})?[,!:]/i.exec(remainder);
+    const nextNotice = /\bCONFIDENTIALITY NOTICE\s*:|\b(?:P\.?\s*S\.?:?\s*)?If you want to opt out\b/i.exec(remainder);
+    const end = greeting
+      ? externalNotice.index + externalNotice[0].length + greeting.index
+      : nextNotice
+        ? externalNotice.index + externalNotice[0].length + nextNotice.index
+        : source.length;
+    if (end > start) ranges.push({ start, end });
+  } else if (senderWarning) {
+    const remainder = source.slice(senderWarning.index);
+    const greeting = /\b(?:hi|hello|dear)(?:\s+[^,\n]{1,80})?[,!:]/i.exec(remainder);
+    const learnMore = /\bLearn why this is important\b/i.exec(remainder);
+    const end = greeting
+      ? senderWarning.index + greeting.index
+      : learnMore
+        ? senderWarning.index + learnMore.index + learnMore[0].length
+        : source.length;
+    if (end > senderWarning.index) ranges.push({ start: senderWarning.index, end });
+  }
+
+  const confidentialityMarkers = Array.from(source.matchAll(/\bCONFIDENTIALITY NOTICE\s*:/gi));
+  confidentialityMarkers.forEach((marker, index) => {
+    const start = marker.index ?? 0;
+    const next = confidentialityMarkers[index + 1];
+    const links = /\bLinks?\s*:\s*-{2,}\s*\[\d+\]/i.exec(source.slice(start + marker[0].length));
+    const end = next?.index
+      ?? (links ? start + marker[0].length + links.index : source.length);
+    if (end > start) ranges.push({ start, end });
+  });
+
+  const optOut = /\b(?:P\.?\s*S\.?:?\s*)?If you want to opt out\b/i.exec(source);
+  if (optOut) {
+    const next = confidentialityMarkers.find((marker) => (marker.index ?? 0) > optOut.index);
+    const end = next?.index ?? source.length;
+    if (end > optOut.index) ranges.push({ start: optOut.index, end });
+  }
+
+  const linksStart = /\bLinks?\s*:\s*-{2,}\s*\[\d+\]/i.exec(source);
+  if (linksStart) ranges.push({ start: linksStart.index, end: source.length });
+
+  ranges.sort((left, right) => left.start - right.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of ranges) {
+    const previous = merged.at(-1);
+    if (previous && range.start < previous.end) {
+      previous.end = Math.max(previous.end, range.end);
+    } else {
+      merged.push({ ...range });
+    }
+  }
+
+  const primary: string[] = [];
+  const footers: string[] = [];
+  let cursor = 0;
+  for (const range of merged) {
+    const bodyText = formatFlatEmailBody(source.slice(cursor, range.start));
+    const footerText = formatFlatEmailBody(source.slice(range.start, range.end));
+    if (bodyText) primary.push(bodyText);
+    if (footerText) footers.push(footerText);
+    cursor = range.end;
+  }
+  const trailingBody = formatFlatEmailBody(source.slice(cursor));
+  if (trailingBody) primary.push(trailingBody);
+  return { primary: primary.join("\n\n"), footers };
+}
+
 export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySections {
   const readable = normalizeReadableEmailText(htmlEmailToReadableText(source));
-  const blocks = readable.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
+  const inline = splitInlineFooterNotices(readable);
+  const blocks = inline.primary.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
   const primary: string[] = [];
   const quoted: string[] = [];
-  const footers: string[] = [];
+  const footers: string[] = [...inline.footers];
 
   for (const block of blocks) {
     if (FOOTER_NOTICE_PATTERNS.some((pattern) => pattern.test(block)) || isLongSignature(block)) {

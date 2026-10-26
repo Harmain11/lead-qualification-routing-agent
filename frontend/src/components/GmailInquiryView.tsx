@@ -160,7 +160,8 @@ function EmailBody({
   return <div className="gmail-inquiry-message-body">
     {body.primary
       ? <BodyText text={body.primary} />
-      : <p className="gmail-inquiry-empty">No message text was included.</p>}
+      : !hasQuotedContent && body.footers.length === 0
+        && <p className="gmail-inquiry-empty">No message text was included.</p>}
     {hasQuotedContent && <details className="gmail-inquiry-disclosure gmail-inquiry-quoted">
       <summary>Quoted/forwarded content</summary>
       <div className="gmail-inquiry-disclosure-content">
