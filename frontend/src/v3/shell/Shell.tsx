@@ -62,7 +62,7 @@ export function Sidebar({
   onOpenPin: (pin: PinnedLeadSection) => void;
   onRemovePin: (pin: PinnedLeadSection) => void;
 }) {
-  const [flyout, setFlyout] = useState<{ id: string; top: number } | null>(null);
+  const [flyout, setFlyout] = useState<{ id: string; top: number; left: number } | null>(null);
   const [submenu, setSubmenu] = useState<string | null>(null);
   const closeTimer = useRef(0);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -81,7 +81,14 @@ export function Sidebar({
   const openFlyout = (id: string, element: HTMLElement) => {
     window.clearTimeout(closeTimer.current);
     const rect = element.getBoundingClientRect();
-    setFlyout({ id, top: Math.min(rect.top - 6, window.innerHeight - 320) });
+    const sidebarRight = sidebarRef.current?.getBoundingClientRect().right ?? rect.right;
+    const flyoutWidth = Math.min(360, window.innerWidth - 24);
+    const left = Math.max(12, Math.min(sidebarRight - 6, window.innerWidth - flyoutWidth - 12));
+    setFlyout({
+      id,
+      top: Math.max(12, Math.min(rect.top - 6, window.innerHeight - 320)),
+      left,
+    });
     setSubmenu(null);
   };
   const scheduleClose = () => {
@@ -188,7 +195,7 @@ export function Sidebar({
           data-edge={flyout!.top > window.innerHeight / 2 ? "bottom" : "top"}
           role="menu"
           aria-label={`${flyoutItem.label} sections`}
-          style={{ top: flyout!.top }}
+          style={{ top: flyout!.top, left: flyout!.left }}
           onMouseEnter={() => window.clearTimeout(closeTimer.current)}
           onMouseLeave={scheduleClose}
         >
