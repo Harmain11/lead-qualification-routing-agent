@@ -1002,7 +1002,9 @@ button.h-kpi:active { transform: scale(0.985); }
   left: calc(var(--sidebar-w) - 6px);
   z-index: var(--z-pop);
   display: grid;
-  min-width: 220px;
+  box-sizing: border-box;
+  min-width: min(220px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   padding: 6px;
   border-radius: var(--r-md);
   background: var(--surface-raised);

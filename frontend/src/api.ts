@@ -564,8 +564,12 @@ export function getCrmSyncHistory(leadId: string, signal?: AbortSignal): Promise
   return request(`/v1/leads/${leadId}/crm-sync/history`, { signal });
 }
 
-async function jsonRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  return request<T>(url, options);
+async function jsonRequest<T>(
+  url: string,
+  options?: RequestInit,
+  feedback: { activityToast?: boolean } = {},
+): Promise<T> {
+  return request<T>(url, options, feedback);
 }
 
 export function listIntegrations(): Promise<IntegrationCard[]> {
@@ -766,7 +770,7 @@ export function listWorkspaceAgentConversations(): Promise<{ items: WorkspaceAge
 }
 
 export function createWorkspaceAgentConversation(): Promise<{ id: string; title: string; messages: WorkspaceAgentConversationMessage[] }> {
-  return jsonRequest("/v1/agent/conversations", { method: "POST" });
+  return jsonRequest("/v1/agent/conversations", { method: "POST" }, { activityToast: false });
 }
 
 export function getWorkspaceAgentConversation(id: string): Promise<{
@@ -785,13 +789,13 @@ export function saveWorkspaceAgentConversation(
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
-  });
+  }, { activityToast: false });
 }
 
 export function deleteWorkspaceAgentConversation(id: string): Promise<void> {
   return jsonRequest(`/v1/agent/conversations/${encodeURIComponent(id)}`, {
     method: "DELETE",
-  });
+  }, { activityToast: false });
 }
 
 export const LEAD_NOTE_SAVED_EVENT = "corral:lead-note-saved";

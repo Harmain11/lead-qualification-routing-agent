@@ -17,6 +17,12 @@ Conversation history should be resumable and available as context, including rel
 
 **How to apply:** Retain history per user and workspace, show saved conversations in the agent UI, use relevant earlier turns when answering, and do not treat old proposals or outcomes as current authorization.
 
+Background conversation saves must not show a generic success toast on each autosave. Keep save failures visible in the Agent's inline history status.
+
+**Why:** The user reported repeated “saved successfully” popups while using Corral Agent.
+
+**How to apply:** Suppress generic activity toasts for conversation persistence, while keeping operation-specific confirmations for approved actions and inline errors when chat history cannot be saved.
+
 Customize the assistant using the saved workspace business profile and identity. General chat may retrieve relevant records on demand only within the current workspace and the user's permissions. Search is limited to bounded matches from records already stored in Corral; do not imply a complete history or a live search of external Gmail, CRM, or dialer archives.
 
 Only show lead-open buttons when the current user explicitly asks to find, show, or open a lead, or confirms a pending match selection. Do not add them to ordinary replies merely because a lead is mentioned. Opening a button is read-only; it must not confirm a fuzzy match or approve a proposed change.

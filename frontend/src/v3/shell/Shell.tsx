@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { leadDetailSections, leadSectionHref } from "../../leadSections";
 import type { PinnedLeadSection } from "../../components/PinnedLeadNavigation";
 import { OPEN_SEARCH_EVENT } from "../../components/CommandPalette";
@@ -66,6 +66,8 @@ export function Sidebar({
   const [submenu, setSubmenu] = useState<string | null>(null);
   const closeTimer = useRef(0);
   const sidebarRef = useRef<HTMLElement>(null);
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  const flyoutAnchorRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const closeOutside = (event: Event) => {
       if (!sidebarRef.current?.contains(event.target as Node)) { setFlyout(null); setSubmenu(null); }
@@ -80,14 +82,17 @@ export function Sidebar({
   }, []);
   const openFlyout = (id: string, element: HTMLElement) => {
     window.clearTimeout(closeTimer.current);
-    const rect = element.getBoundingClientRect();
+    const row = element.matches(".v-navitem")
+      ? element
+      : element.querySelector<HTMLElement>(".v-navitem");
+    const anchor = row ?? element;
+    flyoutAnchorRef.current = anchor;
+    const rect = anchor.getBoundingClientRect();
     const sidebarRight = sidebarRef.current?.getBoundingClientRect().right ?? rect.right;
-    const flyoutWidth = Math.min(360, window.innerWidth - 24);
-    const left = Math.max(12, Math.min(sidebarRight - 6, window.innerWidth - flyoutWidth - 12));
     setFlyout({
       id,
-      top: Math.max(12, Math.min(rect.top - 6, window.innerHeight - 320)),
-      left,
+      top: Math.max(12, rect.top - 6),
+      left: Math.max(12, sidebarRight + 8),
     });
     setSubmenu(null);
   };
@@ -96,6 +101,40 @@ export function Sidebar({
     closeTimer.current = window.setTimeout(() => setFlyout(null), 160);
   };
   const flyoutItem = sections.flatMap((section) => section.items).find((item) => item.id === flyout?.id);
+  useLayoutEffect(() => {
+    if (!flyout) return;
+    const positionFlyout = () => {
+      const anchor = flyoutAnchorRef.current;
+      const panel = flyoutRef.current;
+      if (!anchor || !panel) return;
+
+      const sidebarRight = sidebarRef.current?.getBoundingClientRect().right ?? anchor.getBoundingClientRect().right;
+      const panelHeight = panel.offsetHeight;
+      const panelWidth = panel.offsetWidth;
+      const top = Math.max(
+        12,
+        Math.min(anchor.getBoundingClientRect().top - 6, window.innerHeight - panelHeight - 12),
+      );
+      const left = Math.max(
+        12,
+        Math.min(sidebarRight + 8, window.innerWidth - panelWidth - 12),
+      );
+
+      setFlyout((current) => {
+        if (!current || current.id !== flyout.id) return current;
+        if (Math.abs(current.top - top) < 0.5 && Math.abs(current.left - left) < 0.5) return current;
+        return { ...current, top, left };
+      });
+    };
+
+    positionFlyout();
+    window.addEventListener("resize", positionFlyout);
+    document.addEventListener("scroll", positionFlyout, true);
+    return () => {
+      window.removeEventListener("resize", positionFlyout);
+      document.removeEventListener("scroll", positionFlyout, true);
+    };
+  }, [flyout?.id, flyoutItem?.children?.length, submenu]);
   return (
     <aside ref={sidebarRef} className="v-sidebar" aria-label="Corral">
       <div className="v-sidebar-top">
@@ -191,6 +230,7 @@ export function Sidebar({
       </nav>
       {flyoutItem?.children?.length ? (
         <div
+          ref={flyoutRef}
           className="v-flyout"
           data-edge={flyout!.top > window.innerHeight / 2 ? "bottom" : "top"}
           role="menu"
