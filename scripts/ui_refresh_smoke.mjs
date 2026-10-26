@@ -96,6 +96,45 @@ try {
     })()`);
     await pause(150);
   }
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 900, height: 480, deviceScaleFactor: 1, mobile: false });
+  await pause(160);
+  await evaluate(`(() => {
+    const nav = document.querySelector(".side-rail > nav");
+    if (nav) nav.scrollTop = nav.scrollHeight;
+  })()`);
+  await pause(150);
+  await evaluate(`document.querySelector('.navigation-menu-item[data-navigation-id="settings"] .navigation-menu-disclosure')?.click()`);
+  await wait(`(() => { const flyout = document.querySelector('.navigation-menu-flyout[data-navigation-owner="settings"]'); return Boolean(flyout && !flyout.hidden && flyout.getBoundingClientRect().height > 0); })()`);
+  const settingsFlyoutDiagnostic = await evaluate(`JSON.stringify((() => {
+    const item = document.querySelector('.navigation-menu-item[data-navigation-id="settings"]');
+    const trigger = item?.querySelector(".navigation-menu-trigger");
+    const flyout = document.querySelector('.navigation-menu-flyout[data-navigation-owner="settings"]');
+    const rect = element => {
+      const value = element?.getBoundingClientRect();
+      return value ? { top: value.top, right: value.right, bottom: value.bottom, left: value.left, width: value.width, height: value.height } : null;
+    };
+    const style = flyout ? getComputedStyle(flyout) : null;
+    return {
+      viewport: [window.innerWidth, window.innerHeight],
+      navScroll: document.querySelector(".side-rail > nav")?.scrollTop,
+      item: rect(item),
+      trigger: rect(trigger),
+      flyout: rect(flyout),
+      flyoutStyle: flyout?.getAttribute("style"),
+      position: style?.position,
+      top: style?.top,
+      bottom: style?.bottom,
+      scrollHeight: flyout?.scrollHeight,
+      clientHeight: flyout?.clientHeight,
+      owner: flyout?.dataset.navigationOwner
+    };
+  })())`);
+  console.log("Settings flyout diagnostic:", settingsFlyoutDiagnostic);
+  await capture("settings-flyout-debug");
+  await evaluate(`document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))`);
+  await pause(160);
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await pause(200);
   await capture("start");
   await evaluate(`document.querySelector("[data-ask-corral]")?.click()`);
   await wait(`Boolean(document.querySelector(".corral-agent-window.is-open"))`);
