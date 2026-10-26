@@ -109,7 +109,7 @@ try {
     audit: document.querySelector('[aria-label="Approval and audit guidance"]')?.innerText ?? "",
     prompts: [...document.querySelectorAll(".corral-workspace-prompts button")].map(button => button.textContent.trim())
   })`));
-  assert.match(workspaceCapabilityCopy.knowledge, /Not connected/);
+  assert.match(workspaceCapabilityCopy.knowledge, /connected here/i);
   assert.match(workspaceCapabilityCopy.knowledge, /won.t guess/);
   assert.match(workspaceCapabilityCopy.audit, /review/i);
   assert.match(workspaceCapabilityCopy.audit, /reversal/i);
@@ -134,52 +134,23 @@ try {
         viewportWidth: window.innerWidth
       }))
     )`));
-    const action = JSON.parse(await evaluate(`JSON.stringify((() => {
-      const link = document.querySelector(".corral-workspace-status-link");
-      const style = link ? getComputedStyle(link) : null;
-      const rect = link?.getBoundingClientRect();
-      const cardRect = link?.closest(".corral-workspace-status-card")?.getBoundingClientRect();
-      const heading = link?.closest(".corral-workspace-status-heading");
-      const reference = document.querySelector(".corral-workspace-chat-toolbar__actions button.secondary-button");
-      const referenceStyle = reference ? getComputedStyle(reference) : null;
+    const welcomeCardLayout = JSON.parse(await evaluate(`JSON.stringify((() => {
+      const headings = [...document.querySelectorAll(".corral-workspace-status-heading")];
       return {
-        visible: Boolean(link?.getClientRects().length),
-        usesSecondaryButton: Boolean(link?.classList.contains("secondary-button")),
-        hasReference: Boolean(reference),
-        textDecoration: style?.textDecorationLine ?? "",
-        fontSize: parseFloat(style?.fontSize ?? "0"),
-        height: rect?.height ?? 0,
-        borderStyle: style?.borderTopStyle ?? "",
-        borderWidth: parseFloat(style?.borderTopWidth ?? "0"),
-        borderColor: style?.borderTopColor ?? "",
-        borderRadius: style?.borderTopLeftRadius ?? "",
-        color: style?.color ?? "",
-        right: rect?.right ?? 0,
-        cardRight: cardRect?.right ?? 0,
-        headingWidth: heading?.clientWidth ?? 0,
-        headingScrollWidth: heading?.scrollWidth ?? 0,
-        background: style?.backgroundColor ?? "",
-        referenceBackground: referenceStyle?.backgroundColor ?? "",
-        referenceBorderStyle: referenceStyle?.borderTopStyle ?? "",
-        referenceBorderColor: referenceStyle?.borderTopColor ?? "",
-        referenceBorderRadius: referenceStyle?.borderTopLeftRadius ?? "",
-        referenceColor: referenceStyle?.color ?? "",
+        badges: document.querySelectorAll(".corral-workspace-status-badge").length,
+        actionButtons: document.querySelectorAll(".corral-workspace-status-link").length,
+        headings: headings.map(heading => ({
+          width: heading.clientWidth,
+          scrollWidth: heading.scrollWidth
+        })),
         viewportWidth: window.innerWidth
       };
     })())`));
     assert.equal(cards.length, 2, `${theme}: both workspace capability cards should render.`);
-    assert.equal(action.visible, true, `${theme}: AI Activity navigation should be visible.`);
-    assert.equal(action.usesSecondaryButton, true, `${theme}: AI Activity should use the shared secondary button type.`);
-    assert.equal(action.hasReference, true, `${theme}: the standard workspace secondary button should be available for comparison.`);
-    assert.equal(action.textDecoration, "none", `${theme}: AI Activity navigation should not look like a browser-default link.`);
-    assert.ok(action.fontSize >= 13, `${theme}: AI Activity button should remain readable.`);
-    assert.equal(action.background, action.referenceBackground, `${theme}: AI Activity should match the standard secondary button background.`);
-    assert.equal(action.borderStyle, action.referenceBorderStyle, `${theme}: AI Activity should match the standard secondary button border style.`);
-    assert.equal(action.borderColor, action.referenceBorderColor, `${theme}: AI Activity should match the standard secondary button border color.`);
-    assert.equal(action.borderRadius, action.referenceBorderRadius, `${theme}: AI Activity should match the standard secondary button shape.`);
-    assert.equal(action.color, action.referenceColor, `${theme}: AI Activity should match the standard secondary button text color.`);
-    assert.ok(action.right <= action.cardRight + 1, `${theme}: AI Activity button should fit inside its card.`);
-    assert.ok(action.headingScrollWidth <= action.headingWidth + 1, `${theme}: status heading should wrap instead of overflowing.`);
+    assert.equal(welcomeCardLayout.badges, 0, `${theme}: the welcome card should not show a status badge.`);
+    assert.equal(welcomeCardLayout.actionButtons, 0, `${theme}: the welcome card should not show the AI Activity action button.`);
+    assert.equal(welcomeCardLayout.headings.length, 2, `${theme}: both welcome card headings should remain.`);
+    assert.ok(welcomeCardLayout.headings.every(heading => heading.scrollWidth <= heading.width + 1), `${theme}: welcome card headings should fit.`);
     const channels = value => value.match(/[\d.]+/g).map(Number).slice(0, 3);
     const luminance = value => channels(value).map(channel => {
       const normalized = channel / 255;
@@ -195,7 +166,7 @@ try {
       assert.ok(contrast(card.title, card.background) >= 4.5, `${theme}: card title contrast is too low.`);
       assert.ok(contrast(card.body, card.background) >= 4.5, `${theme}: card text contrast is too low.`);
     }
-    if (action.viewportWidth === 430 && theme === "light") {
+    if (welcomeCardLayout.viewportWidth === 430 && theme === "light") {
       await evaluate(`document.querySelector(".corral-workspace-status-grid")?.scrollIntoView({ block: "center", behavior: "instant" })`);
       await pause(150);
       await capture("agent-workspace-status-430-light");
