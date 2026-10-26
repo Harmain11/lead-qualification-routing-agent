@@ -9,6 +9,12 @@ CDP support can differ between the shell Chromium wrapper and a native browser e
 
 **How to apply:** When the debugger does not start, investigate the browser harness separately from the app. Read the existing wrapper's exec target and try that native executable before looking for Playwright browsers or installing another browser.
 
+Native Chromium may list an extension background page before the requested blank tab in its debugger targets.
+
+**Why:** Selecting the first target caused `Page.navigate` to abort on the extension page and left the harness inspecting an empty body while the app itself was healthy.
+
+**How to apply:** Query `/json/list` and select the `page` target whose URL is `about:blank` before navigating.
+
 Viewport changes can complete before React navigation state and CSS transitions settle.
 
 **Why:** An immediate phone screenshot showed a desktop-width sidebar gap even though the finished layout fit the phone correctly.

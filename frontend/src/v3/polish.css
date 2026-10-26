@@ -433,3 +433,204 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   outline-offset: 3px;
   box-shadow: 0 0 0 2px var(--surface);
 }
+
+/* Corral v5 record and contact affordances: names are labels, not links. */
+.v-app :is(
+  .records-card-name,
+  .ops-link,
+  .contact-row,
+  .contact-row strong
+),
+.v-app :is(
+  .records-card-name,
+  .ops-link,
+  .contact-row
+):is(:hover, :focus, :focus-visible, :active) {
+  text-decoration: none !important;
+}
+
+.v-app :is(.records-card-name, .ops-link):is(:hover, :focus, :focus-visible) {
+  text-decoration: none !important;
+}
+
+/* Category tabs retain a shared two-line rhythm at every width. */
+.v-app .settings-category-tabs {
+  max-width: 760px;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid var(--separator);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.v-app .settings-category-tabs button {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 3px;
+  min-height: 68px;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--label-2);
+  text-align: left;
+}
+
+.v-app .settings-category-tabs button > .settings-tab-mark {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  color: var(--label-2);
+}
+
+.v-app .settings-category-tabs button > span:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--label);
+  font: var(--t-headline);
+}
+
+.v-app .settings-category-tabs button > small {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  color: var(--label-2);
+  font: var(--t-footnote);
+}
+
+.v-app .settings-category-tabs button:hover {
+  color: var(--label);
+  background: var(--fill-hover);
+}
+
+.v-app .settings-category-tabs button.active,
+.v-app .settings-category-tabs button[aria-selected="true"] {
+  border-color: var(--separator-strong);
+  background: var(--tint-soft);
+  color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--tint-soft-strong);
+}
+
+.v-app .settings-category-tabs[role="tablist"]:not(.v-tabs) [role="tab"][aria-selected="true"] {
+  background: var(--tint-soft);
+  color: var(--label);
+  box-shadow: inset 0 0 0 1px var(--tint-soft-strong);
+}
+
+.v-app .settings-category-tabs button.active > .settings-tab-mark,
+.v-app .settings-category-tabs button[aria-selected="true"] > .settings-tab-mark {
+  color: var(--tint-text);
+}
+
+.v-app .settings-category-tabs button.active > small,
+.v-app .settings-category-tabs button[aria-selected="true"] > small {
+  color: var(--label-2);
+}
+
+.v-app .settings-category-tabs button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Email bodies prioritize the sender's message; supporting material stays opt-in. */
+.v-app .provider-email-body {
+  color: var(--label);
+  gap: 12px;
+}
+
+.v-app .provider-email-body-main {
+  max-width: min(78ch, 100%);
+  color: var(--label);
+  font: var(--t-callout);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.v-app .provider-email-disclosure {
+  border: 1px solid var(--separator);
+  border-radius: var(--r-sm);
+  background: var(--fill);
+}
+
+.v-app .provider-email-disclosure > summary {
+  min-height: 40px;
+  color: var(--label-2);
+  font: 500 13px/18px var(--font);
+}
+
+.v-app .provider-email-disclosure[open] > summary {
+  border-bottom-color: var(--separator);
+  color: var(--label);
+}
+
+.v-app .provider-email-disclosure-content .provider-email-body-main {
+  color: var(--label-2);
+  font: var(--t-footnote);
+}
+
+/* Expanded providers remain contained by their own grid card. */
+.v-app .integration-grid {
+  align-items: start;
+}
+
+.v-app .integration-grid > .integration-card,
+.v-app .integration-grid > .integration-card:not(.is-collapsed) {
+  grid-column: auto;
+  min-width: 0;
+  align-self: start;
+}
+
+.v-app .integration-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.v-app .integration-card .provider-details {
+  width: 100%;
+  max-width: 100%;
+  max-height: min(68dvh, 760px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.v-app .integration-card .integration-section-disclosure-content {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .v-app .settings-category-tabs {
+    max-width: none;
+  }
+
+  .v-app .settings-category-tabs button {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 3px;
+    min-height: 74px;
+    padding: 10px;
+  }
+
+  .v-app .settings-category-tabs button > .settings-tab-mark {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .v-app .settings-category-tabs button > span:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .v-app .settings-category-tabs button > small {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .v-app .integration-card .provider-details {
+    max-height: 65dvh;
+  }
+}
