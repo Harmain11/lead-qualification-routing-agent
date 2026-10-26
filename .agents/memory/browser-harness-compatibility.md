@@ -27,6 +27,12 @@ DOM-valued CDP wait expressions must be converted to booleans.
 
 **How to apply:** Return primitive values from browser evaluations used for polling.
 
+Programmatic focus does not reliably reproduce React hover-only menus in the browser smoke harness.
+
+**Why:** A focus-based flyout check failed to open the actual pointer-driven menu, while dispatching a bubbling `mouseover` event exercised the intended handler.
+
+**How to apply:** Use a bubbling mouse event or real CDP pointer movement when validating hover-driven menus; then assert the rendered bounds and hit area.
+
 An open dropdown in the DOM does not prove that users can see or click its options.
 
 **Why:** Navigation checks passed while the sidebar's scrolling container clipped its flyout.
