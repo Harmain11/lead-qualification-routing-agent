@@ -99,40 +99,72 @@ try {
   await cdp("Emulation.setDeviceMetricsOverride", { width: 900, height: 480, deviceScaleFactor: 1, mobile: false });
   await pause(160);
   await evaluate(`(() => {
-    const nav = document.querySelector(".side-rail > nav");
+    const style = document.createElement("style");
+    style.dataset.smokeDesktopHover = "";
+    style.textContent = '@media (hover: none) { .v-flyout[aria-label="Settings sections"] { display: grid !important; } }';
+    document.head.append(style);
+  })()`);
+  const settingsNavScrollTop = await evaluate(`(() => {
+    const nav = document.querySelector(".v-sidebar-nav");
+    const previous = nav?.scrollTop ?? 0;
     if (nav) nav.scrollTop = nav.scrollHeight;
+    return previous;
   })()`);
   await pause(150);
-  await evaluate(`document.querySelector('.navigation-menu-item[data-navigation-id="settings"] .navigation-menu-disclosure')?.click()`);
-  await wait(`(() => { const flyout = document.querySelector('.navigation-menu-flyout[data-navigation-owner="settings"]'); return Boolean(flyout && !flyout.hidden && flyout.getBoundingClientRect().height > 0); })()`);
+  const settingsTriggerPoint = JSON.parse(await evaluate(`JSON.stringify((() => {
+    const link = [...document.querySelectorAll(".v-sidebar-nav .v-navitem")]
+      .find(item => item.querySelector(".v-navitem-label")?.textContent.trim() === "Settings");
+    const rect = link?.getBoundingClientRect();
+    return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+  })())`));
+  assert.ok(settingsTriggerPoint, "Settings should be visible in the sidebar.");
+  await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...settingsTriggerPoint });
+  await wait(`Boolean(document.querySelector('.v-flyout[aria-label="Settings sections"]'))`);
+  await pause(250);
   const settingsFlyoutDiagnostic = await evaluate(`JSON.stringify((() => {
-    const item = document.querySelector('.navigation-menu-item[data-navigation-id="settings"]');
-    const trigger = item?.querySelector(".navigation-menu-trigger");
-    const flyout = document.querySelector('.navigation-menu-flyout[data-navigation-owner="settings"]');
+    const trigger = [...document.querySelectorAll(".v-sidebar-nav .v-navitem")]
+      .find(item => item.querySelector(".v-navitem-label")?.textContent.trim() === "Settings");
+    const sidebar = document.querySelector(".v-sidebar");
+    const flyout = document.querySelector('.v-flyout[aria-label="Settings sections"]');
     const rect = element => {
       const value = element?.getBoundingClientRect();
       return value ? { top: value.top, right: value.right, bottom: value.bottom, left: value.left, width: value.width, height: value.height } : null;
     };
-    const style = flyout ? getComputedStyle(flyout) : null;
     return {
       viewport: [window.innerWidth, window.innerHeight],
-      navScroll: document.querySelector(".side-rail > nav")?.scrollTop,
-      item: rect(item),
+      clientWidth: document.documentElement.clientWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      hoverAvailable: window.matchMedia("(hover: hover)").matches,
+      touchOnly: window.matchMedia("(hover: none)").matches,
+      navScroll: document.querySelector(".v-sidebar-nav")?.scrollTop,
+      sidebar: rect(sidebar),
       trigger: rect(trigger),
       flyout: rect(flyout),
-      flyoutStyle: flyout?.getAttribute("style"),
-      position: style?.position,
-      top: style?.top,
-      bottom: style?.bottom,
-      scrollHeight: flyout?.scrollHeight,
-      clientHeight: flyout?.clientHeight,
-      owner: flyout?.dataset.navigationOwner
+      flyoutDisplay: flyout ? getComputedStyle(flyout).display : null,
+      children: [...(flyout?.querySelectorAll(".v-flyout-item") ?? [])].map(item => item.textContent.trim())
     };
   })())`);
   console.log("Settings flyout diagnostic:", settingsFlyoutDiagnostic);
-  await capture("settings-flyout-debug");
+  const settingsFlyoutLayout = JSON.parse(settingsFlyoutDiagnostic);
+  const expectedSettingsTop = Math.max(
+    12,
+    Math.min(settingsFlyoutLayout.trigger.top - 6, settingsFlyoutLayout.viewport[1] - settingsFlyoutLayout.flyout.height - 12),
+  );
+  assert.deepEqual(settingsFlyoutLayout.children, ["Company", "User"], "Settings should show the Company and User sections.");
+  assert.ok(Math.abs(settingsFlyoutLayout.flyout.top - expectedSettingsTop) < 1, "Settings flyout should align with its row and clamp using its measured height.");
+  const sidebarGap = settingsFlyoutLayout.flyout.left - settingsFlyoutLayout.sidebar.right;
+  assert.ok(sidebarGap >= 7 && sidebarGap <= 18, "Settings flyout should sit beside the sidebar with a clear gap.");
+  assert.ok(settingsFlyoutLayout.flyout.bottom <= settingsFlyoutLayout.viewport[1] - 11, "Settings flyout should remain inside the viewport.");
+  assert.ok(settingsFlyoutLayout.flyout.right <= settingsFlyoutLayout.viewport[0] - 11, "Settings flyout should not cause horizontal overflow.");
+  assert.ok(settingsFlyoutLayout.flyout.left >= settingsFlyoutLayout.sidebar.right + 7, "Settings flyout should not overlap the sidebar.");
+  assert.ok(settingsFlyoutLayout.documentWidth <= settingsFlyoutLayout.clientWidth + 1, "Settings flyout should not create horizontal page scrolling.");
+  await capture("settings-flyout-900x480");
   await evaluate(`document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))`);
-  await pause(160);
+  await wait(`!document.querySelector('.v-flyout[aria-label="Settings sections"]')`);
+  await evaluate(`document.querySelector("style[data-smoke-desktop-hover]")?.remove()`);
+  await evaluate(`(() => { const nav = document.querySelector(".v-sidebar-nav"); if (nav) nav.scrollTop = ${settingsNavScrollTop}; })()`);
+  await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 700, y: 100 });
+  await pause(220);
   await cdp("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await pause(200);
   await capture("start");
@@ -142,6 +174,38 @@ try {
   await wait(`Boolean(document.querySelector(".corral-workspace-chat"))`);
   const initialScope = await evaluate(`JSON.stringify([...document.querySelectorAll(".v-agent-scope button")].map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]))`);
   assert.deepEqual(JSON.parse(initialScope), [["Lead", "false"], ["Workspace", "true"]]);
+  const agentConversationToastMessages = await evaluate(`(async () => {
+    const api = await import("/src/api.ts");
+    const originalFetch = window.fetch;
+    const messages = [];
+    const listener = event => {
+      if (event.detail?.message === "Changes saved successfully.") messages.push(event.detail.message);
+    };
+    window.addEventListener("corral:activity", listener);
+    window.fetch = async (_url, options = {}) => {
+      const method = String(options.method || "GET").toUpperCase();
+      if (method === "DELETE") return new Response(null, { status: 204 });
+      const body = method === "POST"
+        ? { id: "toast-smoke", title: "Smoke conversation", messages: [] }
+        : { id: "toast-smoke", title: "Smoke conversation", message_count: 1 };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    try {
+      await api.createWorkspaceAgentConversation();
+      await api.saveWorkspaceAgentConversation("toast-smoke", []);
+      await api.deleteWorkspaceAgentConversation("toast-smoke");
+      await api.request("/v1/smoke/toast", { method: "POST" });
+      return JSON.stringify(messages);
+    } finally {
+      window.fetch = originalFetch;
+      window.removeEventListener("corral:activity", listener);
+    }
+  })()`);
+  assert.deepEqual(
+    JSON.parse(agentConversationToastMessages),
+    ["Changes saved successfully."],
+    "Corral conversation autosaves should stay quiet while normal explicit mutations keep their success toast.",
+  );
   await capture("agent-workspace");
   const workspaceCapabilityCopy = JSON.parse(await evaluate(`JSON.stringify({
     knowledge: document.querySelector('[aria-label="Workspace document source status"]')?.innerText ?? "",
