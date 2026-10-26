@@ -1,5 +1,4 @@
 import { useState } from "react";
-import "./OpenAIUsagePanel.css";
 
 const periods = [
   { value: "weekly", label: "Weekly", days: 7 },

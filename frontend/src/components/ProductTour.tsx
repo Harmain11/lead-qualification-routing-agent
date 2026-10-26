@@ -1,7 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import "./ProductTour.css";
 
 export type TourView =
   | "dashboard"
@@ -9,6 +8,8 @@ export type TourView =
   | "email"
   | "contacts"
   | "pipeline"
+  | "revenue"
+  | "performance"
   | "agents"
   | "review"
   | "integrations"

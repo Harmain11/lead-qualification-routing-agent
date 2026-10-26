@@ -64,8 +64,9 @@ def make_lead(**overrides: object) -> NormalizedLead:
 
 
 def test_shared_assistant_prompts_are_compact_and_keep_safety_rules() -> None:
-    assert len(LEAD_ASSISTANT_SYSTEM_PROMPT) < 2200
-    assert len(WORKSPACE_ASSISTANT_SYSTEM_PROMPT) < 3600
+    # Current context-correction, note and approval rules must not be truncated.
+    assert len(LEAD_ASSISTANT_SYSTEM_PROMPT) < 3500
+    assert len(WORKSPACE_ASSISTANT_SYSTEM_PROMPT) < 8000
     assert "latest user message directly asks" in LEAD_ASSISTANT_SYSTEM_PROMPT
     assert "never starts a call" in LEAD_ASSISTANT_SYSTEM_PROMPT
     assert "bounded matches, not complete history" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT

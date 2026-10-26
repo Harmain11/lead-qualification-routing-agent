@@ -18,7 +18,6 @@ import {
 import type { GmailSendAccount, Lead } from "../types";
 import { createClientId } from "../clientIds";
 import { assistantConversation } from "../assistantConversation";
-import { AssistantMarkdown } from "./AssistantMarkdown";
 import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AssistantLeadDraft } from "./AssistantLeadDraft";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
@@ -768,9 +767,7 @@ export function WorkspaceAssistantChat({
           <div className="corral-workspace-message-group" key={message.id}>
             <article className={`corral-workspace-message is-${message.role}`}>
               <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
-              {message.role === "assistant"
-                ? <AssistantMarkdown content={message.content} />
-                : <p>{message.content}</p>}
+              <p>{message.content}</p>
               {Boolean(message.leadLinks?.length) && (
                 <div
                   className="corral-workspace-lead-links"

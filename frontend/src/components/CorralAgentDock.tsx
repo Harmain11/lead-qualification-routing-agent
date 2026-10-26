@@ -11,7 +11,8 @@ import type { Lead } from "../types";
 import type { LeadDetailSection } from "../leadSections";
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
 import { WorkspaceAssistantChat } from "./WorkspaceAssistantChat";
-import "./corralAgentDock.css";
+import { AGENT_STATE_EVENT, TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
+import { FeatureGuide } from "./FeatureGuide";
 
 type Props = {
   selectedLead: Lead | null;
@@ -51,6 +52,7 @@ export function CorralAgentDock({
   const [showLeadPicker, setShowLeadPicker] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [leadRefresh, setLeadRefresh] = useState(0);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -60,6 +62,7 @@ export function CorralAgentDock({
   const wasOpen = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
   const openingFrameRef = useRef<number | null>(null);
+  const openRef = useRef(false);
 
   const openAgent = useCallback(() => {
     if (closeTimerRef.current !== null) {
@@ -91,6 +94,42 @@ export function CorralAgentDock({
     }, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 320);
   }, []);
 
+  // The pane is opened from the top bar ("Ask Corral") or Ctrl/Cmd+J, and it
+  // announces its state so the layout can make room instead of covering content.
+  useEffect(() => {
+    const onToggle = (event: Event) => {
+      const wanted = (event as CustomEvent<{ open?: boolean }>).detail?.open;
+      const next = wanted ?? !openRef.current;
+      if (next) openAgent();
+      else closeAgent();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        if (openRef.current) closeAgent();
+        else openAgent();
+      }
+    };
+    window.addEventListener(TOGGLE_AGENT_EVENT, onToggle);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener(TOGGLE_AGENT_EVENT, onToggle);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [openAgent, closeAgent]);
+
+  useEffect(() => {
+    openRef.current = open;
+    window.dispatchEvent(new CustomEvent(AGENT_STATE_EVENT, { detail: { open } }));
+  }, [open]);
+
+  useEffect(
+    () => () => {
+      window.dispatchEvent(new CustomEvent(AGENT_STATE_EVENT, { detail: { open: false } }));
+    },
+    [],
+  );
+
   useEffect(() => {
     if (selectedLead) {
       setTargetLead(selectedLead);
@@ -107,7 +146,9 @@ export function CorralAgentDock({
 
   useEffect(() => {
     if (!panelVisible && wasOpen.current) {
-      launcherRef.current?.focus({ preventScroll: true });
+      // Return focus to whichever control opened the pane (the toolbar button).
+      const opener = document.querySelector<HTMLElement>("[data-ask-corral]:not([hidden])");
+      (opener ?? launcherRef.current)?.focus({ preventScroll: true });
       wasOpen.current = false;
     }
   }, [panelVisible]);
@@ -133,7 +174,7 @@ export function CorralAgentDock({
       { limit: 8, offset: 0, search: searchTerm || undefined },
       controller.signal,
     )
-      .then((response) => setLeads(response.items))
+      .then((response) => { if (!controller.signal.aborted) setLeads(response.items); })
       .catch((error) => {
         if (!controller.signal.aborted) {
           setLoadError(
@@ -145,7 +186,7 @@ export function CorralAgentDock({
         if (!controller.signal.aborted) setLoadingLeads(false);
       });
     return () => controller.abort();
-  }, [open, showLeadPicker, canViewLeads, searchTerm]);
+  }, [open, showLeadPicker, canViewLeads, searchTerm, leadRefresh]);
 
   useEffect(() => {
     if (!open) return;
@@ -193,65 +234,75 @@ export function CorralAgentDock({
         inert={!open}
         hidden={!panelVisible}
       >
-        <header className="corral-agent-window-header">
-          <div className="corral-agent-window-brand">
-            <span className="corral-agent-window-mark" aria-hidden="true">
-              CA
-            </span>
-            <div>
-              <strong>Corral Agent</strong>
-              <small>
-                {targetLead && !showLeadPicker
-                  ? `${targetLead.full_name}${targetLead.company_name ? ` · ${targetLead.company_name}` : ""}`
-                  : showLeadPicker
-                    ? "Select a lead for actions"
-                    : "Ask, generate, and work across Corral"}
-              </small>
-            </div>
+        <header className="v-agent-head">
+          <div className="v-agent-title">
+            <img src="/asset/brand/corral-mark.png" alt="" width="20" height="20" />
+            <strong>Ask Corral</strong>
+            <FeatureGuide topic="agent" />
           </div>
-          <div className="corral-agent-window-controls">
-            {targetLead && !showLeadPicker && (
-              <button
-                type="button"
-                className="corral-agent-change-lead"
-                onClick={() => {
-                  setTargetLead(null);
-                  setShowLeadPicker(false);
-                }}
-              >
-                General chat
-              </button>
-            )}
-            {canViewLeads && (
-              <button
-                type="button"
-                className="corral-agent-change-lead"
-                onClick={
-                  showLeadPicker
-                    ? () => setShowLeadPicker(false)
-                    : changeLead
-                }
-              >
-                {showLeadPicker
-                  ? targetLead
-                    ? "Back to lead"
-                    : "Back to chat"
-                  : targetLead
-                    ? "Change lead"
-                    : "Choose a lead"}
-              </button>
-            )}
+          <button
+            ref={closeButtonRef}
+            type="button"
+            className="v-iconbtn corral-agent-close"
+            aria-label="Close Ask Corral"
+            onClick={closeAgent}
+          >
+            <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          </button>
+        </header>
+        <div className="v-agent-context" role="group" aria-label="What Corral is working on">
+          <div className="v-agent-scope" role="radiogroup" aria-label="Conversation scope">
             <button
-              ref={closeButtonRef}
               type="button"
-              className="corral-agent-close"
-              aria-label="Collapse Corral Agent"
-              onClick={closeAgent}
+              role="radio"
+              aria-checked={Boolean(targetLead) || showLeadPicker}
+              disabled={!canViewLeads}
+              onClick={() => {
+                if (targetLead) setShowLeadPicker(false);
+                else if (selectedLead) {
+                  setTargetLead(selectedLead);
+                  setShowLeadPicker(false);
+                } else changeLead();
+              }}
             >
-              ×
+              Lead
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!targetLead && !showLeadPicker}
+              onClick={() => {
+                setTargetLead(null);
+                setShowLeadPicker(false);
+              }}
+            >
+              Workspace
             </button>
           </div>
-        </header>
+          <p className="v-agent-subject">
+            {targetLead && !showLeadPicker ? (
+              <>
+                <b>{targetLead.company_name || targetLead.full_name}</b>
+                <span>{targetLead.full_name}</span>
+              </>
+            ) : showLeadPicker ? (
+              <span>Choose the lead Corral should work on</span>
+            ) : (
+              <span>Questions and tasks across this workspace</span>
+            )}
+          </p>
+          {canViewLeads && (targetLead || showLeadPicker) && (
+            <button
+              type="button"
+              className="v-btn corral-agent-change-lead"
+              data-kind="plain"
+              data-size="sm"
+              onClick={showLeadPicker ? () => setShowLeadPicker(false) : changeLead}
+            >
+              {showLeadPicker ? (targetLead ? "Back to lead" : "Cancel") : "Change"}
+            </button>
+          )}
+        </div>
 
         <div className="corral-agent-window-body">
           <div
@@ -276,7 +327,7 @@ export function CorralAgentDock({
               canUseAgent
               dialerPhoneConnectionId={dialerPhoneConnectionId}
               onNavigateToDialer={onNavigateToDialer}
-              onOpenLead={(leadId) => onOpenLeadSection(leadId, "overview")}
+              onOpenLead={onInspectLead}
               onUpdated={(updated) => {
                 setTargetLead(updated);
                 onUpdated(updated);
@@ -294,9 +345,7 @@ export function CorralAgentDock({
           )}
           {showLeadPicker && (
             <div className="corral-agent-start">
-              <div className="corral-agent-start-icon" aria-hidden="true">
-                CA
-              </div>
+              <img className="corral-agent-start-icon" src="/asset/brand/corral-mark.png" alt="" width="40" height="40" />
               <h2>What can I help with?</h2>
               <p>
                 Choose a lead to get help with qualification, routing, notes,
@@ -377,7 +426,7 @@ export function CorralAgentDock({
               <button
                 type="button"
                 className="corral-agent-refresh"
-                onClick={() => void onRefresh()}
+                onClick={() => { setLeadRefresh((value) => value + 1); void onRefresh(); }}
               >
                 Refresh workspace data
               </button>
@@ -390,7 +439,7 @@ export function CorralAgentDock({
         ref={launcherRef}
         type="button"
         className={`corral-agent-launcher${open ? " is-open" : ""}`}
-        hidden={panelVisible}
+        hidden
         aria-expanded={open}
         aria-controls="corral-agent-window"
         onClick={openAgent}

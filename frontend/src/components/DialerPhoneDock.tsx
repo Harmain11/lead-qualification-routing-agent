@@ -1,44 +1,19 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type AircallWorkspace from "aircall-everywhere";
+import { CLOUDTALK_ORIGIN, PHONE_CALL_ENDED, cloudTalkEvents, readCloudTalkEvent } from "./phoneBridge";
 import {
   isDialerPhoneAvailable,
   ringCentralEmbedClientId,
   type DialerPhoneConnection,
 } from "./dialerPhoneConfig";
-import "./DialerPhoneDock.css";
 
-const cloudTalkPhoneOrigin = "https://phone.cloudtalk.io";
+const cloudTalkPhoneOrigin = CLOUDTALK_ORIGIN;
 const providerLabels: Record<string, string> = {
   cloudtalk: "CloudTalk",
   aircall: "Aircall",
   ringcentral: "RingCentral",
 };
 
-const cloudTalkEventMessages: Record<
-  string,
-  { label: string; active?: boolean }
-> = {
-  ringing: { label: "A CloudTalk call is ringing.", active: true },
-  dialing: { label: "CloudTalk is dialing.", active: true },
-  calling: { label: "CloudTalk call connected.", active: true },
-  hangup: { label: "Ending the CloudTalk call…", active: true },
-  ended: { label: "CloudTalk call ended.", active: false },
-  contact_info: { label: "CloudTalk contact details updated." },
-};
-
-function readCloudTalkEventName(data: unknown): string | null {
-  let payload = data;
-  if (typeof payload === "string") {
-    try {
-      payload = JSON.parse(payload) as unknown;
-    } catch {
-      return null;
-    }
-  }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const name = (payload as { event?: unknown }).event;
-  return typeof name === "string" ? name : null;
-}
 
 type BrowserAlertPermission = NotificationPermission | "unsupported";
 
@@ -86,14 +61,17 @@ function CloudTalkPhoneFrame({
       ) {
         return;
       }
-      const name = readCloudTalkEventName(event.data);
+      const name = readCloudTalkEvent(event, frame?.contentWindow);
       if (!name) return;
-      const update = cloudTalkEventMessages[name];
+      const update = cloudTalkEvents[name];
       if (!update) return;
       setStatus(update.label);
       if (typeof update.active === "boolean") onCallActiveChange(update.active);
       if (name === "ringing") onIncomingCall();
-      if (name === "ended" || name === "hangup") onCallEnded();
+      if (name === "ended") {
+        onCallEnded();
+        window.dispatchEvent(new Event(PHONE_CALL_ENDED));
+      }
     }
 
     window.addEventListener("message", handleMessage);
@@ -143,7 +121,7 @@ function AircallPhoneFrame({
     void import("aircall-everywhere")
       .then(({ default: AircallWorkspaceRuntime }) => {
         if (cancelled) return;
-        workspace = new AircallWorkspaceRuntime({
+        const loadedWorkspace = new AircallWorkspaceRuntime({
           domToLoadWorkspace: `#${mountId}`,
           size: "auto",
           debug: false,
@@ -153,11 +131,15 @@ function AircallPhoneFrame({
             onCallActiveChange(false);
           },
         });
+        workspace = loadedWorkspace;
         for (const event of events.slice(0, 3)) {
-          workspace.on(event, () => onCallActiveChange(true));
+          loadedWorkspace.on(event, () => onCallActiveChange(true));
         }
         for (const event of events.slice(3)) {
-          workspace.on(event, () => onCallActiveChange(false));
+          loadedWorkspace.on(event, () => {
+            onCallActiveChange(false);
+            window.dispatchEvent(new CustomEvent(PHONE_CALL_ENDED));
+          });
         }
       })
       .catch(() =>

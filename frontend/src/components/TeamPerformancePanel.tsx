@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import type { RepAnalytics, TeamMemberPerformance } from "../types";
-import "./teamPerformance.css";
 
 const money = (value: number) => new Intl.NumberFormat(undefined, {
   style: "currency", currency: "USD", maximumFractionDigits: 2,

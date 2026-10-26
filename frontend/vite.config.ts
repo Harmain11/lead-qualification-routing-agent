@@ -19,9 +19,9 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       headers: {
         "Permissions-Policy":
-          'camera=(), microphone=(self "https://phone.cloudtalk.io"), geolocation=()',
+          'camera=(), microphone=(self "https://phone.cloudtalk.io" "https://workspace.aircall.io" "https://apps.ringcentral.com"), geolocation=()',
         "Content-Security-Policy":
-          "frame-src 'self' https://phone.cloudtalk.io; frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+          "frame-src 'self' https://phone.cloudtalk.io https://workspace.aircall.io https://apps.ringcentral.com; frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
       },
       proxy: {
         "/v1": apiProxyTarget,

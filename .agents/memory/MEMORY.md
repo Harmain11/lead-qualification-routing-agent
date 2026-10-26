@@ -41,3 +41,4 @@
 - [Corral Agent scope and approvals](corral-agent-scope.md) — Main workspace for agentic, in-chat work; generalize workflows, preserve approval gates, and show lead buttons only on request.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
+- [Completed source bundles](source-bundle-integration.md) — Integrate supplied complete workflows, not reduced substitutes; preserve newer behavior from the current app.

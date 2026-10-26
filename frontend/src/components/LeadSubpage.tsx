@@ -4,11 +4,13 @@ import { LeadRowIdentity } from "./LeadRowIdentity";
 
 export const leadSubpageCopy: Record<LeadDetailSection, { title: string; description: string }> = {
   overview: { title: "Lead overview", description: "Search and manage your workspace’s leads, then open a lead to inspect its complete record." },
+  deal: { title: "Deal room", description: "Open a lead to price it, log negotiation and agree service levels." },
+  calls: { title: "Calls", description: "Open a lead to call it and review its call history." },
   agent: { title: "Ask Corral", description: "Choose a lead to ask questions, add context, update details, or start a lead action with Corral." },
   ai: { title: "AI & qualification", description: "Review recorded qualification scores and classifications. Open a lead’s AI assessment to inspect its evidence and reasoning." },
   "follow-ups": { title: "Follow-ups & meetings", description: "Choose a lead to manage its email follow-ups, meeting requests and scheduling." },
   email: { title: "Lead email threads", description: "Open a lead to review its Gmail conversation or compose a message from a connected mailbox." },
-  closing: { title: "Status", description: "Review a lead’s sales status, comments and commercial outcomes. Open a lead to record a status update or add a regular comment." },
+  closing: { title: "Comments & closing", description: "Review commercial outcomes and credited members. Open a lead to add comments or record a Project or Sale." },
   history: { title: "Lead history", description: "Review intake and delivery status, then open a lead’s full processing and interaction history." },
 };
 const readable = (value?: string | null) => value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Not recorded";

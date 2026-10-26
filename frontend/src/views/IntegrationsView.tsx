@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
+import { FeatureGuide } from "../components/FeatureGuide";
 import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
@@ -59,18 +60,6 @@ function syncRunMessage(run: CrmInboundSyncRun) {
 function syncRunKind(run: CrmInboundSyncRun): "success" | "error" | "cancelled" {
   if (run.status === "cancelled") return "cancelled";
   return run.status === "completed" ? "success" : "error";
-}
-
-function syncIntervalLabel(seconds: number) {
-  if (seconds % 3600 === 0) {
-    const hours = seconds / 3600;
-    return `${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  if (seconds % 60 === 0) {
-    const minutes = seconds / 60;
-    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  }
-  return `${seconds} seconds`;
 }
 
 function ProviderDetailsPanel({
@@ -1140,7 +1129,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
   return <div className={`page-view operational-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
-    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Workspace-scoped connections, explicit permissions and secret-safe handoffs make every external action controlled and inspectable.</p></div></header>
+    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Connect the accounts your team uses for email, calling, CRM and AI.</p></div><FeatureGuide topic="integrations" /></header>
     {activeGmailSyncs.map(({ connection, state, feedback }) => <section className="gmail-sync-active-banner" key={connection.id} role="status" aria-live="polite">
       <span className="gmail-sync-active-indicator" aria-hidden="true" />
       <div><span className="eyebrow">Gmail · AI review active</span><strong>{state?.status === "cancel_requested" ? "Stopping Gmail sync" : "Sync is still running"}</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
@@ -1258,7 +1247,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
            </IntegrationDisclosure>
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
-          {reasoningProvider && connection?.credential_state === "invalid" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message} Replace the saved API key, then test the connection again.</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}
             canConnect={canConnectProvider}
@@ -1453,7 +1441,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         {!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified" && <div className="integration-guide">
           <span className="eyebrow">{mailDirection ? "Automatic inbound email acquisition" : "Inbound CRM synchronization"}</span>
           <strong>{syncState?.enabled ? "Enabled · automatic inbound" : "Disabled"}</strong>
-          {syncState?.enabled && <p>Automatically checks every {syncIntervalLabel(syncState.sync_interval_seconds)}, even when Corral is closed. New records appear without pressing Sync now.</p>}
+          {syncState?.enabled && <p>Automatically checks every {syncState.sync_interval_seconds} seconds, even when Corral is closed. New records appear without pressing Sync now.</p>}
           <p>{syncState?.last_successful_sync_at ? `Last synced ${new Date(syncState.last_successful_sync_at).toLocaleString()} · ${syncState.records_processed.toLocaleString()} records processed.` : "No provider records have been imported yet."}</p>
           {mailDirection && <p>{syncState?.next_sync_at ? `Next sync ${new Date(syncState.next_sync_at).toLocaleString()}.` : `Status: ${syncState?.status ?? "not configured"}.`}{syncState?.status && ` Latest result: ${syncState.status.replaceAll("_", " ")}.`}</p>}
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
@@ -1464,7 +1452,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                 <label htmlFor={`review-limit-${connection.id}`}>Messages to scan
                   <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
                 </label>
-                 <p>AI reviews unreviewed messages from the last 30 days and adds matches to the right lead. Each conversation is analyzed once; new replies are rechecked with full thread context. Choose 1–5,000 messages.</p>
+                <p>AI reviews recent messages from the last 30 days and adds matches to the right lead. Choose 1–5,000 messages.</p>
                 <div className="gmail-sync-buttons">
                   <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
                     {syncingProvider === card.provider ? "Syncing with AI…" : "Sync Gmail with AI"}

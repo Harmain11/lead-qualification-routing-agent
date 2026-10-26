@@ -181,10 +181,12 @@ def test_strict_consent_and_policy_version(ops):
         },
     )
     assert response.status_code == 200
-    assert response.json()["configuration"]["business_profile"] == business_profile
+    assert response.json()["configuration"]["business_profile"] == {
+        **business_profile, "email_signature": "",
+    }
     assert (
         client.get("/v1/ops/policy").json()["configuration"]["business_profile"]
-        == business_profile
+        == {**business_profile, "email_signature": ""}
     )
     assert client.put("/v1/ops/policy", json={"version": 0, "configuration": {}}).status_code == 409
     with pytest.raises(OutreachBlocked, match="Record permission"):

@@ -590,7 +590,7 @@ export function updateLeadApprovalPolicy(
 
 export function listGmailMailboxMessages(
   connectionId: string,
-  folder: "inbox" | "sent" | "all" | "spam" | "trash" | "archive" = "inbox",
+  folder: "inbox" | "sent" | "all" | "drafts" | "spam" | "trash" | "archive" = "inbox",
   query = "",
   pageToken?: string | null,
   signal?: AbortSignal,
