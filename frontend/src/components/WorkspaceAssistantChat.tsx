@@ -786,7 +786,6 @@ export function WorkspaceAssistantChat({
               <section className="corral-workspace-status-card" aria-label="Workspace document source status">
                 <div className="corral-workspace-status-heading">
                   <strong>Workspace documents</strong>
-                  <span className="corral-workspace-status-badge">Not connected</span>
                 </div>
                 <p>
                   Corral can cite connected workspace documents only. None are
@@ -797,15 +796,6 @@ export function WorkspaceAssistantChat({
               <section className="corral-workspace-status-card" aria-label="Approval and audit guidance">
                 <div className="corral-workspace-status-heading">
                   <strong>Review and audit</strong>
-                  {permissions.has("agents.view") && (
-                    <button
-                      className="secondary-button corral-workspace-status-link"
-                      type="button"
-                      onClick={() => onNavigate("agents")}
-                    >
-                      Open AI Activity
-                    </button>
-                  )}
                 </div>
                 <p>
                   Proposed changes stay in this saved conversation until you
