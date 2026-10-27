@@ -14,7 +14,6 @@
 @import "../components/leadAssistant.css" layer(legacy);
 @import "../components/corralAgentDock.css" layer(legacy);
 @import "../components/workspaceSwitcher.css" layer(legacy);
-@import "../components/ProductTour.css" layer(legacy);
 @import "../components/DialerPhoneDock.css" layer(legacy);
 @import "../components/pinnedLeadNavigation.css" layer(legacy);
 @import "../components/leadOutcomes.css" layer(legacy);
