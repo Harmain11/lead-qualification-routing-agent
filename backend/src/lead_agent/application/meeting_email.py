@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -254,16 +255,37 @@ def _offer_email(
         if contact_zone is None
         else ""
     )
+    reply_instruction = (
+        "Reply with 1 to confirm. "
+        if len(slots) == 1
+        else "Reply with the option number (for example, 2) to confirm. "
+    )
     body = (
         f"Hi {first_name},\n\n"
         f"{introduction}{timezone_note}\n\n"
         f"{options}\n\n"
-        "Reply with the option number (for example, 2) to confirm. "
+        f"{reply_instruction}"
         f"We’ll add the meeting to {provider_name} and send you a calendar invitation. "
         "If none of these times work, reply “none” and Corral will flag it for your team.\n\n"
         "Best,\nThe team"
     )
     return subject, body
+
+
+def manual_selected_slot_body_is_intact(details: dict[str, Any], body: str) -> bool:
+    """Require the selected slot to remain the only numbered offer before sending."""
+    if not details.get("manual_selected_slot"):
+        return True
+    options = details.get("options")
+    if not isinstance(options, list) or len(options) != 1 or not isinstance(options[0], dict):
+        return False
+    expected = _format_slot(1, options[0]).casefold()
+    numbered_lines = [
+        line.strip().casefold()
+        for line in body.splitlines()
+        if re.match(r"^\s*\d+[.)]\s+", line)
+    ]
+    return numbered_lines == [expected]
 
 
 def _calendar_options(
@@ -501,6 +523,40 @@ def _attempt_requested_time_booking(
     return False
 
 
+def _notify_meeting_draft(
+    session: Session,
+    *,
+    workspace_id: UUID,
+    lead: LeadORM,
+) -> None:
+    decision = session.scalar(
+        select(RoutingDecisionORM)
+        .where(
+            RoutingDecisionORM.lead_id == lead.id,
+            RoutingDecisionORM.workspace_id == workspace_id,
+            RoutingDecisionORM.is_current.is_(True),
+        )
+        .order_by(RoutingDecisionORM.created_at.desc())
+    )
+    if decision is None or not decision.assigned_rep_id:
+        return
+    try:
+        recipient_user_id = UUID(decision.assigned_rep_id)
+    except ValueError:
+        return
+    notify_lead_action(
+        session,
+        workspace_id=workspace_id,
+        lead_id=lead.id,
+        recipient_user_id=recipient_user_id,
+        kind="meeting_reply_draft",
+        message=(
+            f"{lead.full_name} asked to meet. Review the prepared email "
+            "in this lead’s Emails tab and send it when ready."
+        ),
+    )
+
+
 def _send_options(
     session: Session,
     lead: LeadORM,
@@ -595,34 +651,233 @@ def _send_options(
     session.add(offer)
     session.add(draft)
 
-    decision = session.scalar(
-        select(RoutingDecisionORM)
-        .where(
-            RoutingDecisionORM.lead_id == lead.id,
-            RoutingDecisionORM.workspace_id == workspace_id,
-            RoutingDecisionORM.is_current.is_(True),
-        )
-        .order_by(RoutingDecisionORM.created_at.desc())
-    )
-    if decision is not None and decision.assigned_rep_id:
-        try:
-            recipient_user_id = UUID(decision.assigned_rep_id)
-        except ValueError:
-            recipient_user_id = None
-        if recipient_user_id is not None:
-            notify_lead_action(
-                session,
-                workspace_id=workspace_id,
-                lead_id=lead.id,
-                recipient_user_id=recipient_user_id,
-                kind="meeting_reply_draft",
-                message=(
-                    f"{lead.full_name} asked to meet. Review the prepared email "
-                    "in this lead’s Follow-up tab and send it when ready."
-                ),
-            )
+    _notify_meeting_draft(session, workspace_id=workspace_id, lead=lead)
     session.commit()
     return "draft_created"
+
+
+def _slot_identity(slot: dict[str, Any]) -> tuple[str, ...]:
+    start_at = _parse_datetime(slot.get("start_at"))
+    end_at = _parse_datetime(slot.get("end_at"))
+    return (
+        str(slot.get("provider") or ""),
+        str(slot.get("connection_id") or ""),
+        str(slot.get("source_message_id") or ""),
+        str(slot.get("source_gmail_connection_id") or ""),
+        start_at.astimezone(UTC).isoformat() if start_at else "",
+        end_at.astimezone(UTC).isoformat() if end_at else "",
+        str(slot.get("time_zone") or ""),
+        str(slot.get("event_type_uri") or ""),
+    )
+
+
+def create_selected_slot_offer_draft(
+    session: Session,
+    *,
+    lead: LeadORM,
+    workspace_id: UUID,
+    slot: dict[str, Any],
+) -> LeadFollowUpEmailORM:
+    """Save one freshly selected calendar slot as a human-reviewed email offer."""
+    if not lead.email or not lead.email.strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Add an email address to this lead before preparing meeting options.",
+        )
+    gmail_connection_id = str(slot.get("source_gmail_connection_id") or "")
+    if not gmail_connection_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Reconnect the Gmail mailbox used for this meeting conversation.",
+        )
+    try:
+        gmail_id = UUID(gmail_connection_id)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=409,
+            detail="Reconnect the Gmail mailbox used for this meeting conversation.",
+        ) from error
+    gmail_connection = session.scalar(
+        select(ProviderConnectionORM).where(
+            ProviderConnectionORM.id == gmail_id,
+            ProviderConnectionORM.workspace_id == workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+    )
+    if gmail_connection is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Reconnect the Gmail mailbox used for this meeting conversation.",
+        )
+
+    source = find_meeting_request(
+        session,
+        lead,
+        workspace_id,
+        gmail_connection_id=gmail_connection_id,
+    )
+    if (
+        source is None
+        or source.get("message_id") != str(slot.get("source_message_id") or "")
+        or source.get("gmail_connection_id") != gmail_connection_id
+        or not source.get("thread_id")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The conversation changed. Refresh meeting recommendations before creating a draft.",
+        )
+    sent_at = _parse_datetime(source.get("sent_at"))
+    now = datetime.now(UTC)
+    if (
+        sent_at is None
+        or sent_at < now - _MAX_REQUEST_AGE
+        or sent_at > now + timedelta(minutes=5)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This meeting request is no longer current. Refresh the conversation first.",
+        )
+    try:
+        assert_outreach_allowed(session, workspace_id, lead.email)
+    except OutreachBlocked as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+    provider = str(slot.get("provider") or "")
+    if provider not in {"google_calendar", "calendly"}:
+        raise HTTPException(status_code=422, detail="Select a supported calendar provider.")
+    calendar_connection_id = str(slot.get("connection_id") or "")
+    if not calendar_connection_id:
+        raise HTTPException(status_code=422, detail="The selected calendar is unavailable.")
+    options = [slot]
+    subject, body = _offer_email(lead, source, provider, options)
+    existing = _thread_offer(
+        session,
+        workspace_id,
+        lead.id,
+        str(source["thread_id"]),
+        gmail_connection_id,
+    )
+    if existing is not None:
+        details = existing.details if isinstance(existing.details, dict) else {}
+        same_source = details.get("source_message_id") == source["message_id"]
+        if same_source and existing.status in {_OFFER_AWAITING_SEND, "needs_attention"}:
+            try:
+                draft_id = UUID(str(details.get("email_draft_id") or ""))
+            except ValueError:
+                draft_id = None
+            draft = (
+                session.scalar(
+                    select(LeadFollowUpEmailORM).where(
+                        LeadFollowUpEmailORM.id == draft_id,
+                        LeadFollowUpEmailORM.workspace_id == workspace_id,
+                        LeadFollowUpEmailORM.lead_id == lead.id,
+                    )
+                )
+                if draft_id is not None
+                else None
+            )
+            existing_options = details.get("options")
+            if (
+                draft is not None
+                and draft.status == "draft"
+                and isinstance(existing_options, list)
+                and len(existing_options) == 1
+                and isinstance(existing_options[0], dict)
+                and _slot_identity(existing_options[0]) == _slot_identity(slot)
+            ):
+                return draft
+            old_provider = str(details.get("calendar_provider") or "")
+            if draft is not None and draft.status == "draft" and isinstance(existing_options, list):
+                old_subject, old_body = _offer_email(
+                    lead,
+                    source,
+                    old_provider,
+                    [option for option in existing_options if isinstance(option, dict)],
+                )
+                if draft.subject != old_subject or draft.body != old_body:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "The existing meeting email has been edited. Open it in the "
+                            "Emails tab; no draft changes were made."
+                        ),
+                    )
+                draft.subject = subject
+                draft.body = body
+                draft.updated_at = now
+                existing.status = _OFFER_AWAITING_SEND
+                existing.details = {
+                    **details,
+                    "calendar_provider": provider,
+                    "calendar_connection_id": calendar_connection_id,
+                    "options": options,
+                    "manual_selected_slot": True,
+                    "error_code": "",
+                    "error_message": "",
+                }
+                session.add(existing)
+                session.add(draft)
+                _notify_meeting_draft(session, workspace_id=workspace_id, lead=lead)
+                session.commit()
+                return draft
+            raise HTTPException(
+                status_code=409,
+                detail="A meeting email is already being prepared for this request. Review it in the Emails tab.",
+            )
+        if same_source and existing.status != "superseded":
+            raise HTTPException(
+                status_code=409,
+                detail="A meeting offer for this request has already been sent or resolved.",
+            )
+        if not same_source and existing.status not in {"superseded", "booked"}:
+            existing.status = "superseded"
+            existing.details = {**details, "closed_reason": "newer_meeting_request"}
+
+    offer = PipelineEventORM(
+        id=uuid4(),
+        workspace_id=workspace_id,
+        lead_id=lead.id,
+        stage=_OFFER_STAGE,
+        status=_OFFER_AWAITING_SEND,
+        details={
+            "thread_id": source["thread_id"],
+            "source_message_id": source["message_id"],
+            "source_subject": source.get("subject", ""),
+            "source_rfc_message_id": source.get("rfc_message_id", ""),
+            "gmail_connection_id": gmail_connection_id,
+            "calendar_provider": provider,
+            "calendar_connection_id": calendar_connection_id,
+            "options": options,
+            "manual_selected_slot": True,
+            "created_at": now.isoformat(),
+        },
+        created_at=now,
+    )
+    draft = LeadFollowUpEmailORM(
+        id=uuid4(),
+        workspace_id=workspace_id,
+        lead_id=lead.id,
+        provider_connection_id=gmail_connection.id,
+        kind=f"meeting_options:{offer.id}",
+        recipient=lead.email.strip(),
+        subject=subject,
+        body=body,
+        rationale="Selected meeting time prepared for human review before sending.",
+        generation_method="meeting_request",
+        generation_note="Manually selected calendar slot.",
+        status="draft",
+        attempts=0,
+        created_at=now,
+        updated_at=now,
+    )
+    offer.details = {**offer.details, "email_draft_id": str(draft.id)}
+    session.add(offer)
+    session.add(draft)
+    _notify_meeting_draft(session, workspace_id=workspace_id, lead=lead)
+    session.commit()
+    return draft
 
 
 def _book_selected_option(

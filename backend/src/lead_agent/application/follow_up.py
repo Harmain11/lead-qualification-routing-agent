@@ -17,6 +17,7 @@ from lead_agent.application.governance import (
     assert_outreach_allowed,
     operations_policy,
 )
+from lead_agent.application.meeting_email import manual_selected_slot_body_is_intact
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.db.models import (
@@ -330,6 +331,11 @@ def send_approved_follow_up(
         offer_details = (
             meeting_offer.details if isinstance(meeting_offer.details, dict) else {}
         )
+        if not manual_selected_slot_body_is_intact(offer_details, row.body or ""):
+            raise FollowUpNotEligible(
+                "Keep the selected time as the only numbered option so the lead’s reply "
+                "can book the correct slot."
+            )
         try:
             source_connection_id = UUID(
                 str(offer_details.get("gmail_connection_id") or row.provider_connection_id)
