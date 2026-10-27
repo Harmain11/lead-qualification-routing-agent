@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import "./ProductTour.css";
 
 
 export type TourView =
@@ -377,7 +378,7 @@ export function ProductTour({
           style={cardPosition ? { top: cardPosition.top, left: cardPosition.left } : undefined}
         >
           <div className="ct-tour-topline">
-            <div className="ct-tour-brand"><span className="ct-tour-mark" aria-hidden="true" />CORRAL <span aria-hidden="true">/</span> WORKSPACE TOUR</div>
+            <div className="ct-tour-brand"><span className="ct-tour-mark" aria-hidden="true" />Corral <span aria-hidden="true">/</span> Workspace tour</div>
             <button
               ref={closeRef}
               className="ct-tour-close"
