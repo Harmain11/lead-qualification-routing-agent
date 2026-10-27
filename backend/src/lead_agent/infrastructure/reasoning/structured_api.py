@@ -19,6 +19,10 @@ from lead_agent.domain.configuration import IcpConfig
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.lead_assistant import LeadAssistantReply, WorkspaceAssistantReply
+from lead_agent.domain.meeting_reply import (
+    MEETING_REPLY_CLASSIFICATION_SYSTEM_PROMPT,
+    MeetingReplyClassification,
+)
 from lead_agent.domain.models import NormalizedLead
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.infrastructure.observability import provider_operation
@@ -318,6 +322,25 @@ class StructuredAPIReasoningProvider:
                 self._record_usage(operation, started, "invalid_output", usage, "structured_output")
                 raise InvalidReasoningOutput(
                     f"{self._display_name} workspace-assistant response failed schema validation"
+                ) from None
+            self._record_usage(operation, started, "success", usage)
+            return result
+
+    def classify_meeting_reply(self, payload: dict[str, Any]) -> MeetingReplyClassification:
+        with provider_operation(self.provider_name) as operation:
+            started = perf_counter()
+            response, usage = self._request_json(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                MEETING_REPLY_CLASSIFICATION_SYSTEM_PROMPT,
+                MeetingReplyClassification,
+                max_output_tokens=300,
+            )
+            try:
+                result = MeetingReplyClassification.model_validate(response)
+            except ValidationError:
+                self._record_usage(operation, started, "invalid_output", usage, "structured_output")
+                raise InvalidReasoningOutput(
+                    f"{self._display_name} meeting-reply response failed schema validation"
                 ) from None
             self._record_usage(operation, started, "success", usage)
             return result
