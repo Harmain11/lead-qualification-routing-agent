@@ -616,7 +616,7 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   font: var(--t-footnote);
 }
 
-/* Expanded providers remain contained by their own grid card. */
+/* Long provider setup stays in the page's normal scroll flow. */
 .v-app .integration-grid {
   align-items: start;
 }
@@ -636,10 +636,10 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .integration-card .provider-details {
   width: 100%;
   max-width: 100%;
-  max-height: min(68dvh, 760px);
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
 }
 
 .v-app .integration-card .integration-section-disclosure-content {
@@ -676,7 +676,4 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
     grid-row: 3;
   }
 
-  .v-app .integration-card .provider-details {
-    max-height: 65dvh;
-  }
 }

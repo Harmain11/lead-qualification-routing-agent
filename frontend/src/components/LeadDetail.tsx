@@ -5,8 +5,8 @@ import { GmailInquiryView } from "./GmailInquiryView";
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
 import { LeadEmailPanel } from "./LeadEmailPanel";
 
-import { deleteLead, getLead, getLeadClosingOptions, getLeadMomentum, getLeadPipelineHistory, listIntegrations, reevaluateLead, retryLeadCongratulations, saveLeadNote, sendLeadToCrm, syncLeadGmailConversation, updateLeadProgress, updateLeadTitle } from "../api";
-import type { CrmSync, Lead, LeadMomentum, LeadOutcome, ProviderConnection } from "../types";
+import { approveAndSendLeadFollowUp, deleteLead, getLead, getLeadClosingOptions, getLeadFollowUpHistory, getLeadMomentum, getLeadPipelineHistory, listIntegrations, reevaluateLead, retryLeadCongratulations, saveLeadNote, sendLeadToCrm, syncLeadGmailConversation, updateLeadFollowUp, updateLeadProgress, updateLeadTitle } from "../api";
+import type { CrmSync, FollowUpEmail, Lead, LeadMomentum, LeadOutcome, ProviderConnection } from "../types";
 import { LeadMeetingPanel } from "./LeadMeetingPanel";
 import { EmailComposer } from "./EmailComposer";
 import "./leadOutcomes.css";
@@ -316,7 +316,7 @@ export function LeadDetail({ lead, canCrmSync = false, canEdit = false, canViewE
       onScheduled={() => setActivityRefreshToken((revision) => revision + 1)}
     />
     {route && <section className="story-section"><div className="story-index">→</div><div><span className="eyebrow">Follow-up strategy</span><h3>How to move this lead forward</h3><div className="follow-up-plan"><div className="follow-up-goal"><span>Conversion goal</span>{route.action_plan.conversion_goal || route.action_plan.next_step_recommendation}</div><h4>Recommended sequence</h4><ol>{(route.action_plan.follow_up_strategy?.length ? route.action_plan.follow_up_strategy : [route.action_plan.immediate_action, route.action_plan.next_step_recommendation]).map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}</ol>{route.manual_review && <p className="attention-callout">Validate the analysis before contacting this lead.</p>}</div></div></section>}
-    <FollowUpComposer lead={lead} canEdit={canEdit} />
+    <FollowUpComposer lead={lead} canEdit={canEdit} active={activeSection === "follow-ups"} />
     </div>
     <div id="lead-panel-overview" className="lead-detail-panel" role="tabpanel" aria-labelledby="lead-tab-overview" tabIndex={0} hidden={activeSection !== "overview"}>
       <LeadLifecycle lead={lead} />
@@ -614,11 +614,94 @@ function LeadOutcomeReceipt({ outcome, canEdit, busy, onRetry }: {
   </div>;
 }
 
-function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
+function FollowUpComposer({ lead, canEdit, active }: { lead: Lead; canEdit: boolean; active: boolean }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerRevision, setComposerRevision] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const [meetingDrafts, setMeetingDrafts] = useState<FollowUpEmail[]>([]);
+  const [draftEdits, setDraftEdits] = useState<Record<string, { subject: string; body: string }>>({});
+  const [draftBusyId, setDraftBusyId] = useState<string | null>(null);
+  const [draftErrors, setDraftErrors] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    getLeadFollowUpHistory(lead.id, controller.signal).then((items) => {
+      if (controller.signal.aborted) return;
+      const pending = items.filter((item) =>
+        item.kind.startsWith("meeting_options:") && item.status !== "sent",
+      );
+      setMeetingDrafts(pending);
+      setDraftEdits((current) => {
+        const next = { ...current };
+        for (const draft of pending) {
+          if (!next[draft.id]) {
+            next[draft.id] = {
+              subject: draft.subject,
+              body: draft.body ?? "",
+            };
+          }
+        }
+        return next;
+      });
+    }).catch((error) => {
+      if (!controller.signal.aborted) {
+        setNotice(error instanceof Error ? error.message : "Meeting reply drafts could not be loaded.");
+      }
+    });
+    return () => controller.abort();
+  }, [lead.id, active]);
+
+  async function saveMeetingDraft(draft: FollowUpEmail) {
+    const edit = draftEdits[draft.id] ?? { subject: draft.subject, body: draft.body ?? "" };
+    setDraftBusyId(draft.id);
+    setDraftErrors((current) => ({ ...current, [draft.id]: "" }));
+    try {
+      const updated = await updateLeadFollowUp(lead.id, draft.id, edit);
+      setMeetingDrafts((current) => current.map((item) => item.id === draft.id ? updated : item));
+      setNotice("Meeting reply draft saved. It has not been sent.");
+    } catch (error) {
+      setDraftErrors((current) => ({
+        ...current,
+        [draft.id]: error instanceof Error ? error.message : "The meeting reply draft could not be saved.",
+      }));
+    } finally {
+      setDraftBusyId(null);
+    }
+  }
+
+  async function sendMeetingDraft(draft: FollowUpEmail) {
+    const edit = draftEdits[draft.id] ?? { subject: draft.subject, body: draft.body ?? "" };
+    setDraftBusyId(draft.id);
+    setDraftErrors((current) => ({ ...current, [draft.id]: "" }));
+    try {
+      await updateLeadFollowUp(lead.id, draft.id, edit);
+      const sent = await approveAndSendLeadFollowUp(lead.id, draft.id);
+      if (sent.status === "sent") {
+        setMeetingDrafts((current) => current.filter((item) => item.id !== draft.id));
+        setNotice(`Meeting reply sent to ${sent.recipient}. Corral will track their response.`);
+      } else {
+        setMeetingDrafts((current) => current.map((item) => item.id === sent.id ? sent : item));
+        setDraftErrors((current) => ({
+          ...current,
+          [draft.id]: sent.error_message || "Gmail could not confirm delivery. Check Sent before retrying.",
+        }));
+      }
+    } catch (error) {
+      setDraftErrors((current) => ({
+        ...current,
+        [draft.id]: error instanceof Error ? error.message : "The meeting reply could not be sent.",
+      }));
+      void getLeadFollowUpHistory(lead.id).then((items) => {
+        setMeetingDrafts(items.filter((item) =>
+          item.kind.startsWith("meeting_options:") && item.status !== "sent",
+        ));
+      });
+    } finally {
+      setDraftBusyId(null);
+    }
+  }
+
   useEffect(() => {
     if (!canEdit) {
       setAccounts([]);
@@ -644,6 +727,49 @@ function FollowUpComposer({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
       : null;
   return <section className="story-section follow-up-composer"><div className="story-index">FU</div><div>
     <span className="eyebrow">Lead follow-up</span><h3>Write a personal next step</h3>
+    {meetingDrafts.length > 0 && <section className="meeting-reply-drafts" aria-label="Meeting reply drafts">
+      <span className="eyebrow">Meeting reply · review before sending</span>
+      {meetingDrafts.map((draft) => {
+        const edit = draftEdits[draft.id] ?? { subject: draft.subject, body: draft.body ?? "" };
+        const editable = canEdit && draft.status === "draft";
+        return <article className="meeting-reply-draft" key={draft.id}>
+          <p className="story-summary">Prepared from the contact’s meeting request. This email has not been sent.</p>
+          <p><b>To:</b> {draft.recipient || lead.email}</p>
+          <label className="follow-up-field">Subject
+            <input
+              value={edit.subject}
+              disabled={!editable || draftBusyId === draft.id}
+              onChange={(event) => setDraftEdits((current) => ({
+                ...current,
+                [draft.id]: { ...edit, subject: event.target.value },
+              }))}
+            />
+          </label>
+          <label className="follow-up-field">Message
+            <textarea
+              rows={8}
+              value={edit.body}
+              disabled={!editable || draftBusyId === draft.id}
+              onChange={(event) => setDraftEdits((current) => ({
+                ...current,
+                [draft.id]: { ...edit, body: event.target.value },
+              }))}
+            />
+          </label>
+          {draft.error_message && <div className="attention-callout">{draft.error_message}</div>}
+          {draftErrors[draft.id] && <div className="attention-callout" role="alert">{draftErrors[draft.id]}</div>}
+          {draft.status === "delivery_uncertain" && <p className="follow-up-status-copy">Delivery is uncertain. Check the Gmail Sent folder before retrying.</p>}
+          {editable && <div className="follow-up-actions">
+            <button className="secondary-button" disabled={draftBusyId === draft.id} onClick={() => void saveMeetingDraft(draft)}>
+              {draftBusyId === draft.id ? "Saving…" : "Save draft"}
+            </button>
+            <button className="primary-button" disabled={draftBusyId === draft.id || !edit.subject.trim() || edit.body.trim().length < 10} onClick={() => void sendMeetingDraft(draft)}>
+              {draftBusyId === draft.id ? "Sending…" : "Send meeting options"}
+            </button>
+          </div>}
+        </article>;
+      })}
+    </section>}
     <p className="story-summary">Compose directly with your connected Gmail account. Choose the sender and recipients, format the message, and send when you are ready. Sent emails are recorded in this lead’s email history.</p>
     {blockedReason && <div className="attention-callout follow-up-blocked"><b>{disqualified ? "Outreach paused · disqualified" : "Outreach paused · review required"}</b>{blockedReason}</div>}
     {canEdit && !composerOpen && <button className="secondary-button" disabled={Boolean(blockedReason)} onClick={() => {

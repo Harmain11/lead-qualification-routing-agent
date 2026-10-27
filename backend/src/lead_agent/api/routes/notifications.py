@@ -21,6 +21,8 @@ class AssignmentNotificationResponse(BaseModel):
     lead_id: UUID
     lead_name: str
     company_name: str
+    kind: str
+    message: str | None
     created_at: datetime
     read_at: datetime | None
 
@@ -39,6 +41,8 @@ def _response(
         lead_id=lead.id,
         lead_name=lead.full_name,
         company_name=lead.company_name,
+        kind=notification.kind,
+        message=notification.message,
         created_at=notification.created_at,
         read_at=notification.read_at,
     )

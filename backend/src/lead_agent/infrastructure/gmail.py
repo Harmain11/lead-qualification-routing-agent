@@ -28,6 +28,10 @@ from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailPro
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.infrastructure.communications import (
+    contact_phone_details,
+    extract_international_phone_numbers,
+)
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
@@ -111,10 +115,16 @@ _PHONE_LINK = re.compile(
 
 def _phone_tokens(value: str) -> set[str]:
     decoded = unquote(unicodedata.normalize("NFKC", value))
-    return {
+    tokens = {
         re.sub(r"\D", "", match.group(0))
         for match in _PHONE_TOKEN.finditer(decoded)
     }
+    for item in extract_international_phone_numbers(decoded):
+        for key in ("phone", "national_number"):
+            phone_value = item.get(key)
+            if phone_value:
+                tokens.add(re.sub(r"\D", "", str(phone_value)))
+    return tokens
 
 
 def _same_phone(left: str, right: str) -> bool:
@@ -706,10 +716,10 @@ def _thread_from_participants(
     return [(name, email) for email, name in participants.items()]
 
 
-def _forwarded_header_blocks(text: str) -> list[dict[str, str]]:
+def _forwarded_header_blocks(text: str) -> list[dict[str, Any]]:
     """Parse complete inline From/To header blocks, including nested quoted prefixes."""
     lines = text.splitlines()
-    blocks: list[dict[str, str]] = []
+    blocks: list[dict[str, Any]] = []
     for index, line in enumerate(lines):
         match = re.match(r"(?i)^\s*(?:>\s*)*From:\s*(.+?)\s*$", line)
         if match is None:
@@ -737,6 +747,123 @@ def _forwarded_header_blocks(text: str) -> list[dict[str, str]]:
                 }
             )
     return blocks
+
+
+def _authored_body(text: str) -> str:
+    lines: list[str] = []
+    for line in text.splitlines():
+        if re.match(
+            r"(?i)^\s*(?:>+|On .+wrote:|From:|-----Original Message-----|"
+            r"Begin forwarded message:)",
+            line,
+        ):
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _contact_authored_text(
+    messages: list[dict[str, Any]], contact_email: str
+) -> tuple[str, bool]:
+    target = contact_email.strip().lower()
+    if not target:
+        return "", False
+    texts: list[str] = []
+    seen: set[str] = set()
+    found_author = False
+
+    def add(text: str) -> None:
+        cleaned = _authored_body(text)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            texts.append(cleaned)
+
+    for message in messages:
+        headers = message.get("headers")
+        headers = headers if isinstance(headers, dict) else {}
+        sender = str(message.get("sender") or "")
+        if not sender:
+            sender = str(headers.get("from") or "")
+        _sender_name, sender_email = parseaddr(sender)
+        if sender_email.strip().lower() == target:
+            found_author = True
+            add(str(message.get("body") or ""))
+        body = str(message.get("body") or "")
+        for block in _forwarded_header_blocks(body):
+            _forwarded_name, forwarded_email = parseaddr(
+                str(block["headers"].get("from") or "")
+            )
+            if forwarded_email.strip().lower() == target:
+                found_author = True
+                add(str(block.get("body") or ""))
+    return "\n\n".join(texts), found_author
+
+
+def _contact_phone_from_authored_text(text: str) -> dict[str, str | None] | None:
+    matches = extract_international_phone_numbers(text)
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    labelled: dict[str, dict[str, str | None]] = {}
+    for item in matches:
+        raw = str(item.get("raw") or "")
+        line = next(
+            (line for line in text.splitlines() if raw and raw in line),
+            "",
+        )
+        if re.search(
+            r"(?i)\b(phone|mobile|cell|telephone|tel|whatsapp|contact)\b",
+            line,
+        ):
+            labelled[str(item.get("phone") or "")] = item
+    return next(iter(labelled.values())) if len(labelled) == 1 else None
+
+
+def contact_phone_from_gmail_messages(
+    messages: list[dict[str, Any]], contact_email: str
+) -> dict[str, str | None] | None:
+    authored_text, _found_author = _contact_authored_text(messages, contact_email)
+    return _contact_phone_from_authored_text(authored_text)
+
+
+def _reconcile_candidate_phone(
+    candidate: Any,
+    messages: list[dict[str, Any]],
+    contact_email: str,
+) -> tuple[Any, dict[str, str | None] | None]:
+    authored_text, found_author = _contact_authored_text(messages, contact_email)
+    direct_phone = _contact_phone_from_authored_text(authored_text)
+    evidence = list(getattr(candidate, "evidence", []) or [])
+    phone_evidence = [item for item in evidence if item.field == "phone"]
+    updates: dict[str, Any] = {}
+
+    if direct_phone is not None:
+        evidence = [item for item in evidence if item.field != "phone"]
+        evidence.append(
+            GmailEvidence(
+                field="phone",
+                source="body",
+                excerpt=str(direct_phone["raw"]),
+            )
+        )
+        updates["phone"] = direct_phone["phone"]
+        updates["evidence"] = evidence
+        return candidate.model_copy(update=updates), direct_phone
+
+    if found_author and getattr(candidate, "phone", None):
+        supported = any(
+            _phone_evidence_is_from_source(authored_text, item.excerpt)
+            and _phone_evidence_is_from_source(item.excerpt, candidate.phone)
+            for item in phone_evidence
+        )
+        if not supported:
+            updates["phone"] = None
+            updates["evidence"] = [item for item in evidence if item.field != "phone"]
+            return candidate.model_copy(update=updates), None
+
+    details = contact_phone_details(getattr(candidate, "phone", None))
+    return candidate, details
 
 
 def _signature_contacts(text: str) -> list[dict[str, str]]:
@@ -1721,6 +1848,7 @@ class GmailInboundProvider:
         if self.lead_extractor is None and selected_identity is None:
             raise ValueError("external_thread_participant_ambiguous")
         extracted: GmailLeadExtraction | None = None
+        contact_phone: dict[str, str | None] | None = None
         evidence_refs: list[dict[str, str]] = []
         selection_reason = ""
         fallback_reason = self.ai_fallback_reason
@@ -1957,6 +2085,29 @@ class GmailInboundProvider:
                 raise ValueError(
                     f"ai_classification_failed:{error.__class__.__name__}"
                 ) from None
+        if extracted is not None and not extracted.candidates:
+            extracted, contact_phone = _reconcile_candidate_phone(
+                extracted, participant_messages, email
+            )
+            evidence_refs = [
+                {
+                    "field": item.field,
+                    "source": item.source,
+                    "excerpt": item.excerpt,
+                    "message_id": _evidence_message_id(
+                        item.source,
+                        item.excerpt,
+                        participant_messages,
+                        record.record_id,
+                    ),
+                }
+                for item in extracted.evidence
+            ]
+        elif extracted is None:
+            authored_text, _found_author = _contact_authored_text(
+                participant_messages, email
+            )
+            contact_phone = _contact_phone_from_authored_text(authored_text)
         if (
             extracted is None
             and candidate_reason(headers, thread_context, self.mailbox_email)
@@ -1990,7 +2141,15 @@ class GmailInboundProvider:
             "full_name": (extracted.full_name if extracted else None) or display,
             "email": email,
             "job_title": extracted.job_title if extracted else None,
-            "phone": extracted.phone if extracted else None,
+            "phone": (
+                contact_phone["phone"]
+                if contact_phone
+                else extracted.phone if extracted else None
+            ),
+            "geography": contact_phone.get("country") if contact_phone else None,
+            "gmail_phone_country_inferred": bool(
+                contact_phone and contact_phone.get("country")
+            ),
             "company_name": (
                 (extracted.company_name if extracted else None) or company or "Unknown company"
             ),
@@ -2058,9 +2217,13 @@ class GmailInboundProvider:
             "reply_to": thread_reply_to
             or parseaddr(str(headers.get("reply-to", "")))[1].strip().lower(),
         }
-        fingerprint = hashlib.sha256(
-            f"{record.record_id}\0{thread_context}\0{email}".encode()
-        ).hexdigest()
+        fingerprint_source = f"{record.record_id}\0{thread_context}\0{email}"
+        if contact_phone:
+            fingerprint_source += (
+                f"\0contact-phone:{contact_phone['phone']}"
+                f"\0country:{contact_phone.get('country') or ''}"
+            )
+        fingerprint = hashlib.sha256(fingerprint_source.encode()).hexdigest()
         return CanonicalInboundLead(
             provider="gmail",
             object_type="message",
@@ -2126,6 +2289,9 @@ class GmailInboundProvider:
             return [base]
         thread_id = str(payload.get("gmail_thread_id") or record.record_id)
         thread_text = str(payload.get("message") or "")
+        thread_messages = base.provider_metadata.get("gmail_thread_messages", [])
+        if not isinstance(thread_messages, list):
+            thread_messages = []
         eligible_emails = {
             str(value).strip().lower()
             for value in payload.get("gmail_eligible_participant_emails", [])
@@ -2175,6 +2341,11 @@ class GmailInboundProvider:
             candidate = _ground_candidate_identity(
                 candidate, evidence_sources, eligible_emails, outreach_emails,
             )
+            contact_phone = None
+            if candidate.email:
+                candidate, contact_phone = _reconcile_candidate_phone(
+                    candidate, thread_messages, candidate.email
+                )
             candidate, dropped_fields = _verified_optional_fields(candidate, evidence_sources)
             review_notes.extend(
                 f"{candidate.full_name or 'Prospect'}: unverified "
@@ -2335,12 +2506,20 @@ class GmailInboundProvider:
                 else ""
             )
             summary = f"Thread role: {role_label}.{referral}{context}"
+            phone_details = contact_phone or contact_phone_details(candidate.phone)
+            phone_country = phone_details.get("country") if phone_details else None
             candidate_payload = {
                 **payload,
                 "external_id": provider_record_id,
                 "full_name": name or "Name not provided",
                 "email": email,
-                "phone": candidate.phone or "",
+                "phone": (
+                    contact_phone["phone"]
+                    if contact_phone
+                    else candidate.phone or ""
+                ),
+                "geography": phone_country,
+                "gmail_phone_country_inferred": bool(phone_country),
                 "company_name": candidate.company_name or "Unknown",
                 "job_title": candidate.job_title,
                 "product_or_service": candidate.requested_service or "Unknown",

@@ -778,6 +778,8 @@ def _contact_update_payload(
             for field in optional_fields
             if payload.get(field) in (None, "")
         }
+        if payload.get("gmail_phone_country_inferred") and lead.geography:
+            preserved["geography"] = lead.geography
         for field, missing_values in preserve_when_missing.items():
             incoming = str(payload.get(field) or "").strip().casefold()
             existing = getattr(lead, field)

@@ -5,6 +5,7 @@ import {
   newlyUnseenLeadIds,
   observeNewLeads,
   type LeadIndicatorRow,
+  type ObserveNewLeadsOptions,
   type NewLeadIndicatorSnapshot,
 } from "./newLeadIndicators";
 
@@ -99,13 +100,16 @@ export function useNewLeadIndicators(
     stored.key === key ? stored.value : emptyNewLeadIndicatorSnapshot;
 
   const observeLeadSnapshot = useCallback(
-    async (leads: LeadIndicatorRow[]) => {
+    async (
+      leads: LeadIndicatorRow[],
+      options?: ObserveNewLeadsOptions,
+    ) => {
       if (!key) return [];
       const version = ++observationVersion.current;
       const previous = storedRef.current.key === key
         ? storedRef.current.value
         : readSnapshot(key);
-      const next = await observeNewLeads(previous, leads);
+      const next = await observeNewLeads(previous, leads, options);
       if (
         version !== observationVersion.current ||
         storedRef.current.key !== key

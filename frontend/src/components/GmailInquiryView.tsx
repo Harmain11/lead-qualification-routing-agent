@@ -2,6 +2,7 @@ import { Fragment, type ReactNode } from "react";
 
 import {
   cleanGmailInquiryText,
+  parseEmailDate,
   parseGmailInquiry,
   splitGmailBodyForDisplay,
   type GmailBodyDisplaySections,
@@ -17,15 +18,15 @@ type PreparedMessage = {
 
 function formatDate(value: string) {
   if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
+  const date = parseEmailDate(value);
+  return !date
     ? value
     : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function dateTimeValue(value: string) {
-  const date = new Date(value);
-  return value && !Number.isNaN(date.getTime()) ? date.toISOString() : undefined;
+  const date = parseEmailDate(value);
+  return date ? date.toISOString() : undefined;
 }
 
 function senderDisplay(value: string) {

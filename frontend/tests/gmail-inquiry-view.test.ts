@@ -86,6 +86,28 @@ Subject: quick q`);
   assert.doesNotMatch(html, /No message text was included/);
 });
 
+test("recovers flattened RFC dates when the browser's native parser rejects them", () => {
+  const nativeParse = Date.parse;
+  Date.parse = () => Number.NaN;
+  try {
+    const html = render(`--- Gmail message strict-date-parser ---
+From: Felicia Hodges <felicia@example.test>
+To: junaid@example.test
+Date: Fri, 16 Oct 2026 14:35:31 +0000 Hi Junaid, Noticed you follow a couple of data and marketing lists.
+Subject: quick q`);
+    const time = html.match(/<time\b[^>]*>[\s\S]*?<\/time>/)?.[0] || "";
+    const body = html.match(/class="gmail-inquiry-message-body">([\s\S]*?)<\/div>/)?.[1] || "";
+
+    assert.match(time, /dateTime="2026-10-16T14:35:31\.000Z"/);
+    assert.doesNotMatch(time, /Hi Junaid/);
+    assert.match(body, /Hi Junaid,/);
+    assert.match(body, /Noticed you follow a couple of data and marketing lists\./);
+    assert.doesNotMatch(html, /No message text was included/);
+  } finally {
+    Date.parse = nativeParse;
+  }
+});
+
 test("keeps forwarded messages under the collapsed quoted-content control", () => {
   const html = render(sourceEmail(`Could you review this note?
 

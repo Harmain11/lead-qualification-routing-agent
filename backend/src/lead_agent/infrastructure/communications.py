@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from math import isfinite
@@ -13,6 +14,8 @@ from urllib.parse import quote, urlsplit
 import httpx
 import phonenumbers
 import pycountry
+from phonenumbers import PhoneNumberFormat
+from phonenumbers import timezone as phone_timezone
 from pydantic import BaseModel, Field
 
 from lead_agent.domain.integrations import ConnectionValidation, ProviderValidationStatus
@@ -155,6 +158,63 @@ def normalize_lead_phone(value: str, geography: str | None = None) -> str:
             "Check the number or add +country code."
         )
     return phone(phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164))
+
+
+def _phone_details(parsed: phonenumbers.PhoneNumber, raw: str) -> dict[str, str | None]:
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    region = phonenumbers.region_code_for_number(parsed)
+    country_record = pycountry.countries.get(alpha_2=region) if region else None
+    zones = {
+        zone
+        for zone in phone_timezone.time_zones_for_number(parsed)
+        if zone and zone != "Etc/Unknown"
+    }
+    time_zone = next(iter(zones)) if len(zones) == 1 else None
+    return {
+        "raw": raw,
+        "phone": e164,
+        "national_number": phonenumbers.national_significant_number(parsed),
+        "country": str(country_record.name) if country_record is not None else None,
+        "time_zone": time_zone,
+    }
+
+
+def extract_international_phone_numbers(value: str) -> list[dict[str, str | None]]:
+    """Find valid international numbers in text without guessing a local region."""
+    text = unicodedata.normalize("NFKC", value or "")
+    # 00 is a widely used international dialing prefix; normalize it only before
+    # a phone-like sequence, then let libphonenumber validate the full number.
+    text = re.sub(r"(?<![\w\d])00(?=[\s()./-]*\d)", "+", text)
+    numbers: dict[str, dict[str, str | None]] = {}
+    for match in phonenumbers.PhoneNumberMatcher(text, None):
+        parsed = match.number
+        if parsed.extension or not phonenumbers.is_valid_number(parsed):
+            continue
+        details = _phone_details(parsed, match.raw_string)
+        numbers.setdefault(str(details["phone"]), details)
+    return list(numbers.values())
+
+
+def contact_phone_details(
+    value: str | None, geography: str | None = None
+) -> dict[str, str | None] | None:
+    """Return validated country and timezone details without guessing geography."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    international = extract_international_phone_numbers(raw)
+    if international:
+        return international[0]
+    if not geography:
+        return None
+    try:
+        e164 = normalize_lead_phone(raw, geography)
+        parsed = phonenumbers.parse(e164, None)
+    except (ValueError, phonenumbers.NumberParseException):
+        return None
+    if not phonenumbers.is_valid_number(parsed):
+        return None
+    return _phone_details(parsed, raw)
 
 
 def identifier(value: str) -> str:

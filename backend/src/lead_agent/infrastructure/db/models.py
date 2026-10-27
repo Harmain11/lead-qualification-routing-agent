@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-# Register commercial tables in the same metadata used by migrations and tests.
-from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM  # noqa: F401
-
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -24,6 +21,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.infrastructure.db.base import Base
+
+# Register commercial tables in the same metadata used by migrations and tests.
+from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM  # noqa: F401
 
 
 class WorkspaceORM(Base):
@@ -1020,6 +1020,10 @@ class AssignmentNotificationORM(Base):
     assigned_by_user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    kind: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="assignment", server_default="assignment"
+    )
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

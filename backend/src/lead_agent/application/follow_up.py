@@ -267,6 +267,33 @@ def _template(lead: LeadORM, plan: dict[str, object]) -> FollowUpEmailContent:
     )
 
 
+def _meeting_offer_for_draft(
+    session: Session, row: LeadFollowUpEmailORM, workspace_id: UUID
+) -> PipelineEventORM | None:
+    if not row.kind.startswith("meeting_options:"):
+        return None
+    try:
+        offer_id = UUID(row.kind.split(":", 1)[1])
+    except (ValueError, IndexError) as error:
+        raise FollowUpNotEligible("The meeting reply draft is no longer available.") from error
+    offer = session.scalar(
+        select(PipelineEventORM).where(
+            PipelineEventORM.id == offer_id,
+            PipelineEventORM.workspace_id == workspace_id,
+            PipelineEventORM.lead_id == row.lead_id,
+            PipelineEventORM.stage == "meeting_email_offer",
+        )
+    )
+    if offer is None:
+        raise FollowUpNotEligible("The meeting reply draft is no longer available.")
+    details = offer.details if isinstance(offer.details, dict) else {}
+    if str(details.get("email_draft_id") or "") != str(row.id):
+        raise FollowUpNotEligible("This draft is not linked to the meeting request.")
+    if offer.status not in {"awaiting_send", "needs_attention"}:
+        raise FollowUpNotEligible("This meeting reply has already been sent or resolved.")
+    return offer
+
+
 def send_approved_follow_up(
     session: Session, row: LeadFollowUpEmailORM, *, workspace_id: UUID, actor_id: str
 ) -> LeadFollowUpEmailORM:
@@ -298,16 +325,39 @@ def send_approved_follow_up(
         assert_outreach_allowed(session, workspace_id, row.recipient)
     except OutreachBlocked as error:
         raise FollowUpNotEligible(str(error)) from error
-    connection = session.scalar(
-        select(ProviderConnectionORM)
-        .where(
-            ProviderConnectionORM.workspace_id == workspace_id,
-            ProviderConnectionORM.provider_type == "gmail",
-            ProviderConnectionORM.is_active.is_(True),
-            ProviderConnectionORM.status == "verified",
+    meeting_offer = _meeting_offer_for_draft(session, row, workspace_id)
+    if meeting_offer is not None:
+        offer_details = (
+            meeting_offer.details if isinstance(meeting_offer.details, dict) else {}
         )
-        .order_by(ProviderConnectionORM.updated_at.desc())
-    )
+        try:
+            source_connection_id = UUID(
+                str(offer_details.get("gmail_connection_id") or row.provider_connection_id)
+            )
+        except (TypeError, ValueError) as error:
+            raise FollowUpNotEligible(
+                "Reconnect the Gmail account used for this meeting thread."
+            ) from error
+        connection = session.scalar(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.id == source_connection_id,
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+        )
+    else:
+        connection = session.scalar(
+            select(ProviderConnectionORM)
+            .where(
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+            .order_by(ProviderConnectionORM.updated_at.desc())
+        )
     if connection is None:
         raise FollowUpNotEligible("Connect and verify Gmail before sending this follow-up.")
     if GMAIL_SEND_SCOPE not in set(connection.scopes):
@@ -351,26 +401,72 @@ def send_approved_follow_up(
     session.commit()
     session.refresh(row)
     try:
+        meeting_details = (
+            meeting_offer.details
+            if meeting_offer is not None and isinstance(meeting_offer.details, dict)
+            else {}
+        )
+        send_options: dict[str, str] = {}
+        if meeting_offer is not None:
+            thread_id = str(meeting_details.get("thread_id") or "")
+            in_reply_to = str(meeting_details.get("source_rfc_message_id") or "")
+            if thread_id:
+                send_options["thread_id"] = thread_id
+            if in_reply_to:
+                send_options["in_reply_to"] = in_reply_to
         message_id = GmailOutboundProvider(connection.id, token, mailbox).send_email(
-            recipient=row.recipient, subject=row.subject, body=row.body
+            recipient=row.recipient,
+            subject=row.subject,
+            body=row.body,
+            **send_options,
         )
     except ProviderOperationError as error:
-        row.status = "delivery_uncertain" if error.retryable else "failed"
+        row.status = (
+            "delivery_uncertain"
+            if error.retryable
+            else "draft" if meeting_offer is not None else "failed"
+        )
         row.error_message = (
             "Gmail did not confirm delivery. Check the Sent folder before retrying."
             if error.retryable
             else str(error)[:1000]
         )
+        if meeting_offer is not None:
+            meeting_offer.status = (
+                "needs_attention"
+                if error.retryable
+                else "awaiting_send"
+            )
+            meeting_offer.details = {
+                **meeting_details,
+                "error_code": error.code,
+                "error_message": str(error)[:500],
+            }
     except Exception:
         row.status = "delivery_uncertain"
         row.error_message = (
             "Gmail delivery could not be confirmed. Check the Sent folder before retrying."
         )
+        if meeting_offer is not None:
+            meeting_offer.status = "needs_attention"
+            meeting_offer.details = {
+                **meeting_details,
+                "error_message": row.error_message,
+            }
     else:
         row.status = "sent"
         row.external_message_id = message_id
         row.sent_at = datetime.now(UTC)
         row.error_message = None
+        if meeting_offer is not None:
+            meeting_offer.status = "awaiting_confirmation"
+            meeting_offer.details = {
+                **meeting_details,
+                "outbound_message_id": message_id,
+                "offered_at": row.sent_at.isoformat(),
+                "error_code": "",
+                "error_message": "",
+            }
     row.updated_at = datetime.now(UTC)
     session.commit()
     session.refresh(row)

@@ -29,6 +29,61 @@ const GMAIL_HEADER_NAMES = [
   "Content-Transfer-Encoding",
 ].join("|");
 
+const EMAIL_MONTHS: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+const RFC_EMAIL_DATE =
+  /^(?:(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?),?\s+)?(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(Z|[+-]\d{4}|[+-]\d{2}:\d{2}|GMT|UTC|UT)$/i;
+
+export function parseEmailDate(value: string): Date | null {
+  const source = value.trim();
+  if (!source) return null;
+
+  const match = RFC_EMAIL_DATE.exec(source);
+  if (match) {
+    const day = Number(match[1]);
+    const month = EMAIL_MONTHS[match[2].toLowerCase()];
+    const year = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6] || "0");
+    const zone = match[7].toUpperCase();
+    if (!month || hour > 23 || minute > 59 || second > 59) return null;
+
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+    if (day < 1 || day > daysInMonth) return null;
+
+    let isoZone = "Z";
+    if (/^[+-]/.test(zone)) {
+      const digits = zone.replace(":", "");
+      const offsetHours = Number(digits.slice(1, 3));
+      const offsetMinutes = Number(digits.slice(3, 5));
+      if (offsetHours > 23 || offsetMinutes > 59) return null;
+      isoZone = `${digits.slice(0, 3)}:${digits.slice(3, 5)}`;
+    }
+    const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}${isoZone}`;
+    const parsed = new Date(iso);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  // Keep accepting ISO timestamps and other date forms from older stored emails.
+  const parsed = new Date(source);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function normalizeHeaderBoundaries(source: string) {
   return source
     .replace(/\r\n?/g, "\n")
@@ -41,7 +96,7 @@ function recoverBodyAppendedToDateHeader(value: string) {
 
   const date = value.slice(0, greeting.index).trim();
   const body = value.slice(greeting.index).trim();
-  if (!date || !body || Number.isNaN(Date.parse(date))) return null;
+  if (!date || !body || !parseEmailDate(date)) return null;
   return { date, body };
 }
 

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from lead_agent.api.dependencies import require_permission
 from lead_agent.application.follow_up import (
@@ -44,6 +45,7 @@ def _response(
     return {
         "id": str(row.id),
         "lead_id": str(row.lead_id),
+        "kind": row.kind,
         "recipient": (
             row.recipient.strip()
             or (
@@ -69,6 +71,14 @@ def _response(
     }
 
 
+def _follow_up_kind_filter() -> ColumnElement[bool]:
+    return or_(
+        LeadFollowUpEmailORM.kind == "ai_follow_up",
+        LeadFollowUpEmailORM.kind.like("ai_follow_up:%"),
+        LeadFollowUpEmailORM.kind.like("meeting_options:%"),
+    )
+
+
 def _lead(session: Session, lead_id: UUID, workspace_id: UUID) -> LeadORM:
     row = session.scalar(
         select(LeadORM).where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace_id)
@@ -89,7 +99,7 @@ def get_follow_up(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
+            _follow_up_kind_filter(),
         )
         .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
     )
@@ -108,7 +118,7 @@ def get_follow_up_history(
         .where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
+            _follow_up_kind_filter(),
         )
         .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
         .limit(100)
@@ -148,7 +158,7 @@ def update_follow_up_draft(
             LeadFollowUpEmailORM.id == draft_id,
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
+            _follow_up_kind_filter(),
         )
     )
     if row is None:
@@ -178,7 +188,7 @@ def approve_and_send_follow_up(
             LeadFollowUpEmailORM.id == draft_id,
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
+            _follow_up_kind_filter(),
         )
     )
     if row is None:

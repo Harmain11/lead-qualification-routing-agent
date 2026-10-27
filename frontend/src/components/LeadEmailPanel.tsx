@@ -16,6 +16,13 @@ function stringDetail(details: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+function threadIdForEvent(event: LeadPipelineEvent): string {
+  return (
+    stringDetail(event.details, "thread_id") ||
+    stringDetail(event.details, "gmail_thread_id")
+  );
+}
+
 function LeadEmailEmptyState({
   title,
   description,
@@ -105,7 +112,7 @@ export function LeadEmailPanel({
 
   const groups = new Map<string, LeadPipelineEvent[]>();
   for (const event of events) {
-    const threadId = stringDetail(event.details, "thread_id") || `message-${event.id}`;
+    const threadId = threadIdForEvent(event) || `message-${event.id}`;
     groups.set(threadId, [...(groups.get(threadId) ?? []), event]);
   }
   const orderedThreads = [...groups.entries()]
@@ -151,7 +158,7 @@ export function LeadEmailPanel({
     setComposeSeed({
       recipient,
       subject: originalSubject && !/^re:/i.test(originalSubject) ? `Re: ${originalSubject}` : originalSubject,
-      threadId: stringDetail(details, "thread_id") || undefined,
+      threadId: threadIdForEvent(event) || undefined,
       inReplyTo: stringDetail(details, "rfc_message_id") || undefined,
     });
     setComposerRevision((current) => current + 1);
