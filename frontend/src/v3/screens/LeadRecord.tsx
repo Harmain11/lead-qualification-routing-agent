@@ -678,7 +678,7 @@ export function LeadRecord({
           )}
           <FollowUpComposer lead={lead} canEdit={canEdit} />
           <div className="v-legacy-block">
-            <LeadMeetingPanel lead={lead} canEdit={canEdit} refreshToken={meetingRefresh} onScheduled={() => setActivityRefresh((value) => value + 1)} />
+            <LeadMeetingPanel lead={lead} canEdit={canEdit} canViewEmails={canViewEmail} refreshToken={meetingRefresh} onDraftCreated={() => onSectionChange("email")} />
           </div>
         </div>
       </div>

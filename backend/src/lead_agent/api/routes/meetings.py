@@ -22,6 +22,7 @@ from lead_agent.application.meetings import (
     recommend_google_calendar_slots,
     requested_meeting_date,
 )
+from lead_agent.application.meeting_email import create_selected_slot_offer_draft
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.calendar_providers import (
@@ -37,6 +38,7 @@ from lead_agent.infrastructure.secrets import get_secret_store
 router = APIRouter(prefix="/v1/leads", tags=["lead-meetings"])
 MeetingProvider = Literal["google_calendar", "calendly"]
 MeetingOfferStatus = Literal[
+    "awaiting_send",
     "sending",
     "awaiting_confirmation",
     "booking",
@@ -137,6 +139,11 @@ class ConfirmMeetingResponse(BaseModel):
     end_at: datetime
     time_zone: str
     status: Literal["scheduled"]
+
+
+class MeetingOfferDraftResponse(BaseModel):
+    draft_id: UUID
+    status: Literal["draft"]
 
 
 def _lead_or_404(
@@ -391,7 +398,12 @@ def get_meeting_recommendations(
         else None
     )
     if offer_event is not None:
-        if offer_event.status == "awaiting_confirmation":
+        if offer_event.status == "awaiting_send":
+            automation_message = (
+                "An editable meeting email draft is ready in this lead’s Emails tab. "
+                "Send it after review; booking waits for the lead’s clear numbered reply."
+            )
+        elif offer_event.status == "awaiting_confirmation":
             automation_message = (
                 "Available times were emailed to the lead. Corral will book after "
                 "they clearly reply with an option number."
@@ -532,6 +544,51 @@ def _existing_confirmation_response(
         time_zone=str(details.get("time_zone") or "UTC"),
         status="scheduled",
     )
+
+
+@router.post(
+    "/{lead_id}/meetings/offer-draft",
+    response_model=MeetingOfferDraftResponse,
+)
+def create_meeting_offer_draft(
+    lead_id: UUID,
+    request: ConfirmMeetingRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> MeetingOfferDraftResponse:
+    lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    current = get_meeting_recommendations(
+        lead_id,
+        session=session,
+        workspace=workspace,
+    )
+    selected = next(
+        (
+            slot
+            for slot in current.suggestions
+            if slot.provider == request.provider
+            and slot.connection_id == request.connection_id
+            and slot.source_message_id == request.source_message_id
+            and slot.source_gmail_connection_id == request.source_gmail_connection_id
+            and slot.start_at.astimezone(UTC) == request.start_at.astimezone(UTC)
+            and slot.end_at.astimezone(UTC) == request.end_at.astimezone(UTC)
+            and slot.time_zone == request.time_zone
+            and slot.event_type_uri == request.event_type_uri
+        ),
+        None,
+    )
+    if selected is None:
+        raise HTTPException(
+            status_code=409,
+            detail="That time is no longer available. Refresh the recommendations.",
+        )
+    draft = create_selected_slot_offer_draft(
+        session,
+        lead=lead,
+        workspace_id=workspace.workspace_id,
+        slot=selected.model_dump(mode="json"),
+    )
+    return MeetingOfferDraftResponse(draft_id=draft.id, status="draft")
 
 
 @router.post(

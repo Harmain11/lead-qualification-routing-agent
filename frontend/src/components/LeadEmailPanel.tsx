@@ -6,6 +6,7 @@ import {
 } from "../api";
 import type { GmailComposerSeed } from "./EmailComposer";
 import { EmailComposer } from "./EmailComposer";
+import { MeetingOfferDrafts } from "./MeetingOfferDrafts";
 import { ProviderEmailBody } from "./ProviderEmailBody";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
 
@@ -197,6 +198,16 @@ export function LeadEmailPanel({
         setComposeSeed(null);
       }}
     />}
+    <MeetingOfferDrafts
+      leadId={lead.id}
+      leadEmail={lead.email}
+      active={active}
+      canSend={canSend}
+      onSent={() => {
+        setRevision((current) => current + 1);
+        onConversationSynced();
+      }}
+    />
     {!accountsLoading && loading && <p className="email-status lead-email-status" role="status">Loading this lead’s email history…</p>}
     {!accountsLoading && !loading && !error && orderedThreads.length === 0 && activeAccounts.length > 0 && <LeadEmailEmptyState
       title="No conversation linked yet"

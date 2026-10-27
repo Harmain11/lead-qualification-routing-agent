@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { confirmLeadMeeting, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
-import type { ConfirmMeetingResult, Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
+import { createLeadMeetingOfferDraft, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
+import type { Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
 
-type Props = { lead: Lead; refreshToken?: number; canEdit: boolean; onScheduled?: () => void };
+type Props = {
+  lead: Lead;
+  refreshToken?: number;
+  canEdit: boolean;
+  canViewEmails: boolean;
+  onDraftCreated?: () => void;
+};
 type LoadState = "loading" | "ready" | "error";
 
 const providerName = (provider: string) => provider === "google_calendar" ? "Google Calendar" : provider === "calendly" ? "Calendly" : provider;
@@ -146,7 +152,13 @@ const styles = `
 }
 `;
 
-export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: Props) {
+export function LeadMeetingPanel({
+  lead,
+  refreshToken,
+  canEdit,
+  canViewEmails,
+  onDraftCreated,
+}: Props) {
   const [recommendations, setRecommendations] = useState<MeetingRecommendations | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -159,7 +171,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
   const [retryBookingMessage, setRetryBookingMessage] = useState("");
   const [retryBookingError, setRetryBookingError] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  const [result, setResult] = useState<ConfirmMeetingResult | null>(null);
+  const [draftCreated, setDraftCreated] = useState(false);
   const actionSequence = useRef(0);
   const currentLeadId = useRef(lead.id);
   const scanGmailOnNextLoad = useRef(false);
@@ -181,7 +193,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
     setRetryBookingMessage("");
     setRetryBookingError("");
     setConfirmError(null);
-    setResult(null);
+    setDraftCreated(false);
     (async () => {
       if (shouldScanGmail) await syncLeadGmailConversation(lead.id);
       return getLeadMeetingRecommendations(lead.id, controller.signal);
@@ -235,22 +247,22 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
   const noThread = !recommendations?.source_message_id;
   const noMeetingDetected = Boolean(recommendations && !recommendations.detected && recommendations.source_message_id);
 
-  const confirmSelectedSlot = async () => {
-    if (!selectedSlot || !canEdit || confirming) return;
+  const prepareSelectedSlotDraft = async () => {
+    if (!selectedSlot || !canEdit || !canViewEmails || confirming) return;
     const targetLeadId = lead.id;
     const actionId = ++actionSequence.current;
     setConfirming(true);
     setConfirmError(null);
-    setResult(null);
+    setDraftCreated(false);
     try {
-      const confirmed = await confirmLeadMeeting(targetLeadId, selectedSlot);
+      await createLeadMeetingOfferDraft(targetLeadId, selectedSlot);
       if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
-      setResult(confirmed);
-      onScheduled?.();
+      setDraftCreated(true);
       setReviewing(false);
+      onDraftCreated?.();
     } catch (reason: unknown) {
       if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
-      setConfirmError(reason instanceof Error ? reason.message : "The meeting could not be scheduled. Your selected time is still available to retry.");
+      setConfirmError(reason instanceof Error ? reason.message : "The email draft could not be prepared. Refresh the recommendations and try again.");
     } finally {
       if (currentLeadId.current === targetLeadId && actionSequence.current === actionId) setConfirming(false);
     }
@@ -283,7 +295,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
   };
 
   const scheduleAnother = () => {
-    setResult(null);
+    setDraftCreated(false);
     setConfirmError(null);
     setReviewing(false);
   };
@@ -315,7 +327,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
         <div>
           <span className="lmp-eyebrow">Gmail · calendar scheduling</span>
           <h3 id={`meeting-title-${lead.id}`}>Schedule from the lead’s email</h3>
-          <p className="lmp-intro">When a recent synced Gmail request has open times, Corral emails numbered options and books the lead’s clear numbered choice. You can still book manually below.</p>
+          <p className="lmp-intro">When a recent synced Gmail request has open times, Corral can prepare numbered options and book the lead’s clear choice. Select a time below to create an editable email draft; it will not book until the lead replies.</p>
         </div>
       </div>
       <button className="lmp-refresh" type="button" onClick={() => { scanGmailOnNextLoad.current = canEdit; setRetryCount((count) => count + 1); }} disabled={loadState === "loading" || confirming} aria-label={canEdit ? "Read latest Gmail conversation and refresh meeting recommendations" : "Refresh meeting recommendations"}>
@@ -327,25 +339,24 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
       {loadState === "loading" && renderSkeleton()}
       {loadState === "error" && renderLoadError()}
       {loadState === "ready" && recommendations && <>
-        {result && <div className="lmp-outcome" role="status">
+        {draftCreated && selectedSlot && <div className="lmp-outcome" role="status">
           <span className="lmp-outcome-icon" aria-hidden="true">✓</span>
-          <div><h4>Meeting scheduled</h4><p>{result.title} · {meetingWindow(result.start_at, result.end_at, result.time_zone)}. Hosted by {recommendations.integrations.find((integration) => integration.provider === result.provider && integration.connected)?.account_name || "the selected connected account"}.</p>
-            {result.event_url && <a href={result.event_url} target="_blank" rel="noreferrer">Open meeting details</a>}
+          <div><h4>Meeting email draft prepared</h4><p>{providerName(selectedSlot.provider)} · {meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)}. The editable draft is in the lead’s Emails tab. Sending it does not book the time; Corral books only after the lead clearly replies with 1.</p>
             <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Review other times</button></div>
           </div>
         </div>}
 
-        {!result && noThread && <div className="lmp-state">
+        {!draftCreated && noThread && <div className="lmp-state">
           <span className="lmp-state-icon" aria-hidden="true">G</span>
           <div><h4>No Gmail conversation found</h4><p>{recommendations.message || "Sync the lead’s Gmail conversation to review meeting intent and available times."} Refresh these recommendations after the parent finishes a Gmail sync.</p></div>
         </div>}
 
-        {!result && noMeetingDetected && <div className="lmp-state">
+        {!draftCreated && noMeetingDetected && <div className="lmp-state">
           <span className="lmp-state-icon" aria-hidden="true">—</span>
           <div><h4>No meeting request detected</h4><p>{recommendations.message || "The latest conversation does not contain a meeting request or proposed time."}</p></div>
         </div>}
 
-        {!result && !noThread && !noMeetingDetected && recommendations.detected && <>
+        {!draftCreated && !noThread && !noMeetingDetected && recommendations.detected && <>
           {(recommendations.source_subject || recommendations.source_excerpt) && <div className="lmp-context">
             <div className="lmp-context-top"><span className="lmp-context-label">Conversation evidence</span>{recommendations.source_subject && <span className="lmp-subject">{recommendations.source_subject}</span>}</div>
             {recommendations.source_excerpt && <p className="lmp-excerpt">{recommendations.source_excerpt}</p>}
@@ -376,7 +387,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
             <div><h4>No connected calendar account</h4><p>Connect a Google Calendar or Calendly account in Integrations settings to see bookable times. No event or message has been created.</p></div>
           </div>}
 
-        {!result && calendlyEventTypes.length > 0 && <div className="lmp-calendly-types" aria-label="Calendly event type availability">
+        {!draftCreated && calendlyEventTypes.length > 0 && <div className="lmp-calendly-types" aria-label="Calendly event type availability">
             <div className="lmp-calendly-types-head">
               <div><b>Calendly event types</b><small>Choose a type to filter its available times. Calendly’s connected calendars are shared across event types.</small></div>
               {selectedCalendlyEventTypeUri && <button className="lmp-link-button" type="button" onClick={() => { setSelectedCalendlyEventTypeUri(null); setSelectedKey(null); setReviewing(false); }}>Show all</button>}
@@ -412,7 +423,7 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
                       const key = slotKey(slot);
                       const duration = Math.max(0, Math.round((new Date(slot.end_at).getTime() - new Date(slot.start_at).getTime()) / 60000));
                       return <label key={key} className={`lmp-option${selectedKey === key ? " is-selected" : ""}`}>
-                        <input type="radio" name={`meeting-slot-${lead.id}`} value={key} checked={selectedKey === key} disabled={!canEdit || confirming || Boolean(result)} onChange={() => { setSelectedKey(key); setReviewing(false); setConfirmError(null); }} />
+                        <input type="radio" name={`meeting-slot-${lead.id}`} value={key} checked={selectedKey === key} disabled={!canEdit || confirming || draftCreated} onChange={() => { setSelectedKey(key); setReviewing(false); setConfirmError(null); }} />
                         <span><span className="lmp-option-time">{meetingWindow(slot.start_at, slot.end_at, slot.time_zone)}</span><span className="lmp-option-zone">{slot.time_zone}</span></span>
                         <span className="lmp-option-duration">{duration} min</span>
                       </label>;
@@ -485,24 +496,29 @@ export function LeadMeetingPanel({ lead, refreshToken, canEdit, onScheduled }: P
           </div>
         </div>}
 
-        {!result && selectedSlot && !reviewing && !confirmError && <div className="lmp-controls">
-            <small>{canEdit ? "Manual booking is available if the lead needs a different time." : "You can review suggested times; an editor can book manually."}</small>
-          <button className="lmp-primary" type="button" disabled={!canEdit || confirming} onClick={() => setReviewing(true)}>Review selected time</button>
+        {!draftCreated && selectedSlot && !reviewing && !confirmError && <div className="lmp-controls">
+            <small>
+              {!canViewEmails
+                ? "Email access is required to open and review the meeting draft."
+                : canEdit
+                  ? "Prepare an editable email offer for this time. Sending it will not book the meeting."
+                  : "You can review suggested times; an editor can prepare an email offer."}
+            </small>
+          <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => setReviewing(true)}>Review selected time</button>
         </div>}
-        {!result && selectedSlot && reviewing && <div className="lmp-review" role="group" aria-label="Confirm meeting booking">
-          <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> Confirm this meeting?</div>
-          <p>This action will add the meeting to the selected workspace account. Its connected account owner will be the host.</p>
+        {!draftCreated && selectedSlot && reviewing && <div className="lmp-review" role="group" aria-label="Create meeting offer email draft">
+          <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> Prepare an email for this time?</div>
+          <p>This saves an editable draft in the lead’s Emails tab. It will not send or book now. After you review and send it, Corral books this exact slot only if the lead clearly replies with option 1.</p>
           <div className="lmp-review-slot">{providerName(selectedSlot.provider)} · {selectedSlot.account_name}<br />{meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)} · {selectedSlot.time_zone}</div>
-          <p><strong>Invite notice:</strong> Calendly uses the selected event type’s notification settings. If the invitee does not receive an email or calendar invite, <a href="https://calendly.com/help/calendly-scheduling-notifications" target="_blank" rel="noreferrer">check Calendly’s notification settings</a>.</p>
           {confirmError && <div className="lmp-provider-error" role="alert" style={{ marginTop: 10 }}>{confirmError}</div>}
           <div className="lmp-review-actions">
             <button className="lmp-secondary" type="button" disabled={confirming} onClick={() => { setReviewing(false); setConfirmError(null); }}>Back to times</button>
-            <button className="lmp-primary" type="button" disabled={!canEdit || confirming} onClick={() => void confirmSelectedSlot()}>{confirming ? "Adding meeting…" : "Confirm and add meeting"}</button>
+            <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => void prepareSelectedSlotDraft()}>{confirming ? "Saving draft…" : "Create email draft"}</button>
           </div>
         </div>}
-        {!result && confirmError && !reviewing && <div className="lmp-outcome lmp-outcome-failure" role="alert">
+        {!draftCreated && confirmError && !reviewing && <div className="lmp-outcome lmp-outcome-failure" role="alert">
           <span className="lmp-outcome-icon" aria-hidden="true">!</span>
-          <div><h4>Meeting was not scheduled</h4><p>{confirmError}</p><div><button className="lmp-link-button" type="button" onClick={() => { setConfirmError(null); setReviewing(true); }}>Review and try again</button></div></div>
+          <div><h4>Email draft not prepared</h4><p>{confirmError}</p><div><button className="lmp-link-button" type="button" onClick={() => { setConfirmError(null); setReviewing(true); }}>Review selected time and try again</button></div></div>
         </div>}
       </>}
     </div>

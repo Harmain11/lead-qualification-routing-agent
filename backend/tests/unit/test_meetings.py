@@ -14,8 +14,10 @@ from lead_agent.api.routes.leads import (
 )
 from lead_agent.api.routes.meetings import (
     ConfirmMeetingRequest,
+    MeetingSuggestion,
     MeetingProviderError,
     _calendly_invitee_location,
+    create_meeting_offer_draft,
     confirm_meeting,
     get_meeting_recommendations,
 )
@@ -51,6 +53,129 @@ class _Session:
 
     def scalars(self, _statement):
         return iter(self.rows)
+
+
+def test_manual_offer_draft_uses_only_a_freshly_available_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    actor_id = str(uuid4())
+    calendar_connection_id = uuid4()
+    gmail_connection_id = uuid4()
+    start_at = datetime.now(UTC) + timedelta(days=2)
+    end_at = start_at + timedelta(minutes=30)
+    request = ConfirmMeetingRequest(
+        provider="calendly",
+        connection_id=calendar_connection_id,
+        source_message_id="source-1",
+        source_gmail_connection_id=gmail_connection_id,
+        start_at=start_at,
+        end_at=end_at,
+        time_zone="UTC",
+        event_type_uri="https://api.calendly.com/event_types/type-1",
+        event_type_name="30 Minute Meeting",
+    )
+    suggestion = MeetingSuggestion(
+        provider="calendly",
+        connection_id=calendar_connection_id,
+        account_name="Calendly",
+        source_message_id="source-1",
+        source_gmail_connection_id=gmail_connection_id,
+        start_at=start_at,
+        end_at=end_at,
+        time_zone="UTC",
+        event_type_uri=request.event_type_uri,
+        event_type_name=request.event_type_name,
+    )
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    workspace = WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id=actor_id,
+        role="owner",
+    )
+    draft_id = uuid4()
+    received: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._lead_or_404",
+        lambda *_args, **_kwargs: lead,
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.get_meeting_recommendations",
+        lambda *_args, **_kwargs: SimpleNamespace(suggestions=[suggestion]),
+    )
+
+    def create_draft(_session, **kwargs):
+        received.append(kwargs)
+        return SimpleNamespace(id=draft_id)
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.create_selected_slot_offer_draft",
+        create_draft,
+    )
+
+    response = create_meeting_offer_draft(
+        lead_id,
+        request,
+        session=object(),  # type: ignore[arg-type]
+        workspace=workspace,
+    )
+
+    assert response.draft_id == draft_id
+    assert response.status == "draft"
+    assert received[0]["lead"] is lead
+    assert received[0]["workspace_id"] == workspace_id
+    assert (
+        datetime.fromisoformat(str(received[0]["slot"]["start_at"]).replace("Z", "+00:00"))
+        == start_at
+    )
+
+
+def test_manual_offer_draft_rejects_a_slot_missing_from_fresh_availability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    start_at = datetime.now(UTC) + timedelta(days=2)
+    request = ConfirmMeetingRequest(
+        provider="calendly",
+        connection_id=uuid4(),
+        source_message_id="source-1",
+        source_gmail_connection_id=uuid4(),
+        start_at=start_at,
+        end_at=start_at + timedelta(minutes=30),
+        time_zone="UTC",
+        event_type_uri="https://api.calendly.com/event_types/type-1",
+        event_type_name="30 Minute Meeting",
+    )
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    workspace = WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id=str(uuid4()),
+        role="owner",
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._lead_or_404",
+        lambda *_args, **_kwargs: lead,
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.get_meeting_recommendations",
+        lambda *_args, **_kwargs: SimpleNamespace(suggestions=[]),
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.create_selected_slot_offer_draft",
+        lambda *_args, **_kwargs: pytest.fail("Unavailable slots must not create drafts."),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        create_meeting_offer_draft(
+            lead_id,
+            request,
+            session=object(),  # type: ignore[arg-type]
+            workspace=workspace,
+        )
+    assert error.value.status_code == 409
 
 
 def test_find_meeting_request_uses_latest_matching_synced_message() -> None:

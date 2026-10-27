@@ -351,6 +351,111 @@ def test_meeting_options_are_saved_as_a_draft_and_notify_the_assigned_member(
     assert notices[0]["kind"] == "meeting_reply_draft"
 
 
+def test_manually_selected_slot_is_saved_as_option_one_in_an_editable_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lead_agent.infrastructure.db.models import (
+        LeadFollowUpEmailORM,
+        LeadORM,
+        PipelineEventORM,
+    )
+
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    assigned_user_id = uuid4()
+    gmail_connection_id = uuid4()
+    calendar_connection_id = uuid4()
+    gmail_connection = SimpleNamespace(
+        id=gmail_connection_id,
+        workspace_id=workspace_id,
+        provider_type="gmail",
+        is_active=True,
+        status="verified",
+    )
+    source = {
+        "thread_id": "thread-manual",
+        "message_id": "source-manual",
+        "rfc_message_id": "<source-manual@example.test>",
+        "gmail_connection_id": str(gmail_connection_id),
+        "subject": "Meeting request",
+        "excerpt": "Could we schedule a meeting?",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+    slot = {
+        "provider": "calendly",
+        "connection_id": str(calendar_connection_id),
+        "account_name": "Calendly",
+        "event_type_uri": "https://api.calendly.com/event_types/type-1",
+        "event_type_name": "30 Minute Meeting",
+        "start_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        "end_at": (datetime.now(UTC) + timedelta(days=1, minutes=30)).isoformat(),
+        "time_zone": "UTC",
+        "source_message_id": "source-manual",
+        "source_gmail_connection_id": str(gmail_connection_id),
+    }
+    notices: list[dict[str, object]] = []
+
+    class Session:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+            self.scalar_results = [
+                gmail_connection,
+                SimpleNamespace(assigned_rep_id=str(assigned_user_id)),
+            ]
+
+        def scalar(self, _statement: Any) -> Any:
+            return self.scalar_results.pop(0)
+
+        def scalars(self, _statement: Any) -> Iterator[Any]:
+            return iter([])
+
+        def add(self, value: object) -> None:
+            self.added.append(value)
+
+        def commit(self) -> None:
+            pass
+
+    monkeypatch.setattr(meeting_email, "find_meeting_request", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(meeting_email, "assert_outreach_allowed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        meeting_email,
+        "notify_lead_action",
+        lambda _session, **kwargs: notices.append(kwargs),
+    )
+
+    session = Session()
+    draft = meeting_email.create_selected_slot_offer_draft(
+        session,  # type: ignore[arg-type]
+        lead=cast(
+            LeadORM,
+            SimpleNamespace(id=lead_id, full_name="Junaid Buyer", email="buyer@example.test"),
+        ),
+        workspace_id=workspace_id,
+        slot=slot,
+    )
+
+    offer = next(row for row in session.added if isinstance(row, PipelineEventORM))
+    assert isinstance(draft, LeadFollowUpEmailORM)
+    assert offer.status == "awaiting_send"
+    assert offer.details["manual_selected_slot"] is True
+    assert len(offer.details["options"]) == 1
+    assert offer.details["options"][0]["start_at"] == slot["start_at"]
+    assert draft.kind == f"meeting_options:{offer.id}"
+    assert draft.status == "draft"
+    assert "1. " in draft.body
+    assert "Reply with 1 to confirm." in draft.body
+    assert not any(
+        isinstance(row, PipelineEventORM) and row.stage == "meeting_scheduled"
+        for row in session.added
+    )
+    assert notices[0]["recipient_user_id"] == assigned_user_id
+    assert "Emails tab" in notices[0]["message"]
+    assert meeting_email.manual_selected_slot_body_is_intact(offer.details, draft.body)
+    assert not meeting_email.manual_selected_slot_body_is_intact(
+        offer.details, draft.body.replace("1. ", "2. ", 1)
+    )
+
+
 def test_sending_meeting_draft_replies_in_original_gmail_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
