@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   deleteLead,
+  completeLeadManualReview,
   getLead,
   getLeadClosingOptions,
   getLeadMomentum,
@@ -73,6 +74,7 @@ type Props = {
   canUseAgent?: boolean;
   canCall?: boolean;
   canManageRouting?: boolean;
+  canManageManualReview?: boolean;
   assignmentOptions?: LeadAssignmentOption[];
   recordedStage?: string | null;
   intent?: LeadIntent;
@@ -98,6 +100,7 @@ export function LeadRecord({
   canUseAgent = false,
   canCall = false,
   canManageRouting = false,
+  canManageManualReview = false,
   assignmentOptions = [],
   recordedStage = null,
   intent = null,
@@ -124,6 +127,8 @@ export function LeadRecord({
   const [newQuote, setNewQuote] = useState(false);
   const [move, setMove] = useState<DealStage | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [completingManualReview, setCompletingManualReview] = useState(false);
+  const [manualReviewError, setManualReviewError] = useState<string | null>(null);
   const store = useDeals();
   const dealView = viewDeal(lead, store.deals[lead.id], recordedStage);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -166,6 +171,26 @@ export function LeadRecord({
   const synced = () => {
     setActivityRefresh((value) => value + 1);
     setMeetingRefresh((value) => value + 1);
+  };
+
+  const completeManualReview = async () => {
+    if (!window.confirm(
+      `Mark ${lead.full_name || "this lead"}'s manual review done? This clears the hold, applies current routing, and may notify the assignee.`,
+    )) return;
+    setCompletingManualReview(true);
+    setManualReviewError(null);
+    try {
+      const updated = await completeLeadManualReview(lead.id);
+      onUpdated?.(updated);
+      setActivityRefresh((value) => value + 1);
+      setNotice("Manual review completed. Current routing has been applied.");
+    } catch (reason) {
+      setManualReviewError(
+        reason instanceof Error ? reason.message : "The manual review could not be completed.",
+      );
+    } finally {
+      setCompletingManualReview(false);
+    }
   };
 
   const deleteThisLead = async () => {
@@ -429,11 +454,12 @@ export function LeadRecord({
         </form>
       )}
       {notice && <Banner title={notice} action={<Button kind="plain" size="sm" onClick={() => setNotice(null)}>Dismiss</Button>} />}
+      {manualReviewError && <Banner tone="attention" title="Manual review wasn't completed">{manualReviewError}</Banner>}
 
       {review && (
         <div className="v-hold" role="status" aria-labelledby={`hold-${lead.id}`}>
           <span className="v-hold-icon"><Icon name="hand" size={18} /></span>
-          <div>
+          <div className="v-hold-copy">
             <b id={`hold-${lead.id}`}>Waiting for a person to review</b>
             <p>{reviewReasons[0] ?? "This lead matched one of your review rules. Check the details and analysis before contacting them."}</p>
             {reviewReasons.length > 1 && (
@@ -443,6 +469,19 @@ export function LeadRecord({
               </details>
             )}
           </div>
+          {canManageManualReview && (
+            <div className="v-hold-actions">
+              <Button
+                kind="filled"
+                size="sm"
+                type="button"
+                disabled={completingManualReview}
+                onClick={() => void completeManualReview()}
+              >
+                {completingManualReview ? "Completing…" : "Mark review done"}
+              </Button>
+            </div>
+          )}
         </div>
       )}
       {analysis?.status === "provider_error" && (
@@ -708,6 +747,7 @@ export function LeadRecord({
         <LeadAssistantPanel
           lead={lead}
           canEdit={canEdit}
+          canManageManualReview={canManageManualReview}
           canCrmSync={canCrmSync}
           canViewEmail={canViewEmail}
           canUseAgent={canUseAgent}

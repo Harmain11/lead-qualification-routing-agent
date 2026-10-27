@@ -14,6 +14,7 @@ import {
   saveLeadNote,
   updateLeadProgress,
   reevaluateLead,
+  completeLeadManualReview,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
 } from "../api";
@@ -154,6 +155,13 @@ export function canApplyWorkspaceAssistantAction(
   if (["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(action.kind)) {
     return Boolean(action.target_id && permissions.has("leads.view") && permissions.has("leads.edit"));
   }
+  if (action.kind === "complete_lead_manual_review") {
+    return Boolean(
+      action.target_id &&
+      permissions.has("leads.view") &&
+      permissions.has("manual_review.manage"),
+    );
+  }
   const requiredPermission: Partial<Record<WorkspaceAssistantAction["kind"], string>> = {
     set_automation_active: "workspace.manage",
     create_icp_draft: "icp.manage",
@@ -181,6 +189,13 @@ export async function applyWorkspaceAssistantAction(
   switch (action.kind) {
     case "create_lead":
       throw new Error("Create this lead from its reviewed draft card.");
+    case "complete_lead_manual_review": {
+      requirePermission(permissions, "leads.view");
+      requirePermission(permissions, "manual_review.manage");
+      if (!action.target_id) throw new Error("Choose a lead before completing its review.");
+      await completeLeadManualReview(action.target_id);
+      return `Completed the manual review for ${action.target_label || "the lead"} and applied current routing. The assignee may be notified.`;
+    }
     case "update_lead_profile":
     case "add_lead_note":
     case "record_lead_progress":

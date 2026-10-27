@@ -13,11 +13,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from lead_agent.api import workspace_assistant_context as snapshots
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.routes import lead_assistant
 from lead_agent.api.routes.lead_assistant import AssistantChatRequest, AssistantMessage
 from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
-from lead_agent.api import workspace_assistant_context as snapshots
 from lead_agent.api.workspace_lead_actions import validate_lead_proposal
 from lead_agent.domain.lead_assistant import (
     LeadAssistantAction,
@@ -25,11 +25,11 @@ from lead_agent.domain.lead_assistant import (
     WorkspaceAssistantAction,
     WorkspaceAssistantReply,
 )
+from lead_agent.domain.rbac import PERMISSION_CATALOG
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import WorkspaceORM
-from lead_agent.domain.rbac import PERMISSION_CATALOG
+from lead_agent.infrastructure.db.session import get_db
 
 
 @pytest.mark.parametrize("permissions", [{"agents.execute"}, {"leads.view"}, set()])
@@ -231,6 +231,8 @@ def test_lead_call_suggestion_requires_dialer_permission_and_saved_phone(
         outcome=None,
     )
     monkeypatch.setattr(lead_assistant, "get_lead", lambda *_: lead)
+    monkeypatch.setattr(lead_assistant, "get_current_routing", lambda *_: None)
+    monkeypatch.setattr(lead_assistant, "lead_manual_review_reasons", lambda *_: [])
     monkeypatch.setattr(
         lead_assistant,
         "operations_policy",

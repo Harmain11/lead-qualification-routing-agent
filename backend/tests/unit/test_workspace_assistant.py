@@ -13,11 +13,33 @@ from lead_agent.api.routes.lead_assistant import (
     AssistantMessage,
     chat_with_workspace_assistant,
 )
+from lead_agent.domain.assistant_capabilities import workspace_action_capabilities
 from lead_agent.domain.lead_assistant import (
     WorkspaceAssistantAction,
     WorkspaceAssistantReply,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
+
+
+def test_manual_review_completion_capability_requires_view_and_manage() -> None:
+    manager_actions = workspace_action_capabilities(
+        {"leads.view", "manual_review.manage"}
+    )
+    capability = next(
+        item
+        for item in manager_actions
+        if item["kind"] == "complete_lead_manual_review"
+    )
+    assert capability["required_fields"] == [
+        "target_id: lead with an active manual-review hold"
+    ]
+    assert capability["requires_review_and_approval"] is True
+
+    viewer_actions = workspace_action_capabilities({"leads.view"})
+    assert not any(
+        item["kind"] == "complete_lead_manual_review"
+        for item in viewer_actions
+    )
 
 
 def test_workspace_chat_returns_provider_answer_and_conversation(monkeypatch) -> None:
@@ -794,6 +816,10 @@ def test_lead_assistant_chat_returns_multiple_openable_matches(monkeypatch) -> N
         outcome=None,
     )
     monkeypatch.setattr(lead_assistant, "get_lead", lambda *_args: lead)
+    monkeypatch.setattr(lead_assistant, "get_current_routing", lambda *_args: None)
+    monkeypatch.setattr(
+        lead_assistant, "lead_manual_review_reasons", lambda *_args: []
+    )
     monkeypatch.setattr(
         lead_assistant,
         "operations_policy",

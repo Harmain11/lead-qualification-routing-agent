@@ -1485,6 +1485,7 @@ function App() {
                       onClose={closeLead}
                       canEdit={can(workspacePermissions, "leads.edit")}
                       canManageRouting={can(workspacePermissions, "routing.manage")}
+                      canManageManualReview={can(workspacePermissions, "manual_review.manage")}
                       canExport={can(workspacePermissions, "leads.export")}
                       canCrmSync={can(workspacePermissions, "crm.sync")}
                       canViewEmail={can(workspacePermissions, "integrations.view")}

@@ -528,7 +528,7 @@ export function WorkspaceAssistantChat({
         ),
       );
       // A refresh failure must not make a successful write appear to have failed.
-      if (action.target_id && ["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(action.kind) && onLeadUpdated) {
+      if (action.target_id && ["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead", "complete_lead_manual_review"].includes(action.kind) && onLeadUpdated) {
         void getLead(action.target_id).then(onLeadUpdated).catch(() => {
           setMessages((current) => current.map((message) => message.id === messageId ? {
             ...message, actionResult: `${result} Reopen the lead to refresh its displayed details.`,
@@ -1192,6 +1192,8 @@ export function WorkspaceAssistantChat({
                               ? "Open lead"
                               : message.action.kind === "open_deal_desk"
                                 ? "Open Deal Desk"
+                            : message.action.kind === "complete_lead_manual_review"
+                              ? "Complete review & reroute"
                             : message.action.kind === "add_lead_note" ? "Save note"
                             : message.action.kind === "create_lead" ? "Create lead"
                             : "Approve and apply"}

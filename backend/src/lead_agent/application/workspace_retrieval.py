@@ -176,9 +176,14 @@ def _iso(value: datetime | date | None) -> str | None:
 
 def _lead_summary(lead: LeadORM) -> dict[str, Any]:
     qualification = lead.qualification
+    analysis = lead.analysis
     current_route = next(
         (item for item in lead.routing_decisions if item.is_current),
         None,
+    )
+    manual_review_active = bool(
+        (analysis is not None and analysis.requires_manual_review)
+        or (current_route is not None and current_route.manual_review)
     )
     outcome = lead.outcome
     return {
@@ -203,12 +208,13 @@ def _lead_summary(lead: LeadORM) -> dict[str, Any]:
             if qualification
             else None
         ),
+        "manual_review_active": manual_review_active,
         "routing": (
             {
                 "assigned_rep": current_route.assigned_rep_name,
                 "queue": current_route.assigned_queue,
                 "priority": current_route.priority,
-                "manual_review": current_route.manual_review,
+                "manual_review": manual_review_active,
             }
             if current_route
             else None

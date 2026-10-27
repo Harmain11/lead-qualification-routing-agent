@@ -157,13 +157,19 @@
   .v-profile-editor-wide { grid-column: auto; }
 }
 
-.v-hold { display: flex; gap: 14px; padding: 16px 18px; border-radius: var(--r-lg); background: var(--attention-soft); }
+.v-hold { display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px; border-radius: var(--r-lg); background: var(--attention-soft); }
 .v-hold-icon { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--c-amber); color: var(--on-attention); }
+.v-hold-copy { flex: 1; min-width: 0; }
+.v-hold-actions { flex: none; }
 .v-hold b { font: var(--t-headline); }
 .v-hold p { margin-top: 2px; font: var(--t-callout); color: var(--label-2); }
 .v-hold details { margin-top: 6px; font: var(--t-callout); color: var(--label-2); }
 .v-hold summary { cursor: pointer; color: var(--attention-text); font-weight: 500; }
 .v-hold ul { margin: 6px 0 0; padding-left: 18px; }
+@media (max-width: 480px) {
+  .v-hold { flex-wrap: wrap; }
+  .v-hold-actions { margin-left: 48px; }
+}
 
 .v-tabs {
   position: sticky; top: var(--toolbar-h); z-index: 5;

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import re
-from typing import Any, Literal
 from datetime import datetime, timezone
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
 from lead_agent.application.governance import operations_policy
+from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
 from lead_agent.domain.assistant_capabilities import workspace_action_capabilities
@@ -32,7 +33,7 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
-from lead_agent.infrastructure.repositories import get_lead
+from lead_agent.infrastructure.repositories import get_current_routing, get_lead
 
 router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
 workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
@@ -122,6 +123,13 @@ def _is_explicit_lead_write_request(query: str) -> bool:
             r"note|re-?evaluate|mark|set|move|delete|remove)\b",
             query.casefold(),
         )
+    )
+
+
+def _is_explicit_manual_review_completion_request(query: str) -> bool:
+    return bool(
+        re.search(r"\b(mark|set|change|complete|finish|close)\b", query.casefold())
+        and re.search(r"\b(review|hold)\b", query.casefold())
     )
 
 
@@ -799,13 +807,15 @@ def chat_with_workspace_assistant(
     lead_mutations = {
         "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead",
     }
+    manual_review_mutations = {"complete_lead_manual_review"}
+    lead_actions = lead_mutations | manual_review_mutations
     lead_write_query = (
         confirmation_query
         if confirmation_state == "confirmed"
         else record_query
     )
     if (
-        result.action.kind in lead_mutations
+        result.action.kind in lead_actions
         and not _is_explicit_lead_write_request(lead_write_query)
     ):
         result.action = WorkspaceAssistantAction()
@@ -837,7 +847,7 @@ def chat_with_workspace_assistant(
             except ValueError as error:
                 result.action = WorkspaceAssistantAction()
                 result.reply = f"The new lead draft needs clarification: {error}"[:3000]
-    if result.action.kind in {"open_lead", "open_deal_desk"} or result.action.kind in lead_mutations:
+    if result.action.kind in {"open_lead", "open_deal_desk"} or result.action.kind in lead_actions:
         target_id = result.action.target_id
         matched_lead_ids = {
             item.get("id")
@@ -891,7 +901,7 @@ def chat_with_workspace_assistant(
             if mentioned_lead and (
                 result.action.kind in {"open_lead", "open_deal_desk"}
                 or (
-                    result.action.kind in lead_mutations
+                    result.action.kind in lead_actions
                     and _is_explicit_lead_write_request(lead_write_query)
                 )
             ):
@@ -916,6 +926,10 @@ def chat_with_workspace_assistant(
         if (
             not target_is_available
             or (result.action.kind in lead_mutations and "leads.edit" not in workspace.permissions)
+            or (
+                result.action.kind in manual_review_mutations
+                and "manual_review.manage" not in workspace.permissions
+            )
         ):
             result.action = WorkspaceAssistantAction()
             result.reply = (
@@ -956,6 +970,19 @@ def chat_with_workspace_assistant(
                     result.reply = (
                         f"The lead change needs clarification before review: {error}"
                     )[:3000]
+            elif result.action.kind in manual_review_mutations:
+                if not matched_lead.get("manual_review_active"):
+                    result.action = WorkspaceAssistantAction()
+                    result.reply = (
+                        f"{matched_lead.get('name') or 'This lead'} is not currently "
+                        "waiting for manual review."
+                    )
+                else:
+                    result.action.title = "Complete manual review"
+                    result.action.summary = (
+                        f"Clear {result.action.target_label}'s review hold and apply "
+                        "current routing rules. The resulting assignee may be notified."
+                    )
     response = result.model_dump(mode="json")
     response["context_warnings"] = workspace_context.get("context_warnings", [])
     if "leads.view" in workspace.permissions and _wants_lead_links(request.messages):
@@ -982,6 +1009,8 @@ def chat_with_lead_assistant(
     if lead is None:
         raise HTTPException(404, "Lead not found")
 
+    current_routing = get_current_routing(session, lead.id, workspace.workspace_id)
+    review_reasons = lead_manual_review_reasons(session, lead, current_routing)
     provider = resolve_workspace_reasoning_provider(session, workspace.workspace_id)
     assistant_method = getattr(provider, "assist_with_lead", None)
     if not callable(assistant_method):
@@ -1034,6 +1063,10 @@ def chat_with_lead_assistant(
             "original_inquiry_or_context": lead.message,
             "source": lead.source,
             "received_at": lead.received_at.isoformat(),
+            "manual_review": {
+                "active": bool(review_reasons),
+                "reasons": review_reasons,
+            },
             "qualification": (
                 {
                     "score": lead.qualification.total_score,
@@ -1085,6 +1118,26 @@ def chat_with_lead_assistant(
         raise HTTPException(502, str(error)) from None
     except Exception:
         raise HTTPException(502, "The lead assistant could not complete this request.") from None
+    if result.action.kind == "complete_manual_review":
+        latest_user_message = next(
+            (
+                message.content
+                for message in reversed(request.messages)
+                if message.role == "user"
+            ),
+            "",
+        )
+        if "manual_review.manage" not in workspace.permissions:
+            result.action = LeadAssistantAction()
+            result.reply = (
+                "You need manual-review management access to complete this lead's review."
+            )
+        elif not _is_explicit_manual_review_completion_request(latest_user_message):
+            result.action = LeadAssistantAction()
+            result.reply = "Please explicitly ask me to complete this lead's manual review."
+        elif not review_reasons:
+            result.action = LeadAssistantAction()
+            result.reply = "This lead is not currently waiting for manual review."
     if _is_conversation_only_message(request.messages):
         result.action = LeadAssistantAction()
     if result.action.kind == "open_dialer" and (
