@@ -126,9 +126,11 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
             "oauth",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
+            "crm.schemas.contacts.read",
+            "crm.schemas.contacts.write",
         ],
         permission_reason=(
-            "Import HubSpot Contacts and allow explicitly initiated Contact create/update actions."
+            "Import and update HubSpot Contacts, and create missing Corral contact properties."
         ),
         documentation_url="https://developers.hubspot.com/docs/api/private-apps",
         manual_fields=[],

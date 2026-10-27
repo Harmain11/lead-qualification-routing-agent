@@ -431,7 +431,12 @@ def _connection(
         auth_type="oauth2",
         status="verified",
         scopes=(
-            ["crm.objects.contacts.read", "crm.objects.contacts.write"]
+            [
+                "crm.objects.contacts.read",
+                "crm.objects.contacts.write",
+                "crm.schemas.contacts.read",
+                "crm.schemas.contacts.write",
+            ]
             if provider_type == "hubspot"
             else ["api", "refresh_token"]
         ),
