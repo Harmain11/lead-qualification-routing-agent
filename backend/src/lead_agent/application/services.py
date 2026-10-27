@@ -830,6 +830,7 @@ def reprocess_lead(
     send_confirmation_email: bool = True,
     preserve_inquiry: bool = False,
     manual_review_reason: str | None = None,
+    recorded_evidence: tuple[RecordedLeadEvidence, ...] | None = None,
 ) -> tuple[NormalizedLead, QualificationResult, LeadORM]:
     """Run a meaningful source update through the canonical qualification pipeline."""
 
@@ -840,6 +841,12 @@ def reprocess_lead(
     effective_manual_review_reason = manual_review_reason
     resolved_icp = resolve_workspace_icp(session, row.workspace_id, icp)
     normalized = normalize_lead(payload, row.id)
+    if recorded_evidence is not None:
+        normalized = replace(
+            normalized,
+            original_message=row.message,
+            recorded_evidence=recorded_evidence,
+        )
     active_provider = provider or resolve_workspace_reasoning_provider(session, row.workspace_id)
     review_config = workspace_manual_review_config(
         session, row.workspace_id, routing.manual_review

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     gmail_history_messages,
+    lead_history_context,
 )
 from lead_agent.application.services import process_source_event, reprocess_lead
 from lead_agent.domain.analysis import ReasoningProvider
@@ -29,6 +30,7 @@ from lead_agent.domain.crm_inbound import (
 )
 from lead_agent.domain.email import is_personal_email_address
 from lead_agent.domain.intake import SourceEvent
+from lead_agent.domain.models import RecordedLeadEvidence
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.infrastructure.db.models import (
@@ -835,6 +837,51 @@ def _store_gmail_thread_history(
     )
 
 
+def _prepare_reprocess_input(
+    session: Session,
+    connection: ProviderConnectionORM,
+    provider: CrmInboundProvider,
+    lead: LeadORM,
+    canonical: CanonicalInboundLead,
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[RecordedLeadEvidence, ...] | None]:
+    reprocess_payload = _contact_update_payload(canonical, lead, payload)
+    if canonical.provider != "gmail":
+        return reprocess_payload, None
+
+    metadata = canonical.provider_metadata if isinstance(canonical.provider_metadata, dict) else {}
+    thread_messages = metadata.get("gmail_thread_messages")
+    _store_gmail_thread_history(
+        session,
+        connection,
+        provider,
+        lead,
+        str(metadata.get("gmail_thread_id") or ""),
+        thread_messages if isinstance(thread_messages, list) else None,
+    )
+    history_context, evidence = lead_history_context(
+        session,
+        workspace_id=connection.workspace_id,
+        lead_id=lead.id,
+    )
+    message_parts = [str(lead.message or "").strip()]
+    if history_context:
+        message_parts.append(
+            f"Verified lead history (oldest first):\n{history_context}"
+        )
+    latest_message = str(reprocess_payload.get("message") or "").strip()
+    if (
+        latest_message
+        and latest_message != str(lead.message or "").strip()
+        and latest_message not in history_context
+    ):
+        message_parts.append(f"Latest imported Gmail message:\n{latest_message}")
+    reprocess_payload["message"] = "\n\n".join(
+        part for part in message_parts if part
+    )
+    return reprocess_payload, evidence
+
+
 def _store_existing_gmail_contact_history(
     session: Session,
     connection: ProviderConnectionORM,
@@ -1013,21 +1060,25 @@ def _process_record(
                     session, lead.id, connection.workspace_id
                 )
                 if current_routing is None or not current_routing.manual_review:
+                    reprocess_payload, recorded_evidence = _prepare_reprocess_input(
+                        session, connection, provider, lead, canonical, normalized_payload
+                    )
                     reprocess_lead(
                         session,
                         lead,
-                        _contact_update_payload(canonical, lead, normalized_payload),
+                        reprocess_payload,
                         icp,
                         routing,
                         provider=reasoning_provider,
                         notification_provider=notification_provider,
                         send_confirmation_email=False,
-                        preserve_inquiry=canonical.provider == "gohighlevel",
+                        preserve_inquiry=canonical.provider in {"gmail", "gohighlevel"},
                         manual_review_reason=manual_review_reason,
+                        recorded_evidence=recorded_evidence,
                     )
                     link.last_change_kind = "manual_review_policy"
                     review_routed = True
-            if canonical.provider == "gmail":
+            if canonical.provider == "gmail" and not review_routed:
                 _store_gmail_thread_history(
                     session, connection, provider, lead,
                     str(canonical.provider_metadata.get("gmail_thread_id") or ""),
@@ -1037,17 +1088,21 @@ def _process_record(
                 )
             session.commit()
             return "updated" if review_routed else "unchanged"
+        reprocess_payload, recorded_evidence = _prepare_reprocess_input(
+            session, connection, provider, lead, canonical, normalized_payload
+        )
         reprocess_lead(
             session,
             lead,
-            _contact_update_payload(canonical, lead, normalized_payload),
+            reprocess_payload,
             icp,
             routing,
             provider=reasoning_provider,
             notification_provider=notification_provider,
             send_confirmation_email=send_confirmation_email,
-            preserve_inquiry=canonical.provider == "gohighlevel",
+            preserve_inquiry=canonical.provider in {"gmail", "gohighlevel"},
             manual_review_reason=manual_review_reason,
+            recorded_evidence=recorded_evidence,
         )
         link = _record_link(session, connection, canonical)
         if link is None:
@@ -1065,15 +1120,6 @@ def _process_record(
         link.last_imported_at = now
         link.updated_at = now
         session.commit()
-        if canonical.provider == "gmail":
-            _store_gmail_thread_history(
-                session, connection, provider, lead,
-                str(canonical.provider_metadata.get("gmail_thread_id") or ""),
-                canonical.provider_metadata.get("gmail_thread_messages")
-                if isinstance(canonical.provider_metadata.get("gmail_thread_messages"), list)
-                else None,
-            )
-            session.commit()
         return "updated"
 
     email = str(normalized_payload.get("email") or "")
@@ -1082,17 +1128,21 @@ def _process_record(
         raise ValueError("gmail_contact_match_ambiguous")
     if len(matches) == 1:
         lead = matches[0]
+        reprocess_payload, recorded_evidence = _prepare_reprocess_input(
+            session, connection, provider, lead, canonical, normalized_payload
+        )
         reprocess_lead(
             session,
             lead,
-            _contact_update_payload(canonical, lead, normalized_payload),
+            reprocess_payload,
             icp,
             routing,
             provider=reasoning_provider,
             notification_provider=notification_provider,
             send_confirmation_email=send_confirmation_email,
-            preserve_inquiry=canonical.provider == "gohighlevel",
+            preserve_inquiry=canonical.provider in {"gmail", "gohighlevel"},
             manual_review_reason=manual_review_reason,
+            recorded_evidence=recorded_evidence,
         )
         strategy = "exact_email"
         outcome = "updated"
@@ -1159,7 +1209,7 @@ def _process_record(
         if existing is None:
             raise
         return "unchanged"
-    if canonical.provider == "gmail":
+    if canonical.provider == "gmail" and outcome == "created":
         _store_gmail_thread_history(
             session, connection, provider, lead,
             str(canonical.provider_metadata.get("gmail_thread_id") or ""),
