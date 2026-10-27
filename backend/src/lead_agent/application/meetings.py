@@ -38,6 +38,11 @@ _OTHER_TIME_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_SPECIFIC_TIME_PROPOSAL = re.compile(
+    r"\b(?:how\s+(?:does|about)|would|does|could)\b.{0,80}"
+    r"\b(?:sound|work|suit|fit)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 _MONTH_TOKEN = (
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
     r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
@@ -111,7 +116,16 @@ def find_meeting_request(
         ):
             continue
         text = f"{subject}\n{excerpt}"
-        if not any(pattern.search(text) for pattern in _MEETING_PATTERNS):
+        reference = _parse_provider_time(details.get("sent_at"))
+        specific_time_proposal = (
+            _SPECIFIC_TIME_PROPOSAL.search(excerpt) is not None
+            and requested_meeting_date(excerpt, reference=reference) is not None
+            and requested_meeting_time(excerpt) is not None
+        )
+        if (
+            not any(pattern.search(text) for pattern in _MEETING_PATTERNS)
+            and not specific_time_proposal
+        ):
             continue
         message_id = str(details.get("message_id") or "")
         if not message_id:
@@ -194,9 +208,9 @@ def _parse_provider_time(value: Any) -> datetime | None:
 
 
 def requested_meeting_date(
-    text: str, *, reference: datetime | None = None
+    text: str, *, reference: datetime | None = None, time_zone: str = "UTC"
 ) -> date | None:
-    """Parse an explicit ISO or English month/day request without guessing a weekday."""
+    """Parse explicit dates and today/tomorrow without guessing a weekday."""
     month_numbers = {
         "jan": 1,
         "january": 1,
@@ -223,6 +237,15 @@ def requested_meeting_date(
         "dec": 12,
         "december": 12,
     }
+    current = reference or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    local_current = current.astimezone(_timezone(time_zone))
+    if re.search(r"\btoday\b", text, re.IGNORECASE):
+        return local_current.date()
+    if re.search(r"\btomorrow\b", text, re.IGNORECASE):
+        return local_current.date() + timedelta(days=1)
+
     match = _ISO_DATE.search(text)
     month_is_numeric = match is not None
     if match is None:
@@ -239,10 +262,9 @@ def requested_meeting_date(
             else month_numbers[month_text.lower()]
         )
         supplied_year = match.group("year")
-        current = reference or datetime.now(UTC)
-        year = int(supplied_year) if supplied_year else current.year
+        year = int(supplied_year) if supplied_year else local_current.year
         requested = date(year, month, day)
-        if supplied_year is None and requested < current.date():
+        if supplied_year is None and requested < local_current.date():
             requested = date(year + 1, month, day)
         return requested
     except (ValueError, KeyError):
@@ -284,7 +306,7 @@ def requested_meeting_datetime(
     time_zone: str,
     reference: datetime | None = None,
 ) -> datetime | None:
-    day = requested_meeting_date(text, reference=reference)
+    day = requested_meeting_date(text, reference=reference, time_zone=time_zone)
     clock = requested_meeting_time(text)
     if day is None or clock is None:
         return None
@@ -300,12 +322,18 @@ def recommend_google_calendar_slots(
     source_gmail_connection_id: str | None = None,
     now: datetime | None = None,
     requested_date: date | None = None,
+    requested_text: str | None = None,
+    reference: datetime | None = None,
     limit: int = 5,
 ) -> list[dict[str, str]]:
     current = now or datetime.now(UTC)
     calendar = client.primary_calendar()
     zone = _timezone(str(calendar.get("timeZone") or "UTC"))
     time_zone = zone.key
+    if requested_text is not None:
+        requested_date = requested_meeting_date(
+            requested_text, reference=reference, time_zone=time_zone
+        )
     local_today = current.astimezone(zone).date()
     if requested_date is not None:
         day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
@@ -371,6 +399,8 @@ def recommend_calendly_slots(
     source_gmail_connection_id: str | None = None,
     now: datetime | None = None,
     requested_date: date | None = None,
+    requested_text: str | None = None,
+    reference: datetime | None = None,
     limit_per_event_type: int = 5,
     event_type_statuses: list[dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
@@ -378,6 +408,10 @@ def recommend_calendly_slots(
     user = client.current_user()
     user_uri = str(user.get("uri") or "")
     time_zone = _timezone(str(user.get("timezone") or "UTC")).key
+    if requested_text is not None:
+        requested_date = requested_meeting_date(
+            requested_text, reference=reference, time_zone=time_zone
+        )
     if not user_uri:
         return []
     window_start = current + timedelta(minutes=5)
