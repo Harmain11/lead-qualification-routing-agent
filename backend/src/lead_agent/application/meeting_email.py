@@ -19,6 +19,7 @@ from lead_agent.application.meetings import (
     lead_time_zone,
     match_confirmed_meeting_option,
     meeting_reply_declines_offer,
+    meeting_reply_has_uncertain_language,
     meeting_reply_requests_other_times,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
@@ -694,6 +695,26 @@ def _cached_reply_interpretation(
     return result
 
 
+def _has_newer_inbound_reply(
+    messages: list[dict[str, str]],
+    *,
+    current_message_id: str,
+    lead_email: str,
+    current_sent_at: datetime,
+) -> bool:
+    for message in messages:
+        if (
+            str(message.get("message_id") or "") == current_message_id
+            or message.get("direction") != "inbound"
+            or message.get("sender", "").strip().lower() != lead_email.strip().lower()
+        ):
+            continue
+        sent_at = _parse_datetime(message.get("sent_at"))
+        if sent_at is not None and sent_at > current_sent_at:
+            return True
+    return False
+
+
 def _store_reply_interpretation(
     details: dict[str, Any],
     message_id: str,
@@ -821,6 +842,9 @@ def _classify_meeting_reply_with_ai(
         if not callable(classify):
             return None, "unavailable"
         clean_reply = _plain_excerpt(body, limit=2000)
+        safe_options = [option for option in options if isinstance(option, dict)]
+        if len(safe_options) != len(options):
+            return None, "unavailable"
         payload = {
             "reply": clean_reply,
             "options": [
@@ -831,7 +855,7 @@ def _classify_meeting_reply_with_ai(
                     "end_at": option.get("end_at"),
                     "time_zone": option.get("time_zone"),
                 }
-                for index, option in enumerate(options, start=1)
+                for index, option in enumerate(safe_options, start=1)
             ],
         }
         result = MeetingReplyClassification.model_validate(classify(payload))
@@ -855,6 +879,7 @@ def _classify_meeting_reply_with_ai(
             and _quoted_evidence_is_present(clean_reply, result.evidence)
             and not meeting_reply_requests_other_times(clean_reply)
             and not meeting_reply_declines_offer(clean_reply)
+            and not meeting_reply_has_uncertain_language(clean_reply)
         )
         if len(options) > 1:
             valid = (
@@ -1248,7 +1273,7 @@ def process_gmail_meeting_thread(
     messages: list[dict[str, str]],
     actor_id: str,
 ) -> str:
-    """Offer available times and book only after the lead selects a numbered option."""
+    """Offer available times and book only after clear selection of one option."""
     locked_lead_id = session.scalar(
         select(LeadORM.id)
         .where(
@@ -1340,7 +1365,16 @@ def process_gmail_meeting_thread(
         offer.details = details
         session.commit()
 
-    if offer is not None and offer.status in {_OFFER_PENDING, "booking"}:
+    reply_attention = False
+    if offer is not None:
+        offer_details = offer.details if isinstance(offer.details, dict) else {}
+        reply_attention = (
+            offer.status == "needs_attention"
+            and isinstance(offer_details.get("reply_classifications"), dict)
+        )
+    if offer is not None and (
+        offer.status in {_OFFER_PENDING, "booking"} or reply_attention
+    ):
         details = offer.details if isinstance(offer.details, dict) else {}
         offered_at = _parse_datetime(details.get("offered_at") or details.get("created_at"))
         source = find_meeting_request(
@@ -1364,37 +1398,94 @@ def process_gmail_meeting_thread(
             sent_at = _parse_datetime(message.get("sent_at"))
             if offered_at is None or sent_at is None or sent_at <= offered_at:
                 continue
-            options = details.get("options", [])
-            if not isinstance(options, list):
+            message_id = str(message.get("message_id") or "")
+            if not message_id or _has_newer_inbound_reply(
+                messages,
+                current_message_id=message_id,
+                lead_email=lead.email,
+                current_sent_at=sent_at,
+            ):
                 continue
-            option_number = match_confirmed_meeting_option(message.get("body", ""), len(options))
-            if option_number is not None:
+            options = details.get("options", [])
+            if not isinstance(options, list) or not options:
+                continue
+            reply_body = str(message.get("body") or "")
+            option_number = match_confirmed_meeting_option(reply_body, len(options))
+            intent = "confirm" if option_number is not None else "uncertain"
+            interpretation_source = "explicit"
+
+            cached = _cached_reply_interpretation(details, message_id)
+            if option_number is None and cached is not None:
+                intent = str(cached["intent"])
+                cached_option = cached.get("option_number")
+                option_number = (
+                    cached_option
+                    if isinstance(cached_option, int) and not isinstance(cached_option, bool)
+                    else None
+                )
+                interpretation_source = str(cached.get("source") or "ai")
+            elif option_number is None:
+                classification, interpretation_source = _classify_meeting_reply_with_ai(
+                    session,
+                    workspace_id,
+                    reply_body,
+                    [item for item in options if isinstance(item, dict)],
+                )
+                if classification is None:
+                    intent = "uncertain"
+                    option_number = None
+                    confidence = 0.0
+                else:
+                    intent = classification.intent
+                    option_number = (
+                        classification.option_number
+                        if classification.intent == "confirm"
+                        else None
+                    )
+                    confidence = classification.confidence
+                details = _store_reply_interpretation(
+                    details,
+                    message_id,
+                    intent=intent,
+                    option_number=option_number or 0,
+                    confidence=confidence,
+                    source=interpretation_source,
+                )
+                offer.details = details
+                session.commit()
+
+            if (
+                intent == "confirm"
+                and isinstance(option_number, int)
+                and not isinstance(option_number, bool)
+                and 1 <= option_number <= len(options)
+                and not meeting_reply_requests_other_times(reply_body)
+                and not meeting_reply_declines_offer(reply_body)
+            ):
+                details.pop("lead_declined_offer", None)
+                details.pop("lead_requested_other_times", None)
+                details.pop("error_code", None)
+                details.pop("error_message", None)
+                offer.details = details
                 return _book_selected_option(
                     session,
                     lead,
                     workspace_id,
                     actor_id,
                     offer,
-                    str(message.get("message_id") or ""),
+                    message_id,
                     option_number,
                 )
 
-            reply_excerpt = _plain_excerpt(str(message.get("body") or ""), limit=2000)
-            request_text = "\n".join(
-                part
-                for part in (
-                    reply_excerpt,
-                    source.get("excerpt", "") if source is not None else "",
-                )
-                if part
-            )
+            reply_excerpt = _plain_excerpt(reply_body, limit=2000)
             contact_zone = lead_time_zone(lead, "UTC") or "UTC"
             if (
-                source is not None
+                intent == "decline"
+                and source is not None
                 and requested_meeting_date(
-                    request_text, reference=sent_at, time_zone=contact_zone
+                    reply_excerpt, reference=sent_at, time_zone=contact_zone
                 ) is not None
-                and requested_meeting_time(request_text) is not None
+                and requested_meeting_time(reply_excerpt) is not None
             ):
                 if _attempt_requested_time_booking(
                     session,
@@ -1403,7 +1494,7 @@ def process_gmail_meeting_thread(
                     actor_id,
                     source["message_id"],
                     source.get("gmail_connection_id"),
-                    request_text,
+                    reply_excerpt,
                     sent_at,
                 ):
                     offer.status = "booked"
@@ -1424,7 +1515,7 @@ def process_gmail_meeting_thread(
                 session.commit()
                 updated_source = {
                     **source,
-                    "excerpt": request_text[:320],
+                    "excerpt": reply_excerpt[:320],
                     "sent_at": str(message.get("sent_at") or ""),
                     "rfc_message_id": str(
                         message.get("rfc_message_id") or source.get("rfc_message_id") or ""
@@ -1444,11 +1535,37 @@ def process_gmail_meeting_thread(
                 offer.status = "needs_attention"
                 offer.details = {
                     **details,
-                    "reply_message_id": str(message.get("message_id") or ""),
+                    "reply_message_id": message_id,
                     "lead_requested_other_times": True,
                 }
                 session.commit()
-                return "needs_attention"
+                continue
+            if intent == "decline":
+                offer.status = "needs_attention"
+                offer.details = {
+                    **details,
+                    "reply_message_id": message_id,
+                    "lead_declined_offer": True,
+                    "error_code": "lead_declined_meeting_offer",
+                }
+                session.commit()
+                continue
+            if intent == "uncertain":
+                offer.status = "needs_attention"
+                offer.details = {
+                    **details,
+                    "reply_message_id": message_id,
+                    "error_code": (
+                        "meeting_reply_interpretation_unavailable"
+                        if interpretation_source == "unavailable"
+                        else "meeting_reply_unclear"
+                    ),
+                    "error_message": (
+                        "The reply could not be safely interpreted. Review it before booking."
+                    ),
+                }
+                session.commit()
+                continue
 
         if source is None or details.get("source_message_id") == source["message_id"]:
             return offer.status
