@@ -28,7 +28,10 @@ from lead_agent.application.crm_inbound import (
     run_inbound_sync,
     upgrade_default_gmail_sync_intervals,
 )
-from lead_agent.application.gmail_history import gmail_history_messages
+from lead_agent.application.gmail_history import (
+    append_gmail_thread_messages,
+    gmail_history_messages,
+)
 from lead_agent.application.lead_approval import update_lead_approval_policy
 from lead_agent.application.services import process_lead, process_source_event
 from lead_agent.domain.crm_inbound import (
@@ -1031,6 +1034,46 @@ def test_gmail_history_is_scoped_to_exact_sender_or_to_email_not_cc():
     assert [row["message_id"] for row in rows] == ["to-match", "from-match"]
     assert rows[0]["direction"] == "inbound"
     assert rows[1]["direction"] == "inbound"
+
+
+def test_gmail_sync_backfills_thread_ids_for_existing_message_events():
+    connection_id = uuid4()
+    events = [
+        SimpleNamespace(
+            details={
+                "message_id": "missing-thread",
+                "gmail_connection_id": str(connection_id),
+            }
+        ),
+        SimpleNamespace(
+            details={
+                "message_id": "stale-thread",
+                "gmail_connection_id": str(connection_id),
+                "thread_id": "old-thread",
+            }
+        ),
+        SimpleNamespace(details={"message_id": "legacy-message"}),
+    ]
+
+    added = append_gmail_thread_messages(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        workspace_id=uuid4(),
+        lead_id=uuid4(),
+        connection_id=connection_id,
+        messages=[
+            {"message_id": "missing-thread", "thread_id": "gmail-thread"},
+            {"message_id": "stale-thread", "thread_id": "gmail-thread"},
+            {"message_id": "legacy-message", "thread_id": "gmail-thread"},
+        ],
+        existing_events=events,  # type: ignore[arg-type]
+    )
+
+    assert added == 0
+    assert [event.details["thread_id"] for event in events] == [
+        "gmail-thread",
+        "gmail-thread",
+        "gmail-thread",
+    ]
 
 
 def test_gmail_skips_ambiguous_email_match_instead_of_creating_a_duplicate(

@@ -91,6 +91,53 @@ test("only newly unseen lead IDs trigger arrival notifications", async () => {
   assert.deepEqual(newlyUnseenLeadIds(arrived, repeated), []);
 });
 
+test("a complete lead snapshot clears unread arrivals for deleted leads", async () => {
+  const baseline = await observeNewLeads(emptyNewLeadIndicatorSnapshot, [
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const arrived = await observeNewLeads(baseline, [
+    { id: "deleted", created_at: "2026-10-02T10:00:00Z" },
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const partialPage = await observeNewLeads(
+    arrived,
+    [{ id: "existing", created_at: "2026-10-01T10:00:00Z" }],
+    { completeSnapshot: false },
+  );
+  const completeSnapshot = await observeNewLeads(partialPage, []);
+
+  assert.deepEqual(partialPage.unseenIds, ["deleted"]);
+  assert.deepEqual(completeSnapshot.unseenIds, []);
+});
+
+test("clearing a deleted arrival keeps repeat-import suppression", async () => {
+  const baseline = await observeNewLeads(emptyNewLeadIndicatorSnapshot, [
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const arrived = await observeNewLeads(baseline, [
+    {
+      id: "deleted",
+      email: "prospect@example.com",
+      created_at: "2026-10-02T10:00:00Z",
+    },
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const cleared = await observeNewLeads(arrived, [
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+  const reimported = await observeNewLeads(cleared, [
+    {
+      id: "new-id",
+      email: "prospect@example.com",
+      created_at: "2026-10-03T10:00:00Z",
+    },
+    { id: "existing", created_at: "2026-10-01T10:00:00Z" },
+  ]);
+
+  assert.deepEqual(cleared.unseenIds, []);
+  assert.deepEqual(reimported.unseenIds, []);
+});
+
 test("reimporting a deleted email lead suppresses its duplicate arrival", async () => {
   const baseline = await observeNewLeads(emptyNewLeadIndicatorSnapshot, [
     { id: "existing", created_at: "2026-10-01T10:00:00Z" },

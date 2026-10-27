@@ -126,10 +126,13 @@ def append_gmail_thread_messages(
     messages: list[dict[str, Any]],
     known_message_ids_by_connection: set[tuple[str, str]] | None = None,
     legacy_known_message_ids: set[str] | None = None,
+    existing_events: list[PipelineEventORM] | None = None,
 ) -> int:
     """Save each Gmail message to a lead history once; return the number added."""
-    if known_message_ids_by_connection is None or legacy_known_message_ids is None:
-        known = list(
+    if existing_events is None and (
+        known_message_ids_by_connection is None or legacy_known_message_ids is None
+    ):
+        existing_events = list(
             session.scalars(
                 select(PipelineEventORM).where(
                     PipelineEventORM.lead_id == lead_id,
@@ -138,20 +141,24 @@ def append_gmail_thread_messages(
                 )
             )
         )
-        known_message_ids_by_connection = {
-            (str(event.details.get("gmail_connection_id")), str(event.details.get("message_id")))
-            for event in known
-            if isinstance(event.details, dict)
-            and event.details.get("gmail_connection_id")
-            and event.details.get("message_id")
-        }
-        legacy_known_message_ids = {
-            str(event.details.get("message_id"))
-            for event in known
-            if isinstance(event.details, dict)
-            and event.details.get("message_id")
-            and not event.details.get("gmail_connection_id")
-        }
+    existing_events = existing_events or []
+    known_events_by_connection: dict[tuple[str, str], PipelineEventORM] = {}
+    legacy_events_by_message_id: dict[str, PipelineEventORM] = {}
+    for event in existing_events:
+        details = event.details if isinstance(event.details, dict) else {}
+        message_id = str(details.get("message_id") or "")
+        if not message_id:
+            continue
+        stored_connection_id = str(details.get("gmail_connection_id") or "")
+        if stored_connection_id:
+            known_events_by_connection[(stored_connection_id, message_id)] = event
+        else:
+            legacy_events_by_message_id[message_id] = event
+
+    if known_message_ids_by_connection is None:
+        known_message_ids_by_connection = set(known_events_by_connection)
+    if legacy_known_message_ids is None:
+        legacy_known_message_ids = set(legacy_events_by_message_id)
 
     connection_key = str(connection_id)
     added = 0
@@ -159,11 +166,24 @@ def append_gmail_thread_messages(
     for message in messages:
         message_id = str(message.get("message_id") or "").strip()
         scoped_id = (connection_key, message_id)
+        if not message_id:
+            continue
+        known_event = known_events_by_connection.get(scoped_id)
+        if known_event is None and message_id in legacy_known_message_ids:
+            known_event = legacy_events_by_message_id.get(message_id)
         if (
-            not message_id
-            or scoped_id in known_message_ids_by_connection
+            scoped_id in known_message_ids_by_connection
             or message_id in legacy_known_message_ids
         ):
+            thread_id = str(message.get("thread_id") or "").strip()
+            if known_event is not None and thread_id:
+                details = (
+                    known_event.details
+                    if isinstance(known_event.details, dict)
+                    else {}
+                )
+                if str(details.get("thread_id") or "") != thread_id:
+                    known_event.details = {**details, "thread_id": thread_id}
             continue
         details = {**message, "gmail_connection_id": connection_key}
         event_id = uuid5(

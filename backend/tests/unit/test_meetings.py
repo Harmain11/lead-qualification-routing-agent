@@ -290,18 +290,18 @@ def test_meeting_request_detection_accepts_a_relative_exact_time_proposal() -> N
     assert source["message_id"] == "message-1"
 
 
-def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
+def test_exact_time_booking_uses_contact_timezone_and_source_mailbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     connection_id = uuid4()
-    lead = SimpleNamespace(id=uuid4())
+    lead = SimpleNamespace(id=uuid4(), phone="+923016057779", geography=None)
     workspace_id = uuid4()
     gmail_connection_id = str(uuid4())
     captured: list[ConfirmMeetingRequest] = []
 
     class Calendar:
         def primary_calendar(self):
-            return {"timeZone": "Asia/Karachi"}
+            return {"timeZone": "UTC"}
 
     monkeypatch.setattr(
         meeting_email,
@@ -484,7 +484,7 @@ def test_exact_calendly_booking_skips_disconnected_event_type(
 
     booked = meeting_email._attempt_requested_time_booking(
         object(),  # type: ignore[arg-type]
-        SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+        SimpleNamespace(id=uuid4(), time_zone="UTC"),  # type: ignore[arg-type]
         uuid4(),
         "actor-1",
         "source-message-1",

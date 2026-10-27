@@ -1345,6 +1345,7 @@ def sync_lead_gmail_conversation(
                     messages=thread_messages,
                     known_message_ids_by_connection=known_message_ids_by_connection,
                     legacy_known_message_ids=legacy_known_message_ids,
+                    existing_events=existing_events,
                 )
                 if thread_messages:
                     automation_threads.append((connection, thread_messages))

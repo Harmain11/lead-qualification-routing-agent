@@ -1,5 +1,5 @@
 - [OpenAI credential prompts](openai-credential-prompts.md) — a stored workspace key should stop repeated setup prompts; only missing or invalid credentials should prompt again.
-- [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.
+- [Meeting scheduling safety](meeting-scheduling.md) — Require a known contact timezone for exact-time auto-booking; keep meeting reply emails human-reviewed.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
 - [Email drafting style](email-drafting-style.md) — generate workspace-voice drafts; direct lead follow-up requests open the full editable composer.
 - [Email composer behavior](email-composer-behavior.md) — collapse conversation messages by default, but keep the reply composer open when requested and offer a safe close action.
@@ -27,7 +27,7 @@
 - [Manual lead AI context](manual-lead-ai-context.md) — Use current notes, sales progress, and customer replies as time-aware evidence across scoring, answers, and follow-ups.
 - [Lead assistant action safety](lead-assistant-actions.md) — Review editable note drafts, understand contextual corrections, and preserve confirmation gates across supported actions.
 - [Workspace website enrichment](workspace-website-enrichment.md) — Turn a supplied public page into cited profile suggestions; preserve manual values and require review before saving.
-- [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; suppress repeat arrival alerts for the same email after delete/re-import.
+- [New lead indicators](lead-new-indicators.md) — Reconcile unread arrivals against complete lead snapshots; suppress duplicate alerts after re-import.
 - [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.
 - [Manual direct dialing](direct-dial-policy.md) — Keep direct calls unlinked until explicitly added; an admin must grant Dialer access per member, and consent checks still apply.
 - [Workspace review settings](workspace-manual-review-settings.md) — Keep analysis review criteria separate from provider import approvals; existing review decisions remain unchanged when criteria change.
@@ -44,7 +44,7 @@
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
 - [Completed source bundles](source-bundle-integration.md) — Integrate supplied complete workflows, not reduced substitutes; preserve newer behavior from the current app.
-- [Gmail message presentation](gmail-message-presentation.md) — Recover text flattened into Subject or Date; show the inquiry cleanly and collapse warnings, opt-outs and legal footers.
+- [Gmail message presentation](gmail-message-presentation.md) — Group by Gmail thread ID, repair legacy IDs, and keep message text readable with warnings collapsed.
 - [Nested flyout alignment](nested-flyout-alignment.md) — Keep category submenus beside and aligned to their selected row, without overlap or horizontal scrolling.
 - [Agent smoke fixtures](agent-browser-smoke-fixtures.md) — DOM-injected fixtures inside mode-specific transcripts can be replaced on remount; reattach them before assertions.
 - [HubSpot contact property provisioning](hubspot-contact-property-provisioning.md) — Create only missing mapped Contact properties; preserve existing definitions and fail clearly on type conflicts.

@@ -28,7 +28,7 @@ export function LeadNotificationCenter({
   unseenLeadIds: string[];
   leads: Lead[];
   assignmentNotifications: AssignmentNotification[];
-  onOpenLead: (leadId: string) => void;
+  onOpenLead: (leadId: string, section?: "follow-ups") => void;
   onMarkAssignmentRead: (notificationId: string) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -94,7 +94,7 @@ export function LeadNotificationCenter({
             <div>
               <strong>Notifications</strong>
               <small>
-                {assignmentNotifications.length} assigned to you
+                {assignmentNotifications.length} items need your attention
                 {" · "}
                 {unseenLeadIds.length} unopened leads
               </small>
@@ -117,18 +117,26 @@ export function LeadNotificationCenter({
                     className="lead-notification-item"
                     onClick={() => {
                       setOpen(false);
-                      onOpenLead(notification.lead_id);
+                      onOpenLead(
+                        notification.lead_id,
+                        notification.kind === "meeting_reply_draft" ? "follow-ups" : undefined,
+                      );
                       void onMarkAssignmentRead(notification.id);
                     }}
                   >
                     <span className="lead-notification-dot" aria-hidden="true" />
                     <span className="lead-notification-copy">
-                      <strong>Lead assigned to you</strong>
+                      <strong>
+                        {notification.kind === "meeting_reply_draft"
+                          ? "Meeting reply needs review"
+                          : "Lead assigned to you"}
+                      </strong>
                       <small>
-                        {notification.lead_name}
-                        {notification.company_name
-                          ? ` · ${notification.company_name}`
-                          : ""}
+                        {notification.message || `${notification.lead_name}${
+                          notification.company_name
+                            ? ` · ${notification.company_name}`
+                            : ""
+                        }`}
                       </small>
                       <small>
                         {new Date(notification.created_at).toLocaleString()}

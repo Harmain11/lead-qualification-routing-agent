@@ -20,6 +20,10 @@ export type NewLeadIndicatorSnapshot = {
   unseenIdentityReferences: UnseenIdentityReference[];
 };
 
+export type ObserveNewLeadsOptions = {
+  completeSnapshot?: boolean;
+};
+
 export const emptyNewLeadIndicatorSnapshot: NewLeadIndicatorSnapshot = {
   initialized: false,
   cursorTime: null,
@@ -83,8 +87,10 @@ export function newlyUnseenLeadIds(
 export async function observeNewLeads(
   snapshot: NewLeadIndicatorSnapshot,
   leads: LeadIndicatorRow[],
+  { completeSnapshot = true }: ObserveNewLeadsOptions = {},
 ): Promise<NewLeadIndicatorSnapshot> {
   const openedRecords = snapshot.openedLeads ?? [];
+  const currentLeadIds = new Set(leads.map((lead) => lead.id));
   const observedRows = await Promise.all(leads.map(async (lead) => {
     const timestamp = timestampFor(lead);
     return timestamp === null
@@ -122,12 +128,18 @@ export async function observeNewLeads(
   let cursorTime = snapshot.cursorTime;
   const cursorIds = new Set(snapshot.cursorIds);
   const unseenIds = new Set(snapshot.unseenIds);
+  if (completeSnapshot) {
+    for (const id of unseenIds) {
+      if (!currentLeadIds.has(id)) unseenIds.delete(id);
+    }
+  }
   const notifiedIdentityFingerprints = new Set(
     snapshot.notifiedIdentityFingerprints ?? [],
   );
   const previouslyNotifiedFingerprints = new Set(notifiedIdentityFingerprints);
   const unseenIdentityReferences = new Map<string, UnseenIdentityReference>();
   for (const reference of snapshot.unseenIdentityReferences ?? []) {
+    if (completeSnapshot && !currentLeadIds.has(reference.leadId)) continue;
     unseenIdentityReferences.set(
       `${reference.fingerprint}\u0000${reference.leadId}`,
       reference,

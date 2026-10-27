@@ -896,14 +896,13 @@ html[data-theme] .ops-dialog.lead-drawer .story-section blockquote { font-size: 
 .app-shell .side-rail > nav { padding-block: 4px; padding-right: 4px; margin-right: 0; }
 html[data-theme] .app-shell :is(.navigation-menu-trigger, .navigation-menu-disclosure, .navigation-menu-child):focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--orange-hot); }
 .app-shell .navigation-menu-trigger { border-radius: 8px; }
-/* Integration details remain inside their card instead of becoming full-width panels. */
+/* Expanded integration details follow the page scroll instead of trapping it in a nested pane. */
 .integration-card:not(.is-collapsed) { grid-column: auto; min-width: 0; }
 .app-shell .integration-card:not(.is-collapsed) .provider-details {
-  max-height: min(62vh, 640px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
+  scrollbar-gutter: auto;
 }
 /* Integration setup and calling use the same field, spacing and action scale. */
 .integration-guide .manual-credential { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }

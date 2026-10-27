@@ -699,7 +699,11 @@ function App() {
             : null,
         );
         const nextLeads = leadRows?.items ?? [];
-        const newArrivalIds = await observeLeadSnapshot(nextLeads);
+        const newArrivalIds = leadRows
+          ? await observeLeadSnapshot(nextLeads, {
+              completeSnapshot: leadRows.total <= nextLeads.length,
+            })
+          : [];
         setLeadNotificationSnapshot({
           workspaceId: auth?.current_workspace_id ?? "",
           leads: nextLeads,
@@ -1376,8 +1380,10 @@ function App() {
                   unseenLeadIds={unseenLeadIds}
                   leads={notificationLeads}
                   assignmentNotifications={assignmentNotifications}
-                  onOpenLead={(leadId) => {
-                    if (can(workspacePermissions, "leads.view")) handleInspectLead(leadId);
+                  onOpenLead={(leadId, section) => {
+                    if (!can(workspacePermissions, "leads.view")) return;
+                    if (section) openLeadSection(leadId, section);
+                    else handleInspectLead(leadId);
                   }}
                   onMarkAssignmentRead={markAssignmentRead}
                 />

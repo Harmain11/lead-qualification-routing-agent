@@ -106,6 +106,8 @@ export type AssignmentNotification = {
   lead_id: string;
   lead_name: string;
   company_name: string;
+  kind: "assignment" | "meeting_reply_draft" | string;
+  message: string | null;
   created_at: string;
   read_at: string | null;
 };

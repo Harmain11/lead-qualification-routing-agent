@@ -26,3 +26,9 @@ Show navigation subcategories when the cursor is on the primary navigation item,
 **Why:** The user asked for hover subcategories and reported that refresh always returned them to the home dashboard.
 
 **How to apply:** Preserve these behaviors during future navigation or layout changes; distinguish a return from the provider pane from a first hover over a category, and do not require hover on phones.
+
+Long integration provider details must use the page's normal scroll rather than a capped nested scroll area.
+
+**Why:** The user reported that scrolling through integration details became stuck on a Mac.
+
+**How to apply:** Keep expanded provider content at its natural height and avoid `max-height`, `overflow: auto`, or overscroll containment on the details wrapper. Reserve nested scrolling for genuinely bounded lists.

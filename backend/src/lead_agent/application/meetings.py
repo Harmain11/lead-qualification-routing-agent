@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.calendar_providers import CalendlyClient, GoogleCalendarClient
+from lead_agent.infrastructure.communications import contact_phone_details
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
 
 _MEETING_PATTERNS = (
@@ -117,9 +118,12 @@ def find_meeting_request(
             continue
         text = f"{subject}\n{excerpt}"
         reference = _parse_provider_time(details.get("sent_at"))
+        contact_zone = lead_time_zone(lead, "UTC") or "UTC"
         specific_time_proposal = (
             _SPECIFIC_TIME_PROPOSAL.search(excerpt) is not None
-            and requested_meeting_date(excerpt, reference=reference) is not None
+            and requested_meeting_date(
+                excerpt, reference=reference, time_zone=contact_zone
+            ) is not None
             and requested_meeting_time(excerpt) is not None
         )
         if (
@@ -205,6 +209,25 @@ def _parse_provider_time(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def lead_time_zone(lead: Any, fallback: str | None = None) -> str | None:
+    """Prefer a contact's explicit or unambiguous phone-derived timezone."""
+    explicit = str(
+        getattr(lead, "time_zone", None) or getattr(lead, "timezone", None) or ""
+    ).strip()
+    if explicit:
+        try:
+            return ZoneInfo(explicit).key
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    details = contact_phone_details(
+        getattr(lead, "phone", None),
+        getattr(lead, "geography", None),
+    )
+    if details and details.get("time_zone"):
+        return str(details["time_zone"])
+    return fallback
 
 
 def requested_meeting_date(
@@ -324,11 +347,12 @@ def recommend_google_calendar_slots(
     requested_date: date | None = None,
     requested_text: str | None = None,
     reference: datetime | None = None,
+    time_zone_override: str | None = None,
     limit: int = 5,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     current = now or datetime.now(UTC)
     calendar = client.primary_calendar()
-    zone = _timezone(str(calendar.get("timeZone") or "UTC"))
+    zone = _timezone(time_zone_override or str(calendar.get("timeZone") or "UTC"))
     time_zone = zone.key
     if requested_text is not None:
         requested_date = requested_meeting_date(
@@ -352,7 +376,7 @@ def recommend_google_calendar_slots(
         if (start := _parse_provider_time(item.get("start"))) is not None
         and (end := _parse_provider_time(item.get("end"))) is not None
     ]
-    available: list[dict[str, str]] = []
+    available: list[dict[str, Any]] = []
     for day in days:
         if day.weekday() >= 5:
             continue
@@ -401,13 +425,16 @@ def recommend_calendly_slots(
     requested_date: date | None = None,
     requested_text: str | None = None,
     reference: datetime | None = None,
+    time_zone_override: str | None = None,
     limit_per_event_type: int = 5,
     event_type_statuses: list[dict[str, str]] | None = None,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     current = now or datetime.now(UTC)
     user = client.current_user()
     user_uri = str(user.get("uri") or "")
-    time_zone = _timezone(str(user.get("timezone") or "UTC")).key
+    time_zone = _timezone(
+        time_zone_override or str(user.get("timezone") or "UTC")
+    ).key
     if requested_text is not None:
         requested_date = requested_meeting_date(
             requested_text, reference=reference, time_zone=time_zone
@@ -423,7 +450,7 @@ def recommend_calendly_slots(
             return []
     else:
         window_end = current + timedelta(days=14)
-    suggestions: list[dict[str, str]] = []
+    suggestions: list[dict[str, Any]] = []
     unavailable_event_type_errors: list[ProviderOperationError] = []
     for event_type in client.event_types(user_uri)[:5]:
         uri = str(event_type.get("uri") or "")

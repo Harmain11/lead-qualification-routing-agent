@@ -345,11 +345,12 @@ export type ConfirmationEmail = {
 export type FollowUpEmail = {
   id: string;
   lead_id: string;
+  kind: string;
   recipient: string;
   subject: string;
   body: string | null;
   rationale: string | null;
-  generation_method: "openai" | "template" | null;
+  generation_method: "openai" | "template" | "meeting_request" | null;
   generation_note: string | null;
   status: string;
   attempts: number;
