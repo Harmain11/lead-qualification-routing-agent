@@ -23,6 +23,12 @@ CloudTalk's embedded Phone requires a minimum iframe size of 420 × 700 px. Its 
 
 **How to apply:** Keep the CloudTalk iframe at 420 × 700 px internally and let the surrounding dock scroll or scale to fit. Do not claim a Corral-side backspace control can edit the provider's number field unless CloudTalk documents a supported command.
 
+On mobile, give the CloudTalk dock the full safe-area viewport and keep its notices compact so the embedded phone remains legible. Preserve the complete keypad safety warning.
+
+**Why:** The user chose compact notices and a larger phone after the embedded UI appeared too small in a mobile screenshot.
+
+**How to apply:** Use the available screen height for the phone dock instead of a short bottom-sheet cap, and reduce notice copy/padding without hiding safety details.
+
 Incoming-call browser alerts are a separate Corral feature, explicitly enabled by each member for their current workspace. They listen for CloudTalk's documented `ringing` event; they do not enable CloudTalk's unsupported embedded notifications.
 
 **Why:** the user chose Corral browser alerts as the supported alternative to CloudTalk's disabled embedded notifications.
