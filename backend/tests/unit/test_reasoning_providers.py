@@ -27,6 +27,7 @@ from lead_agent.domain.analysis import (
 )
 from lead_agent.domain.configuration import IcpConfig
 from lead_agent.domain.integrations import ConnectionValidation, ManualConnectionInput
+from lead_agent.domain.meeting_reply import MeetingReplyClassification
 from lead_agent.domain.models import NormalizedLead
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -35,6 +36,7 @@ from lead_agent.infrastructure.reasoning.configuration import validate_reasoning
 from lead_agent.infrastructure.reasoning.structured_api import (
     StructuredAPIConnectionValidator,
     StructuredAPIReasoningProvider,
+    _provider_schema,
 )
 from lead_agent.infrastructure.secrets import DevelopmentSecretStore
 from lead_agent.settings.config import Settings
@@ -220,6 +222,66 @@ def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
         schema = body["text"]["format"]["schema"]
     assert schema["type"] == "object"
     assert "$defs" not in schema
+    assert schema["properties"]
+
+
+@pytest.mark.parametrize("provider", ["gemini", "claude", "deepseek", "xai"])
+def test_structured_api_meeting_reply_classifier_sends_complete_schema(provider: str) -> None:
+    result_body = {
+        "intent": "confirm",
+        "option_number": 2,
+        "confidence": 0.99,
+        "evidence": "the second one",
+    }
+    text = json.dumps(result_body)
+    response_payload = {
+        "gemini": {
+            "candidates": [{"content": {"parts": [{"text": text}]}}],
+            "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 8},
+        },
+        "claude": {
+            "content": [{"type": "text", "text": text}],
+            "usage": {"input_tokens": 10, "output_tokens": 8},
+        },
+        "deepseek": {
+            "choices": [{"message": {"content": text}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 8},
+        },
+        "xai": {
+            "output": [
+                {"type": "message", "content": [{"type": "output_text", "text": text}]}
+            ],
+            "usage": {"input_tokens": 10, "output_tokens": 8},
+        },
+    }[provider]
+    requests: list[dict[str, object]] = []
+
+    def post(url: str, **kwargs: object) -> SimpleNamespace:
+        requests.append({"url": url, **kwargs})
+        return SimpleNamespace(status_code=200, json=lambda: response_payload)
+
+    client = StructuredAPIReasoningProvider(
+        provider=provider,
+        api_key=_KEYS[provider],
+        model=_MODELS[provider],
+        timeout_seconds=3,
+        post=post,
+    )
+    result = client.classify_meeting_reply(
+        {"reply": "Sure, the second one.", "options": [{"number": 1}, {"number": 2}]}
+    )
+
+    assert isinstance(result, MeetingReplyClassification)
+    assert result.intent == "confirm"
+    assert result.option_number == 2
+    assert len(requests) == 1
+    schema = _provider_schema(MeetingReplyClassification, provider)
+    assert set(schema["properties"]) == {
+        "intent",
+        "option_number",
+        "confidence",
+        "evidence",
+    }
 
 
 @pytest.mark.parametrize("provider", ["gemini", "claude", "deepseek", "xai"])

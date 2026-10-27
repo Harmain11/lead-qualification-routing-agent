@@ -79,11 +79,15 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
                 raise ValueError("invalid structured-output schema reference")
             return {**expanded, **expand({k: v for k, v in value.items() if k != "$ref"}, ancestry)}
 
-        result = {
-            key: expand(item, ancestry)
-            for key, item in value.items()
-            if key in _COMMON_SCHEMA_FIELDS or key in {"anyOf", "allOf"}
-        }
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "properties" and isinstance(item, dict):
+                result[key] = {
+                    property_name: expand(property_schema, ancestry)
+                    for property_name, property_schema in item.items()
+                }
+            elif key in _COMMON_SCHEMA_FIELDS or key in {"anyOf", "allOf"}:
+                result[key] = expand(item, ancestry)
         union = result.pop("anyOf", None)
         if union is None:
             union = result.pop("allOf", None)
@@ -120,11 +124,6 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
 
         if result.get("type") == "object":
             result.setdefault("additionalProperties", False)
-            properties = result.get("properties")
-            if isinstance(properties, dict):
-                result["properties"] = {
-                    key: expand(child, ancestry) for key, child in properties.items()
-                }
         if isinstance(result.get("items"), dict):
             result["items"] = expand(result["items"], ancestry)
 

@@ -19,6 +19,7 @@ from lead_agent.domain.analysis import (
     ReasoningProviderUnavailable,
 )
 from lead_agent.domain.gmail import GmailLeadExtraction
+from lead_agent.domain.meeting_reply import MeetingReplyClassification
 from lead_agent.domain.models import NormalizedLead
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.scoring import qualify_lead
@@ -686,6 +687,43 @@ def test_openai_schema_failure_is_explicit_and_safe(icp, caplog: pytest.LogCaptu
     assert operation.fields["outcome"] == "invalid_output"
     assert operation.fields["provider_error_category"] == "structured_output"
     assert operation.fields["retryable"] is False
+
+
+def test_openai_meeting_reply_classifier_uses_strict_schema_without_storing_response() -> None:
+    request: dict[str, object] = {}
+
+    class Responses:
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            request.update(kwargs)
+            return SimpleNamespace(
+                output_parsed={
+                    "intent": "confirm",
+                    "option_number": 2,
+                    "confidence": 0.99,
+                    "evidence": "the second one",
+                },
+                usage=None,
+            )
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=7,
+        max_retries=1,
+        store_responses=True,
+        client=SimpleNamespace(responses=Responses()),
+    )
+
+    result = provider.classify_meeting_reply(
+        {"reply": "Sure, the second one.", "options": [{"number": 1}, {"number": 2}]}
+    )
+
+    assert isinstance(result, MeetingReplyClassification)
+    assert result.intent == "confirm"
+    assert result.option_number == 2
+    assert request["text_format"] is MeetingReplyClassification
+    assert request["store"] is False
+    assert request["max_output_tokens"] == 300
 
 
 def test_openai_sdk_retries_mocked_server_errors_to_configured_limit(

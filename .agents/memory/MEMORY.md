@@ -1,5 +1,5 @@
 - [OpenAI credential prompts](openai-credential-prompts.md) — a stored workspace key should stop repeated setup prompts; only missing or invalid credentials should prompt again.
-- [Meeting scheduling safety](meeting-scheduling.md) — Require a known contact timezone for exact-time auto-booking; keep meeting reply emails human-reviewed.
+- [Meeting scheduling safety](meeting-scheduling.md) — Map clear natural replies to one offered slot; fail closed on ambiguity while preserving timezone and human-review safeguards.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
 - [Email drafting style](email-drafting-style.md) — generate workspace-voice drafts; direct lead follow-up requests open the full editable composer.
 - [Email composer behavior](email-composer-behavior.md) — collapse conversation messages by default, but keep the reply composer open when requested and offer a safe close action.

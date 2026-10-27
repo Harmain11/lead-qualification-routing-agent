@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
 
 class MeetingReplyClassification(BaseModel):
@@ -12,7 +12,7 @@ class MeetingReplyClassification(BaseModel):
 
     intent: Literal["confirm", "decline", "uncertain"]
     option_number: StrictInt = Field(ge=0, le=20)
-    confidence: float = Field(ge=0, le=1)
+    confidence: StrictFloat = Field(ge=0, le=1)
     evidence: str = Field(max_length=240)
 
     @model_validator(mode="after")

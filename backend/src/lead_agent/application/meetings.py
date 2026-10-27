@@ -46,16 +46,26 @@ _DECLINE_REPLY_PATTERNS = (
     ),
     re.compile(
         r"\b(?:doesn't|does not|don't|do not|can't|cannot|won't|will not|"
-        r"wouldn't|would not)\s+(?:work|suit|fit|make it|do it)\b",
+        r"wouldn't|would not|isn't|is not)\s+"
+        r"(?:work|suit|fit|make it|do it|attend|join|help)\b",
         re.IGNORECASE,
     ),
     re.compile(
         r"\b(?:not for me|not available|not possible|doesn't suit|doesn't fit)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\b(?:unable|not able)\s+to\s+(?:attend|join|make it|confirm)\b|"
+        r"\b(?:i\s+)?(?:don't|do not)\s+think\b",
+        re.IGNORECASE,
+    ),
 )
 _UNCERTAIN_REPLY_PATTERNS = (
-    re.compile(r"\b(?:maybe|perhaps|might|possibly|not sure|unsure|i think|i guess)\b", re.I),
+    re.compile(
+        r"\b(?:maybe|perhaps|might|possibly|not sure|unsure|i think|i guess|"
+        r"i don't think|i do not think)\b",
+        re.I,
+    ),
     re.compile(r"\b(?:but|however|unless)\b", re.I),
     re.compile(r"\boption\s*#?\s*\d+\s+(?:could|might|may)\s+work\b", re.I),
 )
@@ -186,7 +196,7 @@ def match_confirmed_meeting_option(body: str, option_count: int) -> int | None:
         "?" in clean
         or meeting_reply_requests_other_times(clean)
         or meeting_reply_declines_offer(clean)
-        or any(pattern.search(clean) for pattern in _UNCERTAIN_REPLY_PATTERNS)
+        or meeting_reply_has_uncertain_language(clean)
     ):
         return None
     first_line = next((line.strip() for line in clean.splitlines() if line.strip()), "")
@@ -232,6 +242,11 @@ def meeting_reply_declines_offer(body: str) -> bool:
     clean = _plain_excerpt(body, limit=2000).strip()
     clean = re.sub(r"\bno\s+(?:problem|worries)\b", "", clean, flags=re.IGNORECASE)
     return any(pattern.search(clean) for pattern in _DECLINE_REPLY_PATTERNS)
+
+
+def meeting_reply_has_uncertain_language(body: str) -> bool:
+    clean = _plain_excerpt(body, limit=2000).strip()
+    return any(pattern.search(clean) for pattern in _UNCERTAIN_REPLY_PATTERNS)
 
 
 def _parse_provider_time(value: Any) -> datetime | None:
