@@ -417,6 +417,57 @@ def test_workspace_cloudtalk_history_includes_unmatched_calls(calls, monkeypatch
     assert payload["records"][1]["lead_id"] is None
 
 
+def test_assign_cloudtalk_call_to_existing_lead_persists_link(calls, monkeypatch):
+    session, client, _, lead, connection, _, adapter = calls
+    connection.provider_type = "cloudtalk"
+    session.commit()
+    started_at = datetime.now(UTC)
+    snapshot = CallSnapshot(
+        external_id="call-to-assign",
+        customer_phone="+15555550123",
+        status="completed",
+        direction="inbound",
+        started_at=started_at,
+        duration_seconds=34,
+    )
+    seen = []
+
+    def recent_calls(target, *, page=1):
+        seen.append((target, page))
+        return [snapshot]
+
+    monkeypatch.setattr(adapter, "recent_calls", recent_calls)
+    response = client.post(
+        f"/v1/calling/cloudtalk/recent/{snapshot.external_id}/assign",
+        json={
+            "connection_id": str(connection.id),
+            "lead_id": str(lead.id),
+            "page": 2,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "call_id": snapshot.external_id,
+        "lead_id": str(lead.id),
+    }
+    assert seen == [(None, 2)]
+    stored = session.scalar(
+        select(CallRecordORM).where(
+            CallRecordORM.workspace_id == lead.workspace_id,
+            CallRecordORM.connection_id == connection.id,
+            CallRecordORM.external_id == snapshot.external_id,
+        )
+    )
+    assert stored is not None
+    assert stored.lead_id == lead.id
+    assert stored.customer_phone == snapshot.customer_phone
+    assert stored.duration_seconds == snapshot.duration_seconds
+    history = client.get("/v1/calling/cloudtalk/recent")
+    assert history.status_code == 200
+    assert history.json()["records"][0]["lead_id"] == str(lead.id)
+
+
 def test_cloudtalk_paginates_ci_transcript_and_uses_details_link_fallback():
     seen = []
 

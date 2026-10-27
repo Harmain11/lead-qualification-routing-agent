@@ -2,7 +2,8 @@ import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { opsGet, opsSave } from "../operationsApi";
 import { createClientId } from "../clientIds";
 import { PHONE_CALL_ENDED } from "./phoneBridge";
-import { CallInsights, hasCallInsightData, type CallInsightsData } from "./CallInsights";
+import { CallReviewDetails } from "./CallReviewDetails";
+import { hasCallInsightData, type CallInsightsData } from "./CallInsights";
 
 const providerNames: Record<string, string> = { twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI", cloudtalk: "CloudTalk" };
 type CallRecord = { id: string; connection_id: string; provider: string; external_id: string | null; status: string; direction: string; customer_phone: string; started_at: string | null; created_at: string; duration_seconds: number | null; transcript: string | null; recording_url: string | null; message: string | null; insights: CallInsightsData };
@@ -10,7 +11,7 @@ type Activity = { connections: { id: string; provider: string; account_name: str
 type CloudTalkNumberOptions = { numbers: string[]; default_number: string | null };
 type CloudTalkHandoff = { phone_number: string; caller_id: string; handoff_url: string; message: string };
 
-export function CallsPanel({ leadId, leadName, companyName, representativeName, leadPhone, canCall, canEdit }: { leadId: string; leadName?: string; companyName?: string; representativeName?: string | null; leadPhone?: string | null; canCall: boolean; canEdit: boolean }) {
+export function CallsPanel({ leadId, leadName, companyName, representativeName, leadPhone, canCall, canEdit, historyOnly = false }: { leadId: string; leadName?: string; companyName?: string; representativeName?: string | null; leadPhone?: string | null; canCall: boolean; canEdit: boolean; historyOnly?: boolean }) {
   const [data, setData] = useState<Activity | null>(null);
   const [connectionId, setConnectionId] = useState("");
   const [repPhone, setRepPhone] = useState("");
@@ -47,7 +48,7 @@ export function CallsPanel({ leadId, leadName, companyName, representativeName, 
   const voiceAgent = selected?.provider === "vapi" || selected?.provider === "retell";
   const needsRep = selected?.provider === "twilio";
   useEffect(() => {
-    if (selected?.provider !== "cloudtalk" || !connectionId) {
+    if (historyOnly || selected?.provider !== "cloudtalk" || !connectionId) {
       setCloudTalkNumbers([]);
       setCloudTalkNumbersLoading(false);
       setCloudTalkNumbersError("");
@@ -87,7 +88,7 @@ export function CallsPanel({ leadId, leadName, companyName, representativeName, 
         if (!controller.signal.aborted) setCloudTalkNumbersLoading(false);
       });
     return () => controller.abort();
-  }, [connectionId, selected?.provider]);
+  }, [connectionId, historyOnly, selected?.provider]);
 async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(`/v1/calling/leads/${leadId}`)); }
   async function start(event: FormEvent) {
     event.preventDefault();
@@ -144,7 +145,7 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
     setConfirmed(false);
     callFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
-  return <section className="ops-panel calls-panel" aria-labelledby="calls-heading">
+  return <section className={`ops-panel calls-panel${historyOnly ? " calls-panel-history-only" : ""}`} aria-labelledby="calls-heading">
     <div className="ops-toolbar calls-panel-toolbar">
       <div className="calls-panel-heading">
         <span className="calls-heading-mark" aria-hidden="true">
@@ -155,18 +156,27 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
           </svg>
         </span>
         <div className="calls-heading-copy">
-          <span className="eyebrow">Calling &amp; voice agents</span>
-          <h3 id="calls-heading">Calls &amp; voice activity</h3>
-          <p className="calls-lead-number">{leadPhone ? `Lead number: ${leadPhone}` : "Add an international phone number to this lead before calling."}</p>
+          <span className="eyebrow">{historyOnly ? "Lead calls" : "Calling & voice agents"}</span>
+          <h3 id="calls-heading">{historyOnly ? "Call history & analysis" : "Calls & voice activity"}</h3>
+          <p className="calls-lead-number">{historyOnly ? "Review synced calls, transcripts, and provider insights for this lead." : leadPhone ? `Lead number: ${leadPhone}` : "Add an international phone number to this lead before calling."}</p>
         </div>
       </div>
+      {historyOnly && canEdit && data && data.connections.length > 1 && (
+        <label className="calls-history-source">
+          <span>Sync provider</span>
+          <select value={connectionId} disabled={busy} onChange={(event) => setConnectionId(event.target.value)}>
+            <option value="">Choose a provider</option>
+            {data.connections.map((item) => <option value={item.id} key={item.id}>{providerNames[item.provider]} · {item.account_name}</option>)}
+          </select>
+        </label>
+      )}
       {canEdit && data && data.connections.length > 0 && <button type="button" className="secondary-button calls-sync" disabled={!connectionId || !leadPhone || busy} onClick={() => void sync()}>{busy ? "Working…" : "Sync recent calls"}</button>}
     </div>
     {error && <p className="notice calls-notice" role="alert">{error}</p>}
     {notice && <p className="notice calls-notice calls-notice-success" role="status">{notice}</p>}
     {!data && !error && <p className="calls-loading" role="status">Loading call activity…</p>}
-    {data && data.connections.length === 0 && <div className="ops-empty calls-provider-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
-    {data && data.connections.length > 0 && <>
+    {!historyOnly && data && data.connections.length === 0 && <div className="ops-empty calls-provider-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
+    {!historyOnly && data && data.connections.length > 0 && <>
       {!data.outreach_allowed && <p className="notice calls-notice calls-consent-notice" role="status">{data.outreach_reason}</p>}
       <form ref={callFormRef} onSubmit={(event) => void start(event)} className="calls-form">
         <div className="ops-form-grid calls-form-grid">
@@ -234,14 +244,12 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
       </form>
     </>}
     {data && <div className="calls-history">
-      <div className="calls-history-head"><h4>Recent activity</h4></div>
+      <div className="calls-history-head"><h4>{historyOnly ? "Recent calls" : "Recent activity"}</h4></div>
       {data.records.length ? <div className="lead-table-wrap lead-browser call-table-wrap">
        <table className="lead-table call-history-table">
          <thead><tr><th>Lead / contact</th><th>Source</th><th>Duration</th><th>Status</th><th>Representative</th><th>Received</th><th>Actions</th></tr></thead>
          <tbody>{data.records.map((call) => {
-           const detailsLoaded = Boolean(loadedDetails[call.id]);
-           const hasTranscript = Boolean(call.transcript?.trim());
-           const hasInsights = hasCallInsightData(call.insights);
+            const detailsLoaded = Boolean(loadedDetails[call.id] || call.transcript?.trim() || hasCallInsightData(call.insights));
            return <Fragment key={call.id}>
              <tr>
                <td className="lead-identity-cell" data-label="Lead / contact"><b>{leadName || "Lead"}</b><span>{companyName || call.customer_phone} · {call.direction.replaceAll("_", " ")}</span></td>
@@ -251,18 +259,18 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
                <td data-label="Representative">{representativeName || "Unassigned"}</td>
                <td data-label="Received">{new Date(call.started_at || call.created_at).toLocaleString()}</td>
                <td data-label="Actions"><div className="call-row-actions">
-                 {canCall && <button type="button" className="button-quiet" disabled={!data.outreach_allowed || busy} onClick={() => prepareCallAgain(call)}>Call again</button>}
-                 {!detailsLoaded && call.external_id && <button type="button" className="button-quiet" disabled={loadingDetails !== null} onClick={() => void loadCallDetails(call)}>{loadingDetails === call.id ? "Loading…" : call.provider === "cloudtalk" ? "Load AI insights" : "Load call details"}</button>}
+                  {!historyOnly && canCall && <button type="button" className="button-quiet" disabled={!data.outreach_allowed || busy} onClick={() => prepareCallAgain(call)}>Call again</button>}
+                  {!detailsLoaded && call.external_id && <button type="button" className="button-quiet" disabled={loadingDetails !== null} onClick={() => void loadCallDetails(call)}>{loadingDetails === call.id ? "Loading…" : historyOnly ? "Load transcript analysis" : call.provider === "cloudtalk" ? "Load AI insights" : "Load call details"}</button>}
                </div></td>
              </tr>
              {loadingDetails === call.id && <tr className="call-detail-row"><td colSpan={7}><p role="status" className="call-detail-note">Loading transcript and call insights…</p></td></tr>}
              {detailsLoaded && <tr className="call-detail-row"><td colSpan={7} className="call-detail-cell">
-               {!hasTranscript && !hasInsights && <p className="call-detail-note">No transcript or AI findings are available for this call.</p>}
-               {!hasTranscript && hasInsights && <p className="call-detail-note">No transcript is available; showing provider-generated insights.</p>}
-               {hasInsights && <CallInsights insights={call.insights} />}
-               {call.recording_url && <a href={call.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details</a>}
-               {hasTranscript && <details><summary>View transcript</summary><pre>{call.transcript}</pre></details>}
-               {call.message && <p className="call-record-receipt">{call.message}</p>}
+                <CallReviewDetails
+                  transcript={call.transcript}
+                  insights={call.insights}
+                  recordingUrl={call.recording_url}
+                  message={call.message}
+                />
              </td></tr>}
            </Fragment>;
          })}</tbody>
@@ -275,10 +283,10 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
         </span>
         <span>
           <strong>No call activity recorded for this lead</strong>
-          <small>Use Sync recent calls to import matching provider history.</small>
+         <small>{historyOnly ? (leadPhone ? "Sync recent calls from a connected provider to review summaries and transcripts here." : "Add a phone number to this lead to match its provider call history.") : "Use Sync recent calls to import matching provider history."}</small>
         </span>
       </div>}
     </div>}
-    <small className="calls-footnote">History sync reads recent provider calls that match this lead number. AI insights load only when requested. Calls always require confirmation and pass consent checks.</small>
+    <small className="calls-footnote">{historyOnly ? "History sync reads provider calls that match this lead number. This tab reviews calls only; it does not place them." : "History sync reads recent provider calls that match this lead number. AI insights load only when requested. Calls always require confirmation and pass consent checks."}</small>
   </section>;
 }

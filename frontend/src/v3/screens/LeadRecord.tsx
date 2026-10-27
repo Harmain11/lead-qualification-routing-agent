@@ -7,11 +7,12 @@ import {
   getLeadPipelineHistory,
   listIntegrations,
   retryLeadCongratulations,
+  retryLeadNotification,
   sendLeadToCrm,
   syncLeadGmailConversation,
   updateLeadAssignment,
+  updateLeadProfile,
   updateLeadProgress,
-  updateLeadTitle,
 } from "../../api";
 import { AiStageAssessment } from "../../components/AiStageAssessment";
 import { CallsPanel } from "../../components/CallsPanel";
@@ -24,7 +25,9 @@ import { LeadEmailPanel } from "../../components/LeadEmailPanel";
 import { LeadMeetingPanel } from "../../components/LeadMeetingPanel";
 import { componentTotals } from "../../components/record/scoreModel";
 import { TOGGLE_AGENT_EVENT } from "../../components/shell/agentEvents";
+import { getLeadTalkingPoints } from "../../leadActionPlan";
 import { leadSectionHref, type LeadDetailSection } from "../../leadSections";
+import { buildLeadProfileUpdates, createLeadProfileDraft, type LeadProfileDraft } from "../../leadProfileEditor";
 import type { CrmSync, Lead, LeadAssignmentOption, LeadMomentum, LeadOutcome, ProviderConnection, Qualification } from "../../types";
 import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
 import { StageMoveSheet } from "../deals/StageMoveSheet";
@@ -111,9 +114,9 @@ export function LeadRecord({
   onTogglePin,
   onBack,
 }: Props) {
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [jobTitle, setJobTitle] = useState(lead.job_title || "");
-  const [savingTitle, setSavingTitle] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState<LeadProfileDraft>(() => createLeadProfileDraft(lead));
+  const [savingProfile, setSavingProfile] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [activityRefresh, setActivityRefresh] = useState(0);
@@ -157,6 +160,7 @@ export function LeadRecord({
   const analysis = lead.analysis;
   const qualification = lead.qualification;
   const route = lead.routing;
+  const talkingPoints = getLeadTalkingPoints(route);
   const review = Boolean(route?.manual_review || analysis?.requires_manual_review);
   const reviewReasons = manualReviewReasons(lead);
   const synced = () => {
@@ -185,12 +189,18 @@ export function LeadRecord({
     }
   };
   const startCall = () => {
-    onSectionChange("calls");
-    if (embeddedPhone) togglePhone(true);
+    if (embeddedPhone) {
+      togglePhone(true);
+      return;
+    }
+    onNavigateToDialer();
   };
   const startEmail = (seed?: { subject?: string; body?: string; quoteId?: string }) => {
     onSectionChange("email");
     setCompose({ ...seed, nonce: Date.now() });
+  };
+  const setProfileField = (field: keyof LeadProfileDraft, value: string) => {
+    setProfileDraft((current) => ({ ...current, [field]: value }));
   };
 
   const title = lead.company_name || lead.full_name || "Unnamed lead";
@@ -249,7 +259,7 @@ export function LeadRecord({
                 )}
                 {canEdit && (
                   <>
-                    <MenuItem icon="edit" onSelect={() => { close(); setJobTitle(lead.job_title || ""); setEditingTitle(true); setNotice(null); }}>Edit job title</MenuItem>
+                    <MenuItem icon="edit" onSelect={() => { close(); setProfileDraft(createLeadProfileDraft(lead)); setEditingProfile(true); setNotice(null); }}>Edit lead details</MenuItem>
                     <MenuSeparator />
                     <MenuItem icon="trash" danger onSelect={() => { close(); void deleteThisLead(); }}>Delete lead…</MenuItem>
                   </>
@@ -327,30 +337,95 @@ export function LeadRecord({
 
       <StageRail view={dealView} canEdit={canEdit} onMove={(target) => setMove(target)} />
 
-      {canEdit && editingTitle && (
+      {canEdit && editingProfile && (
         <form
-          className="v-inline-form"
+          className="v-card v-card-pad v-profile-editor"
           onSubmit={async (event) => {
             event.preventDefault();
-            setSavingTitle(true);
+            const { updates, error: validationError } = buildLeadProfileUpdates(lead, profileDraft);
+            if (validationError) {
+              setNotice(validationError);
+              return;
+            }
+            if (Object.keys(updates).length === 0) {
+              setEditingProfile(false);
+              setNotice("No lead details changed.");
+              return;
+            }
+            setSavingProfile(true);
             setNotice(null);
             try {
-              onUpdated?.(await updateLeadTitle(lead.id, jobTitle));
-              setEditingTitle(false);
-              setNotice("Job title saved in Corral. No CRM was changed.");
+              const updated = await updateLeadProfile(lead.id, updates);
+              onUpdated?.(updated);
+              setEditingProfile(false);
+              setNotice("Lead details saved and qualification refreshed. No CRM was changed.");
             } catch (error) {
-              setNotice(error instanceof Error ? error.message : "Unable to save title");
+              setNotice(error instanceof Error ? error.message : "Unable to save lead details.");
             } finally {
-              setSavingTitle(false);
+              setSavingProfile(false);
             }
           }}
         >
-          <label className="v-field">
-            <span>Job title</span>
-            <input autoFocus aria-label="Job title" maxLength={255} required value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
-          </label>
-          <Button onClick={() => { setJobTitle(lead.job_title || ""); setEditingTitle(false); }}>Cancel</Button>
-          <Button kind="filled" type="submit" disabled={savingTitle}>{savingTitle ? "Saving…" : "Save"}</Button>
+          <div className="v-card-headrow">
+            <div>
+              <h2 className="v-card-title">Edit lead details</h2>
+              <p className="v-card-sub">Saving refreshes qualification but keeps the original inquiry intact. CRM data changes only when you request a sync.</p>
+            </div>
+            <div className="v-profile-editor-actions">
+              <Button disabled={savingProfile} onClick={() => setEditingProfile(false)}>Cancel</Button>
+              <Button kind="filled" type="submit" disabled={savingProfile}>{savingProfile ? "Saving…" : "Save changes"}</Button>
+            </div>
+          </div>
+          <div className="v-profile-editor-grid">
+            <label className="v-field">
+              <span>Company name</span>
+              <input autoFocus maxLength={255} value={profileDraft.company_name} onChange={(event) => setProfileField("company_name", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Contact name</span>
+              <input maxLength={255} value={profileDraft.full_name} onChange={(event) => setProfileField("full_name", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Job title</span>
+              <input maxLength={255} value={profileDraft.job_title} onChange={(event) => setProfileField("job_title", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Email</span>
+              <input type="email" maxLength={320} value={profileDraft.email} onChange={(event) => setProfileField("email", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Phone</span>
+              <input type="tel" maxLength={64} value={profileDraft.phone} onChange={(event) => setProfileField("phone", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Industry</span>
+              <input maxLength={255} value={profileDraft.industry} onChange={(event) => setProfileField("industry", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Company size</span>
+              <input type="number" min={0} step={1} value={profileDraft.employee_count} onChange={(event) => setProfileField("employee_count", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Annual revenue</span>
+              <input type="number" min={0} step="0.01" value={profileDraft.annual_revenue} onChange={(event) => setProfileField("annual_revenue", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Geography</span>
+              <input maxLength={255} value={profileDraft.geography} onChange={(event) => setProfileField("geography", event.target.value)} />
+            </label>
+            <label className="v-field">
+              <span>Budget</span>
+              <input type="number" min={0} step="0.01" value={profileDraft.budget} onChange={(event) => setProfileField("budget", event.target.value)} />
+            </label>
+            <label className="v-field v-profile-editor-wide">
+              <span>Product or service</span>
+              <input maxLength={255} value={profileDraft.product_or_service} onChange={(event) => setProfileField("product_or_service", event.target.value)} />
+            </label>
+          </div>
+          <div className="v-profile-editor-actions v-profile-editor-bottom">
+            <Button disabled={savingProfile} onClick={() => setEditingProfile(false)}>Cancel</Button>
+            <Button kind="filled" type="submit" disabled={savingProfile}>{savingProfile ? "Saving…" : "Save changes"}</Button>
+          </div>
         </form>
       )}
       {notice && <Banner title={notice} action={<Button kind="plain" size="sm" onClick={() => setNotice(null)}>Dismiss</Button>} />}
@@ -429,29 +504,20 @@ export function LeadRecord({
 
       {/* ------------------------------------------------------------- Calls */}
       <div id="lead-panel-calls" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-calls" tabIndex={0} hidden={shownSection !== "calls"}>
-        <div className="v-stack">
-          <section className="v-card v-card-pad v-callhead">
-            <span className="d-section-icon"><Icon name="phone" size={17} /></span>
-            <div>
-              <h2 className="v-card-title">{lead.phone ? <span className="num">{lead.phone}</span> : "No phone number on record"}</h2>
-              <p className="v-card-sub">{lead.full_name}{lead.geography ? ` · ${lead.geography}` : ""}. Calls placed here run Corral’s consent and do-not-call checks and are logged on this lead.</p>
-            </div>
-            {embeddedPhone && <Button icon="keypad" onClick={() => togglePhone(true)}>Open Phone</Button>}
-          </section>
-          {shownSection === "calls" && (
-            <div className="v-legacy-block">
-              <CallsPanel
-                leadId={lead.id}
-                leadName={lead.full_name}
-                companyName={lead.company_name}
-                representativeName={route?.assigned_rep_name ?? null}
-                leadPhone={lead.phone}
-                canCall={canCall}
-                canEdit={canEdit}
-              />
-            </div>
-          )}
-        </div>
+        {shownSection === "calls" && (
+          <div className="v-legacy-block">
+            <CallsPanel
+              leadId={lead.id}
+              leadName={lead.full_name}
+              companyName={lead.company_name}
+              representativeName={route?.assigned_rep_name ?? null}
+              leadPhone={lead.phone}
+              canCall={canCall}
+              canEdit={canEdit}
+              historyOnly
+            />
+          </div>
+        )}
       </div>
 
       {/* ---------------------------------------------------------- Overview */}
@@ -536,7 +602,9 @@ export function LeadRecord({
               <div className="v-twocol">
                 <div>
                   <h3 className="v-mini-title">Talking points</h3>
-                  <ul className="v-bullets">{route.action_plan.talking_points.map((item) => <li key={item}>{item}</li>)}</ul>
+                  {talkingPoints.length
+                    ? <ul className="v-bullets">{talkingPoints.map((item) => <li key={item}>{item}</li>)}</ul>
+                    : <p className="v-card-sub">No talking points available yet.</p>}
                 </div>
                 <div>
                   <h3 className="v-mini-title">Still unknown</h3>
@@ -581,7 +649,15 @@ export function LeadRecord({
 
           <Momentum lead={lead} />
           <div className="v-legacy-block"><AiStageAssessment analysis={analysis} /></div>
-          <Delivery lead={lead} canCrmSync={canCrmSync} onUpdated={onUpdated} />
+          <Delivery
+            lead={lead}
+            canCrmSync={canCrmSync}
+            canManageRouting={canManageRouting}
+            canEdit={canEdit}
+            canViewEmail={canViewEmail}
+            onComposeEmail={() => startEmail()}
+            onUpdated={onUpdated}
+          />
         </div>
       </div>
 
@@ -853,10 +929,27 @@ function Momentum({ lead }: { lead: Lead }) {
 
 /* --------------------------------------------------------------- Delivery */
 
-function Delivery({ lead, canCrmSync, onUpdated }: { lead: Lead; canCrmSync: boolean; onUpdated?: (lead: Lead) => void }) {
+function Delivery({
+  lead,
+  canCrmSync,
+  canManageRouting,
+  canEdit,
+  canViewEmail,
+  onComposeEmail,
+  onUpdated,
+}: {
+  lead: Lead;
+  canCrmSync: boolean;
+  canManageRouting: boolean;
+  canEdit: boolean;
+  canViewEmail: boolean;
+  onComposeEmail: () => void;
+  onUpdated?: (lead: Lead) => void;
+}) {
   const [providers, setProviders] = useState<string[]>([]);
   const [provider, setProvider] = useState(lead.crm_sync?.provider || "");
   const [sending, setSending] = useState(false);
+  const [retryingNotification, setRetryingNotification] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [result, setResult] = useState<CrmSync | null>(null);
   useEffect(() => {
@@ -875,6 +968,37 @@ function Delivery({ lead, canCrmSync, onUpdated }: { lead: Lead; canCrmSync: boo
   }, [lead.id, lead.crm_sync?.provider]);
   const route = lead.routing;
   const crm = result?.lead_id === lead.id ? result : lead.crm_sync;
+  const notificationRetryable = Boolean(route && ["failed", "retryable"].includes(route.notification_state));
+  const notificationProvider = route?.notifications[0]?.provider || "Team notification";
+  const confirmationSent = lead.confirmation_email?.status === "sent";
+  const classification = lead.qualification?.classification.toLowerCase();
+  const disqualified = Boolean(lead.qualification?.hard_disqualified)
+    || ["disqualify", "disqualified", "hard_disqualified"].includes(classification || "");
+  const reviewBlocked = Boolean(route?.manual_review || lead.analysis?.requires_manual_review);
+  const emailBlockReason = disqualified
+    ? "This lead is disqualified. Review its qualification before reaching out."
+    : reviewBlocked
+      ? "This lead needs review before outreach."
+      : !lead.email?.trim()
+        ? "Add an email address to this lead before composing."
+        : null;
+  const retryNotification = async () => {
+    setRetryingNotification(true);
+    setNotice(null);
+    try {
+      const notification = await retryLeadNotification(lead.id);
+      setNotice(notification.status === "sent" ? "Team notification sent." : `Team notification ${titleize(notification.status)}.`);
+      try {
+        onUpdated?.(await getLead(lead.id));
+      } catch {
+        setNotice("Team notification retry completed. Refresh the lead to see its latest state.");
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Team notification retry failed.");
+    } finally {
+      setRetryingNotification(false);
+    }
+  };
   const send = async () => {
     setSending(true);
     setNotice(null);
@@ -900,25 +1024,53 @@ function Delivery({ lead, canCrmSync, onUpdated }: { lead: Lead; canCrmSync: boo
   return (
     <Group
       title="Deliveries"
-      footer="Nothing is written to a CRM unless you ask. Each send is recorded on this lead."
-      action={canCrmSync ? (
-        <span className="v-group-actions">
-          {providers.length > 1 && (
+      footer="Use the row actions to retry deliveries or open a reviewed email draft. CRM writes only happen when you request them."
+    >
+      <Row icon="bell" label="Team notification" detail={notificationProvider}>
+        <span className="v-delivery-row-value">
+          <span>{route ? titleize(route.notification_state) : "Pending"}</span>
+          {canManageRouting && notificationRetryable && (
+            <Button kind="tinted" size="sm" disabled={retryingNotification} onClick={() => void retryNotification()}>
+              {retryingNotification ? "Retrying…" : "Retry"}
+            </Button>
+          )}
+        </span>
+      </Row>
+      <Row
+        icon="mail"
+        label="Confirmation email"
+        detail={lead.confirmation_email?.error_message || lead.confirmation_email?.recipient || (lead.email?.trim() ? "Needs a verified Gmail connection" : "No email address available")}
+      >
+        <span className="v-delivery-row-value">
+          <span>{lead.confirmation_email ? titleize(lead.confirmation_email.status) : "Not attempted"}</span>
+          {canEdit && canViewEmail && !confirmationSent && (
+            <Button
+              kind="tinted"
+              size="sm"
+              disabled={Boolean(emailBlockReason)}
+              title={emailBlockReason || "Open a reviewed email draft"}
+              onClick={onComposeEmail}
+            >
+              {reviewBlocked || disqualified ? "Review first" : "Compose"}
+            </Button>
+          )}
+        </span>
+      </Row>
+      <Row icon="share" label="CRM" detail={crm?.last_error ? `${crm.error_category || "Delivery issue"}: ${crm.last_error}` : crm?.provider_entity_ids.contact_id || "No provider record ID"}>
+        <span className="v-delivery-row-value">
+          <span>{crm ? `${providerLabel(crm.provider)} · ${titleize(crm.status)}` : "Not synchronized"}</span>
+          {canCrmSync && providers.length > 1 && (
             <select className="v-popup" aria-label="CRM provider" value={provider} onChange={(event) => setProvider(event.target.value)}>
               <option value="">Choose a CRM</option>
               {providers.map((item) => <option key={item} value={item}>{providerLabel(item)}</option>)}
             </select>
           )}
-          <Button kind="tinted" size="sm" disabled={sending || !provider} onClick={() => void send()}>{label}</Button>
+          {canCrmSync && providers.length > 0 && (
+            <Button kind="tinted" size="sm" disabled={sending || !providers.includes(provider)} onClick={() => void send()}>
+              {label}
+            </Button>
+          )}
         </span>
-      ) : undefined}
-    >
-      <Row icon="bell" label="Team notification" detail={route?.notifications[0]?.provider || "No provider event"}>{route ? titleize(route.notification_state) : "Pending"}</Row>
-      <Row icon="mail" label="Confirmation email" detail={lead.confirmation_email?.error_message || lead.confirmation_email?.recipient || "Needs a verified Gmail connection"}>
-        {lead.confirmation_email ? titleize(lead.confirmation_email.status) : "Not attempted"}
-      </Row>
-      <Row icon="share" label="CRM" detail={crm?.last_error ? `${crm.error_category || "Delivery issue"}: ${crm.last_error}` : crm?.provider_entity_ids.contact_id || "No provider record ID"}>
-        {crm ? `${providerLabel(crm.provider)} · ${titleize(crm.status)}` : "Not synchronized"}
       </Row>
       {notice && <div className="v-row-note" role="status">{notice}</div>}
     </Group>

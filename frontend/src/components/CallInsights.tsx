@@ -48,7 +48,7 @@ export function CallInsights({ insights }: { insights: CallInsightsData }) {
     <section className="call-insights" aria-label="AI insights">
       {nonEmpty(insights?.summary) && <div className="call-insight-summary"><span className="call-insight-label">Summary</span><p>{insights.summary}</p></div>}
       {nonEmpty(insights?.overall_sentiment) && <span className="call-insight-sentiment">{insights.overall_sentiment}</span>}
-      {topics.length > 0 && <section className="call-insight-group"><h5>Topics</h5><ul>{topics.map((item, index) => <li key={`${item.topic}-${index}`}>{item.topic}</li>)}</ul></section>}
+      {topics.length > 0 && <section className="call-insight-group call-insight-topics"><h5>Topics</h5><ul>{topics.map((item, index) => <li key={`${item.topic}-${index}`}>{item.topic}</li>)}</ul></section>}
       <div className="call-insight-notes">
         <InsightList title="Action items" items={notes?.action_items ?? []} />
         <InsightList title="Decisions" items={notes?.decisions_made ?? []} />

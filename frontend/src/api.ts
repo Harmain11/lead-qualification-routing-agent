@@ -683,6 +683,10 @@ export function sendLeadToCrm(leadId: string, provider?: string): Promise<CrmSyn
   return jsonRequest(`/v1/leads/${leadId}/crm-sync${query}`, { method: "POST" });
 }
 
+export function retryLeadNotification(leadId: string): Promise<import("./types").Notification> {
+  return jsonRequest(`/v1/leads/${leadId}/notifications/retry`, { method: "POST" });
+}
+
 export function updateLeadTitle(leadId: string, jobTitle: string): Promise<Lead> {
   return jsonRequest(`/v1/leads/${leadId}`, {
     method: "PATCH",

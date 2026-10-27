@@ -109,6 +109,17 @@ class SyncCalls(StrictModel):
     connection_id: UUID
 
 
+class AssignCloudTalkCall(StrictModel):
+    connection_id: UUID
+    lead_id: UUID
+    page: int = Field(default=1, ge=1)
+
+
+class AssignCloudTalkCallResponse(StrictModel):
+    call_id: str
+    lead_id: UUID
+
+
 def _connection(session: Session, workspace_id: UUID, connection_id: UUID) -> ProviderConnectionORM:
     row = session.get(ProviderConnectionORM, connection_id)
     if row is None or row.workspace_id != workspace_id or row.provider_type not in DIALERS:
@@ -264,18 +275,47 @@ def recent_cloudtalk_calls(
                     RoutingDecisionORM.is_current.is_(True),
                 ),
             )
-            .where(LeadORM.workspace_id == workspace.workspace_id, LeadORM.phone.is_not(None))
+            .where(LeadORM.workspace_id == workspace.workspace_id)
         )
     )
+    leads_by_id = {
+        str(lead_id): (full_name, company_name, representative)
+        for lead_id, full_name, company_name, _, representative in leads
+    }
     by_phone = {
         "".join(character for character in (phone_number or "") if character.isdigit()):
         (str(lead_id), full_name, company_name, representative)
         for lead_id, full_name, company_name, phone_number, representative in leads
+        if phone_number
+    }
+    external_ids = [call.external_id for call in recent if call.external_id]
+    linked_calls = (
+        list(
+            session.scalars(
+                select(CallRecordORM).where(
+                    CallRecordORM.workspace_id == workspace.workspace_id,
+                    CallRecordORM.connection_id == connection.id,
+                    CallRecordORM.external_id.in_(external_ids),
+                )
+            )
+        )
+        if external_ids
+        else []
+    )
+    linked_lead_ids = {
+        row.external_id: str(row.lead_id)
+        for row in linked_calls
+        if row.external_id and row.lead_id
     }
     records = []
     for call in recent:
         digits = "".join(character for character in call.customer_phone if character.isdigit())
-        lead = by_phone.get(digits)
+        lead_id = linked_lead_ids.get(call.external_id)
+        lead = leads_by_id.get(lead_id) if lead_id else None
+        if lead is None:
+            matched = by_phone.get(digits)
+            lead_id = matched[0] if matched else None
+            lead = matched[1:] if matched else None
         record = call.model_dump(mode="json")
         call_created_at = (
             call.started_at.isoformat() if call.started_at else datetime.now(UTC).isoformat()
@@ -285,10 +325,10 @@ def recent_cloudtalk_calls(
             provider="cloudtalk",
             created_at=call_created_at,
             message=None,
-            lead_id=lead[0] if lead else None,
-            lead_name=lead[1] if lead else None,
-            company_name=lead[2] if lead else None,
-            representative_name=lead[3] if lead else None,
+            lead_id=lead_id,
+            lead_name=lead[0] if lead else None,
+            company_name=lead[1] if lead else None,
+            representative_name=lead[2] if lead else None,
         )
         records.append(record)
     return {
@@ -333,6 +373,94 @@ def cloudtalk_call_details(
     if call is None:
         raise HTTPException(404, "CloudTalk call not found on this history page")
     return call.model_dump(mode="json")
+
+
+@router.post(
+    "/cloudtalk/recent/{call_id}/assign",
+    response_model=AssignCloudTalkCallResponse,
+)
+def assign_cloudtalk_call_to_lead(
+    call_id: str,
+    request: AssignCloudTalkCall,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("dialer.call", "leads.edit")
+    ),
+    resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
+) -> AssignCloudTalkCallResponse:
+    lead = owned_lead(session, workspace.workspace_id, request.lead_id)
+    connection = _connection(session, workspace.workspace_id, request.connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(404, "CloudTalk connection not found")
+
+    client = _client(session, workspace, connection, resolver)
+    try:
+        snapshots = client.recent_calls(None, page=request.page)
+    except ProviderOperationError as error:
+        raise HTTPException(429 if error.status_code == 429 else 502, str(error)) from None
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise HTTPException(502, "Call history could not be read from CloudTalk.") from None
+    finally:
+        client.close()
+
+    snapshot = next((item for item in snapshots if item.external_id == call_id), None)
+    if snapshot is None:
+        raise HTTPException(404, "CloudTalk call not found on this history page")
+
+    record = session.scalar(
+        select(CallRecordORM).where(
+            CallRecordORM.workspace_id == workspace.workspace_id,
+            CallRecordORM.connection_id == connection.id,
+            CallRecordORM.external_id == call_id,
+        )
+    )
+    if record is not None and record.lead_id not in (None, lead.id):
+        raise HTTPException(409, "This call is already linked to another lead.")
+
+    if record is None:
+        record = CallRecordORM(
+            workspace_id=workspace.workspace_id,
+            connection_id=connection.id,
+            provider="cloudtalk",
+            external_id=snapshot.external_id,
+            customer_phone=snapshot.customer_phone,
+            status=snapshot.status,
+            direction=snapshot.direction,
+            started_at=snapshot.started_at,
+            duration_seconds=snapshot.duration_seconds,
+            lead_id=lead.id,
+            actor_id=workspace.actor_id,
+            message="Linked from CloudTalk call history.",
+        )
+        session.add(record)
+    else:
+        record.lead_id = lead.id
+        record.customer_phone = snapshot.customer_phone
+        record.status = snapshot.status
+        record.direction = snapshot.direction
+        record.started_at = snapshot.started_at
+        record.duration_seconds = snapshot.duration_seconds
+        record.updated_at = datetime.now(UTC)
+        if not record.message:
+            record.message = "Linked from CloudTalk call history."
+
+    # A history fetch may not include AI details; never erase details already stored.
+    if snapshot.transcript is not None:
+        record.transcript = snapshot.transcript
+    if snapshot.recording_url is not None:
+        record.recording_url = snapshot.recording_url
+    if snapshot.insights is not None:
+        record.insights = snapshot.insights
+
+    audit_operation(
+        session,
+        workspace.workspace_id,
+        workspace.actor_id,
+        "call.assigned_to_lead",
+        {"call_id": call_id, "lead_id": str(lead.id), "provider": "cloudtalk"},
+    )
+    session.commit()
+    return AssignCloudTalkCallResponse(call_id=call_id, lead_id=lead.id)
 
 
 @router.get("/leads/{lead_id}")
