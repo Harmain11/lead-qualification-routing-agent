@@ -244,6 +244,52 @@ def test_meeting_date_and_time_parsing_is_explicit_and_timezone_aware() -> None:
     assert requested_meeting_time("November 6 at 14:30").isoformat() == "14:30:00"
 
 
+def test_tomorrow_time_uses_the_connected_calendar_timezone() -> None:
+    reference = datetime(2026, 10, 27, 20, 30, tzinfo=UTC)
+    text = "Worth giving it a shot. How does tomorrow 12 pm sound?"
+
+    assert (
+        requested_meeting_date(
+            text, reference=reference, time_zone="Asia/Karachi"
+        ).isoformat()
+        == "2026-10-29"
+    )
+    assert requested_meeting_time(text).isoformat() == "12:00:00"
+    assert requested_meeting_datetime(
+        text, time_zone="Asia/Karachi", reference=reference
+    ).isoformat() == "2026-10-29T12:00:00+05:00"
+
+
+def test_meeting_request_detection_accepts_a_relative_exact_time_proposal() -> None:
+    sent_at = datetime(2026, 10, 27, 20, 30, tzinfo=UTC)
+    message = SimpleNamespace(
+        status="inbound",
+        details={
+            "direction": "inbound",
+            "sender": "lead@example.test",
+            "subject": "Re: Quick chat",
+            "body": "Worth giving it a shot. How does tomorrow 12 pm sound?",
+            "message_id": "message-1",
+            "thread_id": "thread-1",
+            "gmail_connection_id": "gmail-1",
+            "sent_at": sent_at.isoformat(),
+        },
+    )
+    session = SimpleNamespace(scalars=lambda _query: [message])
+    lead = SimpleNamespace(id=uuid4(), email="lead@example.test")
+
+    source = find_meeting_request(
+        session,  # type: ignore[arg-type]
+        lead,  # type: ignore[arg-type]
+        uuid4(),
+        thread_id="thread-1",
+        gmail_connection_id="gmail-1",
+    )
+
+    assert source is not None
+    assert source["message_id"] == "message-1"
+
+
 def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -285,6 +331,10 @@ def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
         "lead_agent.api.routes.meetings.confirm_meeting",
         confirm,
     )
+    reference = datetime.now(UTC) + timedelta(days=2)
+    requested_date = requested_meeting_date(
+        "tomorrow", reference=reference, time_zone="Asia/Karachi"
+    )
 
     booked = meeting_email._attempt_requested_time_booking(
         object(),  # type: ignore[arg-type]
@@ -293,13 +343,16 @@ def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
         "actor-1",
         "source-message-1",
         gmail_connection_id,
-        "November 6, 2026 at 2:30 PM",
-        datetime(2026, 10, 5, 12, tzinfo=UTC),
+        "How does tomorrow 12 pm sound?",
+        reference,
     )
 
     assert booked is True
     assert len(captured) == 1
-    assert captured[0].start_at.isoformat() == "2026-11-06T14:30:00+05:00"
+    assert requested_date is not None
+    assert captured[0].start_at.isoformat() == (
+        f"{requested_date.isoformat()}T12:00:00+05:00"
+    )
     assert str(captured[0].source_gmail_connection_id) == gmail_connection_id
 
 

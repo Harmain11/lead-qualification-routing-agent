@@ -210,7 +210,10 @@ def _offer_email(
     options = "\n".join(_format_slot(index, slot) for index, slot in enumerate(slots, 1))
     requested_text = source.get("excerpt", "")
     reference = _parse_datetime(source.get("sent_at"))
-    requested_date = requested_meeting_date(requested_text, reference=reference)
+    time_zone = str(slots[0].get("time_zone") or "UTC") if slots else "UTC"
+    requested_date = requested_meeting_date(
+        requested_text, reference=reference, time_zone=time_zone
+    )
     if requested_date is not None and requested_meeting_time(requested_text) is not None:
         introduction = (
             "I couldn't confirm the exact time you requested. Here are the available options:"
@@ -253,10 +256,9 @@ def _calendar_options(
     source: dict[str, str],
     actor_id: str,
 ) -> tuple[ProviderConnectionORM, list[dict[str, Any]]] | None:
-    requested_date = requested_meeting_date(
-        source.get("excerpt", ""),
-        reference=_parse_datetime(source.get("sent_at")),
-    )
+    requested_text = source.get("excerpt", "")
+    reference = _parse_datetime(source.get("sent_at"))
+    requested_date = requested_meeting_date(requested_text, reference=reference)
     # Use one calendar for each offer to avoid presenting duplicate or competing
     # slots when both providers are connected. Prefer the direct Google Calendar.
     for provider_name in ("google_calendar", "calendly"):
@@ -274,6 +276,8 @@ def _calendar_options(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
+                    requested_text=requested_text,
+                    reference=reference,
                     limit=5,
                 )
                 if not slots and requested_date is not None:
@@ -293,6 +297,8 @@ def _calendar_options(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
+                    requested_text=requested_text,
+                    reference=reference,
                     limit_per_event_type=5,
                 )
                 if not slots and requested_date is not None:

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
 from lead_agent.application.meetings import (
+    _parse_provider_time,
     appointment_event_exists,
     find_meeting_request,
     meeting_description,
@@ -357,7 +358,11 @@ def get_meeting_recommendations(
         "date and time, Corral books it only when the calendar confirms it is free; "
         "otherwise, Corral emails open options and books after the lead selects one."
     )
-    requested_date = requested_meeting_date(source.get("excerpt", ""))
+    requested_text = source.get("excerpt", "")
+    requested_reference = _parse_provider_time(source.get("sent_at"))
+    requested_date = requested_meeting_date(
+        requested_text, reference=requested_reference
+    )
     offer_details = (
         offer_event.details
         if offer_event is not None and isinstance(offer_event.details, dict)
@@ -455,6 +460,8 @@ def get_meeting_recommendations(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
+                    requested_text=requested_text,
+                    reference=requested_reference,
                 )
             else:
                 slots = recommend_calendly_slots(
@@ -463,6 +470,8 @@ def get_meeting_recommendations(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
+                    requested_text=requested_text,
+                    reference=requested_reference,
                     event_type_statuses=calendly_event_types,
                 )
                 for slot in slots:
