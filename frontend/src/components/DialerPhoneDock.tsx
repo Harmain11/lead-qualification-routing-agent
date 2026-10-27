@@ -407,13 +407,13 @@ export function DialerPhoneDock({
                   </span>
                   <span>
                     {browserAlertMessage ||
-                      "Call alerts are controlled here; CloudTalk’s embedded phone has no separate setting."}
+                      "Corral browser alerts are managed here—not in CloudTalk."}
                   </span>
                 </div>
                 <p className="dialer-phone-cloudtalk-safety-note" role="note">
-                  Calls placed from CloudTalk’s keypad bypass Corral’s consent,
-                  do-not-call, and residency checks and may not appear in
-                  Corral’s direct-call history.
+                  CloudTalk keypad calls bypass Corral’s consent, do-not-call,
+                  and residency checks; they may not appear in Corral’s
+                  direct-call history.
                 </p>
                 <CloudTalkPhoneFrame
                   onCallActiveChange={onCallActiveChange}

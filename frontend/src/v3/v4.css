@@ -246,13 +246,24 @@ html[data-theme="dark"] {
 .dialer-phone-dock .dialer-phone-close, .dialer-phone-dock .dialer-phone-alert-toggle { border: 0 !important; background: var(--fill) !important; box-shadow: none !important; border-radius: var(--r-pill) !important; }
 
 @media (max-width: 767px) {
-  .p-panel, .dialer-phone-dock .dialer-phone-window {
+  .p-panel {
     top: auto;
     right: 8px;
     left: 8px;
     bottom: calc(var(--tabbar-h) + 8px + env(safe-area-inset-bottom));
     width: auto;
     max-height: 72dvh;
+  }
+
+  .dialer-phone-dock .dialer-phone-window {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    left: max(8px, env(safe-area-inset-left));
+    width: auto;
+    height: auto;
+    max-height: none;
+    box-sizing: border-box;
   }
 }
 

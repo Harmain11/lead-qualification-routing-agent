@@ -443,8 +443,19 @@
     height: 34px;
   }
 
+}
+
+@media (max-width: 767px) {
   .dialer-phone-cloudtalk-alert-note {
-    padding: 8px 12px;
-    font-size: 10px;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .dialer-phone-cloudtalk-safety-note {
+    padding: 5px 10px;
+    font-size: 11px;
+    line-height: 1.3;
   }
 }
