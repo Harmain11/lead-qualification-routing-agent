@@ -70,38 +70,6 @@ export function CorralAgentDock({
     const panel = panelRef.current;
     const visualViewport = window.visualViewport;
     if (!panel || !visualViewport) return;
-    const root = document.documentElement;
-    const body = document.body;
-    const previousRootOverflow = root.style.getPropertyValue("overflow");
-    const previousRootOverflowPriority = root.style.getPropertyPriority("overflow");
-    const previousBodyOverflow = body.style.getPropertyValue("overflow");
-    const previousBodyOverflowPriority = body.style.getPropertyPriority("overflow");
-    const previousRootOverscroll = root.style.getPropertyValue("overscroll-behavior");
-    const previousRootOverscrollPriority = root.style.getPropertyPriority("overscroll-behavior");
-    const previousBodyOverscroll = body.style.getPropertyValue("overscroll-behavior");
-    const previousBodyOverscrollPriority = body.style.getPropertyPriority("overscroll-behavior");
-    let pageScrollLocked = false;
-
-    const setStyleOrRestore = (
-      element: HTMLElement,
-      property: string,
-      value: string,
-      previousValue: string,
-      previousPriority: string,
-    ) => {
-      if (value) element.style.setProperty(property, value);
-      else if (previousValue) element.style.setProperty(property, previousValue, previousPriority);
-      else element.style.removeProperty(property);
-    };
-
-    const restorePageScroll = () => {
-      if (!pageScrollLocked) return;
-      setStyleOrRestore(root, "overflow", "", previousRootOverflow, previousRootOverflowPriority);
-      setStyleOrRestore(body, "overflow", "", previousBodyOverflow, previousBodyOverflowPriority);
-      setStyleOrRestore(root, "overscroll-behavior", "", previousRootOverscroll, previousRootOverscrollPriority);
-      setStyleOrRestore(body, "overscroll-behavior", "", previousBodyOverscroll, previousBodyOverscrollPriority);
-      pageScrollLocked = false;
-    };
 
     const syncVisualViewport = () => {
       if (!window.matchMedia("(max-width: 767px)").matches) {
@@ -109,14 +77,8 @@ export function CorralAgentDock({
         panel.style.removeProperty("--corral-agent-visual-top");
         panel.style.removeProperty("--corral-agent-visual-width");
         panel.style.removeProperty("--corral-agent-visual-left");
-        restorePageScroll();
         return;
       }
-      setStyleOrRestore(root, "overflow", "hidden", previousRootOverflow, previousRootOverflowPriority);
-      setStyleOrRestore(body, "overflow", "hidden", previousBodyOverflow, previousBodyOverflowPriority);
-      setStyleOrRestore(root, "overscroll-behavior", "none", previousRootOverscroll, previousRootOverscrollPriority);
-      setStyleOrRestore(body, "overscroll-behavior", "none", previousBodyOverscroll, previousBodyOverscrollPriority);
-      pageScrollLocked = true;
       panel.style.setProperty(
         "--corral-agent-visual-height",
         `${Math.ceil(visualViewport.height)}px`,
@@ -147,7 +109,110 @@ export function CorralAgentDock({
       panel.style.removeProperty("--corral-agent-visual-top");
       panel.style.removeProperty("--corral-agent-visual-width");
       panel.style.removeProperty("--corral-agent-visual-left");
-      restorePageScroll();
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const canPageScroll = (deltaY: number) => {
+      if (document.querySelector("dialog[open], .lead-drawer-backdrop, .team-modal-backdrop")) {
+        return false;
+      }
+      const root = document.scrollingElement;
+      if (!root) return false;
+      const maxScroll = Math.max(0, root.scrollHeight - root.clientHeight);
+      return deltaY > 0 ? root.scrollTop < maxScroll - 1 : root.scrollTop > 1;
+    };
+
+    const innerCanScroll = (target: EventTarget | null, deltaY: number) => {
+      let element = target instanceof Element ? target : null;
+      while (element && element !== panel) {
+        const overflowY = window.getComputedStyle(element).overflowY;
+        const maxScroll = element.scrollHeight - element.clientHeight;
+        if ((overflowY === "auto" || overflowY === "scroll") && maxScroll > 1) {
+          if (deltaY > 0 && element.scrollTop < maxScroll - 1) return true;
+          if (deltaY < 0 && element.scrollTop > 1) return true;
+        }
+        element = element.parentElement;
+      }
+      return false;
+    };
+
+    const forwardToPage = (
+      target: EventTarget | null,
+      deltaY: number,
+      preventDefault: () => void,
+      cancelable: boolean,
+    ) => {
+      if (
+        !deltaY ||
+        !cancelable ||
+        innerCanScroll(target, deltaY) ||
+        !canPageScroll(deltaY)
+      ) {
+        return;
+      }
+      preventDefault();
+      window.scrollBy(0, deltaY);
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.defaultPrevented || event.ctrlKey) return;
+      const multiplier = event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? window.innerHeight
+          : 1;
+      forwardToPage(
+        event.target,
+        event.deltaY * multiplier,
+        () => event.preventDefault(),
+        event.cancelable,
+      );
+    };
+
+    let lastTouchY: number | null = null;
+    let touchTarget: EventTarget | null = null;
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) {
+        lastTouchY = null;
+        touchTarget = null;
+        return;
+      }
+      lastTouchY = event.touches[0].clientY;
+      touchTarget = event.target;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || lastTouchY === null) return;
+      const nextY = event.touches[0].clientY;
+      const deltaY = lastTouchY - nextY;
+      lastTouchY = nextY;
+      forwardToPage(
+        touchTarget,
+        deltaY,
+        () => event.preventDefault(),
+        event.cancelable,
+      );
+    };
+    const clearTouch = () => {
+      lastTouchY = null;
+      touchTarget = null;
+    };
+
+    panel.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    panel.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    panel.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    panel.addEventListener("touchend", clearTouch, { capture: true, passive: true });
+    panel.addEventListener("touchcancel", clearTouch, { capture: true, passive: true });
+    return () => {
+      panel.removeEventListener("wheel", onWheel, true);
+      panel.removeEventListener("touchstart", onTouchStart, true);
+      panel.removeEventListener("touchmove", onTouchMove, true);
+      panel.removeEventListener("touchend", clearTouch, true);
+      panel.removeEventListener("touchcancel", clearTouch, true);
     };
   }, [open]);
 

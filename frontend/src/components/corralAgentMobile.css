@@ -129,12 +129,13 @@
     padding-inline:
       max(12px, env(safe-area-inset-left))
       max(12px, env(safe-area-inset-right));
-    overflow: hidden;
+    overflow: clip;
     border: 0;
     border-radius: 0;
     color: var(--text);
     background: var(--surface);
-    overscroll-behavior: none;
+    overscroll-behavior-x: none;
+    overscroll-behavior-y: auto;
   }
 
   #corral-agent-window > .v-agent-head {
@@ -253,8 +254,9 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
-    overscroll-behavior: none;
+    overflow: clip;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
   }
 
   #corral-agent-window .corral-agent-mode {
@@ -262,7 +264,7 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow: clip;
   }
 
   #corral-agent-window .corral-agent-start {
@@ -272,7 +274,8 @@
     overflow-y: auto;
     padding: 14px 12px;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
   }
 
   #corral-agent-window .corral-agent-search {
@@ -304,7 +307,7 @@
     height: 100%;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow: clip;
   }
 
   #corral-agent-window .corral-workspace-chat {
@@ -393,7 +396,8 @@
     overflow-y: auto;
     padding: 12px;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
     scrollbar-width: thin;
   }
 

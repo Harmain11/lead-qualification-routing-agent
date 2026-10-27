@@ -101,7 +101,8 @@
   gap: 13px;
   overflow-y: auto;
   padding: 20px clamp(14px, 3vw, 28px);
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
 }
 
 .lead-agent-welcome {

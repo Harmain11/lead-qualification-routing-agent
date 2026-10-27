@@ -566,7 +566,8 @@
   gap: 12px;
   overflow: auto;
   padding: 18px 15px;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
 }
 
 .corral-workspace-welcome {

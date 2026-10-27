@@ -40,7 +40,7 @@
 .v-sidebar-search span { flex: 1; }
 @media (hover: hover) { .v-sidebar-search:hover { background: var(--fill-hover); } }
 
-.v-sidebar-nav { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 10px 16px; scrollbar-width: thin; }
+.v-sidebar-nav { flex: 1; overflow-y: auto; overscroll-behavior-x: contain; overscroll-behavior-y: auto; padding: 4px 10px 16px; scrollbar-width: thin; }
 .v-navsection + .v-navsection { margin-top: 18px; }
 .v-navsection-title { padding: 0 10px 6px; font: 600 12px/1 var(--font); letter-spacing: 0; color: var(--label-3); }
 .v-navsection ul { display: grid; gap: 1px; margin: 0; padding: 0; list-style: none; }
@@ -273,7 +273,7 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
 .v-agent-scope button:disabled { opacity: 0.45; }
 .v-agent-subject { display: grid; min-width: 0; font: var(--t-subhead); color: var(--label-2); }
 .v-agent-subject b { font: 600 14px/1.3 var(--font); color: var(--label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.corral-agent-window-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.corral-agent-window-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-x: contain; overscroll-behavior-y: auto; }
 .corral-agent-mode { min-height: 100%; }
 .corral-agent-start { display: grid; justify-items: center; gap: 10px; padding: 36px 20px; text-align: center; }
 .corral-agent-start h2 { font: var(--t-title2); letter-spacing: var(--tracking-title); }
