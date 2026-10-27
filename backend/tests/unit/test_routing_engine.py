@@ -353,6 +353,57 @@ def test_explicit_reroute_preserves_history_and_creates_one_new_notification(
         assert any("Operator correction" in row.routing_reason for row in history)
 
 
+def test_slack_duplicate_replay_and_reroute_notify_once_per_lead(
+    icp, routing, tmp_path
+) -> None:
+    class SlackCountingProvider(MockNotificationProvider):
+        provider_name = "slack"
+
+    provider = SlackCountingProvider()
+    with session_for(tmp_path) as session:
+        _, _, lead = process_lead(
+            session,
+            payload(external_id="slack-once-per-lead"),
+            icp,
+            routing,
+            notification_provider=provider,
+        )
+        replayed = process_lead(
+            session,
+            payload(external_id="slack-once-per-lead"),
+            icp,
+            routing,
+            notification_provider=provider,
+        )[2]
+
+        from lead_agent.application.routing import route_and_notify
+
+        rerouted = route_and_notify(
+            session,
+            lead,
+            routing,
+            notification_provider=provider,
+            force=True,
+            reroute_reason="Verify Slack deduplication",
+        )
+        notifications = list(
+            session.scalars(
+                select(NotificationORM)
+                .join(RoutingDecisionORM)
+                .where(
+                    RoutingDecisionORM.lead_id == lead.id,
+                    NotificationORM.provider == "slack",
+                )
+            )
+        )
+
+        assert replayed.id == lead.id
+        assert rerouted.notification_state == "suppressed"
+        assert sum(notification.status == "sent" for notification in notifications) == 1
+        assert sum(notification.status == "suppressed" for notification in notifications) == 1
+        assert len(provider.sent) == 1
+
+
 def test_pipeline_history_records_complete_ordered_lifecycle(icp, routing, tmp_path) -> None:
     with session_for(tmp_path) as session:
         _, _, lead = process_lead(session, payload(external_id="history"), icp, routing)
