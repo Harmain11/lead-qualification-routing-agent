@@ -72,6 +72,20 @@ Could we discuss your onboarding service?
   assert.match(html, /View raw email/);
 });
 
+test("renders text recovered from a flattened Date header in the message body", () => {
+  const html = render(`--- Gmail message flattened-date ---
+From: Felicia Hodges <felicia@example.test>
+To: sales@example.test
+Date: Fri, 16 Oct 2026 14:35:31 +0000 Hi Junaid, Noticed you follow a couple of data and marketing lists.
+Subject: quick q`);
+
+  const time = html.match(/<time\b[^>]*>[\s\S]*?<\/time>/)?.[0] || "";
+  assert.ok(time);
+  assert.doesNotMatch(time, /Hi Junaid/);
+  assert.ok(html.indexOf("quick q") < html.indexOf("Hi Junaid"));
+  assert.doesNotMatch(html, /No message text was included/);
+});
+
 test("keeps forwarded messages under the collapsed quoted-content control", () => {
   const html = render(sourceEmail(`Could you review this note?
 

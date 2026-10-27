@@ -275,7 +275,26 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-main-column">
               <div className="panel team-members-panel">
                 <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace users</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite user</button>}</div></div>
-                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <div className="team-member-row" key={member.id}><span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="member-identity"><b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b><small>{member.email}</small></span><RolePill role={member.role} /><MemberStatus status={member.status} /><span className="member-permission-count">{member.effective_permissions.length} permissions</span><span className="member-row-actions"><button type="button" className="button-quiet" onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}>Edit</button>{canManage && member.role !== "owner" && member.user_id !== auth.user.id && <button type="button" className="button-quiet danger-text" onClick={() => requestConfirmation({ title: "Remove from workspace?", detail: `${member.display_name} will lose access to this workspace. Their account and other workspace memberships will remain.`, confirmLabel: "Remove from workspace", danger: true, action: async () => { await removeMember(member.id); } })}>Delete</button>}</span><i className="member-chevron">→</i></div>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
+                {loading ? <TeamListSkeleton /> : members.length ? <div className="team-member-list">{members.map((member) => <div className="team-member-row" key={member.id}>
+                  <div className="member-person">
+                    <span className="member-avatar">{member.display_name.slice(0, 1).toUpperCase()}</span>
+                    <span className="member-identity">
+                      <b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b>
+                      <small>{member.email}</small>
+                      <small className="member-permission-count">{member.effective_permissions.length} permissions</small>
+                    </span>
+                  </div>
+                  <div className="member-row-side">
+                    <div className="member-row-meta">
+                      <RolePill role={member.role} />
+                      <MemberStatus status={member.status} />
+                    </div>
+                    <span className="member-row-actions">
+                      <button type="button" className="button-quiet" onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}>Edit</button>
+                      {canManage && member.role !== "owner" && member.user_id !== auth.user.id && <button type="button" className="button-quiet danger-text" onClick={() => requestConfirmation({ title: "Remove from workspace?", detail: `${member.display_name} will lose access to this workspace. Their account and other workspace memberships will remain.`, confirmLabel: "Remove from workspace", danger: true, action: async () => { await removeMember(member.id); } })}>Delete</button>}
+                    </span>
+                  </div>
+                </div>)}</div> : <div className="empty-state"><i /><b>No users yet</b><span>Invite the first person to this workspace.</span></div>}
               </div>
               <div className="panel team-invitations-panel">
                 <div className="section-heading"><div><span className="eyebrow">Pending access</span><h2>Invitations</h2></div><span className="panel-action">One-time staff codes</span></div>

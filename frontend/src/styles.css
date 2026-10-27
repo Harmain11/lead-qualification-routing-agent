@@ -1231,8 +1231,6 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .member-permission-count { color: var(--subtle); font: 13px var(--font-mono); }
 .member-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .member-row-actions button { min-height: 29px; padding-inline: 8px; }
-.member-chevron { color: var(--subtle); font-style: normal; transition: color var(--fast), transform var(--fast); }
-.team-member-row:hover .member-chevron, .team-member-row.selected .member-chevron { color: var(--orange-hot); transform: translateX(3px); }
 .team-invitations-panel { min-height: 160px; }
 .invitation-list { display: grid; gap: 6px; }
 .invitation-row { display: grid; grid-template-columns: 30px minmax(160px, 1fr) auto auto; gap: 12px; align-items: center; min-height: 60px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.018); }
@@ -2949,7 +2947,7 @@ html[data-theme="dark"] .app-shell .slack-multi-menu .slack-multi-option:hover {
 .gmail-sync-controls {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(140px, 190px) minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(140px, 190px) minmax(180px, 1fr);
   align-items: end;
   gap: 14px;
   width: 100%;
@@ -2986,9 +2984,11 @@ html[data-theme="dark"] .app-shell .slack-multi-menu .slack-multi-option:hover {
   white-space: nowrap;
 }
 .gmail-sync-buttons {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -3242,8 +3242,8 @@ html[data-theme="dark"] .gmail-sync-review-details pre { background: #16251f; co
 @media (max-width: 760px) {
   .gmail-sync-controls { grid-template-columns: minmax(0, 1fr); }
   .gmail-sync-controls > p { order: 2; }
-  .gmail-sync-buttons { width: 100%; }
-  .gmail-sync-controls .gmail-sync-button { width: auto; flex: 1; }
+  .gmail-sync-buttons { width: 100%; justify-content: stretch; }
+  .gmail-sync-controls .gmail-sync-button { width: auto; flex: 1 1 190px; }
   .gmail-sync-result-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .gmail-sync-result > header { flex-direction: column; }
   .gmail-sync-active-banner { grid-template-columns: 12px minmax(0, 1fr); }

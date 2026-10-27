@@ -1,0 +1,97 @@
+.team-member-list { display: block; }
+.team-member-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px 24px;
+  align-items: center;
+  padding: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--separator);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+.member-person { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.member-avatar {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tint-soft);
+  color: var(--tint-text);
+  font: 600 14px/20px var(--font);
+}
+.member-identity { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.member-identity b { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--label); font: 600 15px/20px var(--font); overflow-wrap: anywhere; }
+.member-identity small { color: var(--label-3); font: var(--t-subhead); overflow-wrap: anywhere; }
+.member-identity em {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--tint-soft);
+  color: var(--tint-text);
+  font: 600 11px/16px var(--font);
+  font-style: normal;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.member-identity .member-permission-count {
+  margin-top: 2px;
+  color: var(--label-3);
+  font: var(--t-footnote);
+  font-variant-numeric: tabular-nums;
+}
+.member-row-side { display: flex; align-items: center; justify-content: flex-end; gap: 20px; }
+.member-row-meta { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.team-role, .team-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  width: fit-content;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--label-2);
+  font: 500 12px/16px var(--font);
+  white-space: nowrap;
+}
+.role-owner, .role-sales_rep { background: var(--tint-soft); color: var(--tint-text); }
+.role-admin { background: var(--fill); color: var(--label-2); }
+.role-sales_manager { background: var(--info-soft); color: var(--info-text); }
+.team-status { gap: 6px; }
+.team-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status-active { background: var(--tint-soft); color: var(--tint-text); }
+.status-invited { background: var(--attention-soft); color: var(--attention-text); }
+.status-suspended { background: var(--danger-soft); color: var(--danger-text); }
+.status-revoked { background: var(--fill); color: var(--label-3); }
+.member-row-actions { display: flex; align-items: center; gap: 6px; }
+.member-row-actions button {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tint-text);
+  font: 600 13px/18px var(--font);
+  cursor: pointer;
+}
+.member-row-actions button:hover { background: var(--fill-hover); }
+.member-row-actions button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.member-row-actions .danger-text { color: var(--danger-text); }
+
+@media (max-width: 640px) {
+  .team-member-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .member-row-side { justify-content: space-between; gap: 12px; padding-left: 48px; }
+  .member-row-meta { justify-content: flex-start; }
+}
+
+@media (max-width: 420px) {
+  .member-row-side { align-items: flex-start; flex-direction: column; padding-left: 48px; }
+  .member-row-actions { margin-left: -8px; }
+}

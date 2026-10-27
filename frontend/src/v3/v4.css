@@ -948,6 +948,7 @@ button.h-kpi:active { transform: scale(0.985); }
 .t-board { margin-bottom: 14px; }
 .t-board-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 10px; }
 .t-compare .t-board-head { padding: 0 0 14px; }
+.t-compare { margin-bottom: 14px; }
 .t-table tr[data-leader] td { background: color-mix(in srgb, var(--tint) 4%, transparent); }
 .t-star { display: inline-block; margin-left: 6px; color: var(--attention); vertical-align: -1px; }
 .t-rate { display: inline-flex; align-items: center; gap: 8px; }
@@ -970,10 +971,13 @@ button.h-kpi:active { transform: scale(0.985); }
 .t-grid-cell[data-best] { background: color-mix(in srgb, var(--tint) 7%, transparent); border-radius: 8px; }
 .t-grid-cell[data-best] b { color: var(--tint-text); }
 .t-grid-cell[data-best] > i > i { background: var(--tint); }
-.t-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.t-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; margin-bottom: 14px; }
+.t-notes > .v-card { min-width: 0; }
 .t-notes b { font: var(--t-headline); }
-.t-notes p { margin-top: 6px; }
-.t-foot { display: flex; gap: 6px; align-items: center; font: var(--t-footnote); color: var(--label-3); }
+.t-notes p { margin-top: 6px; overflow-wrap: anywhere; }
+.t-foot { display: flex; flex-wrap: nowrap; gap: 6px; align-items: flex-start; font: var(--t-footnote); color: var(--label-3); }
+.t-foot svg { flex: none; margin-top: 2px; }
+.t-foot > span { flex: 1; min-width: 0; }
 @media (max-width: 900px) {
   .t-podium { grid-template-columns: minmax(0, 1fr); }
   .t-grid { grid-template-columns: 120px repeat(var(--cols), minmax(0, 1fr)); }
@@ -1003,6 +1007,108 @@ button.h-kpi:active { transform: scale(0.985); }
 .v-section-tabs-wrap ~ .v-page .page-hero { justify-content: flex-start; margin-bottom: 16px; }
 .v-app .v-section-tabs-wrap { margin-bottom: 20px; }
 .v-app table th { font: 600 12px/16px var(--font) !important; letter-spacing: 0 !important; text-transform: none !important; color: var(--label-3) !important; font-family: var(--font) !important; }
+
+/* Team roster: flat list rows with member details and actions kept together. */
+.v-app .team-member-list { display: block; }
+.v-app .team-member-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px 24px;
+  align-items: center;
+  padding: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--separator);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  transform: none;
+  transition: none;
+}
+.v-app .team-member-row:hover,
+.v-app .team-member-row.selected {
+  border-color: var(--separator);
+  background: transparent;
+  transform: none;
+}
+.v-app .member-person { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.v-app .member-avatar {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tint-soft);
+  color: var(--tint-text);
+  font: 600 14px/20px var(--font);
+}
+.v-app .member-identity { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.v-app .member-identity b { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--label); font: 600 15px/20px var(--font); overflow-wrap: anywhere; }
+.v-app .member-identity small { color: var(--label-3); font: var(--t-subhead); overflow-wrap: anywhere; }
+.v-app .member-identity em {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--tint-soft);
+  color: var(--tint-text);
+  font: 600 11px/16px var(--font);
+  letter-spacing: .02em;
+}
+.v-app .member-identity .member-permission-count {
+  margin-top: 2px;
+  color: var(--label-3);
+  font: var(--t-footnote);
+  font-variant-numeric: tabular-nums;
+}
+.v-app .member-row-side { display: flex; align-items: center; justify-content: flex-end; gap: 20px; }
+.v-app .member-row-meta { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.v-app .team-role,
+.v-app .team-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  width: fit-content;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  color: var(--label-2);
+  font: 500 12px/16px var(--font);
+  white-space: nowrap;
+}
+.v-app .role-owner,
+.v-app .role-sales_rep { background: var(--tint-soft); color: var(--tint-text); }
+.v-app .role-admin { background: var(--fill); color: var(--label-2); }
+.v-app .role-sales_manager { background: var(--info-soft); color: var(--info-text); }
+.v-app .team-status { gap: 6px; }
+.v-app .team-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: none; }
+.v-app .status-active { background: var(--tint-soft); color: var(--tint-text); }
+.v-app .status-invited { background: var(--attention-soft); color: var(--attention-text); }
+.v-app .status-suspended { background: var(--danger-soft); color: var(--danger-text); }
+.v-app .status-revoked { background: var(--fill); color: var(--label-3); }
+.v-app .member-row-actions { display: flex; align-items: center; gap: 6px; }
+.v-app .member-row-actions .button-quiet {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tint-text);
+  font: 600 13px/18px var(--font);
+}
+.v-app .member-row-actions .button-quiet:hover { border: 0; background: var(--fill-hover); }
+.v-app .member-row-actions .button-quiet:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.v-app .member-row-actions .danger-text { color: var(--danger-text) !important; }
+@media (max-width: 640px) {
+  .v-app .team-member-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .v-app .member-row-side { justify-content: space-between; gap: 12px; padding-left: 48px; }
+  .v-app .member-row-meta { justify-content: flex-start; }
+}
+@media (max-width: 420px) {
+  .v-app .member-row-side { align-items: flex-start; flex-direction: column; padding-left: 48px; }
+  .v-app .member-row-actions { margin-left: -8px; }
+}
 
 /* Sidebar hover menus */
 .v-navitem-more { margin-left: auto; color: var(--label-4); opacity: 0; transition: opacity var(--d-fast) ease; }

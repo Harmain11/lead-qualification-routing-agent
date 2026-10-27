@@ -89,6 +89,22 @@ Could we discuss your onboarding service?`);
   assert.match(inquiry.messages[0].body, /Could we discuss your onboarding service/);
 });
 
+test("recovers an inquiry appended to a valid Date header", () => {
+  const inquiry = parseGmailInquiry(`--- Gmail message flattened-date ---
+From: Felicia Hodges <felicia@example.test>
+To: junaid@example.test
+Date: Fri, 16 Oct 2026 14:35:31 +0000 Hi Junaid, Noticed you follow a couple of data and marketing lists.
+Subject: quick q`);
+
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].date, "Fri, 16 Oct 2026 14:35:31 +0000");
+  assert.equal(inquiry.messages[0].subject, "quick q");
+  assert.equal(
+    inquiry.messages[0].body,
+    "Hi Junaid, Noticed you follow a couple of data and marketing lists.",
+  );
+});
+
 test("parses nested forwarded messages recursively without losing either body", () => {
   const inquiry = parseGmailInquiry(`--- Gmail message root ---
 From: Maya Chen <maya@example.test>

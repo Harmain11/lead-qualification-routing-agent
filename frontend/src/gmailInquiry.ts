@@ -35,6 +35,16 @@ function normalizeHeaderBoundaries(source: string) {
     .replace(new RegExp(`[\\t ]+(?=(?:${GMAIL_HEADER_NAMES}):\\s)`, "gi"), "\n");
 }
 
+function recoverBodyAppendedToDateHeader(value: string) {
+  const greeting = /\s+(?=(?:hi|hello|hey|dear|good\s+(?:morning|afternoon|evening)|greetings|to whom it may concern)\b)/i.exec(value);
+  if (!greeting || greeting.index === undefined) return null;
+
+  const date = value.slice(0, greeting.index).trim();
+  const body = value.slice(greeting.index).trim();
+  if (!date || !body || Number.isNaN(Date.parse(date))) return null;
+  return { date, body };
+}
+
 function parseHeadersAndBody(source: string) {
   const normalized = normalizeHeaderBoundaries(source);
   const separator = normalized.search(/\n\s*\n/);
@@ -66,6 +76,13 @@ function parseHeadersAndBody(source: string) {
       const inlineBody = headers.subject.slice(inlineBodyStart.index).trim();
       headers.subject = headers.subject.slice(0, inlineBodyStart.index).trim();
       body = [inlineBody, body].filter(Boolean).join("\n");
+    }
+  }
+  if (headers.date) {
+    const recovered = recoverBodyAppendedToDateHeader(headers.date);
+    if (recovered) {
+      headers.date = recovered.date;
+      body = [recovered.body, body].filter(Boolean).join("\n").trim();
     }
   }
   return { headers, body };

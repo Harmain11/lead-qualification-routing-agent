@@ -692,7 +692,6 @@ html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) textarea { min-height
 .app-shell .member-identity b { flex-wrap: wrap; font-size: 15px; }
 .app-shell .member-identity small { overflow-wrap: anywhere; }
 .app-shell .member-permission-count { grid-column: 2 / 4; }
-.app-shell .member-chevron { justify-self: end; }
 .app-shell .team-main-column { gap: var(--space-6); }
 .app-shell .team-detail { top: 88px; }
 
@@ -720,7 +719,6 @@ html[data-theme] .app-shell .flow-node { min-height: 132px; padding: 16px; gap: 
   .app-shell .team-member-row .team-role { grid-column: 2; }
   .app-shell .team-member-row .team-status { grid-column: 3; grid-row: 2; }
   .app-shell .member-permission-count { grid-column: 2; }
-  .app-shell .member-chevron { grid-column: 3; }
 }
 @media (max-width: 760px) {
   :root { --page-gutter: 16px; --card-padding: 16px; }

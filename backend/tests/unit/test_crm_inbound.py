@@ -21,6 +21,7 @@ from lead_agent.application.crm_inbound import (
     _gmail_manual_review_reason,
     _hubspot_own_writeback_matches,
     _process_record,
+    _start_cursor,
     configure_inbound_sync,
     get_inbound_sync_state,
     request_inbound_sync_cancellation,
@@ -474,6 +475,27 @@ def _run(session, connection, provider, icp, routing, **kwargs):
         routing=routing,
         **kwargs,
     )
+
+
+def test_previous_gmail_review_resumes_its_cursor_without_replacing_live_sync() -> None:
+    live_cursor = {"history_id": "live-900"}
+    previous_cursor = {
+        "history_id": "gmail-200",
+        "page_token": "older-page-2",
+        "initial": True,
+        "review_previous": True,
+    }
+    state = SimpleNamespace(
+        last_successful_cursor=live_cursor,
+        resume_cursor=previous_cursor,
+    )
+
+    assert _start_cursor(state, "review_previous") == previous_cursor
+    assert _start_cursor(state, "manual") == live_cursor
+    assert _start_cursor(
+        SimpleNamespace(last_successful_cursor=live_cursor, resume_cursor=None),
+        "review_previous",
+    ) == {"initial": True, "review_previous": True}
 
 
 def _lead_payload(email: str, external_id: str) -> dict[str, object]:
