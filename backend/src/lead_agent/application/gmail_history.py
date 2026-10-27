@@ -9,7 +9,61 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from lead_agent.domain.models import RecordedLeadEvidence
 from lead_agent.infrastructure.db.models import PipelineEventORM
+
+
+def lead_history_context(
+    session: Session,
+    *,
+    workspace_id: UUID,
+    lead_id: UUID,
+    limit: int = 60,
+) -> tuple[str, tuple[RecordedLeadEvidence, ...]]:
+    """Return recent verified lead history for analysis and scoring."""
+    events = list(
+        session.scalars(
+            select(PipelineEventORM)
+            .where(
+                PipelineEventORM.workspace_id == workspace_id,
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.stage.in_(("manual_progress", "gmail_message")),
+            )
+            .order_by(PipelineEventORM.created_at.desc())
+            .limit(limit)
+        )
+    )
+    events.reverse()
+    context_lines: list[str] = []
+    evidence: list[RecordedLeadEvidence] = []
+    for event in events:
+        details = event.details if isinstance(event.details, dict) else {}
+        if event.stage == "manual_progress":
+            stage = str(details.get("stage", event.status))
+            context = f"Sales stage {stage}: {details.get('note', '')}"
+            context_lines.append(context)
+            evidence.append(
+                RecordedLeadEvidence(
+                    source=f"manual_progress:{stage}",
+                    text=context,
+                    observed_at=event.created_at,
+                )
+            )
+        else:
+            direction = details.get("direction", "email")
+            context = (
+                f"Gmail {direction} email ({details.get('sent_at', '')}) "
+                f"{details.get('subject', '')}: {details.get('body', '')}"
+            )
+            context_lines.append(context)
+            evidence.append(
+                RecordedLeadEvidence(
+                    source="gmail_message",
+                    text=context,
+                    observed_at=event.created_at,
+                )
+            )
+    return "\n".join(context_lines)[-24000:], tuple(evidence)
 
 
 def gmail_history_messages(

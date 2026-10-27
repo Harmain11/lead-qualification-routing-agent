@@ -645,8 +645,19 @@ def test_gmail_rate_limited_message_does_not_discard_other_valid_leads(tmp_path,
 
 
 def test_gmail_thread_messages_are_added_once_to_same_lead_across_follow_up_syncs(
-    tmp_path, icp, routing
+    tmp_path, icp, routing, monkeypatch
 ):
+    from lead_agent.application import crm_inbound
+
+    reprocessed_inputs = []
+    original_reprocess = crm_inbound.reprocess_lead
+
+    def capture_reprocess(*args, **kwargs):
+        reprocessed_inputs.append((args[2], kwargs.get("recorded_evidence")))
+        return original_reprocess(*args, **kwargs)
+
+    monkeypatch.setattr(crm_inbound, "reprocess_lead", capture_reprocess)
+
     class GmailProvider(FakeInboundProvider):
         provider_name = "gmail"
 
@@ -658,7 +669,8 @@ def test_gmail_thread_messages_are_added_once_to_same_lead_across_follow_up_sync
                     "sender": "prospect@example.test", "sender_name": "Lead m1",
                     "recipients": "inbox@example.test", "subject": "Services",
                     "sent_at": "2026-10-19T09:00:00+00:00",
-                    "direction": "inbound", "body": "We are interested in services.",
+                    "direction": "inbound",
+                    "body": "We are interested in services. How does tomorrow at 12 pm sound?",
                 },
                 {
                     "message_id": "gmail-message-2", "thread_id": "thread-1",
@@ -768,7 +780,16 @@ def test_gmail_thread_messages_are_added_once_to_same_lead_across_follow_up_sync
         assert [event.details["message_id"] for event in events] == [
             "gmail-message-1", "gmail-message-2", "gmail-message-3",
         ]
-        assert "Follow-up with more service details." in lead.message
+        assert lead.message == "Initial services inquiry."
+        assert any(
+            evidence is not None
+            and any("How does tomorrow at 12 pm sound?" in item.text for item in evidence)
+            for _payload, evidence in reprocessed_inputs
+        )
+        assert any(
+            "Follow-up with more service details." in payload["message"]
+            for payload, _evidence in reprocessed_inputs
+        )
 
 
 def test_gmail_updates_preserve_known_details_when_follow_up_omits_them():

@@ -37,7 +37,10 @@ from lead_agent.application.exports import (
     render_export,
     write_export_audit,
 )
-from lead_agent.application.gmail_history import append_gmail_thread_messages
+from lead_agent.application.gmail_history import (
+    append_gmail_thread_messages,
+    lead_history_context,
+)
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
@@ -48,7 +51,6 @@ from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
-from lead_agent.domain.models import RecordedLeadEvidence
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
@@ -1116,47 +1118,11 @@ def _reanalyze_lead_with_history(
     trigger: str,
     route_after_reanalysis: bool = True,
 ) -> tuple[str, int, list[str]]:
-    events = list(
-        session.scalars(
-            select(PipelineEventORM)
-            .where(
-                PipelineEventORM.lead_id == row.id,
-                PipelineEventORM.workspace_id == workspace_id,
-                PipelineEventORM.stage.in_(["manual_progress", "gmail_message"]),
-            )
-            .order_by(PipelineEventORM.created_at.asc())
-        )
+    progress_context, recorded_evidence = lead_history_context(
+        session,
+        workspace_id=workspace_id,
+        lead_id=row.id,
     )
-    context_lines: list[str] = []
-    recorded_evidence: list[RecordedLeadEvidence] = []
-    for event in events[-60:]:
-        details = event.details
-        if event.stage == "manual_progress":
-            stage = str(details.get("stage", event.status))
-            context = f"Sales stage {stage}: {details.get('note', '')}"
-            context_lines.append(context)
-            recorded_evidence.append(
-                RecordedLeadEvidence(
-                    source=f"manual_progress:{stage}",
-                    text=context,
-                    observed_at=event.created_at,
-                )
-            )
-        else:
-            direction = details.get("direction", "email")
-            context = (
-                f"Gmail {direction} email ({details.get('sent_at', '')}) "
-                f"{details.get('subject', '')}: {details.get('body', '')}"
-            )
-            context_lines.append(context)
-            recorded_evidence.append(
-                RecordedLeadEvidence(
-                    source="gmail_message",
-                    text=context,
-                    observed_at=event.created_at,
-                )
-            )
-    progress_context = "\n".join(context_lines)[-24000:]
     payload = {
         "source": row.source,
         "source_detail": row.source_detail,
@@ -1180,7 +1146,7 @@ def _reanalyze_lead_with_history(
     normalized = replace(
         normalize_lead(payload, row.id),
         original_message=row.message,
-        recorded_evidence=tuple(recorded_evidence),
+        recorded_evidence=recorded_evidence,
     )
     resolved_icp = resolve_workspace_icp(session, workspace_id, policies[0])
     reasoning_provider = resolve_workspace_reasoning_provider(session, workspace_id)
