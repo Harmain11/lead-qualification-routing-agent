@@ -39,6 +39,26 @@ _OTHER_TIME_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_DECLINE_REPLY_PATTERNS = (
+    re.compile(
+        r"^\s*(?:no|nope|nah|no thanks|no thank you|not interested|not now)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:doesn't|does not|don't|do not|can't|cannot|won't|will not|"
+        r"wouldn't|would not)\s+(?:work|suit|fit|make it|do it)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:not for me|not available|not possible|doesn't suit|doesn't fit)\b",
+        re.IGNORECASE,
+    ),
+)
+_UNCERTAIN_REPLY_PATTERNS = (
+    re.compile(r"\b(?:maybe|perhaps|might|possibly|not sure|unsure|i think|i guess)\b", re.I),
+    re.compile(r"\b(?:but|however|unless)\b", re.I),
+    re.compile(r"\boption\s*#?\s*\d+\s+(?:could|might|may)\s+work\b", re.I),
+)
 _SPECIFIC_TIME_PROPOSAL = re.compile(
     r"\b(?:how\s+(?:does|about)|would|does|could)\b.{0,80}"
     r"\b(?:sound|work|suit|fit)\b",
@@ -158,10 +178,17 @@ def _plain_excerpt(body: str, limit: int = 320) -> str:
 
 
 def match_confirmed_meeting_option(body: str, option_count: int) -> int | None:
-    """Accept a clear numbered choice only; never infer a booking from vague agreement."""
+    """Accept a clear numbered choice, but reject mixed or uncertain replies."""
     if option_count < 1:
         return None
     clean = _plain_excerpt(body, limit=2000)
+    if (
+        "?" in clean
+        or meeting_reply_requests_other_times(clean)
+        or meeting_reply_declines_offer(clean)
+        or any(pattern.search(clean) for pattern in _UNCERTAIN_REPLY_PATTERNS)
+    ):
+        return None
     first_line = next((line.strip() for line in clean.splitlines() if line.strip()), "")
     leading_pattern = (
         r"^(?:hi\b[^,\n]*,\s*)?(?:(?:i\s+(?:choose|pick|select|take|confirm)\s+)?)"
@@ -199,6 +226,12 @@ def meeting_reply_requests_other_times(body: str) -> bool:
     if clean.lower().rstrip(".!?") in {"none", "neither", "no"}:
         return True
     return any(pattern.search(clean) for pattern in _OTHER_TIME_PATTERNS)
+
+
+def meeting_reply_declines_offer(body: str) -> bool:
+    clean = _plain_excerpt(body, limit=2000).strip()
+    clean = re.sub(r"\bno\s+(?:problem|worries)\b", "", clean, flags=re.IGNORECASE)
+    return any(pattern.search(clean) for pattern in _DECLINE_REPLY_PATTERNS)
 
 
 def _parse_provider_time(value: Any) -> datetime | None:

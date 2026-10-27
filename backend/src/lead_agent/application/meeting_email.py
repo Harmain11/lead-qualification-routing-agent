@@ -18,6 +18,7 @@ from lead_agent.application.meetings import (
     find_meeting_request,
     lead_time_zone,
     match_confirmed_meeting_option,
+    meeting_reply_declines_offer,
     meeting_reply_requests_other_times,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
@@ -25,6 +26,7 @@ from lead_agent.application.meetings import (
     requested_meeting_datetime,
     requested_meeting_time,
 )
+from lead_agent.domain.meeting_reply import MeetingReplyClassification
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.calendar_providers import (
@@ -46,6 +48,7 @@ from lead_agent.infrastructure.gmail import (
 )
 from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import WorkspaceAuthorizedConnectionResolver
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.secrets import get_secret_store
 
 _LOGGER = logging.getLogger("lead_agent.meeting_email")
@@ -671,6 +674,211 @@ def _slot_identity(slot: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
+def _cached_reply_interpretation(
+    details: dict[str, Any], message_id: str
+) -> dict[str, Any] | None:
+    cache = details.get("reply_classifications")
+    if not isinstance(cache, dict):
+        return None
+    result = cache.get(message_id)
+    if not isinstance(result, dict):
+        return None
+    intent = result.get("intent")
+    option_number = result.get("option_number")
+    if (
+        intent not in {"confirm", "decline", "uncertain"}
+        or not isinstance(option_number, int)
+        or isinstance(option_number, bool)
+    ):
+        return None
+    return result
+
+
+def _store_reply_interpretation(
+    details: dict[str, Any],
+    message_id: str,
+    *,
+    intent: str,
+    option_number: int,
+    confidence: float,
+    source: str,
+) -> dict[str, Any]:
+    updated = dict(details)
+    raw_cache = details.get("reply_classifications")
+    cache = dict(raw_cache) if isinstance(raw_cache, dict) else {}
+    cache[message_id] = {
+        "intent": intent,
+        "option_number": option_number,
+        "confidence": confidence,
+        "source": source,
+    }
+    while len(cache) > 20:
+        cache.pop(next(iter(cache)))
+    updated["reply_classifications"] = cache
+    return updated
+
+
+def _normalized_reply_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _quoted_evidence_is_present(reply: str, evidence: str) -> bool:
+    normalized_evidence = _normalized_reply_text(evidence)
+    return bool(normalized_evidence) and normalized_evidence in _normalized_reply_text(reply)
+
+
+def _option_reference_from_evidence(
+    evidence: str, options: list[dict[str, Any]]
+) -> int | None:
+    text = evidence.casefold()
+    ordinal_values = {
+        "first": 1,
+        "1st": 1,
+        "second": 2,
+        "2nd": 2,
+        "third": 3,
+        "3rd": 3,
+        "fourth": 4,
+        "4th": 4,
+        "fifth": 5,
+        "5th": 5,
+        "sixth": 6,
+        "6th": 6,
+        "seventh": 7,
+        "7th": 7,
+        "eighth": 8,
+        "8th": 8,
+        "ninth": 9,
+        "9th": 9,
+        "tenth": 10,
+        "10th": 10,
+    }
+    selector = (
+        r"\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|"
+        r"sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)\s+"
+        r"(?:one|option|slot|time)\b"
+    )
+    ordinal_matches = {
+        ordinal_values[match.group(1)]
+        for match in re.finditer(selector, text)
+    }
+    if re.search(r"\b(?:the\s+)?last\s+(?:one|option|slot|time)\b", text):
+        ordinal_matches.add(len(options))
+    if len(ordinal_matches) == 1:
+        return next(iter(ordinal_matches))
+    if ordinal_matches:
+        return None
+
+    evidence_references: set[int] = set()
+    normalized_evidence = _normalized_reply_text(evidence)
+    option_variants: list[set[str]] = []
+    for slot in options:
+        variants: set[str] = set()
+        start_at = _parse_datetime(slot.get("start_at"))
+        if start_at is not None:
+            try:
+                local = start_at.astimezone(ZoneInfo(str(slot.get("time_zone") or "UTC")))
+            except (ZoneInfoNotFoundError, ValueError):
+                local = start_at.astimezone(UTC)
+            variants.update(
+                {
+                    local.strftime("%A").casefold(),
+                    f"{local.strftime('%B')} {local.day}".casefold(),
+                    f"{local.strftime('%B')} {local.day}, {local.year}".casefold(),
+                    local.strftime("%I:%M %p").lstrip("0").casefold(),
+                    local.strftime("%I %p").lstrip("0").casefold(),
+                }
+            )
+        option_variants.append({item for item in variants if item})
+
+    for index, variants in enumerate(option_variants, start=1):
+        for variant in variants:
+            if not re.search(
+                rf"(?<!\w){re.escape(variant)}(?!\w)",
+                normalized_evidence,
+                flags=re.IGNORECASE,
+            ):
+                continue
+            matching = [
+                option_index
+                for option_index, other_variants in enumerate(option_variants, start=1)
+                if variant in other_variants
+            ]
+            if len(matching) == 1:
+                evidence_references.add(index)
+    return next(iter(evidence_references)) if len(evidence_references) == 1 else None
+
+
+def _classify_meeting_reply_with_ai(
+    session: Session,
+    workspace_id: UUID,
+    body: str,
+    options: list[dict[str, Any]],
+) -> tuple[MeetingReplyClassification | None, str]:
+    try:
+        provider = resolve_workspace_reasoning_provider(session, workspace_id)
+        classify = getattr(provider, "classify_meeting_reply", None)
+        if not callable(classify):
+            return None, "unavailable"
+        clean_reply = _plain_excerpt(body, limit=2000)
+        payload = {
+            "reply": clean_reply,
+            "options": [
+                {
+                    "number": index,
+                    "label": _format_slot(index, option),
+                    "start_at": option.get("start_at"),
+                    "end_at": option.get("end_at"),
+                    "time_zone": option.get("time_zone"),
+                }
+                for index, option in enumerate(options, start=1)
+            ],
+        }
+        result = MeetingReplyClassification.model_validate(classify(payload))
+    except Exception as error:
+        _LOGGER.warning(
+            "meeting_email.reply_interpretation_unavailable",
+            extra={
+                "fields": {
+                    "workspace_id": str(workspace_id),
+                    "provider": str(getattr(locals().get("provider"), "provider_name", "")),
+                    "error_type": type(error).__name__,
+                }
+            },
+        )
+        return None, "unavailable"
+
+    if result.intent == "confirm":
+        valid = (
+            result.confidence >= 0.9
+            and 1 <= result.option_number <= len(options)
+            and _quoted_evidence_is_present(clean_reply, result.evidence)
+            and not meeting_reply_requests_other_times(clean_reply)
+            and not meeting_reply_declines_offer(clean_reply)
+        )
+        if len(options) > 1:
+            valid = (
+                valid
+                and _option_reference_from_evidence(result.evidence, options)
+                == result.option_number
+            )
+        if not valid:
+            result = MeetingReplyClassification(
+                intent="uncertain",
+                option_number=0,
+                confidence=result.confidence,
+                evidence=result.evidence,
+            )
+    elif result.intent == "decline" and result.confidence < 0.8:
+        result = MeetingReplyClassification(
+            intent="uncertain",
+            option_number=0,
+            confidence=result.confidence,
+            evidence=result.evidence,
+        )
+    return result, "ai"
+
+
 def create_selected_slot_offer_draft(
     session: Session,
     *,
@@ -974,7 +1182,7 @@ def _confirmed_booking_retry(
     messages: list[dict[str, str]],
     lead_email: str,
 ) -> tuple[str, int] | None:
-    if details.get("lead_requested_other_times"):
+    if details.get("lead_requested_other_times") or details.get("lead_declined_offer"):
         return None
     options = details.get("options")
     selected_option = details.get("selected_option")
@@ -995,13 +1203,25 @@ def _confirmed_booking_retry(
             if str(message.get("message_id") or "") == reply_message_id
             and message.get("direction") == "inbound"
             and message.get("sender", "").strip().lower() == lead_email.strip().lower()
-            and match_confirmed_meeting_option(message.get("body", ""), len(options))
-            == selected_option
-            and not meeting_reply_requests_other_times(message.get("body", ""))
         ),
         None,
     )
     if reply is None:
+        return None
+    reply_body = str(reply.get("body") or "")
+    if (
+        meeting_reply_requests_other_times(reply_body)
+        or meeting_reply_declines_offer(reply_body)
+    ):
+        return None
+    matched_option = match_confirmed_meeting_option(reply_body, len(options))
+    if matched_option is None:
+        cached = _cached_reply_interpretation(details, reply_message_id)
+        if cached is not None and cached.get("intent") == "confirm":
+            cached_option = cached.get("option_number")
+            if isinstance(cached_option, int) and not isinstance(cached_option, bool):
+                matched_option = cached_option
+    if matched_option != selected_option:
         return None
     reply_time = _parse_datetime(reply.get("sent_at"))
     if reply_time is None:

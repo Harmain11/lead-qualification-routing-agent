@@ -21,6 +21,10 @@ from lead_agent.domain.configuration import IcpConfig
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.gmail import GmailLeadExtraction
 from lead_agent.domain.lead_assistant import LeadAssistantReply, WorkspaceAssistantReply
+from lead_agent.domain.meeting_reply import (
+    MEETING_REPLY_CLASSIFICATION_SYSTEM_PROMPT,
+    MeetingReplyClassification,
+)
 from lead_agent.domain.models import NormalizedLead
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.infrastructure.observability import current_request_id, provider_operation
@@ -546,6 +550,71 @@ class OpenAIReasoningProvider:
                 )
                 raise InvalidReasoningOutput(
                     "OpenAI workspace-assistant response failed schema validation"
+                ) from None
+            self._log_operation(operation, started, "success", response)
+            return result
+
+    def classify_meeting_reply(self, payload: dict[str, Any]) -> MeetingReplyClassification:
+        """Interpret a meeting reply using the workspace's configured model."""
+        if self._configuration_error or self._initialization_error_class or self._client is None:
+            raise ReasoningProviderUnavailable("OpenAI provider configuration is invalid") from None
+        request_id = current_request_id()
+        request_options = (
+            {"extra_headers": {"X-Client-Request-Id": request_id}} if request_id != "-" else {}
+        )
+        started = perf_counter()
+        with provider_operation("openai") as operation:
+            try:
+                response = self._client.responses.parse(
+                    model=self.model_name,
+                    input=[
+                        {
+                            "role": "system",
+                            "content": MEETING_REPLY_CLASSIFICATION_SYSTEM_PROMPT,
+                        },
+                        {
+                            "role": "user",
+                            "content": json.dumps(
+                                payload, ensure_ascii=False, separators=(",", ":")
+                            ),
+                        },
+                    ],
+                    text_format=MeetingReplyClassification,
+                    max_output_tokens=300,
+                    store=False,
+                    **request_options,
+                )
+            except Exception as error:
+                category, outcome, retryable = self._classify_error(error)
+                self._log_operation(
+                    operation,
+                    started,
+                    outcome,
+                    error=error,
+                    error_category=category,
+                    retryable=retryable,
+                )
+                if category == "timeout":
+                    raise ReasoningProviderTimeout(
+                        "OpenAI meeting-reply interpretation timed out"
+                    ) from None
+                raise ReasoningProviderUnavailable(
+                    "OpenAI meeting-reply interpretation is unavailable"
+                ) from None
+            parsed = getattr(response, "output_parsed", None)
+            try:
+                result = MeetingReplyClassification.model_validate(parsed)
+            except ValidationError:
+                self._log_operation(
+                    operation,
+                    started,
+                    "invalid_output",
+                    response,
+                    error_category="structured_output",
+                    retryable=False,
+                )
+                raise InvalidReasoningOutput(
+                    "OpenAI meeting-reply response failed schema validation"
                 ) from None
             self._log_operation(operation, started, "success", response)
             return result
