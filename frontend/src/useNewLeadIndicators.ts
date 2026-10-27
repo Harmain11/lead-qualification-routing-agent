@@ -20,6 +20,8 @@ function readSnapshot(key: string | null): NewLeadIndicatorSnapshot {
     if (!value) return emptyNewLeadIndicatorSnapshot;
     const parsed = JSON.parse(value) as NewLeadIndicatorSnapshot;
     if (
+      !parsed ||
+      typeof parsed !== "object" ||
       typeof parsed.initialized !== "boolean" ||
       !Array.isArray(parsed.cursorIds) ||
       !Array.isArray(parsed.unseenIds)
@@ -29,6 +31,26 @@ function readSnapshot(key: string | null): NewLeadIndicatorSnapshot {
     return {
       ...parsed,
       openedLeads: Array.isArray(parsed.openedLeads) ? parsed.openedLeads : [],
+      notifiedIdentityFingerprints: Array.isArray(
+        parsed.notifiedIdentityFingerprints,
+      )
+        ? parsed.notifiedIdentityFingerprints.filter(
+            (value: unknown): value is string => typeof value === "string",
+          )
+        : [],
+      unseenIdentityReferences: Array.isArray(parsed.unseenIdentityReferences)
+        ? parsed.unseenIdentityReferences.filter(
+            (
+              value: unknown,
+            ): value is NewLeadIndicatorSnapshot["unseenIdentityReferences"][number] =>
+              value !== null &&
+              typeof value === "object" &&
+              "fingerprint" in value &&
+              "leadId" in value &&
+              typeof value.fingerprint === "string" &&
+              typeof value.leadId === "string",
+          )
+        : [],
     };
   } catch {
     return emptyNewLeadIndicatorSnapshot;
@@ -60,8 +82,10 @@ export function useNewLeadIndicators(
     value: readSnapshot(key),
   }));
   const storedRef = useRef(stored);
+  const observationVersion = useRef(0);
 
   useEffect(() => {
+    observationVersion.current += 1;
     const next = { key, value: readSnapshot(key) };
     storedRef.current = next;
     setStored(next);
@@ -75,12 +99,19 @@ export function useNewLeadIndicators(
     stored.key === key ? stored.value : emptyNewLeadIndicatorSnapshot;
 
   const observeLeadSnapshot = useCallback(
-    (leads: LeadIndicatorRow[]) => {
+    async (leads: LeadIndicatorRow[]) => {
       if (!key) return [];
+      const version = ++observationVersion.current;
       const previous = storedRef.current.key === key
         ? storedRef.current.value
         : readSnapshot(key);
-      const next = observeNewLeads(previous, leads);
+      const next = await observeNewLeads(previous, leads);
+      if (
+        version !== observationVersion.current ||
+        storedRef.current.key !== key
+      ) {
+        return [];
+      }
       const arrivals = newlyUnseenLeadIds(previous, next);
       if (next !== previous) {
         const updated = { key, value: next };

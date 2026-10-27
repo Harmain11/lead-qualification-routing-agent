@@ -699,7 +699,7 @@ function App() {
             : null,
         );
         const nextLeads = leadRows?.items ?? [];
-        const newArrivalIds = observeLeadSnapshot(nextLeads);
+        const newArrivalIds = await observeLeadSnapshot(nextLeads);
         setLeadNotificationSnapshot({
           workspaceId: auth?.current_workspace_id ?? "",
           leads: nextLeads,
