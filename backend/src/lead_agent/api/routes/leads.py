@@ -844,6 +844,11 @@ def complete_lead_manual_review(
         analysis.requires_manual_review = False
         if analysis.status == "manual_review":
             analysis.status = "completed"
+        structured_output = dict(analysis.structured_output or {})
+        structured_output["requires_manual_review"] = False
+        if structured_output.get("status") == "manual_review":
+            structured_output["status"] = "completed"
+        analysis.structured_output = structured_output
     row.updated_at = datetime.now(UTC)
     record_pipeline_event(
         session,
