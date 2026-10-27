@@ -51,6 +51,10 @@ def test_manual_review_completion_releases_hold_and_requires_permission(
     assert lead.analysis is not None
     lead.analysis.requires_manual_review = True
     lead.analysis.status = "manual_review"
+    structured_output = dict(lead.analysis.structured_output)
+    structured_output["requires_manual_review"] = True
+    structured_output["status"] = "manual_review"
+    lead.analysis.structured_output = structured_output
     current.manual_review = True
     current.assigned_queue = routing.manual_review_queue
     session.commit()
@@ -106,6 +110,8 @@ def test_manual_review_completion_releases_hold_and_requires_permission(
 
         session.refresh(lead)
         assert lead.analysis.requires_manual_review is False
+        assert lead.analysis.structured_output["requires_manual_review"] is False
+        assert lead.analysis.structured_output["status"] == "completed"
         event = session.scalar(
             select(PipelineEventORM)
             .where(
