@@ -47,3 +47,4 @@
 - [Gmail message presentation](gmail-message-presentation.md) — Show the inquiry cleanly; collapse sender warnings, opt-outs, legal footers and duplicate notices.
 - [Nested flyout alignment](nested-flyout-alignment.md) — Keep category submenus beside and aligned to their selected row, without overlap or horizontal scrolling.
 - [Agent smoke fixtures](agent-browser-smoke-fixtures.md) — DOM-injected fixtures inside mode-specific transcripts can be replaced on remount; reattach them before assertions.
+- [HubSpot contact property provisioning](hubspot-contact-property-provisioning.md) — Create only missing mapped Contact properties; preserve existing definitions and fail clearly on type conflicts.
