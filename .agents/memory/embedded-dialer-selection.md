@@ -26,3 +26,9 @@ In the Dialer lead picker, selecting a lead should show only its summary with â€
 **Why:** the user asked to remove the panel that opens after choosing a lead and leave only those two choices.
 
 **How to apply:** Keep call history and provider controls in their existing sections; direct per-lead calling is handled from the lead record or the selected phone.
+
+The V3 lead Calls tab is for call history and transcript/AI analysis only. Do not place call-preparation or call-again controls in that tab; keep outbound calling in the Dialer or the global phone.
+
+**Why:** The user asked to remove the call-preparation panel from the lead record and show call history and transcript analysis instead.
+
+**How to apply:** Use the history-only CallsPanel mode in lead records while preserving its call-capable mode in the Dialer. Keep history sync permission-gated and require explicit user action before loading provider details.

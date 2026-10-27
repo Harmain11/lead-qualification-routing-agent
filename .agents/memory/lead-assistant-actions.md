@@ -26,3 +26,9 @@ Treat supplied failure examples as examples of a general conversation-and-action
 **Why:** The user said the screenshot was “just one test case,” there could be many others, and the assistant should have the ability to handle them.
 
 **How to apply:** Generalize across supported operations, distinguish creation from existing-record updates, retain reviewed drafts on failure, and test varied wording, partial details, permissions, and corrections.
+
+Delivery rows should place relevant actions beside their statuses: retry failed team notifications, make CRM writes explicit, and open an editable email composer rather than auto-sending. Preserve manual-review/disqualification blocks and each action's permission gate.
+
+**Why:** The user asked to handle failed CRM delivery and related actions directly from the corresponding delivery rows.
+
+**How to apply:** Keep retry/send controls next to the delivery they affect, retain provider errors in the row, and never bypass the email review-and-send step.

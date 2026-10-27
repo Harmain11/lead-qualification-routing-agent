@@ -76,6 +76,7 @@
   box-shadow: 0 12px 34px rgba(28, 43, 61, .07);
 }
 .calls-panel .calls-panel-toolbar { align-items: flex-start; gap: 16px 22px; }
+.calls-panel-history-only .calls-panel-toolbar { align-items: center; }
 .calls-panel-heading { display: flex; align-items: flex-start; gap: 14px; min-width: 0; flex: 1 1 300px; }
 .calls-heading-mark {
   display: grid;
@@ -108,6 +109,9 @@
 }
 .calls-panel .secondary-button.calls-sync:hover:not(:disabled) { border-color: var(--green); background: color-mix(in srgb, var(--green) 7%, var(--surface)); transform: translateY(-1px); }
 .calls-panel .secondary-button.calls-sync:disabled { opacity: .55; cursor: not-allowed; }
+.calls-history-source { display: grid; gap: 4px; min-width: min(220px, 100%); color: var(--muted); font-size: 11px; font-weight: 700; }
+.calls-history-source select { width: 100%; min-height: 38px; padding: 0 32px 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--surface); font: inherit; font-size: 12px; }
+.calls-history-source select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-color: var(--green); }
 .app-shell .calls-panel .calls-notice {
   display: flex;
   align-items: flex-start;
@@ -222,6 +226,7 @@
 .calls-provider-empty a { color: var(--green); font-weight: 700; text-decoration: none; }
 .calls-provider-empty a:hover { text-decoration: underline; }
 .calls-history { display: grid; gap: 10px; min-width: 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.calls-panel-history-only .calls-history { padding-top: 0; border-top: 0; }
 .calls-history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .calls-history-head h4 { margin: 0; color: var(--text); font-size: 15px; letter-spacing: -.015em; }
 .calls-history-empty {
@@ -245,6 +250,7 @@
   .calls-panel { gap: 17px; padding: 17px; }
   .calls-panel .calls-panel-toolbar { align-items: stretch; }
   .calls-panel .calls-panel-toolbar > button { width: 100%; }
+  .calls-history-source { width: 100%; }
   .calls-panel-heading { gap: 11px; }
   .calls-heading-mark { flex-basis: 38px; width: 38px; height: 38px; border-radius: 11px; }
   .calls-form-grid { grid-template-columns: minmax(0, 1fr); }
@@ -309,28 +315,66 @@
 .dialer-add-lead label { display:grid; gap:5px; color:var(--muted); font-size:13px; font-weight:700; }
 .dialer-add-lead input,.dialer-add-lead textarea { width:100%; min-width:0; border:1px solid var(--line-bright); border-radius:7px; padding:9px 10px; color:var(--text); background:var(--surface-high); font:inherit; }
 .dialer-add-lead form button { justify-self:start; }
+.ops-dialog.call-history-action-dialog { width:min(680px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow-y:auto; }
+.call-history-action-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 16px; }
+.call-history-action-form > label { display:grid; gap:6px; min-width:0; color:var(--muted); font-size:13px; font-weight:700; }
+.call-history-action-form .call-history-action-wide,
+.call-history-action-form .call-history-action-buttons { grid-column:1 / -1; }
+.call-history-action-buttons { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:9px; margin-top:4px; }
+.call-history-action-buttons button { min-width:120px; }
+.call-assign-context { grid-column:1 / -1; margin:0; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--muted); background:var(--surface-high); font-size:13px; overflow-wrap:anywhere; }
+.call-assign-results { display:grid; gap:7px; max-height:280px; overflow-y:auto; padding:8px; border:1px solid var(--line); border-radius:9px; }
+.call-assign-results > p { margin:4px; color:var(--muted); font-size:13px; }
+.call-assign-option { display:flex !important; align-items:center; gap:10px !important; min-width:0; padding:9px 10px; border:1px solid var(--line); border-radius:8px; color:var(--text) !important; background:var(--surface-high); cursor:pointer; }
+.call-assign-option > span { display:grid; gap:2px; min-width:0; }
+.call-assign-option strong,.call-assign-option small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.call-assign-option small { color:var(--muted); font-size:11px; font-weight:500; }
+@media (max-width:560px) {
+  .call-history-action-form { grid-template-columns:minmax(0,1fr); }
+  .call-history-action-form > label,
+  .call-history-action-form .call-history-action-wide,
+  .call-history-action-form .call-history-action-buttons { grid-column:1; }
+  .call-history-action-buttons { justify-content:stretch; }
+  .call-history-action-buttons button { flex:1 1 130px; }
+}
 .dialer-record p { margin:0; color:var(--muted); }.dialer-record a { color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record details { margin-top:4px; }.dialer-record summary { cursor:pointer; color:var(--workspace-accent,var(--orange)); font-weight:700; }.dialer-record pre { max-height:260px; margin:10px 0 0; overflow:auto; padding:12px; border-radius:8px; background:var(--surface-high); color:var(--text); font:13px/1.55 ui-monospace,monospace; white-space:pre-wrap; }
 .dialer-analysis-row { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }.dialer-analysis-row span { padding:5px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:12px; }.dialer-analysis-row .dialer-analysis-good { color:var(--workspace-accent,var(--orange)); border-color:color-mix(in srgb,var(--workspace-accent,var(--orange)) 35%,var(--line)); }
-.call-insights { display:grid; gap:10px; margin-top:2px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--surface-high); }
+.call-review-details { display:grid; gap:12px; min-width:0; }
+.call-insights { display:grid; gap:12px; min-width:0; margin:0; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface-solid); }
 .call-insights > h4 { margin:0; font-size:15px; }
-.call-insight-summary { padding:12px; border-left:3px solid var(--workspace-accent,var(--orange)); border-radius:0 8px 8px 0; background:var(--surface-high); }
-.call-insight-summary p { margin:6px 0 0; color:var(--text); line-height:1.55; }
+.call-insight-summary { min-width:0; padding:14px 15px; border:1px solid color-mix(in srgb,var(--green) 16%,var(--line)); border-left:3px solid var(--green); border-radius:10px; background:color-mix(in srgb,var(--green) 4%,var(--surface)); }
+.call-insight-summary p { margin:6px 0 0; color:var(--text); line-height:1.6; overflow-wrap:anywhere; }
 .call-insight-label { display:block; margin-bottom:4px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
 .call-insight-unavailable { margin:4px 0 0; color:var(--muted); font-size:13px; font-style:italic; }
 .call-insight-facts { display:grid; grid-template-columns:minmax(130px,.65fr) minmax(0,1.35fr); gap:12px; }
 .call-insight-facts > div { min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:8px; }
 .call-insight-facts strong { font-size:14px; text-transform:capitalize; }
 .call-insight-sentiment { justify-self:start; padding:4px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:12px; font-weight:700; text-transform:capitalize; }
-.call-insight-topics ul,.call-insight-group ul { display:flex; flex-wrap:wrap; gap:6px; margin:7px 0 0; padding:0; list-style:none; }
-.call-insight-topics li { display:flex; align-items:center; gap:8px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; font-size:12px; }
+.call-insight-group ul { display:grid; gap:8px; margin:7px 0 0; padding:0; list-style:none; }
+.call-insight-topics ul { display:flex; flex-wrap:wrap; gap:7px; margin:8px 0 0; padding:0; list-style:none; }
+.call-insight-topics li { display:flex; align-items:center; width:auto; gap:8px; padding:6px 9px; border:1px solid var(--line); border-radius:999px; background:var(--surface); font-size:12px; }
 .call-insight-topics li small { color:var(--muted); }
 .call-insight-notes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-.call-insight-group { min-width:0; padding:10px 12px; border:1px solid var(--line); border-radius:8px; }
+.call-insight-group { min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--surface-solid); }
 .call-insight-group h5 { margin:0; font-size:13px; }
-.call-insight-group li { display:flex; flex-direction:column; gap:3px; width:100%; color:var(--text); font-size:13px; line-height:1.45; }
+.call-insight-group li { display:flex; flex-direction:column; gap:3px; width:100%; color:var(--text); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.call-insight-group.call-insight-topics li { width:auto; }
 .call-insight-group li strong { color:var(--workspace-accent,var(--orange)); font-size:12px; }
 .call-insight-ratio ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
 .call-insight-ratio li { padding:8px; border-radius:6px; background:var(--surface-high); }
+.call-review-recording { display:inline-flex; align-items:center; justify-content:space-between; gap:10px; width:fit-content; max-width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:9px; color:var(--workspace-accent,var(--green)); background:var(--surface-solid); font-size:13px; font-weight:700; line-height:1.45; overflow-wrap:anywhere; text-decoration:none; }
+.call-review-recording:hover { border-color:var(--workspace-accent,var(--green)); background:var(--surface); }
+.call-review-recording span { flex:0 0 auto; }
+.call-review-transcript { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:11px; background:var(--surface-solid); }
+.call-review-transcript summary { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:48px; padding:0 14px; color:var(--text); font-size:13px; font-weight:700; cursor:pointer; }
+.call-review-transcript summary:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
+.call-review-transcript summary small { color:var(--muted); font-size:11px; font-weight:500; }
+.call-transcript-text { max-height:360px; margin:0; overflow:auto; padding:14px 16px; border-top:1px solid var(--line); color:var(--text); background:var(--surface); font-family:inherit; font-size:13px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; }
+.call-lead-assessment { display:grid; gap:4px; min-width:0; padding:13px 15px; border:1px solid var(--line); border-left:3px solid var(--workspace-accent,var(--green)); border-radius:10px; background:var(--surface-solid); }
+.call-lead-assessment-label { color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.call-lead-assessment strong { font-size:13px; }
+.call-lead-assessment p { margin:0; color:var(--muted); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+.call-review-details .call-record-receipt { margin:0; }
 .dialer-call-launch { display:grid; gap:16px; }
 .dialer-call-launch > .dialer-panel-head { margin-bottom:0; }
 .dialer-lead-search { display:grid; gap:7px; max-width:520px; color:var(--muted); font-size:13px; font-weight:700; }
@@ -352,5 +396,5 @@
 .dialer-selected-lead strong { font-size:15px; }
 .dialer-selected-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
 .dialer-call-launch .calls-panel { margin-top:0; }
-@media (max-width:600px) { .call-insight-facts,.call-insight-notes,.dialer-call-facts { grid-template-columns:1fr; }.dialer-record { padding:15px; }.dialer-record-top { align-items:flex-start; }.dialer-selected-lead { align-items:flex-start; flex-direction:column; }.dialer-selected-actions { justify-content:flex-start; } }
+@media (max-width:600px) { .call-insight-facts,.call-insight-notes,.dialer-call-facts { grid-template-columns:1fr; }.call-insights { padding:12px; }.call-review-transcript summary { align-items:flex-start; flex-direction:column; justify-content:center; gap:2px; padding-block:8px; }.dialer-record { padding:15px; }.dialer-record-top { align-items:flex-start; }.dialer-selected-lead { align-items:flex-start; flex-direction:column; }.dialer-selected-actions { justify-content:flex-start; } }
 @media (max-width:800px) { .dialer-head { flex-direction:column; }.dialer-head > button { width:100%; }.dialer-provider-grid,.dialer-workflow-grid { grid-template-columns:1fr; }.dialer-summary-grid { grid-template-columns:1fr; }.dialer-panel-head { flex-direction:column; }.dialer-lead-select { width:100%; min-width:0; } }

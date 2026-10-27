@@ -21,6 +21,12 @@ Preserve the complete lead information and actions when splitting the detail vie
 
 **How to apply:** Group information rather than removing it. Keep permission checks and preserve unsaved form state when changing sections.
 
+From the lead header's action menu, make the full set of editable company and contact details easy to reach, rather than exposing only a single field such as job title.
+
+**Why:** The user asked to edit the company name and other lead details easily from the record.
+
+**How to apply:** Keep one clear Edit lead details action and preserve source inquiry text, permission gates, and CRM-sync confirmation.
+
 Show navigation subcategories when the cursor is on the primary navigation item, with equivalent tap and keyboard access. For Integrations, close the provider pane when the pointer returns from it to the same category, while keeping the category column open; hovering a different category switches the pane. Keep the current page and subsection when refreshing.
 
 **Why:** The user asked for hover subcategories and reported that refresh always returned them to the home dashboard.

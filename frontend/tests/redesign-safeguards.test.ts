@@ -84,10 +84,51 @@ test("the lead record keeps delete confirmation, CRM gating and enrolment gating
   assert.match(record, /\{canEdit && \(\s*<>\s*<MenuItem icon="edit"/);
   assert.match(record, /\{canEnrollAutomations && \(/);
   assert.match(record, /\{canUseAgent && \(/);
-  assert.match(record, /action=\{canCrmSync \?/);
-  assert.match(record, /Nothing is written to a CRM unless you ask/);
+  assert.match(record, /canCrmSync && providers\.length > 0/);
+  assert.match(record, /CRM writes only happen when you request them/);
   // Outreach stays paused for disqualified or review-held leads.
   assert.match(record, /disabled=\{Boolean\(blocked\)\}/);
+});
+
+test("delivery actions are attached to their rows and keep action-specific gates", async () => {
+  const record = await source("../src/v3/screens/LeadRecord.tsx");
+  const api = await source("../src/api.ts");
+  const delivery = record.slice(record.indexOf("function Delivery"), record.indexOf("Follow-up email"));
+  assert.match(delivery, /canManageRouting && notificationRetryable/);
+  assert.match(delivery, /retryLeadNotification\(lead\.id\)/);
+  assert.match(delivery, /canEdit && canViewEmail && !confirmationSent/);
+  assert.match(delivery, /disabled=\{Boolean\(emailBlockReason\)\}/);
+  assert.match(delivery, /onClick=\{onComposeEmail\}/);
+  assert.match(delivery, /canCrmSync && providers\.length > 0/);
+  assert.match(api, /\/v1\/leads\/\$\{leadId\}\/notifications\/retry/);
+});
+
+test("lead details can be edited from the action menu without changing CRM data", async () => {
+  const record = await source("../src/v3/screens/LeadRecord.tsx");
+  assert.match(record, /Edit lead details/);
+  assert.match(record, /updateLeadProfile\(lead\.id, updates\)/);
+  assert.match(record, /Company name/);
+  assert.match(record, /Product or service/);
+  assert.match(record, /qualification refreshed\. No CRM was changed/);
+});
+
+test("lead Calls tab is history-only while the Dialer keeps its call flow", async () => {
+  const record = await source("../src/v3/screens/LeadRecord.tsx");
+  const calls = await source("../src/components/CallsPanel.tsx");
+  const dialer = await source("../src/views/DialerView.tsx");
+  const review = await source("../src/components/CallReviewDetails.tsx");
+  const css = await source("../src/views/DialerView.css");
+  const callSection = record.slice(record.indexOf("/* ------------------------------------------------------------- Calls */"), record.indexOf("/* ---------------------------------------------------------- Overview */"));
+
+  assert.match(callSection, /historyOnly/);
+  assert.doesNotMatch(callSection, /Open Phone|Calls placed here/);
+  assert.match(calls, /historyOnly \? "Call history & analysis"/);
+  assert.match(calls, /Load transcript analysis/);
+  assert.match(calls, /<CallReviewDetails/);
+  assert.match(calls, /!historyOnly && canCall/);
+  assert.match(dialer, /canCall=\{canCallLeads\}/);
+  assert.match(review, /className="call-transcript-text"/);
+  assert.match(css, /\.call-transcript-text[^}]*white-space:pre-wrap; overflow-wrap:anywhere;/);
 });
 
 test("Ask Corral is only offered to members who may execute agent actions", async () => {

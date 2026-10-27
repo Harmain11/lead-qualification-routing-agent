@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createLead, listIntegrations, listLeads } from "../api";
 import { CallsPanel } from "../components/CallsPanel";
+import { CallReviewDetails } from "../components/CallReviewDetails";
 import { DirectDialer } from "../components/DirectDialer";
-import { opsGet } from "../operationsApi";
+import { OperationsDialog } from "../components/OperationsDialog";
+import { opsGet, opsSave } from "../operationsApi";
 import type { IntegrationCard, Lead, LeadPayload } from "../types";
-import { CallInsights, hasCallInsightData, type CallInsightsData } from "../components/CallInsights";
+import type { CallInsightsData } from "../components/CallInsights";
+import { assessCallLeadPotential } from "../callLeadAssessment";
 
 type CallRecord = {
   id: string;
@@ -46,20 +49,6 @@ function statusLabel(status: string) {
   return status.replaceAll("_", " ").replace(/\b\w/g, (value) => value.toUpperCase());
 }
 
-function assessLeadPotential(record: CallRecord) {
-  const text = `${record.insights?.summary ?? ""} ${record.transcript ?? ""}`.toLowerCase();
-  if (!text.trim()) {
-    return { label: "Needs review", detail: "No call summary or transcript is available to assess." };
-  }
-  if (/\b(wrong number|not interested|remove me|do not call|don't call|spam|job application|recruitment)\b/.test(text)) {
-    return { label: "Unlikely lead", detail: "The call content includes a clear non-prospect signal." };
-  }
-  if (/\b(pricing|quote|quotation|demo|buy|purchase|interested|looking for|proposal|budget|evaluate|follow[- ]?up|schedule|need a)\b/.test(text)) {
-    return { label: "Potential lead", detail: "The call content includes buying intent or a concrete next step. Confirm before adding." };
-  }
-  return { label: "Review manually", detail: "The available call content does not show a clear buying signal either way." };
-}
-
 export function DialerView({
   onOpenIntegrations,
   onOpenLead,
@@ -95,6 +84,12 @@ export function DialerView({
   const [error, setError] = useState("");
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [loadedDetails, setLoadedDetails] = useState<Record<string, boolean>>({});
+  const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
+  const [copyFeedback, setCopyFeedback] = useState<{
+    callId: string;
+    message: string;
+    success: boolean;
+  } | null>(null);
   const [leadSearch, setLeadSearch] = useState("");
   const [leadResults, setLeadResults] = useState<Lead[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -172,6 +167,7 @@ export function DialerView({
     try {
       const refreshed = await opsGet<CallActivity>("/v1/calling/cloudtalk/recent");
       setLoadedDetails({});
+      setExpandedDetails({});
       setActivity({
         ...refreshed,
         records: refreshed.records.map((record) => ({ ...record, history_page: 1 })),
@@ -203,10 +199,50 @@ export function DialerView({
           : item),
       } : current);
       setLoadedDetails((current) => ({ ...current, [record.id]: true }));
+      setExpandedDetails((current) => ({ ...current, [record.id]: true }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load CloudTalk analysis");
     } finally {
       setLoadingDetails(null);
+    }
+  }
+
+  async function assignCallToLead(record: CallRecord, lead: Lead) {
+    const connectionId = activity?.connections[0]?.id;
+    if (!connectionId) throw new Error("The CloudTalk connection is unavailable. Refresh call history and try again.");
+    await opsSave<{ call_id: string; lead_id: string }>(
+      `/v1/calling/cloudtalk/recent/${encodeURIComponent(record.id)}/assign`,
+      {
+        connection_id: connectionId,
+        lead_id: lead.id,
+        page: record.history_page ?? 1,
+      },
+    );
+    setActivity((current) => current ? {
+      ...current,
+      records: current.records.map((item) => item.id === record.id
+        ? {
+            ...item,
+            lead_id: lead.id,
+            lead_name: lead.full_name,
+            company_name: lead.company_name,
+            representative_name: lead.routing?.assigned_rep_name || item.representative_name,
+          }
+        : item),
+    } : current);
+  }
+
+  async function copyCallNumber(record: CallRecord) {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
+      await navigator.clipboard.writeText(record.customer_phone);
+      setCopyFeedback({ callId: record.id, message: "Number copied.", success: true });
+    } catch {
+      setCopyFeedback({
+        callId: record.id,
+        message: "Could not copy. Select the visible number to copy it.",
+        success: false,
+      });
     }
   }
 
@@ -252,7 +288,10 @@ export function DialerView({
     selectedDialer?.provider === "cloudtalk" ||
     selectedDialer?.provider === "aircall" ||
     (selectedDialer?.provider === "ringcentral" && ringCentralEmbedReady);
-  const potentialLeadCount = activity?.records.filter((record) => assessLeadPotential(record).label === "Potential lead").length ?? 0;
+  const potentialLeadCount = activity?.records.filter((record) => assessCallLeadPotential({
+    summary: record.insights?.summary,
+    transcript: record.transcript,
+  }).label === "Potential lead").length ?? 0;
 
   return (
     <div className="page-view dialer-page">
@@ -424,8 +463,7 @@ export function DialerView({
                 <thead><tr><th>Lead / contact</th><th>Source</th><th>Duration</th><th>Status</th><th>Representative</th><th>Received</th><th>Actions</th></tr></thead>
                 <tbody>{activity.records.map((record) => {
                 const detailsLoaded = Boolean(loadedDetails[record.id]);
-                const hasInsights = hasCallInsightData(record.insights);
-                const hasTranscript = Boolean(record.transcript?.trim());
+                const detailsExpanded = Boolean(expandedDetails[record.id]);
                 return <Fragment key={record.id}>
                   <tr>
                     <td className="lead-identity-cell" data-label="Lead / contact"><b>{record.lead_name || "Unknown contact"}</b><span>{record.company_name || record.customer_phone} · {statusLabel(record.direction)}</span></td>
@@ -435,26 +473,46 @@ export function DialerView({
                     <td data-label="Representative">{record.representative_name || "Unassigned"}</td>
                     <td data-label="Received">{new Date(record.started_at || record.created_at).toLocaleString()}</td>
                     <td data-label="Actions"><div className="call-row-actions">
-                      {record.lead_id && <button className="button-quiet" onClick={() => onOpenLead(record.lead_id!)}>Open lead to call</button>}
-                      {!detailsLoaded && <button className="button-quiet" onClick={() => void loadCloudTalkDetails(record)} disabled={loadingDetails !== null}>{loadingDetails === record.id ? "Loading…" : "Load AI insights"}</button>}
-                      {!record.lead_id && <AddLeadForm record={record} onCreated={(lead: Lead) => {
-                  setActivity((current) => current ? {
-                    ...current,
-                    records: current.records.map((item) => item.id === record.id
-                      ? { ...item, lead_id: lead.id, lead_name: lead.full_name }
-                      : item),
-                  } : current);
-                }} />}
+                      {canViewLeads && record.lead_id && <button type="button" className="button-quiet" onClick={() => onOpenLead(record.lead_id!)}>Open lead</button>}
+                      {!record.lead_id && canEditLeads && <AddLeadForm record={record} onCreated={(lead) => assignCallToLead(record, lead)} />}
+                      {!record.lead_id && canViewLeads && canEditLeads && activity?.connections[0]?.id && (
+                        <AssignLeadForm
+                          record={record}
+                          onAssigned={(lead) => assignCallToLead(record, lead)}
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className="button-quiet"
+                        aria-expanded={detailsExpanded}
+                        aria-controls={`call-review-${record.id}`}
+                        onClick={() => detailsLoaded
+                          ? setExpandedDetails((current) => ({ ...current, [record.id]: !current[record.id] }))
+                          : void loadCloudTalkDetails(record)}
+                        disabled={loadingDetails !== null}
+                      >
+                        {loadingDetails === record.id ? "Loading transcripts…" : "AI Transcripts"}
+                      </button>
+                      <button type="button" className="button-quiet" onClick={() => void copyCallNumber(record)} disabled={!record.customer_phone}>
+                        {copyFeedback?.callId === record.id && copyFeedback.success ? "Copied number" : "Copy number"}
+                      </button>
+                      {copyFeedback?.callId === record.id && (
+                        <small className={copyFeedback.success ? "call-copy-feedback" : "call-copy-feedback is-error"} role="status">
+                          {copyFeedback.message}
+                        </small>
+                      )}
                     </div></td>
                   </tr>
                   {loadingDetails === record.id && <tr className="call-detail-row"><td colSpan={7}><p className="call-detail-note" role="status">Loading transcript and call insights…</p></td></tr>}
-                  {detailsLoaded && <tr className="call-detail-row"><td colSpan={7} className="call-detail-cell">
-                    {!hasTranscript && !hasInsights && <p className="call-detail-note">No transcript or AI findings are available for this call.</p>}
-                    {!hasTranscript && hasInsights && <p className="call-detail-note">No transcript is available; showing provider-generated insights.</p>}
-                    {hasInsights && <CallInsights insights={record.insights} />}
-                    {record.recording_url && <a href={record.recording_url} target="_blank" rel="noopener noreferrer">Open provider recording or call details</a>}
-                    {hasTranscript && <details className="dialer-transcript"><summary>View transcript</summary><pre>{record.transcript}</pre></details>}
-                    {(hasTranscript || hasInsights) && <div className="dialer-lead-assessment"><strong>{assessLeadPotential(record).label}</strong><span>{assessLeadPotential(record).detail}</span></div>}
+                  {detailsLoaded && detailsExpanded && <tr className="call-detail-row"><td colSpan={7} className="call-detail-cell">
+                    <div id={`call-review-${record.id}`}>
+                    <CallReviewDetails
+                      transcript={record.transcript}
+                      insights={record.insights}
+                      recordingUrl={record.recording_url}
+                      message={record.message}
+                    />
+                    </div>
                   </td></tr>}
                 </Fragment>;
               })}</tbody>
@@ -468,10 +526,17 @@ export function DialerView({
   );
 }
 
-function AddLeadForm({ record, onCreated }: { record: CallRecord; onCreated: (lead: Lead) => void }) {
+function AddLeadForm({
+  record,
+  onCreated,
+}: {
+  record: CallRecord;
+  onCreated: (lead: Lead) => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [createdLead, setCreatedLead] = useState<Lead | null>(null);
   const [draft, setDraft] = useState({
     full_name: "",
     email: "",
@@ -484,47 +549,181 @@ function AddLeadForm({ record, onCreated }: { record: CallRecord; onCreated: (le
     event.preventDefault();
     setBusy(true);
     setError("");
-    const payload: LeadPayload = {
-      source: "phone_inquiry",
-      source_detail: `CloudTalk call ${record.id}`,
-      full_name: draft.full_name,
-      email: draft.email,
-      phone: record.customer_phone || "",
-      job_title: "",
-      company_name: draft.company_name,
-      industry: "",
-      employee_count: null,
-      annual_revenue: null,
-      geography: "",
-      budget: null,
-      product_or_service: draft.product_or_service,
-      message: draft.message,
-    };
+    let lead = createdLead;
     try {
-      const lead = await createLead(payload);
-      onCreated(lead);
+      if (!lead) {
+        const payload: LeadPayload = {
+          source: "phone_inquiry",
+          source_detail: `CloudTalk call ${record.id}`,
+          full_name: draft.full_name,
+          email: draft.email,
+          phone: record.customer_phone || "",
+          job_title: "",
+          company_name: draft.company_name,
+          industry: "",
+          employee_count: null,
+          annual_revenue: null,
+          geography: "",
+          budget: null,
+          product_or_service: draft.product_or_service,
+          message: draft.message,
+        };
+        lead = await createLead(payload);
+        setCreatedLead(lead);
+      }
+      await onCreated(lead);
       setOpen(false);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to add this lead.");
+      const detail = reason instanceof Error ? reason.message : "Please try again.";
+      setError(lead
+        ? `Lead created, but the call could not be linked: ${detail}`
+        : `Unable to add this lead: ${detail}`);
     } finally {
       setBusy(false);
     }
   }
   return (
     <div className="dialer-add-lead">
-      {!open ? <button className="button-quiet" onClick={() => setOpen(true)}>Add lead</button> : (
-        <form onSubmit={(event) => void submit(event)}>
-          <strong>Confirm lead details</strong>
+      <button type="button" className="button-quiet" onClick={() => setOpen(true)}>Add lead</button>
+      {open && <OperationsDialog
+        title="Add lead from call"
+        className="call-history-action-dialog"
+        onClose={() => setOpen(false)}
+      >
+        <form className="call-history-action-form" onSubmit={(event) => void submit(event)}>
           <label>Name<input required value={draft.full_name} onChange={(event) => set("full_name", event.target.value)} /></label>
           <label>Email<input type="email" required value={draft.email} onChange={(event) => set("email", event.target.value)} /></label>
           <label>Company<input required value={draft.company_name} onChange={(event) => set("company_name", event.target.value)} /></label>
           <label>Product or service<input required value={draft.product_or_service} onChange={(event) => set("product_or_service", event.target.value)} /></label>
-          <label>Call notes<textarea required rows={3} value={draft.message} onChange={(event) => set("message", event.target.value)} /></label>
-          {error && <p className="team-alert" role="alert">{error}</p>}
-          <button type="button" className="button-quiet" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
-          <button type="submit" className="primary-button" disabled={busy}>{busy ? "Adding…" : "Confirm and add lead"}</button>
+          <label className="call-history-action-wide">Call notes<textarea required rows={3} value={draft.message} onChange={(event) => set("message", event.target.value)} /></label>
+          {error && <p className="team-alert call-history-action-wide" role="alert">{error}</p>}
+          <div className="call-history-action-buttons">
+            <button type="button" className="button-quiet" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+            <button type="submit" className="primary-button" disabled={busy}>{busy ? "Saving…" : createdLead ? "Retry linking call" : "Confirm and add lead"}</button>
+          </div>
         </form>
-      )}
+      </OperationsDialog>}
+    </div>
+  );
+}
+
+function AssignLeadForm({
+  record,
+  onAssigned,
+}: {
+  record: CallRecord;
+  onAssigned: (lead: Lead) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [selectedLeadId, setSelectedLeadId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    const timeout = window.setTimeout(() => {
+      void listLeads(
+        { limit: 20, search: search.trim() || undefined },
+        controller.signal,
+      )
+        .then((result) => {
+          if (!controller.signal.aborted) setLeads(result.items);
+        })
+        .catch((reason) => {
+          if (!controller.signal.aborted) {
+            setError(reason instanceof Error ? reason.message : "Unable to search leads.");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setLoading(false);
+        });
+    }, 180);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [open, search]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const lead = leads.find((item) => item.id === selectedLeadId);
+    if (!lead) {
+      setError("Choose a lead from the results.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await onAssigned(lead);
+      setOpen(false);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to assign this call.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="dialer-assign-lead">
+      <button
+        type="button"
+        className="button-quiet"
+        onClick={() => {
+          setSearch("");
+          setSelectedLeadId("");
+          setOpen(true);
+        }}
+      >
+        Assign lead
+      </button>
+      {open && <OperationsDialog
+        title="Assign call to a lead"
+        className="call-history-action-dialog"
+        onClose={() => setOpen(false)}
+      >
+        <form className="call-history-action-form call-assign-lead-form" onSubmit={(event) => void submit(event)}>
+          <p className="call-assign-context">{record.customer_phone} · {new Date(record.started_at || record.created_at).toLocaleString()}</p>
+          <label className="call-history-action-wide">
+            Search by name, company, email, or phone
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setSelectedLeadId("");
+              }}
+              placeholder="Search existing leads"
+            />
+          </label>
+          <div className="call-assign-results call-history-action-wide" aria-live="polite">
+            {loading ? <p role="status">Searching leads…</p> : leads.length ? leads.map((lead) => (
+              <label className="call-assign-option" key={lead.id}>
+                <input
+                  type="radio"
+                  name={`assign-call-${record.id}`}
+                  value={lead.id}
+                  checked={selectedLeadId === lead.id}
+                  onChange={() => setSelectedLeadId(lead.id)}
+                />
+                <span><strong>{lead.full_name}</strong><small>{lead.company_name || lead.email || lead.phone || "No company details"}</small></span>
+              </label>
+            )) : <p>{search.trim() ? "No matching leads found." : "No leads are available to assign."}</p>}
+          </div>
+          {error && <p className="team-alert call-history-action-wide" role="alert">{error}</p>}
+          <div className="call-history-action-buttons">
+            <button type="button" className="button-quiet" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+            <button type="submit" className="primary-button" disabled={busy || loading || !selectedLeadId}>
+              {busy ? "Assigning…" : "Assign lead"}
+            </button>
+          </div>
+        </form>
+      </OperationsDialog>}
     </div>
   );
 }

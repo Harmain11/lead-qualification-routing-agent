@@ -265,11 +265,15 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-row-icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: var(--fill); color: var(--label-2); }
 .v-row-label { color: var(--label-2); }
 .v-row-value { color: var(--label); text-align: right; overflow-wrap: anywhere; }
+.v-delivery-row-value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; max-width: 100%; }
+.v-delivery-row-value > span:first-child { min-width: 0; }
+.v-delivery-row-value .v-popup { max-width: 150px; }
 .v-row-detail { grid-column: -2 / -1; text-align: right; font: var(--t-footnote); color: var(--label-3); margin-top: -6px; }
 @media (max-width: 520px) {
   .v-row, .v-row:not(:has(.v-row-icon)) { grid-template-columns: 1fr; gap: 2px; }
   .v-row-icon { display: none; }
   .v-row-value, .v-row-detail { text-align: left; grid-column: auto; margin: 0; }
+  .v-delivery-row-value { justify-content: flex-start; flex-wrap: wrap; }
 }
 
 /* -------------------------------------------------------- Banner & empty */
