@@ -475,6 +475,7 @@ export function CorralAgentDock({
             <LeadAssistantPanel
               lead={targetLead}
               canEdit={canEdit}
+              canManageManualReview={permissions.has("manual_review.manage")}
               canCrmSync={canCrmSync}
               canViewEmail={canViewEmail}
               canUseAgent

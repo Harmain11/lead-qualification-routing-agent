@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   chatWithLeadAssistant,
+  completeLeadManualReview,
   deleteLead,
   getLead,
   getLeadClosingOptions,
@@ -78,6 +79,7 @@ const id = createClientId;
 export function LeadAssistantPanel({
   lead,
   canEdit,
+  canManageManualReview = false,
   canCrmSync,
   canViewEmail,
   canUseAgent,
@@ -90,6 +92,7 @@ export function LeadAssistantPanel({
 }: {
   lead: Lead;
   canEdit: boolean;
+  canManageManualReview?: boolean;
   canCrmSync: boolean;
   canViewEmail: boolean;
   canUseAgent: boolean;
@@ -312,6 +315,10 @@ export function LeadAssistantPanel({
       changeMessage(message.id, { error: "You need lead-edit access to make this change." });
       return;
     }
+    if (action.kind === "complete_manual_review" && !canManageManualReview) {
+      changeMessage(message.id, { error: "You need manual-review management access to complete this review." });
+      return;
+    }
     if (action.kind === "sync_crm" && !canCrmSync) {
       changeMessage(message.id, { error: "You need CRM sync access to send this lead." });
       return;
@@ -334,6 +341,13 @@ export function LeadAssistantPanel({
         const updated = await reevaluateLead(lead.id);
         onUpdated(updated);
         changeMessage(message.id, { done: true });
+      } else if (action.kind === "complete_manual_review") {
+        const updated = await completeLeadManualReview(lead.id);
+        onUpdated(updated);
+        changeMessage(message.id, {
+          done: true,
+          actionResult: "Manual review completed. The hold was cleared and current routing applied; the assignee may be notified.",
+        });
       } else if (action.kind === "update_profile") {
         const updates = Object.fromEntries(
           Object.entries(action.profile_updates).filter(([, value]) => value !== null && value !== undefined),
@@ -475,6 +489,7 @@ export function LeadAssistantPanel({
       case "sync_crm": return "Sync to CRM";
       case "delete_lead": return "Delete this lead";
       case "reevaluate_lead": return "Re-evaluate qualification and routing";
+      case "complete_manual_review": return "Complete manual review";
       case "open_email": return "Open email";
       case "open_meetings": return "Review meeting times";
       case "open_dialer": return "Open Dialer to call";
@@ -511,6 +526,7 @@ export function LeadAssistantPanel({
             })}
           />)}
       {action.kind === "open_dialer" && <p className="lead-agent-action-copy">Saved number: <b>{lead.phone || "Not available"}</b>. Corral will not place the call. {!message.done && <a className="lead-agent-inline-link" href="?view=dialer" onClick={(event) => { event.preventDefault(); void executeAction(message); }}>Click here to open the Dialer</a>}</p>}
+      {action.kind === "complete_manual_review" && <p className="lead-agent-action-copy">This clears the hold, applies current routing rules, and may notify the assignee.</p>}
       {action.kind === "record_progress" && <>
         <p className="lead-agent-action-copy"><b>{stageLabels[action.progress_stage || ""] || "Progress update"}</b>{action.progress_note && <> · {action.progress_note}</>}</p>
         {needsCredit && !message.done && <div className="lead-agent-closing-fields">
@@ -541,12 +557,12 @@ export function LeadAssistantPanel({
       {message.notice && <p className="lead-agent-notice" role="status">{message.notice}</p>}
       {!message.done && action.kind !== "open_dialer" && <div className="lead-agent-action-buttons">
         <button
-            className={["sync_crm", "delete_lead", "send_follow_up", "reevaluate_lead"].includes(action.kind) ? "secondary-button" : "primary-button"}
+            className={["sync_crm", "delete_lead", "send_follow_up", "reevaluate_lead", "complete_manual_review"].includes(action.kind) ? "secondary-button" : "primary-button"}
             type="button"
-            disabled={message.busy || (action.kind === "add_note" && !action.note?.trim()) || (editRequired && !canEdit) || (action.kind === "sync_crm" && (!canCrmSync || !selectedCrm)) || (action.kind === "open_email" && !canViewEmail) || (needsCredit && (!selection.conversionType || !selection.creditedUserId))}
+            disabled={message.busy || (action.kind === "add_note" && !action.note?.trim()) || (editRequired && !canEdit) || (action.kind === "complete_manual_review" && !canManageManualReview) || (action.kind === "sync_crm" && (!canCrmSync || !selectedCrm)) || (action.kind === "open_email" && !canViewEmail) || (needsCredit && (!selection.conversionType || !selection.creditedUserId))}
             onClick={() => void executeAction(message)}
           >
-            {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "send_follow_up" || action.kind === "draft_email" ? "Open email composer" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
+            {message.busy ? "Working…" : editRequired && !canEdit ? "Lead-edit access required" : action.kind === "complete_manual_review" && !canManageManualReview ? "Manual-review access required" : action.kind === "sync_crm" && !canCrmSync ? "CRM-sync access required" : action.kind === "sync_crm" ? "Confirm CRM sync" : action.kind === "delete_lead" ? "Confirm delete" : action.kind === "reevaluate_lead" ? "Confirm re-evaluation" : action.kind === "complete_manual_review" ? "Confirm review complete" : action.kind === "send_follow_up" || action.kind === "draft_email" ? "Open email composer" : action.kind === "refresh_email" ? "Refresh Gmail" : action.kind === "record_progress" ? "Save progress" : action.kind === "update_profile" ? "Apply changes" : action.kind === "add_note" ? "Save note" : action.kind === "open_meetings" ? "Review available times" : action.kind === "open_email" ? (canViewEmail ? "Open email section" : "Email access required") : action.kind === "open_closing" ? "Open closing section" : action.kind === "open_history" ? "Open history" : "Continue"}
           </button>
           {action.kind === "add_note" && <button
             className="secondary-button"

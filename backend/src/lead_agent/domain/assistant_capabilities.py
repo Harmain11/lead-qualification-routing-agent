@@ -12,6 +12,7 @@ WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "add_lead_note": ("leads.view", "leads.edit"),
     "record_lead_progress": ("leads.view", "leads.edit"),
     "reevaluate_lead": ("leads.view", "leads.edit"),
+    "complete_lead_manual_review": ("leads.view", "manual_review.manage"),
     "send_email": ("leads.edit",),
     "set_automation_active": ("workspace.manage",),
     "create_icp_draft": ("icp.manage",),
@@ -34,6 +35,9 @@ _REQUIRED_FIELDS = {
     "add_lead_note": ["target_id", "payload_json: note"],
     "record_lead_progress": ["target_id", "payload_json: stage and note"],
     "reevaluate_lead": ["target_id"],
+    "complete_lead_manual_review": [
+        "target_id: lead with an active manual-review hold"
+    ],
     "send_email": ["email_subject", "email_body", "recipient reviewed in UI", "verified Gmail sender"],
     "set_automation_active": ["target_id", "enabled"],
     "create_icp_draft": ["payload_json"],

@@ -44,6 +44,7 @@ class LeadAssistantAction(BaseModel):
         "sync_crm",
         "delete_lead",
         "reevaluate_lead",
+        "complete_manual_review",
         "open_email",
         "open_meetings",
         "open_dialer",
@@ -117,6 +118,7 @@ class WorkspaceAssistantAction(BaseModel):
         "add_lead_note",
         "record_lead_progress",
         "reevaluate_lead",
+        "complete_lead_manual_review",
     ] = "none"
     area: Literal[
         "analytics",

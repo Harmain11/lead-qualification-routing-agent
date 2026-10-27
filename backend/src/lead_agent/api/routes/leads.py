@@ -16,6 +16,7 @@ from lead_agent.api.dependencies import (
     get_policies,
     get_workspace_context,
     require_permission,
+    require_permissions,
 )
 from lead_agent.api.schemas import (
     LeadCreateRequest,
@@ -792,6 +793,85 @@ def update_lead_profile(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.post("/{lead_id}/manual-review/complete", response_model=LeadResponse)
+def complete_lead_manual_review(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.view", "manual_review.manage")
+    ),
+) -> LeadResponse:
+    """Complete one active review, record the decision, then apply current routing."""
+    row = session.scalar(
+        select(LeadORM)
+        .where(
+            LeadORM.id == lead_id,
+            LeadORM.workspace_id == workspace.workspace_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if row.qualification is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This lead has no completed qualification to route from.",
+        )
+
+    current_routing = get_current_routing(
+        session, row.id, workspace.workspace_id
+    )
+    reasons = lead_manual_review_reasons(session, row, current_routing)
+    if not reasons:
+        raise HTTPException(
+            status_code=409,
+            detail="This lead is no longer waiting for manual review.",
+        )
+
+    analysis = row.analysis
+    cleared_analysis_hold = bool(
+        analysis is not None and analysis.requires_manual_review
+    )
+    cleared_routing_hold = bool(
+        current_routing is not None and current_routing.manual_review
+    )
+    if analysis is not None:
+        analysis.requires_manual_review = False
+        if analysis.status == "manual_review":
+            analysis.status = "completed"
+    row.updated_at = datetime.now(UTC)
+    record_pipeline_event(
+        session,
+        row.id,
+        "manual_review",
+        "completed",
+        {
+            "actor_id": workspace.actor_id,
+            "cleared_analysis_hold": cleared_analysis_hold,
+            "cleared_routing_hold": cleared_routing_hold,
+            "trigger_count": len(reasons),
+        },
+    )
+    route_and_notify(
+        session,
+        row,
+        policies[1],
+        notification_provider=notification_provider,
+        force=True,
+        reroute_reason=f"Manual review completed by {workspace.actor_id}.",
+    )
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        [],
     )
 
 

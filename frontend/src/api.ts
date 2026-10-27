@@ -71,7 +71,7 @@ export class ApiError extends Error {
 }
 
 export type LeadAssistantAction = {
-  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
+  kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "complete_manual_review" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
   profile_updates: Partial<Pick<Lead, "full_name" | "email" | "phone" | "job_title" | "company_name" | "industry" | "employee_count" | "annual_revenue" | "geography" | "budget" | "product_or_service">>;
   clear_fields: string[];
   note: string | null;
@@ -133,7 +133,8 @@ export type WorkspaceAssistantAction = {
     | "update_lead_profile"
     | "add_lead_note"
     | "record_lead_progress"
-    | "reevaluate_lead";
+    | "reevaluate_lead"
+    | "complete_lead_manual_review";
   area: WorkspaceAssistantArea | null;
   title: string;
   summary: string;
@@ -738,6 +739,12 @@ export function updateLeadProfile(
 
 export function reevaluateLead(leadId: string): Promise<Lead> {
   return jsonRequest<Lead>(`/v1/leads/${leadId}/reevaluate`, {
+    method: "POST",
+  });
+}
+
+export function completeLeadManualReview(leadId: string): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}/manual-review/complete`, {
     method: "POST",
   });
 }
