@@ -48,18 +48,30 @@ import { parseGmailReviewNotes } from "../gmailSyncPresentation";
 import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
 
 function syncRunMessage(run: CrmInboundSyncRun) {
-  const review = run.mode === "review_recent";
-  if (run.status === "completed") return review ? "AI review finished." : "Sync finished.";
+  const previous = run.mode === "review_previous";
+  const review = run.mode === "review_recent" || previous;
+  if (run.status === "completed") {
+    return previous
+      ? "Previous Gmail review finished; no more older messages remain."
+      : review ? "AI review finished." : "Sync finished.";
+  }
   if (run.status === "cancelled") return review ? "AI review cancelled. Completed leads were kept." : "Sync cancelled. Completed records were kept.";
   if (run.status === "completed_with_errors") {
-    return review ? "AI review finished with some messages needing attention." : "Sync finished with some records needing attention.";
+    return previous
+      ? "Previous-email review finished with some messages needing attention."
+      : review ? "AI review finished with some messages needing attention." : "Sync finished with some records needing attention.";
+  }
+  if (run.status === "completed_bounded") {
+    return previous
+      ? "Previous-email batch complete. Run again to continue further back."
+      : review ? "AI review batch finished." : "Sync batch finished.";
   }
   return review ? "AI review failed." : "Sync failed.";
 }
 
 function syncRunKind(run: CrmInboundSyncRun): "success" | "error" | "cancelled" {
   if (run.status === "cancelled") return "cancelled";
-  return run.status === "completed" ? "success" : "error";
+  return run.status === "completed" || run.status === "completed_bounded" ? "success" : "error";
 }
 
 function ProviderDetailsPanel({
@@ -751,7 +763,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   async function syncInbound(
     connectionId: string,
     provider: string,
-    mode: "initial" | "manual" | "review_recent",
+    mode: "initial" | "manual" | "review_recent" | "review_previous",
   ) {
     if (syncWatchers.current.has(connectionId)) return;
     syncWatchers.current.add(connectionId);
@@ -766,6 +778,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         kind: "progress",
         message: mode === "review_recent"
           ? "Scanning recent Gmail messages and reviewing them with AI."
+          : mode === "review_previous"
+            ? "Scanning previous Gmail messages and reviewing them with AI."
           : "Syncing provider records. This may take a moment.",
       },
     }));
@@ -1452,10 +1466,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                 <label htmlFor={`review-limit-${connection.id}`}>Messages to scan
                   <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
                 </label>
-                <p>AI reviews recent messages from the last 30 days and adds matches to the right lead. Choose 1–5,000 messages.</p>
+                <p>Recent email scans the last 30 days; previous email scans older messages. Both use AI and the usual lead review rules. Choose up to 5,000 messages per batch; run again to continue further back.</p>
                 <div className="gmail-sync-buttons">
-                  <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
-                    {syncingProvider === card.provider ? "Syncing with AI…" : "Sync Gmail with AI"}
+                  <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={!syncState.enabled || busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
+                    Sync recent emails
+                  </button>
+                  <button className="button-quiet gmail-sync-button" title="Scans Gmail messages older than 30 days" onClick={() => void syncInbound(connection.id, card.provider, "review_previous")} disabled={!syncState.enabled || busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
+                    Sync previous emails
                   </button>
                   {syncingProvider === card.provider && syncFeedback[connection.id]?.kind === "progress" && <button className="button-quiet gmail-sync-cancel-button" type="button" onClick={() => void cancelGmailSync(connection.id)} disabled={syncCancelRequests[connection.id]} aria-label="Cancel Gmail AI sync">
                     {syncCancelRequests[connection.id] ? "Stopping…" : "Cancel sync"}
@@ -1477,7 +1494,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                     ["Failed", result.records_failed],
                   ];
                   return <section className={`gmail-sync-result sync-result-${syncFeedback[connection.id].kind}`} role={syncFeedback[connection.id].kind === "error" ? "alert" : "status"} aria-live="polite">
-                    <header><div><span className={`gmail-sync-result-badge sync-result-badge-${syncFeedback[connection.id].kind}`}>{result.status === "cancelled" ? "Cancelled" : result.status === "completed" ? "Complete" : result.status === "completed_with_errors" ? "Needs attention" : "Failed"}</span><strong>{syncFeedback[connection.id].message}</strong></div><time>{new Date(result.created_at).toLocaleString()}</time></header>
+                    <header><div><span className={`gmail-sync-result-badge sync-result-badge-${syncFeedback[connection.id].kind}`}>{result.status === "cancelled" ? "Cancelled" : result.status === "completed" ? "Complete" : result.status === "completed_bounded" ? "Batch complete" : result.status === "completed_with_errors" ? "Needs attention" : "Failed"}</span><strong>{syncFeedback[connection.id].message}</strong></div><time>{new Date(result.created_at).toLocaleString()}</time></header>
                     <div className="gmail-sync-result-stats">{stats.map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}</div>
                     {review.general && <p className="gmail-sync-result-summary">{review.general}</p>}
                     {review.notes.length > 0 && <details className="gmail-sync-review-details">

@@ -56,3 +56,11 @@ Email formatting in Lead Details is presentation-only. Preserve the original mes
 **Why:** The user requested a readable evidence card while keeping the underlying Gmail source intact and not changing lead extraction behavior.
 
 **How to apply:** Transform only a display copy, never inject raw HTML, and keep quoted/forwarded sections, footer notices, and full source accessible. Cover normal messages, nested forwards and quotes, duplicate disclaimers, long URLs, and narrow screens.
+
+## Historical Gmail scans
+
+Provide an explicit AI-review action for messages older than the recent 30-day window. Keep historical paging separate from the live Gmail history cursor; preserve the same evidence, deduplication, manual-review, cancellation, and no-confirmation-email safeguards. Bound each batch and allow repeated runs to continue farther back.
+
+**Why:** The user requested a clear way to sync previous Gmail leads, not only new or recent email.
+
+**How to apply:** Keep historical and incremental Gmail sync independent. Historical scans must not overwrite live-sync checkpoints or schedule state, and must continue through the existing review pipeline.

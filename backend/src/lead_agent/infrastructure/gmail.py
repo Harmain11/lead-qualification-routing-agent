@@ -1092,7 +1092,14 @@ class GmailInboundProvider:
         initial = cursor.get("initial") is True
         reconcile = cursor.get("reconcile") is True
         review_recent = cursor.get("review_recent") is True
-        if history_id and not reconcile and not initial and not review_recent:
+        review_previous = cursor.get("review_previous") is True
+        if (
+            history_id
+            and not reconcile
+            and not initial
+            and not review_recent
+            and not review_previous
+        ):
             params: dict[str, object] = {
                 "startHistoryId": history_id,
                 "historyTypes": "messageAdded",
@@ -1108,7 +1115,13 @@ class GmailInboundProvider:
                 history_id = None
                 reconcile = True
                 cursor = {"reconcile": True}
-        if history_id and not reconcile and not initial and not review_recent:
+        if (
+            history_id
+            and not reconcile
+            and not initial
+            and not review_recent
+            and not review_previous
+        ):
             message_ids: dict[str, str] = {}
             histories = result.get("history", [])
             for item in histories if isinstance(histories, list) else []:
@@ -1124,7 +1137,9 @@ class GmailInboundProvider:
             params = {
                 "maxResults": min(limit, 100),
                 "q": (
-                    "newer_than:30d -in:spam -in:trash"
+                    "older_than:30d -in:spam -in:trash"
+                    if review_previous
+                    else "newer_than:30d -in:spam -in:trash"
                 ),
             }
             if page_token:
@@ -1159,6 +1174,7 @@ class GmailInboundProvider:
                 "initial": initial or not cursor,
                 "reconcile": reconcile,
                 "review_recent": review_recent,
+                "review_previous": review_previous,
             }
             if next_token
             else None

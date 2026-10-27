@@ -1203,10 +1203,21 @@ def _process_record(
     return outcome
 
 
+def _is_gmail_review_mode(mode: str) -> bool:
+    return mode in {"review_recent", "review_previous"}
+
+
 def _start_cursor(state: CrmInboundSyncStateORM, mode: InboundSyncMode) -> InboundCursor | None:
     if mode == "review_recent":
         return {"initial": True, "review_recent": True}
-    if state.resume_cursor:
+    if mode == "review_previous":
+        if state.resume_cursor and state.resume_cursor.get("review_previous") is True:
+            return dict(state.resume_cursor)
+        return {"initial": True, "review_previous": True}
+    if state.resume_cursor and not (
+        state.resume_cursor.get("review_recent") is True
+        or state.resume_cursor.get("review_previous") is True
+    ):
         return dict(state.resume_cursor)
     if mode in {"incremental", "manual"}:
         return dict(state.last_successful_cursor) if state.last_successful_cursor else None
@@ -1230,11 +1241,13 @@ def _fail_run(
     state.status = "failed"
     state.lease_owner = None
     state.lease_expires_at = None
-    state.resume_cursor = run.cursor_current
+    if run.mode != "review_recent":
+        state.resume_cursor = run.cursor_current
     state.error_category = error.category
     state.error_code = error.code
     state.last_error = str(error)[:2000]
-    state.next_sync_at = now + timedelta(seconds=max(60, state.sync_interval_seconds))
+    if run.mode not in {"review_recent", "review_previous"}:
+        state.next_sync_at = now + timedelta(seconds=max(60, state.sync_interval_seconds))
     state.updated_at = now
     record_provider_lifecycle_audit(
         session,
@@ -1542,7 +1555,7 @@ def run_inbound_sync(
         final_checkpoint = state.last_successful_cursor
         gmail_reviewed_message_ids = (
             _gmail_reviewed_message_ids(session, connection)
-            if mode == "review_recent" and connection.provider_type == "gmail"
+            if _is_gmail_review_mode(mode) and connection.provider_type == "gmail"
             else set()
         )
         gmail_review_threads_seen: set[str] = set()
@@ -1604,7 +1617,7 @@ def run_inbound_sync(
             review_skipped_record_ids: set[str] = set()
             if connection.provider_type == "gmail":
                 normalize_records = page.records
-                if mode == "review_recent":
+                if _is_gmail_review_mode(mode):
                     normalize_records = []
                     for item in page.records:
                         if item.record_id in gmail_reviewed_message_ids:
@@ -1713,7 +1726,7 @@ def run_inbound_sync(
                         cached_message_ids: set[str] = set()
                         if (
                             connection.provider_type == "gmail"
-                            and mode == "review_recent"
+                            and _is_gmail_review_mode(mode)
                             and review_cache_eligible
                         ):
                             cached_message_ids = _record_gmail_thread_review(
@@ -1801,7 +1814,7 @@ def run_inbound_sync(
                     cached_message_ids = set()
                     if (
                         connection.provider_type == "gmail"
-                        and mode == "review_recent"
+                        and _is_gmail_review_mode(mode)
                         and not ai_classification_failed
                     ):
                         cached_message_ids = _record_gmail_thread_review(
@@ -1864,7 +1877,7 @@ def run_inbound_sync(
                             ),
                         )
                 cached_message_ids = set()
-                if connection.provider_type == "gmail" and mode == "review_recent":
+                if connection.provider_type == "gmail" and _is_gmail_review_mode(mode):
                     cached_message_ids = _record_gmail_thread_review(
                         session,
                         connection,
@@ -1911,7 +1924,13 @@ def run_inbound_sync(
                 },
             )
             session.commit()
-            if page.next_cursor is None and len(page.records) < request_size:
+            if page.next_cursor is None and (
+                len(page.records) < request_size
+                or (
+                    connection.provider_type == "gmail"
+                    and mode == "review_previous"
+                )
+            ):
                 cursor = None
                 break
 
@@ -1935,13 +1954,15 @@ def run_inbound_sync(
         state.status = "ready"
         state.lease_owner = None
         state.lease_expires_at = None
-        if mode != "review_recent":
+        if mode == "review_previous":
+            state.resume_cursor = cursor if bounded else None
+        elif mode != "review_recent":
             state.last_successful_cursor = final_checkpoint
             state.resume_cursor = cursor if bounded else None
             state.last_successful_sync_at = now
         if mode == "initial" and not bounded:
             state.initial_import_completed = True
-        if mode != "review_recent":
+        if not _is_gmail_review_mode(mode):
             state.next_sync_at = now + timedelta(seconds=state.sync_interval_seconds)
         state.error_category = None
         state.error_code = None

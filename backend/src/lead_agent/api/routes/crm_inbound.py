@@ -48,7 +48,9 @@ _LOGGER = logging.getLogger("lead_agent.api.crm_inbound")
 class InboundSyncRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["initial", "incremental", "manual", "review_recent"] = "manual"
+    mode: Literal[
+        "initial", "incremental", "manual", "review_recent", "review_previous"
+    ] = "manual"
     object_type: Literal["Lead", "contacts", "message"] = "Lead"
     limit: int = Field(default=500, ge=1, le=5000)
     page_size: int = Field(default=100, ge=1, le=200)
@@ -117,6 +119,13 @@ def synchronize_inbound_crm(
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmInboundSyncRunResponse | CrmInboundSyncAcceptedResponse:
     connection = _connection(session, workspace.workspace_id, connection_id)
+    if request.mode == "review_previous" and (
+        connection.provider_type != "gmail" or request.object_type != "message"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Previous-email review is only supported for Gmail messages.",
+        )
     if connection.provider_type == "gmail" and request.object_type == "message":
         state = get_inbound_sync_state(
             session, workspace.workspace_id, connection_id, request.object_type
@@ -149,7 +158,7 @@ def synchronize_inbound_crm(
                 "requested_page_size": request.page_size,
                 "requested_actor_id": workspace.actor_id,
                 "requested_send_confirmation_email": False
-                if request.mode == "review_recent"
+                if request.mode in {"review_recent", "review_previous"}
                 else request.send_confirmation_email,
             }
             if get_settings().app_env == "development":
@@ -207,7 +216,8 @@ def synchronize_inbound_crm(
             notification_provider=notification_provider,
             send_confirmation_email=(
                 False
-                if connection.provider_type == "gmail" and request.mode == "review_recent"
+                if connection.provider_type == "gmail"
+                and request.mode in {"review_recent", "review_previous"}
                 else request.send_confirmation_email
             ),
         )
@@ -219,7 +229,7 @@ def synchronize_inbound_crm(
     if (
         connection.provider_type == "gmail"
         and request.object_type == "message"
-        and request.mode != "review_recent"
+        and request.mode not in {"review_recent", "review_previous"}
     ):
         try:
             from lead_agent.application.meeting_email import process_recent_gmail_imports

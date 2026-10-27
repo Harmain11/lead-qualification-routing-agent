@@ -279,6 +279,14 @@ def test_gmail_initial_sync_is_bounded_to_recent_query_and_has_checkpoint() -> N
             return httpx.Response(
                 200, json={"historyId": "500", "emailAddress": "inbox@example.test"}
             )
+        if request.url.params.get("q") == "older_than:30d -in:spam -in:trash":
+            return httpx.Response(
+                200,
+                json={
+                    "messages": [{"id": "old-m1", "threadId": "old-t1"}],
+                    "nextPageToken": "older-page-2",
+                },
+            )
         return httpx.Response(200, json={"messages": [{"id": "m1", "threadId": "t1"}]})
 
     provider = GmailInboundProvider(
@@ -297,6 +305,16 @@ def test_gmail_initial_sync_is_bounded_to_recent_query_and_has_checkpoint() -> N
     assert [item.record_id for item in review_page.records] == ["m1"]
     assert requests[-1].split("?", 1)[0].endswith("/messages")
     assert "newer_than%3A30d" in requests[-1]
+    previous_page = provider.list_records(
+        object_type="message",
+        cursor={"initial": True, "review_previous": True},
+        limit=25,
+    )
+    assert [item.record_id for item in previous_page.records] == ["old-m1"]
+    assert "older_than%3A30d" in requests[-1]
+    assert previous_page.next_cursor is not None
+    assert previous_page.next_cursor["page_token"] == "older-page-2"
+    assert previous_page.next_cursor["review_previous"] is True
 
 
 def test_gmail_contact_thread_search_and_sync_includes_both_directions() -> None:

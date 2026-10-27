@@ -1,0 +1,12 @@
+.repaired .t-compare { margin-bottom: 14px; }
+.repaired .t-notes {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+.repaired .t-notes > .v-card { min-width: 0; }
+.repaired .t-notes p { overflow-wrap: anywhere; }
+.repaired .t-foot {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+}
+.repaired .t-foot > span { flex: 1; min-width: 0; }
+.repaired .t-foot svg { margin-top: 2px; }

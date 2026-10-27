@@ -421,7 +421,7 @@ export function PerformanceScreen({
               ))}
             </section>
           )}
-          <p className="t-foot"><Icon name="info" size={13} />Revenue, wins, response times and deal records are shared across this workspace.</p>
+          <p className="t-foot"><Icon name="info" size={13} /><span>Revenue, wins, response times and deal records are shared across this workspace.</span></p>
         </>
       )}
     </div>
