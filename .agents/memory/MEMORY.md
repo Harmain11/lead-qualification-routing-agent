@@ -27,7 +27,7 @@
 - [Manual lead AI context](manual-lead-ai-context.md) — Use current notes, sales progress, and customer replies as time-aware evidence across scoring, answers, and follow-ups.
 - [Lead assistant action safety](lead-assistant-actions.md) — Review editable note drafts, understand contextual corrections, and preserve confirmation gates across supported actions.
 - [Workspace website enrichment](workspace-website-enrichment.md) — Turn a supplied public page into cited profile suggestions; preserve manual values and require review before saving.
-- [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; new leads use per-lead/tab dots, a bell inbox, and one toast when first observed.
+- [New lead indicators](lead-new-indicators.md) — Keep IDs hidden; suppress repeat arrival alerts for the same email after delete/re-import.
 - [Lead representative assignment](lead-representative-assignment.md) — Representatives are assigned by admin-controlled routing, never inferred from email.
 - [Manual direct dialing](direct-dial-policy.md) — Keep direct calls unlinked until explicitly added; an admin must grant Dialer access per member, and consent checks still apply.
 - [Workspace review settings](workspace-manual-review-settings.md) — Keep analysis review criteria separate from provider import approvals; existing review decisions remain unchanged when criteria change.
