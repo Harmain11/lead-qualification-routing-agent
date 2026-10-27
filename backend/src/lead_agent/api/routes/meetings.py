@@ -12,6 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.meeting_email import (
+    can_replace_unbooked_offer,
+    create_selected_slot_offer_draft,
+)
 from lead_agent.application.meetings import (
     _parse_provider_time,
     appointment_event_exists,
@@ -22,7 +26,6 @@ from lead_agent.application.meetings import (
     recommend_google_calendar_slots,
     requested_meeting_date,
 )
-from lead_agent.application.meeting_email import create_selected_slot_offer_draft
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.calendar_providers import (
@@ -97,6 +100,7 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_booking_error: str | None = None
     offer_calendar_provider: MeetingProvider | None = None
     offer_has_confirmed_selection: bool = False
+    offer_can_be_replaced: bool = False
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -525,6 +529,7 @@ def get_meeting_recommendations(
         offer_booking_error=offer_booking_error,
         offer_calendar_provider=offer_calendar_provider,
         offer_has_confirmed_selection=offer_has_confirmed_selection,
+        offer_can_be_replaced=can_replace_unbooked_offer(offer_event),
     )
 
 

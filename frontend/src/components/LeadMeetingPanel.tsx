@@ -246,6 +246,11 @@ export function LeadMeetingPanel({
   ) ?? false;
   const noThread = !recommendations?.source_message_id;
   const noMeetingDetected = Boolean(recommendations && !recommendations.detected && recommendations.source_message_id);
+  const bookedOfferForCurrentRequest = Boolean(
+    recommendations
+    && recommendations.offer_status === "booked"
+    && recommendations.offer_source_message_id === recommendations.source_message_id,
+  );
 
   const prepareSelectedSlotDraft = async () => {
     if (!selectedSlot || !canEdit || !canViewEmails || confirming) return;
@@ -361,6 +366,10 @@ export function LeadMeetingPanel({
             <div className="lmp-context-top"><span className="lmp-context-label">Conversation evidence</span>{recommendations.source_subject && <span className="lmp-subject">{recommendations.source_subject}</span>}</div>
             {recommendations.source_excerpt && <p className="lmp-excerpt">{recommendations.source_excerpt}</p>}
             {recommendations.message && <p className="lmp-excerpt">{recommendations.message}</p>}
+            {bookedOfferForCurrentRequest && <div className="lmp-booking-warning" role="status">
+              <b>Meeting already booked</b>
+              <p>This request already has a booked meeting. Corral will offer another time only after the lead sends a new meeting request.</p>
+            </div>}
             {recommendations.offer_status === "needs_attention" && (recommendations.offer_booking_error || recommendations.offer_has_confirmed_selection) && <div className="lmp-booking-warning" role="alert">
               <b>Booking attempt detail</b>
               {recommendations.offer_booking_error && <p>{recommendations.offer_booking_error}</p>}
@@ -423,7 +432,7 @@ export function LeadMeetingPanel({
                       const key = slotKey(slot);
                       const duration = Math.max(0, Math.round((new Date(slot.end_at).getTime() - new Date(slot.start_at).getTime()) / 60000));
                       return <label key={key} className={`lmp-option${selectedKey === key ? " is-selected" : ""}`}>
-                        <input type="radio" name={`meeting-slot-${lead.id}`} value={key} checked={selectedKey === key} disabled={!canEdit || confirming || draftCreated} onChange={() => { setSelectedKey(key); setReviewing(false); setConfirmError(null); }} />
+                         <input type="radio" name={`meeting-slot-${lead.id}`} value={key} checked={selectedKey === key} disabled={!canEdit || confirming || draftCreated || bookedOfferForCurrentRequest} onChange={() => { setSelectedKey(key); setReviewing(false); setConfirmError(null); }} />
                         <span><span className="lmp-option-time">{meetingWindow(slot.start_at, slot.end_at, slot.time_zone)}</span><span className="lmp-option-zone">{slot.time_zone}</span></span>
                         <span className="lmp-option-duration">{duration} min</span>
                       </label>;
@@ -496,7 +505,7 @@ export function LeadMeetingPanel({
           </div>
         </div>}
 
-        {!draftCreated && selectedSlot && !reviewing && !confirmError && <div className="lmp-controls">
+        {!draftCreated && selectedSlot && !reviewing && !confirmError && !bookedOfferForCurrentRequest && <div className="lmp-controls">
             <small>
               {!canViewEmails
                 ? "Email access is required to open and review the meeting draft."
@@ -506,9 +515,13 @@ export function LeadMeetingPanel({
             </small>
           <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => setReviewing(true)}>Review selected time</button>
         </div>}
-        {!draftCreated && selectedSlot && reviewing && <div className="lmp-review" role="group" aria-label="Create meeting offer email draft">
+        {!draftCreated && selectedSlot && reviewing && !bookedOfferForCurrentRequest && <div className="lmp-review" role="group" aria-label="Create meeting offer email draft">
           <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> Prepare an email for this time?</div>
           <p>This saves an editable draft in the lead’s Emails tab. It will not send or book now. After you review and send it, Corral books this exact slot only if the lead clearly replies with option 1.</p>
+          {recommendations.offer_can_be_replaced && <div className="lmp-booking-warning" role="status">
+            <b>Replaces the unbooked offer</b>
+            <p>The previous email remains in history, but replies to its old time options will no longer book a meeting.</p>
+          </div>}
           <div className="lmp-review-slot">{providerName(selectedSlot.provider)} · {selectedSlot.account_name}<br />{meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)} · {selectedSlot.time_zone}</div>
           {confirmError && <div className="lmp-provider-error" role="alert" style={{ marginTop: 10 }}>{confirmError}</div>}
           <div className="lmp-review-actions">

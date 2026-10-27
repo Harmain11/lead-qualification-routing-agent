@@ -137,6 +137,22 @@ def _thread_offer(
     return None
 
 
+def can_replace_unbooked_offer(offer: PipelineEventORM | None) -> bool:
+    """Whether a deliberate new slot can safely supersede the current offer."""
+    if offer is None:
+        return False
+    if offer.status == _OFFER_PENDING:
+        return True
+    if offer.status != "needs_attention":
+        return False
+    details = offer.details if isinstance(offer.details, dict) else {}
+    return (
+        not details.get("booking_error")
+        and details.get("selected_option") is None
+        and details.get("error_code") != "gmail_meeting_offer_delivery_uncertain"
+    )
+
+
 def record_gmail_thread_messages(
     session: Session,
     *,
@@ -1055,18 +1071,62 @@ def create_selected_slot_offer_draft(
                 _notify_meeting_draft(session, workspace_id=workspace_id, lead=lead)
                 session.commit()
                 return draft
+        if same_source and can_replace_unbooked_offer(existing):
+            existing.status = "superseded"
+            existing.details = {
+                **details,
+                "closed_reason": "replaced_by_manual_time_selection",
+                "superseded_at": now.isoformat(),
+            }
+            session.add(existing)
+        elif same_source and existing.status != "superseded":
+            if existing.status == "booked":
+                message = (
+                    "A meeting is already booked for this request. A new offer requires "
+                    "a new meeting request from the lead."
+                )
+            elif existing.status in {"sending", "booking"}:
+                message = (
+                    "A meeting offer or booking is still in progress. Refresh the "
+                    "recommendations before trying again."
+                )
+            elif (
+                existing.status == "needs_attention"
+                and details.get("error_code") == "gmail_meeting_offer_delivery_uncertain"
+            ):
+                message = (
+                    "Gmail delivery is uncertain for the previous offer. Check Gmail "
+                    "Sent before replacing it."
+                )
+            else:
+                message = (
+                    "The previous offer may have a confirmed or uncertain booking. "
+                    "Check the calendar before creating another draft."
+                )
             raise HTTPException(
                 status_code=409,
-                detail="A meeting email is already being prepared for this request. Review it in the Emails tab.",
-            )
-        if same_source and existing.status != "superseded":
-            raise HTTPException(
-                status_code=409,
-                detail="A meeting offer for this request has already been sent or resolved.",
+                detail=message,
             )
         if not same_source and existing.status not in {"superseded", "booked"}:
             existing.status = "superseded"
             existing.details = {**details, "closed_reason": "newer_meeting_request"}
+
+    offer_details: dict[str, Any] = {
+        "thread_id": source["thread_id"],
+        "source_message_id": source["message_id"],
+        "source_subject": source.get("subject", ""),
+        "source_rfc_message_id": source.get("rfc_message_id", ""),
+        "gmail_connection_id": gmail_connection_id,
+        "calendar_provider": provider,
+        "calendar_connection_id": calendar_connection_id,
+        "options": options,
+        "manual_selected_slot": True,
+        "created_at": now.isoformat(),
+    }
+    if existing is not None and existing.status == "superseded":
+        details = existing.details if isinstance(existing.details, dict) else {}
+        if details.get("closed_reason") == "replaced_by_manual_time_selection":
+            offer_details["replaces_offer_id"] = str(existing.id)
 
     offer = PipelineEventORM(
         id=uuid4(),
@@ -1074,18 +1134,7 @@ def create_selected_slot_offer_draft(
         lead_id=lead.id,
         stage=_OFFER_STAGE,
         status=_OFFER_AWAITING_SEND,
-        details={
-            "thread_id": source["thread_id"],
-            "source_message_id": source["message_id"],
-            "source_subject": source.get("subject", ""),
-            "source_rfc_message_id": source.get("rfc_message_id", ""),
-            "gmail_connection_id": gmail_connection_id,
-            "calendar_provider": provider,
-            "calendar_connection_id": calendar_connection_id,
-            "options": options,
-            "manual_selected_slot": True,
-            "created_at": now.isoformat(),
-        },
+        details=offer_details,
         created_at=now,
     )
     draft = LeadFollowUpEmailORM(

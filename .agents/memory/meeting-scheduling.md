@@ -9,6 +9,12 @@ Read the tracked Gmail conversation in the correct workspace and Gmail mailbox. 
 
 **How to apply:** Prefer the lead's explicit timezone, then a validated contact-authored phone number only when it resolves to one timezone. Do not infer timezone from an email address or domain, and do not take a lead's phone from another participant's signature or quoted text. Use the exact Gmail connection, thread, and workspace for the saved draft and its later send. Display and edit meeting drafts in Emails, not Follow-up. Make the displayed timezone clear when the contact zone is unknown. AI classifies intent only: verify that evidence is present in the reply and uniquely identifies the offered slot; never let the model itself authorize booking. Keep ambiguous replies and requests for different times visible for team follow-up.
 
+Allow a manually selected time to replace an unbooked offer for the same request. Keep the earlier sent email in history, but supersede its booking state so replies to its old options cannot book; never replace booked or uncertain/in-progress offers.
+
+**Why:** The user chose replacing an unbooked offer so a new selected time can produce an editable draft without allowing conflicting replies to book.
+
+**How to apply:** Warn before replacement, create the new unsent draft in the lead's Emails tab, and keep booked or delivery/booking-uncertain states blocked.
+
 Calendly account and event-type reads can succeed even when an event type’s linked external calendar is unavailable. Skip only that event type when other Calendly event types can still provide slots; if none work, direct the user to reconnect the calendar inside Calendly rather than reauthorizing Corral’s Calendly connection.
 
 **Why:** Calendly returned a specific external-calendar failure from availability lookup while its OAuth identity and event-type endpoints remained accessible.

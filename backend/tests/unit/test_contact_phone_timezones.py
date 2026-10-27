@@ -456,6 +456,193 @@ def test_manually_selected_slot_is_saved_as_option_one_in_an_editable_draft(
     )
 
 
+def test_manual_time_selection_replaces_an_unbooked_sent_offer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lead_agent.infrastructure.db.models import (
+        LeadFollowUpEmailORM,
+        LeadORM,
+        PipelineEventORM,
+    )
+
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    assigned_user_id = uuid4()
+    gmail_connection_id = uuid4()
+    calendar_connection_id = uuid4()
+    gmail_connection = SimpleNamespace(
+        id=gmail_connection_id,
+        workspace_id=workspace_id,
+        provider_type="gmail",
+        is_active=True,
+        status="verified",
+    )
+    source = {
+        "thread_id": "thread-replace",
+        "message_id": "source-replace",
+        "rfc_message_id": "<source-replace@example.test>",
+        "gmail_connection_id": str(gmail_connection_id),
+        "subject": "Meeting request",
+        "excerpt": "Could we schedule a meeting?",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+    slot = {
+        "provider": "calendly",
+        "connection_id": str(calendar_connection_id),
+        "account_name": "Calendly",
+        "event_type_uri": "https://api.calendly.com/event_types/type-1",
+        "event_type_name": "30 Minute Meeting",
+        "start_at": (datetime.now(UTC) + timedelta(days=2)).isoformat(),
+        "end_at": (datetime.now(UTC) + timedelta(days=2, minutes=30)).isoformat(),
+        "time_zone": "UTC",
+        "source_message_id": "source-replace",
+        "source_gmail_connection_id": str(gmail_connection_id),
+    }
+    previous_offer_id = uuid4()
+    previous_draft_id = uuid4()
+    previous_offer = SimpleNamespace(
+        id=previous_offer_id,
+        status="awaiting_confirmation",
+        details={
+            "thread_id": "thread-replace",
+            "source_message_id": "source-replace",
+            "gmail_connection_id": str(gmail_connection_id),
+            "calendar_provider": "calendly",
+            "email_draft_id": str(previous_draft_id),
+            "options": [{"start_at": "2026-11-01T10:00:00+00:00"}],
+        },
+    )
+    previous_draft = SimpleNamespace(id=previous_draft_id, status="sent")
+    notices: list[dict[str, object]] = []
+
+    class Session:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+            self.scalar_results = [
+                gmail_connection,
+                SimpleNamespace(assigned_rep_id=str(assigned_user_id)),
+            ]
+
+        def scalar(self, _statement: Any) -> Any:
+            return self.scalar_results.pop(0)
+
+        def scalars(self, _statement: Any) -> Iterator[Any]:
+            return iter([])
+
+        def add(self, value: object) -> None:
+            self.added.append(value)
+
+        def commit(self) -> None:
+            pass
+
+    monkeypatch.setattr(meeting_email, "find_meeting_request", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(meeting_email, "assert_outreach_allowed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args, **_kwargs: previous_offer)
+    monkeypatch.setattr(
+        meeting_email,
+        "notify_lead_action",
+        lambda _session, **kwargs: notices.append(kwargs),
+    )
+
+    session = Session()
+    draft = meeting_email.create_selected_slot_offer_draft(
+        session,  # type: ignore[arg-type]
+        lead=cast(
+            LeadORM,
+            SimpleNamespace(id=lead_id, full_name="Junaid Buyer", email="buyer@example.test"),
+        ),
+        workspace_id=workspace_id,
+        slot=slot,
+    )
+
+    offer = next(row for row in session.added if isinstance(row, PipelineEventORM))
+    assert isinstance(draft, LeadFollowUpEmailORM)
+    assert previous_draft.status == "sent"
+    assert previous_offer.status == "superseded"
+    assert previous_offer.details["closed_reason"] == "replaced_by_manual_time_selection"
+    assert offer.status == "awaiting_send"
+    assert offer.details["replaces_offer_id"] == str(previous_offer_id)
+    assert draft.status == "draft"
+    assert draft.kind == f"meeting_options:{offer.id}"
+    assert notices[0]["recipient_user_id"] == assigned_user_id
+
+
+def test_manual_time_selection_keeps_a_booked_offer_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import HTTPException
+
+    from lead_agent.infrastructure.db.models import LeadORM
+
+    workspace_id = uuid4()
+    lead_id = uuid4()
+    gmail_connection_id = uuid4()
+    calendar_connection_id = uuid4()
+    gmail_connection = SimpleNamespace(
+        id=gmail_connection_id,
+        workspace_id=workspace_id,
+        provider_type="gmail",
+        is_active=True,
+        status="verified",
+    )
+    source = {
+        "thread_id": "thread-booked",
+        "message_id": "source-booked",
+        "gmail_connection_id": str(gmail_connection_id),
+        "subject": "Meeting request",
+        "excerpt": "Could we schedule a meeting?",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+    slot = {
+        "provider": "calendly",
+        "connection_id": str(calendar_connection_id),
+        "source_message_id": "source-booked",
+        "source_gmail_connection_id": str(gmail_connection_id),
+        "start_at": (datetime.now(UTC) + timedelta(days=3)).isoformat(),
+        "end_at": (datetime.now(UTC) + timedelta(days=3, minutes=30)).isoformat(),
+        "time_zone": "UTC",
+    }
+    booked_offer = SimpleNamespace(
+        id=uuid4(),
+        status="booked",
+        details={"source_message_id": "source-booked"},
+    )
+
+    class Session:
+        def __init__(self) -> None:
+            self.scalar_results = [gmail_connection]
+            self.added: list[object] = []
+
+        def scalar(self, _statement: Any) -> Any:
+            return self.scalar_results.pop(0)
+
+        def scalars(self, _statement: Any) -> Iterator[Any]:
+            return iter([])
+
+        def add(self, value: object) -> None:
+            self.added.append(value)
+
+    monkeypatch.setattr(meeting_email, "find_meeting_request", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(meeting_email, "assert_outreach_allowed", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args, **_kwargs: booked_offer)
+
+    session = Session()
+    with pytest.raises(HTTPException) as error:
+        meeting_email.create_selected_slot_offer_draft(
+            session,  # type: ignore[arg-type]
+            lead=cast(
+                LeadORM,
+                SimpleNamespace(id=lead_id, full_name="Junaid Buyer", email="buyer@example.test"),
+            ),
+            workspace_id=workspace_id,
+            slot=slot,
+        )
+
+    assert error.value.status_code == 409
+    assert "already booked" in str(error.value.detail)
+    assert session.added == []
+
+
 def test_sending_meeting_draft_replies_in_original_gmail_thread(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
