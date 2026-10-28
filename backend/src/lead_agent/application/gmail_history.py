@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.models import RecordedLeadEvidence
-from lead_agent.infrastructure.db.models import PipelineEventORM
+from lead_agent.infrastructure.db.models import PipelineEventORM, ProviderConnectionORM
 
 
 def lead_history_context(
@@ -142,8 +142,35 @@ def append_gmail_thread_messages(
             )
         )
     existing_events = existing_events or []
+    connection_key = str(connection_id)
+    connection_ids_to_lookup: set[UUID] = {connection_id}
+    for event in existing_events:
+        details = event.details if isinstance(event.details, dict) else {}
+        stored_connection_id = str(details.get("gmail_connection_id") or "")
+        if stored_connection_id:
+            try:
+                connection_ids_to_lookup.add(UUID(stored_connection_id))
+            except ValueError:
+                continue
+
+    mailbox_by_connection: dict[str, str] = {}
+    if connection_ids_to_lookup and callable(getattr(session, "get_bind", None)):
+        rows = session.scalars(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.id.in_(connection_ids_to_lookup),
+            )
+        )
+        mailbox_by_connection = {
+            str(row.id): _gmail_mailbox_email(row)
+            for row in rows
+            if _gmail_mailbox_email(row)
+        }
+
     known_events_by_connection: dict[tuple[str, str], PipelineEventORM] = {}
     legacy_events_by_message_id: dict[str, PipelineEventORM] = {}
+    known_events_by_mailbox: dict[tuple[str, str], PipelineEventORM] = {}
     for event in existing_events:
         details = event.details if isinstance(event.details, dict) else {}
         message_id = str(details.get("message_id") or "")
@@ -152,6 +179,12 @@ def append_gmail_thread_messages(
         stored_connection_id = str(details.get("gmail_connection_id") or "")
         if stored_connection_id:
             known_events_by_connection[(stored_connection_id, message_id)] = event
+            mailbox = _normalize_gmail_mailbox(
+                details.get("gmail_mailbox_email")
+                or mailbox_by_connection.get(stored_connection_id, "")
+            )
+            if mailbox:
+                known_events_by_mailbox.setdefault((mailbox, message_id), event)
         else:
             legacy_events_by_message_id[message_id] = event
 
@@ -160,7 +193,8 @@ def append_gmail_thread_messages(
     if legacy_known_message_ids is None:
         legacy_known_message_ids = set(legacy_events_by_message_id)
 
-    connection_key = str(connection_id)
+    current_mailbox = mailbox_by_connection.get(connection_key, "")
+    known_message_ids_by_mailbox = set(known_events_by_mailbox)
     added = 0
     now = datetime.now(UTC)
     for message in messages:
@@ -169,11 +203,21 @@ def append_gmail_thread_messages(
         if not message_id:
             continue
         known_event = known_events_by_connection.get(scoped_id)
+        mailbox = _normalize_gmail_mailbox(
+            message.get("gmail_mailbox_email") or current_mailbox
+        )
+        mailbox_scoped_id = (mailbox, message_id) if mailbox else None
+        if known_event is None and mailbox_scoped_id is not None:
+            known_event = known_events_by_mailbox.get(mailbox_scoped_id)
         if known_event is None and message_id in legacy_known_message_ids:
             known_event = legacy_events_by_message_id.get(message_id)
         if (
             scoped_id in known_message_ids_by_connection
             or message_id in legacy_known_message_ids
+            or (
+                mailbox_scoped_id is not None
+                and mailbox_scoped_id in known_message_ids_by_mailbox
+            )
         ):
             thread_id = str(message.get("thread_id") or "").strip()
             if known_event is not None and thread_id:
@@ -186,8 +230,12 @@ def append_gmail_thread_messages(
                     known_event.details = {**details, "thread_id": thread_id}
             continue
         details = {**message, "gmail_connection_id": connection_key}
+        if mailbox:
+            details["gmail_mailbox_email"] = mailbox
+        event_identity = mailbox or connection_key
         event_id = uuid5(
-            NAMESPACE_URL, f"corral:gmail:{workspace_id}:{lead_id}:{connection_key}:{message_id}"
+            NAMESPACE_URL,
+            f"corral:gmail:{workspace_id}:{lead_id}:{event_identity}:{message_id}",
         )
         event_time = now
         sent_at = str(message.get("sent_at") or "")
@@ -207,16 +255,50 @@ def append_gmail_thread_messages(
             details=details,
             created_at=event_time,
         )
+        inserted = True
         try:
-            with session.begin_nested():
+            begin_nested = getattr(session, "begin_nested", None)
+            if not callable(begin_nested):
                 session.add(event)
                 session.flush()
+            else:
+                with begin_nested():
+                    session.add(event)
+                    session.flush()
         except IntegrityError:
-            # Concurrent importer/manual syncs may have stored this deterministic
-            # message event after the known-ID query.
+            # Concurrent syncs or reconnects may have stored this mailbox message.
             if session.get(PipelineEventORM, event_id) is None:
                 raise
+            inserted = False
         known_message_ids_by_connection.add(scoped_id)
+        if mailbox_scoped_id is not None:
+            known_message_ids_by_mailbox.add(mailbox_scoped_id)
+            known_events_by_mailbox[mailbox_scoped_id] = event
         legacy_known_message_ids.discard(message_id)
-        added += 1
+        added += int(inserted)
     return added
+
+
+def _normalize_gmail_mailbox(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    candidate = value.strip()
+    if "<" in candidate:
+        candidate = parseaddr(candidate)[1]
+    else:
+        candidate = candidate.split(",", 1)[0].strip()
+    candidate = candidate.strip().lower()
+    return candidate if "@" in candidate else ""
+
+
+def _gmail_mailbox_email(connection: ProviderConnectionORM) -> str:
+    metadata = (
+        getattr(connection, "connection_metadata", None)
+        if isinstance(getattr(connection, "connection_metadata", None), dict)
+        else {}
+    )
+    for key in ("gmail_email", "email", "account_email"):
+        mailbox = _normalize_gmail_mailbox(metadata.get(key))
+        if mailbox:
+            return mailbox
+    return _normalize_gmail_mailbox(getattr(connection, "account_name", ""))

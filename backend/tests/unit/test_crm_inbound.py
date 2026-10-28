@@ -32,6 +32,7 @@ from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     gmail_history_messages,
 )
+from lead_agent.application.meeting_email import _active_gmail_connection_for_source
 from lead_agent.application.lead_approval import update_lead_approval_policy
 from lead_agent.application.services import process_lead, process_source_event
 from lead_agent.domain.crm_inbound import (
@@ -1074,6 +1075,57 @@ def test_gmail_sync_backfills_thread_ids_for_existing_message_events():
         "gmail-thread",
         "gmail-thread",
     ]
+
+
+def test_gmail_sync_deduplicates_across_reconnected_same_mailbox(tmp_path):
+    with _session(tmp_path) as session:
+        workspace_id = uuid4()
+        old_connection = _connection(
+            session,
+            workspace_id,
+            account="shared@gmail.com",
+            provider_type="gmail",
+        )
+        old_connection.status = "error"
+        old_connection.is_active = False
+        current_connection = _connection(
+            session,
+            workspace_id,
+            account="shared@gmail.com",
+            provider_type="gmail",
+        )
+        session.flush()
+
+        existing = SimpleNamespace(
+            details={
+                "message_id": "same-message",
+                "thread_id": "same-thread",
+                "gmail_connection_id": str(old_connection.id),
+            }
+        )
+        added = append_gmail_thread_messages(
+            session,
+            workspace_id=workspace_id,
+            lead_id=uuid4(),
+            connection_id=current_connection.id,
+            messages=[
+                {
+                    "message_id": "same-message",
+                    "thread_id": "same-thread",
+                    "sender": "lead@example.com",
+                    "recipients": "shared@gmail.com",
+                    "direction": "inbound",
+                }
+            ],
+            existing_events=[existing],  # type: ignore[arg-type]
+        )
+
+        resolved = _active_gmail_connection_for_source(
+            session, workspace_id, str(old_connection.id)
+        )
+        assert added == 0
+        assert resolved is not None
+        assert resolved.id == current_connection.id
 
 
 def test_gmail_skips_ambiguous_email_match_instead_of_creating_a_duplicate(

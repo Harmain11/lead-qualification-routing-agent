@@ -13,7 +13,7 @@ type Props = {
 type LoadState = "loading" | "ready" | "error";
 
 export type LeadMeetingIndicator = {
-  kind: "draft_ready" | "sending" | "awaiting_booking" | "booked" | "needs_attention";
+  kind: "appointment_needed" | "draft_ready" | "sending" | "awaiting_booking" | "booked" | "needs_attention";
   bookedAt: string | null;
 };
 
@@ -32,7 +32,11 @@ function meetingIndicatorFor(
     case "awaiting_confirmation": return { kind: "awaiting_booking", bookedAt: null };
     case "booked": return { kind: "booked", bookedAt: recommendations.booked_meeting_at };
     case "needs_attention": return { kind: "needs_attention", bookedAt: null };
-    default: return draftCreated ? { kind: "draft_ready", bookedAt: null } : null;
+    default: return draftCreated
+      ? { kind: "draft_ready", bookedAt: null }
+      : recommendations.detected
+        ? { kind: "appointment_needed", bookedAt: null }
+        : null;
   }
 }
 
