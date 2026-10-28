@@ -1761,30 +1761,11 @@ def process_gmail_meeting_thread(
                 ) is not None
                 and requested_meeting_time(reply_excerpt) is not None
             ):
-                if _attempt_requested_time_booking(
-                    session,
-                    lead,
-                    workspace_id,
-                    actor_id,
-                    source["message_id"],
-                    source.get("gmail_connection_id"),
-                    reply_excerpt,
-                    sent_at,
-                ):
-                    offer.status = "booked"
-                    offer.details = {
-                        **(offer.details if isinstance(offer.details, dict) else details),
-                        "reply_message_id": str(message.get("message_id") or ""),
-                        "booking_source": "lead_requested_exact_time",
-                    }
-                    session.commit()
-                    return "booked"
-
                 offer.status = "superseded"
                 offer.details = {
                     **details,
                     "reply_message_id": str(message.get("message_id") or ""),
-                    "closed_reason": "requested_time_unavailable",
+                    "closed_reason": "lead_requested_new_time",
                 }
                 session.commit()
                 updated_source = {
@@ -1879,32 +1860,6 @@ def process_gmail_meeting_thread(
     gmail_connection_id = source.get("gmail_connection_id")
     if gmail_connection_id and gmail_connection_id != str(gmail_connection.id):
         return "wrong_gmail_connection"
-    source_sent_at = _parse_datetime(source.get("sent_at"))
-    request_is_fresh = source_sent_at is not None and datetime.now(
-        UTC
-    ) - _MAX_REQUEST_AGE <= source_sent_at <= datetime.now(UTC) + timedelta(minutes=5)
-    contact_zone = lead_time_zone(lead, "UTC") or "UTC"
-    if (
-        request_is_fresh
-        and requested_meeting_date(
-            source.get("excerpt", ""),
-            reference=source_sent_at,
-            time_zone=contact_zone,
-        )
-        is not None
-        and requested_meeting_time(source.get("excerpt", "")) is not None
-        and _attempt_requested_time_booking(
-            session,
-            lead,
-            workspace_id,
-            actor_id,
-            source["message_id"],
-            source.get("gmail_connection_id"),
-            source.get("excerpt", ""),
-            source_sent_at,
-        )
-    ):
-        return "booked"
     return _send_options(
         session,
         lead,

@@ -588,6 +588,189 @@ def test_meeting_request_detection_accepts_a_relative_exact_time_proposal() -> N
     assert source["message_id"] == "message-1"
 
 
+def test_exact_time_request_creates_a_draft_instead_of_booking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    gmail_connection = SimpleNamespace(id=uuid4())
+    now = datetime.now(UTC)
+    lead = SimpleNamespace(
+        id=lead_id,
+        email="lead@example.test",
+        phone="+923016057779",
+        geography="Pakistan",
+    )
+    source = {
+        "thread_id": "thread-1",
+        "message_id": "message-1",
+        "gmail_connection_id": str(gmail_connection.id),
+        "excerpt": "Can we set up a meeting tomorrow at 2 pm?",
+        "sent_at": now.isoformat(),
+    }
+    message = {
+        "thread_id": "thread-1",
+        "message_id": "message-1",
+        "direction": "inbound",
+        "sender": "lead@example.test",
+        "body": source["excerpt"],
+        "sent_at": now.isoformat(),
+    }
+    session = SimpleNamespace(
+        scalar=lambda _statement: lead_id,
+        flush=lambda: None,
+        commit=lambda: None,
+    )
+    captured: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(
+        meeting_email,
+        "record_gmail_thread_messages",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(meeting_email, "find_meeting_request", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(
+        meeting_email,
+        "_attempt_requested_time_booking",
+        lambda *_args, **_kwargs: pytest.fail("exact-time requests should not auto-book"),
+    )
+    monkeypatch.setattr(
+        meeting_email,
+        "_send_options",
+        lambda *args: captured.append(args) or "draft_created",
+    )
+
+    result = meeting_email.process_gmail_meeting_thread(
+        session,  # type: ignore[arg-type]
+        workspace_id=workspace_id,
+        lead=lead,  # type: ignore[arg-type]
+        gmail_connection=gmail_connection,  # type: ignore[arg-type]
+        messages=[message],
+        actor_id="workspace-owner",
+    )
+
+    assert result == "draft_created"
+    assert captured[0][5] == source
+
+
+def test_new_exact_time_reply_creates_a_draft_instead_of_booking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id = uuid4()
+    workspace_id = uuid4()
+    gmail_connection = SimpleNamespace(id=uuid4())
+    now = datetime.now(UTC)
+    lead = SimpleNamespace(
+        id=lead_id,
+        email="lead@example.test",
+        phone="+923016057779",
+        geography="Pakistan",
+    )
+    source = {
+        "thread_id": "thread-1",
+        "message_id": "request-1",
+        "gmail_connection_id": str(gmail_connection.id),
+        "excerpt": "Could we meet sometime tomorrow?",
+        "sent_at": (now - timedelta(hours=2)).isoformat(),
+    }
+    offer = SimpleNamespace(
+        status="awaiting_confirmation",
+        details={
+            "thread_id": "thread-1",
+            "gmail_connection_id": str(gmail_connection.id),
+            "source_message_id": "request-1",
+            "outbound_message_id": "booking-link-1",
+            "offered_at": (now - timedelta(hours=1)).isoformat(),
+            "options": [{"start_at": (now + timedelta(days=1)).isoformat()}],
+        },
+    )
+    messages = [
+        {
+            "thread_id": "thread-1",
+            "message_id": "request-1",
+            "direction": "inbound",
+            "sender": "lead@example.test",
+            "body": source["excerpt"],
+            "sent_at": source["sent_at"],
+        },
+        {
+            "thread_id": "thread-1",
+            "message_id": "booking-link-1",
+            "direction": "outbound",
+            "sender": "rep@example.test",
+            "body": "Here is the booking link.",
+            "sent_at": offer.details["offered_at"],
+        },
+        {
+            "thread_id": "thread-1",
+            "message_id": "reply-1",
+            "direction": "inbound",
+            "sender": "lead@example.test",
+            "body": "Tomorrow at 2 pm instead would work.",
+            "sent_at": now.isoformat(),
+        },
+    ]
+    session = SimpleNamespace(
+        scalar=lambda _statement: lead_id,
+        flush=lambda: None,
+        commit=lambda: None,
+    )
+    captured: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(
+        meeting_email,
+        "record_gmail_thread_messages",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args, **_kwargs: offer)
+    monkeypatch.setattr(meeting_email, "find_meeting_request", lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(meeting_email, "match_confirmed_meeting_option", lambda *_args: None)
+    monkeypatch.setattr(meeting_email, "_cached_reply_interpretation", lambda *_args: None)
+    monkeypatch.setattr(
+        meeting_email,
+        "_classify_meeting_reply_with_ai",
+        lambda *_args: (
+            SimpleNamespace(
+                intent="decline",
+                option_number=None,
+                confidence=0.99,
+            ),
+            "test",
+        ),
+    )
+    monkeypatch.setattr(
+        meeting_email,
+        "_store_reply_interpretation",
+        lambda details, *_args, **_kwargs: details,
+    )
+    monkeypatch.setattr(meeting_email, "lead_time_zone", lambda *_args: "Asia/Karachi")
+    monkeypatch.setattr(
+        meeting_email,
+        "_attempt_requested_time_booking",
+        lambda *_args, **_kwargs: pytest.fail("a newly proposed time should not auto-book"),
+    )
+    monkeypatch.setattr(
+        meeting_email,
+        "_send_options",
+        lambda *args: captured.append(args) or "draft_created",
+    )
+
+    result = meeting_email.process_gmail_meeting_thread(
+        session,  # type: ignore[arg-type]
+        workspace_id=workspace_id,
+        lead=lead,  # type: ignore[arg-type]
+        gmail_connection=gmail_connection,  # type: ignore[arg-type]
+        messages=messages,
+        actor_id="workspace-owner",
+    )
+
+    assert result == "draft_created"
+    assert offer.status == "superseded"
+    assert offer.details["closed_reason"] == "lead_requested_new_time"
+    assert captured[0][5]["excerpt"] == messages[-1]["body"]
+
+
 def test_exact_time_booking_uses_contact_timezone_and_source_mailbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -380,9 +380,9 @@ def get_meeting_recommendations(
         except ProviderOperationError:
             pass
     automation_message = (
-        "Date-only requests get open times for that day. If the lead gives an exact "
-        "date and time, Corral books it only when the calendar confirms it is free; "
-        "otherwise, Corral emails open options and books after the lead selects one."
+        "Corral prepares a personalized booking-link draft in the lead’s Emails tab "
+        "for meeting requests. Review or edit it, then send it when ready; Corral "
+        "does not send the draft automatically."
     )
     requested_text = source.get("excerpt", "")
     requested_reference = _parse_provider_time(source.get("sent_at"))
@@ -451,8 +451,8 @@ def get_meeting_recommendations(
                 )
             else:
                 automation_message = (
-                    "The meeting is booked after Corral confirmed an exact requested "
-                    "time was free, the lead selected an emailed option, or an admin confirmed it."
+                    "The meeting is booked after a teammate confirms the requested time, "
+                    "the lead selects an emailed option, or an admin confirms it."
                 )
         elif offer_event.status == "needs_attention":
             if offer_details.get("lead_requested_other_times"):
