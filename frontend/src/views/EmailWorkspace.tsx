@@ -19,7 +19,7 @@ import type {
 } from "../types";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-const mailboxCache = new Map<string, { messages: GmailMailboxMessage[]; nextPageToken: string | null }>();
+const mailboxCache = new Map<string, { messages: GmailMailboxMessage[]; nextPageToken: string | null; fetchedAt: number }>();
 const threadCache = new Map<string, GmailThreadMessage[]>();
 
 function remember<T>(cache: Map<string, T>, key: string, value: T) {
@@ -119,9 +119,15 @@ export function EmailWorkspace({
       setThread([]);
       setExpandedMessageIds(new Set());
     }
+    // Navigating back to a recently opened mailbox should show its saved rows
+    // immediately. The visible 60-second poll and manual refresh still check Gmail.
+    if (changedMailbox && cached && Date.now() - cached.fetchedAt < 60_000) {
+      setLoadingMessages(false);
+      return () => controller.abort();
+    }
     listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
       if (controller.signal.aborted) return;
-      remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token });
+      remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
       const changedRows = JSON.stringify(page.messages) !== JSON.stringify(changedMailbox && cached ? cached.messages : messages);
       if (changedRows) {
         setMessages(page.messages);
