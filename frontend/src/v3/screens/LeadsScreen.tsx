@@ -65,11 +65,10 @@ const crmOrigin = (lead: Lead) => {
   return match ? providerLabel(match[1].toLowerCase()) : null;
 };
 /** Lenses show the same leads through the columns each part of the job needs. */
-type Lens = "overview" | "ai" | "follow-ups" | "email" | "closing" | "history" | "agent";
+type Lens = "overview" | "ai" | "email" | "closing" | "history" | "agent";
 const LENSES: Array<{ value: Lens; label: string }> = [
   { value: "overview", label: "Owner & source" },
   { value: "ai", label: "Qualification" },
-  { value: "follow-ups", label: "Follow-up" },
   { value: "email", label: "Email" },
   { value: "closing", label: "Outcome" },
   { value: "history", label: "Delivery" },
@@ -80,7 +79,6 @@ const dateOnly = (value?: string | null) => (value && Number.isFinite(Date.parse
 function lensColumns(lens: Lens): [string, string] {
   switch (lens) {
     case "ai": return ["Classification", "Service"];
-    case "follow-ups": return ["Contact", "Intake confirmation"];
     case "email": return ["Contact", "Company"];
     case "closing": return ["Stage", "Recorded value"];
     case "history": return ["Intake confirmation", "CRM delivery"];
@@ -90,7 +88,6 @@ function lensColumns(lens: Lens): [string, string] {
 function lensValues(lead: Lead, lens: Lens): [string, string] {
   switch (lens) {
     case "ai": return [lead.qualification ? readable(lead.qualification.classification) : "Not scored", lead.product_or_service || "Not recorded"];
-    case "follow-ups": return [lead.email || "Not recorded", readable(lead.confirmation_email?.status)];
     case "email": return [lead.email || "Not recorded", lead.company_name || "Not recorded"];
     case "closing": return [
       readable(lead.outcome?.pipeline_stage),

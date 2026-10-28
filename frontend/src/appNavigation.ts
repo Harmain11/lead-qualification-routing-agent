@@ -1,4 +1,4 @@
-export const appPages = ["dashboard", "leads", "email", "contacts", "pipeline", "revenue", "performance", "agents", "analytics", "integrations", "dialer", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
+export const appPages = ["dashboard", "leads", "email", "calendar", "contacts", "pipeline", "revenue", "performance", "agents", "analytics", "integrations", "dialer", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
 export type AppPage = typeof appPages[number];
 export type NavigationSection = { id: string; label: string; permission?: string; view?: AppPage };
 
@@ -10,7 +10,6 @@ export const navigationSections: Partial<Record<AppPage, NavigationSection[]>> =
   leads: [
     { id: "overview", label: "Overview" },
     { id: "ai", label: "AI & qualification" },
-    { id: "follow-ups", label: "Follow-ups & meetings" },
     { id: "closing", label: "Comments & closing" },
     { id: "history", label: "History" },
   ],

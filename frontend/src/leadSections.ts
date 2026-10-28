@@ -4,15 +4,15 @@ export const leadDetailSections = [
   { id: "calls", label: "Calls" },
   { id: "agent", label: "Ask Corral" },
   { id: "ai", label: "AI & qualification" },
-  { id: "follow-ups", label: "Follow-ups & meetings" },
   { id: "email", label: "Email" },
   { id: "closing", label: "Comments & closing" },
   { id: "history", label: "History" },
 ] as const;
 
-export type LeadDetailSection = (typeof leadDetailSections)[number]["id"];
+export type LeadDetailSection = (typeof leadDetailSections)[number]["id"] | "follow-ups";
 
 export function parseLeadSection(value: string | null): LeadDetailSection {
+  if (value === "follow-ups") return "email";
   return leadDetailSections.find((section) => section.id === value)?.id ?? "overview";
 }
 

@@ -7,6 +7,7 @@ export type TourView =
   | "dashboard"
   | "leads"
   | "email"
+  | "calendar"
   | "contacts"
   | "pipeline"
   | "revenue"

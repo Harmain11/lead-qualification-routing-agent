@@ -851,7 +851,11 @@ def complete_lead_manual_review(
         if structured_output.get("status") == "manual_review":
             structured_output["status"] = "completed"
         analysis.structured_output = structured_output
-    row.updated_at = datetime.now(UTC)
+    row.manual_review_completed_at = datetime.now(UTC)
+    row.updated_at = row.manual_review_completed_at
+    if row.source_event is not None and row.source_event.status == "manual_review":
+        row.source_event.status = "processed"
+        row.source_event.updated_at = row.manual_review_completed_at
     record_pipeline_event(
         session,
         row.id,

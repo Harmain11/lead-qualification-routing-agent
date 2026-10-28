@@ -380,6 +380,22 @@ export type LeadPipelineEvent = {
 
 export type MeetingProvider = "google_calendar" | "calendly";
 
+export type WorkspaceCalendarEvent = {
+  id: string;
+  kind: "meeting" | "call" | "event";
+  source: "manual" | MeetingProvider;
+  title: string;
+  start_at: string;
+  end_at: string;
+  location: string | null;
+  notes: string | null;
+  lead_id: string | null;
+  lead_name: string | null;
+  company_name: string | null;
+  event_url: string | null;
+  editable: boolean;
+};
+
 export type MeetingSuggestion = {
   provider: MeetingProvider;
   connection_id: string;

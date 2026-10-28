@@ -20,6 +20,7 @@ import type {
   GmailConversationSyncResult,
   MeetingRecommendations,
   MeetingSuggestion,
+  WorkspaceCalendarEvent,
   ConfirmMeetingResult,
   RetryConfirmedMeetingBookingResult,
   LeadListResponse,
@@ -1033,6 +1034,30 @@ export function getLead(leadId: string, signal?: AbortSignal): Promise<Lead> {
 
 export function getLeadPipelineHistory(leadId: string, signal?: AbortSignal): Promise<LeadPipelineEvent[]> {
   return jsonRequest<LeadPipelineEvent[]>(`/v1/leads/${leadId}/pipeline-history`, { signal });
+}
+
+export function listCalendarEvents(start: string, end: string, signal?: AbortSignal): Promise<WorkspaceCalendarEvent[]> {
+  const query = new URLSearchParams({ start, end });
+  return jsonRequest<WorkspaceCalendarEvent[]>(`/v1/calendar/events?${query}`, { signal });
+}
+
+export function createCalendarEvent(input: {
+  kind: WorkspaceCalendarEvent["kind"];
+  title: string;
+  start_at: string;
+  end_at: string;
+  location?: string | null;
+  notes?: string | null;
+  lead_id?: string | null;
+}): Promise<WorkspaceCalendarEvent> {
+  return jsonRequest<WorkspaceCalendarEvent>("/v1/calendar/events", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+}
+
+export function deleteCalendarEvent(id: string): Promise<void> {
+  if (!id.startsWith("manual:")) throw new Error("Only manual events can be deleted here.");
+  return jsonRequest<void>(`/v1/calendar/events/${encodeURIComponent(id.slice(7))}`, { method: "DELETE" });
 }
 
 export function getLeadFollowUpHistory(leadId: string, signal?: AbortSignal): Promise<FollowUpEmail[]> {

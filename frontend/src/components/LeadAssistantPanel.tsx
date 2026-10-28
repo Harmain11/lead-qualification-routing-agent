@@ -445,7 +445,7 @@ export function LeadAssistantPanel({
         onSectionChange("email");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_meetings") {
-        onSectionChange("follow-ups");
+        onSectionChange("email");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_dialer") {
         if (dialerPhoneConnectionId && lead.phone?.trim()) {

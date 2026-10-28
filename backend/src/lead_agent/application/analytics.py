@@ -1490,6 +1490,8 @@ class AnalyticsService:
 
     @staticmethod
     def _is_manual_review(lead: LeadORM) -> bool:
+        if lead.manual_review_completed_at is not None:
+            return False
         route = _latest_route(lead)
         return bool(
             (lead.analysis is not None and lead.analysis.requires_manual_review)

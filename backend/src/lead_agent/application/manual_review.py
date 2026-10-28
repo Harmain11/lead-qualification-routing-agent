@@ -40,6 +40,8 @@ def lead_manual_review_reasons(
     lead: LeadORM,
     routing: RoutingDecisionORM | None = None,
 ) -> list[str]:
+    if lead.manual_review_completed_at is not None:
+        return []
     analysis = lead.analysis
     is_held = bool(
         (analysis is not None and analysis.requires_manual_review)

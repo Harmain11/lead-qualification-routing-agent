@@ -57,7 +57,6 @@ import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "ai", label: "Qualification" },
-  { id: "follow-ups", label: "Follow-up" },
   { id: "email", label: "Email" },
   { id: "calls", label: "Calls" },
   { id: "deal", label: "Pipeline" },
@@ -135,7 +134,7 @@ export function LeadRecord({
   const dealView = viewDeal(lead, store.deals[lead.id], recordedStage);
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabs = TABS.filter((tab) => (tab.id !== "email" || canViewEmail));
-  const shownSection: LeadDetailSection = activeSection === "closing" ? "history" : activeSection;
+  const shownSection: LeadDetailSection = activeSection === "closing" ? "history" : activeSection === "follow-ups" ? "email" : activeSection;
   const updatedRef = useRef(onUpdated);
   useEffect(() => { updatedRef.current = onUpdated; }, [onUpdated]);
   useEffect(() => {
@@ -522,14 +521,14 @@ export function LeadRecord({
                     : activeMeetingIndicator.kind === "booked" ? activeMeetingIndicator.bookedAt
                       ? `Meeting set for ${formatMeetingDate(activeMeetingIndicator.bookedAt)}.`
                       : "The calendar confirmed this meeting."
-                      : "Open Follow-up to review the booking issue."}
+                      : "Open Email to review the booking issue."}
             </p>
           </div>
           {activeMeetingIndicator.kind === "draft_ready" && canViewEmail && (
             <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open email draft</Button>
           )}
           {activeMeetingIndicator.kind === "needs_attention" && (
-            <Button kind="plain" size="sm" onClick={() => onSectionChange("follow-ups")}>Open Follow-up</Button>
+            <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open Email</Button>
           )}
           {activeMeetingIndicator.kind === "awaiting_booking" && (
             <Button kind="plain" size="sm" onClick={() => setMeetingRefresh((value) => value + 1)}>Refresh status</Button>
@@ -753,37 +752,6 @@ export function LeadRecord({
         </div>
       </div>
 
-      {/* --------------------------------------------------------- Follow-up */}
-      <div id="lead-panel-follow-ups" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-follow-ups" tabIndex={0} hidden={shownSection !== "follow-ups"}>
-        <div className="v-stack">
-          {route && (
-            <section className="v-card v-card-pad">
-              <h2 className="v-card-title">Follow-up plan</h2>
-              <p className="v-card-sub">Goal: {route.action_plan.conversion_goal || route.action_plan.next_step_recommendation}</p>
-              <ol className="v-steps">
-                {(route.action_plan.follow_up_strategy?.length ? route.action_plan.follow_up_strategy : [route.action_plan.immediate_action, route.action_plan.next_step_recommendation]).map((step, index) => (
-                  <li key={`${index}-${step}`}>{step}</li>
-                ))}
-              </ol>
-              {route.manual_review && <Banner tone="attention" title="Validate the analysis before contacting this lead." />}
-            </section>
-          )}
-          {canViewEmail && (
-            <Button kind="plain" onClick={() => onSectionChange("email")}>Open email</Button>
-          )}
-          <div className="v-legacy-block">
-            <LeadMeetingPanel
-              lead={lead}
-              canEdit={canEdit}
-              canViewEmails={canViewEmail}
-              refreshToken={meetingRefresh}
-              onDraftCreated={() => onSectionChange("email")}
-              onStatusChange={handleMeetingStatusChange}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* ------------------------------------------------------------- Email */}
       <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
         <div className="v-stack">
@@ -797,6 +765,16 @@ export function LeadRecord({
               hideComposeButton
               onAskAgent={() => onSectionChange("agent")}
               onConversationSynced={synced}
+            />
+          </div>
+          <div className="v-legacy-block">
+            <LeadMeetingPanel
+              lead={lead}
+              canEdit={canEdit}
+              canViewEmails={canViewEmail}
+              refreshToken={meetingRefresh}
+              onDraftCreated={() => onSectionChange("email")}
+              onStatusChange={handleMeetingStatusChange}
             />
           </div>
         </div>
