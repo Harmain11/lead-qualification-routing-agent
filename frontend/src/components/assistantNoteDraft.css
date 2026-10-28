@@ -1,0 +1,116 @@
+.assistant-note-draft {
+  --note-line: var(--line);
+  display: grid;
+  min-width: 0;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--note-line);
+  border-radius: 11px;
+  background: var(--surface-high);
+  color: var(--text);
+}
+
+.assistant-note-draft__heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assistant-note-draft__label {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.assistant-note-draft__badge {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--orange) 34%, var(--note-line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--orange-soft) 58%, var(--surface));
+  color: var(--orange);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .045em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.assistant-note-draft__textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 132px;
+  max-height: 320px;
+  resize: vertical;
+  padding: 10px 11px;
+  border: 1px solid var(--note-line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.assistant-note-draft__textarea::placeholder {
+  color: var(--muted);
+  opacity: .78;
+}
+
+.assistant-note-draft__textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--orange) 48%, transparent);
+  outline-offset: 2px;
+}
+
+.assistant-note-draft__textarea:disabled {
+  cursor: not-allowed;
+  opacity: .68;
+}
+
+.assistant-note-draft__footer {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.assistant-note-draft__guidance,
+.assistant-note-draft__count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.assistant-note-draft__guidance {
+  max-width: 38ch;
+}
+
+.assistant-note-draft__count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  .assistant-note-draft {
+    padding: 11px;
+  }
+
+  .assistant-note-draft__footer {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .assistant-note-draft__count {
+    align-self: flex-end;
+  }
+}

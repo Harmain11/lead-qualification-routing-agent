@@ -1,0 +1,92 @@
+.team-member-list { display: grid; gap: 5px; }
+.team-member-row {
+  width: 100%;
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 35px minmax(160px, 1.5fr) minmax(110px, .75fr) 92px 105px auto 18px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .018);
+  text-align: left;
+  transition: background 180ms, border-color 180ms, transform 180ms;
+}
+.team-member-row:hover {
+  border-color: rgba(30, 107, 82, .28);
+  background: linear-gradient(90deg, rgba(30, 107, 82, .09), rgba(255, 255, 255, .025));
+  transform: translateX(2px);
+}
+.member-avatar {
+  width: 33px;
+  height: 33px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(242, 165, 65, .32);
+  border-radius: 50%;
+  background: rgba(30, 107, 82, .12);
+  color: var(--tint-text);
+  font: 500 13px/1 var(--font-display);
+}
+.member-identity { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.member-identity b { display: flex; align-items: center; gap: 6px; font-size: 13px; overflow-wrap: anywhere; }
+.member-identity small { color: var(--label-2); font-size: 13px; overflow-wrap: anywhere; }
+.member-identity em {
+  padding: 3px 5px;
+  border: 1px solid rgba(112, 199, 156, .25);
+  border-radius: 4px;
+  color: var(--tint-text);
+  font: 12px/1 var(--font-mono);
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.team-role, .team-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--separator);
+  border-radius: 5px;
+  color: var(--label-2);
+  font-size: 13px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.role-owner { color: var(--attention-text); border-color: rgba(242, 165, 65, .3); background: rgba(30, 107, 82, .08); }
+.team-status { gap: 5px; text-transform: capitalize; }
+.team-status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; }
+.status-active { color: var(--tint-text); border-color: rgba(112, 199, 156, .2); }
+.member-permission-count { color: var(--label-3); font: 12px/16px var(--font-mono); }
+.member-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.member-row-actions button {
+  min-height: 29px;
+  padding: 0 8px;
+  border: 1px solid var(--separator);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--label-2);
+  font: 400 13px/18px var(--font);
+}
+.member-chevron { color: var(--label-3); font-style: normal; }
+
+.app-shell .team-member-row {
+  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  gap: 8px 12px;
+  padding: 12px;
+  transform: none;
+}
+.app-shell .member-identity { grid-column: 2; }
+.app-shell .member-identity b { flex-wrap: wrap; font-size: 15px; }
+.app-shell .member-permission-count { grid-column: 2 / 4; }
+.app-shell .member-chevron { justify-self: end; }
+
+@media (max-width: 560px) {
+  .app-shell .team-member-row { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .app-shell .team-member-row .team-role { grid-column: 2; }
+  .app-shell .team-member-row .team-status { grid-column: 3; grid-row: 2; }
+  .app-shell .member-permission-count { grid-column: 2; }
+  .app-shell .member-chevron { grid-column: 3; }
+}

@@ -6,12 +6,18 @@ import {
   type Collaboration,
   type Note,
 } from "../operationsApi";
+import { getLead, reevaluateLead, LEAD_NOTE_SAVED_EVENT } from "../api";
+import type { Lead } from "../types";
 export function CollaborationPanel({
   leadId,
   canEdit,
+  onLeadUpdated,
+  refreshKey = 0,
 }: {
   leadId: string;
   canEdit: boolean;
+  onLeadUpdated?: (lead: Lead) => void;
+  refreshKey?: number;
 }) {
   const [data, setData] = useState<Collaboration>({ notes: [], presence: [] });
   const [draft, setDraft] = useState<{
@@ -20,6 +26,7 @@ export function CollaborationPanel({
     version: number;
   } | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
@@ -37,9 +44,15 @@ export function CollaborationPanel({
             setError(String(reason.message));
         });
     const heartbeat = () =>
-      opsSave(`/v1/collaboration/leads/${leadId}/presence`, {}).catch(() => {});
+      opsSave(`/v1/collaboration/leads/${leadId}/presence`, {}, "POST", {
+        activityToast: false,
+      }).catch(() => {});
     void load();
     void heartbeat();
+    const onNoteSaved = (event: Event) => {
+      if ((event as CustomEvent<{ leadId: string }>).detail?.leadId === leadId) void load();
+    };
+    window.addEventListener(LEAD_NOTE_SAVED_EVENT, onNoteSaved);
     const timer = setInterval(() => {
       void load();
       void heartbeat();
@@ -48,8 +61,9 @@ export function CollaborationPanel({
       active = false;
       controller.abort();
       clearInterval(timer);
+      window.removeEventListener(LEAD_NOTE_SAVED_EVENT, onNoteSaved);
     };
-  }, [leadId]);
+  }, [leadId, refreshKey]);
   const edit = (note: Note) => {
     setDraft({ id: note.id, body: note.body, version: note.version });
     setError("");
@@ -58,6 +72,7 @@ export function CollaborationPanel({
     if (!draft) return;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await opsSave(
         `/v1/collaboration/leads/${leadId}/notes/${draft.id}`,
@@ -66,6 +81,17 @@ export function CollaborationPanel({
       );
       setData(await opsGet<Collaboration>(`/v1/collaboration/leads/${leadId}`));
       setDraft(null);
+      try {
+        onLeadUpdated?.(await reevaluateLead(leadId));
+        setNotice("Note saved and included in the updated AI assessment.");
+      } catch {
+        try {
+          onLeadUpdated?.(await getLead(leadId));
+        } catch {
+          // The note remains saved even if lead details cannot be refreshed.
+        }
+        setNotice("Note saved, but the AI assessment could not be refreshed. Try re-evaluating again later.");
+      }
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to save note",
@@ -102,6 +128,7 @@ export function CollaborationPanel({
           {error}
         </p>
       )}
+      {notice && <p className="team-notice" role="status">{notice}</p>}
       {data.notes.map((note) => (
         <article className="ops-note" key={note.id}>
           <p style={{ whiteSpace: "pre-wrap" }}>{note.body}</p>

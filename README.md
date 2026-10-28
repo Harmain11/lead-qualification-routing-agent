@@ -316,4 +316,3 @@ See [`docs/implementation-plan.md`](docs/implementation-plan.md), [`docs/archite
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | Delivery phases and engineering work breakdown |
 | [`docs/integrations.md`](docs/integrations.md) | Provider setup, directionality, scopes, and failure handling |
 | [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md) | Replit services, secrets, callbacks, smoke tests, and rollback |
-

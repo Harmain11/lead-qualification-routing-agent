@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 import { IntegrationAccountChoice } from "./IntegrationAccountChoice";
 
 import { SALESFORCE_PACKAGE_INSTALL_URL } from "../salesforceSetup";
-import "./SalesforceSetupGuide.css";
 
 type SalesforceSetupGuideProps = {
   onClose: () => void;

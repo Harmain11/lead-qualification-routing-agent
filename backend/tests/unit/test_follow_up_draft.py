@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from itertools import count
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -11,21 +12,27 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
+from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.application.follow_up import FollowUpNotEligible, generate_follow_up_draft
 from lead_agent.domain.follow_up import FollowUpEmailContent
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
     LeadORM,
+    PipelineEventORM,
     ProviderConnectionORM,
     QualificationResultORM,
     RoutingDecisionORM,
     WorkspaceEmailTemplateORM,
 )
+from lead_agent.infrastructure.db.operations import LeadNoteORM, OperationsPolicyORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
+
+_LEAD_NUMBERS = count(1)
 
 
 def _lead(workspace_id, *, manual_review: bool = False, disqualified: bool = False) -> LeadORM:
@@ -33,6 +40,7 @@ def _lead(workspace_id, *, manual_review: bool = False, disqualified: bool = Fal
     lead = LeadORM(
         id=lead_id,
         workspace_id=workspace_id,
+        lead_number=next(_LEAD_NUMBERS),
         source="website",
         source_detail=None,
         external_id=None,
@@ -124,8 +132,50 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
     with Session(engine) as session:
         workspace_id = uuid4()
         ensure_workspace(session, workspace_id, name="Template QA")
+        session.add(
+            OperationsPolicyORM(
+                workspace_id=workspace_id,
+                configuration={
+                    "business_profile": {
+                        "business_name": "Northstar Labs",
+                        "email_signature": "Harmain Mughal\nNorthstar Labs",
+                    }
+                },
+                version=1,
+                updated_by="qa-user",
+                updated_at=datetime.now(UTC),
+            )
+        )
         lead = _lead(workspace_id)
         session.add(lead)
+        now = datetime.now(UTC)
+        session.add(
+            LeadNoteORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                lead_id=lead.id,
+                body="Prospect asked for a demo and wants to review options this week.",
+                version=1,
+                author_id="qa-user",
+                updated_by="qa-user",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            PipelineEventORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                lead_id=lead.id,
+                stage="manual_progress",
+                status="responded",
+                details={
+                    "stage": "responded",
+                    "note": "Asked for a proposal and pricing by Friday.",
+                },
+                created_at=now,
+            )
+        )
         session.add(WorkspaceEmailTemplateORM(
             id=uuid4(), workspace_id=workspace_id, kind="follow_up",
             subject="Hello {{lead_name}} at {{company_name}}",
@@ -138,7 +188,10 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
             facts_seen.append(facts)
             return FollowUpEmailContent(
                 subject="A fresh next step for Northstar Labs",
-                body="Hi Riley, let's explore your lead workflow automation requirements.",
+                body=(
+                    "Hi Riley, let's explore your lead workflow automation requirements."
+                    "\n\nBest regards,\n[Your Name]"
+                ),
                 rationale="Grounded in the original inquiry.",
             )
         monkeypatch.setattr(
@@ -150,8 +203,18 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
 
         assert row.subject == "A fresh next step for Northstar Labs"
         assert row.generation_method == "openai"
-        assert facts_seen[0]["workspace_email_template"]["subject"] == "Hello {{lead_name}} at {{company_name}}"
+        assert facts_seen[0]["workspace_email_template"]["subject"] == (
+            "Hello {{lead_name}} at {{company_name}}"
+        )
+        assert facts_seen[0]["workspace_business_profile"]["business_name"] == (
+            "Northstar Labs"
+        )
+        assert facts_seen[0]["team_notes"][0]["body"].startswith("Prospect asked for a demo")
+        assert facts_seen[0]["recent_activity"][0]["stage"] == "responded"
+        assert "proposal and pricing" in facts_seen[0]["recent_activity"][0]["note"]
         assert row.status == "draft"
+        assert "[Your Name]" not in row.body
+        assert row.body.endswith("Harmain Mughal\nNorthstar Labs")
         original_id = row.id
         row.status = "sent"
         row.sent_at = datetime.now(UTC)
@@ -163,6 +226,15 @@ def test_workspace_sample_guides_ai_and_sent_followups_are_preserved(tmp_path, m
         assert session.get(LeadFollowUpEmailORM, original_id).status == "sent"
         assert session.query(LeadFollowUpEmailORM).filter_by(lead_id=lead.id).count() == 2
     engine.dispose()
+
+
+def test_workspace_signature_removes_placeholder_when_no_sender_identity_exists() -> None:
+    profile = WorkspaceBusinessProfile()
+    result = apply_workspace_email_signature(
+        "Thanks for your time.\n\nBest regards,\n[Your Name]",
+        profile,
+    )
+    assert result == "Thanks for your time."
 
 
 @pytest.mark.parametrize("flags", [{"manual_review": True}, {"disqualified": True}])
@@ -208,6 +280,8 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
         )),
     )
     draft = generate_follow_up_draft(session, lead, actor_id="qa-user")
+    draft.recipient = ""
+    session.commit()
     connection = ProviderConnectionORM(
         id=uuid4(), workspace_id=workspace_id, provider_type="gmail",
         external_account_id="qa@example.test", account_name="qa@example.test", auth_type="oauth",
@@ -248,6 +322,7 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
     try:
         with TestClient(app) as client:
             wrong_workspace_send = client.post(f"/v1/leads/{lead.id}/follow-up/{draft.id}/send")
+            draft_view = client.get(f"/v1/leads/{lead.id}/follow-up")
             active_workspace = WorkspaceContext(
                 workspace_id=workspace_id,
                 actor_id="viewer",
@@ -268,6 +343,9 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
                     ),
                 },
             )
+            session.refresh(draft)
+            draft.recipient = ""
+            session.commit()
             sent_response = client.post(f"/v1/leads/{lead.id}/follow-up/{draft.id}/send")
             own = client.get(f"/v1/leads/{lead.id}/follow-up")
             active_workspace = WorkspaceContext(
@@ -280,8 +358,11 @@ def test_follow_up_is_edited_then_sent_only_on_explicit_crm_action(tmp_path, mon
         assert denied_send.status_code == 403
         assert sent_response.status_code == 200
         assert sent_response.json()["status"] == "sent"
+        assert draft_view.status_code == 200
+        assert draft_view.json()["recipient"] == lead.email
         assert edited.status_code == 200
         assert edited.json()["subject"] == "A personal follow-up"
+        assert edited.json()["recipient"] == lead.email
         assert own.status_code == 200 and own.json()["status"] == "sent"
         assert cross_workspace.status_code == 404
         assert sent_response.json()["approved_by"] == "qa-user"
@@ -332,6 +413,67 @@ def test_manual_progress_is_saved_and_rechecks_temperature(icp, routing, tmp_pat
     assert any(event.stage == "qualification_rechecked" for event in events)
     session.close()
     engine.dispose()
+
+
+def test_assistant_reevaluation_uses_the_confirmed_lead_and_records_trigger(
+    icp, routing, tmp_path, monkeypatch
+) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'assistant-reevaluation.db'}")
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    workspace_id = uuid4()
+    ensure_workspace(session, workspace_id, name="Assistant QA")
+    lead = _lead(workspace_id)
+    session.add(lead)
+    session.commit()
+    captured: dict[str, object] = {}
+
+    def reanalyze(
+        _session,
+        row,
+        current_workspace_id,
+        _policies,
+        _notification_provider,
+        *,
+        trigger,
+    ):
+        captured.update(
+            lead_id=row.id,
+            workspace_id=current_workspace_id,
+            trigger=trigger,
+        )
+        return "warm", 78, ["Current history was rechecked."]
+
+    from lead_agent.api.routes import leads as leads_routes
+
+    monkeypatch.setattr(leads_routes, "_reanalyze_lead_with_history", reanalyze)
+    monkeypatch.setattr(
+        leads_routes,
+        "lead_response",
+        lambda row, *_args, **_kwargs: row,
+    )
+    try:
+        result = leads_routes.reevaluate_lead(
+            lead.id,
+            session=session,
+            policies=(icp, routing),
+            notification_provider=None,
+            workspace=WorkspaceContext(
+                workspace_id=workspace_id,
+                actor_id="qa-user",
+                permissions=frozenset({"leads.edit"}),
+            ),
+        )
+        assert captured == {
+            "lead_id": lead.id,
+            "workspace_id": workspace_id,
+            "trigger": "manual_assistant_reevaluation",
+        }
+        assert result.id == lead.id
+        assert result.full_name == lead.full_name
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def test_lead_momentum_explains_score_change_evidence_and_delivery(tmp_path) -> None:

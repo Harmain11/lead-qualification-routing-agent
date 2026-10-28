@@ -1,0 +1,113 @@
+.dashboard-signals .dashboard-signal-metric {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.dashboard-signals .dashboard-signal-metric strong {
+  color: var(--text-primary, #18241f);
+  font-size: clamp(1.65rem, 3vw, 2.3rem);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.dashboard-signals .dashboard-signal-metric span,
+.dashboard-signals .dashboard-signal-metric small {
+  color: var(--text-secondary, #69756f);
+  line-height: 1.5;
+}
+
+.dashboard-signals .dashboard-signal-unavailable {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  color: var(--text-secondary, #69756f);
+  line-height: 1.5;
+}
+
+.dashboard-signals .dashboard-signal-unavailable b {
+  color: var(--text-primary, #18241f);
+}
+
+.dashboard-signals .dashboard-signal-list {
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-signals .dashboard-signal-row {
+  min-width: 0;
+}
+
+.dashboard-signals .dashboard-signal-row > small {
+  display: block;
+  margin: 2px 0 0 12px;
+  color: var(--text-secondary, #69756f);
+}
+
+.dashboard-ranked-lead {
+  min-width: 0;
+  padding-bottom: 9px;
+}
+
+.dashboard-ranked-lead > small {
+  display: block;
+  margin: 2px 0 0 12px;
+  color: var(--text-secondary, #69756f);
+  font-size: 0.78rem;
+}
+
+.dashboard-signals .dashboard-forecast-copy {
+  margin: 8px 0;
+  color: var(--text-primary, #18241f);
+  line-height: 1.65;
+}
+
+.dashboard-signals .dashboard-agent-feed {
+  display: grid;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard-signals .dashboard-agent-feed li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle, #e7ebe8);
+}
+
+.dashboard-signals .dashboard-agent-feed li:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-signals .dashboard-agent-feed li > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dashboard-signals .dashboard-agent-feed li span,
+.dashboard-signals .dashboard-agent-feed time {
+  color: var(--text-secondary, #69756f);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.dashboard-signals .dashboard-agent-feed time {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .dashboard-signals .dashboard-agent-feed li {
+    display: grid;
+    gap: 5px;
+  }
+
+  .dashboard-signals .dashboard-agent-feed time {
+    text-align: left;
+  }
+}

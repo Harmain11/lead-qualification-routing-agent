@@ -215,7 +215,7 @@ DEMO_PROFILES: list[dict[str, Any]] = [
     },
     {
         "name": "Priya Mehta",
-        "company": "Arc Logistics",
+        "company": "Unknown",
         "source": "linkedin",
         "title": "Revenue Operations Manager",
         "service": "CRM workflow audit",

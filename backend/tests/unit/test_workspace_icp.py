@@ -339,7 +339,11 @@ def test_icp_api_enforces_view_manage_and_cross_workspace_isolation(
     app.dependency_overrides[get_workspace_context] = lambda: active_context["value"]
     try:
         with TestClient(app) as client:
-            assert client.get("/v1/icp/current").status_code == 200
+            current = client.get("/v1/icp/current")
+            assert current.status_code == 200
+            assert current.json()["source"] == "not_configured"
+            assert current.json()["status"] == "not_configured"
+            assert "not used for qualification" in current.json()["description"].lower()
             default = client.get("/v1/icp/default")
             assert default.status_code == 200
             assert default.json()["source"] == "system_default"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Literal
@@ -8,13 +9,14 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from lead_agent.api.dependencies import (
     get_policies,
     get_workspace_context,
     require_permission,
+    require_permissions,
 )
 from lead_agent.api.schemas import (
     LeadCreateRequest,
@@ -26,6 +28,7 @@ from lead_agent.api.schemas import (
     outcome_response,
     qualification_response,
 )
+from lead_agent.application.assignment_notifications import notify_assigned_member
 from lead_agent.application.exports import (
     ExportEmptyError,
     ExportLimitError,
@@ -35,12 +38,20 @@ from lead_agent.application.exports import (
     render_export,
     write_export_audit,
 )
+from lead_agent.application.gmail_history import (
+    append_gmail_thread_messages,
+    lead_history_context,
+)
+from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
+from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
-from lead_agent.domain.analysis import ReasoningProvider
+from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
+from lead_agent.domain.lead_assistant import LeadProfileChanges
+from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
@@ -112,6 +123,37 @@ class LeadTitleUpdateRequest(BaseModel):
         return value
 
 
+class LeadGeneratedUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_generated: bool
+
+
+class LeadAssignmentUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assigned_rep_id: UUID | None
+
+
+class LeadAssignmentOptionResponse(BaseModel):
+    user_id: UUID
+    display_name: str
+
+
+class LeadProfileUpdateRequest(LeadProfileChanges):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @model_validator(mode="after")
+    def require_changes(self) -> LeadProfileUpdateRequest:
+        if not self.model_fields_set:
+            raise ValueError("Provide at least one lead field to update.")
+        for field in ("full_name", "email", "company_name", "product_or_service"):
+            value = getattr(self, field)
+            if field in self.model_fields_set and (value is None or not value):
+                raise ValueError(f"{field.replace('_', ' ').title()} cannot be blank.")
+        return self
+
+
 class LeadBulkDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -127,6 +169,7 @@ class LeadProgressUpdate(BaseModel):
     conversion_type: Literal["project", "sale"] | None = None
     closed_revenue: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     credited_user_id: UUID | None = None
+    send_direct_message: bool = False
 
     @model_validator(mode="after")
     def validate_closing_fields(self) -> LeadProgressUpdate:
@@ -140,6 +183,10 @@ class LeadProgressUpdate(BaseModel):
             )
         if self.stage not in {"converted", "lost"} and self.credited_user_id is not None:
             raise ValueError("Member credit is only allowed when closing a lead.")
+        if self.send_direct_message and self.stage != "converted":
+            raise ValueError(
+                "Direct Slack congratulations are only available for successful conversions."
+            )
         return self
 
 
@@ -244,22 +291,47 @@ def _process_create_request(
     notification_provider: NotificationProvider,
     workspace: WorkspaceContext,
 ) -> LeadResponse:
+    active_provider = provider or resolve_workspace_reasoning_provider(
+        session, workspace.workspace_id
+    )
+    if getattr(active_provider, "provider_name", "") in {
+        "",
+        "deterministic",
+        "deterministic-safeguard",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Connect and verify a workspace AI provider in Integrations before "
+                "creating a lead. The lead was not created."
+            ),
+        )
     try:
         _, _, row = process_lead(
             session,
             request.model_dump(mode="json"),
             *policies,
-            provider=provider,
+            provider=active_provider,
             notification_provider=notification_provider,
             workspace_id=workspace.workspace_id,
+            require_provider_success=True,
+            analyze_hard_disqualified=True,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except ReasoningProviderError as error:
+        message = str(error).strip() or "The AI provider did not complete analysis."
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI analysis failed; the lead was not created. {message[:500]}",
+        ) from error
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
-        get_current_routing(session, row.id, workspace.workspace_id),
+        routing,
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
     )
 
 
@@ -310,6 +382,23 @@ def list_all_leads(
     if source:
         if source in {"salesforce", "hubspot"}:
             conditions.append(LeadORM.source_detail.ilike(f"crm-import:{source}:%"))
+        elif source == MANUAL_SOURCE:
+            conditions.append(
+                or_(
+                    LeadORM.source == MANUAL_SOURCE,
+                    LeadORM.source_detail == MANUAL_SOURCE_DETAIL,
+                )
+            )
+        elif source == "website":
+            conditions.append(
+                and_(
+                    LeadORM.source == source,
+                    or_(
+                        LeadORM.source_detail.is_(None),
+                        LeadORM.source_detail != MANUAL_SOURCE_DETAIL,
+                    ),
+                )
+            )
         else:
             conditions.append(LeadORM.source == source)
     if qualification_band:
@@ -355,16 +444,18 @@ def list_all_leads(
         current = [item for item in row.crm_syncs if item.is_current]
         return max(current, key=lambda item: item.requested_at, default=None)
 
+    def serialize_lead(row: LeadORM) -> LeadResponse:
+        routing = current_routing(row)
+        return lead_response(
+            row,
+            routing,
+            current_crm_sync(row),
+            _current_confirmation_email(session, row.id, workspace.workspace_id),
+            lead_manual_review_reasons(session, row, routing),
+        )
+
     return LeadListResponse(
-        items=[
-            lead_response(
-                row,
-                current_routing(row),
-                current_crm_sync(row),
-                _current_confirmation_email(session, row.id, workspace.workspace_id),
-            )
-            for row in rows
-        ],
+        items=[serialize_lead(row) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -388,6 +479,32 @@ def closing_options(
          "slack_linked": bool(member.slack_member_id)}
         for member, user in rows
         if "leads.edit" in effective_permissions(member.role, member.permission_overrides)
+    ]
+
+
+@router.get(
+    "/assignment-options",
+    response_model=list[LeadAssignmentOptionResponse],
+)
+def lead_assignment_options(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+) -> list[LeadAssignmentOptionResponse]:
+    members = session.execute(
+        select(WorkspaceMembershipORM, UserORM)
+        .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+        .where(
+            WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+            WorkspaceMembershipORM.status == "active",
+            UserORM.status == "active",
+        )
+        .order_by(UserORM.display_name)
+    ).all()
+    return [
+        LeadAssignmentOptionResponse(user_id=user.id, display_name=user.display_name)
+        for membership, user in members
+        if "leads.edit"
+        in effective_permissions(membership.role, membership.permission_overrides)
     ]
 
 
@@ -512,11 +629,13 @@ def retrieve_lead(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
-        get_current_routing(session, row.id, workspace.workspace_id),
+        routing,
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
     )
 
 
@@ -534,11 +653,230 @@ def update_lead_title(
     row.job_title = request.job_title
     row.updated_at = datetime.now(UTC)
     session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
-        get_current_routing(session, row.id, workspace.workspace_id),
+        routing,
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.patch("/{lead_id}/generated", response_model=LeadResponse)
+def update_lead_generated(
+    lead_id: UUID,
+    request: LeadGeneratedUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    row.is_generated = request.is_generated
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.patch("/{lead_id}/assignment", response_model=LeadResponse)
+def update_lead_assignment(
+    lead_id: UUID,
+    request: LeadAssignmentUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+) -> LeadResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    if routing is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This lead does not have a current routing decision yet.",
+        )
+
+    previous_assignee_id = routing.assigned_rep_id
+    if request.assigned_rep_id is None:
+        routing.assigned_rep_id = None
+        routing.assigned_rep_name = None
+    else:
+        member_and_user = session.execute(
+            select(WorkspaceMembershipORM, UserORM)
+            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+                WorkspaceMembershipORM.user_id == request.assigned_rep_id,
+                WorkspaceMembershipORM.status == "active",
+                UserORM.status == "active",
+            )
+        ).first()
+        if (
+            member_and_user is None
+            or "leads.edit"
+            not in effective_permissions(
+                member_and_user[0].role, member_and_user[0].permission_overrides
+            )
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Choose an active workspace member with lead-edit access.",
+            )
+        _, user = member_and_user
+        routing.assigned_rep_id = str(user.id)
+        routing.assigned_rep_name = user.display_name
+
+    if (
+        request.assigned_rep_id is not None
+        and str(request.assigned_rep_id) != previous_assignee_id
+    ):
+        notify_assigned_member(
+            session,
+            workspace_id=workspace.workspace_id,
+            lead_id=row.id,
+            recipient_user_id=request.assigned_rep_id,
+            assigned_by_user_id=workspace.user_id,
+        )
+
+    routing.is_manually_assigned = True
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.patch("/{lead_id}/profile", response_model=LeadResponse)
+def update_lead_profile(
+    lead_id: UUID,
+    request: LeadProfileUpdateRequest,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    """Apply reviewed profile fields and refresh qualification without external writes."""
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    changes = request.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        if field == "email":
+            value = value.lower()
+        setattr(row, field, value)
+    row.updated_at = datetime.now(UTC)
+    _reanalyze_lead_with_history(
+        session,
+        row,
+        workspace.workspace_id,
+        policies,
+        notification_provider,
+        trigger="assistant_profile_update",
+    )
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
+
+
+@router.post("/{lead_id}/manual-review/complete", response_model=LeadResponse)
+def complete_lead_manual_review(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.view", "manual_review.manage")
+    ),
+) -> LeadResponse:
+    """Complete one active review, record the decision, then apply current routing."""
+    row = session.scalar(
+        select(LeadORM)
+        .where(
+            LeadORM.id == lead_id,
+            LeadORM.workspace_id == workspace.workspace_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if row.qualification is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This lead has no completed qualification to route from.",
+        )
+
+    current_routing = get_current_routing(
+        session, row.id, workspace.workspace_id
+    )
+    reasons = lead_manual_review_reasons(session, row, current_routing)
+    if not reasons:
+        raise HTTPException(
+            status_code=409,
+            detail="This lead is no longer waiting for manual review.",
+        )
+
+    analysis = row.analysis
+    cleared_analysis_hold = bool(
+        analysis is not None and analysis.requires_manual_review
+    )
+    cleared_routing_hold = bool(
+        current_routing is not None and current_routing.manual_review
+    )
+    if analysis is not None:
+        analysis.requires_manual_review = False
+        if analysis.status == "manual_review":
+            analysis.status = "completed"
+        structured_output = dict(analysis.structured_output or {})
+        structured_output["requires_manual_review"] = False
+        if structured_output.get("status") == "manual_review":
+            structured_output["status"] = "completed"
+        analysis.structured_output = structured_output
+    row.updated_at = datetime.now(UTC)
+    record_pipeline_event(
+        session,
+        row.id,
+        "manual_review",
+        "completed",
+        {
+            "actor_id": workspace.actor_id,
+            "cleared_analysis_hold": cleared_analysis_hold,
+            "cleared_routing_hold": cleared_routing_hold,
+            "trigger_count": len(reasons),
+        },
+    )
+    route_and_notify(
+        session,
+        row,
+        policies[1],
+        notification_provider=notification_provider,
+        force=True,
+        reroute_reason=f"Manual review completed by {workspace.actor_id}.",
+    )
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        [],
     )
 
 
@@ -796,6 +1134,7 @@ def update_lead_progress(
             outcome = record_outcome(
                 session, row, stage=request.stage, conversion_type=request.conversion_type,
                 revenue=request.closed_revenue, credited_user_id=request.credited_user_id,
+                send_direct_message=request.send_direct_message,
             )
         except ValueError as error:
             session.rollback()
@@ -807,15 +1146,15 @@ def update_lead_progress(
             ),
             "credited_user_id": str(outcome.credited_user_id) if outcome.credited_user_id else None,
         }
-        qualification = row.qualification
-        classification = qualification.classification if qualification else "needs_qualifying"
-        score = qualification.total_score if qualification else 0
-        rationale = ["Commercial outcome recorded without changing qualification or CRM data."]
-    else:
-        classification, score, rationale = _reanalyze_lead_with_history(
-            session, row, workspace.workspace_id, policies, notification_provider,
-            trigger="manual_progress_update",
-        )
+    classification, score, rationale = _reanalyze_lead_with_history(
+        session,
+        row,
+        workspace.workspace_id,
+        policies,
+        notification_provider,
+        trigger="manual_progress_update",
+        route_after_reanalysis=request.stage not in {"converted", "lost"},
+    )
     progress_event.details = {
         **progress_event.details,
         "qualification": {"classification": classification, "score": score},
@@ -862,32 +1201,13 @@ def _reanalyze_lead_with_history(
     notification_provider: NotificationProvider | None,
     *,
     trigger: str,
+    route_after_reanalysis: bool = True,
 ) -> tuple[str, int, list[str]]:
-    events = list(
-        session.scalars(
-            select(PipelineEventORM)
-            .where(
-                PipelineEventORM.lead_id == row.id,
-                PipelineEventORM.workspace_id == workspace_id,
-                PipelineEventORM.stage.in_(["manual_progress", "gmail_message"]),
-            )
-            .order_by(PipelineEventORM.created_at.asc())
-        )
+    progress_context, recorded_evidence = lead_history_context(
+        session,
+        workspace_id=workspace_id,
+        lead_id=row.id,
     )
-    context_lines: list[str] = []
-    for event in events[-60:]:
-        details = event.details
-        if event.stage == "manual_progress":
-            context_lines.append(
-                f"Sales stage {details.get('stage', event.status)}: {details.get('note', '')}"
-            )
-        else:
-            direction = details.get("direction", "email")
-            context_lines.append(
-                f"Gmail {direction} email ({details.get('sent_at', '')}) "
-                f"{details.get('subject', '')}: {details.get('body', '')}"
-            )
-    progress_context = "\n".join(context_lines)[-24000:]
     payload = {
         "source": row.source,
         "source_detail": row.source_detail,
@@ -908,11 +1228,22 @@ def _reanalyze_lead_with_history(
         "raw_payload": row.raw_payload,
         "normalization_version": row.normalization_version,
     }
-    normalized = normalize_lead(payload, row.id)
+    normalized = replace(
+        normalize_lead(payload, row.id),
+        original_message=row.message,
+        recorded_evidence=recorded_evidence,
+    )
     resolved_icp = resolve_workspace_icp(session, workspace_id, policies[0])
     reasoning_provider = resolve_workspace_reasoning_provider(session, workspace_id)
     analysis, result = _analyze_and_qualify(
-        normalized, resolved_icp.configuration, policies[1], reasoning_provider
+        normalized,
+        resolved_icp.configuration,
+        policies[1],
+        reasoning_provider,
+        business_profile=operations_policy(session, workspace_id).business_profile,
+        icp_enabled=resolved_icp.source == "workspace",
+        session=session,
+        workspace_id=workspace_id,
     )
     result = resolved_icp.trace_result(result)
     previous = {
@@ -934,16 +1265,59 @@ def _reanalyze_lead_with_history(
             "analysis_provider": analysis.provider,
         },
     )
-    route_and_notify(
-        session,
-        row,
-        policies[1],
-        notification_provider=notification_provider,
-        force=True,
-        send_notification=False,
-        reroute_reason="Lead history changed; qualification was recalculated.",
-    )
+    if route_after_reanalysis:
+        route_and_notify(
+            session,
+            row,
+            policies[1],
+            notification_provider=notification_provider,
+            force=True,
+            send_notification=False,
+            reroute_reason="Lead history changed; qualification was recalculated.",
+        )
     return result.classification, result.total_score, list(result.rationale)
+
+
+@router.post("/{lead_id}/reevaluate", response_model=LeadResponse)
+def reevaluate_lead(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
+    notification_provider: NotificationProvider = Depends(get_notification_provider),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> LeadResponse:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    try:
+        _reanalyze_lead_with_history(
+            session,
+            row,
+            workspace.workspace_id,
+            policies,
+            notification_provider,
+            trigger="manual_assistant_reevaluation",
+        )
+    except ReasoningProviderError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Qualification could not be re-evaluated. Check the workspace reasoning "
+                "provider and retry."
+            ),
+        ) from error
+    session.commit()
+    routing = get_current_routing(
+        session, row.id, workspace_id=workspace.workspace_id
+    )
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+    )
 
 
 @router.post(
@@ -1000,7 +1374,6 @@ def sync_lead_gmail_conversation(
             known_message_ids_by_connection.add((connection_id, message_id))
         else:
             legacy_known_message_ids.add(message_id)
-    now = datetime.now(UTC)
     checked_threads: set[tuple[str, str]] = set()
     automation_threads: list[
         tuple[ProviderConnectionORM, list[dict[str, str]]]
@@ -1049,35 +1422,16 @@ def sync_lead_gmail_conversation(
                         raise
                     threads_unreadable += 1
                     continue
-                for message in thread_messages:
-                    message["gmail_connection_id"] = str(connection.id)
-                    message_id = message.get("message_id", "")
-                    scoped_message_id = (str(connection.id), message_id)
-                    if (
-                        not message_id
-                        or scoped_message_id in known_message_ids_by_connection
-                        or message_id in legacy_known_message_ids
-                    ):
-                        continue
-                    event_time = now
-                    if message.get("sent_at"):
-                        try:
-                            event_time = datetime.fromisoformat(message["sent_at"])
-                        except ValueError:
-                            pass
-                    session.add(
-                        PipelineEventORM(
-                            id=uuid4(),
-                            workspace_id=workspace.workspace_id,
-                            lead_id=lead_id,
-                            stage="gmail_message",
-                            status=message.get("direction", "inbound"),
-                            details=message,
-                            created_at=event_time,
-                        )
-                    )
-                    known_message_ids_by_connection.add(scoped_message_id)
-                    messages_added += 1
+                messages_added += append_gmail_thread_messages(
+                    session,
+                    workspace_id=workspace.workspace_id,
+                    lead_id=lead_id,
+                    connection_id=connection.id,
+                    messages=thread_messages,
+                    known_message_ids_by_connection=known_message_ids_by_connection,
+                    legacy_known_message_ids=legacy_known_message_ids,
+                    existing_events=existing_events,
+                )
                 if thread_messages:
                     automation_threads.append((connection, thread_messages))
     except ProviderOperationError as error:

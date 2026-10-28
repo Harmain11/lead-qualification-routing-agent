@@ -12,6 +12,7 @@ export function createSlackRule(connections: ProviderConnection[], defaultConnec
     connection_id: target.id,
     destination_type: "channel",
     channel_id: typeof channel === "string" && channel.trim() ? channel.trim() : null,
+    fallback_to_channel: false,
     queues: [],
     qualification_bands: [],
     sources: [],

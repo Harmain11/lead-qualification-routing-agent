@@ -1,9 +1,11 @@
 import type { CSSProperties, ReactNode } from "react";
 import { memo, useId } from "react";
 import type {
+  AdvancedAnalytics,
   AgentActivity,
   ChannelAnalytics,
   DashboardAnalytics,
+  ExtendedAnalytics,
   ManualReviewAnalytics,
   PipelineAnalytics,
   RepAnalytics,
@@ -20,6 +22,8 @@ export type AnalyticsBundle = {
   series: TimeSeriesAnalytics | null;
   agents: AgentActivity | null;
   review: ManualReviewAnalytics | null;
+  extended: ExtendedAnalytics | null;
+  advanced: AdvancedAnalytics | null;
 };
 
 export type VisibilityOption<T extends string> = {
@@ -59,19 +63,26 @@ export function loadSectionSelection<T extends string>(
 export function SectionVisibilityPicker<T extends string>({
   options,
   visible,
+  applied,
   description,
   showAllLabel,
   onToggle,
   onShowAll,
+  onSubmit,
 }: {
   options: readonly VisibilityOption<T>[];
   visible: ReadonlySet<T>;
+  applied: ReadonlySet<T>;
   description: string;
   showAllLabel: string;
   onToggle: (id: T, checked: boolean) => void;
   onShowAll: () => void;
+  onSubmit: () => void;
 }) {
   const titleId = useId();
+  const hasUnappliedChanges =
+    visible.size !== applied.size ||
+    [...visible].some((id) => !applied.has(id));
   const groups = Array.from(
     new Set(
       options
@@ -105,7 +116,11 @@ export function SectionVisibilityPicker<T extends string>({
     <details className="section-picker panel">
       <summary className="section-picker-summary">
         <span>Customize view</span>
-        <small>{visible.size} of {options.length} cards shown</small>
+        <small>
+          {hasUnappliedChanges
+            ? `${visible.size} selected · ${applied.size} currently shown`
+            : `${applied.size} of ${options.length} cards shown`}
+        </small>
       </summary>
       <div className="section-picker-content" aria-labelledby={titleId}>
       <div className="section-picker-heading">
@@ -138,9 +153,21 @@ export function SectionVisibilityPicker<T extends string>({
       ) : (
         renderOptions(options, "Available sections")
       )}
-      <small className="section-picker-note">
-        Your selection is saved for your account on this device.
-      </small>
+      <div className="section-picker-footer">
+        <small className="section-picker-note" aria-live="polite">
+          {hasUnappliedChanges
+            ? "Changes stay in the current view until you submit."
+            : "Your selection is saved for your account on this device."}
+        </small>
+        <button
+          className="primary-button"
+          type="button"
+          onClick={onSubmit}
+          disabled={!hasUnappliedChanges}
+        >
+          Submit selection
+        </button>
+      </div>
       </div>
     </details>
   );
@@ -229,16 +256,39 @@ export function Panel({
   eyebrow,
   action,
   children,
+  collapsible = false,
 }: {
   title: string;
   eyebrow: string;
   action?: string;
   children: ReactNode;
+  collapsible?: boolean;
 }) {
+  const navigationSection = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  if (collapsible) {
+    return (
+      <details
+        className="panel data-panel settings-collapsible"
+        data-navigation-section={navigationSection}
+      >
+        <summary className="settings-collapsible-summary">
+          <div className="settings-collapsible-heading">
+            <span className="eyebrow">{eyebrow}</span>
+            <h2>{title}</h2>
+          </div>
+          {action && <span className="panel-action">{action}</span>}
+          <span className="settings-collapsible-icon" aria-hidden="true" />
+        </summary>
+        <div className="settings-collapsible-content">{children}</div>
+      </details>
+    );
+  }
+
   return (
     <section
       className="panel data-panel"
-      data-navigation-section={title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}
+      data-navigation-section={navigationSection}
       tabIndex={-1}
     >
       <div className="section-heading">

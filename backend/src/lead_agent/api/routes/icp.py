@@ -124,7 +124,7 @@ def _system_response(workspace_id: UUID, configuration: IcpConfig) -> IcpVersion
         version_number=None,
         status="published",
         name=configuration.profile_name,
-        description="System default ICP used until this workspace publishes a custom version.",
+        description="Built-in example profile. It is not used for workspace lead qualification.",
         configuration=payload,
         weight_total=_weight_total(payload),
         created_by="system",
@@ -135,6 +135,23 @@ def _system_response(workspace_id: UUID, configuration: IcpConfig) -> IcpVersion
         effective_at=None,
         archived_at=None,
         editable=False,
+    )
+
+
+def _not_configured_response(
+    workspace_id: UUID, configuration: IcpConfig
+) -> IcpVersionResponse:
+    response = _system_response(workspace_id, configuration)
+    return response.model_copy(
+        update={
+            "source": "not_configured",
+            "status": "not_configured",
+            "name": "No custom ICP published",
+            "description": (
+                "ICP fit scoring and ICP hard exclusions are skipped until this workspace "
+                "publishes a custom ICP. The built-in profile is not used for qualification."
+            ),
+        }
     )
 
 
@@ -156,7 +173,7 @@ def current_icp(
 ) -> IcpVersionResponse:
     resolved = resolve_workspace_icp(session, workspace.workspace_id, policies[0])
     if resolved.version_id is None:
-        return _system_response(workspace.workspace_id, resolved.configuration)
+        return _not_configured_response(workspace.workspace_id, resolved.configuration)
     row = get_version(session, workspace.workspace_id, resolved.version_id)
     if row is None:  # pragma: no cover - protected by the resolver query
         raise HTTPException(status_code=500, detail="resolved ICP version is unavailable")

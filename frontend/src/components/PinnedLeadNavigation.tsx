@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { leadDetailSections, leadSectionHref, type LeadDetailSection } from "../leadSections";
-import "./pinnedLeadNavigation.css";
 
 export type PinnedLeadSection = { leadId: string; company: string; section: LeadDetailSection };
 const samePin = (a: PinnedLeadSection, b: PinnedLeadSection) => a.leadId === b.leadId && a.section === b.section;

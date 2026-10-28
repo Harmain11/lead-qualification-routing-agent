@@ -20,7 +20,7 @@
 .contacts-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .85fr); gap: 16px; align-items: start; }
 .contacts-list, .contact-profile { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
 .contacts-list { display: grid; }
-.contact-row { display: grid; grid-template-columns: 1.2fr 1fr .8fr auto; gap: 16px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.contact-row { display: grid; grid-template-columns: 1.2fr 1fr .8fr auto; gap: 16px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; background: transparent; color: var(--text); cursor: pointer; font: inherit; text-decoration: none; }
 .contact-row:last-child { border-bottom: 0; }
 .contact-row:hover, .contact-row.selected { background: var(--surface-high); }
 .contact-row > span { min-width: 0; display: grid; gap: 4px; }

@@ -10,10 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
-from lead_agent.application.email_templates import DEFAULT_EMAIL_TEMPLATES, get_email_template
+from lead_agent.application.email_templates import (
+    DEFAULT_EMAIL_TEMPLATES,
+    apply_workspace_email_signature,
+    get_email_template,
+)
+from lead_agent.application.governance import operations_policy
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import WorkspaceEmailTemplateORM
+from lead_agent.infrastructure.db.models import WorkspaceEmailTemplateORM, WorkspaceORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 
@@ -146,10 +151,15 @@ def generate_email_template(
             if placeholder in f"{sample_subject}\n{sample_body}"
         ]
     )
+    business_profile = operations_policy(
+        session, workspace.workspace_id
+    ).business_profile
+    workspace_record = session.get(WorkspaceORM, workspace.workspace_id)
     facts = {
         "template_generation": True,
         "email_purpose": kind,
         "generation_mode": generation_mode,
+        "workspace_business_profile": business_profile.model_dump(mode="json"),
         "style_reference": None
         if generate_from_scratch
         else {"subject": sample_subject, "body": sample_body},
@@ -174,7 +184,12 @@ def generate_email_template(
             status_code=502,
             detail="AI could not generate an email template. Try again.",
         ) from error
-    generated_text = f"{content.subject}\n{content.body}"
+    generated_body = apply_workspace_email_signature(
+        content.body,
+        business_profile,
+        fallback_business_name=workspace_record.name if workspace_record else "",
+    )
+    generated_text = f"{content.subject}\n{generated_body}"
     if any(placeholder not in generated_text for placeholder in required_placeholders):
         raise HTTPException(
             status_code=502,
@@ -188,6 +203,6 @@ def generate_email_template(
     return {
         "kind": kind,
         "subject": content.subject,
-        "body": content.body,
+        "body": generated_body,
         "generation_method": "ai_full" if generate_from_scratch else "ai",
     }

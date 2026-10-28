@@ -161,10 +161,33 @@ def test_suppression_blocks_draft_before_ai_or_eligibility(ops):
 
 def test_strict_consent_and_policy_version(ops):
     session, client, workspace, _, lead, *_ = ops
+    business_profile = {
+        "business_name": "Corral Systems",
+        "alternate_names": ["Corral"],
+        "website": "https://corral.example",
+        "email_domains": ["corral.example"],
+        "description": "CRM and sales operations software.",
+        "products_services": "Lead qualification and routing.",
+        "lead_distinction_notes": "Workspace company is not a prospective lead.",
+    }
     response = client.put(
-        "/v1/ops/policy", json={"version": 0, "configuration": {"require_recorded_consent": True}}
+        "/v1/ops/policy",
+        json={
+            "version": 0,
+            "configuration": {
+                "require_recorded_consent": True,
+                "business_profile": business_profile,
+            },
+        },
     )
     assert response.status_code == 200
+    assert response.json()["configuration"]["business_profile"] == {
+        **business_profile, "email_signature": "",
+    }
+    assert (
+        client.get("/v1/ops/policy").json()["configuration"]["business_profile"]
+        == {**business_profile, "email_signature": ""}
+    )
     assert client.put("/v1/ops/policy", json={"version": 0, "configuration": {}}).status_code == 409
     with pytest.raises(OutreachBlocked, match="Record permission"):
         assert_outreach_allowed(session, workspace.workspace_id, lead.email)
@@ -390,6 +413,74 @@ def saved_workflow(client, lead, nodes, kind="playbook"):
     return result.json()
 
 
+def test_bulk_sequence_enrollment_is_idempotent_and_workspace_scoped(ops, icp, routing):
+    from lead_agent.infrastructure.db.models import LeadORM
+    from lead_agent.infrastructure.db.operations import AutomationRunORM
+
+    session, client, workspace, _, lead, *_ = ops
+    _, _, second_lead = process_lead(
+        session,
+        {
+            "source": "web",
+            "full_name": "Sam Jones",
+            "email": "sam@acme.test",
+            "company_name": "Acme",
+            "industry": "Software",
+            "geography": "Pakistan",
+            "product_or_service": "Consulting",
+            "message": "Please follow up with our team next week.",
+        },
+        icp,
+        routing,
+        workspace_id=workspace.workspace_id,
+    )
+    session.commit()
+    definition_id = uuid4()
+    definition = client.put(
+        f"/v1/automations/{definition_id}",
+        json={
+            "name": "Weekly follow-up",
+            "kind": "sequence",
+            "active": True,
+            "nodes": [
+                {"id": "start", "type": "start", "next": "wait"},
+                {
+                    "id": "wait",
+                    "type": "wait",
+                    "wait_hours": 168,
+                    "next": "draft",
+                },
+                {"id": "draft", "type": "draft", "next": "end"},
+                {"id": "end", "type": "end"},
+            ],
+            "version": 0,
+        },
+    )
+    assert definition.status_code == 200, definition.text
+
+    path = f"/v1/automations/{definition_id}/enroll-bulk"
+    payload = {"lead_ids": [str(lead.id), str(second_lead.id)]}
+    response = client.post(path, json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["enrolled"] == 2
+    assert response.json()["already_enrolled"] == 0
+    assert {item["status"] for item in response.json()["items"]} == {"enrolled"}
+
+    repeated = client.post(path, json=payload)
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["enrolled"] == 0
+    assert repeated.json()["already_enrolled"] == 2
+    assert session.query(AutomationRunORM).count() == 2
+
+    rejected = client.post(
+        path,
+        json={"lead_ids": [str(lead.id), str(uuid4())]},
+    )
+    assert rejected.status_code == 404
+    assert session.query(AutomationRunORM).count() == 2
+    assert session.get(LeadORM, lead.id) is not None
+
+
 def test_branching_workflow_and_note_idempotency(ops):
     from lead_agent.application.automations import advance_run
     from lead_agent.infrastructure.db.operations import AutomationRunORM
@@ -608,6 +699,98 @@ def test_company_research_citations_and_stale_review(ops, monkeypatch):
     )
 
 
+def test_workspace_business_profile_analysis_returns_cited_suggestions_without_saving(
+    ops, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from lead_agent.application import intelligence
+    from lead_agent.application.governance import operations_policy
+
+    session, client, workspace, *_ = ops
+    website = "https://acme.test"
+    page = {
+        "url": website,
+        "text": "Acme builds sales software and workflow tools. Contact sales at hello@acme.test.",
+    }
+    long_service = "Workflow tools for distributed sales teams " * 5
+    facts = [
+        {
+            "field": "business_name",
+            "value": "Acme",
+            "source": website,
+            "excerpt": "Acme builds sales software",
+        },
+        {
+            "field": "products_services",
+            "value": "Sales software",
+            "source": website,
+            "excerpt": "builds sales software",
+        },
+        {
+            "field": "products_services",
+            "value": long_service,
+            "source": website,
+            "excerpt": "workflow tools",
+        },
+        {
+            "field": "email_domains",
+            "value": "acme.test",
+            "source": website,
+            "excerpt": "hello@acme.test",
+        },
+    ]
+    monkeypatch.setattr(intelligence, "fetch_company_page", lambda _: page)
+    monkeypatch.setattr(
+        intelligence,
+        "resolve_workspace_reasoning_provider",
+        lambda *_: SimpleNamespace(
+            summarize_evidence=lambda *_: {
+                "summary": "Acme builds sales software and workflow tools. "
+                + ("More public company details. " * 20),
+                "recommendations": [],
+                "facts": facts,
+            }
+        ),
+    )
+
+    response = client.post(
+        "/v1/ops/business-profile/analyze", json={"website": website}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["suggestions"]["business_name"] == "Acme"
+    assert len(payload["suggestions"]["description"]) <= 240
+    assert payload["suggestions"]["description"].startswith("Acme builds sales software")
+    assert all(
+        len(item) <= 120
+        for item in payload["suggestions"]["products_services"].splitlines()
+    )
+    assert payload["suggestions"]["email_domains"] == ["acme.test"]
+    assert len(payload["evidence"]) == len(facts)
+    assert all(
+        fact["source"] == website and fact["excerpt"] in page["text"]
+        for fact in payload["evidence"]
+    )
+    assert operations_policy(session, workspace.workspace_id).business_profile.business_name == ""
+
+    facts[0]["excerpt"] = "unsupported"
+    invalid = client.post(
+        "/v1/ops/business-profile/analyze", json={"website": website}
+    )
+    assert invalid.status_code == 422
+    assert "unsupported citation" in invalid.json()["detail"]
+
+
+def test_workspace_business_profile_analysis_rejects_unsafe_website(ops):
+    _, client, *_ = ops
+    response = client.post(
+        "/v1/ops/business-profile/analyze", json={"website": "http://example.com"}
+    )
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize(
     "address", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "::ffff:127.0.0.1"]
 )
@@ -701,10 +884,16 @@ def test_outcome_learning_preserves_component_budgets_and_creates_draft(ops, icp
     weights = resolved.configuration.scoring.component_points["icp_fit"]
     keys = [key for key, points in weights.items() if points > 1]
     assert len(keys) >= 2
+    last_lead_number = session.scalar(
+        select(func.max(LeadORM.lead_number)).where(
+            LeadORM.workspace_id == workspace.workspace_id
+        )
+    ) or 0
     for index in range(20):
         row = LeadORM(
             id=uuid4(),
             workspace_id=workspace.workspace_id,
+            lead_number=last_lead_number + index + 1,
             source="web",
             full_name=f"Outcome {index}",
             email=f"person{index}@example.test",

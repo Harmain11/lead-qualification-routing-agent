@@ -24,6 +24,7 @@ from lead_agent.infrastructure.slack import WorkspaceSlackNotificationResolver
 def record_outcome(
     session: Session, lead: LeadORM, *, stage: str,
     conversion_type: str | None, revenue: Decimal | None, credited_user_id: UUID | None,
+    send_direct_message: bool = False,
 ) -> LeadOutcomeORM:
     if credited_user_id is None and lead.outcome:
         credited_user_id = lead.outcome.credited_user_id
@@ -66,6 +67,7 @@ def record_outcome(
         outcome.closed_at = now
     outcome.pipeline_stage = target
     outcome.conversion_type = conversion_type if stage == "converted" else None
+    outcome.send_direct_message = send_direct_message if stage == "converted" else False
     outcome.closed_revenue = revenue if stage == "converted" else Decimal("0")
     outcome.credited_user = user
     outcome.data_source = "manual"
@@ -116,7 +118,8 @@ def send_win_notifications(
         f"{(outcome.conversion_type or 'sale').title()}.\n"
         f"{amount}. Lead: {_plain(lead.full_name)}. Service: {_plain(lead.product_or_service)}."
     )
-    for destination in ("channel", "direct_message"):
+    destinations = ("channel", "direct_message") if outcome.send_direct_message else ("channel",)
+    for destination in destinations:
         row = session.scalar(select(LeadWinNotificationORM).where(
             LeadWinNotificationORM.outcome_id == outcome.id,
             LeadWinNotificationORM.destination == destination,
