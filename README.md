@@ -230,7 +230,7 @@ This repository is structured for direct Replit import. Replit reads the root
 starts `bash scripts/replit_start.sh` for a Reserved VM web deployment.
 
 1. `scripts/replit_build.sh` installs the backend package, runs `npm ci`, and builds the Vite dashboard.
-2. `scripts/replit_start.sh` reads Replit’s `PORT`, binds the API to `0.0.0.0`, applies Alembic migrations, checks PostgreSQL and Redis, and serves the built dashboard and API from one origin.
+2. `scripts/replit_start.sh` reads Replit’s `PORT`, checks that the production database is already at the Alembic head, checks PostgreSQL and Redis, and serves the built dashboard and API from one origin. It does not run migrations at startup.
 3. The runtime supervises FastAPI/Uvicorn, one Celery worker, and one Celery beat scheduler.
 
 ### Replit publish checklist
@@ -239,11 +239,12 @@ starts `bash scripts/replit_start.sh` for a Reserved VM web deployment.
 2. Use **Reserved VM → Web server** for publishing. The background worker and beat scheduler must stay alive.
 3. Provision durable PostgreSQL and managed Redis. SQLite and an ephemeral local Redis are not production storage.
 4. Add the production secrets listed in [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md). At minimum, configure the database, Redis, production security keys, managed secret backend, and OAuth credentials for the providers you will use.
-5. Publish once to obtain the stable HTTPS origin.
-6. Set `FRONTEND_PUBLIC_BASE_URL`, `INTEGRATION_PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` to that exact HTTPS origin.
-7. Add the provider callback URLs from the deployment guide to Google, Slack, Salesforce, and HubSpot consoles.
-8. Confirm `/health/live` returns `200`, then confirm `/health/ready` after PostgreSQL and Redis are reachable.
-9. Run one controlled intake → qualification → routing → notification smoke test before inviting users.
+5. Apply pending Alembic migrations to the production database as a controlled release step before publishing code that needs the new schema. Confirm the database is at `head`; the current head includes `0052_workspace_email_drafts`. Use the production `DATABASE_URL`, not the development preview database.
+6. Publish once to obtain the stable HTTPS origin.
+7. Set `FRONTEND_PUBLIC_BASE_URL`, `INTEGRATION_PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` to that exact HTTPS origin.
+8. Add the provider callback URLs from the deployment guide to Google, Slack, Salesforce, and HubSpot consoles.
+9. Confirm `/health/live` returns `200`, then confirm `/health/ready` after PostgreSQL and Redis are reachable.
+10. Run one controlled intake → qualification → routing → notification smoke test before inviting users.
 
 The deployed app should use one origin such as `https://your-app.replit.app`. Do not upload `.env`, local SQLite databases, runtime logs, `frontend/.env.local`, npm caches, or Remotion renders as deployment configuration.
 
