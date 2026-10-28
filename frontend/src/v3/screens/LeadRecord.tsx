@@ -55,11 +55,11 @@ import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 /** The record's sections, in the order a person works a lead. */
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "overview", label: "Overview" },
-  { id: "deal", label: "Deal" },
-  { id: "calls", label: "Calls" },
-  { id: "email", label: "Email" },
-  { id: "follow-ups", label: "Follow-up" },
   { id: "ai", label: "Qualification" },
+  { id: "follow-ups", label: "Follow-up" },
+  { id: "email", label: "Email" },
+  { id: "calls", label: "Calls" },
+  { id: "deal", label: "Deal" },
   { id: "history", label: "Activity" },
   { id: "agent", label: "Ask Corral" },
 ];
@@ -763,7 +763,9 @@ export function LeadRecord({
               {route.manual_review && <Banner tone="attention" title="Validate the analysis before contacting this lead." />}
             </section>
           )}
-          <FollowUpComposer lead={lead} canEdit={canEdit} />
+          {canViewEmail && (
+            <Button kind="plain" onClick={() => onSectionChange("email")}>Open email</Button>
+          )}
           <div className="v-legacy-block">
             <LeadMeetingPanel
               lead={lead}
