@@ -57,12 +57,12 @@ test("records without a breakdown fall back to the documented 40/35/25 maxima", 
   assert.deepEqual(totals.map((item) => item.max), [40, 35, 25]);
 });
 
-test("permission fallback order and view permissions are unchanged", async () => {
+test("permission fallback order includes the calendar and checks view permissions", async () => {
   const app = await source("../src/App.tsx");
-  assert.match(app, /const FALLBACK_ORDER: View\[\] = \[\s*"dashboard", "leads", "email", "contacts", "accounts", "pipeline", "agents",\s*"analytics", "review", "integrations", "dialer", "team", "settings",\s*\];/);
+  assert.match(app, /const FALLBACK_ORDER: View\[\] = \[\s*"dashboard", "leads", "email", "calendar", "contacts", "accounts", "pipeline", "agents",\s*"analytics", "review", "integrations", "dialer", "team", "settings",\s*\];/);
   assert.match(app, /FALLBACK_ORDER\.find\(\(item\) => hasViewPermission\(item, permissions\)\)/);
   assert.match(app, /const visibleNavigation = navigation\.filter\(\(item\) =>\s*hasViewPermission\(item\.id, workspacePermissions\),?\s*\);/);
-  for (const [view, permission] of [["dashboard", "analytics.view"], ["leads", "leads.view"], ["review", "manual_review.view"], ["dialer", "dialer.call"], ["compliance", "workspace.manage"]]) {
+  for (const [view, permission] of [["dashboard", "analytics.view"], ["leads", "leads.view"], ["calendar", "leads.view"], ["review", "manual_review.view"], ["dialer", "dialer.call"], ["compliance", "workspace.manage"]]) {
     assert.match(app, new RegExp(`${view}: "${permission.replace(".", "\\.")}"`), view);
   }
 });

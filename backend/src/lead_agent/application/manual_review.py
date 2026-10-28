@@ -40,7 +40,7 @@ def lead_manual_review_reasons(
     lead: LeadORM,
     routing: RoutingDecisionORM | None = None,
 ) -> list[str]:
-    if lead.manual_review_completed_at is not None:
+    if getattr(lead, "manual_review_completed_at", None) is not None:
         return []
     analysis = lead.analysis
     is_held = bool(

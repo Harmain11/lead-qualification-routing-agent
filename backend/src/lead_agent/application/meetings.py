@@ -1,35 +1,26 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import json
+import logging
 from datetime import UTC, date, datetime, time, timedelta
+from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from lead_agent.domain.meeting_intent import MeetingIntentClassification
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.calendar_providers import CalendlyClient, GoogleCalendarClient
 from lead_agent.infrastructure.communications import contact_phone_details
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 
-_MEETING_PATTERNS = (
-    re.compile(
-        r"\b(?:schedule|book|arrange|set up|find|pick)\b.{0,80}"
-        r"\b(?:meeting|call|demo|appointment|consultation|time|slot)\b",
-        re.IGNORECASE | re.DOTALL,
-    ),
-    re.compile(
-        r"\b(?:meeting|call|demo|appointment|consultation)\b.{0,80}"
-        r"\b(?:available|availability|schedule|book|time|calendar|works)\b",
-        re.IGNORECASE | re.DOTALL,
-    ),
-    re.compile(
-        r"\b(?:calendly\.com|calendar invite|available times|availability|"
-        r"what times work|when can we meet|when are you free)\b",
-        re.IGNORECASE,
-    ),
-)
+_LOGGER = logging.getLogger("lead_agent.meetings")
+_MEETING_INTENT_CACHE: dict[str, tuple[float, MeetingIntentClassification]] = {}
 _QUOTED_LINE = re.compile(r"^\s*(?:>|On .+wrote:|From:|Sent:)", re.IGNORECASE)
 _OTHER_TIME_PATTERNS = (
     re.compile(
@@ -102,6 +93,10 @@ _24_HOUR_TIME = re.compile(
 )
 
 
+class MeetingIntentUnavailable(RuntimeError):
+    """The workspace AI could not assess the synced email thread."""
+
+
 def find_meeting_request(
     session: Session,
     lead: LeadORM,
@@ -122,15 +117,16 @@ def find_meeting_request(
             .limit(100)
         )
     )
-    for event in messages:
+    recent_events = list(reversed(messages[:30]))
+    lead_email = str(getattr(lead, "email", "") or "").strip().lower()
+    thread_labels: dict[str, str] = {}
+    source_by_key: dict[str, dict[str, str]] = {}
+    thread_messages: list[dict[str, str]] = []
+
+    for event in recent_events:
         details = event.details if isinstance(event.details, dict) else {}
         direction = str(details.get("direction") or getattr(event, "status", "")).lower()
         sender = str(details.get("sender") or "").strip().lower()
-        lead_email = str(getattr(lead, "email", "") or "").strip().lower()
-        if direction == "outbound" or (
-            sender and (not lead_email or sender != lead_email)
-        ):
-            continue
         if thread_id is not None and str(details.get("thread_id") or "") != thread_id:
             continue
         if (
@@ -138,41 +134,106 @@ def find_meeting_request(
             and str(details.get("gmail_connection_id") or "") != gmail_connection_id
         ):
             continue
+        actual_thread_id = str(details.get("thread_id") or "").strip()
+        if not actual_thread_id:
+            continue
+        is_outbound = direction == "outbound"
+        if is_outbound:
+            role = "workspace"
+        elif sender and (not lead_email or sender != lead_email):
+            continue
+        else:
+            role = "lead"
         subject = str(details.get("subject") or "").strip()
         body = str(details.get("body") or details.get("snippet") or "").strip()
         excerpt = _plain_excerpt(body)
-        if (
-            match_confirmed_meeting_option(excerpt, option_count=5) is not None
-            and not meeting_reply_requests_other_times(excerpt)
-        ):
-            continue
-        text = f"{subject}\n{excerpt}"
-        reference = _parse_provider_time(details.get("sent_at"))
-        contact_zone = lead_time_zone(lead, "UTC") or "UTC"
-        specific_time_proposal = (
-            _SPECIFIC_TIME_PROPOSAL.search(excerpt) is not None
-            and requested_meeting_date(
-                excerpt, reference=reference, time_zone=contact_zone
-            ) is not None
-            and requested_meeting_time(excerpt) is not None
-        )
-        if (
-            not any(pattern.search(text) for pattern in _MEETING_PATTERNS)
-            and not specific_time_proposal
-        ):
+        if not excerpt:
             continue
         message_id = str(details.get("message_id") or "")
         if not message_id:
             continue
-        return {
+        if actual_thread_id not in thread_labels:
+            thread_labels[actual_thread_id] = f"thread-{len(thread_labels) + 1}"
+        item = {
             "message_id": message_id,
             "subject": subject[:500],
             "excerpt": excerpt,
-            "thread_id": str(details.get("thread_id") or ""),
+            "thread_id": actual_thread_id,
             "sent_at": str(details.get("sent_at") or ""),
             "rfc_message_id": str(details.get("rfc_message_id") or ""),
             "gmail_connection_id": str(details.get("gmail_connection_id") or ""),
         }
+        message: dict[str, str] = {
+            "thread": thread_labels[actual_thread_id],
+            "role": role,
+            "subject": subject[:300],
+            "body": excerpt,
+        }
+        if role == "lead":
+            candidate_key = f"m{len(source_by_key) + 1}"
+            source_by_key[candidate_key] = item
+            message["candidate_key"] = candidate_key
+        thread_messages.append(message)
+
+    if not source_by_key:
+        return None
+
+    payload = {"messages": thread_messages[-24:]}
+    try:
+        provider = resolve_workspace_reasoning_provider(session, workspace_id)
+        classify = getattr(provider, "classify_meeting_intent", None)
+        if not callable(classify):
+            _LOGGER.warning(
+                "AI meeting-intent classification is unavailable for workspace %s",
+                workspace_id,
+            )
+            raise MeetingIntentUnavailable from None
+        cache_material = json.dumps(
+            {
+                "workspace_id": str(workspace_id),
+                "provider": getattr(provider, "provider_name", ""),
+                "model": getattr(provider, "model_name", ""),
+                "prompt": getattr(provider, "prompt_version", ""),
+                "payload": payload,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        cache_key = hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
+        cached = _MEETING_INTENT_CACHE.get(cache_key)
+        if cached is not None and monotonic() - cached[0] < 300:
+            classification = cached[1]
+        else:
+            response = classify(payload)
+            classification = MeetingIntentClassification.model_validate(response)
+            if len(_MEETING_INTENT_CACHE) >= 256:
+                _MEETING_INTENT_CACHE.pop(next(iter(_MEETING_INTENT_CACHE)))
+            _MEETING_INTENT_CACHE[cache_key] = (monotonic(), classification)
+    except Exception as error:
+        _LOGGER.warning(
+            "AI meeting-intent classification failed for workspace %s (%s)",
+            workspace_id,
+            type(error).__name__,
+        )
+        raise MeetingIntentUnavailable from None
+
+    if (
+        classification.intent != "meeting_request"
+        or classification.confidence < 0.72
+    ):
+        return None
+    source = source_by_key.get(classification.candidate_key)
+    if (
+        source is None
+        or classification.evidence.casefold() not in source["excerpt"].casefold()
+    ):
+        _LOGGER.warning(
+            "AI meeting-intent result did not match its source evidence for workspace %s",
+            workspace_id,
+        )
+        return None
+    return source
     return None
 
 

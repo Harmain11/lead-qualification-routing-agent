@@ -239,7 +239,7 @@ starts `bash scripts/replit_start.sh` for a Reserved VM web deployment.
 2. Use **Reserved VM → Web server** for publishing. The background worker and beat scheduler must stay alive.
 3. Provision durable PostgreSQL and managed Redis. SQLite and an ephemeral local Redis are not production storage.
 4. Add the production secrets listed in [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md). At minimum, configure the database, Redis, production security keys, managed secret backend, and OAuth credentials for the providers you will use.
-5. Apply pending Alembic migrations to the production database as a controlled release step before publishing code that needs the new schema. Confirm the database is at `head`; the current head includes `0052_workspace_email_drafts`. Use the production `DATABASE_URL`, not the development preview database.
+5. Apply pending Alembic migrations to the production database as a controlled release step before publishing code that needs the new schema. Confirm the database is at `head`; the current head includes `0053_workspace_calendar_events`. Use the production `DATABASE_URL`, not the development preview database.
 6. Publish once to obtain the stable HTTPS origin.
 7. Set `FRONTEND_PUBLIC_BASE_URL`, `INTEGRATION_PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` to that exact HTTPS origin.
 8. Add the provider callback URLs from the deployment guide to Google, Slack, Salesforce, and HubSpot consoles.

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -80,3 +81,13 @@ def test_routing_reason_does_not_repeat_review_trigger_but_keeps_extra_context(m
     reasons = lead_manual_review_reasons(EmptySession(), lead, routing)
 
     assert reasons == [trigger, "Manual representative assignment preserved."]
+
+
+def test_completed_review_does_not_reappear_from_stale_analysis() -> None:
+    lead = SimpleNamespace(
+        manual_review_completed_at=datetime.now(UTC),
+        analysis=SimpleNamespace(requires_manual_review=True),
+    )
+    routing = SimpleNamespace(manual_review=True)
+
+    assert lead_manual_review_reasons(EmptySession(), lead, routing) == []

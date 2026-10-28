@@ -57,7 +57,7 @@
 .email-composer-address-grid { display: grid; grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr); align-items: start; gap: 12px; }
 .email-composer-recipient-fields { display: grid; gap: 9px; min-width: 0; }
 .email-composer label { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 11px; font-weight: 700; }
-.email-composer input, .email-composer select, .email-composer textarea { width: 100%; min-height: 39px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); padding: 9px 10px; font-size: 12px; }
+.email-composer input, .email-composer select, .email-composer textarea { width: 100%; min-height: 39px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); padding: 9px 10px; font-family: inherit; font-size: 14px; letter-spacing: normal; word-spacing: normal; }
 .email-composer textarea { resize: vertical; line-height: 1.5; }
 .email-recipient-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .email-recipient-options > div { display: flex; gap: 4px; }
@@ -69,7 +69,7 @@
 .email-format-toolbar button:hover, .email-format-toolbar button:focus-visible { border-color: var(--line-bright); background: var(--surface-solid); }
 .email-link-entry { display: flex; gap: 7px; }
 .email-link-entry input { flex: 1; min-width: 0; }
-.email-rich-editor-input { min-height: 150px; max-height: 420px; overflow: auto; padding: 11px; border: 1px solid var(--line); border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--surface-solid); color: var(--text); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; outline: none; }
+.email-rich-editor-input { min-height: 150px; max-height: 420px; overflow: auto; padding: 11px; border: 1px solid var(--line); border-radius: 0 0 var(--radius-sm) var(--radius-sm); background: var(--surface-solid); color: var(--text); font-family: inherit; font-size: 14px; letter-spacing: normal; word-spacing: normal; white-space: pre-wrap; line-height: 1.6; overflow-wrap: anywhere; outline: none; }
 .email-rich-editor-input:focus { border-color: var(--line-bright); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent); }
 .email-rich-editor-input:empty::before { content: attr(data-placeholder); color: var(--subtle); pointer-events: none; }
 .email-attachment-picker input[type="file"] { min-height: 40px; padding: 6px; }

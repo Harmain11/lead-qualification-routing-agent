@@ -125,7 +125,7 @@ const styles = `
 .lmp-group-head { display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid var(--lmp-line); background:var(--lmp-wash); }
 .lmp-provider-mark { width:24px; height:24px; display:grid; place-items:center; border:1px solid var(--lmp-line); border-radius:7px; background:var(--surface); color:var(--lmp-green); font:700 13px "Cascadia Mono","SFMono-Regular",monospace; }
 .lmp-group-head div { min-width:0; }
-.lmp-group-head b { display:block; overflow:hidden; color:var(--lmp-ink); font-size:14px; text-overflow:ellipsis; var(--surface)-space:nowrap; }
+.lmp-group-head b { display:block; overflow:hidden; color:var(--lmp-ink); font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
 .lmp-group-head small { display:block; margin-top:2px; color:var(--lmp-muted); font-size:14px; }
 .lmp-options { display:grid; gap:0; }
 .lmp-option { position:relative; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:54px; padding:10px 12px; border-bottom:1px solid var(--lmp-line); cursor:pointer; transition:background 150ms ease; }
@@ -135,7 +135,7 @@ const styles = `
 .lmp-option input { width:14px; height:14px; margin:0; accent-color:var(--lmp-green); }
 .lmp-option-time { color:var(--lmp-ink); font-size:14px; font-weight:700; }
 .lmp-option-zone { display:block; margin-top:3px; color:var(--lmp-muted); font:13px "Cascadia Mono","SFMono-Regular",monospace; }
-.lmp-option-duration { color:var(--lmp-muted); font-size:14px; var(--surface)-space:nowrap; }
+.lmp-option-duration { color:var(--lmp-muted); font-size:14px; white-space:nowrap; }
 .lmp-footnote { margin:12px 0 0; color:var(--lmp-muted); font-size:14px; line-height:1.55; }
 .lmp-integrations { display:grid; gap:7px; margin-top:13px; }
 .lmp-integration { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 11px; border:1px solid var(--lmp-line); border-radius:8px; background:var(--surface); color:var(--lmp-muted); font-size:14px; }
@@ -168,7 +168,7 @@ const styles = `
 .lmp-outcome-failure { border-color:var(--lmp-error-line); background:var(--lmp-error-bg); }
 .lmp-outcome-failure .lmp-outcome-icon { background:var(--lmp-error-bg); color:var(--red); }
 .lmp-outcome-failure h4 { color:var(--red); }.lmp-outcome-failure p { color:var(--lmp-muted); }
-.lmp-sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); var(--surface)-space:nowrap; }
+.lmp-sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 @media(max-width:640px) {
  .lmp-head { padding:17px 15px 15px; }.lmp-body { padding:15px; }.lmp h3 { font-size:17px; }
  .lmp .lmp-refresh { width:44px; padding:0; justify-content:center; font-size:0; }.lmp-refresh-mark { font-size:16px; }
@@ -283,7 +283,7 @@ export function LeadMeetingPanel({
   const calendlyCalendarError = recommendations?.provider_errors.some(
     (error) => error.code === "calendly_external_calendar_unavailable",
   ) ?? false;
-  const noThread = !recommendations?.source_message_id;
+  const noThread = !recommendations?.source_message_id && recommendations?.offer_status !== "booked";
   const noMeetingDetected = Boolean(recommendations && !recommendations.detected && recommendations.source_message_id);
   const bookedOfferForCurrentRequest = Boolean(
     recommendations
@@ -458,9 +458,14 @@ export function LeadMeetingPanel({
           </div>
         </div>}
 
+        {!draftCreated && recommendations.offer_status === "booked" && !recommendations.source_message_id && <div className="lmp-outcome" role="status">
+          <span className="lmp-outcome-icon" aria-hidden="true">✓</span>
+          <div><h4>Meeting booked</h4><p>{recommendations.booked_meeting_at ? `Scheduled for ${new Date(recommendations.booked_meeting_at).toLocaleString()}.` : "A confirmed booking is recorded for this lead."} View it in Calendar or this lead’s activity.</p></div>
+        </div>}
+
         {!draftCreated && noThread && <div className="lmp-state">
           <span className="lmp-state-icon" aria-hidden="true">G</span>
-          <div><h4>No Gmail conversation found</h4><p>{recommendations.message || "Sync the lead’s Gmail conversation to review meeting intent and available times."} Refresh these recommendations after the parent finishes a Gmail sync.</p></div>
+          <div><h4>No matching meeting request found</h4><p>No meeting request was recognized in the imported conversation. Use “Read Gmail & refresh” to sync the latest messages and check again.</p></div>
         </div>}
 
         {!draftCreated && noMeetingDetected && <div className="lmp-state">
@@ -468,7 +473,7 @@ export function LeadMeetingPanel({
           <div><h4>No meeting request detected</h4><p>{recommendations.message || "The latest conversation does not contain a meeting request or proposed time."}</p></div>
         </div>}
 
-        {!draftCreated && !noThread && !noMeetingDetected && recommendations.detected && <>
+        {!draftCreated && !noThread && !noMeetingDetected && recommendations.detected && recommendations.source_message_id && <>
           {(recommendations.source_subject || recommendations.source_excerpt) && <div className="lmp-context">
             <div className="lmp-context-top"><span className="lmp-context-label">Conversation evidence</span>{recommendations.source_subject && <span className="lmp-subject">{recommendations.source_subject}</span>}</div>
             {recommendations.source_excerpt && <p className="lmp-excerpt">{recommendations.source_excerpt}</p>}
@@ -618,10 +623,10 @@ export function LeadMeetingPanel({
         </div>}
 
         {hasConnectedCalendly && ((!hasCalendlySlots && !calendlyCalendarError) || (hasCalendlySlots && hasUnavailableCalendlyEventType)) && <div className="lmp-calendly-fallback">
-          <b>{hasUnavailableCalendlyEventType ? "Some Calendly event types cannot read the connected calendar" : "Need Calendly options?"}</b>
+          <b>{hasUnavailableCalendlyEventType ? "Some Calendly event types cannot read the connected calendar" : "Calendly slot suggestions are unavailable"}</b>
           <p>{hasUnavailableCalendlyEventType
             ? "Choose an event type marked Available above to use its times. To restore the others, reconnect or connect the calendar in Calendly. Calendly shares connected calendars across event types."
-            : "Check that Calendly has an active event type with future availability and a connected calendar. If you need one, create an event type in Calendly, then check again here."}</p>
+            : "This affects individual time-slot suggestions only. Corral can still prepare a booking-link draft if your Calendly account has a public scheduling URL; the lead chooses a time on Calendly. To show suggested times here, make sure Calendly has an active event type with future availability and a connected calendar."}</p>
           {!hasCalendlySlots && <details className="lmp-calendly-howto">
             <summary>How to create a Calendly event type</summary>
             <ol>

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from lead_agent.application.assignment_notifications import notify_lead_action
 from lead_agent.application.governance import OutreachBlocked, assert_outreach_allowed
 from lead_agent.application.meetings import (
+    MeetingIntentUnavailable,
     _plain_excerpt,
     find_meeting_request,
     lead_time_zone,
@@ -58,6 +59,31 @@ _LOGGER = logging.getLogger("lead_agent.meeting_email")
 _OFFER_STAGE = "meeting_email_offer"
 _OFFER_PENDING = "awaiting_confirmation"
 _OFFER_AWAITING_SEND = "awaiting_send"
+
+
+def _find_meeting_request_for_draft(
+    *args: Any, **kwargs: Any
+) -> dict[str, str] | None:
+    try:
+        return find_meeting_request(*args, **kwargs)
+    except MeetingIntentUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "AI could not check the Gmail thread. Check the workspace reasoning "
+                "provider, then retry."
+            ),
+        ) from None
+
+
+def _find_meeting_request_in_background(
+    *args: Any, **kwargs: Any
+) -> dict[str, str] | None:
+    try:
+        return find_meeting_request(*args, **kwargs)
+    except MeetingIntentUnavailable:
+        _LOGGER.warning("AI could not check a Gmail thread during meeting processing")
+        return None
 _MAX_REQUEST_AGE = timedelta(days=7)
 _MAX_PENDING_OFFERS_PER_TICK = 100
 
@@ -1097,7 +1123,7 @@ def create_selected_slot_offer_draft(
             detail="Reconnect the Gmail mailbox used for this meeting conversation.",
         ) from error
 
-    source = find_meeting_request(
+    source = _find_meeting_request_for_draft(
         session,
         lead,
         workspace_id,
@@ -1370,12 +1396,35 @@ def create_booking_link_offer_draft(
     actor_id: str,
 ) -> LeadFollowUpEmailORM:
     """Create an in-thread booking-link draft without requiring a selected slot."""
-    source = find_meeting_request(session, lead, workspace_id)
+    source = _find_meeting_request_for_draft(session, lead, workspace_id)
     if source is None or not source.get("thread_id"):
         raise HTTPException(
             status_code=409,
             detail="Refresh the lead’s Gmail conversation before creating a meeting draft.",
         )
+    existing_offer = _thread_offer(
+        session,
+        workspace_id,
+        lead.id,
+        str(source["thread_id"]),
+        str(source.get("gmail_connection_id") or ""),
+    )
+    if existing_offer is not None and existing_offer.status in {
+        "sending", "awaiting_confirmation", "booking", "booked", "needs_attention"
+    }:
+        details = existing_offer.details if isinstance(existing_offer.details, dict) else {}
+        offered_at = _parse_datetime(details.get("offered_at") or details.get("created_at"))
+        request_at = _parse_datetime(source.get("sent_at"))
+        if (
+            details.get("source_message_id") == source.get("message_id")
+            or request_at is None
+            or offered_at is None
+            or request_at <= offered_at
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The appointment link for this request was already sent or resolved. Refresh the booking status before preparing another draft.",
+            )
     connection = _active_connection(session, workspace_id, "calendly")
     if connection is None:
         connection = _active_connection(session, workspace_id, "google_calendar")
@@ -1681,7 +1730,7 @@ def process_gmail_meeting_thread(
     ):
         details = offer.details if isinstance(offer.details, dict) else {}
         offered_at = _parse_datetime(details.get("offered_at") or details.get("created_at"))
-        source = find_meeting_request(
+        source = _find_meeting_request_in_background(
             session,
             lead,
             workspace_id,
@@ -1859,7 +1908,7 @@ def process_gmail_meeting_thread(
         session.commit()
         offer = None
     else:
-        source = find_meeting_request(
+        source = _find_meeting_request_in_background(
             session,
             lead,
             workspace_id,

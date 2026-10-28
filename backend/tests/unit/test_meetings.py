@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
+import lead_agent.application.meetings as meeting_application
 from lead_agent.api.routes.leads import (
     RetryConfirmedMeetingBookingRequest,
     retry_saved_meeting_booking,
@@ -34,6 +35,7 @@ from lead_agent.application.meetings import (
     requested_meeting_time,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.domain.meeting_intent import MeetingIntentClassification
 from lead_agent.infrastructure.calendar_providers import (
     CALENDLY_SCOPES,
     GOOGLE_CALENDAR_EVENTS_SCOPE,
@@ -54,6 +56,64 @@ class _Session:
 
     def scalars(self, _statement):
         return iter(self.rows)
+
+
+@pytest.fixture(autouse=True)
+def _mock_workspace_meeting_ai(monkeypatch: pytest.MonkeyPatch) -> None:
+    class TestReasoningProvider:
+        provider_name = "test"
+        model_name = "meeting-intent-test"
+        prompt_version = "test"
+
+        def classify_meeting_intent(self, payload: dict[str, object]):
+            candidates = [
+                message
+                for message in payload.get("messages", [])
+                if isinstance(message, dict) and message.get("candidate_key")
+            ]
+            for message in reversed(candidates):
+                body = str(message.get("body") or "")
+                match = next(
+                    (
+                        line.strip()
+                        for line in body.splitlines()
+                        if any(
+                            term in line.casefold()
+                            for term in (
+                                "meeting",
+                                "call",
+                                "demo",
+                                "appointment",
+                                "schedule",
+                                "book",
+                                "tomorrow",
+                                "time",
+                                "time between",
+                                "availability",
+                            )
+                        )
+                    ),
+                    None,
+                )
+                if match:
+                    return MeetingIntentClassification(
+                        intent="meeting_request",
+                        candidate_key=str(message["candidate_key"]),
+                        confidence=0.99,
+                        evidence=match[:240],
+                    )
+            return MeetingIntentClassification(
+                intent="not_meeting",
+                candidate_key="",
+                confidence=0.99,
+                evidence="",
+            )
+
+    monkeypatch.setattr(
+        meeting_application,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: TestReasoningProvider(),
+    )
 
 
 def test_manual_offer_draft_uses_only_a_freshly_available_slot(
@@ -1789,6 +1849,9 @@ def test_recommendations_expose_saved_offer_source_message_id(
     }
 
     class RecommendationsSession:
+        def scalar(self, _statement):
+            return None
+
         def scalars(self, _statement):
             return iter([offer])
 
@@ -1816,6 +1879,74 @@ def test_recommendations_expose_saved_offer_source_message_id(
     assert result.offer_has_confirmed_selection is True
 
 
+def test_booked_meeting_survives_unavailable_thread_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id, workspace_id = uuid4(), uuid4()
+    booked_at = datetime.now(UTC) + timedelta(days=1)
+
+    class BookedSession:
+        def scalar(self, _statement):
+            return SimpleNamespace(details={
+                "provider": "calendly",
+                "start_at": booked_at.isoformat(),
+            })
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._lead_or_404",
+        lambda *_args, **_kwargs: SimpleNamespace(id=lead_id),
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._workspace_calendar_connections",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.find_meeting_request",
+        lambda *_args, **_kwargs: None,
+    )
+
+    result = get_meeting_recommendations(
+        lead_id,
+        session=BookedSession(),  # type: ignore[arg-type]
+        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="owner"),
+    )
+
+    assert result.offer_status == "booked"
+    assert result.booked_meeting_at == booked_at
+    assert result.offer_calendar_provider == "calendly"
+
+
+def test_sent_appointment_link_does_not_create_another_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = {
+        "thread_id": "gmail-thread-1",
+        "gmail_connection_id": str(uuid4()),
+        "message_id": "request-1",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+    offer = SimpleNamespace(
+        status="awaiting_confirmation",
+        details={
+            "source_message_id": "request-1",
+            "offered_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    monkeypatch.setattr(meeting_email, "_find_meeting_request_for_draft", lambda *_args: source)
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args: offer)
+
+    with pytest.raises(HTTPException) as error:
+        meeting_email.create_booking_link_offer_draft(
+            session=object(),  # type: ignore[arg-type]
+            lead=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+            workspace_id=uuid4(),
+            actor_id="owner",
+        )
+
+    assert error.value.status_code == 409
+    assert "already sent" in error.value.detail
+
+
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
     lead_id = uuid4()
     events = [
@@ -1831,6 +1962,101 @@ def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
     assert find_meeting_request(
         _Session(events), SimpleNamespace(id=lead_id), lead_id
     ) is None
+
+
+def test_find_meeting_request_detects_open_ended_time_window_reply() -> None:
+    lead_id = uuid4()
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    events = [
+        SimpleNamespace(
+            status="inbound",
+            details={
+                "message_id": "time-window-reply",
+                "thread_id": "meeting-thread",
+                "direction": "inbound",
+                "sender": "buyer@example.test",
+                "subject": "Re: Meeting tomorrow",
+                "body": (
+                    "Hey,\nYes, tomorrow is fine with me, do you have any time "
+                    "between 12 pm and 2 pm?\nRegards"
+                ),
+            },
+        )
+    ]
+
+    result = find_meeting_request(_Session(events), lead, lead_id)
+
+    assert result is not None
+    assert result["message_id"] == "time-window-reply"
+    assert result["thread_id"] == "meeting-thread"
+
+
+def test_ai_meeting_intent_uses_the_full_gmail_thread_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid4()
+    lead = SimpleNamespace(id=uuid4(), email="buyer@example.test")
+    events = [
+        SimpleNamespace(
+            status="inbound",
+            details={
+                "message_id": "time-window-reply",
+                "thread_id": "meeting-thread",
+                "direction": "inbound",
+                "sender": "buyer@example.test",
+                "subject": "Re: Tomorrow",
+                "body": "Yes, tomorrow works. Do you have time between 12 and 2?",
+            },
+        ),
+        SimpleNamespace(
+            status="outbound",
+            details={
+                "message_id": "prior-offer",
+                "thread_id": "meeting-thread",
+                "direction": "outbound",
+                "sender": "rep@example.test",
+                "subject": "Tomorrow",
+                "body": "Would tomorrow at 2 pm work for a 30 minute call?",
+            },
+        ),
+    ]
+    captured: dict[str, object] = {}
+
+    class ThreadReasoningProvider:
+        provider_name = "test"
+        model_name = "thread-context-test"
+        prompt_version = "test"
+
+        def classify_meeting_intent(self, payload: dict[str, object]):
+            captured["payload"] = payload
+            messages = payload["messages"]
+            lead_message = next(
+                message for message in messages if message["role"] == "lead"
+            )
+            return MeetingIntentClassification(
+                intent="meeting_request",
+                candidate_key=lead_message["candidate_key"],
+                confidence=0.98,
+                evidence="Do you have time between 12 and 2?",
+            )
+
+    monkeypatch.setattr(
+        meeting_application,
+        "resolve_workspace_reasoning_provider",
+        lambda *_args: ThreadReasoningProvider(),
+    )
+    result = find_meeting_request(
+        _Session(events),
+        lead,
+        workspace_id,
+    )
+
+    assert result is not None
+    assert result["message_id"] == "time-window-reply"
+    thread_payload = captured["payload"]
+    assert isinstance(thread_payload, dict)
+    assert any(message["role"] == "workspace" for message in thread_payload["messages"])
+    assert any(message["role"] == "lead" for message in thread_payload["messages"])
 
 
 def test_find_meeting_request_skips_numbered_reply_and_quoted_request_text() -> None:

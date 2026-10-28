@@ -19,6 +19,10 @@ from lead_agent.domain.configuration import IcpConfig
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.lead_assistant import LeadAssistantReply, WorkspaceAssistantReply
+from lead_agent.domain.meeting_intent import (
+    MEETING_INTENT_CLASSIFICATION_SYSTEM_PROMPT,
+    MeetingIntentClassification,
+)
 from lead_agent.domain.meeting_reply import (
     MEETING_REPLY_CLASSIFICATION_SYSTEM_PROMPT,
     MeetingReplyClassification,
@@ -321,6 +325,27 @@ class StructuredAPIReasoningProvider:
                 self._record_usage(operation, started, "invalid_output", usage, "structured_output")
                 raise InvalidReasoningOutput(
                     f"{self._display_name} workspace-assistant response failed schema validation"
+                ) from None
+            self._record_usage(operation, started, "success", usage)
+            return result
+
+    def classify_meeting_intent(
+        self, payload: dict[str, Any]
+    ) -> MeetingIntentClassification:
+        with provider_operation(self.provider_name) as operation:
+            started = perf_counter()
+            response, usage = self._request_json(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                MEETING_INTENT_CLASSIFICATION_SYSTEM_PROMPT,
+                MeetingIntentClassification,
+                max_output_tokens=300,
+            )
+            try:
+                result = MeetingIntentClassification.model_validate(response)
+            except ValidationError:
+                self._record_usage(operation, started, "invalid_output", usage, "structured_output")
+                raise InvalidReasoningOutput(
+                    f"{self._display_name} meeting-intent response failed schema validation"
                 ) from None
             self._record_usage(operation, started, "success", usage)
             return result

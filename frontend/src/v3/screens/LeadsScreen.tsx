@@ -9,7 +9,6 @@ import {
   listLeadAssignmentOptions,
   listLeads,
   updateLeadAssignment,
-  updateLeadGenerated,
   type LeadExportColumn,
 } from "../../api";
 import { AutomationEnrollmentDialog } from "../../components/AutomationEnrollmentDialog";
@@ -181,7 +180,6 @@ export function LeadsScreen({
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [savingAssignment, setSavingAssignment] = useState<Set<string>>(new Set());
-  const [savingGenerated, setSavingGenerated] = useState<Set<string>>(new Set());
   const [enrollment, setEnrollment] = useState<{ kind: "sequence" | "playbook"; leadId: string; leadLabel: string } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -320,20 +318,13 @@ export function LeadsScreen({
     setRows((current) => current.map((item) => (item.id === lead.id ? lead : item)));
     onUpdated(lead);
   };
-  const withSaving = (setter: typeof setSavingGenerated, id: string, on: boolean) =>
+  const withSaving = (setter: typeof setSavingAssignment, id: string, on: boolean) =>
     setter((current) => {
       const next = new Set(current);
       if (on) next.add(id);
       else next.delete(id);
       return next;
     });
-  const changeGenerated = async (leadId: string, isGenerated: boolean) => {
-    setControlError(null);
-    withSaving(setSavingGenerated, leadId, true);
-    try { updateRow(await updateLeadGenerated(leadId, isGenerated)); }
-    catch (error) { setControlError(error instanceof Error ? error.message : "Unable to update lead status."); }
-    finally { withSaving(setSavingGenerated, leadId, false); }
-  };
   const changeAssignment = async (leadId: string, repId: string | null) => {
     setControlError(null);
     withSaving(setSavingAssignment, leadId, true);
@@ -584,7 +575,6 @@ export function LeadsScreen({
                 <th scope="col" className="c-score">Score</th>
                 <th scope="col" className="c-a">{colA}</th>
                 <th scope="col" className="c-b">{colB}</th>
-                {lens === "overview" && <th scope="col" className="c-gen" title="Marked when the lead came from your team’s own outreach">Outbound</th>}
                 <th scope="col" className="c-stage">Stage</th>
                 <th scope="col" className="c-value">Value</th>
                 <th scope="col" className="c-date">Received</th>
@@ -601,16 +591,13 @@ export function LeadsScreen({
                   lens={lens}
                   isNew={newLeadIds.has(lead.id)}
                   checked={selectedIds.has(lead.id)}
-                  canEditGenerated={canEdit}
                   canManageRouting={canManageRouting}
                   assignmentOptions={assignmentOptions}
                   assignmentDisabled={assignmentLoading || Boolean(assignmentError)}
                   savingAssignment={savingAssignment.has(lead.id)}
-                  savingGenerated={savingGenerated.has(lead.id)}
                   onToggle={toggleSelected}
                   onInspect={onInspect}
                   onAssignmentChange={changeAssignment}
-                  onGeneratedChange={changeGenerated}
                   stageLabel={stageInfo(view.stage).label}
                   stageId={view.stage}
                   value={view.value}
@@ -628,7 +615,6 @@ export function LeadsScreen({
                     <td><i className="v-skel" style={{ width: 70 }} /></td>
                     <td><i className="v-skel" style={{ width: 80 }} /></td>
                     <td><i className="v-skel" style={{ width: 90 }} /></td>
-                    {lens === "overview" && <td />}
                     <td><i className="v-skel" style={{ width: 64 }} /></td>
                     <td><i className="v-skel" style={{ width: 56 }} /></td>
                     <td><i className="v-skel" style={{ width: 48, marginLeft: "auto" }} /></td>
@@ -707,16 +693,13 @@ const LeadRow = memo(function LeadRow({
   lens,
   isNew,
   checked,
-  canEditGenerated,
   canManageRouting,
   assignmentOptions,
   assignmentDisabled,
   savingAssignment,
-  savingGenerated,
   onToggle,
   onInspect,
   onAssignmentChange,
-  onGeneratedChange,
   stageLabel,
   stageId,
   value,
@@ -734,16 +717,13 @@ const LeadRow = memo(function LeadRow({
   lens: Lens;
   isNew: boolean;
   checked: boolean;
-  canEditGenerated: boolean;
   canManageRouting: boolean;
   assignmentOptions: LeadAssignmentOption[];
   assignmentDisabled: boolean;
   savingAssignment: boolean;
-  savingGenerated: boolean;
   onToggle: (id: string) => void;
   onInspect: (id: string) => void;
   onAssignmentChange: (leadId: string, repId: string | null) => void;
-  onGeneratedChange: (leadId: string, value: boolean) => void;
 }) {
   const origin = crmOrigin(lead);
   const review = Boolean(lead.analysis?.requires_manual_review || lead.routing?.manual_review);
@@ -821,18 +801,6 @@ const LeadRow = memo(function LeadRow({
                 {lead.routing && <small>{queueLabel(lead.routing.assigned_queue)}</small>}
               </span>
             )}
-          </td>
-          <td className="c-gen">
-            <input
-              type="checkbox"
-              role="switch"
-              className="v-switch"
-              aria-label={`Lead generated by your team: ${lead.full_name}`}
-              checked={lead.is_generated}
-              disabled={!canEditGenerated || savingGenerated}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => onGeneratedChange(lead.id, event.target.checked)}
-            />
           </td>
         </>
       ) : (
