@@ -9,9 +9,10 @@ import { EmailComposer } from "./EmailComposer";
 import { MeetingOfferDrafts } from "./MeetingOfferDrafts";
 import { ProviderEmailBody } from "./ProviderEmailBody";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
-import { dedupeGmailEvents } from "../utils/gmailEvents";
+import { dedupeGmailEvents, latestGmailReplyTarget } from "../utils/gmailEvents";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 function stringDetail(details: Record<string, unknown>, key: string): string {
   const value = details[key];
@@ -134,6 +135,9 @@ export function LeadEmailPanel({
   const activeAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_READONLY_SCOPE),
   );
+  const replyTarget = latestGmailReplyTarget(events, lead.email, accounts.filter((account) =>
+    account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_SEND_SCOPE),
+  ).map((account) => account.id));
 
   const refreshConversation = useCallback(async (manual = true) => {
     if (syncInFlight.current) return;
@@ -173,6 +177,13 @@ export function LeadEmailPanel({
 
   function replyTo(event: LeadPipelineEvent) {
     const details = event.details;
+    const threadId = threadIdForEvent(event);
+    const connectionId = stringDetail(details, "gmail_connection_id");
+    const reference = [...events]
+      .filter((message) => threadIdForEvent(message) === threadId
+        && stringDetail(message.details, "gmail_connection_id") === connectionId
+        && stringDetail(message.details, "rfc_message_id"))
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
     const recipients = stringDetail(details, "recipients").split(",")[0].trim();
     const recipient = stringDetail(details, "direction") === "outbound"
       ? recipients
@@ -181,8 +192,9 @@ export function LeadEmailPanel({
     setComposeSeed({
       recipient,
       subject: originalSubject && !/^re:/i.test(originalSubject) ? `Re: ${originalSubject}` : originalSubject,
-      threadId: threadIdForEvent(event) || undefined,
-      inReplyTo: stringDetail(details, "rfc_message_id") || undefined,
+      threadId: threadId || undefined,
+      inReplyTo: reference ? stringDetail(reference.details, "rfc_message_id") : undefined,
+      connectionId: connectionId || undefined,
     });
     setComposerRevision((current) => current + 1);
   }
@@ -193,9 +205,13 @@ export function LeadEmailPanel({
       <div className="lead-email-actions">
         {onAskAgent && <button className="secondary-button" type="button" onClick={onAskAgent}>Ask Corral</button>}
         {!hideComposeButton && <button className="primary-button" type="button" onClick={() => {
+          setComposeSeed({ recipient: lead.email?.trim() || "", ...replyTarget });
+          setComposerRevision((current) => current + 1);
+        }}>{replyTarget ? "Reply in conversation" : "Compose"}</button>}
+        {!hideComposeButton && replyTarget && <button className="secondary-button" type="button" onClick={() => {
           setComposeSeed({ recipient: lead.email?.trim() || "" });
           setComposerRevision((current) => current + 1);
-        }}>Compose</button>}
+        }}>New conversation</button>}
         <button className="secondary-button" type="button" onClick={() => void refreshConversation()} disabled={syncBusy || activeAccounts.length === 0}>
           {syncBusy ? "Refreshing…" : "Refresh from Gmail"}
         </button>
@@ -226,6 +242,7 @@ export function LeadEmailPanel({
       leadEmail={lead.email}
       active={active}
       canSend={canSend}
+      accounts={accounts}
       onSent={() => {
         setRevision((current) => current + 1);
         onConversationSynced();
@@ -257,7 +274,9 @@ export function LeadEmailPanel({
                 <time>{new Date(event.created_at).toLocaleString()}</time></header>
               <div className="lead-email-addresses"><span>From <b>{sender || "Unknown"}</b></span>{recipients && <span>To <b>{recipients}</b></span>}{mailboxName && <span>Mailbox <b>{mailboxName}</b></span>}</div>
               <ProviderEmailBody content={body} />
-              {canSend && <button className="button-quiet" type="button" onClick={() => replyTo(event)}>Reply</button>}
+              {canSend && stringDetail(details, "gmail_connection_id") &&
+                messages.some((message) => stringDetail(message.details, "rfc_message_id")) &&
+                <button className="button-quiet" type="button" onClick={() => replyTo(event)}>Reply</button>}
             </article>;
           })}</div>
         </details>;

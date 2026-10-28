@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { dedupeGmailEvents } from "../../utils/gmailEvents";
+import { dedupeGmailEvents, latestGmailReplyTarget } from "../../utils/gmailEvents";
 import {
   deleteLead,
   completeLeadManualReview,
@@ -59,7 +59,7 @@ const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "ai", label: "Qualification" },
   { id: "email", label: "Email" },
   { id: "calls", label: "Calls" },
-  { id: "deal", label: "Pipeline" },
+  { id: "deal", label: "Deal" },
   { id: "history", label: "Activity" },
   { id: "agent", label: "Ask Corral" },
 ];
@@ -1180,10 +1180,15 @@ function FollowUpComposer({
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ subject?: string; body?: string; quoteId?: string }>({});
+  const [gmailEvents, setGmailEvents] = useState<Awaited<ReturnType<typeof getLeadPipelineHistory>>>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyFailed, setHistoryFailed] = useState(false);
+  const [newConversation, setNewConversation] = useState(false);
   useEffect(() => {
     if (!seed) return;
     setDraft({ subject: seed.subject, body: seed.body, quoteId: seed.quoteId });
     setNotice(null);
+    setNewConversation(false);
     setOpen(true);
     setRevision((value) => value + 1);
   }, [seed]);
@@ -1202,6 +1207,26 @@ function FollowUpComposer({
       .catch((error) => { if (active) setNotice(error instanceof Error ? error.message : "Gmail accounts couldn’t be loaded."); });
     return () => { active = false; };
   }, [canEdit, lead.id]);
+  useEffect(() => {
+    if (!canEdit) return;
+    const controller = new AbortController();
+    setHistoryLoaded(false);
+    setHistoryFailed(false);
+    getLeadPipelineHistory(lead.id, controller.signal)
+      .then((rows) => { if (!controller.signal.aborted) { setGmailEvents(rows); setHistoryFailed(false); } })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setHistoryFailed(true);
+          setNotice(error instanceof Error ? error.message : "Gmail history could not be loaded.");
+        }
+      })
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoaded(true); });
+    return () => controller.abort();
+  }, [canEdit, lead.id]);
+  const replyTarget = latestGmailReplyTarget(gmailEvents, lead.email, accounts.filter((account) =>
+    account.is_active && account.status === "verified"
+      && account.scopes.includes("https://www.googleapis.com/auth/gmail.send"),
+  ).map((account) => account.id));
   const classification = lead.qualification?.classification.toLowerCase();
   const disqualified = Boolean(lead.qualification?.hard_disqualified) || ["disqualify", "disqualified", "hard_disqualified"].includes(classification || "");
   const needsReview = Boolean(lead.routing?.manual_review || lead.analysis?.requires_manual_review);
@@ -1218,20 +1243,31 @@ function FollowUpComposer({
           <p className="v-card-sub">Write from your connected Gmail. Nothing sends until you press Send; sent mail is kept in this lead’s history.</p>
         </div>
         {canEdit && !open && (
-          <Button kind="tinted" icon="send" disabled={Boolean(blocked)} onClick={() => { setNotice(null); setDraft({}); setOpen(true); setRevision((value) => value + 1); }}>
-            Compose
+          <Button kind="tinted" icon="send" disabled={Boolean(blocked) || !historyLoaded || historyFailed} onClick={() => { setNotice(null); setDraft({}); setNewConversation(false); setOpen(true); setRevision((value) => value + 1); }}>
+            {historyFailed ? "Gmail history unavailable" : historyLoaded ? replyTarget ? "Reply in conversation" : "Compose" : "Checking Gmail…"}
           </Button>
         )}
       </div>
       {blocked && <Banner tone="attention" title={disqualified ? "Outreach paused · disqualified" : "Outreach paused · review first"}>{blocked}</Banner>}
-      {open && !blocked && (
+      {open && !blocked && !historyLoaded && <p role="status">Checking the existing Gmail conversation…</p>}
+      {open && !blocked && historyLoaded && !historyFailed && (
         <div className="v-legacy-block v-composer">
+          {replyTarget && <div className="v-inline-actions">
+            <button type="button" className="button-quiet" onClick={() => { setNewConversation((value) => !value); setRevision((value) => value + 1); }}>
+              {newConversation ? "Reply in conversation" : "Start a new conversation"}
+            </button>
+          </div>}
           <EmailComposer
             key={revision}
             accounts={accounts}
             canSend={canEdit}
             leadId={lead.id}
-            seed={{ recipient: lead.email?.trim() ?? "", purpose: "follow_up", subject: draft.subject, body: draft.body }}
+            seed={{
+              recipient: lead.email?.trim() ?? "", purpose: "follow_up", body: draft.body,
+              ...(replyTarget && !newConversation
+                ? { ...replyTarget, subject: replyTarget.subject }
+                : { subject: draft.subject }),
+            }}
             onClose={() => setOpen(false)}
             onSent={() => {
               setOpen(false); setNotice("Email sent. You’ll find it in this lead’s email history.");

@@ -19,6 +19,7 @@ import type {
   LeadProgressResult,
   GmailConversationSyncResult,
   MeetingRecommendations,
+  ManagedMeeting,
   MeetingSuggestion,
   WorkspaceCalendarEvent,
   ConfirmMeetingResult,
@@ -1114,6 +1115,25 @@ export function getLeadMeetingRecommendations(leadId: string, signal?: AbortSign
   return jsonRequest<MeetingRecommendations>(`/v1/leads/${leadId}/meeting-recommendations`, { signal });
 }
 
+export function getLeadManagedMeeting(leadId: string, signal?: AbortSignal): Promise<ManagedMeeting | null> {
+  return jsonRequest<ManagedMeeting | null>(`/v1/leads/${leadId}/meeting-management`, { signal });
+}
+
+export function cancelLeadMeeting(leadId: string, bookingId: string, reason: string): Promise<{ status: string; message: string }> {
+  return jsonRequest(`/v1/leads/${leadId}/meetings/${bookingId}/cancel`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }),
+  });
+}
+
+export function rescheduleLeadMeeting(
+  leadId: string, bookingId: string, startAt: string, endAt: string, timeZone: string,
+): Promise<ManagedMeeting> {
+  return jsonRequest(`/v1/leads/${leadId}/meetings/${bookingId}/reschedule`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start_at: startAt, end_at: endAt, time_zone: timeZone }),
+  });
+}
+
 export function createLeadMeetingOfferDraft(
   leadId: string,
   slot: MeetingSuggestion,
@@ -1170,7 +1190,10 @@ export function generateLeadFollowUp(leadId: string): Promise<FollowUpEmail> {
   return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/draft`, { method: "POST" });
 }
 
-export function updateLeadFollowUp(leadId: string, draftId: string, input: { subject: string; body: string }): Promise<FollowUpEmail> {
+export function updateLeadFollowUp(leadId: string, draftId: string, input: {
+  subject: string; body: string; cc?: string; bcc?: string;
+  html_body?: string | null; attachments?: import("./types").GmailAttachmentRequest[];
+}): Promise<FollowUpEmail> {
   return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/${draftId}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
   });

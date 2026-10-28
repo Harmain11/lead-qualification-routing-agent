@@ -49,6 +49,28 @@
 .email-empty-state strong { font-size: 14px; }
 .email-empty-state span { color: var(--muted); font-size: 12px; }
 .email-composer { display: grid; gap: 14px; margin-top: 14px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-soft); }
+.meeting-reply-drafts { display: grid; gap: 14px; min-width: 0; }
+.meeting-reply-draft { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-solid); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 5%, transparent); }
+.meeting-reply-intro { display: grid; gap: 6px; }
+.meeting-reply-intro h3 { margin: 0; color: var(--text); font-size: 18px; line-height: 1.3; }
+.meeting-reply-intro p { max-width: 70ch; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.meeting-reply-draft .email-composer { margin-top: 16px; padding: 16px 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
+.meeting-management { display: grid; gap: 10px; margin-bottom: 18px; padding: clamp(16px, 2vw, 22px); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-solid); }
+.meeting-management-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.meeting-management h3 { margin: 3px 0 0; color: var(--text); font-size: 18px; }
+.meeting-management-time { margin: 0; color: var(--text); font-size: 18px; font-weight: 750; }
+.meeting-management-meta, .meeting-management small, .meeting-management-form p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.meeting-management > a { width: fit-content; color: var(--accent); font-size: 13px; font-weight: 650; }
+.meeting-management-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.meeting-management-actions .secondary-button { display: inline-flex; align-items: center; width: fit-content; min-height: 40px; margin: 0; text-decoration: none; }
+.meeting-management-form { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.meeting-management-form label { display: grid; gap: 5px; color: var(--text); font-size: 13px; font-weight: 650; }
+.meeting-management-form textarea, .meeting-management-form input { width: 100%; min-height: 42px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-solid); color: var(--text); font: inherit; }
+.meeting-management-form textarea { min-height: 84px; resize: vertical; }
+.meeting-management-form > div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.meeting-management-form .primary-button { margin: 0; }
+.meeting-management-alert, .meeting-management-notice { margin: 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-high); color: var(--text); font-size: 13px; line-height: 1.5; }
+.email-composer > .email-status { padding: 0; line-height: 1.45; }
 .email-composer-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .email-composer-heading h3 { margin: 4px 0 0; font-size: 16px; }
 .email-composer-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }

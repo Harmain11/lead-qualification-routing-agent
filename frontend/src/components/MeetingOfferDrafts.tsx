@@ -5,28 +5,25 @@ import {
   syncLeadGmailConversation,
   updateLeadFollowUp,
 } from "../api";
-import type { FollowUpEmail } from "../types";
+import type { FollowUpEmail, GmailSendRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraftInput } from "../types";
+import { EmailComposer } from "./EmailComposer";
 
 type Props = {
   leadId: string;
   leadEmail: string | null;
   active: boolean;
   canSend: boolean;
+  accounts: ProviderConnection[];
   onSent: () => void;
 };
 
-type DraftEdit = { subject: string; body: string };
+function pendingAppointments(items: FollowUpEmail[]) {
+  return items.filter((item) => item.kind.startsWith("meeting_options:")
+    && item.status !== "sent" && item.status !== "superseded");
+}
 
-export function MeetingOfferDrafts({
-  leadId,
-  leadEmail,
-  active,
-  canSend,
-  onSent,
-}: Props) {
+export function MeetingOfferDrafts({ leadId, leadEmail, active, canSend, accounts, onSent }: Props) {
   const [drafts, setDrafts] = useState<FollowUpEmail[]>([]);
-  const [edits, setEdits] = useState<Record<string, DraftEdit>>({});
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -37,166 +34,103 @@ export function MeetingOfferDrafts({
     setLoading(true);
     setError(null);
     getLeadFollowUpHistory(leadId, controller.signal)
-      .then((items) => {
-        if (controller.signal.aborted) return;
-        const pending = items.filter((item) =>
-          item.kind.startsWith("meeting_options:")
-          && item.status !== "sent"
-          && item.status !== "superseded",
-        );
-        setDrafts(pending);
-        setEdits((current) => {
-          const next = { ...current };
-          for (const item of pending) {
-            if (!next[item.id]) {
-              next[item.id] = { subject: item.subject, body: item.body ?? "" };
-            }
-          }
-          return next;
-        });
-      })
+      .then((items) => { if (!controller.signal.aborted) setDrafts(pendingAppointments(items)); })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(reason instanceof Error ? reason.message : "Meeting drafts could not be loaded.");
-        }
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Appointment drafts could not be loaded.");
       })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [active, leadId]);
 
-  async function saveDraft(draft: FollowUpEmail) {
-    const edit = edits[draft.id] ?? { subject: draft.subject, body: draft.body ?? "" };
-    setBusyId(draft.id);
-    setError(null);
-    setNotice(null);
-    try {
-      const saved = await updateLeadFollowUp(leadId, draft.id, edit);
-      setDrafts((current) => current.map((item) => item.id === saved.id ? saved : item));
-      setNotice("Draft saved. It has not been sent.");
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : "The meeting draft could not be saved.");
-    } finally {
-      setBusyId(null);
-    }
+  async function saveDraft(draft: FollowUpEmail, payload: WorkspaceEmailDraftInput) {
+    const saved = await updateLeadFollowUp(leadId, draft.id, {
+      subject: payload.subject,
+      body: payload.body,
+      cc: payload.cc,
+      bcc: payload.bcc,
+      html_body: payload.html_body,
+      attachments: payload.attachments,
+    });
+    setDrafts((current) => current.map((item) => item.id === saved.id ? saved : item));
   }
 
-  async function sendDraft(draft: FollowUpEmail) {
-    const edit = edits[draft.id] ?? { subject: draft.subject, body: draft.body ?? "" };
-    const bookingLinkDraft = draft.generation_note === "Meeting booking link";
-    setBusyId(draft.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await updateLeadFollowUp(leadId, draft.id, edit);
-      const sent = await approveAndSendLeadFollowUp(leadId, draft.id);
-      if (sent.status !== "sent") {
-        setDrafts((current) => current.map((item) => item.id === sent.id ? sent : item));
-        setError(sent.error_message || "Gmail could not confirm delivery. Check Sent before retrying.");
-        return;
-      }
-      setDrafts((current) => current.filter((item) => item.id !== sent.id));
-      setNotice(bookingLinkDraft
-        ? `Appointment booking link sent to ${sent.recipient || leadEmail || "the lead"}. The calendar will send an invitation after they book.`
-        : draft.generation_note === "Manually selected calendar slot."
-          ? `Meeting offer sent to ${sent.recipient || leadEmail || "the lead"}. Corral will book only after a clear reply with 1.`
-          : `Meeting options sent to ${sent.recipient || leadEmail || "the lead"}. Corral will book only after a clear numbered reply.`);
-      try {
-        await syncLeadGmailConversation(leadId);
-      } catch {
-        setNotice(bookingLinkDraft
-          ? "Appointment link sent. Email history could not be refreshed; do not resend."
-          : "Meeting offer sent. Email history could not be refreshed; do not resend. Corral will book only after a clear reply with 1.");
-      }
-      onSent();
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : "The meeting offer could not be sent.");
-      void getLeadFollowUpHistory(leadId).then((items) => {
-        setDrafts(items.filter((item) =>
-          item.kind.startsWith("meeting_options:")
-          && item.status !== "sent"
-          && item.status !== "superseded",
-        ));
-      }).catch(() => undefined);
-    } finally {
-      setBusyId(null);
+  async function sendDraft(draft: FollowUpEmail, payload: GmailSendRequest): Promise<GmailSendResult> {
+    await saveDraft(draft, {
+      connection_id: payload.connection_id,
+      recipient: payload.recipient,
+      cc: payload.cc ?? "",
+      bcc: payload.bcc ?? "",
+      subject: payload.subject,
+      body: payload.body,
+      html_body: payload.html_body ?? null,
+      attachments: payload.attachments ?? [],
+      lead_id: leadId,
+      thread_id: payload.thread_id ?? null,
+      in_reply_to: payload.in_reply_to ?? null,
+    });
+    const sent = await approveAndSendLeadFollowUp(leadId, draft.id);
+    if (sent.status !== "sent" || !sent.external_message_id) {
+      setDrafts((current) => current.map((item) => item.id === sent.id ? sent : item));
+      throw new Error(sent.error_message || "Gmail could not confirm delivery. Check Sent before retrying.");
     }
+    setDrafts((current) => current.filter((item) => item.id !== sent.id));
+    setNotice(`Appointment email sent to ${sent.recipient || leadEmail || "the lead"}. The calendar will show the meeting after they book.`);
+    try {
+      await syncLeadGmailConversation(leadId);
+    } catch {
+      setNotice("Appointment email sent. Gmail history could not refresh; do not resend.");
+    }
+    onSent();
+    return {
+      message_id: sent.external_message_id,
+      thread_id: sent.thread_id,
+      sender: accounts.find((account) => account.id === sent.connection_id)?.account_name ?? "Gmail",
+      recipient: sent.recipient,
+      sent_at: sent.sent_at ?? new Date().toISOString(),
+    };
   }
 
   if (!active || (!loading && drafts.length === 0 && !error && !notice)) return null;
 
-  return (
-    <section className="meeting-reply-drafts" aria-label="Appointment drafts">
-      <span className="eyebrow">Appointment draft · Gmail reply</span>
-      {loading && <p role="status">Loading meeting drafts…</p>}
-      {error && <div className="notice" role="alert">{error}</div>}
-      {notice && <div className="notice" role="status">{notice}</div>}
-      {drafts.map((draft) => {
-        const edit = edits[draft.id] ?? { subject: draft.subject, body: draft.body ?? "" };
-        const editable = canSend && draft.status === "draft";
-        const busy = busyId === draft.id;
-        const singleSelectedSlot = draft.generation_note === "Manually selected calendar slot.";
-        const bookingLinkDraft = draft.generation_note === "Meeting booking link";
-        return (
-          <article className="meeting-reply-draft" key={draft.id}>
-            <span className="eyebrow">Appointment draft</span>
-            <p className="story-summary">
-              {bookingLinkDraft
-                ? "This personalized reply stays in the original Gmail thread. The lead chooses a time from the booking link, and the connected calendar creates the meeting."
-                : singleSelectedSlot
-                  ? "This selected time is option 1. Keep its line unchanged so the lead’s reply can book this exact slot."
-                  : "The numbered times are saved with this draft. Corral books only after the lead clearly replies with one of those options."}
-              {!bookingLinkDraft && " Sending does not book the meeting."}
-            </p>
-            <p><b>To:</b> {draft.recipient || leadEmail || "No email address"}</p>
-            <label className="follow-up-field">
-              Subject
-              <input
-                value={edit.subject}
-                disabled={!editable || busy}
-                onChange={(event) => setEdits((current) => ({
-                  ...current,
-                  [draft.id]: { ...edit, subject: event.target.value },
-                }))}
-              />
-            </label>
-            <label className="follow-up-field">
-              Message
-              <textarea
-                rows={8}
-                value={edit.body}
-                disabled={!editable || busy}
-                onChange={(event) => setEdits((current) => ({
-                  ...current,
-                  [draft.id]: { ...edit, body: event.target.value },
-                }))}
-              />
-            </label>
-            {draft.error_message && <div className="attention-callout">{draft.error_message}</div>}
-            {draft.status === "delivery_uncertain" && (
-              <p className="follow-up-status-copy">
-                Delivery is uncertain. Check Gmail Sent before retrying.
-              </p>
-            )}
-            {editable && (
-              <div className="follow-up-actions">
-                <button type="button" className="secondary-button" disabled={busy} onClick={() => void saveDraft(draft)}>
-                  {busy ? "Saving…" : "Save draft"}
-                </button>
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled={busy || !edit.subject.trim() || edit.body.trim().length < 10}
-                  onClick={() => void sendDraft(draft)}
-                >
-                  {busy ? "Sending…" : bookingLinkDraft ? "Send appointment draft" : "Send meeting offer"}
-                </button>
-              </div>
-            )}
-          </article>
-        );
-      })}
-    </section>
-  );
+  return <section className="meeting-reply-drafts" aria-label="Appointment drafts">
+    {loading && <p role="status">Loading appointment drafts…</p>}
+    {error && <div className="notice" role="alert">{error}</div>}
+    {notice && <div className="notice" role="status">{notice}</div>}
+    {drafts.map((draft) => {
+      const replyReady = Boolean(draft.thread_id && draft.in_reply_to && draft.connection_id);
+      return <article className="meeting-reply-draft" key={draft.id}>
+        <div className="meeting-reply-intro">
+          <span className="eyebrow">Appointment draft · Gmail reply</span>
+          <h3>Review appointment email</h3>
+          <p>Edit the message, add formatting or attachments, then save it or send it in the original Gmail conversation.</p>
+        </div>
+        {draft.status === "delivery_uncertain" && <div className="attention-callout">Check Gmail Sent before retrying this draft.</div>}
+        {draft.error_message && <div className="attention-callout">{draft.error_message}</div>}
+        {draft.status === "draft" && <EmailComposer
+          key={`${draft.id}:${draft.status}`}
+          accounts={accounts}
+          canSend={canSend}
+          leadId={leadId}
+          seed={{
+            recipient: draft.recipient || leadEmail || "",
+            subject: draft.subject,
+            body: draft.body ?? "",
+            cc: draft.cc,
+            bcc: draft.bcc,
+            htmlBody: draft.html_body ?? undefined,
+            attachments: draft.attachments,
+            connectionId: draft.connection_id ?? undefined,
+            threadId: draft.thread_id ?? undefined,
+            inReplyTo: draft.in_reply_to ?? undefined,
+          }}
+          sendBlockedReason={replyReady ? undefined : "Refresh the original Gmail conversation before sending this appointment reply."}
+          headingLabel="Gmail appointment reply"
+          headingTitle="Write your appointment email"
+          onSaveOverride={(payload) => saveDraft(draft, payload)}
+          onSendOverride={(payload) => sendDraft(draft, payload)}
+          sendLabel="Send appointment email"
+        />}
+      </article>;
+    })}
+  </section>;
 }

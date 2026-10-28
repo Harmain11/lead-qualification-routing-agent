@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createLeadMeetingBookingLinkDraft, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
 import type { Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
+import { LeadMeetingManagement } from "./LeadMeetingManagement";
 
 type Props = {
   lead: Lead;
@@ -448,6 +449,13 @@ export function LeadMeetingPanel({
     </header>
 
     <div className="lmp-body">
+      <LeadMeetingManagement
+        leadId={lead.id}
+        canEdit={canEdit}
+        refreshToken={refreshToken}
+        onChanged={() => setRetryCount((value) => value + 1)}
+        onStatusChange={onStatusChange}
+      />
       {loadState === "loading" && renderSkeleton()}
       {loadState === "error" && renderLoadError()}
       {loadState === "ready" && recommendations && <>
@@ -456,11 +464,6 @@ export function LeadMeetingPanel({
           <div><h4>Appointment draft prepared</h4><p>{hasConnectedCalendly ? "Calendly" : "Google Calendar"} booking link added to a personalized reply in the lead’s Emails tab. Review or edit it before sending. Corral will mark the meeting and notify the assigned teammate when the calendar confirms a booking.</p>
             <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Refresh meeting status</button></div>
           </div>
-        </div>}
-
-        {!draftCreated && recommendations.offer_status === "booked" && !recommendations.source_message_id && <div className="lmp-outcome" role="status">
-          <span className="lmp-outcome-icon" aria-hidden="true">✓</span>
-          <div><h4>Meeting booked</h4><p>{recommendations.booked_meeting_at ? `Scheduled for ${new Date(recommendations.booked_meeting_at).toLocaleString()}.` : "A confirmed booking is recorded for this lead."} View it in Calendar or this lead’s activity.</p></div>
         </div>}
 
         {!draftCreated && noThread && <div className="lmp-state">

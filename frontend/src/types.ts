@@ -349,6 +349,13 @@ export type FollowUpEmail = {
   recipient: string;
   subject: string;
   body: string | null;
+  cc: string;
+  bcc: string;
+  html_body: string | null;
+  attachments: GmailAttachmentRequest[];
+  thread_id: string | null;
+  in_reply_to: string | null;
+  connection_id: string | null;
   rationale: string | null;
   generation_method: "openai" | "template" | "meeting_request" | null;
   generation_note: string | null;
@@ -447,6 +454,19 @@ export type MeetingRecommendations = {
   offer_has_confirmed_selection: boolean;
   offer_can_be_replaced: boolean;
   booked_meeting_at: string | null;
+};
+
+export type ManagedMeeting = {
+  id: string;
+  provider: MeetingProvider;
+  title: string;
+  start_at: string;
+  end_at: string;
+  time_zone: string;
+  event_url: string | null;
+  reschedule_url: string | null;
+  cancel_url: string | null;
+  can_cancel_here: boolean;
 };
 
 export type MeetingOfferDraftResult = {

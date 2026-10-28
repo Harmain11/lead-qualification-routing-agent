@@ -37,3 +37,52 @@ export function dedupeGmailEvents(
     return true;
   });
 }
+
+export type GmailReplyTarget = {
+  threadId: string;
+  inReplyTo?: string;
+  connectionId: string;
+  subject: string;
+};
+
+export function latestGmailReplyTarget(
+  events: LeadPipelineEvent[],
+  leadEmail: string | null,
+  sendableConnectionIds: string[],
+): GmailReplyTarget | null {
+  const address = firstAddress(leadEmail ?? "");
+  if (!address) return null;
+  const allowed = new Set(sendableConnectionIds);
+  const messages = dedupeGmailEvents(events)
+    .filter((event) => {
+      if (event.stage !== "gmail_message") return false;
+      const details = event.details;
+      const connectionId = detail(details, "gmail_connection_id");
+      const threadId = detail(details, "thread_id") || detail(details, "gmail_thread_id");
+      const direction = detail(details, "direction");
+      const counterparty = direction === "outbound"
+        ? detail(details, "recipients")
+        : detail(details, "sender");
+      return allowed.has(connectionId) && Boolean(threadId)
+        && firstAddress(counterparty) === address;
+    })
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const latest = messages[0];
+  if (!latest) return null;
+  const threadId = detail(latest.details, "thread_id") || detail(latest.details, "gmail_thread_id");
+  const connectionId = detail(latest.details, "gmail_connection_id");
+  const lastWithRfcId = messages.find((event) =>
+    (detail(event.details, "thread_id") || detail(event.details, "gmail_thread_id")) === threadId
+    && detail(event.details, "gmail_connection_id") === connectionId
+    && detail(event.details, "rfc_message_id"),
+  );
+  const originalSubject = detail(latest.details, "subject");
+  if (!lastWithRfcId || !originalSubject) return null;
+  return {
+    threadId,
+    connectionId,
+    subject: originalSubject && !/^re:/i.test(originalSubject)
+      ? `Re: ${originalSubject}` : originalSubject,
+    inReplyTo: detail(lastWithRfcId.details, "rfc_message_id"),
+  };
+}

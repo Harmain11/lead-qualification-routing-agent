@@ -12,16 +12,17 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
 from lead_agent.application.gmail_history import append_gmail_thread_messages
+from lead_agent.application.gmail_threading import matches_lead_thread
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import LeadORM, ProviderConnectionORM, WorkspaceEmailDraftORM
+from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM, ProviderConnectionORM, WorkspaceEmailDraftORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.gmail import (
     GMAIL_READONLY_SCOPE,
@@ -159,6 +160,12 @@ class SendEmailRequest(BaseModel):
     thread_id: str | None = Field(default=None, max_length=255)
     in_reply_to: str | None = Field(default=None, max_length=998)
     draft_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_reply_reference(self) -> "SendEmailRequest":
+        if self.thread_id and not self.in_reply_to:
+            raise ValueError("Refresh the Gmail conversation before replying so the message stays in its thread")
+        return self
 
     @field_validator("recipient")
     @classmethod
@@ -510,6 +517,23 @@ def send_email(
         )
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
+    if lead is not None and request.thread_id:
+        messages = session.scalars(select(PipelineEventORM).where(
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.lead_id == lead.id,
+            PipelineEventORM.stage == "gmail_message",
+        )).all()
+        if not matches_lead_thread(
+            (event.details for event in messages if isinstance(event.details, dict)),
+            connection_id=str(connection.id),
+            thread_id=request.thread_id,
+            in_reply_to=request.in_reply_to or "",
+            subject=request.subject,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="This reply no longer matches the lead’s Gmail thread. Refresh its history and reply again.",
+            )
     draft = _owned_email_draft(session, workspace, request.draft_id) if request.draft_id else None
 
     provider = GmailOutboundProvider(connection.id, access_token, mailbox)

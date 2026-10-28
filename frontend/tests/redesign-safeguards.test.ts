@@ -87,7 +87,7 @@ test("the lead record keeps delete confirmation, CRM gating and enrolment gating
   assert.match(record, /canCrmSync && providers\.length > 0/);
   assert.match(record, /CRM writes only happen when you request them/);
   // Outreach stays paused for disqualified or review-held leads.
-  assert.match(record, /disabled=\{Boolean\(blocked\)\}/);
+  assert.match(record, /disabled=\{Boolean\(blocked\) \|\| !historyLoaded \|\| historyFailed\}/);
 });
 
 test("delivery actions are attached to their rows and keep action-specific gates", async () => {

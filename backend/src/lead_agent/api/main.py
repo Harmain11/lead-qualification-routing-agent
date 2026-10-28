@@ -30,6 +30,7 @@ from lead_agent.api.routes import (
     intelligence,
     lead_assistant,
     leads,
+    meeting_management,
     meetings,
     meta_webhooks,
     notifications,
@@ -73,6 +74,7 @@ app.include_router(routing.config_router)
 app.include_router(routing.router)
 app.include_router(leads.router)
 app.include_router(meetings.router)
+app.include_router(meeting_management.router)
 app.include_router(calendar.router)
 app.include_router(notifications.router)
 app.include_router(follow_up.router)

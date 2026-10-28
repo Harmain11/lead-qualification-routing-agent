@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -12,6 +14,7 @@ from lead_agent.application.email_templates import (
     apply_workspace_email_signature,
     get_email_template,
 )
+from lead_agent.application.gmail_threading import same_gmail_subject
 from lead_agent.application.governance import (
     OutreachBlocked,
     assert_outreach_allowed,
@@ -331,6 +334,16 @@ def send_approved_follow_up(
         offer_details = (
             meeting_offer.details if isinstance(meeting_offer.details, dict) else {}
         )
+        if offer_details.get("thread_id") and not same_gmail_subject(
+            row.subject, str(offer_details.get("source_subject") or "")
+        ):
+            raise FollowUpNotEligible(
+                "Keep the original Gmail subject in this appointment reply so it stays in the same thread."
+            )
+        if offer_details.get("thread_id") and not offer_details.get("source_rfc_message_id"):
+            raise FollowUpNotEligible(
+                "Refresh the Gmail conversation before sending this appointment reply."
+            )
         if not manual_selected_slot_body_is_intact(offer_details, row.body or ""):
             raise FollowUpNotEligible(
                 "Keep the booking link in the appointment draft so the lead can book."
@@ -366,6 +379,19 @@ def send_approved_follow_up(
             )
             .order_by(ProviderConnectionORM.updated_at.desc())
         )
+    decoded_attachments: list[tuple[str, str, bytes]] = []
+    total_attachment_bytes = 0
+    for item in row.attachments or []:
+        try:
+            content = base64.b64decode(str(item["content_base64"]), validate=True)
+            filename = str(item["filename"])
+            content_type = str(item["content_type"])
+        except (KeyError, TypeError, ValueError, binascii.Error):
+            raise FollowUpNotEligible("An attachment in this draft is invalid. Remove it and save again.") from None
+        total_attachment_bytes += len(content)
+        if len(decoded_attachments) >= 3 or total_attachment_bytes > 10 * 1024 * 1024:
+            raise FollowUpNotEligible("Keep up to 3 attachments totaling 10 MB or less.")
+        decoded_attachments.append((filename, content_type, content))
     if connection is None:
         raise FollowUpNotEligible("Connect and verify Gmail before sending this follow-up.")
     if GMAIL_SEND_SCOPE not in set(connection.scopes):
@@ -422,12 +448,26 @@ def send_approved_follow_up(
                 send_options["thread_id"] = thread_id
             if in_reply_to:
                 send_options["in_reply_to"] = in_reply_to
-        message_id = GmailOutboundProvider(connection.id, token, mailbox).send_email(
-            recipient=row.recipient,
-            subject=row.subject,
-            body=row.body,
-            **send_options,
-        )
+        provider = GmailOutboundProvider(connection.id, token, mailbox)
+        if row.cc or row.bcc or row.html_body or decoded_attachments:
+            result = provider.send_email_with_metadata(
+                recipient=row.recipient,
+                cc=row.cc or "",
+                bcc=row.bcc or "",
+                subject=row.subject,
+                body=row.body or "",
+                html_body=row.html_body,
+                attachments=decoded_attachments,
+                **send_options,
+            )
+            message_id = result.get("message_id")
+        else:
+            message_id = provider.send_email(
+                recipient=row.recipient,
+                subject=row.subject,
+                body=row.body or "",
+                **send_options,
+            )
     except ProviderOperationError as error:
         row.status = (
             "delivery_uncertain"

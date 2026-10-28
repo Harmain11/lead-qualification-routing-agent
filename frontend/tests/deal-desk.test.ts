@@ -103,5 +103,5 @@ test("pipeline moves are gated by edit permission and always confirm", async () 
 
 test("outreach stays paused for review holds even when Email is requested from elsewhere", async () => {
   const record = await source("../src/v3/screens/LeadRecord.tsx");
-  assert.match(record, /\{open && !blocked && \(/);
+  assert.match(record, /\{open && !blocked && historyLoaded && !historyFailed && \(/);
 });

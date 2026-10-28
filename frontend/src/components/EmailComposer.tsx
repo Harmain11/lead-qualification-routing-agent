@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
 import { createClientId } from "../clientIds";
-import type { GmailAttachmentRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
+import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -9,6 +9,10 @@ export type GmailComposerSeed = {
   recipient?: string;
   subject?: string;
   body?: string;
+  htmlBody?: string;
+  cc?: string;
+  bcc?: string;
+  attachments?: GmailAttachmentRequest[];
   purpose?: "follow_up";
   threadId?: string;
   inReplyTo?: string;
@@ -25,6 +29,11 @@ type Props = {
   onSent?: (result: GmailSendResult) => void;
   onSaved?: (draft: WorkspaceEmailDraft) => void;
   onClose?: () => void;
+  onSaveOverride?: (payload: WorkspaceEmailDraftInput) => Promise<void>;
+  onSendOverride?: (payload: GmailSendRequest) => Promise<GmailSendResult>;
+  sendLabel?: string;
+  headingLabel?: string;
+  headingTitle?: string;
 };
 
 type AttachmentDraft = GmailAttachmentRequest & {
@@ -54,6 +63,11 @@ export function EmailComposer({
   onSent,
   onSaved,
   onClose,
+  onSaveOverride,
+  onSendOverride,
+  sendLabel,
+  headingLabel,
+  headingTitle,
 }: Props) {
   const sendableAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_SEND_SCOPE),
@@ -62,15 +76,15 @@ export function EmailComposer({
     draft?.data.connection_id ?? seed?.connectionId ?? sendableAccounts[0]?.id ?? "",
   );
   const [recipient, setRecipient] = useState(draft?.data.recipient ?? seed?.recipient ?? "");
-  const [cc, setCc] = useState(draft?.data.cc ?? "");
-  const [bcc, setBcc] = useState(draft?.data.bcc ?? "");
-  const [showCc, setShowCc] = useState(seed?.purpose === "follow_up");
-  const [showBcc, setShowBcc] = useState(seed?.purpose === "follow_up");
+  const [cc, setCc] = useState(draft?.data.cc ?? seed?.cc ?? "");
+  const [bcc, setBcc] = useState(draft?.data.bcc ?? seed?.bcc ?? "");
+  const [showCc, setShowCc] = useState(seed?.purpose === "follow_up" || Boolean(seed?.cc));
+  const [showBcc, setShowBcc] = useState(seed?.purpose === "follow_up" || Boolean(seed?.bcc));
   const [subject, setSubject] = useState(draft?.data.subject ?? seed?.subject ?? "");
   const [body, setBody] = useState(draft?.data.body ?? seed?.body ?? "");
-  const [bodyHtml, setBodyHtml] = useState(draft?.data.html_body ?? "");
+  const [bodyHtml, setBodyHtml] = useState(draft?.data.html_body ?? seed?.htmlBody ?? "");
   const [attachments, setAttachments] = useState<AttachmentDraft[]>(() =>
-    (draft?.data.attachments ?? []).map((file) => ({ ...file, id: createClientId(), size: Math.floor(file.content_base64.length * 3 / 4) })),
+    (draft?.data.attachments ?? seed?.attachments ?? []).map((file) => ({ ...file, id: createClientId(), size: Math.floor(file.content_base64.length * 3 / 4) })),
   );
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [encodingAttachments, setEncodingAttachments] = useState(false);
@@ -78,6 +92,13 @@ export function EmailComposer({
   const [linkUrl, setLinkUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [savedDraft, setSavedDraft] = useState(draft ?? null);
+  const replyingInThread = Boolean(seed?.threadId || draft?.data.thread_id);
+  const replyConnectionId = seed?.threadId ? seed.connectionId : draft?.data.connection_id;
+  const replyReference = seed?.threadId ? seed.inReplyTo : draft?.data.in_reply_to;
+  const replyUnavailable = replyingInThread && (
+    !replyConnectionId || !replyReference || connectionId !== replyConnectionId
+    || !sendableAccounts.some((account) => account.id === replyConnectionId)
+  );
   const savedPayload = useRef<string | null>(draft ? JSON.stringify(draft.data) : null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,10 +106,10 @@ export function EmailComposer({
   const savedRangeRef = useRef<Range | null>(null);
 
   useEffect(() => {
-    if (!sendableAccounts.some((account) => account.id === connectionId)) {
+    if (!replyingInThread && !sendableAccounts.some((account) => account.id === connectionId)) {
       setConnectionId(sendableAccounts[0]?.id ?? "");
     }
-  }, [accounts, connectionId]);
+  }, [accounts, connectionId, replyingInThread]);
 
   useEffect(() => {
     if (!draft) setRecipient(seed?.recipient ?? "");
@@ -97,12 +118,12 @@ export function EmailComposer({
   useEffect(() => {
     const initialBody = draft?.data.body ?? seed?.body ?? "";
     setBody(initialBody);
-    setBodyHtml(draft?.data.html_body ?? "");
+    setBodyHtml(draft?.data.html_body ?? seed?.htmlBody ?? "");
     if (editorRef.current) {
-      if (draft?.data.html_body) editorRef.current.innerHTML = draft.data.html_body;
+      if (draft?.data.html_body || seed?.htmlBody) editorRef.current.innerHTML = draft?.data.html_body ?? seed?.htmlBody ?? "";
       else editorRef.current.innerText = initialBody;
     }
-  }, [draft, seed?.body]);
+  }, [draft, seed?.body, seed?.htmlBody]);
 
   function currentDraftPayload(): WorkspaceEmailDraftInput {
     return {
@@ -127,6 +148,12 @@ export function EmailComposer({
     setError(null);
     setNotice(null);
     try {
+      if (onSaveOverride) {
+        await onSaveOverride(payload);
+        savedPayload.current = JSON.stringify(payload);
+        setNotice("Appointment draft saved. It has not been sent.");
+        return;
+      }
       const result = await saveWorkspaceEmailDraft(
         { ...payload, ...(savedDraft ? { expected_version: savedDraft.version } : {}) },
         savedDraft?.id,
@@ -228,12 +255,12 @@ export function EmailComposer({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!canSend || sendBlockedReason || !connectionId || busy) return;
+    if (!canSend || sendBlockedReason || replyUnavailable || !connectionId || busy) return;
     setBusy(true);
     setNotice(null);
     setError(null);
     try {
-      const result = await sendGmailEmail({
+      const request: GmailSendRequest = {
         connection_id: connectionId,
         recipient: recipient.trim(),
         ...(cc.trim() ? { cc: cc.trim() } : {}),
@@ -248,7 +275,10 @@ export function EmailComposer({
         ...(seed?.threadId || draft?.data.thread_id ? { thread_id: seed?.threadId ?? draft?.data.thread_id ?? undefined } : {}),
         ...(seed?.inReplyTo || draft?.data.in_reply_to ? { in_reply_to: seed?.inReplyTo ?? draft?.data.in_reply_to ?? undefined } : {}),
         ...(savedDraft ? { draft_id: savedDraft.id } : {}),
-      });
+      };
+      const result = onSendOverride
+        ? await onSendOverride(request)
+        : await sendGmailEmail(request);
       const account = sendableAccounts.find((item) => item.id === connectionId);
       setNotice(`Email sent from ${account?.account_name ?? result.sender}.`);
       setBody("");
@@ -292,7 +322,7 @@ export function EmailComposer({
   }
   return <form className="email-composer" onSubmit={(event) => void submit(event)}>
     <div className="email-composer-heading">
-      <div><span className="eyebrow">{seed?.purpose === "follow_up" ? "Lead follow-up" : seed?.threadId ? "Reply" : "Compose"}</span><h3>{seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply to email" : "New email"}</h3></div>
+      <div><span className="eyebrow">{headingLabel ?? (seed?.purpose === "follow_up" ? "Lead follow-up" : seed?.threadId ? "Reply" : "Compose")}</span><h3>{headingTitle ?? (seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply to email" : "New email")}</h3></div>
       <div className="email-composer-heading-actions">
          <small>Check the recipient and message, then send.</small>
         {onClose && <button
@@ -310,7 +340,7 @@ export function EmailComposer({
     {sendableAccounts.length === 0 && <div className="notice" role="status">You can save this draft now. Connect a verified Gmail account with send access before sending.</div>}
     <div className="email-composer-address-grid">
       <label>From
-        <select value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
+        <select value={connectionId} onChange={(event) => setConnectionId(event.target.value)} disabled={replyingInThread}>
           {sendableAccounts.length === 0 && <option value="">Choose a Gmail account before sending</option>}
           {sendableAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}
         </select>
@@ -331,8 +361,10 @@ export function EmailComposer({
       </div>
     </div>
     <label>Subject
-      <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required />
+      <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required readOnly={replyingInThread} />
     </label>
+    {replyingInThread && <small className="email-status">This reply keeps the original Gmail account and subject so it stays in the conversation.</small>}
+    {replyUnavailable && <div className="notice" role="alert">Reconnect the Gmail account used for this conversation and refresh its history before replying.</div>}
     <div className="email-rich-editor">
       <span className="email-field-label">Message</span>
       <div className="email-format-toolbar" role="toolbar" aria-label="Message formatting">
@@ -379,8 +411,8 @@ export function EmailComposer({
       <button className="secondary-button" type="button" onClick={() => void saveDraft()} disabled={busy || encodingAttachments || (!recipient.trim() && !subject.trim() && !body.trim())}>
         {busy ? "Saving…" : savedDraft ? "Update draft" : "Save draft"}
       </button>
-      <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
-        {busy ? "Sending…" : sendBlockedReason ? "Human review required" : seed?.purpose === "follow_up" ? "Send follow-up" : "Send email"}
+      <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || replyUnavailable || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
+        {busy ? "Sending…" : sendBlockedReason ? "Human review required" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send email")}
       </button>
     </div>
   </form>;

@@ -446,7 +446,10 @@ export function LeadAssistantPanel({
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_meetings") {
         onSectionChange("email");
-        changeMessage(message.id, { done: true });
+        changeMessage(message.id, {
+          done: true,
+          actionResult: "Meeting controls opened in Email. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
+        });
       } else if (action.kind === "open_dialer") {
         if (dialerPhoneConnectionId && lead.phone?.trim()) {
           window.dispatchEvent(new CustomEvent(OPEN_DIALER_PHONE_EVENT, {
@@ -491,7 +494,7 @@ export function LeadAssistantPanel({
       case "reevaluate_lead": return "Re-evaluate qualification and routing";
       case "complete_manual_review": return "Complete manual review";
       case "open_email": return "Open email";
-      case "open_meetings": return "Review meeting times";
+      case "open_meetings": return "Open meeting controls";
       case "open_dialer": return "Open Dialer to call";
       case "open_closing": return "Open comments and closing";
       case "open_history": return "Open lead history";
