@@ -29,6 +29,11 @@ _MEETING_PATTERNS = (
         r"what times work|when can we meet|when are you free)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"\b(?:do|would|could)\s+you\s+have\s+(?:any\s+)?(?:time|availability)\b"
+        r".{0,80}\b(?:between|from|around|after|before|at)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
 )
 _QUOTED_LINE = re.compile(r"^\s*(?:>|On .+wrote:|From:|Sent:)", re.IGNORECASE)
 _OTHER_TIME_PATTERNS = (

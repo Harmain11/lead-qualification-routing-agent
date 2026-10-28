@@ -1833,6 +1833,33 @@ def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:
     ) is None
 
 
+def test_find_meeting_request_detects_open_ended_time_window_reply() -> None:
+    lead_id = uuid4()
+    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    events = [
+        SimpleNamespace(
+            status="inbound",
+            details={
+                "message_id": "time-window-reply",
+                "thread_id": "meeting-thread",
+                "direction": "inbound",
+                "sender": "buyer@example.test",
+                "subject": "Re: Meeting tomorrow",
+                "body": (
+                    "Hey,\nYes, tomorrow is fine with me, do you have any time "
+                    "between 12 pm and 2 pm?\nRegards"
+                ),
+            },
+        )
+    ]
+
+    result = find_meeting_request(_Session(events), lead, lead_id)
+
+    assert result is not None
+    assert result["message_id"] == "time-window-reply"
+    assert result["thread_id"] == "meeting-thread"
+
+
 def test_find_meeting_request_skips_numbered_reply_and_quoted_request_text() -> None:
     lead_id = uuid4()
     events = [
