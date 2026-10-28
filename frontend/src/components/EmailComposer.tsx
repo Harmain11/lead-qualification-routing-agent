@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { sendGmailEmail } from "../api";
+import { saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
 import { createClientId } from "../clientIds";
-import type { GmailAttachmentRequest, GmailSendResult, ProviderConnection } from "../types";
+import type { GmailAttachmentRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -21,7 +21,9 @@ type Props = {
   sendBlockedReason?: string;
   leadId?: string;
   seed?: GmailComposerSeed;
+  draft?: WorkspaceEmailDraft;
   onSent?: (result: GmailSendResult) => void;
+  onSaved?: (draft: WorkspaceEmailDraft) => void;
   onClose?: () => void;
 };
 
@@ -48,29 +50,35 @@ export function EmailComposer({
   sendBlockedReason,
   leadId,
   seed,
+  draft,
   onSent,
+  onSaved,
   onClose,
 }: Props) {
   const sendableAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_SEND_SCOPE),
   );
   const [connectionId, setConnectionId] = useState(
-    seed?.connectionId ?? sendableAccounts[0]?.id ?? "",
+    draft?.data.connection_id ?? seed?.connectionId ?? sendableAccounts[0]?.id ?? "",
   );
-  const [recipient, setRecipient] = useState(seed?.recipient ?? "");
-  const [cc, setCc] = useState("");
-  const [bcc, setBcc] = useState("");
+  const [recipient, setRecipient] = useState(draft?.data.recipient ?? seed?.recipient ?? "");
+  const [cc, setCc] = useState(draft?.data.cc ?? "");
+  const [bcc, setBcc] = useState(draft?.data.bcc ?? "");
   const [showCc, setShowCc] = useState(seed?.purpose === "follow_up");
   const [showBcc, setShowBcc] = useState(seed?.purpose === "follow_up");
-  const [subject, setSubject] = useState(seed?.subject ?? "");
-  const [body, setBody] = useState(seed?.body ?? "");
-  const [bodyHtml, setBodyHtml] = useState("");
-  const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  const [subject, setSubject] = useState(draft?.data.subject ?? seed?.subject ?? "");
+  const [body, setBody] = useState(draft?.data.body ?? seed?.body ?? "");
+  const [bodyHtml, setBodyHtml] = useState(draft?.data.html_body ?? "");
+  const [attachments, setAttachments] = useState<AttachmentDraft[]>(() =>
+    (draft?.data.attachments ?? []).map((file) => ({ ...file, id: createClientId(), size: Math.floor(file.content_base64.length * 3 / 4) })),
+  );
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [encodingAttachments, setEncodingAttachments] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savedDraft, setSavedDraft] = useState(draft ?? null);
+  const savedPayload = useRef<string | null>(draft ? JSON.stringify(draft.data) : null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -83,15 +91,56 @@ export function EmailComposer({
   }, [accounts, connectionId]);
 
   useEffect(() => {
-    setRecipient(seed?.recipient ?? "");
-  }, [seed?.recipient]);
+    if (!draft) setRecipient(seed?.recipient ?? "");
+  }, [draft, seed?.recipient]);
 
   useEffect(() => {
-    const initialBody = seed?.body ?? "";
+    const initialBody = draft?.data.body ?? seed?.body ?? "";
     setBody(initialBody);
-    setBodyHtml("");
-    if (editorRef.current) editorRef.current.innerText = initialBody;
-  }, [seed?.body]);
+    setBodyHtml(draft?.data.html_body ?? "");
+    if (editorRef.current) {
+      if (draft?.data.html_body) editorRef.current.innerHTML = draft.data.html_body;
+      else editorRef.current.innerText = initialBody;
+    }
+  }, [draft, seed?.body]);
+
+  function currentDraftPayload(): WorkspaceEmailDraftInput {
+    return {
+      connection_id: connectionId || null,
+      recipient: recipient.trim(), cc: cc.trim(), bcc: bcc.trim(),
+      subject: subject.trim(), body, html_body: bodyHtml || null,
+      attachments: attachments.map(({ id: _id, size: _size, ...file }) => file),
+      lead_id: leadId ?? draft?.data.lead_id ?? null,
+      thread_id: seed?.threadId ?? draft?.data.thread_id ?? null,
+      in_reply_to: seed?.inReplyTo ?? draft?.data.in_reply_to ?? null,
+    };
+  }
+
+  useEffect(() => {
+    if (draft) savedPayload.current = JSON.stringify(currentDraftPayload());
+  }, [draft]);
+
+  async function saveDraft() {
+    if (!canSend || busy || encodingAttachments) return;
+    const payload = currentDraftPayload();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await saveWorkspaceEmailDraft(
+        { ...payload, ...(savedDraft ? { expected_version: savedDraft.version } : {}) },
+        savedDraft?.id,
+      );
+      setSavedDraft(result);
+      savedPayload.current = JSON.stringify(payload);
+      setNotice("Draft saved in Corral. Find it in Email → Drafts.");
+      onSaved?.(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Draft could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function syncBody() {
     const editor = editorRef.current;
@@ -195,9 +244,10 @@ export function EmailComposer({
         ...(attachments.length ? {
           attachments: attachments.map(({ id: _id, size: _size, ...file }) => file),
         } : {}),
-        ...(leadId ? { lead_id: leadId } : {}),
-        ...(seed?.threadId ? { thread_id: seed.threadId } : {}),
-        ...(seed?.inReplyTo ? { in_reply_to: seed.inReplyTo } : {}),
+        ...(leadId || draft?.data.lead_id ? { lead_id: leadId ?? draft?.data.lead_id ?? undefined } : {}),
+        ...(seed?.threadId || draft?.data.thread_id ? { thread_id: seed?.threadId ?? draft?.data.thread_id ?? undefined } : {}),
+        ...(seed?.inReplyTo || draft?.data.in_reply_to ? { in_reply_to: seed?.inReplyTo ?? draft?.data.in_reply_to ?? undefined } : {}),
+        ...(savedDraft ? { draft_id: savedDraft.id } : {}),
       });
       const account = sendableAccounts.find((item) => item.id === connectionId);
       setNotice(`Email sent from ${account?.account_name ?? result.sender}.`);
@@ -218,14 +268,16 @@ export function EmailComposer({
   }
 
   function closeComposer() {
-    const hasUnsentChanges =
+    const hasUnsentChanges = savedPayload.current
+      ? JSON.stringify(currentDraftPayload()) !== savedPayload.current
+      : Boolean(
       body.trim() ||
       bodyHtml.trim() ||
       cc.trim() ||
       bcc.trim() ||
       attachments.length > 0 ||
       recipient !== (seed?.recipient ?? "") ||
-      subject !== (seed?.subject ?? "");
+      subject !== (seed?.subject ?? ""));
     if (
       hasUnsentChanges &&
       !window.confirm("Close this composer and discard these unsent changes?")
@@ -238,13 +290,6 @@ export function EmailComposer({
   if (!canSend) {
     return <div className="email-composer-empty">You can read this conversation. Sending email requires lead edit permission.</div>;
   }
-  if (sendableAccounts.length === 0) {
-    return <div className="email-composer-empty">
-      <span>No verified Gmail account has send permission. Reconnect an account from Integrations to enable sending.</span>
-      {onClose && <button type="button" className="button-quiet" onClick={onClose}>Close composer</button>}
-    </div>;
-  }
-
   return <form className="email-composer" onSubmit={(event) => void submit(event)}>
     <div className="email-composer-heading">
       <div><span className="eyebrow">{seed?.purpose === "follow_up" ? "Lead follow-up" : seed?.threadId ? "Reply" : "Compose"}</span><h3>{seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply to email" : "New email"}</h3></div>
@@ -262,9 +307,11 @@ export function EmailComposer({
         </button>}
       </div>
     </div>
+    {sendableAccounts.length === 0 && <div className="notice" role="status">You can save this draft now. Connect a verified Gmail account with send access before sending.</div>}
     <div className="email-composer-address-grid">
       <label>From
         <select value={connectionId} onChange={(event) => setConnectionId(event.target.value)}>
+          {sendableAccounts.length === 0 && <option value="">Choose a Gmail account before sending</option>}
           {sendableAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}
         </select>
       </label>
@@ -329,6 +376,9 @@ export function EmailComposer({
     {notice && <div className="notice" role="status">{notice}</div>}
     {sendBlockedReason && <div className="notice" role="status">{sendBlockedReason}</div>}
     <div className="email-composer-footer">
+      <button className="secondary-button" type="button" onClick={() => void saveDraft()} disabled={busy || encodingAttachments || (!recipient.trim() && !subject.trim() && !body.trim())}>
+        {busy ? "Saving…" : savedDraft ? "Update draft" : "Save draft"}
+      </button>
       <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
         {busy ? "Sending…" : sendBlockedReason ? "Human review required" : seed?.purpose === "follow_up" ? "Send follow-up" : "Send email"}
       </button>

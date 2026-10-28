@@ -41,6 +41,25 @@ class WorkspaceORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceEmailDraftORM(Base):
+    """Private, workspace-scoped drafts saved before Gmail delivery."""
+
+    __tablename__ = "workspace_email_drafts"
+    __table_args__ = (
+        Index("ix_workspace_email_drafts_owner_updated", "workspace_id", "created_by", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkspaceEmailTemplateORM(Base):
     """Workspace-owned confirmation and follow-up email templates."""
 

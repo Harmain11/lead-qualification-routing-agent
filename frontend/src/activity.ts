@@ -30,6 +30,7 @@ export function mutationStatusMessage(url: string, result: unknown): { message: 
   if (url.includes("/disconnect")) return { message: "Account disconnected.", kind: "success" };
   if (url.includes("/sync")) return { message: "Synchronization completed successfully.", kind: "success" };
   if (url.includes("/import")) return { message: "Import completed successfully.", kind: "success" };
+  if (url.startsWith("/v1/email/drafts")) return { message: "Email draft saved.", kind: "success" };
   if (url.includes("/draft")) return { message: "AI draft created. Review and edit it before sending.", kind: "success" };
   return { message: "Changes saved successfully.", kind: "success" };
 }

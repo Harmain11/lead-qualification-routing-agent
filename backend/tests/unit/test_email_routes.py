@@ -1,19 +1,30 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from lead_agent.api.routes.email import (
     GMAIL_SEND_SCOPE,
     GmailSendAccountResponse,
     SendEmailRequest,
+    SaveEmailDraftRequest,
     _sanitize_email_html,
+    create_email_draft,
+    delete_email_draft,
+    get_email_draft,
+    list_email_drafts,
     list_gmail_send_accounts,
+    update_email_draft,
 )
+from lead_agent.infrastructure.db.base import Base
+from lead_agent.infrastructure.db.models import WorkspaceEmailDraftORM, WorkspaceORM
 
 
 def test_send_email_request_accepts_a_recipient_and_optional_thread_context() -> None:
@@ -120,3 +131,32 @@ def test_send_email_request_rejects_header_injection_and_invalid_thread_ids(
     }
     with pytest.raises(ValidationError):
         SendEmailRequest.model_validate(payload)
+
+
+def test_workspace_drafts_are_private_and_versioned() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine, tables=[WorkspaceORM.__table__, WorkspaceEmailDraftORM.__table__])
+    workspace_id = uuid4()
+    now = datetime.now(UTC)
+    with Session(engine) as session:
+        session.add(WorkspaceORM(id=workspace_id, name="Test", slug="test-drafts", created_at=now, updated_at=now))
+        session.commit()
+        alice = SimpleNamespace(workspace_id=workspace_id, actor_id="alice")
+        bob = SimpleNamespace(workspace_id=workspace_id, actor_id="bob")
+        payload = SaveEmailDraftRequest(subject="Hello", body="Draft content")
+        draft = create_email_draft(payload, session, alice)
+        summaries = list_email_drafts(session, alice)
+        assert len(summaries) == 1
+        assert summaries[0].subject == "Hello"
+        assert not hasattr(summaries[0], "data")
+        assert list_email_drafts(session, bob) == []
+        assert get_email_draft(draft.id, session, alice).data["body"] == "Draft content"
+        changed = update_email_draft(
+            draft.id,
+            SaveEmailDraftRequest(subject="Updated", body="Draft content", expected_version=1),
+            session, alice,
+        )
+        assert changed.version == 2
+        assert changed.data["subject"] == "Updated"
+        delete_email_draft(draft.id, session, alice)
+        assert list_email_drafts(session, alice) == []

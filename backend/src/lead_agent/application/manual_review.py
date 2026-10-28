@@ -66,6 +66,10 @@ def lead_manual_review_reasons(
         route_reason = routing.routing_reason.replace(
             " No rep assignment is applicable.", ""
         ).strip()
+        for reason in reasons:
+            if route_reason.startswith(reason):
+                route_reason = route_reason[len(reason):].strip()
+                break
         generic_reasons = (
             "Lead matches an enabled manual-review condition.",
             "Manual-review precedence: analysis uncertainty or provider failure requires human review.",

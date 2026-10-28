@@ -354,7 +354,7 @@ export function RecordsView({
                 aria-label={`Enter or edit ${companyItem.name} details manually`}
                 onClick={() => edit(companyItem)}
               >
-                Manual entry
+                Edit details
               </button>
             )}
             {canResearch && (
@@ -366,8 +366,8 @@ export function RecordsView({
                 {companyItem.website_reviewed && companyItem.website
                   ? "Enrich with AI"
                   : companyItem.website
-                    ? "Review page to enrich"
-                    : "Add website to enrich"}
+                    ? "Review website"
+                    : "Add website"}
               </button>
             )}
           </div>

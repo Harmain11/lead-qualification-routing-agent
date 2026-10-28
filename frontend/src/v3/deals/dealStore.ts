@@ -268,13 +268,17 @@ export async function refreshDeals({ migrateLegacy = false, discardDraft = false
     const server = await request<ServerDeals>("/v1/deals");
     if (id !== activeId || sequence !== saveSequence) return;
     const cached = state;
-    if (cached.syncError && !discardDraft) {
+    const remote = Object.fromEntries(Object.entries(server.deals).map(([leadId, row]) => [leadId, row.deal]));
+    const cachedMatchesServer = JSON.stringify(cached.deals) === JSON.stringify(remote)
+      && (!server.settings || (JSON.stringify(cached.catalog) === JSON.stringify(server.settings.catalog.length ? server.settings.catalog : DEFAULT_CATALOG)
+        && cached.monthlyGoal === server.settings.monthlyGoal
+        && cached.quoteCounter === server.settings.quoteCounter));
+    if (cached.syncError && !discardDraft && !cachedMatchesServer) {
       ready = true;
       state = { ...cached, syncStatus: "error" }; emit(); return;
     }
     versions = Object.fromEntries(Object.entries(server.deals).map(([leadId, row]) => [leadId, row.version]));
     settingsVersion = server.settings?.version ?? 0;
-    const remote = Object.fromEntries(Object.entries(server.deals).map(([leadId, row]) => [leadId, row.deal]));
     state = { ...state, deals: remote, ...(server.settings ? { catalog: server.settings.catalog.length ? server.settings.catalog : DEFAULT_CATALOG, monthlyGoal: server.settings.monthlyGoal, quoteCounter: server.settings.quoteCounter } : {}), syncStatus: "saved", syncError: null };
     ready = true;
     // Migrate the old device-only records once; never replace a saved server record.

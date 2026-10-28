@@ -1554,7 +1554,7 @@ function App() {
                   <PerformanceScreen data={data} views={dealViews} range={range} rangeControl={rangeControl} />
                 )}
                 {view === "review" && (
-                  <ReviewScreen data={data?.review ?? null} newLeadIds={unseenLeadIdSet} onInspect={(id) => openLeadSection(id, "ai")} />
+                  <ReviewScreen data={data?.review ?? null} newLeadIds={unseenLeadIdSet} onInspect={(id) => openLeadSection(id, "ai")} canManageReview={can(workspacePermissions, "leads.view") && can(workspacePermissions, "manual_review.manage")} onReviewCompleted={() => { void refresh(); }} />
                 )}
                 {view === "agents" && (
                   <div className="v-page" data-width="wide">

@@ -1260,7 +1260,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              </div>}
              {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
            </IntegrationDisclosure>
-         {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
+         {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && connection.last_validation_result.message !== operationFeedback[card.provider]?.message && connection.last_validation_result.message !== actionErrors[card.provider] && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}
             canConnect={canConnectProvider}
@@ -1558,7 +1558,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             </div>
           </IntegrationDisclosure>}
         {operationFeedback[card.provider] && <div className={`notice notice-${operationFeedback[card.provider].state} integration-operation-feedback operation-${operationFeedback[card.provider].state}`} role={operationFeedback[card.provider].state === "error" ? "alert" : "status"} aria-live="polite" aria-busy={operationFeedback[card.provider].state === "running"}>{operationFeedback[card.provider].message}</div>}
-        {actionErrors[card.provider] && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
+        {actionErrors[card.provider] && actionErrors[card.provider] !== operationFeedback[card.provider]?.message && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
           </ProviderDetailsPanel>
        </article>;
     })}</div>

@@ -69,3 +69,14 @@ def test_existing_review_hold_explains_current_fields_when_no_rule_matches() -> 
     assert "Full name: Priya Mehta" in reasons[0]
     assert "Company name: Acme" in reasons[0]
     assert "Analysis confidence: 88%" in reasons[0]
+
+
+def test_routing_reason_does_not_repeat_review_trigger_but_keeps_extra_context(monkeypatch) -> None:
+    trigger = "Email field (person@gmail.com) uses a personal email domain; verify the prospect's business affiliation."
+    monkeypatch.setattr("lead_agent.application.manual_review.manual_review_reasons", lambda **_: [trigger])
+    lead = SimpleNamespace(workspace_id=uuid4(), email="person@gmail.com", full_name="Person", company_name="Company", analysis=SimpleNamespace(requires_manual_review=True, status="manual_review", confidence=0.8, structured_output={}))
+    routing = SimpleNamespace(manual_review=True, routing_reason=f"{trigger} Manual representative assignment preserved.")
+
+    reasons = lead_manual_review_reasons(EmptySession(), lead, routing)
+
+    assert reasons == [trigger, "Manual representative assignment preserved."]

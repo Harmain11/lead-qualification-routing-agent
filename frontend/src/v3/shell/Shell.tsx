@@ -98,7 +98,7 @@ export function Sidebar({
   };
   const scheduleClose = () => {
     window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => setFlyout(null), 160);
+    closeTimer.current = window.setTimeout(() => setFlyout(null), 450);
   };
   const flyoutItem = sections.flatMap((section) => section.items).find((item) => item.id === flyout?.id);
   useLayoutEffect(() => {

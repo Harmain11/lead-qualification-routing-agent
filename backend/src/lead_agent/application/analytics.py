@@ -828,7 +828,8 @@ class AnalyticsService:
                 else f"{volume_change:+.1f}% lead volume versus the prior period"
             )
             summary = (
-                f"Analyzed {len(leads)} leads: {sql_ready} are SQL-ready ({sql_rate}%), "
+                f"Analyzed {len(leads)} leads: {sql_ready} "
+                f"{'is' if sql_ready == 1 else 'are'} SQL-ready ({sql_rate}%), "
                 f"{manual_review} need manual review, with {change_text}."
             )
         else:

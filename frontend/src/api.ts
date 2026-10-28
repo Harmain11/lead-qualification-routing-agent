@@ -640,6 +640,29 @@ export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResu
   });
 }
 
+export function listWorkspaceEmailDrafts(): Promise<import("./types").WorkspaceEmailDraftSummary[]> {
+  return request("/v1/email/drafts");
+}
+
+export function getWorkspaceEmailDraft(draftId: string): Promise<import("./types").WorkspaceEmailDraft> {
+  return request(`/v1/email/drafts/${draftId}`);
+}
+
+export function saveWorkspaceEmailDraft(
+  payload: import("./types").WorkspaceEmailDraftInput,
+  draftId?: string,
+): Promise<import("./types").WorkspaceEmailDraft> {
+  return request(draftId ? `/v1/email/drafts/${draftId}` : "/v1/email/drafts", {
+    method: draftId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWorkspaceEmailDraft(draftId: string): Promise<void> {
+  return request(`/v1/email/drafts/${draftId}`, { method: "DELETE" }, { activityToast: false });
+}
+
 export function listGmailSendAccounts(): Promise<GmailSendAccount[]> {
   return request("/v1/email/send-accounts");
 }

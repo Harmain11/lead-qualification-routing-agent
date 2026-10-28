@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { completeLeadManualReview } from "../../api";
 import type { AnalyticsBundle } from "../../views/productShared";
 import type { LeadCard, ManualReviewAnalytics } from "../../types";
 import { formatDuration, formatMoney, OPEN_STAGES, stageInfo, useDeals, type DealView } from "../deals/dealStore";
@@ -343,11 +344,30 @@ export function ReviewScreen({
   data,
   newLeadIds,
   onInspect,
+  canManageReview,
+  onReviewCompleted,
 }: {
   data: ManualReviewAnalytics | null;
   newLeadIds: ReadonlySet<string>;
   onInspect: (id: string) => void;
+  canManageReview: boolean;
+  onReviewCompleted: () => void;
 }) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function completeReview(id: string, name: string) {
+    if (!window.confirm(`Mark ${name}'s review done? This clears the hold, applies current routing, and may notify the assignee.`)) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      await completeLeadManualReview(id);
+      onReviewCompleted();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The review could not be completed.");
+    } finally {
+      setBusyId(null);
+    }
+  }
   if (!data) return <Unavailable />;
   const overdue = data.items.filter((item) => item.sla_overdue).length;
   return (
@@ -360,6 +380,7 @@ export function ReviewScreen({
             : "Leads that match one of your review rules wait here for a person."
         }
       />
+      {error && <p role="alert">{error}</p>}
       {data.items.length === 0 ? (
         <div className="v-card"><EmptyState icon="check" title="Nothing to review">No leads need a person’s judgement in this period.</EmptyState></div>
       ) : (
@@ -387,6 +408,7 @@ export function ReviewScreen({
                   {lead.priority && <span className="v-sep-dot">{titleize(lead.priority)} priority</span>}
                 </span>
                 {lead.sla_overdue && <span className="v-badge" data-tone="danger">Past response target</span>}
+                {canManageReview && <Button kind="plain" size="sm" disabled={busyId !== null} onClick={() => void completeReview(lead.id, lead.name || lead.company || "this lead")}>{busyId === lead.id ? "Completing…" : "Mark review done"}</Button>}
                 <Button kind="tinted" size="sm" trailingIcon="chevronRight" onClick={() => onInspect(lead.id)}>Review Evidence</Button>
               </footer>
             </li>

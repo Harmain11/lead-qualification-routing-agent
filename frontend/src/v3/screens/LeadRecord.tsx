@@ -31,7 +31,7 @@ import { getLeadTalkingPoints } from "../../leadActionPlan";
 import { leadSectionHref, type LeadDetailSection } from "../../leadSections";
 import { buildLeadProfileUpdates, createLeadProfileDraft, type LeadProfileDraft } from "../../leadProfileEditor";
 import type { CrmSync, Lead, LeadAssignmentOption, LeadMomentum, LeadOutcome, ProviderConnection, Qualification } from "../../types";
-import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
+import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageFromBackend, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
 import { StageMoveSheet } from "../deals/StageMoveSheet";
 import { togglePhone, type LeadAction } from "../shell/events";
 import { Icon } from "../ui/Icon";
@@ -60,7 +60,7 @@ const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "follow-ups", label: "Follow-up" },
   { id: "email", label: "Email" },
   { id: "calls", label: "Calls" },
-  { id: "deal", label: "Deal" },
+  { id: "deal", label: "Pipeline" },
   { id: "history", label: "Activity" },
   { id: "agent", label: "Ask Corral" },
 ];
@@ -592,6 +592,7 @@ export function LeadRecord({
           />
         )}
       </div>
+      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Calls */}
       <div id="lead-panel-calls" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-calls" tabIndex={0} hidden={shownSection !== "calls"}>
@@ -793,6 +794,7 @@ export function LeadRecord({
               active={shownSection === "email"}
               canView={canViewEmail}
               canSend={canEdit}
+              hideComposeButton
               onAskAgent={() => onSectionChange("agent")}
               onConversationSynced={synced}
             />
@@ -801,8 +803,6 @@ export function LeadRecord({
       </section>
 
       {/* ---------------------------------------------- Progress & History */}
-      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
-
       {/* --------------------------------------------------------- Assistant */}
       <section id="lead-panel-agent" className="v-panel v-legacy-block" role="tabpanel" aria-labelledby="lead-tab-agent" tabIndex={0} hidden={shownSection !== "agent"}>
         <LeadAssistantPanel
@@ -1357,7 +1357,10 @@ function ProgressAndHistory({
       const unreadable = result.threads_unreadable
         ? ` Google denied access to ${result.threads_unreadable} thread${result.threads_unreadable === 1 ? "" : "s"}; check that the connected mailbox can open ${result.threads_unreadable === 1 ? "it" : "them"}.`
         : "";
-      setNotice(`${summary}${unreadable}`);
+      const profileUpdate = result.profile_updated_fields?.length
+        ? ` Updated ${result.profile_updated_fields.join(" and ")} from the lead’s own message.`
+        : "";
+      setNotice(`${summary}${unreadable}${profileUpdate}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to sync Gmail conversation");
     } finally {
@@ -1377,12 +1380,18 @@ function ProgressAndHistory({
         ...(closing ? { credited_user_id: creditedId || null } : {}),
         ...(stage === "converted" ? { send_direct_message: sendDirectMessage } : {}),
       });
+      const dealStage = stageFromBackend(stage);
+      let workspaceSyncError = false;
+      if (!closing && dealStage && getDeal(lead.id).stage !== dealStage) {
+        dealActions.setStage(lead.id, dealStage, note.trim());
+        try { await flushDealChanges(); } catch { workspaceSyncError = true; }
+      }
       setNote("");
       if (closing) {
         setOutcome(result.outcome ?? null);
         setNotice(stage === "converted" ? `${titleize(conversionType)} win recorded in Corral. Qualification is unchanged; no CRM record was created.` : "Closed – lost recorded. Qualification is unchanged.");
       } else {
-        setNotice(`Progress saved. Corral re-checked this lead: ${titleize(result.classification)} (${result.score}/100).`);
+        setNotice(`Progress saved. Corral re-checked this lead: ${titleize(result.classification)} (${result.score}/100).${workspaceSyncError ? " The Pipeline card could not sync; check its save banner. Do not submit the update again." : ""}`);
       }
       onConversationSynced();
     } catch (error) {
@@ -1426,7 +1435,7 @@ function ProgressAndHistory({
   const closing = stage === "converted" || stage === "lost";
   return (
     <>
-      <section id="lead-panel-closing" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-history" tabIndex={0} hidden={activeSection !== "history"}>
+      <section id="lead-panel-closing" className="v-panel" role="region" aria-label="Pipeline activity updates" tabIndex={0} hidden={activeSection !== "deal"}>
         <div className="v-stack">
           {outcome && (
             <OutcomeReceipt
@@ -1446,8 +1455,8 @@ function ProgressAndHistory({
             <form className="v-card v-card-pad v-form" onSubmit={(event) => void save(event)}>
               <div className="v-card-headrow">
                 <div>
-                  <h2 className="v-card-title">Record progress</h2>
-                  <p className="v-card-sub">Each update needs a short, verified comment. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
+                  <h2 className="v-card-title">Pipeline activity update</h2>
+                  <p className="v-card-sub">Record a verified update at the correct stage. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
                 </div>
                 <Button size="sm" disabled={syncBusy || busy} onClick={() => void syncConversation()} icon="refresh">
                   {syncBusy ? "Syncing Gmail…" : "Sync Gmail & Re-check"}

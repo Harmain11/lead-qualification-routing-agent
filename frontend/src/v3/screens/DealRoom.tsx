@@ -222,6 +222,11 @@ export function DealRoom({
                         <Button kind="plain" size="sm" onClick={() => setReviewing(quote)}>Review</Button>
                         <IconButton icon="download" label={`Print or save ${quote.number} as PDF`} size={16} onClick={() => printQuote(quote, lead)} />
                         {canEdit && quote.status === "draft" && <IconButton icon="edit" label={`Edit ${quote.number}`} size={16} onClick={() => setEditing(quote)} />}
+                        {canEdit && quote.status === "draft" && !quote.sentAt && <IconButton icon="trash" label={`Delete draft ${quote.number}`} size={16} onClick={() => {
+                          if (window.confirm(`Delete draft ${quote.number}, version ${quote.version}? This cannot be undone.`)) {
+                            dealActions.deleteQuote(lead.id, quote.id);
+                          }
+                        }} />}
                         {canEmail && quote.status !== "superseded" && <IconButton icon="send" label={`Review and email ${quote.number}`} size={16} onClick={() => setReviewing(quote)} />}
                         {canEdit && quote.status !== "superseded" && (
                           <select
