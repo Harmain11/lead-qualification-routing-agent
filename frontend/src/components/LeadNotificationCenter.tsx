@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AssignmentNotification } from "../api";
+import type { LeadDetailSection } from "../leadSections";
 import type { Lead } from "../types";
 
 function leadTimestamp(lead?: Lead): number {
@@ -28,7 +29,7 @@ export function LeadNotificationCenter({
   unseenLeadIds: string[];
   leads: Lead[];
   assignmentNotifications: AssignmentNotification[];
-  onOpenLead: (leadId: string, section?: "follow-ups") => void;
+  onOpenLead: (leadId: string, section?: LeadDetailSection) => void;
   onMarkAssignmentRead: (notificationId: string) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -119,7 +120,7 @@ export function LeadNotificationCenter({
                       setOpen(false);
                       onOpenLead(
                         notification.lead_id,
-                        notification.kind === "meeting_reply_draft" ? "follow-ups" : undefined,
+                        notification.kind === "meeting_reply_draft" ? "email" : undefined,
                       );
                       void onMarkAssignmentRead(notification.id);
                     }}
