@@ -199,6 +199,8 @@ export function LeadMeetingPanel({
   const [retryBookingError, setRetryBookingError] = useState("");
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [draftCreated, setDraftCreated] = useState(false);
+  const autoDraftAttempt = useRef<string | null>(null);
+  const emailOpenedForDraft = useRef<string | null>(null);
   const actionSequence = useRef(0);
   const currentLeadId = useRef(lead.id);
   const scanGmailOnNextLoad = useRef(false);
@@ -301,7 +303,7 @@ export function LeadMeetingPanel({
       if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
       setDraftCreated(true);
       setReviewing(false);
-      onDraftCreated?.();
+      openEmailsForDraft();
     } catch (reason: unknown) {
       if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
       setConfirmError(reason instanceof Error ? reason.message : "The email draft could not be prepared. Refresh the recommendations and try again.");
@@ -309,6 +311,73 @@ export function LeadMeetingPanel({
       if (currentLeadId.current === targetLeadId && actionSequence.current === actionId) setConfirming(false);
     }
   };
+
+  const openEmailsForDraft = () => {
+    if (!onDraftCreated) return;
+    const sourceMessageId = recommendations?.offer_source_message_id
+      || recommendations?.source_message_id
+      || "saved-draft";
+    const key = `${lead.id}:${sourceMessageId}`;
+    if (emailOpenedForDraft.current === key) return;
+    emailOpenedForDraft.current = key;
+    onDraftCreated();
+  };
+
+  useEffect(() => {
+    if (
+      loadState === "ready"
+      && recommendations?.offer_status === "awaiting_send"
+      && canViewEmails
+    ) {
+      openEmailsForDraft();
+    }
+  }, [
+    canViewEmails,
+    lead.id,
+    loadState,
+    onDraftCreated,
+    recommendations?.offer_source_message_id,
+    recommendations?.offer_status,
+    recommendations?.source_message_id,
+  ]);
+
+  useEffect(() => {
+    const sourceMessageId = recommendations?.source_message_id;
+    if (
+      loadState !== "ready"
+      || !recommendations?.detected
+      || !sourceMessageId
+      || recommendations.offer_status
+      || recommendations.offer_can_be_replaced
+      || !hasCalendar
+      || !canEdit
+      || !canViewEmails
+      || draftCreated
+      || confirming
+    ) {
+      return;
+    }
+    const attemptKey = [
+      lead.id,
+      sourceMessageId,
+      retryCount,
+      refreshToken ?? 0,
+    ].join(":");
+    if (autoDraftAttempt.current === attemptKey) return;
+    autoDraftAttempt.current = attemptKey;
+    void prepareBookingLinkDraft();
+  }, [
+    canEdit,
+    canViewEmails,
+    confirming,
+    draftCreated,
+    hasCalendar,
+    lead.id,
+    loadState,
+    recommendations,
+    refreshToken,
+    retryCount,
+  ]);
 
   const retrySavedBooking = async () => {
     const offerSourceMessageId = recommendations?.offer_source_message_id;
@@ -370,7 +439,7 @@ export function LeadMeetingPanel({
         <div>
           <span className="lmp-eyebrow">Gmail · calendar scheduling</span>
           <h3 id={`meeting-title-${lead.id}`}>Schedule from the lead’s email</h3>
-          <p className="lmp-intro">When a lead asks to meet in Gmail, Corral prepares a personalized reply in that thread with a Calendly or Google Calendar booking link. No slot selection is needed; review, edit, and send the draft from the lead’s Emails tab.</p>
+          <p className="lmp-intro">When a lead asks to meet in Gmail, Corral automatically saves a personalized reply in that thread with a Calendly or Google Calendar booking link. No slot selection is needed; review, edit, and send the draft from the lead’s Emails tab.</p>
         </div>
       </div>
       <button className="lmp-refresh" type="button" onClick={() => { scanGmailOnNextLoad.current = canEdit; setRetryCount((count) => count + 1); }} disabled={loadState === "loading" || confirming} aria-label={canEdit ? "Read latest Gmail conversation and refresh meeting recommendations" : "Refresh meeting recommendations"}>
@@ -409,26 +478,29 @@ export function LeadMeetingPanel({
               <p>{recommendations.booked_meeting_at ? `Meeting set for ${new Date(recommendations.booked_meeting_at).toLocaleString()}.` : "This request already has a booked meeting."} Corral will offer another meeting only after the lead sends a new request.</p>
             </div>}
             {!bookedOfferForCurrentRequest && hasCalendar && <div className="lmp-controls">
-              <small>
-                {hasConnectedCalendly
-                  ? "Calendly is preferred when connected, even if Google Calendar is also connected."
-                  : "The workspace Google Calendar appointment link will be used."}
-                {" "}You can review and change the draft before sending.
+              <small role="status">
+                {recommendations.offer_can_be_replaced
+                  ? "A previous unsent offer exists. Review before replacing it."
+                  : confirmError
+                    ? "The appointment draft needs attention below."
+                    : confirming
+                      ? `Preparing a personalized ${hasConnectedCalendly ? "Calendly" : "Google Calendar"} draft…`
+                      : !canViewEmails
+                        ? "Email access is required to create and review the appointment draft."
+                        : !canEdit
+                          ? "A teammate with edit access must prepare the appointment draft."
+                          : "Meeting request detected. Corral is preparing an editable draft for Emails."}
               </small>
-              <button
-                className="lmp-primary"
-                type="button"
-                disabled={!canEdit || !canViewEmails || confirming}
-                onClick={() => recommendations.offer_can_be_replaced
-                  ? setReviewing(true)
-                  : void prepareBookingLinkDraft()}
-              >
-                {confirming
-                  ? "Preparing draft…"
-                  : recommendations.offer_can_be_replaced
-                    ? "Review replacement draft"
-                    : "Create appointment draft"}
-              </button>
+              {recommendations.offer_can_be_replaced && (
+                <button
+                  className="lmp-primary"
+                  type="button"
+                  disabled={!canEdit || !canViewEmails || confirming}
+                  onClick={() => setReviewing(true)}
+                >
+                  {confirming ? "Preparing draft…" : "Review replacement draft"}
+                </button>
+              )}
             </div>}
             {recommendations.offer_status === "needs_attention" && (recommendations.offer_booking_error || recommendations.offer_has_confirmed_selection) && <div className="lmp-booking-warning" role="alert">
               <b>Booking attempt detail</b>
@@ -565,16 +637,6 @@ export function LeadMeetingPanel({
           </div>
         </div>}
 
-        {!draftCreated && selectedSlot && !reviewing && !confirmError && !bookedOfferForCurrentRequest && <div className="lmp-controls">
-            <small>
-              {!canViewEmails
-                ? "Email access is required to open and review the meeting draft."
-                : canEdit
-              ? "Selecting a time is optional. The appointment draft uses the connected booking link."
-              : "You can review the booking page; an editor can prepare the email draft."}
-            </small>
-          <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => void prepareBookingLinkDraft()}>Create appointment draft</button>
-        </div>}
         {!draftCreated && reviewing && !bookedOfferForCurrentRequest && <div className="lmp-review" role="group" aria-label="Create appointment booking-link draft">
           <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> {recommendations.offer_can_be_replaced ? "Replace the unbooked appointment draft?" : "Prepare the booking-link draft?"}</div>
           <p>This saves an editable reply in the lead’s Emails tab. It includes the preferred provider’s booking link, and you can review, change, and send it there. The lead books a time on that booking page.</p>
