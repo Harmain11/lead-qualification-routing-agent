@@ -166,9 +166,18 @@
 .v-hold details { margin-top: 6px; font: var(--t-callout); color: var(--label-2); }
 .v-hold summary { cursor: pointer; color: var(--attention-text); font-weight: 500; }
 .v-hold ul { margin: 6px 0 0; padding-left: 18px; }
+.v-meeting-status { display: flex; align-items: flex-start; gap: 14px; padding: 14px 18px; border: 1px solid var(--separator); border-radius: var(--r-lg); background: var(--surface-raised); }
+.v-meeting-status[data-state="draft_ready"], .v-meeting-status[data-state="sending"], .v-meeting-status[data-state="needs_attention"] { background: var(--attention-soft); }
+.v-meeting-status-mark { display: grid; place-items: center; flex: none; width: 34px; height: 34px; border-radius: 50%; background: var(--fill); color: var(--tint-text); }
+.v-meeting-status[data-state="draft_ready"] .v-meeting-status-mark, .v-meeting-status[data-state="sending"] .v-meeting-status-mark, .v-meeting-status[data-state="needs_attention"] .v-meeting-status-mark { background: var(--c-amber); color: var(--on-attention); }
+.v-meeting-status-copy { flex: 1; min-width: 0; }
+.v-meeting-status b { font: var(--t-headline); }
+.v-meeting-status p { margin-top: 2px; font: var(--t-callout); color: var(--label-2); }
 @media (max-width: 480px) {
   .v-hold { flex-wrap: wrap; }
   .v-hold-actions { margin-left: 48px; }
+  .v-meeting-status { flex-wrap: wrap; }
+  .v-meeting-status > button { margin-left: 48px; }
 }
 
 .v-tabs {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   deleteLead,
   completeLeadManualReview,
@@ -23,7 +23,7 @@ import { GmailInquiryView } from "../../components/GmailInquiryView";
 import { LeadAssistantPanel } from "../../components/LeadAssistantPanel";
 import { leadAction } from "../shell/events";
 import { LeadEmailPanel } from "../../components/LeadEmailPanel";
-import { LeadMeetingPanel } from "../../components/LeadMeetingPanel";
+import { LeadMeetingPanel, type LeadMeetingIndicator } from "../../components/LeadMeetingPanel";
 import { componentTotals } from "../../components/record/scoreModel";
 import { TOGGLE_AGENT_EVENT } from "../../components/shell/agentEvents";
 import { getLeadTalkingPoints } from "../../leadActionPlan";
@@ -129,6 +129,7 @@ export function LeadRecord({
   const [assigning, setAssigning] = useState(false);
   const [completingManualReview, setCompletingManualReview] = useState(false);
   const [manualReviewError, setManualReviewError] = useState<string | null>(null);
+  const [meetingIndicator, setMeetingIndicator] = useState<{ leadId: string; status: LeadMeetingIndicator } | null>(null);
   const store = useDeals();
   const dealView = viewDeal(lead, store.deals[lead.id], recordedStage);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -168,6 +169,18 @@ export function LeadRecord({
   const talkingPoints = getLeadTalkingPoints(route);
   const review = Boolean(route?.manual_review || analysis?.requires_manual_review);
   const reviewReasons = manualReviewReasons(lead);
+  const activeMeetingIndicator = meetingIndicator?.leadId === lead.id ? meetingIndicator.status : null;
+  const handleMeetingStatusChange = useCallback((status: LeadMeetingIndicator | null) => {
+    setMeetingIndicator((current) => {
+      if (!status) return current?.leadId === lead.id ? null : current;
+      if (
+        current?.leadId === lead.id
+        && current.status.kind === status.kind
+        && current.status.bookedAt === status.bookedAt
+      ) return current;
+      return { leadId: lead.id, status };
+    });
+  }, [lead.id]);
   const synced = () => {
     setActivityRefresh((value) => value + 1);
     setMeetingRefresh((value) => value + 1);
@@ -484,6 +497,41 @@ export function LeadRecord({
           )}
         </div>
       )}
+      {activeMeetingIndicator && (
+        <div className="v-meeting-status" data-state={activeMeetingIndicator.kind} role="status" aria-label="Meeting status">
+          <span className="v-meeting-status-mark" aria-hidden="true"><Icon name="calendar" size={18} /></span>
+          <div className="v-meeting-status-copy">
+            <b>
+              {activeMeetingIndicator.kind === "draft_ready" ? "Appointment draft ready to send"
+                : activeMeetingIndicator.kind === "sending" ? "Appointment link is being sent"
+                  : activeMeetingIndicator.kind === "awaiting_booking" ? "Booking link sent"
+                    : activeMeetingIndicator.kind === "booked" ? "Meeting booked"
+                      : "Meeting booking needs attention"}
+            </b>
+            <p>
+              {activeMeetingIndicator.kind === "draft_ready"
+                ? canViewEmail
+                  ? "Review or edit the draft in Emails, then send it so the lead can book a meeting."
+                  : "An appointment draft is ready. Ask a teammate with email access to review and send it."
+                : activeMeetingIndicator.kind === "sending" ? "The appointment email is being processed."
+                  : activeMeetingIndicator.kind === "awaiting_booking" ? "The lead has the booking link; waiting for them to choose a time."
+                    : activeMeetingIndicator.kind === "booked" ? activeMeetingIndicator.bookedAt
+                      ? `Meeting set for ${formatMeetingDate(activeMeetingIndicator.bookedAt)}.`
+                      : "The calendar confirmed this meeting."
+                      : "Open Follow-up to review the booking issue."}
+            </p>
+          </div>
+          {activeMeetingIndicator.kind === "draft_ready" && canViewEmail && (
+            <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open email draft</Button>
+          )}
+          {activeMeetingIndicator.kind === "needs_attention" && (
+            <Button kind="plain" size="sm" onClick={() => onSectionChange("follow-ups")}>Open Follow-up</Button>
+          )}
+          {activeMeetingIndicator.kind === "awaiting_booking" && (
+            <Button kind="plain" size="sm" onClick={() => setMeetingRefresh((value) => value + 1)}>Refresh status</Button>
+          )}
+        </div>
+      )}
       {analysis?.status === "provider_error" && (
         <Banner tone="attention" title="The AI analysis didn’t complete">
           A rules-based fallback assessment was used. It appears in Review only when that rule is enabled or another rule applies.
@@ -717,7 +765,14 @@ export function LeadRecord({
           )}
           <FollowUpComposer lead={lead} canEdit={canEdit} />
           <div className="v-legacy-block">
-            <LeadMeetingPanel lead={lead} canEdit={canEdit} canViewEmails={canViewEmail} refreshToken={meetingRefresh} onDraftCreated={() => onSectionChange("email")} />
+            <LeadMeetingPanel
+              lead={lead}
+              canEdit={canEdit}
+              canViewEmails={canViewEmail}
+              refreshToken={meetingRefresh}
+              onDraftCreated={() => onSectionChange("email")}
+              onStatusChange={handleMeetingStatusChange}
+            />
           </div>
         </div>
       </div>
@@ -774,6 +829,12 @@ export function LeadRecord({
       )}
     </article>
   );
+}
+
+function formatMeetingDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function manualReviewReasons(lead: Lead) {
