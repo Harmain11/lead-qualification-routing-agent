@@ -504,6 +504,21 @@ export function updateOpenAIModel(connectionId: string, model: string): Promise<
   });
 }
 
+export function updateGoogleAppointmentSchedule(
+  connectionId: string,
+  url: string,
+  eventTitle: string,
+): Promise<ProviderConnection> {
+  return jsonRequest<ProviderConnection>(
+    `/v1/integrations/connections/${connectionId}/google-appointment-schedule`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, event_title: eventTitle }),
+    },
+  );
+}
+
 export function getLead(leadId: string, signal?: AbortSignal): Promise<Lead> {
   return jsonRequest<Lead>(`/v1/leads/${leadId}`, { signal });
 }
@@ -565,6 +580,37 @@ export function retryConfirmedMeetingBooking(
 
 export function getLeadMeetingRecommendations(leadId: string, signal?: AbortSignal): Promise<MeetingRecommendations> {
   return jsonRequest<MeetingRecommendations>(`/v1/leads/${leadId}/meeting-recommendations`, { signal });
+}
+
+export function updateLeadMeetingBookingDraft(
+  leadId: string,
+  input: {
+    source_message_id: string;
+    source_gmail_connection_id: string | null;
+    subject: string;
+    body: string;
+  },
+): Promise<{ status: string; subject: string; body: string }> {
+  return jsonRequest<{ status: string; subject: string; body: string }>(`/v1/leads/${leadId}/meeting-booking-draft`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export function sendLeadMeetingBookingDraft(
+  leadId: string,
+  sourceMessageId: string,
+  sourceGmailConnectionId: string | null,
+): Promise<{ status: string; message: string }> {
+  return jsonRequest<{ status: string; message: string }>(`/v1/leads/${leadId}/meeting-booking-draft/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source_message_id: sourceMessageId,
+      source_gmail_connection_id: sourceGmailConnectionId,
+    }),
+  });
 }
 
 export function confirmLeadMeeting(leadId: string, slot: MeetingSuggestion): Promise<ConfirmMeetingResult> {

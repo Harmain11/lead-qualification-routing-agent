@@ -3,11 +3,11 @@ name: Meeting scheduling safety
 description: Product requirements for Gmail-based meeting recommendations in Corral.
 ---
 
-Read the tracked Gmail conversation in the correct workspace and Gmail mailbox. A date-only request gets open options for that date. An exact future date and time may be booked only after the connected calendar confirms it is free; if it is not free, email available options and automatically book after the lead clearly selects a numbered option. Do not book ambiguous replies, and keep the existing manual booking path.
+Read the tracked Gmail conversation in the correct workspace and Gmail mailbox. A date-only or open-ended request should prepare an editable booking-link email draft for human review, using a Calendly event-type URL or the configured Google Appointment Schedule URL. Do not send that draft automatically. An exact future date and time may still be booked only after the connected calendar confirms it is free. Keep the existing manual booking path and accept only clear numbered choices for legacy offers.
 
-**Why:** The user confirmed that clear numbered replies should continue to book automatically; exact date/time requests may also book when available, while date-only requests must get options.
+**Why:** The user chose provider-hosted booking links and editable email drafts for review; exact date/time booking remains subject to the existing availability check.
 
-**How to apply:** Interpret requested times in the connected calendar’s timezone. Use the lead’s exact Gmail connection, thread, and workspace when routing messages and offers. Send options in that same thread; accept only a clear numbered selection for offered slots. Keep ambiguous replies and requests for different times visible for team follow-up.
+**How to apply:** Interpret requested times in the connected calendar’s timezone. Use the lead’s exact Gmail connection, thread, and workspace when routing messages and offers. Keep the provider booking link in the editable draft, require review before sending, then reconcile the resulting provider event to the lead. Keep ambiguous replies and requests for different times visible for team follow-up.
 
 Calendly account and event-type reads can succeed even when an event type’s linked external calendar is unavailable. Skip only that event type when other Calendly event types can still provide slots; if none work, direct the user to reconnect the calendar inside Calendly rather than reauthorizing Corral’s Calendly connection.
 

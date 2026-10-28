@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
@@ -122,6 +122,28 @@ class OpenAIModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = Field(min_length=1, max_length=128)
+
+
+class GoogleAppointmentScheduleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    url: str = Field(default="", max_length=2048)
+    event_title: str = Field(default="", max_length=255)
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> GoogleAppointmentScheduleRequest:
+        if bool(self.url) != bool(self.event_title):
+            raise ValueError("Provide both the appointment URL and its exact calendar event title.")
+        if self.url:
+            parsed = urlsplit(self.url)
+            if (
+                parsed.scheme != "https"
+                or parsed.username
+                or parsed.password
+                or parsed.hostname not in {"calendar.app.google", "calendar.google.com"}
+            ):
+                raise ValueError("Use a Google Calendar appointment schedule URL.")
+        return self
 
 
 @router.get("/openai/usage")
@@ -961,4 +983,31 @@ def configure_openai_model(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    return provider_connection_response(row)
+
+
+@router.put(
+    "/connections/{connection_id}/google-appointment-schedule",
+    response_model=ProviderConnectionResponse,
+)
+def configure_google_appointment_schedule(
+    connection_id: UUID,
+    request: GoogleAppointmentScheduleRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> ProviderConnectionResponse:
+    row = _connection_or_404(session, workspace.workspace_id, connection_id)
+    if row.provider_type != "google_calendar":
+        raise HTTPException(status_code=409, detail="This setting is only available for Google Calendar.")
+    metadata = dict(row.connection_metadata or {})
+    if request.url:
+        metadata["google_appointment_schedule_url"] = request.url
+        metadata["google_appointment_schedule_title"] = request.event_title
+    else:
+        metadata.pop("google_appointment_schedule_url", None)
+        metadata.pop("google_appointment_schedule_title", None)
+    row.connection_metadata = metadata
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    session.refresh(row)
     return provider_connection_response(row)

@@ -406,6 +406,7 @@ def recommend_calendly_slots(
             "event_type_uri": uri,
             "event_type_name": name,
             "status": "no_times",
+            "scheduling_url": str(event_type.get("scheduling_url") or ""),
         }
         if event_type_statuses is not None:
             event_type_statuses.append(event_type_status)

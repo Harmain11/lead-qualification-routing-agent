@@ -1,6 +1,7 @@
 import { useEffect,useRef,useState } from "react";
 import type { SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
+import { GoogleAppointmentScheduleConfig } from "../components/GoogleAppointmentScheduleConfig";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { createSlackRule } from "../slackRouting";
 
@@ -740,6 +741,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              loading={!slackRoutingReady} loadError={slackRoutingLoadError} />
          </>}
         {!comingSoon && <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>}
+        {card.provider === "google_calendar" && connection && <GoogleAppointmentScheduleConfig
+          connection={connection}
+          canManage={canManage}
+          onSaved={setNotice}
+        />}
         {openAI && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your OpenAI account</b></span></div>}
         {openAI && <OpenAIUsagePanel />}
         {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}

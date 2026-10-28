@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -21,6 +22,7 @@ from lead_agent.application.meetings import (
     requested_meeting_datetime,
     requested_meeting_time,
 )
+from lead_agent.application.governance import assert_outreach_allowed
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.calendar_providers import (
@@ -245,6 +247,100 @@ def _offer_email(
         "Best,\nThe team"
     )
     return subject, body
+
+
+def _booking_link(
+    session: Session,
+    workspace_id: UUID,
+    actor_id: str,
+) -> tuple[ProviderConnectionORM, dict[str, str]] | None:
+    """Return one configured provider link; prefer Google when both are ready."""
+    for provider_name in ("google_calendar", "calendly"):
+        connection = _active_connection(session, workspace_id, provider_name)
+        if connection is None:
+            continue
+        if provider_name == "google_calendar":
+            metadata = (
+                connection.connection_metadata
+                if isinstance(connection.connection_metadata, dict)
+                else {}
+            )
+            url = str(metadata.get("google_appointment_schedule_url") or "").strip()
+            title = str(metadata.get("google_appointment_schedule_title") or "").strip()
+            parsed = urlsplit(url)
+            if (
+                not url
+                or not title
+                or parsed.scheme != "https"
+                or parsed.hostname not in {"calendar.app.google", "calendar.google.com"}
+            ):
+                continue
+            return connection, {
+                "provider": provider_name,
+                "booking_url": url,
+                "event_title": title,
+                "account_name": connection.account_name,
+            }
+        try:
+            credentials = _authorized_credentials(session, workspace_id, connection, actor_id)
+            client = CalendlyClient(credentials["access_token"])
+            user = client.current_user()
+            user_uri = str(user.get("uri") or "")
+            if not user_uri:
+                continue
+            for event_type in client.event_types(user_uri):
+                if event_type.get("active") is False:
+                    continue
+                url = str(event_type.get("scheduling_url") or "").strip()
+                parsed = urlsplit(url)
+                if parsed.scheme != "https" or not parsed.hostname:
+                    continue
+                event_type_uri = str(event_type.get("uri") or "").strip()
+                if not event_type_uri:
+                    continue
+                return connection, {
+                    "provider": provider_name,
+                    "booking_url": url,
+                    "event_type_uri": event_type_uri,
+                    "event_type_name": str(event_type.get("name") or "Calendly meeting"),
+                    "account_name": connection.account_name,
+                }
+        except ProviderOperationError as error:
+            _LOGGER.warning(
+                "meeting_email.booking_link_unavailable",
+                extra={
+                    "fields": {
+                        "workspace_id": str(workspace_id),
+                        "provider": provider_name,
+                        "error_code": error.code,
+                    }
+                },
+            )
+    return None
+
+
+def _booking_link_email(
+    lead: LeadORM,
+    source: dict[str, str],
+    booking: dict[str, str],
+) -> tuple[str, str]:
+    source_subject = source.get("subject", "").strip()
+    subject = source_subject or "Choose a time to meet"
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    first_name = (lead.full_name.strip().split() or ["there"])[0]
+    provider = "Google Calendar" if booking["provider"] == "google_calendar" else "Calendly"
+    event_name = booking.get("event_title") or booking.get("event_type_name") or "meeting"
+    body = (
+        f"Hi {first_name},\n\n"
+        "Thanks for reaching out about meeting. You can choose a time that works for you "
+        f"using this {provider} booking link:\n\n"
+        f"{booking['booking_url']}\n\n"
+        f"The appointment will be scheduled as {event_name}. "
+        "You’ll receive a calendar invitation after you book.\n\n"
+        "Best,\nThe team"
+    )
+    return subject[:255], body
 
 
 def _calendar_options(
@@ -480,101 +576,90 @@ def _send_options(
         existing_offer is not None
         and isinstance(existing_details, dict)
         and existing_details.get("source_message_id") == source["message_id"]
-        and existing_offer.status in {"sending", _OFFER_PENDING, "booking", "booked"}
+        and existing_offer.status
+        in {
+            "draft",
+            "sending",
+            _OFFER_PENDING,
+            "awaiting_booking",
+            "booking",
+            "booked",
+        }
+        or (
+            existing_offer is not None
+            and isinstance(existing_details, dict)
+            and existing_details.get("source_message_id") == source["message_id"]
+            and existing_offer.status == "needs_attention"
+            and bool(existing_details.get("booking_url"))
+        )
     ):
         return "already_offered"
+    if (
+        existing_offer is not None
+        and isinstance(existing_details, dict)
+        and existing_offer.status == "draft"
+        and existing_details.get("source_message_id") != source["message_id"]
+    ):
+        existing_offer.status = "superseded"
+        session.commit()
     sent_at = _parse_datetime(source.get("sent_at"))
     now = datetime.now(UTC)
     if sent_at is None or sent_at < now - _MAX_REQUEST_AGE or sent_at > now + timedelta(minutes=5):
         return "stale_request"
 
-    selected_calendar = _calendar_options(session, workspace_id, source, actor_id)
-    if selected_calendar is None:
-        return "no_calendar_availability"
-    calendar_connection, slots = selected_calendar
-    provider = calendar_connection.provider_type
-    send_scope_missing = GMAIL_SEND_SCOPE not in set(gmail_connection.scopes or [])
+    selected_booking = _booking_link(session, workspace_id, actor_id)
+    if selected_booking is None:
+        return "no_booking_link"
+    calendar_connection, booking = selected_booking
+    try:
+        assert_outreach_allowed(session, workspace_id, lead.email)
+    except ValueError as error:
+        _LOGGER.info(
+            "meeting_email.booking_draft_blocked",
+            extra={
+                "fields": {
+                    "workspace_id": str(workspace_id),
+                    "lead_id": str(lead.id),
+                    "reason": str(error)[:120],
+                }
+            },
+        )
+        return "outreach_blocked"
+    subject, body = _booking_link_email(lead, source, booking)
 
     offer = PipelineEventORM(
         id=uuid4(),
         workspace_id=workspace_id,
         lead_id=lead.id,
         stage=_OFFER_STAGE,
-        status="needs_attention" if send_scope_missing else "sending",
+        status="draft",
         details={
             "thread_id": thread_id,
             "source_message_id": source["message_id"],
             "source_subject": source.get("subject", ""),
+            "source_rfc_message_id": source.get("rfc_message_id", ""),
+            "source_gmail_connection_id": str(
+                source.get("gmail_connection_id") or gmail_connection.id
+            ),
             "gmail_connection_id": str(gmail_connection.id),
-            "calendar_provider": provider,
+            "calendar_provider": calendar_connection.provider_type,
             "calendar_connection_id": str(calendar_connection.id),
-            "options": slots,
+            "lead_email": lead.email,
+            "booking_url": booking["booking_url"],
+            "booking_event_title": (
+                booking.get("event_title") or booking.get("event_type_name") or ""
+            ),
+            "event_type_uri": booking.get("event_type_uri") or "",
+            "event_type_name": booking.get("event_type_name") or "",
+            "email_subject": subject,
+            "email_body": body,
             "created_at": now.isoformat(),
-            **({"error_code": "gmail_send_scope_missing"} if send_scope_missing else {}),
         },
         created_at=now,
     )
     session.add(offer)
     session.commit()
-    if send_scope_missing:
-        return "needs_attention"
-
-    try:
-        credentials = _authorized_credentials(session, workspace_id, gmail_connection, actor_id)
-        mailbox = gmail_connection.account_name
-        metadata = (
-            gmail_connection.connection_metadata
-            if isinstance(gmail_connection.connection_metadata, dict)
-            else {}
-        )
-        mailbox = str(metadata.get("gmail_email") or mailbox)
-        subject, body = _offer_email(lead, source, provider, slots)
-        from lead_agent.application.governance import assert_outreach_allowed
-
-        assert_outreach_allowed(session, workspace_id, lead.email)
-        source_rfc_message_id = source.get("rfc_message_id") or ""
-        message_id = GmailOutboundProvider(
-            gmail_connection.id,
-            credentials["access_token"],
-            mailbox,
-        ).send_email(
-            recipient=lead.email,
-            subject=subject,
-            body=body,
-            thread_id=thread_id,
-            in_reply_to=source_rfc_message_id or None,
-        )
-        if not message_id:
-            raise ProviderOperationError(
-                "Gmail did not confirm the meeting-options email.",
-                provider="gmail",
-                code="gmail_meeting_options_send_unconfirmed",
-                category="malformed_response",
-            )
-    except ProviderOperationError as error:
-        offer.status = "needs_attention"
-        offer.details = {**offer.details, "error_code": error.code}
-        session.commit()
-        _LOGGER.warning(
-            "meeting_email.options_send_failed",
-            extra={
-                "fields": {
-                    "workspace_id": str(workspace_id),
-                    "lead_id": str(lead.id),
-                    "error_code": error.code,
-                }
-            },
-        )
-        return "needs_attention"
-
-    offer.status = _OFFER_PENDING
-    offer.details = {
-        **offer.details,
-        "outbound_message_id": message_id,
-        "offered_at": datetime.now(UTC).isoformat(),
-    }
-    session.commit()
-    return "options_sent"
+    return "draft_created"
 
 
 def _book_selected_option(
@@ -1051,7 +1136,7 @@ def process_recent_gmail_imports(
                     messages=messages,
                     actor_id=actor_id,
                 )
-                processed += int(result == "options_sent")
+                processed += int(result == "draft_created")
         except ProviderOperationError as error:
             _LOGGER.warning(
                 "meeting_email.imported_thread_failed",
@@ -1066,12 +1151,293 @@ def process_recent_gmail_imports(
     return processed
 
 
+def _record_external_booking(
+    session: Session,
+    offer: PipelineEventORM,
+    lead: LeadORM,
+    connection: ProviderConnectionORM,
+    provider_event: dict[str, Any],
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    time_zone: str,
+) -> bool:
+    details = offer.details if isinstance(offer.details, dict) else {}
+    provider = str(details.get("calendar_provider") or "")
+    source_message_id = str(details.get("source_message_id") or "")
+    source_gmail_connection_id = str(
+        details.get("source_gmail_connection_id") or details.get("gmail_connection_id") or ""
+    )
+    provider_event_id = str(provider_event.get("id") or "")
+    if provider == "calendly":
+        provider_event_uri = str(provider_event.get("uri") or "")
+        provider_event_id = provider_event_uri.rsplit("/", 1)[-1]
+        event_url = None
+    else:
+        provider_event_uri = str(provider_event.get("htmlLink") or "")
+        event_url = provider_event_uri or None
+    if not provider_event_id or not source_message_id:
+        return False
+
+    existing = next(
+        (
+            event
+            for event in session.scalars(
+                select(PipelineEventORM).where(
+                    PipelineEventORM.lead_id == lead.id,
+                    PipelineEventORM.workspace_id == lead.workspace_id,
+                    PipelineEventORM.stage == "meeting_scheduled",
+                )
+            )
+            if isinstance(event.details, dict)
+            and event.details.get("source_message_id") == source_message_id
+            and str(event.details.get("source_gmail_connection_id") or "")
+            == source_gmail_connection_id
+        ),
+        None,
+    )
+    scheduled_details = {
+        "provider": provider,
+        "connection_id": str(connection.id),
+        "provider_event_id": provider_event_id,
+        "provider_event_uri": provider_event_uri or None,
+        "event_url": event_url,
+        "title": str(provider_event.get("summary") or provider_event.get("name") or f"Meeting with {lead.full_name}"),
+        "start_at": start_at.isoformat(),
+        "end_at": end_at.isoformat(),
+        "time_zone": time_zone,
+        "source_message_id": source_message_id,
+        "source_gmail_connection_id": source_gmail_connection_id,
+        "booking_method": "provider_booking_link",
+        "meeting_email_offer_id": str(offer.id),
+    }
+    if existing is None:
+        session.add(
+            PipelineEventORM(
+                id=uuid4(),
+                workspace_id=lead.workspace_id,
+                lead_id=lead.id,
+                stage="meeting_scheduled",
+                status="scheduled",
+                details=scheduled_details,
+                created_at=datetime.now(UTC),
+            )
+        )
+    details = {
+        **details,
+        "provider_event_id": provider_event_id,
+        "event_url": event_url or "",
+        "scheduled_start_at": start_at.isoformat(),
+        "scheduled_end_at": end_at.isoformat(),
+        "booking_method": "provider_booking_link",
+    }
+    details.pop("booking_error", None)
+    offer.status = "booked"
+    offer.details = details
+    session.commit()
+    return True
+
+
+def _poll_external_booking_links(
+    session: Session,
+    *,
+    limit: int,
+) -> int:
+    offers = list(
+        session.scalars(
+            select(PipelineEventORM)
+            .where(
+                PipelineEventORM.stage == _OFFER_STAGE,
+                PipelineEventORM.status == "awaiting_booking",
+            )
+            .order_by(PipelineEventORM.created_at.asc())
+            .limit(max(1, min(limit, _MAX_PENDING_OFFERS_PER_TICK)))
+        )
+    )
+    now = datetime.now(UTC)
+    processed = 0
+    credential_cache: dict[str, dict[str, str]] = {}
+    google_client_cache: dict[str, GoogleCalendarClient] = {}
+    google_event_cache: dict[str, list[dict[str, Any]]] = {}
+    calendly_client_cache: dict[str, tuple[CalendlyClient, str]] = {}
+    calendly_event_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    google_window_start: dict[str, datetime] = {}
+    calendly_window_start: dict[tuple[str, str], datetime] = {}
+    for pending in offers:
+        pending_details = pending.details if isinstance(pending.details, dict) else {}
+        pending_start = _parse_datetime(pending_details.get("offered_at"))
+        if pending_start is None:
+            continue
+        pending_connection_id = str(pending_details.get("calendar_connection_id") or "")
+        pending_provider = str(pending_details.get("calendar_provider") or "")
+        if pending_provider == "google_calendar" and pending_connection_id:
+            current = google_window_start.get(pending_connection_id)
+            if current is None or pending_start < current:
+                google_window_start[pending_connection_id] = pending_start
+        elif pending_provider == "calendly" and pending_connection_id:
+            key = (pending_connection_id, str(pending_details.get("lead_email") or pending.lead_id))
+            current = calendly_window_start.get(key)
+            if current is None or pending_start < current:
+                calendly_window_start[key] = pending_start
+
+    for offer in offers:
+        details = offer.details if isinstance(offer.details, dict) else {}
+        lead = session.scalar(
+            select(LeadORM).where(
+                LeadORM.id == offer.lead_id,
+                LeadORM.workspace_id == offer.workspace_id,
+            )
+        )
+        try:
+            connection_id = UUID(str(details["calendar_connection_id"]))
+        except (KeyError, ValueError):
+            offer.status = "needs_attention"
+            offer.details = {**details, "booking_error": "The selected calendar connection is unavailable."}
+            session.commit()
+            continue
+        connection = session.scalar(
+            select(ProviderConnectionORM).where(
+                ProviderConnectionORM.id == connection_id,
+                ProviderConnectionORM.workspace_id == offer.workspace_id,
+                ProviderConnectionORM.provider_type == details.get("calendar_provider"),
+                ProviderConnectionORM.is_active.is_(True),
+                ProviderConnectionORM.status == "verified",
+            )
+        )
+        offered_at = _parse_datetime(details.get("offered_at"))
+        if lead is None or connection is None or offered_at is None:
+            offer.status = "needs_attention"
+            offer.details = {**details, "booking_error": "Lead, calendar connection, or send time is unavailable."}
+            session.commit()
+            continue
+        try:
+            connection_key = str(connection.id)
+            credentials = credential_cache.get(connection_key)
+            if credentials is None:
+                credentials = _authorized_credentials(
+                    session, offer.workspace_id, connection, "system:meeting-email-automation"
+                )
+                credential_cache[connection_key] = credentials
+            provider_events: list[dict[str, Any]] = []
+            provider = str(details.get("calendar_provider") or "")
+            if provider == "calendly":
+                cached_client = calendly_client_cache.get(connection_key)
+                if cached_client is None:
+                    client = CalendlyClient(credentials["access_token"])
+                    user_uri = str(client.current_user().get("uri") or "")
+                    calendly_client_cache[connection_key] = (client, user_uri)
+                else:
+                    client, user_uri = cached_client
+                event_type_uri = str(details.get("event_type_uri") or "")
+                if user_uri and event_type_uri:
+                    invitee_key = (connection_key, lead.email.strip().casefold())
+                    invitee_events = calendly_event_cache.get(invitee_key)
+                    if invitee_events is None:
+                        window_start = calendly_window_start.get(invitee_key, offered_at)
+                        invitee_events = client.scheduled_events(
+                            user_uri=user_uri,
+                            invitee_email=lead.email,
+                            start_at=window_start - timedelta(minutes=1),
+                            end_at=now + timedelta(days=180),
+                        )
+                        calendly_event_cache[invitee_key] = invitee_events
+                    provider_events = [
+                        item
+                        for item in invitee_events
+                        if str(item.get("event_type") or "") == event_type_uri
+                    ]
+            elif provider == "google_calendar":
+                client = google_client_cache.get(connection_key)
+                if client is None:
+                    client = GoogleCalendarClient(credentials["access_token"])
+                    google_client_cache[connection_key] = client
+                calendar_events = google_event_cache.get(connection_key)
+                if calendar_events is None:
+                    window_start = google_window_start.get(connection_key, offered_at)
+                    calendar_events = client.events_between(
+                        window_start - timedelta(minutes=1), now + timedelta(days=180)
+                    )
+                    google_event_cache[connection_key] = calendar_events
+                expected_title = str(details.get("booking_event_title") or "").strip().casefold()
+                if expected_title:
+                    for item in calendar_events:
+                        created_at = _parse_datetime(item.get("created"))
+                        attendees = item.get("attendees", [])
+                        attendee_emails = {
+                            str(attendee.get("email") or "").strip().casefold()
+                            for attendee in attendees
+                            if isinstance(attendee, dict)
+                        } if isinstance(attendees, list) else set()
+                        if (
+                            str(item.get("status") or "confirmed") == "confirmed"
+                            and str(item.get("summary") or "").strip().casefold() == expected_title
+                            and lead.email.strip().casefold() in attendee_emails
+                            and created_at is not None
+                            and created_at >= offered_at - timedelta(minutes=1)
+                        ):
+                            provider_events.append(item)
+            if len(provider_events) > 1:
+                offer.status = "needs_attention"
+                offer.details = {
+                    **details,
+                    "booking_error": "More than one matching calendar event was found; review the calendar before recording a meeting.",
+                }
+                session.commit()
+                continue
+            if not provider_events:
+                continue
+            item = provider_events[0]
+            if provider == "calendly":
+                start_at = _parse_datetime(item.get("start_time"))
+                end_at = _parse_datetime(item.get("end_time"))
+                time_zone = str(item.get("timezone") or "UTC")
+            else:
+                start_value = item.get("start") if isinstance(item.get("start"), dict) else {}
+                end_value = item.get("end") if isinstance(item.get("end"), dict) else {}
+                start_at = _parse_datetime(start_value.get("dateTime"))
+                end_at = _parse_datetime(end_value.get("dateTime"))
+                time_zone = str(start_value.get("timeZone") or "UTC")
+            if start_at is None or end_at is None or end_at <= start_at:
+                continue
+            processed += int(
+                _record_external_booking(
+                    session,
+                    offer,
+                    lead,
+                    connection,
+                    item,
+                    start_at=start_at,
+                    end_at=end_at,
+                    time_zone=time_zone,
+                )
+            )
+        except ProviderOperationError as error:
+            _LOGGER.warning(
+                "meeting_email.external_booking_poll_failed",
+                extra={
+                    "fields": {
+                        "workspace_id": str(offer.workspace_id),
+                        "lead_id": str(offer.lead_id),
+                        "provider": connection.provider_type,
+                        "error_code": error.code,
+                    }
+                },
+            )
+        except Exception:
+            _LOGGER.exception(
+                "meeting_email.external_booking_poll_unexpected_failure",
+                extra={"fields": {"workspace_id": str(offer.workspace_id), "lead_id": str(offer.lead_id)}},
+            )
+    return processed
+
+
 def process_pending_meeting_confirmations(
     session: Session,
     *,
     limit: int = _MAX_PENDING_OFFERS_PER_TICK,
 ) -> int:
     """Poll pending offer threads so lead replies are booked without admin action."""
+    processed = _poll_external_booking_links(session, limit=limit)
     events = list(
         session.scalars(
             select(PipelineEventORM)
@@ -1083,7 +1449,6 @@ def process_pending_meeting_confirmations(
             .limit(max(1, min(limit, _MAX_PENDING_OFFERS_PER_TICK)))
         )
     )
-    processed = 0
     for event in events:
         details = event.details if isinstance(event.details, dict) else {}
         lead = session.scalar(

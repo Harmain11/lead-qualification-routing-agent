@@ -1,5 +1,5 @@
 - [OpenAI credential prompts](openai-credential-prompts.md) — a stored workspace key should stop repeated setup prompts; only missing or invalid credentials should prompt again.
-- [Meeting scheduling safety](meeting-scheduling.md) — Date-only requests get same-day options; exact times auto-book only after calendar availability is confirmed.
+- [Meeting scheduling safety](meeting-scheduling.md) — Open-ended requests use reviewed provider-booking drafts; exact times still require an availability check.
 - [First-run dialog priority](first-run-overlays.md) — keep the optional OpenAI setup behind the product tour; only one startup dialog may be open at a time.
 - [Email drafting style](email-drafting-style.md) — generated copy matches workspace voice with fresh wording and preserved placeholders.
 - [Integration card presentation](integration-card-presentation.md) — uniform compact cards with plus/minus controls reveal details independently.

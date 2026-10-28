@@ -386,12 +386,25 @@ export type MeetingIntegrationState = {
   connected: boolean;
   account_name: string | null;
   message: string | null;
+  booking_ready: boolean;
+  booking_url: string | null;
+  booking_event_title: string | null;
 };
 
 export type MeetingCalendlyEventType = {
   event_type_uri: string;
   event_type_name: string;
   status: "available" | "no_times" | "calendar_unavailable";
+  scheduling_url: string | null;
+};
+
+export type ScheduledMeetingSummary = {
+  provider: MeetingProvider;
+  title: string;
+  start_at: string;
+  end_at: string;
+  time_zone: string;
+  event_url: string | null;
 };
 
 export type MeetingProviderError = {
@@ -413,10 +426,15 @@ export type MeetingRecommendations = {
   suggestions: MeetingSuggestion[];
   calendly_event_types: MeetingCalendlyEventType[];
   provider_errors: MeetingProviderError[];
-  offer_status: "sending" | "awaiting_confirmation" | "booking" | "booked" | "needs_attention" | "superseded" | null;
+  offer_status: "draft" | "sending" | "awaiting_confirmation" | "awaiting_booking" | "booking" | "booked" | "needs_attention" | "superseded" | null;
   offer_booking_error: string | null;
   offer_calendar_provider: MeetingProvider | null;
   offer_has_confirmed_selection: boolean;
+  offer_email_subject: string | null;
+  offer_email_body: string | null;
+  offer_booking_url: string | null;
+  offer_gmail_connection_id: string | null;
+  scheduled_meeting: ScheduledMeetingSummary | null;
 };
 
 export type RetryConfirmedMeetingBookingResult = {
