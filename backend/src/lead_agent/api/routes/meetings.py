@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import require_permission
 from lead_agent.application.meeting_email import (
     can_replace_unbooked_offer,
+    create_booking_link_offer_draft,
     create_selected_slot_offer_draft,
+    reconcile_booking_link_offer,
 )
 from lead_agent.application.meetings import (
     _parse_provider_time,
@@ -101,6 +103,7 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_calendar_provider: MeetingProvider | None = None
     offer_has_confirmed_selection: bool = False
     offer_can_be_replaced: bool = False
+    booked_meeting_at: datetime | None = None
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -364,6 +367,18 @@ def get_meeting_recommendations(
         ),
         None,
     )
+    if (
+        offer_event is not None
+        and offer_event.status == "awaiting_confirmation"
+        and isinstance(offer_event.details, dict)
+        and offer_event.details.get("booking_link_mode")
+    ):
+        try:
+            reconcile_booking_link_offer(
+                session, offer_event, lead, actor_id=workspace.actor_id
+            )
+        except ProviderOperationError:
+            pass
     automation_message = (
         "Date-only requests get open times for that day. If the lead gives an exact "
         "date and time, Corral books it only when the calendar confirms it is free; "
@@ -404,16 +419,32 @@ def get_meeting_recommendations(
     if offer_event is not None:
         if offer_event.status == "awaiting_send":
             automation_message = (
-                "An editable meeting email draft is ready in this lead’s Emails tab. "
-                "Send it after review; booking waits for the lead’s clear numbered reply."
+                "A personalized appointment-link draft is ready in this lead’s Emails tab. "
+                "Review or edit it, then send it when ready."
             )
         elif offer_event.status == "awaiting_confirmation":
             automation_message = (
-                "Available times were emailed to the lead. Corral will book after "
-                "they clearly reply with an option number."
+                "The booking link was sent in the Gmail thread. Corral is checking the "
+                "connected calendar for a booking."
             )
         elif offer_event.status == "booked":
-            if offer_calendar_provider == "calendly":
+            if offer_details.get("booking_method") == "provider_booking_link":
+                booked_at = _parse_provider_time(
+                    str(offer_details.get("booked_start_at") or "")
+                )
+                booked_label = (
+                    booked_at.strftime("%A, %B %d at %I:%M %p %z")
+                    if booked_at is not None
+                    else "the selected date"
+                )
+                provider_label = (
+                    "Calendly" if offer_calendar_provider == "calendly" else "Google Calendar"
+                )
+                automation_message = (
+                    f"Meeting booked through {provider_label} for {booked_label}. "
+                    "The assigned teammate was notified."
+                )
+            elif offer_calendar_provider == "calendly":
                 automation_message = (
                     "Calendly booking recorded. Calendly’s event-type notification "
                     "settings control whether the invitee receives an email."
@@ -462,7 +493,10 @@ def get_meeting_recommendations(
     suggestions: list[MeetingSuggestion] = []
     calendly_event_types: list[dict[str, str]] = []
     provider_errors: list[MeetingProviderError] = []
-    for provider in ("google_calendar", "calendly"):
+    preferred_provider = (
+        "calendly" if connections.get("calendly") is not None else "google_calendar"
+    )
+    for provider in (preferred_provider,):
         connection = connections.get(provider)
         if connection is None:
             continue
@@ -530,6 +564,21 @@ def get_meeting_recommendations(
         offer_calendar_provider=offer_calendar_provider,
         offer_has_confirmed_selection=offer_has_confirmed_selection,
         offer_can_be_replaced=can_replace_unbooked_offer(offer_event),
+                booked_meeting_at=(
+                    _parse_provider_time(
+                        str(
+                            (
+                                offer_event.details
+                                if offer_event is not None
+                                and isinstance(offer_event.details, dict)
+                                else {}
+                            ).get("booked_start_at")
+                            or ""
+                        )
+                    )
+                    if offer_event is not None
+                    else None
+                ),
     )
 
 
@@ -592,6 +641,25 @@ def create_meeting_offer_draft(
         lead=lead,
         workspace_id=workspace.workspace_id,
         slot=selected.model_dump(mode="json"),
+    )
+    return MeetingOfferDraftResponse(draft_id=draft.id, status="draft")
+
+
+@router.post(
+    "/{lead_id}/meetings/booking-link-draft",
+    response_model=MeetingOfferDraftResponse,
+)
+def create_meeting_booking_link_draft(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> MeetingOfferDraftResponse:
+    lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    draft = create_booking_link_offer_draft(
+        session,
+        lead=lead,
+        workspace_id=workspace.workspace_id,
+        actor_id=workspace.actor_id,
     )
     return MeetingOfferDraftResponse(draft_id=draft.id, status="draft")
 

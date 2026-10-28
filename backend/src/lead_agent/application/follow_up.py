@@ -333,7 +333,9 @@ def send_approved_follow_up(
         )
         if not manual_selected_slot_body_is_intact(offer_details, row.body or ""):
             raise FollowUpNotEligible(
-                "Keep the selected time as the only numbered option so the lead’s reply "
+                "Keep the booking link in the appointment draft so the lead can book."
+                if offer_details.get("booking_link_url")
+                else "Keep the selected time as the only numbered option so the lead’s reply "
                 "can book the correct slot."
             )
         try:

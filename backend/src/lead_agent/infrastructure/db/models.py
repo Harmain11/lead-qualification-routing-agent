@@ -73,6 +73,7 @@ class WorkspaceEmailAutomationSettingORM(Base):
     lead_confirmation_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    google_calendar_booking_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_by: Mapped[str] = mapped_column(String(255), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

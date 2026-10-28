@@ -430,6 +430,7 @@ export type MeetingRecommendations = {
   offer_calendar_provider: MeetingProvider | null;
   offer_has_confirmed_selection: boolean;
   offer_can_be_replaced: boolean;
+  booked_meeting_at: string | null;
 };
 
 export type MeetingOfferDraftResult = {
