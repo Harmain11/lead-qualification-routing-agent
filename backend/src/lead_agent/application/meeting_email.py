@@ -196,6 +196,66 @@ def _active_connection(
     )
 
 
+def _connection_gmail_email(connection: ProviderConnectionORM) -> str:
+    metadata = (
+        connection.connection_metadata
+        if isinstance(connection.connection_metadata, dict)
+        else {}
+    )
+    for key in ("gmail_email", "email", "account_email"):
+        value = metadata.get(key)
+        if isinstance(value, str) and "@" in value:
+            return value.strip().lower()
+    account_name = str(connection.account_name or "").strip().lower()
+    return account_name if "@" in account_name else ""
+
+
+def _active_gmail_connection_for_source(
+    session: Session,
+    workspace_id: UUID,
+    source_connection_id: str,
+) -> ProviderConnectionORM | None:
+    try:
+        source_id = UUID(source_connection_id)
+    except (TypeError, ValueError):
+        return None
+    source_connection = session.scalar(
+        select(ProviderConnectionORM).where(
+            ProviderConnectionORM.id == source_id,
+            ProviderConnectionORM.workspace_id == workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+        )
+    )
+    if source_connection is None:
+        return None
+    if source_connection.is_active and source_connection.status == "verified":
+        return source_connection
+
+    source_email = _connection_gmail_email(source_connection)
+    active_connections = session.scalars(
+        select(ProviderConnectionORM)
+        .where(
+            ProviderConnectionORM.workspace_id == workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+        .order_by(ProviderConnectionORM.updated_at.desc())
+    )
+    for connection in active_connections:
+        same_external_account = bool(
+            source_connection.external_account_id
+            and connection.external_account_id
+            and source_connection.external_account_id == connection.external_account_id
+        )
+        same_mailbox = bool(
+            source_email and source_email == _connection_gmail_email(connection)
+        )
+        if same_external_account or same_mailbox:
+            return connection
+    return None
+
+
 def _thread_offer(
     session: Session,
     workspace_id: UUID,
@@ -1049,50 +1109,47 @@ def create_selected_slot_offer_draft(
             status_code=409,
             detail="Add an email address to this lead before preparing meeting options.",
         )
-    gmail_connection_id = str(slot.get("source_gmail_connection_id") or "")
-    if not gmail_connection_id:
+    source_gmail_connection_id = str(
+        slot.get("source_gmail_connection_id") or ""
+    )
+    if not source_gmail_connection_id:
         raise HTTPException(
             status_code=409,
             detail="Reconnect the Gmail mailbox used for this meeting conversation.",
         )
     try:
-        gmail_id = UUID(gmail_connection_id)
+        UUID(source_gmail_connection_id)
     except ValueError as error:
         raise HTTPException(
             status_code=409,
             detail="Reconnect the Gmail mailbox used for this meeting conversation.",
         ) from error
-    gmail_connection = session.scalar(
-        select(ProviderConnectionORM).where(
-            ProviderConnectionORM.id == gmail_id,
-            ProviderConnectionORM.workspace_id == workspace_id,
-            ProviderConnectionORM.provider_type == "gmail",
-            ProviderConnectionORM.is_active.is_(True),
-            ProviderConnectionORM.status == "verified",
-        )
-    )
-    if gmail_connection is None:
-        raise HTTPException(
-            status_code=409,
-            detail="Reconnect the Gmail mailbox used for this meeting conversation.",
-        )
 
     source = find_meeting_request(
         session,
         lead,
         workspace_id,
-        gmail_connection_id=gmail_connection_id,
+        gmail_connection_id=source_gmail_connection_id,
     )
     if (
         source is None
         or source.get("message_id") != str(slot.get("source_message_id") or "")
-        or source.get("gmail_connection_id") != gmail_connection_id
+        or source.get("gmail_connection_id") != source_gmail_connection_id
         or not source.get("thread_id")
     ):
         raise HTTPException(
             status_code=409,
             detail="The conversation changed. Refresh meeting recommendations before creating a draft.",
         )
+    gmail_connection = _active_gmail_connection_for_source(
+        session, workspace_id, source_gmail_connection_id
+    )
+    if gmail_connection is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Reconnect the Gmail mailbox used for this meeting conversation.",
+        )
+    gmail_connection_id = str(gmail_connection.id)
     sent_at = _parse_datetime(source.get("sent_at"))
     now = datetime.now(UTC)
     if (

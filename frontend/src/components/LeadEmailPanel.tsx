@@ -9,6 +9,7 @@ import { EmailComposer } from "./EmailComposer";
 import { MeetingOfferDrafts } from "./MeetingOfferDrafts";
 import { ProviderEmailBody } from "./ProviderEmailBody";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
+import { dedupeGmailEvents } from "../utils/gmailEvents";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
@@ -112,7 +113,7 @@ export function LeadEmailPanel({
   if (!canView) return null;
 
   const groups = new Map<string, LeadPipelineEvent[]>();
-  for (const event of events) {
+  for (const event of dedupeGmailEvents(events)) {
     const threadId = threadIdForEvent(event) || `message-${event.id}`;
     groups.set(threadId, [...(groups.get(threadId) ?? []), event]);
   }

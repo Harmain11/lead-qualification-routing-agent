@@ -4,6 +4,7 @@ import { AiStageAssessment } from "./AiStageAssessment";
 import { GmailInquiryView } from "./GmailInquiryView";
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
 import { LeadEmailPanel } from "./LeadEmailPanel";
+import { dedupeGmailEvents } from "../utils/gmailEvents";
 
 import { deleteLead, getLead, getLeadClosingOptions, getLeadMomentum, getLeadPipelineHistory, listIntegrations, reevaluateLead, retryLeadCongratulations, saveLeadNote, sendLeadToCrm, syncLeadGmailConversation, updateLeadProgress, updateLeadTitle } from "../api";
 import type { CrmSync, Lead, LeadMomentum, LeadOutcome, ProviderConnection } from "../types";
@@ -483,7 +484,7 @@ function LeadProgressEditor({
     return () => controller.abort();
   }, [lead.id, refreshToken, historyRevision]);
   const progressEvents = events.filter((event) => event.stage === "manual_progress").reverse();
-  const emailEvents = events.filter((event) => event.stage === "gmail_message").reverse();
+  const emailEvents = dedupeGmailEvents(events.filter((event) => event.stage === "gmail_message")).reverse();
   const meetingEvents = events.filter((event) => event.stage === "meeting_scheduled").reverse();
   const syncConversation = async () => {
     setSyncBusy(true); setNotice(null);
