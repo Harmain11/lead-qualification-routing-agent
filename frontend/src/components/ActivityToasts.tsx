@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ActivityToast } from "../activity";
+import "./ActivityToasts.css";
 
 export function ActivityToasts() {
   const [toasts, setToasts] = useState<ActivityToast[]>([]);

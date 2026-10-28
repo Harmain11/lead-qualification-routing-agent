@@ -16,13 +16,7 @@ from lead_agent.application.analytics import AnalyticsService
 from lead_agent.application.services import process_lead
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.infrastructure.db.base import Base
-from lead_agent.infrastructure.db.models import (
-    LeadFollowUpEmailORM,
-    LeadORM,
-    LeadOutcomeORM,
-    PipelineEventORM,
-    WorkspaceORM,
-)
+from lead_agent.infrastructure.db.models import LeadORM, LeadOutcomeORM, WorkspaceORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 
@@ -109,9 +103,6 @@ def test_dashboard_channel_pipeline_and_revenue_analytics(
             routing,
             workspace_id=workspace_id,
         )
-        # Analytics consumes recorded bands; do not depend on a published workspace ICP.
-        website.qualification.classification = "hot"
-        email.qualification.classification = "hot"
         _add_outcome(
             session,
             website.id,
@@ -147,128 +138,12 @@ def test_dashboard_channel_pipeline_and_revenue_analytics(
     assert revenue["data_status"] == "crm"
 
 
-def test_sales_pipeline_uses_recorded_progress_followups_and_outcomes(
-    icp: IcpConfig, routing: RoutingConfig
-) -> None:
-    factory = _factory()
-    workspace_id = uuid4()
-    now = datetime.now(UTC)
-    identifiers = (
-        "new",
-        "draft",
-        "sent",
-        "contacted",
-        "responded",
-        "meeting",
-        "opportunity",
-        "proposal",
-        "negotiation",
-        "won",
-        "lost",
-    )
-    with factory() as session:
-        leads: dict[str, LeadORM] = {}
-        for identifier in identifiers:
-            _, _, leads[identifier] = process_lead(
-                session,
-                _payload(f"sales-pipeline-{identifier}"),
-                icp,
-                routing,
-                workspace_id=workspace_id,
-            )
-
-        def add_progress(identifier: str, stage: str, event_stage: str = "manual_progress") -> None:
-            lead = leads[identifier]
-            session.add(
-                PipelineEventORM(
-                    id=uuid4(),
-                    workspace_id=workspace_id,
-                    lead_id=lead.id,
-                    stage=event_stage,
-                    status=stage,
-                    details={"stage": stage},
-                    created_at=now,
-                )
-            )
-
-        add_progress("contacted", "contacted")
-        add_progress("responded", "responded")
-        add_progress("meeting", "scheduled", event_stage="meeting_scheduled")
-
-        for identifier, status in (("draft", "draft"), ("sent", "sent")):
-            lead = leads[identifier]
-            session.add(
-                LeadFollowUpEmailORM(
-                    id=uuid4(),
-                    workspace_id=workspace_id,
-                    lead_id=lead.id,
-                    kind="ai_follow_up",
-                    recipient=lead.email,
-                    subject="Follow-up",
-                    status=status,
-                    attempts=0,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
-        session.commit()
-
-        for identifier, stage in (
-            ("opportunity", "opportunity"),
-            ("proposal", "proposal"),
-            ("negotiation", "negotiation"),
-            ("won", "closed_won"),
-            ("lost", "closed_lost"),
-        ):
-            _add_outcome(
-                session,
-                leads[identifier].id,
-                workspace_id,
-                stage=stage,
-                opportunity=5000,
-                revenue=5000 if stage == "closed_won" else 0,
-            )
-
-        pipeline = AnalyticsService(session, workspace_id).pipeline()
-
-    counts = {stage["stage"]: stage["count"] for stage in pipeline["sales_stages"]}
-    assert counts == {
-        "new_lead": 1,
-        "contacted": 1,
-        "follow_up_drafted": 1,
-        "follow_up_sent": 1,
-        "responded": 1,
-        "meeting_scheduled": 1,
-        "opportunity": 1,
-        "proposal_sent": 1,
-        "negotiation": 1,
-        "contract": 0,
-        "closed_won": 1,
-        "closed_lost": 1,
-    }
-    values = {stage["stage"]: stage["value"] for stage in pipeline["sales_stages"]}
-    assert values["proposal_sent"] == 5000
-    assert values["negotiation"] == 5000
-    assert values["contract"] == 0
-
-
-def test_channel_percentages_and_scores_use_recorded_results(
-    icp: IcpConfig, routing: RoutingConfig
-) -> None:
+def test_channel_percentages_and_scores_use_recorded_results(icp: IcpConfig, routing: RoutingConfig) -> None:
     factory = _factory()
     workspace_id = uuid4()
     with factory() as session:
-        for identifier, score, band in [
-            ("low-score", 24, "nurture"),
-            ("qualified-score", 80, "warm"),
-        ]:
-            _, _, lead = process_lead(
-                session,
-                _payload(identifier),
-                icp,
-                routing,
-                workspace_id=workspace_id,
-            )
+        for identifier, score, band in [("low-score", 24, "nurture"), ("qualified-score", 80, "warm")]:
+            _, _, lead = process_lead(session, _payload(identifier), icp, routing, workspace_id=workspace_id)
             lead.qualification.total_score = score
             lead.qualification.classification = band
         session.commit()
@@ -280,89 +155,6 @@ def test_channel_percentages_and_scores_use_recorded_results(
         assert row["qualified_leads"] == 1
         assert row["qualification_rate"] == 50
         assert row["average_score"] == 52
-
-
-def test_extended_analytics_uses_recorded_booking_and_close_facts(
-    icp: IcpConfig, routing: RoutingConfig
-) -> None:
-    factory = _factory()
-    workspace_id = uuid4()
-    received_at = datetime.now(UTC) - timedelta(days=10)
-    with factory() as session:
-        _, _, lead = process_lead(
-            session,
-            _payload("extended-booked", received_at=received_at),
-            icp,
-            routing,
-            workspace_id=workspace_id,
-        )
-        assert lead.qualification is not None
-        lead.qualification.created_at = received_at + timedelta(minutes=7)
-        _, _, manually_added = process_lead(
-            session,
-            _payload("extended-manual", received_at=received_at),
-            icp,
-            routing,
-            workspace_id=workspace_id,
-        )
-        assert manually_added.qualification is not None
-        manually_added.source_detail = "manual-control-center"
-        manually_added.qualification.classification = "nurture"
-        manually_added.qualification.created_at = received_at + timedelta(minutes=12)
-        session.add(
-            PipelineEventORM(
-                id=uuid4(),
-                workspace_id=workspace_id,
-                lead_id=lead.id,
-                stage="manual_progress",
-                status="meeting_scheduled",
-                details={"stage": "meeting_scheduled"},
-                created_at=received_at + timedelta(days=1),
-            )
-        )
-        session.commit()
-        _add_outcome(
-            session,
-            lead.id,
-            workspace_id,
-            stage="closed_won",
-            opportunity=12000,
-            revenue=12000,
-        )
-        _add_outcome(
-            session,
-            manually_added.id,
-            workspace_id,
-            stage="proposal",
-            opportunity=8000,
-            revenue=0,
-            data_source="manual",
-        )
-        service = AnalyticsService(session, workspace_id)
-        extended = service.extended()
-        dashboard = service.dashboard()
-        channels = service.channels()["channels"]
-        manual_channel = next(row for row in channels if row["channel"] == "manual")
-
-    assert extended["speed_to_qualify"]["median_minutes"] == 9.5
-    assert extended["speed_to_qualify"]["sample_size"] == 2
-    assert extended["qualified_to_booked"]["booked"] == 1
-    assert extended["qualified_to_booked"]["rate"] == 100
-    assert sum(row["closed"] for row in extended["calibration"]) == 1
-    assert extended["sales_cycle_by_segment"][0]["sample_size"] == 1
-    assert extended["revenue_by_conversion_type"][0]["type"] == "untyped"
-    assert extended["revenue_by_conversion_type"][0]["won"] == 1
-    assert manual_channel["booked_leads"] == 0
-    assert manual_channel["closed_won_count"] == 0
-    assert dashboard["active_pipeline_by_origin"] == [
-        {"origin": "manual", "value": 8000.0}
-    ]
-    assert {row["key"] for row in extended["data_gaps"]} >= {
-        "override_rate",
-        "loss_reasons",
-        "revenue_motion",
-        "rep_first_response",
-    }
 
 
 def test_period_filter_excludes_old_records(icp: IcpConfig, routing: RoutingConfig) -> None:
@@ -488,7 +280,6 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
         )
         assert lead.analysis is not None
         lead.job_title = None
-        lead.full_name = "Name not provided"
         other_lead.email = lead.email
         other_lead.job_title = "Cross-workspace value"
         lead.analysis.requires_manual_review = True
@@ -525,9 +316,7 @@ def test_agent_activity_and_manual_review_are_workspace_scoped(
     assert analytics_metrics["leads_analyzed"] == 1
     assert "SQL-ready" in insights["Analytics Agent"]["summary"]
     assert review["total"] == 1
-    assert review["items"][0]["review_reasons"] == [
-        "Full name field (Name not provided) is missing or contains a placeholder value."
-    ]
+    assert review["items"][0]["review_reasons"] == ["Confidence needs human validation."]
 
 
 def test_enrichment_agent_suggests_only_unambiguous_exact_email_matches(
@@ -596,7 +385,6 @@ def test_analytics_api_smoke_and_unknown_workspace(icp: IcpConfig, routing: Rout
                 "time-series",
                 "agent-activity",
                 "manual-review",
-                "extended",
             ]
             for path in paths:
                 response = client.get(f"/v1/analytics/{path}?range=monthly", headers=headers)

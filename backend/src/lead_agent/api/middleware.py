@@ -39,11 +39,8 @@ def apply_security_headers(response: Response, *, production: bool) -> None:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = (
-        'camera=(), microphone=(self "https://phone.cloudtalk.io"), geolocation=()'
-    )
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
-        "frame-src 'self' https://phone.cloudtalk.io; "
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     )
     if production:

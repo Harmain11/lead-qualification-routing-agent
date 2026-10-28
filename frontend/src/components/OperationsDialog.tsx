@@ -7,14 +7,12 @@ export function OperationsDialog({
   children,
   className = "",
   showHeader = true,
-  id,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
   showHeader?: boolean;
-  id?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -35,7 +33,6 @@ export function OperationsDialog({
   return (
     <dialog
       ref={dialog}
-      id={id}
       className={`ops-dialog ${className}`}
       aria-label={title}
       onKeyDown={trapFocus}

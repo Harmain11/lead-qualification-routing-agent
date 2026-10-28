@@ -5,28 +5,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import fsum
-from statistics import median
 from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from lead_agent.application.manual_review import lead_manual_review_reasons
-from lead_agent.application.commercial import pipeline_value_usd
-from lead_agent.domain.lead_sources import lead_source_category
-from lead_agent.infrastructure.db.deals import DealORM
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
-    LeadFollowUpEmailORM,
     LeadORM,
     LeadOutcomeORM,
     PipelineEventORM,
     ProviderConnectionORM,
     QualificationResultORM,
-    UserORM,
-    WorkspaceMembershipORM,
     WorkspaceORM,
+    WorkspaceMembershipORM,
+    UserORM,
 )
 
 RangeKey = Literal["weekly", "monthly", "annual"]
@@ -34,20 +28,6 @@ SQL_BANDS = {"hot", "warm"}
 QUALIFIED_BANDS = {"hot", "warm", "needs_qualifying"}
 ACTIVE_OPPORTUNITY_STAGES = {"opportunity", "proposal", "negotiation"}
 CLOSED_STAGES = {"closed_won", "closed_lost"}
-SALES_PIPELINE_STAGES = (
-    ("new_lead", "New lead"),
-    ("contacted", "Contacted"),
-    ("follow_up_drafted", "Follow-up drafted"),
-    ("follow_up_sent", "Follow-up sent"),
-    ("responded", "Responded"),
-    ("meeting_scheduled", "Meeting scheduled"),
-    ("opportunity", "Opportunity"),
-    ("proposal_sent", "Proposal sent"),
-    ("negotiation", "Negotiation"),
-    ("contract", "Contract & SLA"),
-    ("closed_won", "Converted → Project or Sale"),
-    ("closed_lost", "Closed / lost"),
-)
 ENRICHMENT_FIELDS = (
     ("company_name", "Company"),
     ("job_title", "Job title"),
@@ -147,12 +127,6 @@ class AnalyticsService:
     def __init__(self, session: Session, workspace_id: UUID) -> None:
         self.session = session
         self.workspace_id = workspace_id
-        self.deals = {row.lead_id: row.data for row in session.scalars(
-            select(DealORM).where(DealORM.workspace_id == workspace_id)
-        )}
-
-    def _pipeline_amount(self, lead: LeadORM) -> float:
-        return pipeline_value_usd(lead, self.deals.get(lead.id))
 
     def metadata(self, window: AnalyticsWindow) -> dict[str, Any]:
         workspace = self._workspace()
@@ -201,7 +175,6 @@ class AnalyticsService:
             "metadata": self.metadata(window),
             "metrics": metrics,
             "band_distribution": self._band_counts(leads),
-            "active_pipeline_by_origin": self._active_pipeline_by_origin(leads),
             "attention_leads": self._attention_leads(leads)[:6],
             "recent_leads": [self._lead_card(lead) for lead in leads[:8]],
         }
@@ -211,28 +184,7 @@ class AnalyticsService:
         leads = self._leads(window.start, window.end)
         grouped: dict[str, list[LeadORM]] = defaultdict(list)
         for lead in leads:
-            grouped[lead_source_category(lead.source, lead.source_detail)].append(lead)
-        lead_ids = select(LeadORM.id).where(
-            LeadORM.workspace_id == self.workspace_id,
-            LeadORM.received_at >= window.start,
-            LeadORM.received_at <= window.end,
-        )
-        meeting_events = self.session.scalars(
-            select(PipelineEventORM).where(
-                PipelineEventORM.workspace_id == self.workspace_id,
-                PipelineEventORM.lead_id.in_(lead_ids),
-                (
-                    (PipelineEventORM.stage == "meeting_scheduled")
-                    | (
-                        (PipelineEventORM.stage == "manual_progress")
-                        & (PipelineEventORM.status == "meeting_scheduled")
-                    )
-                ),
-                PipelineEventORM.created_at >= window.start,
-                PipelineEventORM.created_at <= window.end,
-            )
-        ).all() if leads else []
-        booked_ids = {event.lead_id for event in meeting_events}
+            grouped[lead.source].append(lead)
         total = len(leads)
         rows = []
         for channel, items in sorted(grouped.items(), key=lambda row: len(row[1]), reverse=True):
@@ -259,18 +211,11 @@ class AnalyticsService:
             volume = len(items) / total if total else 0
             sql_rate = sqls / len(items) if items else 0
             importance = round((quality * 0.5 + volume * 0.25 + sql_rate * 0.25) * 100, 1)
-            booked = sum(lead.id in booked_ids for lead in items)
             rows.append(
                 {
                     "channel": channel,
                     "lead_volume": len(items),
                     "qualified_leads": qualified,
-                    "booked_leads": booked,
-                    "booked_rate": round((booked / len(items)) * 100, 1) if items else 0,
-                    "qualified_to_booked_rate": (
-                        round((booked / qualified) * 100, 1) if qualified else None
-                    ),
-                    "closed_won_count": won,
                     "scored_leads": len(scored),
                     "share_percent": round((len(items) / total) * 100, 1) if total else 0,
                     "qualification_rate": round((qualified / len(items)) * 100, 1),
@@ -295,10 +240,8 @@ class AnalyticsService:
             "opportunity": [
                 lead
                 for lead in leads
-                if (
-                    lead.outcome is not None
-                    and lead.outcome.pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
-                ) or self._pipeline_amount(lead) > 0
+                if lead.outcome is not None
+                and lead.outcome.pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
             ],
             "closed": [
                 lead
@@ -313,7 +256,9 @@ class AnalyticsService:
                 "count": len(items),
                 "value": round(
                     fsum(
-                        self._pipeline_amount(item) for item in items
+                        _money(_outcome(item).opportunity_value)
+                        for item in items
+                        if item.outcome is not None
                     ),
                     2,
                 ),
@@ -324,109 +269,20 @@ class AnalyticsService:
         return {
             "metadata": self.metadata(window),
             "stages": stages,
-            "sales_stages": self._sales_pipeline_stages(leads),
             "bands": self._band_counts(leads),
             "manual_review": len([lead for lead in leads if self._is_manual_review(lead)]),
         }
-
-    def _sales_pipeline_stages(self, leads: list[LeadORM]) -> list[dict[str, Any]]:
-        lead_ids = [lead.id for lead in leads]
-        current_stage = {lead.id: "new_lead" for lead in leads}
-        stage_rank = {stage: index for index, (stage, _) in enumerate(SALES_PIPELINE_STAGES)}
-        terminal_stages = {"closed_won", "closed_lost"}
-        for terminal in terminal_stages:
-            stage_rank[terminal] = len(SALES_PIPELINE_STAGES)
-
-        def advance(lead_id: UUID, candidate: str | None) -> None:
-            if candidate not in stage_rank:
-                return
-            current = current_stage[lead_id]
-            if current in terminal_stages:
-                return
-            if candidate in terminal_stages or stage_rank[candidate] > stage_rank[current]:
-                current_stage[lead_id] = candidate
-
-        if lead_ids:
-            progress_events = self.session.scalars(
-                select(PipelineEventORM)
-                .where(
-                    PipelineEventORM.workspace_id == self.workspace_id,
-                    PipelineEventORM.lead_id.in_(lead_ids),
-                    PipelineEventORM.stage.in_(("manual_progress", "meeting_scheduled")),
-                )
-                .order_by(PipelineEventORM.created_at.asc())
-            )
-            manual_stages = {
-                "contacted": "contacted",
-                "responded": "responded",
-                "meeting_scheduled": "meeting_scheduled",
-                "proposal_sent": "proposal_sent",
-            }
-            for event in progress_events:
-                raw_stage = (
-                    "meeting_scheduled"
-                    if event.stage == "meeting_scheduled"
-                    else str(event.details.get("stage") or event.status)
-                )
-                advance(event.lead_id, manual_stages.get(raw_stage))
-
-            follow_ups = self.session.scalars(
-                select(LeadFollowUpEmailORM).where(
-                    LeadFollowUpEmailORM.workspace_id == self.workspace_id,
-                    LeadFollowUpEmailORM.lead_id.in_(lead_ids),
-                    LeadFollowUpEmailORM.kind.like("ai_follow_up%"),
-                )
-            )
-            for follow_up in follow_ups:
-                if follow_up.status == "sent":
-                    advance(follow_up.lead_id, "follow_up_sent")
-                elif follow_up.status in {"draft", "sending", "delivery_uncertain"}:
-                    advance(follow_up.lead_id, "follow_up_drafted")
-
-            outcome_stages = {
-                "opportunity": "opportunity",
-                "proposal": "proposal_sent",
-                "negotiation": "negotiation",
-                "closed_won": "closed_won",
-                "closed_lost": "closed_lost",
-            }
-            for lead in leads:
-                if lead.outcome is not None:
-                    outcome_stage = outcome_stages.get(lead.outcome.pipeline_stage)
-                    if outcome_stage in terminal_stages:
-                        current_stage[lead.id] = outcome_stage
-                    else:
-                        advance(lead.id, outcome_stage)
-
-        commercial_stages = {"new": "new_lead", "contacted": "contacted", "engaged": "responded", "quoted": "proposal_sent", "negotiation": "negotiation", "contract": "contract"}
-        for lead in leads:
-            candidate = commercial_stages.get(self.deals.get(lead.id, {}).get("stage"))
-            if candidate and current_stage[lead.id] not in terminal_stages:
-                current_stage[lead.id] = candidate
-        stage_members: dict[str, list[LeadORM]] = {
-            stage: [] for stage, _ in SALES_PIPELINE_STAGES
-        }
-        for lead in leads:
-            stage_members[current_stage[lead.id]].append(lead)
-
-        return [
-            {
-                "stage": stage,
-                "label": label,
-                "count": len(items),
-                "value": round(fsum(self._pipeline_amount(item) for item in items), 2),
-                "leads": [self._lead_card(item) for item in items[:12]],
-            }
-            for stage, label in SALES_PIPELINE_STAGES
-            for items in [stage_members[stage]]
-        ]
 
     def revenue(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
         window = AnalyticsWindow.build(range_key)
         leads = self._leads(window.start, window.end)
         facts = [lead for lead in leads if lead.outcome is not None]
         total_revenue = fsum(_money(_outcome(lead).closed_revenue) for lead in facts)
-        pipeline_value = fsum(self._pipeline_amount(lead) for lead in leads)
+        pipeline_value = fsum(
+            _money(_outcome(lead).opportunity_value)
+            for lead in facts
+            if _outcome(lead).pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
+        )
         source_types = {_outcome(lead).data_source for lead in facts}
         if not facts:
             status = "unavailable"
@@ -444,9 +300,7 @@ class AnalyticsService:
             "currency": "USD",
             "total_revenue": round(total_revenue, 2),
             "pipeline_value": round(pipeline_value, 2),
-            "by_channel": self._revenue_group(
-                facts, lambda lead: lead_source_category(lead.source, lead.source_detail)
-            ),
+            "by_channel": self._revenue_group(facts, lambda lead: lead.source),
             "by_rep": self._revenue_group(facts, _rep_name),
             "by_service": self._revenue_group(facts, lambda lead: lead.product_or_service),
             "over_time": self._revenue_time_series(facts, window),
@@ -518,19 +372,11 @@ class AnalyticsService:
             items = by_member[user_id]
             if member.status != "active" and not items:
                 continue
-            won = [
-                lead for lead in items
-                if lead.outcome and lead.outcome.pipeline_stage == "closed_won"
-            ]
-            lost = sum(
-                bool(lead.outcome and lead.outcome.pipeline_stage == "closed_lost")
-                for lead in items
-            )
+            won = [lead for lead in items if lead.outcome and lead.outcome.pipeline_stage == "closed_won"]
+            lost = sum(bool(lead.outcome and lead.outcome.pipeline_stage == "closed_lost") for lead in items)
             projects = sum(lead.outcome.conversion_type == "project" for lead in won)
             sales = sum(lead.outcome.conversion_type == "sale" for lead in won)
-            qualified = sum(
-                _qualification(lead).classification in QUALIFIED_BANDS for lead in items
-            )
+            qualified = sum(_qualification(lead).classification in QUALIFIED_BANDS for lead in items)
             conversion_rate = round(len(won) / len(items) * 100, 1) if items else 0
             revenue = round(fsum(_money(lead.outcome.closed_revenue) for lead in won), 2)
             velocities = self._routing_velocities(items)
@@ -543,17 +389,12 @@ class AnalyticsService:
                 "active_leads": len(items) - len(won) - lost,
                 "conversion_rate": conversion_rate, "revenue": revenue,
                 "wins_without_value": sum(lead.outcome.closed_revenue is None for lead in won),
-                "average_response_minutes": (
-                    round(sum(velocities) / len(velocities), 1) if velocities else None
-                ),
+                "average_response_minutes": round(sum(velocities) / len(velocities), 1) if velocities else None,
                 "summary": (
                     f"{user.display_name} has {len(items)} assigned lead(s) in this period, "
                     f"{qualified} qualified lead(s), and {len(won)} win(s): "
                     f"{projects} Project(s), {sales} Sale(s)"
-                    + (
-                        f", {len(won) - projects - sales} earlier untyped win(s)"
-                        if len(won) > projects + sales else ""
-                    )
+                    + (f", {len(won) - projects - sales} earlier untyped win(s)" if len(won) > projects + sales else "")
                     + f". {len(items) - len(won) - lost} remain open and {lost} were lost. "
                     f"Assigned-lead conversion is {conversion_rate:g}%."
                 ),
@@ -563,8 +404,7 @@ class AnalyticsService:
             "unattributed_leads": unattributed,
             "cohort_description": (
                 "Includes leads received in the selected period and their current outcomes. "
-                "Closed leads use recorded member credit; open leads use their current assigned "
-                "member. "
+                "Closed leads use recorded member credit; open leads use their current assigned member. "
                 "Conversion rate is wins divided by assigned leads."
             ),
         }
@@ -859,541 +699,22 @@ class AnalyticsService:
             lead for lead in self._leads(window.start, window.end) if self._is_manual_review(lead)
         ]
         items = []
-        max_value = max(
-            (
-                _money(lead.outcome.opportunity_value)
-                for lead in leads
-                if lead.outcome is not None
-            ),
-            default=0,
-        )
         for lead in leads:
+            reasons: list[str] = []
+            if lead.analysis and lead.analysis.requires_manual_review:
+                if lead.analysis.error_message:
+                    reasons.append(lead.analysis.error_message)
+                structured = lead.analysis.structured_output
+                reasons.extend(structured.get("contradictions", []))
+                if float(lead.analysis.confidence) < 0.6:
+                    reasons.append(
+                        f"Low analysis confidence ({float(lead.analysis.confidence):.0%})"
+                    )
             route = _latest_route(lead)
-            reasons = lead_manual_review_reasons(self.session, lead, route)
-            score = _qualification(lead).total_score
-            priority = (route.priority if route else "normal").casefold()
-            urgency = {"urgent": 100, "high": 80, "normal": 55, "low": 30}.get(
-                priority, 50
-            )
-            target = _utc(route.sla_target_at) if route and route.sla_target_at else None
-            overdue = bool(target and target < datetime.now(UTC))
-            value = (
-                min(100, round(_money(lead.outcome.opportunity_value) / max_value * 100))
-                if max_value and lead.outcome is not None
-                else 0
-            )
-            attention_score = round(
-                score * 0.45 + max(urgency, 100 if overdue else 0) * 0.35 + value * 0.20,
-                1,
-            )
-            items.append(
-                {
-                    **self._lead_card(lead),
-                    "review_reasons": reasons,
-                    "priority": priority,
-                    "sla_overdue": overdue,
-                    "attention_score": attention_score,
-                }
-            )
-        items.sort(
-            key=lambda item: (
-                item["attention_score"],
-                item["score"],
-                item["received_at"],
-            ),
-            reverse=True,
-        )
+            if route and route.manual_review:
+                reasons.append(route.routing_reason)
+            items.append({**self._lead_card(lead), "review_reasons": list(dict.fromkeys(reasons))})
         return {"metadata": self.metadata(window), "items": items, "total": len(items)}
-
-    def extended(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
-        """Return additional dashboard and analytics signals from recorded workspace data."""
-        window = AnalyticsWindow.build(range_key)
-        leads = self._leads(window.start, window.end)
-        if not leads:
-            return {
-                "metadata": self.metadata(window),
-                "speed_to_qualify": {
-                    "average_minutes": None,
-                    "median_minutes": None,
-                    "sample_size": 0,
-                },
-                "qualified_to_booked": {"qualified": 0, "booked": 0, "rate": None},
-                "sla": {
-                    "configured": 0,
-                    "compliant": 0,
-                    "breached": 0,
-                    "pending": 0,
-                    "unverified": 0,
-                    "rate": None,
-                },
-                "escalations": [],
-                "stale_leads": [],
-                "calibration": [],
-                "sales_cycle_by_segment": [],
-                "icp_fit_distribution": [],
-                "response_heatmap": [],
-                "stage_velocity": [],
-                "channel_mix": [],
-                "team_utilization_trend": [],
-                "quarterly_scorecard": [],
-                "revenue_by_conversion_type": [],
-                "competitive_mentions": [],
-                "data_gaps": self._analytics_data_gaps(),
-            }
-
-        now = datetime.now(UTC)
-        events = list(
-            self.session.scalars(
-                select(PipelineEventORM)
-                .where(
-                    PipelineEventORM.workspace_id == self.workspace_id,
-                    PipelineEventORM.lead_id.in_(
-                        select(LeadORM.id).where(
-                            LeadORM.workspace_id == self.workspace_id,
-                            LeadORM.received_at >= window.start,
-                            LeadORM.received_at <= window.end,
-                        )
-                    ),
-                    PipelineEventORM.created_at >= window.start,
-                    PipelineEventORM.created_at <= window.end,
-                )
-                .order_by(PipelineEventORM.created_at)
-            )
-        )
-        events_by_lead: dict[UUID, list[PipelineEventORM]] = defaultdict(list)
-        for event in events:
-            events_by_lead[event.lead_id].append(event)
-
-        qualify_minutes = [
-            (_utc(lead.qualification.created_at) - _utc(lead.received_at)).total_seconds() / 60
-            for lead in leads
-            if lead.qualification is not None
-            and _utc(lead.qualification.created_at) >= _utc(lead.received_at)
-        ]
-        booked_ids = {
-            event.lead_id
-            for event in events
-            if event.stage == "meeting_scheduled"
-            or (
-                event.stage == "manual_progress"
-                and event.status == "meeting_scheduled"
-            )
-        }
-        qualified_leads = [
-            lead for lead in leads
-            if lead.qualification is not None
-            and lead.qualification.classification in QUALIFIED_BANDS
-        ]
-        qualified_booked = sum(lead.id in booked_ids for lead in qualified_leads)
-
-        sla_configured = 0
-        sla_compliant = 0
-        sla_breached = 0
-        sla_pending = 0
-        sla_unverified = 0
-        escalation_rows = []
-        stale_rows = []
-        stale_after = timedelta(days=7)
-        for lead in leads:
-            route = _latest_route(lead)
-            lead_events = events_by_lead.get(lead.id, [])
-            if route and route.sla_target_at:
-                target = _utc(route.sla_target_at)
-                response_times = [
-                    _utc(event.created_at)
-                    for event in lead_events
-                    if (
-                        event.stage == "gmail_message" and event.status == "outbound"
-                    )
-                    or (
-                        event.stage == "manual_progress"
-                        and event.status in {"contacted", "responded", "meeting_scheduled"}
-                    )
-                ]
-                first_response = min(
-                    (time for time in response_times if time >= _utc(route.created_at)),
-                    default=None,
-                )
-                sla_configured += 1
-                if first_response and first_response <= target:
-                    sla_compliant += 1
-                elif first_response is not None:
-                    sla_breached += 1
-                    if (
-                        target < now
-                        and not (
-                            lead.outcome
-                            and lead.outcome.pipeline_stage in CLOSED_STAGES
-                        )
-                    ):
-                        escalation_rows.append(
-                            {
-                                **self._lead_card(lead),
-                                "sla_target_at": target,
-                                "hours_overdue": round(
-                                    (first_response - target).total_seconds() / 3600, 1
-                                ),
-                                "priority": route.priority,
-                                "late_response": True,
-                            }
-                        )
-                elif target < now and not (
-                    lead.outcome and lead.outcome.pipeline_stage in CLOSED_STAGES
-                ):
-                    sla_breached += 1
-                    escalation_rows.append(
-                        {
-                            **self._lead_card(lead),
-                            "sla_target_at": target,
-                            "hours_overdue": round((now - target).total_seconds() / 3600, 1),
-                            "priority": route.priority,
-                            "late_response": False,
-                        }
-                    )
-                elif lead.outcome and lead.outcome.pipeline_stage in CLOSED_STAGES:
-                    sla_unverified += 1
-                else:
-                    sla_pending += 1
-
-            if not lead.outcome or lead.outcome.pipeline_stage not in CLOSED_STAGES:
-                activity_times = [_utc(event.created_at) for event in lead_events]
-                last_activity = max(activity_times, default=_utc(lead.received_at))
-                inactive_for = now - last_activity
-                if inactive_for >= stale_after:
-                    stale_rows.append(
-                        {
-                            **self._lead_card(lead),
-                            "last_activity_at": last_activity,
-                            "inactive_days": round(inactive_for.total_seconds() / 86400, 1),
-                        }
-                    )
-
-        escalation_rows.sort(key=lambda row: row["hours_overdue"], reverse=True)
-        stale_rows.sort(key=lambda row: row["inactive_days"], reverse=True)
-
-        closed = [
-            lead for lead in leads
-            if lead.outcome is not None and lead.outcome.pipeline_stage in CLOSED_STAGES
-        ]
-        score_buckets: dict[str, list[LeadORM]] = defaultdict(list)
-        for lead in closed:
-            score = lead.qualification.total_score if lead.qualification else 0
-            lower = min(80, (score // 20) * 20)
-            label = "80–100" if lower == 80 else f"{lower}–{lower + 19}"
-            score_buckets[label].append(lead)
-        calibration = []
-        for label in ("0–19", "20–39", "40–59", "60–79", "80–100"):
-            rows = score_buckets.get(label, [])
-            wins = sum(lead.outcome.pipeline_stage == "closed_won" for lead in rows)
-            calibration.append(
-                {
-                    "score_band": label,
-                    "closed": len(rows),
-                    "won": wins,
-                    "win_rate": round(wins / len(rows) * 100, 1) if rows else None,
-                }
-            )
-
-        cycles: dict[str, list[float]] = defaultdict(list)
-        for lead in closed:
-            outcome = lead.outcome
-            closed_at = _utc(outcome.closed_at) if outcome.closed_at else None
-            opened_at = _utc(outcome.opened_at or lead.received_at)
-            if closed_at and closed_at >= opened_at:
-                cycles[lead.industry or "Unknown industry"].append(
-                    (closed_at - opened_at).total_seconds() / 86400
-                )
-        cycle_rows = [
-            {
-                "segment": segment,
-                "sample_size": len(values),
-                "average_days": round(fsum(values) / len(values), 1),
-                "median_days": round(float(median(values)), 1),
-            }
-            for segment, values in sorted(
-                cycles.items(), key=lambda row: (-len(row[1]), row[0].casefold())
-            )
-        ]
-
-        icp_counts: dict[str, Counter[str]] = defaultdict(Counter)
-        competitor_counts: Counter[str] = Counter()
-        for lead in leads:
-            structured = (
-                lead.analysis.structured_output
-                if lead.analysis and isinstance(lead.analysis.structured_output, dict)
-                else {}
-            )
-            evaluation = structured.get("icp_evaluation", {})
-            if isinstance(evaluation, dict):
-                for criterion, result in evaluation.items():
-                    if criterion == "explicit_disqualifiers" or not isinstance(result, dict):
-                        continue
-                    status = result.get("status")
-                    if isinstance(status, str):
-                        icp_counts[criterion][status] += 1
-            context = structured.get("context", {})
-            mention = (
-                context.get("competitor_or_current_tools")
-                if isinstance(context, dict)
-                else None
-            )
-            if isinstance(mention, dict):
-                value = mention.get("value")
-            else:
-                value = mention
-            if isinstance(value, str) and value.strip().casefold() not in {
-                "", "unknown", "none", "not provided", "n/a", "unspecified"
-            }:
-                competitor_counts[value.strip()[:120]] += 1
-            elif isinstance(value, list):
-                for item in value:
-                    if isinstance(item, str) and item.strip():
-                        competitor_counts[item.strip()[:120]] += 1
-        icp_distribution = [
-            {
-                "criterion": criterion.replace("_", " ").title(),
-                "statuses": dict(counts),
-                "evaluated": sum(counts.values()),
-            }
-            for criterion, counts in sorted(icp_counts.items())
-        ]
-
-        heatmap_counts: Counter[tuple[int, int, str]] = Counter()
-        for event in events:
-            event_time = _utc(event.created_at)
-            if (
-                event.stage == "gmail_message"
-                and event_time >= window.start
-                and event.status in {"inbound", "outbound"}
-            ):
-                heatmap_counts[
-                    (event_time.weekday(), event_time.hour, event.status)
-                ] += 1
-        response_heatmap = [
-            {
-                "weekday": weekday,
-                "hour": hour,
-                "inbound": heatmap_counts[(weekday, hour, "inbound")],
-                "outbound": heatmap_counts[(weekday, hour, "outbound")],
-            }
-            for weekday in range(7)
-            for hour in range(24)
-            if heatmap_counts[(weekday, hour, "inbound")]
-            or heatmap_counts[(weekday, hour, "outbound")]
-        ]
-
-        transitions: dict[tuple[str, str], list[float]] = defaultdict(list)
-        lifecycle = {
-            "contacted": 1,
-            "responded": 2,
-            "meeting_scheduled": 3,
-            "proposal_sent": 4,
-            "converted": 5,
-            "lost": 5,
-        }
-        for lead in leads:
-            last_stage = "received"
-            last_time = _utc(lead.received_at)
-            for event in events_by_lead.get(lead.id, []):
-                if event.stage == "manual_progress":
-                    next_stage = str(event.details.get("stage") or event.status)
-                elif event.stage == "meeting_scheduled":
-                    next_stage = "meeting_scheduled"
-                else:
-                    continue
-                if (
-                    next_stage not in lifecycle
-                    or lifecycle[next_stage] < lifecycle.get(last_stage, 0)
-                ):
-                    continue
-                event_time = _utc(event.created_at)
-                if event_time < last_time:
-                    continue
-                if next_stage != last_stage:
-                    transitions[(last_stage, next_stage)].append(
-                        (event_time - last_time).total_seconds() / 3600
-                    )
-                    last_stage, last_time = next_stage, event_time
-        stage_velocity = [
-            {
-                "transition": (
-                    f"{start.replace('_', ' ').title()} → {end.replace('_', ' ').title()}"
-                ),
-                "sample_size": len(values),
-                "median_hours": round(float(median(values)), 1),
-            }
-            for (start, end), values in sorted(
-                transitions.items(), key=lambda row: (-float(median(row[1])), row[0])
-            )
-        ]
-
-        channel_month_counts: Counter[tuple[str, str]] = Counter(
-            (lead.source, lead.received_at.strftime("%Y-%m")) for lead in leads
-        )
-        channel_mix = [
-            {"source": source, "month": month, "leads": count}
-            for (source, month), count in sorted(channel_month_counts.items())
-        ]
-        assignment_counts: Counter[tuple[str, str]] = Counter()
-        for lead in leads:
-            for route in lead.routing_decisions:
-                if route.assigned_rep_name:
-                    assignment_counts[
-                        (route.created_at.strftime("%Y-%m"), route.assigned_rep_name)
-                    ] += 1
-        team_utilization = [
-            {"month": month, "rep": rep, "assignments": count}
-            for (month, rep), count in sorted(assignment_counts.items())
-        ]
-
-        revenue_types: dict[str, float] = defaultdict(float)
-        revenue_type_wins: Counter[str] = Counter()
-        for lead in closed:
-            if lead.outcome.pipeline_stage == "closed_won":
-                conversion_type = lead.outcome.conversion_type or "untyped"
-                revenue_types[conversion_type] += _money(
-                    lead.outcome.closed_revenue
-                )
-                revenue_type_wins[conversion_type] += 1
-
-        quarter_month = ((now.month - 1) // 3) * 3 + 1
-        quarter_start = datetime(now.year, quarter_month, 1, tzinfo=UTC)
-        previous_month = quarter_month - 3
-        previous_year = now.year
-        if previous_month <= 0:
-            previous_month += 12
-            previous_year -= 1
-        previous_start = datetime(previous_year, previous_month, 1, tzinfo=UTC)
-        elapsed = now - quarter_start
-        previous_end = min(previous_start + elapsed, quarter_start)
-        current_q = self._leads(quarter_start, now)
-        previous_q = self._leads(previous_start, previous_end)
-        quarterly_scorecard = self._scorecard_rows(current_q, previous_q)
-
-        return {
-            "metadata": self.metadata(window),
-            "speed_to_qualify": {
-                "average_minutes": round(fsum(qualify_minutes) / len(qualify_minutes), 1)
-                if qualify_minutes else None,
-                "median_minutes": round(float(median(qualify_minutes)), 1)
-                if qualify_minutes else None,
-                "sample_size": len(qualify_minutes),
-            },
-            "qualified_to_booked": {
-                "qualified": len(qualified_leads),
-                "booked": qualified_booked,
-                "rate": round(qualified_booked / len(qualified_leads) * 100, 1)
-                if qualified_leads else None,
-            },
-            "sla": {
-                "configured": sla_configured,
-                "compliant": sla_compliant,
-                "breached": sla_breached,
-                "pending": sla_pending,
-                "unverified": sla_unverified,
-                "rate": round(sla_compliant / (sla_compliant + sla_breached) * 100, 1)
-                if sla_compliant + sla_breached else None,
-                "definition": (
-                    "First recorded outbound email or manual contacted/responded stage "
-                    "before the routing deadline."
-                ),
-            },
-            "escalations": escalation_rows[:12],
-            "stale_leads": stale_rows[:12],
-            "calibration": calibration,
-            "sales_cycle_by_segment": cycle_rows[:12],
-            "icp_fit_distribution": icp_distribution,
-            "response_heatmap": response_heatmap,
-            "stage_velocity": stage_velocity,
-            "channel_mix": channel_mix,
-            "team_utilization_trend": team_utilization,
-            "quarterly_scorecard": quarterly_scorecard,
-            "revenue_by_conversion_type": [
-                {"type": label, "revenue": round(value, 2), "won": revenue_type_wins[label]}
-                for label, value in sorted(revenue_types.items())
-            ],
-            "competitive_mentions": [
-                {"mention": mention, "count": count}
-                for mention, count in competitor_counts.most_common(20)
-            ],
-            "data_gaps": self._analytics_data_gaps(),
-        }
-
-    @staticmethod
-    def _analytics_data_gaps() -> list[dict[str, str]]:
-        return [
-            {
-                "key": "override_rate",
-                "label": "Score overrides",
-                "reason": "Human score overrides are not recorded as separate events.",
-            },
-            {
-                "key": "loss_reasons",
-                "label": "Win/loss reasons",
-                "reason": "Closed outcomes do not store a structured loss reason.",
-            },
-            {
-                "key": "revenue_motion",
-                "label": "New vs expansion revenue",
-                "reason": (
-                    "Recorded wins distinguish Project and Sale, not new business versus "
-                    "expansion or renewal."
-                ),
-            },
-            {
-                "key": "rep_first_response",
-                "label": "Rep first-response leaderboard",
-                "reason": "Email activity is not attributed to the individual sender.",
-            },
-        ]
-
-    def _active_pipeline_by_origin(self, leads: list[LeadORM]) -> list[dict[str, Any]]:
-        totals: Counter[str] = Counter()
-        for lead in leads:
-            if self._pipeline_amount(lead) <= 0:
-                continue
-            origin = (
-                "manual"
-                if lead.source_detail == "manual-control-center" or lead.source == "manual"
-                else "source_intake"
-            )
-            totals[origin] += self._pipeline_amount(lead)
-        return [
-            {"origin": origin, "value": round(value, 2)}
-            for origin, value in sorted(totals.items())
-        ]
-
-    @staticmethod
-    def _scorecard_rows(
-        current: list[LeadORM], previous: list[LeadORM]
-    ) -> list[dict[str, Any]]:
-        def metrics(leads: list[LeadORM]) -> dict[str, float | int | None]:
-            qualified = sum(
-                lead.qualification is not None
-                and lead.qualification.classification in QUALIFIED_BANDS
-                for lead in leads
-            )
-            won = [
-                lead for lead in leads
-                if lead.outcome is not None and lead.outcome.pipeline_stage == "closed_won"
-            ]
-            return {
-                "leads": len(leads),
-                "qualification_rate": (
-                    round(qualified / len(leads) * 100, 1) if leads else None
-                ),
-                "wins": len(won),
-                "revenue": round(
-                    fsum(_money(lead.outcome.closed_revenue) for lead in won), 2
-                ),
-            }
-
-        now = metrics(current)
-        before = metrics(previous)
-        return [
-            {"metric": key.replace("_", " ").title(), "current": value, "previous": before[key]}
-            for key, value in now.items()
-        ]
 
     def _workspace(self) -> WorkspaceORM:
         workspace = self.session.get(WorkspaceORM, self.workspace_id)
@@ -1456,7 +777,10 @@ class AnalyticsService:
             ),
             "active_pipeline_value": round(
                 fsum(
-                    self._pipeline_amount(lead) for lead in leads
+                    _money(_outcome(lead).opportunity_value)
+                    for lead in leads
+                    if lead.outcome is not None
+                    and lead.outcome.pipeline_stage in ACTIVE_OPPORTUNITY_STAGES
                 ),
                 2,
             ),

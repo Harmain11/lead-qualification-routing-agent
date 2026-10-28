@@ -1,13 +1,12 @@
 .ct-tour-root {
-  --ct-ink: var(--label, #0f1b2d);
-  --ct-muted: var(--label-2, #46525f);
-  --ct-green: var(--tint, #1e6b52);
-  --ct-green-text: var(--tint-text, #18604a);
-  --ct-attention: var(--attention, #f2a541);
-  --ct-paper: var(--surface, #fff);
-  --ct-line: var(--separator, rgba(15, 27, 45, .09));
+  --ct-ink: var(--text, #0f1b2d);
+  --ct-muted: var(--muted, #4d6259);
+  --ct-green: var(--brand-orange, #1e6b52);
+  --ct-gold: var(--brand-coral, #f2a541);
+  --ct-paper: var(--surface-solid, #fff);
+  --ct-line: var(--blue-line, rgba(30, 107, 82, .22));
   color: var(--ct-ink);
-  font-family: var(--font, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-family: inherit;
 }
 
 .ct-tour-backdrop {
@@ -16,7 +15,7 @@
   inset: 0;
   overflow: hidden;
   isolation: isolate;
-  background: rgba(15, 27, 45, .24);
+  background: rgba(12, 25, 21, .34);
   animation: ct-backdrop-in 180ms ease-out both;
 }
 
@@ -32,17 +31,19 @@
 .ct-tour-dialog {
   position: fixed;
   z-index: 2;
-  width: min(440px, calc(100vw - 32px));
+  width: min(410px, calc(100vw - 32px));
   max-height: min(680px, calc(100dvh - 32px));
   overflow-y: auto;
-  border: 1px solid var(--separator, var(--ct-line));
-  border-radius: var(--r-xl, 20px);
-  background: var(--ct-paper);
-  box-shadow: var(--shadow-sheet, 0 28px 80px -16px rgba(15, 27, 45, .38));
-  padding: 28px;
+  border: 1px solid rgba(30, 107, 82, .24);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(242, 165, 65, .11), transparent 39%),
+    linear-gradient(150deg, var(--ct-paper), #f5f9f5 100%);
+  box-shadow: 0 28px 90px rgba(10, 35, 26, .27), 0 4px 12px rgba(10, 35, 26, .12), inset 0 1px rgba(255,255,255,.95);
+  padding: 24px;
   animation: ct-card-in 260ms cubic-bezier(.2,.75,.25,1) both;
   scrollbar-width: thin;
-  scrollbar-color: var(--separator-strong, rgba(15, 27, 45, .16)) transparent;
+  scrollbar-color: rgba(30,107,82,.28) transparent;
 }
 
 .ct-tour-dialog:focus { outline: none; }
@@ -52,16 +53,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 22px;
 }
 
 .ct-tour-brand {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  color: var(--ct-muted);
-  font: 600 13px/18px var(--font, sans-serif);
-  letter-spacing: .01em;
+  color: var(--ct-green);
+  font: 750 13px/1.2 var(--font-mono, monospace);
+  letter-spacing: .095em;
 }
 
 .ct-tour-mark {
@@ -70,9 +71,10 @@
   width: 28px;
   height: 28px;
   place-items: center;
-  border: 1px solid var(--separator-strong, rgba(15, 27, 45, .16));
-  border-radius: var(--r-sm, 8px);
-  background: var(--surface-sunken, #eef1ee);
+  border: 1px solid rgba(30,107,82,.28);
+  border-radius: 9px;
+  background: linear-gradient(145deg,#fff,#e8f2e9);
+  box-shadow: 0 3px 8px rgba(12,53,38,.08);
 }
 
 .ct-tour-mark::before,
@@ -84,7 +86,7 @@
 }
 
 .ct-tour-mark::before { width: 11px; height: 11px; }
-.ct-tour-mark::after { width: 4px; height: 4px; border-color: var(--ct-attention); background: var(--ct-attention); }
+.ct-tour-mark::after { width: 4px; height: 4px; border-color: var(--ct-gold); background: var(--ct-gold); }
 
 .ct-tour-close {
   display: grid;
@@ -92,17 +94,17 @@
   height: 34px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm, 8px);
-  background: transparent;
-  color: var(--ct-muted);
+  border: 1px solid var(--ct-line);
+  border-radius: 10px;
+  background: rgba(255,255,255,.74);
+  color: #426153;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .ct-tour-close:hover {
   transform: translateY(-1px);
-  background: var(--fill-hover, rgba(15, 27, 45, .075));
+  background: #e9f3eb;
   color: var(--ct-green);
 }
 
@@ -110,23 +112,25 @@
 
 .ct-tour-kicker {
   display: block;
-  margin: 0 0 8px;
-  color: var(--ct-green-text);
-  font: 600 13px/18px var(--font, sans-serif);
-  letter-spacing: .01em;
+  margin: 0 0 9px;
+  color: var(--ct-green);
+  font: 700 13px/1.4 var(--font-mono, monospace);
+  letter-spacing: .12em;
+  text-transform: uppercase;
 }
 
 .ct-tour-title {
   margin: 0;
   color: var(--ct-ink);
-  font: 600 clamp(26px, 5vw, 32px)/1.12 var(--font-display, system-ui, sans-serif);
-  letter-spacing: -.03em;
+  font: 680 clamp(25px, 5vw, 31px)/1.08 var(--font-display, "Segoe UI Variable", system-ui, sans-serif);
+  letter-spacing: -.052em;
 }
 
 .ct-tour-description {
-  margin: 12px 0 0;
+  margin: 13px 0 0;
   color: var(--ct-muted);
-  font: var(--t-body, 400 15px/22px var(--font, sans-serif));
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .ct-tour-flow {
@@ -134,11 +138,11 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   align-items: center;
-  margin: 24px 0;
-  padding: 16px 12px;
-  border: 1px solid var(--separator, var(--ct-line));
-  border-radius: var(--r-lg, 16px);
-  background: var(--surface-sunken, #eef1ee);
+  margin: 23px 0 22px;
+  padding: 17px 12px;
+  border: 1px solid rgba(30,107,82,.14);
+  border-radius: 13px;
+  background: linear-gradient(100deg,rgba(30,107,82,.055),rgba(242,165,65,.075));
 }
 
 .ct-tour-flow::before {
@@ -147,7 +151,7 @@
   right: 18%;
   left: 18%;
   height: 1px;
-  background: var(--separator-strong, rgba(15, 27, 45, .16));
+  background: linear-gradient(90deg,var(--ct-green),var(--ct-gold));
   content: "";
   opacity: .52;
 }
@@ -157,9 +161,11 @@
   display: grid;
   justify-items: center;
   gap: 7px;
-  color: var(--ct-muted);
-  font: 500 14px/20px var(--font, sans-serif);
+  color: #456052;
+  font: 650 13px/1.2 var(--font-mono, monospace);
   text-align: center;
+  text-transform: uppercase;
+  letter-spacing: .035em;
 }
 
 .ct-tour-flow i {
@@ -168,11 +174,12 @@
   width: 28px;
   height: 28px;
   place-items: center;
-  border: 1px solid var(--separator-strong, rgba(15, 27, 45, .16));
-  border-radius: var(--r-sm, 8px);
-  background: var(--surface, #fff);
-  color: var(--ct-green-text);
-  font: 600 12px/16px var(--font, sans-serif);
+  border: 1px solid rgba(30,107,82,.23);
+  border-radius: 9px;
+  background: #fbfdfb;
+  color: var(--ct-green);
+  font: 700 13px/1 var(--font-mono, monospace);
+  box-shadow: 0 3px 8px rgba(12,53,38,.08);
 }
 
 .ct-tour-progress {
@@ -181,11 +188,13 @@
   justify-content: space-between;
   gap: 14px;
   margin: 0 0 9px;
-  color: var(--ct-muted);
-  font: var(--t-subhead, 400 13px/18px var(--font, sans-serif));
+  color: #61756a;
+  font: 650 13px/1.3 var(--font-mono, monospace);
+  letter-spacing: .075em;
+  text-transform: uppercase;
 }
 
-.ct-tour-progress strong { color: var(--ct-green-text); font-weight: 600; }
+.ct-tour-progress strong { color: var(--ct-green); font-weight: 750; }
 
 .ct-tour-progress-track {
   display: flex;
@@ -197,12 +206,12 @@
   height: 3px;
   flex: 1;
   border-radius: 4px;
-  background: var(--separator, rgba(15, 27, 45, .09));
+  background: rgba(30,107,82,.13);
   transition: background 220ms ease, transform 220ms ease;
 }
 
 .ct-tour-progress-track i.complete { background: var(--ct-green); }
-.ct-tour-progress-track i.current { background: var(--ct-green); transform: scaleY(1.4); }
+.ct-tour-progress-track i.current { background: var(--ct-gold); transform: scaleY(1.4); }
 
 .ct-tour-step-body {
   min-height: 112px;
@@ -212,20 +221,22 @@
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  margin-top: 16px;
-  padding: 12px;
-  border: 1px solid var(--separator, var(--ct-line));
-  border-left: 3px solid var(--ct-green);
-  border-radius: var(--r-md, 12px);
-  background: var(--surface-sunken, #eef1ee);
-  color: var(--ct-muted);
-  font: var(--t-subhead, 400 13px/18px var(--font, sans-serif));
+  margin-top: 17px;
+  padding: 11px 12px;
+  border-left: 2px solid var(--ct-gold);
+  border-radius: 0 9px 9px 0;
+  background: rgba(242,165,65,.09);
+  color: #526459;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .ct-tour-note b {
   flex: 0 0 auto;
-  color: var(--ct-green-text);
-  font: 600 13px/18px var(--font, sans-serif);
+  color: #866126;
+  font: 700 13px/1.5 var(--font-mono, monospace);
+  letter-spacing: .045em;
+  text-transform: uppercase;
 }
 
 .ct-tour-actions {
@@ -239,44 +250,45 @@
 .ct-tour-actions-side { display: flex; gap: 8px; }
 
 .ct-tour-button {
-  min-height: 40px;
+  min-height: 39px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: var(--r-sm, 8px);
-  font: 600 14px/20px var(--font, sans-serif);
+  border-radius: 10px;
+  font: 700 13px/1 var(--font-display, "Segoe UI Variable", system-ui, sans-serif);
   cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
 }
 
 .ct-tour-button:hover:not(:disabled) { transform: translateY(-1px); }
 .ct-tour-button:focus-visible,
-.ct-tour-close:focus-visible { outline: 3px solid var(--focus, rgba(30, 107, 82, .5)); outline-offset: 2px; }
+.ct-tour-close:focus-visible { outline: 3px solid rgba(242,165,65,.72); outline-offset: 2px; }
 
 .ct-tour-button-primary {
-  border-color: var(--ct-green);
-  background: var(--ct-green);
-  color: var(--on-tint, #fff);
+  border-color: #1e6b52;
+  background: linear-gradient(135deg,#1e6b52,#155640);
+  color: #fff;
+  box-shadow: 0 6px 15px rgba(30,107,82,.2);
 }
 
-.ct-tour-button-primary:hover { background: var(--tint-hover, #195c46); }
+.ct-tour-button-primary:hover { box-shadow: 0 9px 20px rgba(30,107,82,.26); }
 
 .ct-tour-button-secondary {
-  border-color: var(--separator-strong, rgba(15, 27, 45, .16));
-  background: var(--surface, #fff);
-  color: var(--ct-ink);
+  border-color: var(--ct-line);
+  background: linear-gradient(180deg,#fff,#edf5ee);
+  color: var(--ct-green);
 }
 
 .ct-tour-button-quiet {
   border-color: transparent;
   background: transparent;
-  color: var(--ct-muted);
+  color: #60746a;
 }
 
-.ct-tour-button-quiet:hover { background: var(--fill-hover, rgba(15, 27, 45, .075)); color: var(--ct-ink); }
+.ct-tour-button-quiet:hover { background: rgba(30,107,82,.07); color: var(--ct-green); }
 .ct-tour-button:disabled { cursor: not-allowed; opacity: .48; }
 
 .ct-tour-step-label {
@@ -289,8 +301,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--ct-green);
-  box-shadow: 0 0 0 3px var(--tint-soft, rgba(30, 107, 82, .1));
+  background: var(--ct-gold);
+  box-shadow: 0 0 0 3px rgba(242,165,65,.15);
 }
 
 .ct-tour-step-title { margin-top: 0; }
@@ -318,8 +330,8 @@
     left: 12px !important;
     width: auto;
     max-height: min(78dvh, 620px);
-    padding: 20px;
-    border-radius: var(--r-lg, 16px);
+    padding: 21px;
+    border-radius: 18px;
   }
 
   .ct-tour-topline { margin-bottom: 17px; }
@@ -336,3 +348,31 @@
   .ct-tour-button,
   .ct-tour-close { transition-duration: .01ms; }
 }
+
+html[data-theme="dark"] .ct-tour-dialog {
+  border-color: rgba(135,212,168,.26);
+  background:
+    radial-gradient(ellipse at 100% 0%, rgba(242,165,65,.1), transparent 39%),
+    linear-gradient(150deg, #1D3025, #111D1B 100%);
+  box-shadow: 0 28px 90px rgba(0,0,0,.48), 0 4px 12px rgba(0,0,0,.24), inset 0 1px rgba(255,255,255,.06);
+}
+html[data-theme="dark"] .ct-tour-title { color: #F5F7F4; }
+html[data-theme="dark"] .ct-tour-description,
+html[data-theme="dark"] .ct-tour-progress,
+html[data-theme="dark"] .ct-tour-note { color: #C6D9CB; }
+html[data-theme="dark"] .ct-tour-brand,
+html[data-theme="dark"] .ct-tour-kicker,
+html[data-theme="dark"] .ct-tour-progress strong { color: #A8D4B3; }
+html[data-theme="dark"] .ct-tour-close,
+html[data-theme="dark"] .ct-tour-flow i,
+html[data-theme="dark"] .ct-tour-button-secondary {
+  border-color: rgba(135,212,168,.24);
+  background: linear-gradient(180deg, #253E2E, #1A2E24);
+  color: #E0F1E5;
+}
+html[data-theme="dark"] .ct-tour-flow { border-color: rgba(135,212,168,.2); background: linear-gradient(100deg,rgba(30,107,82,.16),rgba(242,165,65,.09)); }
+html[data-theme="dark"] .ct-tour-flow span,
+html[data-theme="dark"] .ct-tour-button-quiet { color: #C6D9CB; }
+html[data-theme="dark"] .ct-tour-note { background: rgba(242,165,65,.12); }
+html[data-theme="dark"] .ct-tour-note b { color: #F2C37A; }
+html[data-theme="dark"] .ct-tour-button-primary { border-color: #4A9B70; background: linear-gradient(135deg,#2C825C,#1E6B52); }

@@ -7,7 +7,7 @@ export function AiStageAssessment({ analysis }: { analysis: LeadAnalysis | null 
   const stage = available ? analysis?.context.buying_stage : null;
   const value = stage?.value?.trim();
   const hasStage = Boolean(value && value.toLowerCase() !== "unknown" && stage?.information_kind !== "unknown");
-  const needsReview = available && Boolean(analysis?.requires_manual_review);
+  const needsReview = available && (analysis?.requires_manual_review || analysis?.status === "manual_review");
   const assessedAt = analysis?.created_at ? new Date(analysis.created_at) : null;
 
   return <section className="ai-stage-assessment" aria-label="AI stage assessment">

@@ -147,7 +147,6 @@ from redis import Redis
 from sqlalchemy import text
 
 from lead_agent.infrastructure.db.session import build_engine
-from lead_agent.infrastructure.db.schema_check import require_current_schema
 from lead_agent.settings.config import get_settings
 
 settings = get_settings()
@@ -155,10 +154,9 @@ engine = build_engine(settings)
 try:
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
-        require_current_schema(connection)
 except Exception:
     raise SystemExit(
-        "[startup] PostgreSQL connection or required schema check failed. Production requires SSL; "
+        "[startup] PostgreSQL connection failed. Production requires SSL; "
         "the workspace development database is not the published production database."
     )
 finally:

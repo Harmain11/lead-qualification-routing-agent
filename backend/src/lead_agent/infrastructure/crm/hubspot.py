@@ -41,18 +41,6 @@ from lead_agent.infrastructure.crm.mapping import mapped_properties, provider_er
 class HubSpotCrmProvider:
     provider_name = "hubspot"
     connection_id = None
-    _numeric_contact_fields = {
-        "qualification_score",
-        "icp_score",
-        "intent_urgency_score",
-        "engagement_score",
-    }
-    _long_text_contact_fields = {
-        "summary",
-        "recommended_action",
-        "rationale_text",
-        "action_plan_json",
-    }
 
     def __init__(
         self,
@@ -60,14 +48,12 @@ class HubSpotCrmProvider:
         access_token: str,
         api_base_url: str,
         config: HubSpotCrmConfig,
-        properties_api_version: str = "2026-09",
         timeout_seconds: float = 20.0,
         transport: HttpTransport | None = None,
     ) -> None:
         self.access_token = access_token
         self.api_base_url = api_base_url.rstrip("/")
         self.config = config
-        self.properties_api_version = properties_api_version
         self.timeout_seconds = timeout_seconds
         self.transport = transport or HttpxTransport()
 
@@ -79,123 +65,6 @@ class HubSpotCrmProvider:
                 category="configuration",
                 retryable=False,
             )
-
-    def _list_contact_properties(self) -> dict[str, dict[str, Any]]:
-        url = (
-            f"{self.api_base_url}/crm/properties/"
-            f"{self.properties_api_version}/contacts"
-        )
-        response = self.transport.request(
-            "GET",
-            url,
-            headers=self._headers,
-            timeout=self.timeout_seconds,
-        )
-        if response.status_code != 200:
-            raise provider_error(self.provider_name, response.status_code)
-        body = self._json(response)
-        results = body.get("results")
-        if not isinstance(results, list):
-            raise CrmProviderError(
-                "HubSpot returned an invalid contact properties response",
-                code="hubspot_malformed_properties_response",
-                category="validation",
-                retryable=False,
-            )
-        return {
-            item["name"]: item
-            for item in results
-            if (
-                isinstance(item, dict)
-                and isinstance(item.get("name"), str)
-                and item["name"]
-            )
-        }
-
-    @classmethod
-    def _contact_property_definition(
-        cls, source: str, target: str
-    ) -> dict[str, str]:
-        numeric = source in cls._numeric_contact_fields
-        label = " ".join(part.capitalize() for part in target.replace("-", "_").split("_"))
-        return {
-            "groupName": "contactinformation",
-            "name": target,
-            "label": label,
-            "type": "number" if numeric else "string",
-            "fieldType": (
-                "number"
-                if numeric
-                else "textarea"
-                if source in cls._long_text_contact_fields
-                else "text"
-            ),
-            "description": "Managed by Corral for lead qualification data.",
-        }
-
-    def _ensure_contact_properties(self, payload: CanonicalCrmPayload) -> None:
-        if not self.config.contact_fields:
-            return
-
-        # Validate canonical sources before making any schema changes.
-        mapped_properties(payload, self.config.contact_fields)
-        definitions: dict[str, dict[str, str]] = {}
-        for source, target in self.config.contact_fields.items():
-            definition = self._contact_property_definition(source, target)
-            previous = definitions.get(target)
-            if previous and previous["type"] != definition["type"]:
-                raise CrmProviderError(
-                    f"HubSpot property mapping for '{target}' has conflicting types",
-                    code="hubspot_property_mapping_conflict",
-                    category="mapping",
-                    retryable=False,
-                )
-            definitions[target] = definition
-
-        existing = self._list_contact_properties()
-        for name, definition in definitions.items():
-            current = existing.get(name)
-            if current is not None:
-                if current.get("type") != definition["type"]:
-                    raise CrmProviderError(
-                        f"HubSpot contact property '{name}' has type "
-                        f"'{current.get('type', 'unknown')}', expected '{definition['type']}'.",
-                        code="hubspot_property_type_mismatch",
-                        category="validation",
-                        retryable=False,
-                    )
-                continue
-
-            response = self.transport.request(
-                "POST",
-                (
-                    f"{self.api_base_url}/crm/properties/"
-                    f"{self.properties_api_version}/contacts"
-                ),
-                headers=self._headers,
-                json=definition,
-                timeout=self.timeout_seconds,
-            )
-            if response.status_code in {200, 201}:
-                existing[name] = definition
-                continue
-            if response.status_code == 409:
-                # Another Corral request may have created it after our schema read.
-                refreshed = self._list_contact_properties()
-                current = refreshed.get(name)
-                if current and current.get("type") == definition["type"]:
-                    existing[name] = current
-                    continue
-                if current:
-                    raise CrmProviderError(
-                        f"HubSpot contact property '{name}' was created concurrently "
-                        f"with type '{current.get('type', 'unknown')}', expected "
-                        f"'{definition['type']}'.",
-                        code="hubspot_property_type_mismatch",
-                        category="validation",
-                        retryable=False,
-                    )
-            raise provider_error(self.provider_name, response.status_code)
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -319,7 +188,6 @@ class HubSpotCrmProvider:
         existing: CrmEntityReferences | None = None,
     ) -> CrmSyncResult:
         self._validate_configuration()
-        self._ensure_contact_properties(payload)
         references = existing or CrmEntityReferences()
         contact_properties = self.contact_properties(payload)
         contact_id = (
@@ -639,15 +507,10 @@ class HubSpotInboundCrmProvider:
 
 
 class HubSpotConnectionValidator(ProviderConnectionValidator):
-    """Read-only token introspection plus Contacts and property permission probes."""
+    """Read-only token introspection plus a Contacts read permission probe."""
 
     provider_name = "hubspot"
-    required_scopes = {
-        "crm.objects.contacts.read",
-        "crm.objects.contacts.write",
-        "crm.schemas.contacts.read",
-        "crm.schemas.contacts.write",
-    }
+    required_scopes = {"crm.objects.contacts.read", "crm.objects.contacts.write"}
 
     def __init__(
         self,
@@ -731,7 +594,7 @@ class HubSpotConnectionValidator(ProviderConnectionValidator):
         missing = self.required_scopes - actual_scopes
         if missing:
             raise ProviderOperationError(
-                "HubSpot authorization is missing required Contacts or contact-property scopes",
+                "HubSpot authorization is missing required Contacts scopes",
                 provider=provider,
                 code="hubspot_required_scope_missing",
                 category="insufficient_permissions",
@@ -757,26 +620,12 @@ class HubSpotConnectionValidator(ProviderConnectionValidator):
             ) from None
         if probe.status_code != 200:
             raise provider_http_error(provider, probe.status_code)
-        properties_probe = self.transport.request(
-            "GET",
-            (
-                f"https://api.hubapi.com/crm/properties/"
-                    f"{self.oauth_api_version}/contacts"
-            ),
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=self.timeout_seconds,
-        )
-        if properties_probe.status_code != 200:
-            raise provider_http_error(provider, properties_probe.status_code)
         return ConnectionValidation(
             valid=True,
             verified=True,
             status="connected",
             credential_state="configured",
-            message=(
-                "HubSpot OAuth token, Contacts permissions, and contact-property "
-                "permissions verified."
-            ),
+            message="HubSpot OAuth token and required Contacts permissions verified.",
             metadata={"hub_id": str(body.get("hub_id") or ""), "scopes": sorted(actual_scopes)},
         )
 

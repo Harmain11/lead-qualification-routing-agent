@@ -26,7 +26,6 @@ from lead_agent.infrastructure.reasoning.configuration import validate_openai_mo
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.reasoning.openai_connection import OpenAIConnectionValidator
-from lead_agent.infrastructure.provider_lifecycle import WorkspaceAuthorizedConnectionResolver
 from lead_agent.infrastructure.secrets import DevelopmentSecretStore
 from lead_agent.settings.config import Settings
 
@@ -106,60 +105,6 @@ def test_openai_key_is_workspace_scoped_never_returned_and_audited(tmp_path: Pat
         assert API_KEY_A not in str(audit.details)
 
 
-@pytest.mark.parametrize("padding", [" ", "\r\n\t", "\u00a0"])
-def test_openai_setup_and_replacement_trim_boundary_whitespace(
-    tmp_path: Path, padding: str,
-) -> None:
-    sessions = _factory(tmp_path)
-    store = DevelopmentSecretStore()
-    with sessions() as session:
-        for _ in range(2):
-            workspace = uuid4()
-            request = _request(f"{padding}{API_KEY_A}{padding}")
-            connection = create_manual_connection(
-                session, workspace, "openai", request, store
-            )
-            reference = connection.secret_reference or ""
-            assert store.retrieve_for_workspace(workspace, "openai", reference) == {
-                "api_key": API_KEY_A
-            }
-            # Do not mutate caller-owned input while normalizing the stored key.
-            assert request.credentials["api_key"] == f"{padding}{API_KEY_A}{padding}"
-            reconnect_connection(
-                session, workspace, connection.id,
-                {"api_key": f"{padding}{API_KEY_B}{padding}"}, store,
-            )
-            assert store.retrieve_for_workspace(workspace, "openai", reference) == {
-                "api_key": API_KEY_B
-            }
-
-
-@pytest.mark.parametrize("separator", [" ", "\n", "\t", "\u00a0"])
-def test_openai_malformed_paste_does_not_replace_existing_key(
-    tmp_path: Path, separator: str,
-) -> None:
-    sessions = _factory(tmp_path)
-    store = DevelopmentSecretStore()
-    malformed_key = f"{API_KEY_A}{separator}extra"
-    with sessions() as session:
-        workspace = uuid4()
-        with pytest.raises(ValueError, match="contains spaces or line breaks") as error:
-            create_manual_connection(
-                session, workspace, "openai", _request(malformed_key), store
-            )
-        assert malformed_key not in str(error.value)
-        connection = create_manual_connection(
-            session, workspace, "openai", _request(API_KEY_A), store
-        )
-        with pytest.raises(ValueError, match="contains spaces or line breaks"):
-            reconnect_connection(
-                session, workspace, connection.id, {"api_key": malformed_key}, store
-            )
-        assert store.retrieve_for_workspace(
-            workspace, "openai", connection.secret_reference or ""
-        ) == {"api_key": API_KEY_A}
-
-
 def test_openai_replace_model_test_and_disconnect_have_safe_audits(tmp_path: Path) -> None:
     sessions = _factory(tmp_path)
     store = DevelopmentSecretStore()
@@ -232,52 +177,6 @@ def test_openai_replace_model_test_and_disconnect_have_safe_audits(tmp_path: Pat
         } <= actions
         assert API_KEY_A not in str(events)
         assert API_KEY_B not in str(events)
-
-
-def test_openai_connection_retest_preserves_auth_failure_after_error_state(
-    tmp_path: Path,
-) -> None:
-    sessions = _factory(tmp_path)
-    store = DevelopmentSecretStore()
-    workspace = uuid4()
-
-    class AuthenticationFailure:
-        def validate(self, provider, credentials, scopes):
-            assert provider == "openai"
-            assert credentials == {"api_key": API_KEY_A, "model": MODEL_A}
-            assert scopes == ["Responses API access"]
-            return ConnectionValidation(
-                valid=False,
-                verified=False,
-                status="invalid_credentials",
-                credential_state="invalid",
-                message="OpenAI rejected the workspace credential.",
-                error_code="openai_invalid_credentials",
-            )
-
-    with sessions() as session:
-        connection = create_manual_connection(
-            session, workspace, "openai", _request(API_KEY_A), store
-        )
-        connection.status = "error"
-        connection.credential_state = "invalid"
-        connection.is_active = False
-        session.commit()
-
-        persisted, result = validate_connection(
-            session,
-            workspace,
-            connection.id,
-            store,
-            validator=AuthenticationFailure(),
-        )
-
-        assert result.status == "invalid_credentials"
-        assert result.error_code == "openai_invalid_credentials"
-        assert persisted.status == "needs_reauthorization"
-        assert persisted.last_validation_result["message"] == (
-            "OpenAI rejected the workspace credential."
-        )
 
 
 def test_workspace_b_cannot_replace_test_or_reconfigure_workspace_a(tmp_path: Path) -> None:

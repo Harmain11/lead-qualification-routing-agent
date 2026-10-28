@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.infrastructure.calendar_providers import CalendlyClient, GoogleCalendarClient
-from lead_agent.infrastructure.communications import contact_phone_details
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM
 
 _MEETING_PATTERNS = (
@@ -38,41 +37,6 @@ _OTHER_TIME_PATTERNS = (
         r"not available)\b",
         re.IGNORECASE,
     ),
-)
-_DECLINE_REPLY_PATTERNS = (
-    re.compile(
-        r"^\s*(?:no|nope|nah|no thanks|no thank you|not interested|not now)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:doesn't|does not|don't|do not|can't|cannot|won't|will not|"
-        r"wouldn't|would not|isn't|is not)\s+"
-        r"(?:work|suit|fit|make it|do it|attend|join|help)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:not for me|not available|not possible|doesn't suit|doesn't fit)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:unable|not able)\s+to\s+(?:attend|join|make it|confirm)\b|"
-        r"\b(?:i\s+)?(?:don't|do not)\s+think\b",
-        re.IGNORECASE,
-    ),
-)
-_UNCERTAIN_REPLY_PATTERNS = (
-    re.compile(
-        r"\b(?:maybe|perhaps|might|possibly|not sure|unsure|i think|i guess|"
-        r"i don't think|i do not think)\b",
-        re.I,
-    ),
-    re.compile(r"\b(?:but|however|unless)\b", re.I),
-    re.compile(r"\boption\s*#?\s*\d+\s+(?:could|might|may)\s+work\b", re.I),
-)
-_SPECIFIC_TIME_PROPOSAL = re.compile(
-    r"\b(?:how\s+(?:does|about)|would|does|could)\b.{0,80}"
-    r"\b(?:sound|work|suit|fit)\b",
-    re.IGNORECASE | re.DOTALL,
 )
 _MONTH_TOKEN = (
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
@@ -147,19 +111,7 @@ def find_meeting_request(
         ):
             continue
         text = f"{subject}\n{excerpt}"
-        reference = _parse_provider_time(details.get("sent_at"))
-        contact_zone = lead_time_zone(lead, "UTC") or "UTC"
-        specific_time_proposal = (
-            _SPECIFIC_TIME_PROPOSAL.search(excerpt) is not None
-            and requested_meeting_date(
-                excerpt, reference=reference, time_zone=contact_zone
-            ) is not None
-            and requested_meeting_time(excerpt) is not None
-        )
-        if (
-            not any(pattern.search(text) for pattern in _MEETING_PATTERNS)
-            and not specific_time_proposal
-        ):
+        if not any(pattern.search(text) for pattern in _MEETING_PATTERNS):
             continue
         message_id = str(details.get("message_id") or "")
         if not message_id:
@@ -188,17 +140,10 @@ def _plain_excerpt(body: str, limit: int = 320) -> str:
 
 
 def match_confirmed_meeting_option(body: str, option_count: int) -> int | None:
-    """Accept a clear numbered choice, but reject mixed or uncertain replies."""
+    """Accept a clear numbered choice only; never infer a booking from vague agreement."""
     if option_count < 1:
         return None
     clean = _plain_excerpt(body, limit=2000)
-    if (
-        "?" in clean
-        or meeting_reply_requests_other_times(clean)
-        or meeting_reply_declines_offer(clean)
-        or meeting_reply_has_uncertain_language(clean)
-    ):
-        return None
     first_line = next((line.strip() for line in clean.splitlines() if line.strip()), "")
     leading_pattern = (
         r"^(?:hi\b[^,\n]*,\s*)?(?:(?:i\s+(?:choose|pick|select|take|confirm)\s+)?)"
@@ -238,17 +183,6 @@ def meeting_reply_requests_other_times(body: str) -> bool:
     return any(pattern.search(clean) for pattern in _OTHER_TIME_PATTERNS)
 
 
-def meeting_reply_declines_offer(body: str) -> bool:
-    clean = _plain_excerpt(body, limit=2000).strip()
-    clean = re.sub(r"\bno\s+(?:problem|worries)\b", "", clean, flags=re.IGNORECASE)
-    return any(pattern.search(clean) for pattern in _DECLINE_REPLY_PATTERNS)
-
-
-def meeting_reply_has_uncertain_language(body: str) -> bool:
-    clean = _plain_excerpt(body, limit=2000).strip()
-    return any(pattern.search(clean) for pattern in _UNCERTAIN_REPLY_PATTERNS)
-
-
 def _parse_provider_time(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -259,29 +193,10 @@ def _parse_provider_time(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
-def lead_time_zone(lead: Any, fallback: str | None = None) -> str | None:
-    """Prefer a contact's explicit or unambiguous phone-derived timezone."""
-    explicit = str(
-        getattr(lead, "time_zone", None) or getattr(lead, "timezone", None) or ""
-    ).strip()
-    if explicit:
-        try:
-            return ZoneInfo(explicit).key
-        except (ZoneInfoNotFoundError, ValueError):
-            pass
-    details = contact_phone_details(
-        getattr(lead, "phone", None),
-        getattr(lead, "geography", None),
-    )
-    if details and details.get("time_zone"):
-        return str(details["time_zone"])
-    return fallback
-
-
 def requested_meeting_date(
-    text: str, *, reference: datetime | None = None, time_zone: str = "UTC"
+    text: str, *, reference: datetime | None = None
 ) -> date | None:
-    """Parse explicit dates and today/tomorrow without guessing a weekday."""
+    """Parse an explicit ISO or English month/day request without guessing a weekday."""
     month_numbers = {
         "jan": 1,
         "january": 1,
@@ -308,15 +223,6 @@ def requested_meeting_date(
         "dec": 12,
         "december": 12,
     }
-    current = reference or datetime.now(UTC)
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=UTC)
-    local_current = current.astimezone(_timezone(time_zone))
-    if re.search(r"\btoday\b", text, re.IGNORECASE):
-        return local_current.date()
-    if re.search(r"\btomorrow\b", text, re.IGNORECASE):
-        return local_current.date() + timedelta(days=1)
-
     match = _ISO_DATE.search(text)
     month_is_numeric = match is not None
     if match is None:
@@ -333,9 +239,10 @@ def requested_meeting_date(
             else month_numbers[month_text.lower()]
         )
         supplied_year = match.group("year")
-        year = int(supplied_year) if supplied_year else local_current.year
+        current = reference or datetime.now(UTC)
+        year = int(supplied_year) if supplied_year else current.year
         requested = date(year, month, day)
-        if supplied_year is None and requested < local_current.date():
+        if supplied_year is None and requested < current.date():
             requested = date(year + 1, month, day)
         return requested
     except (ValueError, KeyError):
@@ -377,7 +284,7 @@ def requested_meeting_datetime(
     time_zone: str,
     reference: datetime | None = None,
 ) -> datetime | None:
-    day = requested_meeting_date(text, reference=reference, time_zone=time_zone)
+    day = requested_meeting_date(text, reference=reference)
     clock = requested_meeting_time(text)
     if day is None or clock is None:
         return None
@@ -393,19 +300,12 @@ def recommend_google_calendar_slots(
     source_gmail_connection_id: str | None = None,
     now: datetime | None = None,
     requested_date: date | None = None,
-    requested_text: str | None = None,
-    reference: datetime | None = None,
-    time_zone_override: str | None = None,
     limit: int = 5,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, str]]:
     current = now or datetime.now(UTC)
     calendar = client.primary_calendar()
-    zone = _timezone(time_zone_override or str(calendar.get("timeZone") or "UTC"))
+    zone = _timezone(str(calendar.get("timeZone") or "UTC"))
     time_zone = zone.key
-    if requested_text is not None:
-        requested_date = requested_meeting_date(
-            requested_text, reference=reference, time_zone=time_zone
-        )
     local_today = current.astimezone(zone).date()
     if requested_date is not None:
         day_start = datetime.combine(requested_date, time.min, tzinfo=zone)
@@ -424,7 +324,7 @@ def recommend_google_calendar_slots(
         if (start := _parse_provider_time(item.get("start"))) is not None
         and (end := _parse_provider_time(item.get("end"))) is not None
     ]
-    available: list[dict[str, Any]] = []
+    available: list[dict[str, str]] = []
     for day in days:
         if day.weekday() >= 5:
             continue
@@ -471,22 +371,13 @@ def recommend_calendly_slots(
     source_gmail_connection_id: str | None = None,
     now: datetime | None = None,
     requested_date: date | None = None,
-    requested_text: str | None = None,
-    reference: datetime | None = None,
-    time_zone_override: str | None = None,
     limit_per_event_type: int = 5,
     event_type_statuses: list[dict[str, str]] | None = None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, str]]:
     current = now or datetime.now(UTC)
     user = client.current_user()
     user_uri = str(user.get("uri") or "")
-    time_zone = _timezone(
-        time_zone_override or str(user.get("timezone") or "UTC")
-    ).key
-    if requested_text is not None:
-        requested_date = requested_meeting_date(
-            requested_text, reference=reference, time_zone=time_zone
-        )
+    time_zone = _timezone(str(user.get("timezone") or "UTC")).key
     if not user_uri:
         return []
     window_start = current + timedelta(minutes=5)
@@ -498,7 +389,7 @@ def recommend_calendly_slots(
             return []
     else:
         window_end = current + timedelta(days=14)
-    suggestions: list[dict[str, Any]] = []
+    suggestions: list[dict[str, str]] = []
     unavailable_event_type_errors: list[ProviderOperationError] = []
     for event_type in client.event_types(user_uri)[:5]:
         uri = str(event_type.get("uri") or "")
@@ -515,6 +406,7 @@ def recommend_calendly_slots(
             "event_type_uri": uri,
             "event_type_name": name,
             "status": "no_times",
+            "scheduling_url": str(event_type.get("scheduling_url") or ""),
         }
         if event_type_statuses is not None:
             event_type_statuses.append(event_type_status)

@@ -4,7 +4,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,11 +13,9 @@ import {
 import {
   changeWorkspace,
   getActiveWorkspace,
-  getAdvancedAnalytics,
   getAgentActivity,
   getChannelAnalytics,
   getDashboard,
-  getExtendedAnalytics,
   getLead,
   getManualReview,
   getPipelineAnalytics,
@@ -37,22 +34,9 @@ import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
-import { DialerPhoneDock } from "./components/DialerPhoneDock";
-import {
-  OPEN_DIALER_PHONE_EVENT,
-  isDialerPhoneAvailable,
-  isEmbeddedDialerConnection,
-  ringCentralEmbedClientId,
-  type DialerPhoneConnection,
-} from "./components/dialerPhoneConfig";
 import { ActivityToasts } from "./components/ActivityToasts";
-import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
-import { PHONE_CALL_ENDED } from "./components/phoneBridge";
-import { useAssignmentNotifications } from "./useAssignmentNotifications";
-import { CorralAgentDock } from "./components/CorralAgentDock";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { NativeSelectEnhancer } from "./components/NativeSelectEnhancer";
-import { notifyActivity } from "./activity";
 const IntegrationsView = lazy(() =>
   import("./views/IntegrationsView").then((module) => ({
     default: module.IntegrationsView,
@@ -97,33 +81,13 @@ const AdvancedAnalyticsPanel = lazy(() =>
     default: module.AdvancedAnalyticsPanel,
   })),
 );
-const EmailWorkspace = lazy(() =>
-  import("./views/EmailWorkspace").then((module) => ({
-    default: module.EmailWorkspace,
-  })),
-);
-import { CommandPalette, OPEN_SEARCH_EVENT } from "./components/CommandPalette";
-import { useNewLeadIndicators } from "./useNewLeadIndicators";
+import { CommandPalette } from "./components/CommandPalette";
 import { opsGet } from "./operationsApi";
-import { relayOAuthCallbackFromPopup } from "./oauthPopup";
-import { usePinnedLeadSections } from "./components/PinnedLeadNavigation";
-import { Sidebar, TabBar, Toolbar, type NavEntry, type NavSection } from "./v3/shell/Shell";
-import type { IconName } from "./v3/ui/Icon";
-import { Icon } from "./v3/ui/Icon";
-import { Banner, Button, IconButton, Segmented } from "./v3/ui/primitives";
-import { LeadsScreen } from "./v3/screens/LeadsScreen";
-import { ReviewScreen, TodayScreen } from "./v3/screens/WorkScreens";
-import { PipelineBoard } from "./v3/screens/PipelineBoard";
-import { PerformanceScreen, RevenueScreen } from "./v3/screens/InsightScreens";
-import { PhonePanel } from "./v3/shell/PhonePanel";
-import { NewMenu, QuickAccess, SearchField } from "./v3/shell/CommandBar";
-import { LEAD_ACTION_EVENT, PHONE_EVENT, type LeadAction } from "./v3/shell/events";
-import { bindDealWorkspace, pollDealRecords } from "./v3/deals/dealStore";
-import { DealSyncStatus } from "./v3/deals/DealSyncStatus";
-import { recordedStages, useDealViews, useWorkspaceLeads } from "./v3/deals/useWorkspaceLeads";
-import { Monogram, Sheet } from "./v3/ui/primitives";
-import type { LeadIntent } from "./v3/screens/LeadRecord";
-import { AGENT_STATE_EVENT, TOGGLE_AGENT_EVENT } from "./components/shell/agentEvents";
+import {
+  PinnedLeadNavigation,
+  usePinnedLeadSections,
+} from "./components/PinnedLeadNavigation";
+import { NavigationMenuItem } from "./components/NavigationMenuItem";
 import {
   navigationSections,
   pageFromSearch,
@@ -138,6 +102,9 @@ import {
   AgentsView,
   AnalyticsView,
   DashboardView,
+  LeadsView,
+  ManualReviewView,
+  PipelineView,
   SettingsView,
 } from "./views/ProductViews";
 import type { AnalyticsBundle } from "./views/ProductViews";
@@ -145,11 +112,8 @@ import type { AnalyticsBundle } from "./views/ProductViews";
 type View =
   | "dashboard"
   | "leads"
-  | "email"
   | "contacts"
   | "pipeline"
-  | "revenue"
-  | "performance"
   | "agents"
   | "analytics"
   | "integrations"
@@ -176,69 +140,24 @@ function savedTheme(): Theme {
   }
 }
 
-// Navigation follows the day: what needs you, the people and companies it
-// concerns, what Corral learns from them, and how the workspace is set up.
-const navigation: Array<{ id: View; label: string; group: string; icon: IconName }> = [
-  { id: "dashboard", label: "Today", group: "main", icon: "today" },
-  { id: "leads", label: "Leads", group: "main", icon: "leads" },
-  { id: "pipeline", label: "Pipeline", group: "main", icon: "pipeline" },
-  { id: "revenue", label: "Revenue", group: "main", icon: "revenue" },
-  { id: "review", label: "Review", group: "work", icon: "review" },
-  { id: "email", label: "Inbox", group: "work", icon: "inbox" },
-  { id: "dialer", label: "Calls", group: "work", icon: "calls" },
-  { id: "contacts", label: "Contacts", group: "records", icon: "contacts" },
-  { id: "accounts", label: "Companies", group: "records", icon: "companies" },
-  { id: "performance", label: "Team Performance", group: "insights", icon: "trophy" },
-  { id: "analytics", label: "Analytics", group: "insights", icon: "analytics" },
-  { id: "agents", label: "AI Activity", group: "insights", icon: "agents" },
-  { id: "intelligence", label: "Research & Coaching", group: "insights", icon: "research" },
-  { id: "automations", label: "Automations", group: "insights", icon: "automations" },
-  { id: "integrations", label: "Integrations", group: "workspace", icon: "integrations" },
-  { id: "team", label: "Team", group: "workspace", icon: "team" },
-  { id: "settings", label: "Settings", group: "workspace", icon: "settings" },
+const navigation: Array<{ id: View; label: string; group?: string }> = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "leads", label: "Leads" },
+  { id: "contacts", label: "Contacts" },
+  { id: "accounts", label: "Companies" },
+  { id: "pipeline", label: "Pipeline" },
+  { id: "agents", label: "Agents / AI Activity" },
+  { id: "analytics", label: "Analytics" },
+  { id: "review", label: "Manual Review", group: "Control" },
+  { id: "integrations", label: "Integrations" },
+  { id: "dialer", label: "Dialer" },
+  { id: "team", label: "Users" },
+  { id: "settings", label: "Settings" },
 ];
-const NAV_GROUP_LABELS: Record<string, string | undefined> = {
-  main: undefined,
-  work: "Work",
-  records: "Records",
-  insights: "Insights",
-  workspace: "Workspace",
-};
-const TAB_BAR_VIEWS: View[] = ["dashboard", "leads", "pipeline", "revenue"];
-
-// Unchanged from the previous release: when a person cannot open the requested
-// view, they land on the first permitted view in this order.
-const FALLBACK_ORDER: View[] = [
-  "dashboard", "leads", "email", "contacts", "accounts", "pipeline", "agents",
-  "analytics", "review", "integrations", "dialer", "team", "settings",
-];
-const LEAD_ACTION_SECTION: Record<LeadAction, LeadDetailSection> = {
-  open: "overview",
-  call: "calls",
-  email: "email",
-  quote: "deal",
-  deal: "deal",
-};
-
-const VIEW_LABELS: Record<AppViewLabelKey, string> = {
-  icp: "Ideal customer profile",
-  policies: "Routing & capacity",
-  compliance: "Consent & governance",
-};
-type AppViewLabelKey = "icp" | "policies" | "compliance";
-
-function viewLabel(view: string) {
-  return (
-    navigation.find((item) => item.id === view)?.label ??
-    VIEW_LABELS[view as AppViewLabelKey] ??
-    "Workspace"
-  );
-}
 
 const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   dashboard: "analytics.view",
   leads: "leads.view",
-  email: "integrations.view",
   contacts: "leads.view",
   accounts: "leads.view",
   intelligence: "agents.view",
@@ -246,13 +165,11 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   policies: "routing.view",
   compliance: "workspace.manage",
   pipeline: "analytics.view",
-  revenue: "analytics.view",
-  performance: "analytics.view",
   agents: "agents.view",
   analytics: "analytics.view",
   review: "manual_review.view",
   integrations: "integrations.view",
-  dialer: "dialer.call",
+  dialer: "integrations.view",
 };
 
 function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
@@ -273,11 +190,146 @@ function permissionsForWorkspace(
   return new Set(workspace?.effective_permissions ?? []);
 }
 
-function App() {
-  useEffect(() => {
-    relayOAuthCallbackFromPopup();
-  }, []);
+function NavIcon({ id }: { id: View }) {
+  const shared = {
+    viewBox: "0 0 24 24",
+    width: 19,
+    height: 19,
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true as const,
+  };
+  switch (id) {
+    case "dashboard":
+      return (
+        <svg {...shared}>
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+      );
+    case "leads":
+      return (
+        <svg {...shared}>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 20v-1.5a5.5 5.5 0 0 1 11 0V20zM16 5.3a3 3 0 0 1 0 5.4M17 14a4.5 4.5 0 0 1 3.5 4.4V20" />
+        </svg>
+      );
+    case "contacts":
+      return (
+        <svg {...shared}>
+          <circle cx="8" cy="8" r="3" />
+          <circle cx="17" cy="9" r="2.3" />
+          <path d="M2.5 20v-1.3a5.5 5.5 0 0 1 11 0V20zM14.5 15a4.5 4.5 0 0 1 7 3.7V20" />
+        </svg>
+      );
+    case "pipeline":
+      return (
+        <svg {...shared}>
+          <path d="M4 5h16l-6.5 7.2V19l-3 1v-7.8z" />
+          <path d="M8 8h8M9.5 10.5h5" />
+        </svg>
+      );
+    case "accounts":
+      return (
+        <svg {...shared}>
+          <path d="M4 21V5l8-2 8 2v16M2 21h20M8 8h2M14 8h2M8 12h2M14 12h2M8 16h2M14 16h2" />
+        </svg>
+      );
+    case "agents":
+      return (
+        <svg {...shared}>
+          <path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z" />
+        </svg>
+      );
+    case "analytics":
+      return (
+        <svg {...shared}>
+          <path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20" />
+        </svg>
+      );
+    case "review":
+      return (
+        <svg {...shared}>
+          <path d="M4 4h16v11l-3 5H7l-3-5zM4 15h5l1.5 2h3L15 15h5M9 9l2 2 4-4" />
+        </svg>
+      );
+    case "integrations":
+      return (
+        <svg {...shared}>
+          <path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5" />
+        </svg>
+      );
+    case "dialer":
+      return (
+        <svg {...shared}>
+          <path d="M7.5 4.5 5 6c-.7.4-.9 1.3-.6 2.1 2 5.3 6.2 9.5 11.5 11.5.8.3 1.7.1 2.1-.6l1.5-2.5-4-2-1.4 1.4a14.2 14.2 0 0 1-5.5-5.5L10 9.2z" />
+          <path d="M15.5 4.5a5 5 0 0 1 4 4M15.5 1.5a8 8 0 0 1 7 7" />
+        </svg>
+      );
+    case "team":
+      return (
+        <svg {...shared}>
+          <circle cx="12" cy="7" r="3" />
+          <circle cx="5.5" cy="10" r="2" />
+          <circle cx="18.5" cy="10" r="2" />
+          <path d="M5 20v-1a7 7 0 0 1 14 0v1M2 19v-.5a4 4 0 0 1 4-4M22 19v-.5a4 4 0 0 0-4-4" />
+        </svg>
+      );
+    case "intelligence":
+      return (
+        <svg {...shared}>
+          <circle cx="10.5" cy="10.5" r="6" />
+          <path d="m15 15 5 5M10.5 7.5v6M7.5 10.5h6" />
+        </svg>
+      );
+    case "automations":
+      return (
+        <svg {...shared}>
+          <circle cx="5" cy="5" r="2" />
+          <circle cx="19" cy="12" r="2" />
+          <circle cx="5" cy="19" r="2" />
+          <path d="M7 5h4a4 4 0 0 1 4 4v1M7 19h4a4 4 0 0 0 4-4v-1" />
+        </svg>
+      );
+    case "policies":
+      return (
+        <svg {...shared}>
+          <path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" />
+          <path d="m16 15 1.5 1.5L20 14" />
+        </svg>
+      );
+    case "compliance":
+      return (
+        <svg {...shared}>
+          <path d="M12 3 19 6v5c0 4.5-2.8 7.6-7 10-4.2-2.4-7-5.5-7-10V6z" />
+          <path d="m8.5 12 2.2 2.2 4.8-5" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg {...shared}>
+          <path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h10M18 18h2" />
+          <circle cx="16" cy="6" r="2" />
+          <circle cx="8" cy="12" r="2" />
+          <circle cx="16" cy="18" r="2" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...shared}>
+          <path d="M12 3l1.4 1.5 2-.2.8 1.8 2 .5v2l1.6 1.2-1 1.8 1 1.8-1.6 1.2v2l-2 .5-.8 1.8-2-.2L12 21l-1.4-1.5-2 .2-.8-1.8-2-.5v-2L4.2 14l1-1.8-1-1.8L5.8 9v-2l2-.5.8-1.8 2 .2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+  }
+}
 
+function App() {
   const [branding, setBranding] = useState<{
     name: string | null;
     logo_url: string | null;
@@ -288,100 +340,6 @@ function App() {
   const [view, setView] = useState<AppView>(() =>
     pageFromSearch(window.location.search),
   );
-  const [dialerConnections, setDialerConnections] = useState<DialerPhoneConnection[]>([]);
-  const [preferredDialerId, setPreferredDialerId] = useState("");
-  const [dialerPhoneOpen, setDialerPhoneOpen] = useState(false);
-  const [dialerCallActive, setDialerCallActive] = useState(false);
-  const preferredDialerRef = useRef("");
-  const dialerPreferenceKey =
-    auth?.user.id && auth.current_workspace_id
-      ? `corral-preferred-dialer:v1:${auth.user.id}:${auth.current_workspace_id}`
-      : null;
-  const selectedDialer = dialerConnections.find(
-    (connection) => connection.id === preferredDialerId,
-  ) ?? null;
-
-  useEffect(() => {
-    preferredDialerRef.current = preferredDialerId;
-  }, [preferredDialerId]);
-
-  useEffect(() => {
-    preferredDialerRef.current = "";
-    setDialerConnections([]);
-    setPreferredDialerId("");
-    setDialerPhoneOpen(false);
-    setDialerCallActive(false);
-    const preferenceKey = dialerPreferenceKey ?? "";
-    if (!preferenceKey) return;
-
-    let active = true;
-    async function refreshDialerConnections() {
-      try {
-        const cards = await listIntegrations();
-        if (!active) return;
-        const available = cards
-          .filter((card) => /dialer|voice/i.test(card.category))
-          .flatMap((card) =>
-            card.connections
-              .filter(
-                (connection) =>
-                  connection.is_active && connection.status === "verified",
-              )
-              .map((connection) => ({
-                id: connection.id,
-                provider: card.provider,
-                account_name: connection.account_name,
-                status: connection.status,
-                is_active: connection.is_active,
-              })),
-          );
-        const currentId = preferredDialerRef.current;
-        const savedId = window.localStorage.getItem(preferenceKey);
-        const next =
-          available.find((connection) => connection.id === savedId) ??
-          available.find((connection) => connection.id === currentId) ??
-          available.find(isEmbeddedDialerConnection) ??
-          available[0] ??
-          null;
-        const nextId = next?.id ?? "";
-        setDialerConnections(available);
-        preferredDialerRef.current = nextId;
-        setPreferredDialerId(nextId);
-        if (nextId !== currentId) {
-          setDialerPhoneOpen(false);
-          setDialerCallActive(false);
-        }
-        if (nextId) {
-          window.localStorage.setItem(preferenceKey, nextId);
-        } else {
-          window.localStorage.removeItem(preferenceKey);
-        }
-      } catch (error) {
-        console.warn("Unable to refresh connected dialers", error);
-      }
-    }
-
-    const onIntegrationsChanged = () => void refreshDialerConnections();
-    window.addEventListener("corral:integrations-changed", onIntegrationsChanged);
-    void refreshDialerConnections();
-    return () => {
-      active = false;
-      window.removeEventListener("corral:integrations-changed", onIntegrationsChanged);
-    };
-  }, [dialerPreferenceKey]);
-
-  const selectPreferredDialer = useCallback((connectionId: string) => {
-    if (dialerCallActive) return;
-    const next = dialerConnections.find((connection) => connection.id === connectionId);
-    const nextId = next?.id ?? "";
-    preferredDialerRef.current = nextId;
-    setPreferredDialerId(nextId);
-    if (dialerPreferenceKey) {
-      if (nextId) window.localStorage.setItem(dialerPreferenceKey, nextId);
-      else window.localStorage.removeItem(dialerPreferenceKey);
-    }
-    setDialerPhoneOpen(false);
-  }, [dialerCallActive, dialerConnections, dialerPreferenceKey]);
   const [pageSection, setPageSection] = useState(() =>
     sectionFromSearch(
       window.location.search,
@@ -394,27 +352,6 @@ function App() {
   });
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [leadNotificationSnapshot, setLeadNotificationSnapshot] = useState<{
-    workspaceId: string;
-    leads: Lead[];
-  }>({ workspaceId: "", leads: [] });
-  const {
-    unseenLeadIds,
-    observeLeadSnapshot,
-    markSeen: markLeadSeen,
-  } = useNewLeadIndicators(auth?.user.id, auth?.current_workspace_id);
-  const notificationLeads =
-    leadNotificationSnapshot.workspaceId === auth?.current_workspace_id
-      ? leadNotificationSnapshot.leads
-      : [];
-  const unseenLeadIdSet = useMemo(
-    () => new Set(unseenLeadIds),
-    [unseenLeadIds],
-  );
-  const unseenManualReviewLeadCount = useMemo(
-    () => data?.review?.items.filter((lead) => unseenLeadIdSet.has(lead.id)).length ?? 0,
-    [data?.review?.items, unseenLeadIdSet],
-  );
   const [leadRevision, setLeadRevision] = useState(0);
   const [tourOpen, setTourOpen] = useState(false);
   const [openaiSetupCard, setOpenaiSetupCard] =
@@ -432,41 +369,9 @@ function App() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [navOpen, setNavOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
+  const [navOpen, setNavOpen] = useState(
+    () => window.matchMedia("(min-width: 761px)").matches,
   );
-  const [sidebarHidden, setSidebarHidden] = useState(() => {
-    try {
-      return window.localStorage.getItem("corral-sidebar") === "hidden";
-    } catch {
-      return false;
-    }
-  });
-  const [agentOpen, setAgentOpen] = useState(false);
-  const toggleSidebar = useCallback(() => {
-    setSidebarHidden((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem("corral-sidebar", next ? "hidden" : "shown");
-      } catch {
-        /* Preference storage is optional. */
-      }
-      return next;
-    });
-  }, []);
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
-    const sync = () => setIsMobile(media.matches);
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
-  useEffect(() => {
-    const onAgentState = (event: Event) =>
-      setAgentOpen(Boolean((event as CustomEvent<{ open?: boolean }>).detail?.open));
-    window.addEventListener(AGENT_STATE_EVENT, onAgentState);
-    return () => window.removeEventListener(AGENT_STATE_EVENT, onAgentState);
-  }, []);
   const [theme, setTheme] = useState<Theme>(savedTheme);
   const activeWorkspace = auth?.workspaces.find(
     (item) => item.id === auth.current_workspace_id,
@@ -475,94 +380,12 @@ function App() {
     () => new Set(activeWorkspace?.effective_permissions ?? []),
     [activeWorkspace],
   );
-  const {
-    notifications: assignmentNotifications,
-    markRead: markAssignmentRead,
-  } = useAssignmentNotifications(
-    auth?.user.id,
-    auth?.current_workspace_id,
-    workspacePermissions.has("leads.view") ||
-      workspacePermissions.has("leads.edit"),
-  );
-  useEffect(() => {
-    function openPhone(event: Event) {
-      const detail = (event as CustomEvent<{ connectionId?: unknown }>).detail;
-      if (
-        typeof detail?.connectionId !== "string" ||
-        !can(workspacePermissions, "dialer.call")
-      ) {
-        return;
-      }
-      const next = dialerConnections.find(
-        (connection) => connection.id === detail.connectionId,
-      );
-      if (!next || !isDialerPhoneAvailable(next)) return;
-      if (dialerCallActive && next.id !== preferredDialerRef.current) {
-        notifyActivity(
-          "Finish the active call before switching the embedded phone.",
-          "info",
-        );
-        return;
-      }
-      if (next.id !== preferredDialerRef.current) {
-        selectPreferredDialer(next.id);
-      }
-      setDialerPhoneOpen(true);
-    }
-    window.addEventListener(OPEN_DIALER_PHONE_EVENT, openPhone);
-    return () => window.removeEventListener(OPEN_DIALER_PHONE_EVENT, openPhone);
-  }, [
-    dialerCallActive,
-    dialerConnections,
-    selectPreferredDialer,
-    workspacePermissions,
-  ]);
-  // Deal desk: every lead with its deal state, shared by Today, Pipeline, Revenue and Performance.
-  useLayoutEffect(() => {
-    bindDealWorkspace(can(workspacePermissions, "leads.view") ? auth?.current_workspace_id ?? "" : "", can(workspacePermissions, "leads.edit"), can(workspacePermissions, "workspace.manage"));
-  }, [auth?.current_workspace_id, workspacePermissions]);
-  useEffect(() => {
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void pollDealRecords(); }, 15000);
-    return () => window.clearInterval(timer);
-  }, [auth?.current_workspace_id]);
-  const workspaceLeads = useWorkspaceLeads(Boolean(auth) && can(workspacePermissions, "leads.view"), leadRevision);
-  const dealViews = useDealViews(workspaceLeads.leads, data?.pipeline);
-  const stageMap = useMemo(() => recordedStages(data?.pipeline), [data?.pipeline]);
-  const [leadIntent, setLeadIntent] = useState<LeadIntent>(null);
-  const [newLeadNonce, setNewLeadNonce] = useState(0);
-  const [quotePicker, setQuotePicker] = useState(false);
-  const [phonePanelOpen, setPhonePanelOpen] = useState(false);
-  const embeddedPhoneReady = can(workspacePermissions, "dialer.call") && isDialerPhoneAvailable(selectedDialer);
-  const directDialers = dialerConnections.filter((connection) => !isEmbeddedDialerConnection(connection));
-  const phoneOpen = embeddedPhoneReady ? dialerPhoneOpen : phonePanelOpen;
-  const setPhone = useCallback(
-    (open?: boolean) => {
-      if (embeddedPhoneReady) {
-        setDialerPhoneOpen((current) => {
-          const next = open ?? !current;
-          return !next && dialerCallActive ? current : next;
-        });
-      } else {
-        setPhonePanelOpen((current) => open ?? !current);
-      }
-    },
-    [embeddedPhoneReady, dialerCallActive],
-  );
-  useEffect(() => {
-    const onPhone = (event: Event) => {
-      if (!can(workspacePermissions, "dialer.call")) return;
-      setPhone((event as CustomEvent<{ open?: boolean }>).detail?.open);
-    };
-    window.addEventListener(PHONE_EVENT, onPhone);
-    return () => window.removeEventListener(PHONE_EVENT, onPhone);
-  }, [setPhone, workspacePermissions]);
-
   const refreshVersion = useRef(0);
   const refreshController = useRef<AbortController | null>(null);
   const leadRequestVersion = useRef(0);
   const leadController = useRef<AbortController | null>(null);
   const leadSignature = useRef<string | null>(null);
-  const reasoningPromptDismissed = useRef(new Set<string>());
+  const openaiPromptDismissed = useRef(new Set<string>());
   const tourSeenKey = auth?.current_workspace_id
     ? `corral-product-tour-seen:v1:${auth.current_workspace_id}`
     : null;
@@ -600,10 +423,15 @@ function App() {
   }, [tourSeenKey]);
 
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 768px)");
-    const syncNavigation = () => {
-      if (!media.matches) setNavOpen(false);
-    };
+    if (!navOpen || !window.matchMedia("(max-width: 760px)").matches) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.querySelector<HTMLButtonElement>(".rail-close")?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, [navOpen]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 761px)");
+    const syncNavigation = () => setNavOpen(media.matches);
     media.addEventListener("change", syncNavigation);
     return () => media.removeEventListener("change", syncNavigation);
   }, []);
@@ -634,8 +462,6 @@ function App() {
           series,
           agents,
           review,
-          extended,
-          advanced,
           leadRows,
         ] = await Promise.all([
           canViewAnalytics
@@ -662,14 +488,8 @@ function App() {
           canViewReview
             ? getManualReview(activeRange, controller.signal)
             : Promise.resolve(null),
-          canViewAnalytics
-            ? getExtendedAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getAdvancedAnalytics(6, controller.signal)
-            : Promise.resolve(null),
           canViewLeads
-            ? listLeads({ limit: 50 }, controller.signal)
+            ? listLeads({ limit: 1 }, controller.signal)
             : Promise.resolve(null),
         ]);
         if (requestVersion !== refreshVersion.current) return;
@@ -681,9 +501,7 @@ function App() {
             reps ||
             series ||
             agents ||
-            review ||
-            extended ||
-            advanced
+            review
             ? {
                 dashboard,
                 channels,
@@ -693,29 +511,11 @@ function App() {
                 series,
                 agents,
                 review,
-                extended,
-                advanced,
               }
             : null,
         );
         const nextLeads = leadRows?.items ?? [];
-        const newArrivalIds = leadRows
-          ? await observeLeadSnapshot(nextLeads, {
-              completeSnapshot: leadRows.total <= nextLeads.length,
-            })
-          : [];
-        setLeadNotificationSnapshot({
-          workspaceId: auth?.current_workspace_id ?? "",
-          leads: nextLeads,
-        });
-        if (newArrivalIds.length) {
-          const example = nextLeads.find((lead) => newArrivalIds.includes(lead.id));
-          const message = newArrivalIds.length === 1
-            ? `New lead arrived${example?.full_name ? `: ${example.full_name}` : ""}.`
-            : `${newArrivalIds.length} new leads arrived.`;
-          notifyActivity(message, "info");
-        }
-        setLeads(nextLeads.slice(0, 1));
+        setLeads(nextLeads);
         if (leadRows) {
           const nextSignature = JSON.stringify([
             leadRows.total,
@@ -780,7 +580,7 @@ function App() {
         if (requestVersion === refreshVersion.current) setLoading(false);
       }
     },
-    [range, auth?.current_workspace_id, auth?.workspaces, observeLeadSnapshot],
+    [range, auth?.current_workspace_id, auth?.workspaces],
   );
 
   useEffect(() => {
@@ -866,13 +666,11 @@ function App() {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", onVisible);
-    window.addEventListener(PHONE_CALL_ENDED, onVisible);
     return () => {
       controller.abort();
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onVisible);
-      window.removeEventListener(PHONE_CALL_ENDED, onVisible);
     };
   }, [auth?.current_workspace_id, auth?.workspaces, refresh]);
 
@@ -880,12 +678,8 @@ function App() {
     if (auth) return;
     setOpenaiSetupCard(null);
     setAiSetupCards([]);
-    reasoningPromptDismissed.current.clear();
+    openaiPromptDismissed.current.clear();
   }, [auth]);
-
-  useEffect(() => {
-    if (selectedLead) markLeadSeen(selectedLead.id, selectedLead.created_at);
-  }, [selectedLead?.id, markLeadSeen]);
 
   useEffect(() => {
     if (!auth) return;
@@ -896,7 +690,7 @@ function App() {
     const permissions = new Set(workspace.effective_permissions);
     if (hasViewPermission(view, permissions)) return;
     const fallback =
-      FALLBACK_ORDER.find((item) => hasViewPermission(item, permissions)) ??
+      navigation.find((item) => hasViewPermission(item.id, permissions))?.id ??
       "settings";
     setView(fallback);
   }, [auth?.current_workspace_id, auth?.workspaces, view]);
@@ -909,7 +703,7 @@ function App() {
     );
     if (
       !workspace?.effective_permissions.includes("integrations.manage") ||
-      reasoningPromptDismissed.current.has(auth.current_workspace_id)
+      openaiPromptDismissed.current.has(auth.current_workspace_id)
     )
       return;
     let active = true;
@@ -918,17 +712,9 @@ function App() {
         if (!active) return;
         setAiSetupCards(cards.filter((card) => card.category.toLowerCase().includes("ai analysis")));
         const openai = cards.find((card) => card.provider === "openai");
-        const resume = cards.find((card) => {
-          const connectionId = card.connection?.id;
-          return (
-            card.category.toLowerCase().includes("ai analysis") &&
-            connectionId !== undefined &&
-            window.localStorage.getItem(`corral:reasoning-backfill:${connectionId}`) !== null
-          );
-        });
         // A saved key can be `connected` before verification; only ask for a key when none is stored.
         setOpenaiSetupCard(
-          resume ?? (openai?.connection?.configured ? null : (openai ?? null)),
+          openai?.connection?.configured ? null : (openai ?? null),
         );
       })
       .catch(() => {
@@ -1007,7 +793,7 @@ function App() {
       setLeadSection(section);
       setSelectedLead((current) => (current?.id === id ? current : null));
       void inspectLead(id);
-      if (window.matchMedia("(max-width: 767px)").matches) setNavOpen(false);
+      if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
     },
     [inspectLead, auth?.current_workspace_id, auth?.workspaces, view],
   );
@@ -1017,18 +803,6 @@ function App() {
       openLeadSection(id, view === "leads" ? leadSection : "overview"),
     [openLeadSection, view, leadSection],
   );
-
-  useEffect(() => {
-    const onLeadAction = (event: Event) => {
-      const detail = (event as CustomEvent<{ leadId?: string; action?: LeadAction }>).detail;
-      if (!detail?.leadId || !detail.action || !(detail.action in LEAD_ACTION_SECTION)) return;
-      openLeadSection(detail.leadId, LEAD_ACTION_SECTION[detail.action]);
-      setLeadIntent({ action: detail.action, nonce: Date.now() });
-      if (detail.action === "call") setPhonePanelOpen(false);
-    };
-    window.addEventListener(LEAD_ACTION_EVENT, onLeadAction);
-    return () => window.removeEventListener(LEAD_ACTION_EVENT, onLeadAction);
-  }, [openLeadSection]);
 
   const changeLeadSection = useCallback(
     (section: LeadDetailSection) => {
@@ -1138,7 +912,7 @@ function App() {
     window.history.pushState({ corralView: next }, "", url);
     setView(next);
     setPageSection(section);
-    if (window.matchMedia("(max-width: 767px)").matches) setNavOpen(false);
+    if (window.matchMedia("(max-width: 760px)").matches) setNavOpen(false);
   }
 
   function navigationChildren(id: AppView) {
@@ -1150,8 +924,24 @@ function App() {
 
   function navigationItemActive(item: { id: View }) {
     if (view === item.id) return true;
-    if (item.id === "settings" && ["icp", "policies", "compliance"].includes(view)) return true;
-    return item.id === "agents" && navigationChildren("agents").some((child) => child.view === view) && !navigation.some((entry) => entry.id === view);
+    const childView = navigationChildren(item.id).find((child) => child.view === view);
+    // Keep a standalone top-level destination (for example Users) as the sole
+    // active item when it is also linked from a settings submenu.
+    return Boolean(
+      childView &&
+        !navigation.some((entry) => entry.id === childView.view),
+    );
+  }
+
+  function navigationActiveChild(id: View) {
+    if (view === "leads") return leadSection;
+    if (view === id) return pageSection;
+    return navigationChildren(id).some((child) => child.view === view) ? view : pageSection;
+  }
+
+  function navigateChild(id: View, childId?: string) {
+    const child = navigationChildren(id).find((item) => item.id === childId);
+    navigate(child?.view ?? id, child?.view ? "" : childId);
   }
 
   function toggleTheme() {
@@ -1163,42 +953,6 @@ function App() {
   const visibleNavigation = navigation.filter((item) =>
     hasViewPermission(item.id, workspacePermissions),
   );
-  const reviewTotal = data?.review?.total ?? 0;
-  const navEntries: Array<NavEntry & { group: string }> = visibleNavigation.map((item) => ({
-    id: item.id,
-    label: item.label,
-    icon: item.icon,
-    group: item.group,
-    active: navigationItemActive(item),
-    count: item.id === "leads" ? unseenLeadIds.length : item.id === "review" ? reviewTotal : 0,
-    countTone: item.id === "review" ? "attention" : item.id === "leads" ? "tint" : undefined,
-    children: item.id === "integrations" ? [
-      { id: "email", label: "Email", children: [{ id: "gmail", label: "Gmail" }, { id: "outlook", label: "Outlook" }] },
-      { id: "crm", label: "CRM", children: [{ id: "salesforce", label: "Salesforce" }, { id: "hubspot", label: "HubSpot" }, { id: "gohighlevel", label: "GoHighLevel" }] },
-      { id: "calling", label: "Calling", children: [{ id: "calling", label: "All dialers" }, { id: "cloudtalk", label: "CloudTalk" }, { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" }, { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" }, { id: "retell", label: "Retell AI" }] },
-      { id: "calendar", label: "Calendar", children: [{ id: "google_calendar", label: "Google Calendar" }, { id: "calendly", label: "Calendly" }] },
-      { id: "social", label: "Social & sources", children: [{ id: "linkedin", label: "LinkedIn" }, { id: "instagram", label: "Instagram" }, { id: "messenger", label: "Messenger" }, { id: "whatsapp_business", label: "WhatsApp Business" }, { id: "clutch", label: "Clutch" }] },
-      { id: "ai", label: "AI connections" }, { id: "slack", label: "Slack" },
-    ] : ["analytics", "dialer", "settings", "dashboard"].includes(item.id)
-      ? navigationChildren(item.id).filter((child) => !child.view).map((child) => ({ id: child.id, label: child.label }))
-      : undefined,
-    countLabel:
-      item.id === "review"
-        ? `${reviewTotal} lead${reviewTotal === 1 ? "" : "s"} waiting for review${unseenManualReviewLeadCount ? `, ${unseenManualReviewLeadCount} new` : ""}`
-        : `${unseenLeadIds.length} new lead${unseenLeadIds.length === 1 ? "" : "s"}`,
-  }));
-  const navSections: NavSection[] = ["main", "work", "records", "insights", "workspace"]
-    .map((group) => ({ id: group, label: NAV_GROUP_LABELS[group], items: navEntries.filter((entry) => entry.group === group) }))
-    .filter((section) => section.items.length > 0);
-  const tabBarItems = navEntries.filter((entry) => TAB_BAR_VIEWS.includes(entry.id as View)).slice(0, 4);
-  const moreSections: NavSection[] = navSections
-    .map((section) => ({ ...section, items: section.items.filter((item) => !tabBarItems.some((tab) => tab.id === item.id)) }))
-    .filter((section) => section.items.length > 0);
-  // Pages with their own sections show them as tabs under the title.
-  const SECTION_AREAS = new Set<AppView>(["analytics"]);
-  const sectionTabs = SECTION_AREAS.has(view) ? navigationChildren(view).filter((child) => !child.view) : [];
-  const activeSectionTab =
-    view === "settings" ? (pageSection === "user" || pageSection === "users" ? "user" : "company") : pageSection || sectionTabs[0]?.id;
   const metadata = data?.dashboard?.metadata;
   useEffect(() => {
     const controller = new AbortController();
@@ -1243,6 +997,40 @@ function App() {
     0.179
       ? "#000000"
       : "#ffffff";
+  const headerShortcuts = [
+    {
+      id: "dialer",
+      label: "Dialer",
+      icon: "dialer" as const,
+      description: "Connect a calling provider to start confirmed calls from a lead.",
+      destination: "Open calling integrations →",
+      onClick: () => navigate("dialer"),
+    },
+    {
+      id: "leads",
+      label: "Leads",
+      icon: "leads" as const,
+      description: "Review new leads, qualification signals and routing decisions.",
+      destination: "Open lead workspace →",
+      onClick: () => navigate("leads", "overview"),
+    },
+    {
+      id: "review",
+      label: "Review",
+      icon: "review" as const,
+      description: "Resolve leads that need human judgment before work continues.",
+      destination: "Open manual review →",
+      onClick: () => navigate("review"),
+    },
+    {
+      id: "reports",
+      label: "Reports",
+      icon: "analytics" as const,
+      description: "See channel, pipeline and revenue performance for this workspace.",
+      destination: "Open analytics →",
+      onClick: () => navigate("analytics"),
+    },
+  ] as const;
   if (authLoading) return <LoadingState />;
   if (!auth) {
     return (
@@ -1256,441 +1044,498 @@ function App() {
       />
     );
   }
-  // Pages with their own header carry the range there; the rest keep it in the toolbar.
-  const wantsRange = ["agents", "analytics", "review", "team"].includes(view);
-  const rangeControl = (
-    <Segmented
-      label="Time range"
-      size="sm"
-      value={range}
-      onChange={setRange}
-      options={[
-        { value: "weekly", label: "Week" },
-        { value: "monthly", label: "Month" },
-        { value: "annual", label: "Year" },
-      ]}
-    />
-  );
-  const account = {
-    name: auth.user.display_name || "",
-    email: auth.user.email || "",
-    online: !error,
-    theme,
-    onToggleTheme: toggleTheme,
-    onGuide: () => setTourOpen(true),
-    onSignOut: () => {
-      refreshController.current?.abort();
-      leadController.current?.abort();
-      void signOut().finally(() => {
-        setAuth(null);
-        setData(null);
-        setSelectedLead(null);
-      });
-    },
-  };
-  const toolbarTitle = view === "leads" && selectedLead ? selectedLead.company_name || selectedLead.full_name : viewLabel(view);
-  const inspect = (id: string) => {
-    handleInspectLead(id);
-    setView("leads");
-  };
   return (
     <div
-      className="app-shell v-app"
-      data-sidebar={sidebarHidden ? "hidden" : "shown"}
-      data-inspector={agentOpen ? "open" : undefined}
-      style={{ "--workspace-accent": branding.accent, "--workspace-accent-text": accentText } as CSSProperties}
+      className={`app-shell ${navOpen ? "nav-expanded" : "nav-collapsed"}`}
+      style={
+        {
+          "--workspace-accent": branding.accent,
+          "--workspace-accent-text": accentText,
+        } as CSSProperties
+      }
     >
-      <a className="v-skip" href="#main">Skip to content</a>
+      <div className="app-ambient ambient-a" />
       <ActivityToasts />
       <NativeSelectEnhancer />
-      <Sidebar
-        sections={navSections}
-        workspace={<WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />}
-        pins={can(workspacePermissions, "leads.view") ? pinnedSections.pins : []}
-        pinNotice={pinnedSections.notice}
-        activePin={{ leadId: view === "leads" ? selectedLead?.id : undefined, section: leadSection }}
-        account={account}
-        onNavigate={(id, section) => navigate(id as AppView, section ?? "")}
-        onOpenPin={(pin) => openLeadSection(pin.leadId, pin.section)}
-        onRemovePin={pinnedSections.remove}
+      <div className="app-ambient ambient-b" />
+      <img
+        className="app-twinkle app-twinkle-a"
+        src="/asset/brand/twinkle-cap.svg"
+        alt=""
+        aria-hidden="true"
       />
-      <div className="v-window">
-        <DealSyncStatus />
-        <Toolbar
-          title={toolbarTitle}
-          leading={
-            isMobile ? (
-              <img className="v-toolbar-mark" src={branding.logo_url || "/asset/brand/corral-mark.png"} alt={branding.name || "Corral"} width={26} height={26} />
-            ) : (
-              <IconButton
-                icon="sidebar"
-                label={sidebarHidden ? "Show sidebar" : "Hide sidebar"}
-                aria-pressed={!sidebarHidden}
-                onClick={toggleSidebar}
+      <img
+        className="app-twinkle app-twinkle-b"
+        src="/asset/brand/twinkle-role.svg"
+        alt=""
+        aria-hidden="true"
+      />
+      <aside
+        id="corral-navigation"
+        className={`side-rail ${navOpen ? "open" : ""}`}
+        aria-label="Corral navigation"
+        onKeyDown={(event) => {
+          if (!window.matchMedia("(max-width: 760px)").matches) return;
+          if (event.key === "Escape") { event.preventDefault(); setNavOpen(false); }
+          else trapFocus(event);
+        }}
+        aria-hidden={!navOpen}
+        inert={!navOpen}
+      >
+        <div className="rail-brand-row">
+          <button
+            className="brand-lockup"
+            onClick={() => navigate("dashboard")}
+            aria-label={(branding.name || "Corral") + " home"}
+          >
+            <img
+              src={branding.logo_url || "/asset/brand/corral-mark.png"}
+              alt=""
+            />
+            <span>
+              <b>{branding.name || "Corral"}</b>
+              <small className="rail-brand-tagline">
+                <span>Powered by</span>
+                <span>Ingenuity Systems</span>
+              </small>
+            </span>
+          </button>
+          <button
+            className="rail-close"
+            onClick={() => setNavOpen(false)}
+            aria-label="Collapse navigation"
+            title="Collapse navigation"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m14.5 5-5 7 5 7" />
+            </svg>
+          </button>
+        </div>
+        <nav aria-label="Primary navigation">
+          {visibleNavigation.map((item, index) => (
+            <div key={item.id}>
+              {item.group && <span className="nav-group">{item.group}</span>}
+              <NavigationMenuItem
+                item={{ ...item, children: navigationChildren(item.id) }}
+                enabled={navOpen}
+                icon={<NavIcon id={item.id} />}
+                active={
+                  navigationItemActive(item) || (item.id === "settings" && view === "icp")
+                }
+                activeChild={navigationActiveChild(item.id)}
+                badge={item.id === "review" ? data?.review?.total : undefined}
+                onNavigate={(child) => navigateChild(item.id, child)}
               />
-            )
-          }
-          trailing={
-            <>
-              {!isMobile && <SearchField />}
-              {wantsRange && !isMobile && rangeControl}
-              {isMobile && (
-                <IconButton icon="search" label="Search" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_SEARCH_EVENT))} />
-              )}
-              {!isMobile && (
-                <QuickAccess
-                  items={[
-                    ...(can(workspacePermissions, "dialer.call")
-                      ? [{
-                          id: "phone",
-                          label: "Phone",
-                          icon: "phone" as IconName,
-                          pressed: phoneOpen,
-                          live: dialerCallActive,
-                          liveLabel: "On call",
-                          ariaLabel: dialerCallActive ? "Phone, call in progress" : phoneOpen ? "Close phone" : "Open phone",
-                          onClick: () => setPhone(),
-                        }]
-                      : []),
-                    ...(can(workspacePermissions, "manual_review.view")
-                      ? [{ id: "review", label: "Review", icon: "review" as IconName, count: reviewTotal, active: view === "review", ariaLabel: `Review, ${reviewTotal} waiting`, onClick: () => navigate("review") }]
-                      : []),
-                    ...(can(workspacePermissions, "analytics.view")
-                      ? [{ id: "analytics", label: "Analytics", icon: "analytics" as IconName, active: view === "analytics", onClick: () => navigate("analytics") }]
-                      : []),
-                  ]}
+              {index === 4 && <span className="nav-separator" />}
+            </div>
+          ))}
+        </nav>
+        {can(workspacePermissions, "leads.view") && (
+          <PinnedLeadNavigation
+            pins={pinnedSections.pins}
+            notice={pinnedSections.notice}
+            activeLeadId={view === "leads" ? selectedLead?.id : undefined}
+            activeSection={leadSection}
+            onOpen={(pin) => openLeadSection(pin.leadId, pin.section)}
+            onRemove={pinnedSections.remove}
+          />
+        )}
+        <div className="rail-foot">
+          <div className="workspace-mark">
+            <img src="/asset/brand/corral-mark.png" alt="" />
+            <WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />
+          </div>
+          <span className={`system-state ${error ? "is-offline" : "is-online"}`} aria-live="polite">
+            <i aria-hidden="true" /> {error ? "Offline" : "Online"}
+          </span>
+          <button
+            className="signout-button"
+            onClick={() => {
+              refreshController.current?.abort();
+              leadController.current?.abort();
+              void signOut().finally(() => {
+                setAuth(null);
+                setData(null);
+                setSelectedLead(null);
+              });
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </aside>
+      {!navOpen && (
+        <aside className="mini-rail" aria-label="Collapsed Corral navigation">
+          <button
+            className="mini-rail-expand"
+            onClick={() => setNavOpen(true)}
+            aria-controls="corral-navigation"
+            aria-expanded={false}
+            aria-label="Expand navigation"
+            title="Expand navigation"
+          >
+            <img src="/asset/brand/corral-mark.png" alt="" />
+            <span aria-hidden="true">›</span>
+          </button>
+          <nav className="mini-rail-nav" aria-label="Primary navigation">
+            {visibleNavigation.map((item) => {
+              const active =
+                navigationItemActive(item) ||
+                (item.id === "settings" && (view === "team" || view === "icp"));
+              return (
+                <NavigationMenuItem
+                  key={item.id}
+                  item={{ ...item, children: navigationChildren(item.id) }}
+                  icon={<NavIcon id={item.id} />}
+                  active={active}
+                  collapsed
+                  activeChild={navigationActiveChild(item.id)}
+                  badge={item.id === "review" ? data?.review?.total : undefined}
+                  onNavigate={(child) => navigateChild(item.id, child)}
                 />
-              )}
-              {(can(workspacePermissions, "leads.edit") || can(workspacePermissions, "dialer.call")) && (
-                <NewMenu
-                  actions={[
-                    ...(can(workspacePermissions, "leads.edit")
-                      ? [
-                          { id: "lead", label: "Lead", icon: "leads" as IconName, onSelect: () => { navigate("leads"); setNewLeadNonce(Date.now()); } },
-                          ...(can(workspacePermissions, "leads.view") ? [{ id: "quote", label: "Quote", icon: "quote" as IconName, onSelect: () => setQuotePicker(true) }] : []),
-                        ]
-                      : []),
-                    ...(can(workspacePermissions, "dialer.call") ? [{ id: "call", label: "Call", icon: "phone" as IconName, onSelect: () => setPhone(true) }] : []),
-                    ...(can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit") ? [{ id: "email", label: "Email", icon: "mail" as IconName, onSelect: () => navigate("email") }] : []),
-                  ]}
-                />
-              )}
-              {(can(workspacePermissions, "leads.view") || can(workspacePermissions, "leads.edit")) && (
-                <LeadNotificationCenter
-                  unseenLeadIds={unseenLeadIds}
-                  leads={notificationLeads}
-                  assignmentNotifications={assignmentNotifications}
-                  onOpenLead={(leadId, section) => {
-                    if (!can(workspacePermissions, "leads.view")) return;
-                    if (section) openLeadSection(leadId, section);
-                    else handleInspectLead(leadId);
-                  }}
-                  onMarkAssignmentRead={markAssignmentRead}
-                />
-              )}
-              {can(workspacePermissions, "agents.execute") && (
+              );
+            })}
+          </nav>
+        </aside>
+      )}
+      <main className="product-main" inert={navOpen && window.matchMedia("(max-width: 760px)").matches}>
+        <header className="product-bar">
+          <div className="bar-leading">
+            <button
+              className="menu-button"
+              onClick={() => setNavOpen(true)}
+              aria-controls="corral-navigation"
+              aria-expanded={navOpen}
+              aria-label="Open navigation"
+            >
+              ☰
+            </button>
+            <div className="breadcrumb">
+              <span>{branding.name || "Corral"}</span>
+              <i>/</i>
+              <b>
+                {view === "team"
+                  ? "Users & Permissions"
+                  : view === "icp"
+                    ? "Ideal Customer Profile"
+                    : navigation.find((item) => item.id === view)?.label}
+              </b>
+            </div>
+          </div>
+          <div className="bar-actions">
+            <div className="header-shortcuts" aria-label="Quick shortcuts">
+              {headerShortcuts.map((shortcut) => <div className="header-shortcut" key={shortcut.id}>
                 <button
                   type="button"
-                  className="v-ask"
-                  data-ask-corral
-                  aria-controls="corral-agent-window"
-                  aria-expanded={agentOpen}
-                  onClick={() => window.dispatchEvent(new CustomEvent(TOGGLE_AGENT_EVENT))}
-                  title="Ask Corral"
+                  className="header-shortcut-trigger"
+                  onClick={shortcut.onClick}
+                  aria-label={shortcut.label}
+                  aria-describedby={`header-shortcut-help-${shortcut.id}`}
                 >
-                  <img src="/asset/brand/corral-mark.png" alt="" />
-                  <span className="v-ask-label">Ask Corral</span>
+                  {shortcut.icon === "dialer"
+                    ? <span className="header-shortcut-icon" aria-hidden="true">☎</span>
+                    : <span className="header-shortcut-icon" aria-hidden="true"><NavIcon id={shortcut.icon} /></span>}
+                  <span className="header-shortcut-label">{shortcut.label}</span>
                 </button>
-              )}
-            </>
-          }
-        />
-        <main className="v-content" id="main" tabIndex={-1}>
-          <CommandPalette
-            key={auth.current_workspace_id}
-            pages={visibleNavigation}
-            canSearch={can(workspacePermissions, "leads.view")}
-            onNavigate={navigate}
-            onInspect={inspect}
-            hideTrigger
-          />
-          {isMobile && wantsRange && <div className="v-mobile-range">{rangeControl}</div>}
-          {error && (
-            <div className="v-alert-bar">
-              <Banner
-                tone="danger"
-                title="Corral can’t reach the workspace right now"
-                action={<Button size="sm" onClick={() => void refresh()}>Try Again</Button>}
-              >
-                {error}
-              </Banner>
+                <div className="header-shortcut-popover" id={`header-shortcut-help-${shortcut.id}`} role="tooltip">
+                  <strong>{shortcut.label}</strong>
+                  <p>{shortcut.description}</p>
+                  <button
+                    type="button"
+                    className="header-shortcut-destination"
+                    onClick={shortcut.onClick}
+                  >
+                    {shortcut.destination}
+                  </button>
+                </div>
+              </div>)}
             </div>
-          )}
-          {!hasViewPermission(view, workspacePermissions) ||
-          (loading && !data && view !== "settings" && view !== "team" && view !== "icp") ? (
-            <ContentLoadingState />
-          ) : (
-            <Suspense fallback={<ContentLoadingState />}>
-              <div className="cx-view" key={auth.current_workspace_id + view}>
-                {sectionTabs.length > 1 && (
-                  <div className="v-page v-section-tabs-wrap">
-                    <h1 className="v-section-title">{viewLabel(view)}</h1>
-                    <nav className="v-section-tabs" aria-label={`${viewLabel(view)} sections`}>
-                      {sectionTabs.map((child) => (
-                        <button
-                          key={child.id}
-                          type="button"
-                          className="v-tab-pill"
-                          aria-current={activeSectionTab === child.id ? "page" : undefined}
-                          onClick={() => navigate(view, child.id)}
-                        >
-                          {child.label}
-                        </button>
-                      ))}
-                    </nav>
-                  </div>
-                )}
-                {view === "dashboard" && (
-                  <TodayScreen
+            <CommandPalette
+              key={auth.current_workspace_id}
+              pages={visibleNavigation}
+              canSearch={can(workspacePermissions, "leads.view")}
+              onNavigate={navigate}
+              onInspect={(id) => {
+                handleInspectLead(id);
+                setView("leads");
+              }}
+            />
+            {["dashboard", "leads", "pipeline", "agents", "analytics", "review", "team"].includes(view) && (
+              <RangePicker value={range} onChange={setRange} />
+            )}
+            <button
+              className="icon-button"
+              onClick={() => void refresh()}
+              aria-label="Refresh data"
+            >
+              ↻
+            </button>
+            <button
+              className="guide-launch"
+              onClick={() => setTourOpen(true)}
+              aria-haspopup="dialog"
+              aria-label="Open Corral product guide"
+              title="Open Corral product guide"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <circle cx="10" cy="10" r="7.5" />
+                <path d="M7.8 7.4a2.3 2.3 0 1 1 3.8 1.7c-.9.8-1.6 1.1-1.6 2.3M10 14.2v.1" />
+              </svg>
+              <span>Guide</span>
+            </button>
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+            >
+              <span aria-hidden="true">{theme === "light" ? "◐" : "☼"}</span>
+              <span className="theme-label">
+                {theme === "light" ? "Dark" : "Light"}
+              </span>
+            </button>
+          </div>
+        </header>
+        {error && (
+          <div className="api-error" role="alert">
+            <div>
+              <b>Control plane unavailable</b>
+              <span>{error}</span>
+            </div>
+            <button onClick={() => void refresh()}>Retry</button>
+          </div>
+        )}
+        {!hasViewPermission(view, workspacePermissions) ||
+        (loading &&
+          !data &&
+          view !== "settings" &&
+          view !== "team" &&
+          view !== "icp") ? (
+          <ContentLoadingState />
+        ) : (
+          <Suspense fallback={<ContentLoadingState />}>
+            <div
+              className="view-transition"
+              key={auth.current_workspace_id + view}
+            >
+              {view === "dashboard" && (
+                <DashboardView
+                  key={auth?.user.id ?? "local"}
+                  data={data}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                  userId={auth?.user.id ?? "local"}
+                />
+              )}
+              {view === "leads" && (
+                <LeadsView
+                  selected={selectedLead}
+                  activeSection={leadSection}
+                  onSectionChange={changeLeadSection}
+                  isSectionPinned={pinnedSections.pins.some(
+                    (pin) =>
+                      pin.leadId === selectedLead?.id &&
+                      pin.section === leadSection,
+                  )}
+                  onTogglePin={() => {
+                    if (selectedLead)
+                      pinnedSections.toggle({
+                        leadId: selectedLead.id,
+                        company: selectedLead.company_name,
+                        section: leadSection,
+                      });
+                  }}
+                  revision={leadRevision}
+                  onInspect={handleInspectLead}
+                  onClose={closeLead}
+                  canEdit={can(workspacePermissions, "leads.edit")}
+                  canExport={can(workspacePermissions, "leads.export")}
+                  canCrmSync={can(workspacePermissions, "crm.sync")}
+                  canCall={can(workspacePermissions, "agents.execute") && can(workspacePermissions, "leads.edit")}
+                  onUpdated={(lead) => {
+                    setSelectedLead(lead);
+                    setLeads((current) =>
+                      current.map((item) =>
+                        item.id === lead.id ? lead : item,
+                      ),
+                    );
+                  }}
+                  onDeleted={(leadId) => {
+                    closeLead();
+                    pinnedSections.removeLead(leadId);
+                    setLeads((current) =>
+                      current.filter((item) => item.id !== leadId),
+                    );
+                    void refresh();
+                  }}
+                  onCreated={(lead) => {
+                    setLeads((current) => [
+                      lead,
+                      ...current.filter((item) => item.id !== lead.id),
+                    ]);
+                    setSelectedLead(lead);
+                    setLeadSection("overview");
+                    window.history.pushState(
+                      { corralView: "leads" },
+                      "",
+                      leadSectionHref(lead.id, "overview"),
+                    );
+                    void refresh();
+                  }}
+                />
+              )}
+              {view === "pipeline" && (
+                <PipelineView
+                  data={data?.pipeline ?? null}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                />
+              )}
+              {view === "agents" && (
+                <AgentsView
+                  data={data?.agents ?? null}
+                  pipeline={data?.pipeline ?? null}
+                />
+              )}
+              {view === "analytics" && (
+                <>
+                  <AnalyticsView
+                    key={auth?.user.id ?? "local"}
                     data={data}
-                    views={dealViews}
-                    userName={auth.user.display_name || ""}
-                    mode={pageSection === "dashboard" ? "dashboard" : "today"}
-                    onModeChange={(mode) => navigate("dashboard", mode === "dashboard" ? "dashboard" : "")}
-                    onInspect={(id, section) => openLeadSection(id, section ?? "overview")}
-                    canCall={can(workspacePermissions, "dialer.call")}
-                    canEmail={can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit")}
-                    rangeControl={isMobile ? null : rangeControl}
-                    onNavigate={(next) => navigate(next as AppView)}
-                    canViewLeads={can(workspacePermissions, "leads.view")}
-                    dashboard={
-                      <DashboardView key={auth?.user.id ?? "local"} data={data} onInspect={inspect} userId={auth?.user.id ?? "local"} />
-                    }
+                    userId={auth?.user.id ?? "local"}
+                    selectedSection={pageSection}
                   />
-                )}
-                {view === "leads" && (
-                  <div className="v-content-inner">
-                    <LeadsScreen
-                      selected={selectedLead}
-                      activeSection={leadSection}
-                      onSectionChange={changeLeadSection}
-                      onNavigateToDialer={() => navigate("dialer")}
-                      isSectionPinned={pinnedSections.pins.some((pin) => pin.leadId === selectedLead?.id && pin.section === leadSection)}
-                      onTogglePin={() => {
-                        if (selectedLead) pinnedSections.toggle({ leadId: selectedLead.id, company: selectedLead.company_name, section: leadSection });
-                      }}
-                      revision={leadRevision}
-                      newLeadIds={unseenLeadIdSet}
-                      onInspect={handleInspectLead}
-                      onClose={closeLead}
-                      canEdit={can(workspacePermissions, "leads.edit")}
-                      canManageRouting={can(workspacePermissions, "routing.manage")}
-                      canManageManualReview={can(workspacePermissions, "manual_review.manage")}
-                      canExport={can(workspacePermissions, "leads.export")}
-                      canCrmSync={can(workspacePermissions, "crm.sync")}
-                      canViewEmail={can(workspacePermissions, "integrations.view")}
-                      canUseAgent={can(workspacePermissions, "agents.execute")}
-                      dialerPhoneConnectionId={
-                        can(workspacePermissions, "dialer.call") && isDialerPhoneAvailable(selectedDialer) ? selectedDialer?.id ?? null : null
-                      }
-                      canEnrollAutomations={can(workspacePermissions, "agents.view") && can(workspacePermissions, "leads.edit")}
-                      onOpenAutomations={() => navigate("automations")}
-                      canCall={can(workspacePermissions, "dialer.call")}
-                      recordedStages={stageMap}
-                      intent={leadIntent}
-                      embeddedPhone={embeddedPhoneReady}
-                      newLeadNonce={newLeadNonce}
-                      onUpdated={(lead) => {
-                        setSelectedLead((current) => (current?.id === lead.id ? lead : current));
-                        setLeads((current) => current.map((item) => (item.id === lead.id ? lead : item)));
-                        workspaceLeads.replace(lead);
-                      }}
-                      onDeleted={(leadId) => {
-                        closeLead();
-                        markLeadSeen(leadId);
-                        pinnedSections.removeLead(leadId);
-                        setLeads((current) => current.filter((item) => item.id !== leadId));
-                        void refresh();
-                      }}
-                      onCreated={(lead) => {
-                        setLeads((current) => [lead, ...current.filter((item) => item.id !== lead.id)]);
-                        setSelectedLead(lead);
-                        setLeadSection("overview");
-                        window.history.pushState({ corralView: "leads" }, "", leadSectionHref(lead.id, "overview"));
-                        void refresh();
-                      }}
-                    />
-                  </div>
-                )}
-                {view === "pipeline" && (
-                  <PipelineBoard
-                    views={dealViews}
-                    loading={workspaceLeads.loading}
-                    error={workspaceLeads.error}
-                    truncated={workspaceLeads.truncated}
-                    total={workspaceLeads.total}
-                    canEdit={can(workspacePermissions, "leads.edit")}
-                    canCall={can(workspacePermissions, "dialer.call")}
-                    canEmail={can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit")}
-                    onInspect={(id) => openLeadSection(id, "deal")}
-                    onMoved={(lead) => {
-                      if (lead) workspaceLeads.replace(lead);
-                      else workspaceLeads.reload();
-                      void refresh();
-                    }}
-                  />
-                )}
-                {view === "revenue" && (
-                  <RevenueScreen
-                    data={data}
-                    views={dealViews}
-                    range={range}
-                    rangeControl={rangeControl}
-                    canEdit={can(workspacePermissions, "workspace.manage")}
-                    onInspect={(id, section) => openLeadSection(id, section ?? "overview")}
-                  />
-                )}
-                {view === "performance" && (
-                  <PerformanceScreen data={data} views={dealViews} range={range} rangeControl={rangeControl} />
-                )}
-                {view === "review" && (
-                  <ReviewScreen data={data?.review ?? null} newLeadIds={unseenLeadIdSet} onInspect={(id) => openLeadSection(id, "ai")} />
-                )}
-                {view === "agents" && (
-                  <div className="v-page" data-width="wide">
-                    <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />
-                  </div>
-                )}
-                {view === "analytics" && (
-                  <div className="v-page" data-width="wide">
-                    <AnalyticsView key={auth?.user.id ?? "local"} data={data} userId={auth?.user.id ?? "local"} selectedSection={pageSection} />
-                    <AdvancedAnalyticsPanel />
-                  </div>
-                )}
-                {(view === "contacts" || view === "accounts") && (
-                  <div className="v-page" data-width="wide">
-                    <RecordsView
-                      mode={view === "contacts" ? "contacts" : "companies"}
-                      onInspect={inspect}
-                      canEdit={can(workspacePermissions, "leads.edit")}
-                      canResearch={can(workspacePermissions, "agents.execute")}
-                    />
-                  </div>
-                )}
-                {view === "policies" && (
-                  <div className="v-page"><PoliciesView canManage={can(workspacePermissions, "workspace.manage")} /></div>
-                )}
-                {view === "compliance" && <div className="v-page"><ComplianceView /></div>}
-                {view === "intelligence" && (
-                  <div className="v-page" data-width="wide">
-                    <IntelligenceView
-                      onInspect={inspect}
-                      onIcp={() => navigate("icp")}
-                      canExecute={can(workspacePermissions, "agents.execute")}
-                      canReview={can(workspacePermissions, "manual_review.manage")}
-                      canLearn={can(workspacePermissions, "icp.manage")}
-                    />
-                  </div>
-                )}
-                {view === "automations" && (
-                  <div className="v-page" data-width="wide">
-                    <AutomationsView
-                      canManage={can(workspacePermissions, "workspace.manage")}
-                      canEdit={can(workspacePermissions, "leads.edit")}
-                      onInspect={inspect}
-                    />
-                  </div>
-                )}
-                {view === "integrations" && (
-                  <div className="v-page" data-width="wide">
-                    <IntegrationsView key={auth.current_workspace_id} permissions={workspacePermissions} selectedSection={pageSection} />
-                  </div>
-                )}
-                {view === "email" && (
-                  <div className="v-page" data-width="wide">
-                    <EmailWorkspace canSend={can(workspacePermissions, "leads.edit")} onOpenIntegrations={() => navigate("integrations", "gmail")} />
-                  </div>
-                )}
-                {view === "dialer" && (
-                  <div className="v-page" data-width="wide">
-                    <DialerView
-                      selectedSection={pageSection}
-                      onOpenIntegrations={() => navigate("integrations", "calling")}
-                      onOpenLead={handleInspectLead}
-                      canViewLeads={can(workspacePermissions, "leads.view")}
-                      canEditLeads={can(workspacePermissions, "leads.view") && can(workspacePermissions, "leads.edit")}
-                      canCall={can(workspacePermissions, "dialer.call")}
-                      canCallLeads={can(workspacePermissions, "dialer.call") && can(workspacePermissions, "leads.view") && can(workspacePermissions, "leads.edit")}
-                      canViewIntegrations={can(workspacePermissions, "integrations.view")}
-                      preferredDialerId={preferredDialerId}
-                      onPreferredDialerChange={selectPreferredDialer}
-                      dialerCallActive={dialerCallActive}
-                      ringCentralEmbedReady={Boolean(ringCentralEmbedClientId)}
-                    />
-                  </div>
-                )}
-                {view === "settings" && (
-                  <div className="v-page">
-                    <SettingsView
-                      metadata={metadata}
-                      selectedSection={pageSection}
-                      onIntegrations={() => navigate("integrations")}
-                      onTeam={() => navigate("team")}
-                      onIcp={() => navigate("icp")}
-                      onPolicies={() => navigate("policies")}
-                      onCompliance={() => navigate("compliance")}
-                      onOpenSection={(section) => navigate("settings", section)}
-                      canViewTeam={can(workspacePermissions, "members.view")}
-                      canManageWorkspace={can(workspacePermissions, "workspace.manage")}
-                      canViewIcp={can(workspacePermissions, "icp.view")}
-                      canViewPolicies={can(workspacePermissions, "routing.view")}
-                      canViewCompliance={can(workspacePermissions, "workspace.manage")}
-                      canViewRouting={can(workspacePermissions, "routing.view")}
-                      canManageRouting={can(workspacePermissions, "routing.manage")}
-                      canViewPublicIntake={can(workspacePermissions, "integrations.manage")}
-                      canRotatePublicIntake={can(workspacePermissions, "integrations.manage")}
-                      canManageEmail={can(workspacePermissions, "integrations.manage")}
-                    />
-                  </div>
-                )}
-                {view === "team" && (
-                  <div className="v-page">
-                    <TeamView
-                      key={auth.current_workspace_id}
-                      auth={auth}
-                      workspaceName={auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.name || metadata?.workspace_name || "Current workspace"}
-                      onBack={() => setView("settings")}
-                    />
-                  </div>
-                )}
-                {view === "icp" && (
-                  <div className="v-page">
-                    <IcpView key={auth.current_workspace_id} canManage={can(workspacePermissions, "icp.manage")} onBack={() => setView("settings")} />
-                  </div>
-                )}
-              </div>
-            </Suspense>
-          )}
-        </main>
-        <footer className="v-footer">
-          <span>{branding.name || "Corral"} by Ingenuity Systems</span>
-          <nav aria-label="Legal information">
+                  <AdvancedAnalyticsPanel />
+                </>
+              )}
+              {view === "review" && (
+                <ManualReviewView
+                  data={data?.review ?? null}
+                  onInspect={(id) => {
+                    openLeadSection(id, "ai");
+                  }}
+                />
+              )}
+              {(view === "contacts" || view === "accounts") && (
+                <RecordsView
+                  mode={view === "contacts" ? "contacts" : "companies"}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                  canEdit={can(workspacePermissions, "leads.edit")}
+                  canResearch={can(workspacePermissions, "agents.execute")}
+                />
+              )}
+              {view === "policies" && (
+                <PoliciesView
+                  canManage={can(workspacePermissions, "workspace.manage")}
+                />
+              )}
+              {view === "compliance" && <ComplianceView />}
+              {view === "intelligence" && (
+                <IntelligenceView
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                  onIcp={() => navigate("icp")}
+                  canExecute={can(workspacePermissions, "agents.execute")}
+                  canReview={can(workspacePermissions, "manual_review.manage")}
+                  canLearn={can(workspacePermissions, "icp.manage")}
+                />
+              )}
+              {view === "automations" && (
+                <AutomationsView
+                  canManage={can(workspacePermissions, "workspace.manage")}
+                  canEdit={can(workspacePermissions, "leads.edit")}
+                  onInspect={(id) => {
+                    handleInspectLead(id);
+                    setView("leads");
+                  }}
+                />
+              )}
+              {view === "integrations" && (
+                <IntegrationsView
+                  key={auth.current_workspace_id}
+                  permissions={workspacePermissions}
+                  selectedSection={pageSection}
+                />
+              )}
+              {view === "dialer" && (
+                <DialerView selectedSection={pageSection} onOpenIntegrations={() => navigate("integrations", "calling")} />
+              )}
+              {view === "settings" && (
+                <SettingsView
+                  metadata={metadata}
+                  selectedSection={pageSection}
+                  onIntegrations={() => navigate("integrations")}
+                  onTeam={() => navigate("team")}
+                  onIcp={() => navigate("icp")}
+                  canViewTeam={can(workspacePermissions, "members.view")}
+                  canViewIcp={can(workspacePermissions, "icp.view")}
+                  canViewRouting={can(workspacePermissions, "routing.view")}
+                  canManageRouting={can(workspacePermissions, "routing.manage")}
+                  canViewPublicIntake={can(
+                    workspacePermissions,
+                    "integrations.manage",
+                  )}
+                  canRotatePublicIntake={can(
+                    workspacePermissions,
+                    "integrations.manage",
+                  )}
+                  canManageEmail={can(
+                    workspacePermissions,
+                    "integrations.manage",
+                  )}
+                />
+              )}
+              {view === "team" && (
+                <TeamView
+                  key={auth.current_workspace_id}
+                  auth={auth}
+                  workspaceName={
+                    auth.workspaces.find(
+                      (workspace) => workspace.id === auth.current_workspace_id,
+                    )?.name ||
+                    metadata?.workspace_name ||
+                    "Current workspace"
+                  }
+                  onBack={() => setView("settings")}
+                />
+              )}
+              {view === "icp" && (
+                <IcpView
+                  key={auth.current_workspace_id}
+                  canManage={can(workspacePermissions, "icp.manage")}
+                  onBack={() => setView("settings")}
+                />
+              )}
+            </div>
+          </Suspense>
+        )}
+        <footer className="product-footer">
+          <span>{branding.name || "Corral"} · Powered by Ingenuity Systems</span>
+          <nav className="product-legal-links" aria-label="Legal information">
             <a href="/terms.html">Terms</a>
             <a href="/privacy.html">Privacy</a>
             <a href="mailto:harmainmughal8@gmail.com">Contact</a>
           </nav>
           <span>
-            Updated {metadata ? new Date(metadata.generated_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "—"} · Workspace {getActiveWorkspace().slice(0, 8)}
+            Generated{" "}
+            {metadata ? new Date(metadata.generated_at).toLocaleString() : "—"}{" "}
+            · Workspace {getActiveWorkspace().slice(0, 8)}
           </span>
         </footer>
-      </div>
-      {isMobile && (
-        <TabBar
-          primary={tabBarItems}
-          rest={moreSections}
-          workspace={<WorkspaceSwitcher session={auth} onSelect={switchWorkspace} />}
-          account={account}
-          onNavigate={(id) => navigate(id as AppView)}
+      </main>
+      {navOpen && (
+        <button
+          className="nav-scrim"
+          onClick={() => setNavOpen(false)}
+          aria-label="Close navigation"
         />
       )}
       {openaiSetupCard && !tourOpen && view === "dashboard" && (
@@ -1698,145 +1543,28 @@ function App() {
           card={openaiSetupCard}
           cards={aiSetupCards}
           onVerified={() => {
+            setOpenaiSetupCard(null);
             void refresh();
           }}
-          onClose={() => setOpenaiSetupCard(null)}
           onLater={() => {
-            reasoningPromptDismissed.current.add(auth.current_workspace_id);
+            openaiPromptDismissed.current.add(auth.current_workspace_id);
             setOpenaiSetupCard(null);
           }}
           onSettings={() => {
-            reasoningPromptDismissed.current.add(auth.current_workspace_id);
+            openaiPromptDismissed.current.add(auth.current_workspace_id);
             setOpenaiSetupCard(null);
             setView("integrations");
           }}
         />
       )}
-      <ProductTour open={tourOpen} currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
-      {can(workspacePermissions, "agents.execute") && (
-        <CorralAgentDock
-          key={auth.current_workspace_id}
-          selectedLead={selectedLead}
-          permissions={workspacePermissions}
-          onNavigate={(area) => navigate(area)}
-          onNavigateToDialer={() => navigate("dialer")}
-          canViewLeads={can(workspacePermissions, "leads.view")}
-          canEdit={can(workspacePermissions, "leads.edit")}
-          canCrmSync={can(workspacePermissions, "crm.sync")}
-          canViewEmail={can(workspacePermissions, "integrations.view")}
-          dialerPhoneConnectionId={
-            can(workspacePermissions, "dialer.call") && isDialerPhoneAvailable(selectedDialer) ? selectedDialer?.id ?? null : null
-          }
-          onInspectLead={handleInspectLead}
-          onUpdated={(lead) => {
-            setSelectedLead((current) => (current?.id === lead.id ? lead : current));
-            void refresh();
-          }}
-          onDeleted={(leadId) => {
-            if (selectedLead?.id === leadId) closeLead();
-            void refresh();
-          }}
-          onOpenLeadSection={openLeadSection}
-          onRefresh={refresh}
-        />
-      )}
-      {can(workspacePermissions, "dialer.call") && !embeddedPhoneReady && (
-        <PhonePanel
-          open={phonePanelOpen}
-          onClose={() => setPhonePanelOpen(false)}
-          connections={directDialers}
-          leads={workspaceLeads.leads}
-          canCall={can(workspacePermissions, "dialer.call")}
-          canViewLeads={can(workspacePermissions, "leads.view")}
-          canEditLeads={can(workspacePermissions, "leads.edit")}
-          canSetUp={can(workspacePermissions, "integrations.view")}
-          preferredConnectionId={preferredDialerId}
-          onPreferredConnectionChange={selectPreferredDialer}
-          onCallLead={(leadId) => {
-            setPhonePanelOpen(false);
-            openLeadSection(leadId, "calls");
-            setLeadIntent({ action: "call", nonce: Date.now() });
-          }}
-          onSetUp={() => {
-            setPhonePanelOpen(false);
-            navigate("integrations", "calling");
-          }}
-        />
-      )}
-      {quotePicker && (
-        <LeadPickerSheet
-          title="New quote"
-          subtitle="Choose the lead you’re quoting."
-          leads={workspaceLeads.leads}
-          onClose={() => setQuotePicker(false)}
-          onPick={(leadId) => {
-            setQuotePicker(false);
-            openLeadSection(leadId, "deal");
-            setLeadIntent({ action: "quote", nonce: Date.now() });
-          }}
-        />
-      )}
-      {can(workspacePermissions, "dialer.call") && (
-        <DialerPhoneDock
-          connection={selectedDialer}
-          open={dialerPhoneOpen}
-          callActive={dialerCallActive}
-          notificationPreferenceKey={dialerPreferenceKey ? `${dialerPreferenceKey}:cloudtalk-alerts:v1` : null}
-          onOpen={() => setDialerPhoneOpen(true)}
-          onToggle={() => {
-            if (dialerCallActive && dialerPhoneOpen) return;
-            setDialerPhoneOpen((current) => !current);
-          }}
-          onClose={() => {
-            if (!dialerCallActive) setDialerPhoneOpen(false);
-          }}
-          onCallActiveChange={setDialerCallActive}
-        />
-      )}
+      <ProductTour
+        open={tourOpen}
+        currentView={view}
+        onNavigate={navigate}
+        onDismiss={closeTour}
+        onComplete={closeTour}
+      />
     </div>
-  );
-}
-
-function LeadPickerSheet({
-  title,
-  subtitle,
-  leads,
-  onClose,
-  onPick,
-}: {
-  title: string;
-  subtitle: string;
-  leads: Lead[];
-  onClose: () => void;
-  onPick: (leadId: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const needle = query.trim().toLowerCase();
-  const matches = leads
-    .filter((lead) => !needle || `${lead.company_name} ${lead.full_name} ${lead.email}`.toLowerCase().includes(needle))
-    .slice(0, 40);
-  return (
-    <Sheet title={title} subtitle={subtitle} onClose={onClose} width={480}>
-      <div className="lp">
-        <label className="p-search">
-          <Icon name="search" size={15} />
-          <span className="v-sr">Search leads</span>
-          <input type="search" autoFocus placeholder="Company or contact" value={query} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <ul className="p-leads lp-list">
-          {matches.map((lead) => (
-            <li key={lead.id}>
-              <button type="button" className="lp-item" onClick={() => onPick(lead.id)}>
-                <Monogram text={lead.company_name || lead.full_name} size={32} />
-                <span className="p-lead-text"><b>{lead.company_name || lead.full_name}</b><small>{lead.full_name}{lead.product_or_service ? ` · ${lead.product_or_service}` : ""}</small></span>
-                <Icon name="chevronRight" size={14} />
-              </button>
-            </li>
-          ))}
-          {!matches.length && <li className="p-none">No leads match.</li>}
-        </ul>
-      </div>
-    </Sheet>
   );
 }
 
@@ -1861,6 +1589,29 @@ function ContentLoadingState() {
         <i />
         <i />
       </div>
+    </div>
+  );
+}
+
+function RangePicker({
+  value,
+  onChange,
+}: {
+  value: TimeRange;
+  onChange: (value: TimeRange) => void;
+}) {
+  return (
+    <div className="range-picker" aria-label="Analytics time range">
+      {(["weekly", "monthly", "annual"] as const).map((item) => (
+        <button
+          className={value === item ? "active" : ""}
+          aria-pressed={value === item}
+          onClick={() => onChange(item)}
+          key={item}
+        >
+          {item.slice(0, 1).toUpperCase() + item.slice(1)}
+        </button>
+      ))}
     </div>
   );
 }

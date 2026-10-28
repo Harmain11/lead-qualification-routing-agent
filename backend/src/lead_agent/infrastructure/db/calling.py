@@ -1,10 +1,9 @@
 """Workspace-owned call receipts; secrets and raw provider payloads are never stored here."""
 
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lead_agent.infrastructure.db.base import Base
@@ -20,9 +19,7 @@ class CallRecordORM(Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True
     )
-    lead_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("leads.id", ondelete="CASCADE"), index=True, nullable=True
-    )
+    lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     connection_id: Mapped[UUID] = mapped_column(
         ForeignKey("provider_connections.id", ondelete="CASCADE")
     )
@@ -37,7 +34,6 @@ class CallRecordORM(Base):
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
     transcript: Mapped[str | None] = mapped_column(Text)
     recording_url: Mapped[str | None] = mapped_column(Text)
-    insights: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     message: Mapped[str | None] = mapped_column(Text)
     actor_id: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(

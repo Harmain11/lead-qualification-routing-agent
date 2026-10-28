@@ -12,7 +12,6 @@ from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
-from lead_agent.infrastructure.db.operations import OperationsPolicyORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.repositories import ensure_workspace
 
@@ -26,19 +25,6 @@ def test_email_template_settings_are_workspace_scoped_and_editable(tmp_path, mon
     session = Session(engine)
     workspace_id = uuid4()
     ensure_workspace(session, workspace_id, name="Email template QA")
-    session.add(
-        OperationsPolicyORM(
-            workspace_id=workspace_id,
-            configuration={
-                "business_profile": {
-                    "business_name": "Northstar Labs",
-                    "email_signature": "Harmain Mughal\nNorthstar Labs",
-                }
-            },
-            version=1,
-            updated_by="qa-user",
-        )
-    )
     session.commit()
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
@@ -98,14 +84,9 @@ def test_email_template_settings_are_workspace_scoped_and_editable(tmp_path, mon
         )
         assert generated.json()["subject"] != sample["subject"]
         assert generated.json()["body"] != sample["body"]
-        assert "[Your Name]" not in generated.json()["body"]
-        assert generated.json()["body"].endswith("Harmain Mughal\nNorthstar Labs")
         assert generated.json()["generation_method"] == "ai"
         assert captured_facts["template_generation"] is True
         assert captured_facts["email_purpose"] == "follow_up"
-        assert captured_facts["workspace_business_profile"]["email_signature"] == (
-            "Harmain Mughal\nNorthstar Labs"
-        )
         assert captured_facts["style_reference"] == sample
         assert captured_facts["required_placeholders"] == [
             "{{lead_name}}",

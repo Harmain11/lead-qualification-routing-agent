@@ -14,10 +14,8 @@ from lead_agent.api.routes.leads import (
 )
 from lead_agent.api.routes.meetings import (
     ConfirmMeetingRequest,
-    MeetingSuggestion,
     MeetingProviderError,
     _calendly_invitee_location,
-    create_meeting_offer_draft,
     confirm_meeting,
     get_meeting_recommendations,
 )
@@ -25,7 +23,6 @@ from lead_agent.application import meeting_email
 from lead_agent.application.meetings import (
     find_meeting_request,
     match_confirmed_meeting_option,
-    meeting_reply_declines_offer,
     meeting_reply_requests_other_times,
     recommend_calendly_slots,
     recommend_google_calendar_slots,
@@ -54,129 +51,6 @@ class _Session:
 
     def scalars(self, _statement):
         return iter(self.rows)
-
-
-def test_manual_offer_draft_uses_only_a_freshly_available_slot(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid4()
-    lead_id = uuid4()
-    actor_id = str(uuid4())
-    calendar_connection_id = uuid4()
-    gmail_connection_id = uuid4()
-    start_at = datetime.now(UTC) + timedelta(days=2)
-    end_at = start_at + timedelta(minutes=30)
-    request = ConfirmMeetingRequest(
-        provider="calendly",
-        connection_id=calendar_connection_id,
-        source_message_id="source-1",
-        source_gmail_connection_id=gmail_connection_id,
-        start_at=start_at,
-        end_at=end_at,
-        time_zone="UTC",
-        event_type_uri="https://api.calendly.com/event_types/type-1",
-        event_type_name="30 Minute Meeting",
-    )
-    suggestion = MeetingSuggestion(
-        provider="calendly",
-        connection_id=calendar_connection_id,
-        account_name="Calendly",
-        source_message_id="source-1",
-        source_gmail_connection_id=gmail_connection_id,
-        start_at=start_at,
-        end_at=end_at,
-        time_zone="UTC",
-        event_type_uri=request.event_type_uri,
-        event_type_name=request.event_type_name,
-    )
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
-    workspace = WorkspaceContext(
-        workspace_id=workspace_id,
-        actor_id=actor_id,
-        role="owner",
-    )
-    draft_id = uuid4()
-    received: list[dict[str, object]] = []
-
-    monkeypatch.setattr(
-        "lead_agent.api.routes.meetings._lead_or_404",
-        lambda *_args, **_kwargs: lead,
-    )
-    monkeypatch.setattr(
-        "lead_agent.api.routes.meetings.get_meeting_recommendations",
-        lambda *_args, **_kwargs: SimpleNamespace(suggestions=[suggestion]),
-    )
-
-    def create_draft(_session, **kwargs):
-        received.append(kwargs)
-        return SimpleNamespace(id=draft_id)
-
-    monkeypatch.setattr(
-        "lead_agent.api.routes.meetings.create_selected_slot_offer_draft",
-        create_draft,
-    )
-
-    response = create_meeting_offer_draft(
-        lead_id,
-        request,
-        session=object(),  # type: ignore[arg-type]
-        workspace=workspace,
-    )
-
-    assert response.draft_id == draft_id
-    assert response.status == "draft"
-    assert received[0]["lead"] is lead
-    assert received[0]["workspace_id"] == workspace_id
-    assert (
-        datetime.fromisoformat(str(received[0]["slot"]["start_at"]).replace("Z", "+00:00"))
-        == start_at
-    )
-
-
-def test_manual_offer_draft_rejects_a_slot_missing_from_fresh_availability(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid4()
-    lead_id = uuid4()
-    start_at = datetime.now(UTC) + timedelta(days=2)
-    request = ConfirmMeetingRequest(
-        provider="calendly",
-        connection_id=uuid4(),
-        source_message_id="source-1",
-        source_gmail_connection_id=uuid4(),
-        start_at=start_at,
-        end_at=start_at + timedelta(minutes=30),
-        time_zone="UTC",
-        event_type_uri="https://api.calendly.com/event_types/type-1",
-        event_type_name="30 Minute Meeting",
-    )
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
-    workspace = WorkspaceContext(
-        workspace_id=workspace_id,
-        actor_id=str(uuid4()),
-        role="owner",
-    )
-    monkeypatch.setattr(
-        "lead_agent.api.routes.meetings._lead_or_404",
-        lambda *_args, **_kwargs: lead,
-    )
-    monkeypatch.setattr(
-        "lead_agent.api.routes.meetings.get_meeting_recommendations",
-        lambda *_args, **_kwargs: SimpleNamespace(suggestions=[]),
-    )
-    monkeypatch.setattr(
-        "lead_agent.api.routes.meetings.create_selected_slot_offer_draft",
-        lambda *_args, **_kwargs: pytest.fail("Unavailable slots must not create drafts."),
-    )
-
-    with pytest.raises(HTTPException) as error:
-        create_meeting_offer_draft(
-            lead_id,
-            request,
-            session=object(),  # type: ignore[arg-type]
-            workspace=workspace,
-        )
-    assert error.value.status_code == 409
 
 
 def test_find_meeting_request_uses_latest_matching_synced_message() -> None:
@@ -344,189 +218,17 @@ def test_gmail_message_deduplication_is_scoped_to_the_source_mailbox() -> None:
     assert len(added) == 2
 
 
-def test_meeting_reply_requires_a_clear_valid_option_number() -> None:
+def test_meeting_reply_requires_an_explicit_valid_option_number() -> None:
     assert match_confirmed_meeting_option("Option 2 works for me.", 3) == 2
     assert match_confirmed_meeting_option("I choose option 1.", 3) == 1
     assert match_confirmed_meeting_option("3", 3) == 3
     assert match_confirmed_meeting_option("Yes, Tuesday works.", 3) is None
-    assert match_confirmed_meeting_option("Option 2 could work.", 3) is None
     assert match_confirmed_meeting_option("Option 4 works.", 3) is None
     assert match_confirmed_meeting_option("Option 2 doesn't work; option 3 does.", 3) is None
     assert match_confirmed_meeting_option("Option 1 or option 2.", 3) is None
-    assert match_confirmed_meeting_option("1, but none of these times work.", 1) is None
     assert meeting_reply_requests_other_times("None of those times work.") is True
     assert meeting_reply_requests_other_times("none") is True
     assert meeting_reply_requests_other_times("Option 2 works.") is False
-    assert meeting_reply_declines_offer("No, that doesn't work.") is True
-    assert meeting_reply_declines_offer("No problem, that works for me.") is False
-    assert meeting_reply_declines_offer("I am not able to attend.") is True
-
-
-def test_ai_meeting_reply_interpretation_requires_unambiguous_option_evidence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace_id = uuid4()
-    options = [
-        {
-            "start_at": "2026-11-03T14:00:00+00:00",
-            "end_at": "2026-11-03T14:30:00+00:00",
-            "time_zone": "UTC",
-            "event_type_name": "30 Minute Meeting",
-        },
-        {
-            "start_at": "2026-11-04T14:00:00+00:00",
-            "end_at": "2026-11-04T14:30:00+00:00",
-            "time_zone": "UTC",
-            "event_type_name": "30 Minute Meeting",
-        },
-    ]
-
-    class Classifier:
-        def __init__(self, result: dict[str, object]) -> None:
-            self.result = result
-            self.payload: dict[str, object] | None = None
-
-        def classify_meeting_reply(self, payload: dict[str, object]) -> dict[str, object]:
-            self.payload = payload
-            return self.result
-
-    ordinal_classifier = Classifier(
-        {
-            "intent": "confirm",
-            "option_number": 2,
-            "confidence": 0.99,
-            "evidence": "the 2nd one",
-        }
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: ordinal_classifier,
-    )
-    result, source = meeting_email._classify_meeting_reply_with_ai(
-        object(),  # type: ignore[arg-type]
-        workspace_id,
-        "Sure, the 2nd one.",
-        options,
-    )
-    assert source == "ai"
-    assert result is not None
-    assert result.intent == "confirm"
-    assert result.option_number == 2
-    assert ordinal_classifier.payload is not None
-    assert len(ordinal_classifier.payload["options"]) == 2  # type: ignore[arg-type]
-
-    vague_classifier = Classifier(
-        {
-            "intent": "confirm",
-            "option_number": 2,
-            "confidence": 0.99,
-            "evidence": "that time makes sense",
-        }
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: vague_classifier,
-    )
-    vague_result, _ = meeting_email._classify_meeting_reply_with_ai(
-        object(),  # type: ignore[arg-type]
-        workspace_id,
-        "That time makes sense.",
-        options,
-    )
-    assert vague_result is not None
-    assert vague_result.intent == "uncertain"
-    assert vague_result.option_number == 0
-
-    single_classifier = Classifier(
-        {
-            "intent": "confirm",
-            "option_number": 1,
-            "confidence": 0.99,
-            "evidence": "sure, that time makes sense",
-        }
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: single_classifier,
-    )
-    single_result, _ = meeting_email._classify_meeting_reply_with_ai(
-        object(),  # type: ignore[arg-type]
-        workspace_id,
-        "Sure, that time makes sense.",
-        options[:1],
-    )
-    assert single_result is not None
-    assert single_result.intent == "confirm"
-    assert single_result.option_number == 1
-
-    tentative_classifier = Classifier(
-        {
-            "intent": "confirm",
-            "option_number": 2,
-            "confidence": 0.99,
-            "evidence": "maybe the second one",
-        }
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: tentative_classifier,
-    )
-    tentative_result, _ = meeting_email._classify_meeting_reply_with_ai(
-        object(),  # type: ignore[arg-type]
-        workspace_id,
-        "Maybe the second one.",
-        options,
-    )
-    assert tentative_result is not None
-    assert tentative_result.intent == "uncertain"
-
-    decline_classifier = Classifier(
-        {
-            "intent": "decline",
-            "option_number": 0,
-            "confidence": 0.99,
-            "evidence": "No thanks",
-        }
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: decline_classifier,
-    )
-    decline_result, _ = meeting_email._classify_meeting_reply_with_ai(
-        object(),  # type: ignore[arg-type]
-        workspace_id,
-        "No thanks.",
-        options,
-    )
-    assert decline_result is not None
-    assert decline_result.intent == "decline"
-
-    invalid_classifier = Classifier(
-        {
-            "intent": "confirm",
-            "option_number": "2",
-            "confidence": 0.99,
-            "evidence": "the second one",
-        }
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: invalid_classifier,
-    )
-    invalid_result, invalid_source = meeting_email._classify_meeting_reply_with_ai(
-        object(),  # type: ignore[arg-type]
-        workspace_id,
-        "Sure, the second one.",
-        options,
-    )
-    assert invalid_result is None
-    assert invalid_source == "unavailable"
 
 
 def test_meeting_date_and_time_parsing_is_explicit_and_timezone_aware() -> None:
@@ -542,64 +244,18 @@ def test_meeting_date_and_time_parsing_is_explicit_and_timezone_aware() -> None:
     assert requested_meeting_time("November 6 at 14:30").isoformat() == "14:30:00"
 
 
-def test_tomorrow_time_uses_the_connected_calendar_timezone() -> None:
-    reference = datetime(2026, 10, 27, 20, 30, tzinfo=UTC)
-    text = "Worth giving it a shot. How does tomorrow 12 pm sound?"
-
-    assert (
-        requested_meeting_date(
-            text, reference=reference, time_zone="Asia/Karachi"
-        ).isoformat()
-        == "2026-10-29"
-    )
-    assert requested_meeting_time(text).isoformat() == "12:00:00"
-    assert requested_meeting_datetime(
-        text, time_zone="Asia/Karachi", reference=reference
-    ).isoformat() == "2026-10-29T12:00:00+05:00"
-
-
-def test_meeting_request_detection_accepts_a_relative_exact_time_proposal() -> None:
-    sent_at = datetime(2026, 10, 27, 20, 30, tzinfo=UTC)
-    message = SimpleNamespace(
-        status="inbound",
-        details={
-            "direction": "inbound",
-            "sender": "lead@example.test",
-            "subject": "Re: Quick chat",
-            "body": "Worth giving it a shot. How does tomorrow 12 pm sound?",
-            "message_id": "message-1",
-            "thread_id": "thread-1",
-            "gmail_connection_id": "gmail-1",
-            "sent_at": sent_at.isoformat(),
-        },
-    )
-    session = SimpleNamespace(scalars=lambda _query: [message])
-    lead = SimpleNamespace(id=uuid4(), email="lead@example.test")
-
-    source = find_meeting_request(
-        session,  # type: ignore[arg-type]
-        lead,  # type: ignore[arg-type]
-        uuid4(),
-        thread_id="thread-1",
-        gmail_connection_id="gmail-1",
-    )
-
-    assert source is not None
-    assert source["message_id"] == "message-1"
-
-
-def test_exact_time_booking_uses_contact_timezone_and_source_mailbox(
+def test_exact_time_booking_uses_calendar_timezone_and_source_mailbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     connection_id = uuid4()
-    lead = SimpleNamespace(id=uuid4(), phone="+923016057779", geography=None)
+    lead = SimpleNamespace(id=uuid4())
     workspace_id = uuid4()
     gmail_connection_id = str(uuid4())
     captured: list[ConfirmMeetingRequest] = []
 
     class Calendar:
         def primary_calendar(self):
-            return {"timeZone": "UTC"}
+            return {"timeZone": "Asia/Karachi"}
 
     monkeypatch.setattr(
         meeting_email,
@@ -629,10 +285,6 @@ def test_exact_time_booking_uses_contact_timezone_and_source_mailbox(
         "lead_agent.api.routes.meetings.confirm_meeting",
         confirm,
     )
-    reference = datetime.now(UTC) + timedelta(days=2)
-    requested_date = requested_meeting_date(
-        "tomorrow", reference=reference, time_zone="Asia/Karachi"
-    )
 
     booked = meeting_email._attempt_requested_time_booking(
         object(),  # type: ignore[arg-type]
@@ -641,16 +293,13 @@ def test_exact_time_booking_uses_contact_timezone_and_source_mailbox(
         "actor-1",
         "source-message-1",
         gmail_connection_id,
-        "How does tomorrow 12 pm sound?",
-        reference,
+        "November 6, 2026 at 2:30 PM",
+        datetime(2026, 10, 5, 12, tzinfo=UTC),
     )
 
     assert booked is True
     assert len(captured) == 1
-    assert requested_date is not None
-    assert captured[0].start_at.isoformat() == (
-        f"{requested_date.isoformat()}T12:00:00+05:00"
-    )
+    assert captured[0].start_at.isoformat() == "2026-11-06T14:30:00+05:00"
     assert str(captured[0].source_gmail_connection_id) == gmail_connection_id
 
 
@@ -782,7 +431,7 @@ def test_exact_calendly_booking_skips_disconnected_event_type(
 
     booked = meeting_email._attempt_requested_time_booking(
         object(),  # type: ignore[arg-type]
-        SimpleNamespace(id=uuid4(), time_zone="UTC"),  # type: ignore[arg-type]
+        SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
         uuid4(),
         "actor-1",
         "source-message-1",
@@ -1266,111 +915,6 @@ def test_gmail_refresh_retries_only_a_previously_confirmed_booking(
     assert captured[0][4:] == (offer, reply_id, 2)
 
 
-def test_gmail_reply_ai_ordinal_confirmation_books_the_selected_offer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    lead_id = uuid4()
-    workspace_id = uuid4()
-    gmail_connection_id = uuid4()
-    now = datetime.now(UTC)
-    reply_id = "gmail-reply-ordinal"
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
-    gmail_connection = SimpleNamespace(id=gmail_connection_id)
-    options = [
-        {
-            "start_at": (now + timedelta(days=1)).isoformat(),
-            "end_at": (now + timedelta(days=1, minutes=30)).isoformat(),
-            "time_zone": "UTC",
-            "event_type_name": "30 Minute Meeting",
-        },
-        {
-            "start_at": (now + timedelta(days=2)).isoformat(),
-            "end_at": (now + timedelta(days=2, minutes=30)).isoformat(),
-            "time_zone": "UTC",
-            "event_type_name": "30 Minute Meeting",
-        },
-    ]
-    offer = SimpleNamespace(
-        status="awaiting_confirmation",
-        details={
-            "thread_id": "gmail-thread-ordinal",
-            "gmail_connection_id": str(gmail_connection_id),
-            "source_message_id": "gmail-source-ordinal",
-            "outbound_message_id": "gmail-offer-ordinal",
-            "offered_at": (now - timedelta(minutes=10)).isoformat(),
-            "options": options,
-        },
-    )
-    message = {
-        "message_id": reply_id,
-        "thread_id": "gmail-thread-ordinal",
-        "direction": "inbound",
-        "sender": "buyer@example.test",
-        "body": "Sure, the 2nd one.",
-        "sent_at": now.isoformat(),
-    }
-
-    class ReplySession:
-        def __init__(self) -> None:
-            self.scalar_results = [lead_id]
-            self.scalars_results = [[], [offer], []]
-            self.added: list[object] = []
-
-        def scalar(self, _statement):
-            return self.scalar_results.pop(0)
-
-        def scalars(self, _statement):
-            return iter(self.scalars_results.pop(0))
-
-        def add(self, value) -> None:
-            self.added.append(value)
-
-        def flush(self) -> None:
-            pass
-
-        def commit(self) -> None:
-            pass
-
-    class Classifier:
-        provider_name = "test"
-
-        def classify_meeting_reply(self, payload: dict[str, object]) -> dict[str, object]:
-            assert payload["reply"] == "Sure, the 2nd one."
-            return {
-                "intent": "confirm",
-                "option_number": 2,
-                "confidence": 0.99,
-                "evidence": "the 2nd one",
-            }
-
-    captured: list[tuple[object, ...]] = []
-    monkeypatch.setattr(
-        meeting_email,
-        "resolve_workspace_reasoning_provider",
-        lambda *_args, **_kwargs: Classifier(),
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "_book_selected_option",
-        lambda *args: captured.append(args) or "booked",
-    )
-
-    result = meeting_email.process_gmail_meeting_thread(
-        ReplySession(),  # type: ignore[arg-type]
-        workspace_id=workspace_id,
-        lead=lead,  # type: ignore[arg-type]
-        gmail_connection=gmail_connection,  # type: ignore[arg-type]
-        messages=[message],
-        actor_id="workspace-owner",
-    )
-
-    assert result == "booked"
-    assert len(captured) == 1
-    assert captured[0][4:] == (offer, reply_id, 2)
-    assert offer.details["reply_classifications"][reply_id]["intent"] == "confirm"
-    assert offer.details["reply_classifications"][reply_id]["option_number"] == 2
-
-
 def test_confirmed_booking_retry_stops_after_a_newer_lead_reply() -> None:
     reply_at = datetime.now(UTC)
     details = {
@@ -1401,36 +945,6 @@ def test_confirmed_booking_retry_stops_after_a_newer_lead_reply() -> None:
         )
         is None
     )
-
-
-def test_confirmed_booking_retry_reuses_ai_interpretation_for_an_ordinal_reply() -> None:
-    reply_at = datetime.now(UTC)
-    details = {
-        "reply_message_id": "reply-1",
-        "selected_option": 2,
-        "options": [{}, {}, {}],
-        "reply_classifications": {
-            "reply-1": {
-                "intent": "confirm",
-                "option_number": 2,
-                "confidence": 0.99,
-                "source": "ai",
-            }
-        },
-    }
-    messages = [
-        {
-            "message_id": "reply-1",
-            "direction": "inbound",
-            "sender": "buyer@example.test",
-            "body": "Sure, the second one.",
-            "sent_at": reply_at.isoformat(),
-        }
-    ]
-
-    assert meeting_email._confirmed_booking_retry(
-        details, messages, "buyer@example.test"
-    ) == ("reply-1", 2)
 
 
 def test_confirmed_booking_retry_stops_when_choice_also_requests_other_times() -> None:

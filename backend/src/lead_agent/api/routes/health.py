@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from lead_agent import __version__
 from lead_agent.api.schemas import HealthResponse
 from lead_agent.infrastructure.db.session import get_db
-from lead_agent.infrastructure.db.schema_check import require_current_schema
 from lead_agent.infrastructure.observability import get_observability
 from lead_agent.settings.config import Settings, get_settings
 
@@ -26,12 +25,6 @@ def readiness(
     try:
         session.execute(text("SELECT 1"))
         components["postgresql"] = "ok"
-        if settings.app_env == "production":
-            try:
-                require_current_schema(session.connection())
-                components["schema"] = "ok"
-            except Exception:
-                components["schema"] = "unavailable"
     except Exception:
         components["postgresql"] = "unavailable"
     if settings.redis_required:

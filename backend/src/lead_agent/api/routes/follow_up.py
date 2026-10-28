@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.elements import ColumnElement
 
 from lead_agent.api.dependencies import require_permission
 from lead_agent.application.follow_up import (
@@ -35,25 +34,13 @@ class FollowUpEdit(BaseModel):
         return value
 
 
-def _response(
-    row: LeadFollowUpEmailORM | None,
-    *,
-    fallback_recipient: str | None = None,
-) -> dict[str, object] | None:
+def _response(row: LeadFollowUpEmailORM | None) -> dict[str, object] | None:
     if row is None:
         return None
     return {
         "id": str(row.id),
         "lead_id": str(row.lead_id),
-        "kind": row.kind,
-        "recipient": (
-            row.recipient.strip()
-            or (
-                fallback_recipient.strip()
-                if row.status == "draft" and fallback_recipient
-                else ""
-            )
-        ),
+        "recipient": row.recipient,
         "subject": row.subject,
         "body": row.body,
         "rationale": row.rationale,
@@ -71,14 +58,6 @@ def _response(
     }
 
 
-def _follow_up_kind_filter() -> ColumnElement[bool]:
-    return or_(
-        LeadFollowUpEmailORM.kind == "ai_follow_up",
-        LeadFollowUpEmailORM.kind.like("ai_follow_up:%"),
-        LeadFollowUpEmailORM.kind.like("meeting_options:%"),
-    )
-
-
 def _lead(session: Session, lead_id: UUID, workspace_id: UUID) -> LeadORM:
     row = session.scalar(
         select(LeadORM).where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace_id)
@@ -94,16 +73,16 @@ def get_follow_up(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> dict[str, object] | None:
-    lead = _lead(session, lead_id, workspace.workspace_id)
+    _lead(session, lead_id, workspace.workspace_id)
     row = session.scalar(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            _follow_up_kind_filter(),
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
         .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
     )
-    return _response(row, fallback_recipient=lead.email)
+    return _response(row)
 
 
 @router.get("/{lead_id}/follow-up/history")
@@ -112,22 +91,18 @@ def get_follow_up_history(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> list[dict[str, object]]:
-    lead = _lead(session, lead_id, workspace.workspace_id)
+    _lead(session, lead_id, workspace.workspace_id)
     rows = session.scalars(
         select(LeadFollowUpEmailORM)
         .where(
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            _follow_up_kind_filter(),
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
         .order_by(LeadFollowUpEmailORM.created_at.desc(), LeadFollowUpEmailORM.id.desc())
         .limit(100)
     ).all()
-    return [
-        response
-        for row in rows
-        if (response := _response(row, fallback_recipient=lead.email)) is not None
-    ]
+    return [response for row in rows if (response := _response(row)) is not None]
 
 
 @router.post("/{lead_id}/follow-up/draft")
@@ -152,27 +127,25 @@ def update_follow_up_draft(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> dict[str, object]:
-    lead = _lead(session, lead_id, workspace.workspace_id)
+    _lead(session, lead_id, workspace.workspace_id)
     row = session.scalar(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.id == draft_id,
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            _follow_up_kind_filter(),
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Follow-up draft not found")
     if row.status != "draft":
         raise HTTPException(status_code=409, detail="Only an unsent draft can be edited")
-    if not row.recipient.strip() and lead.email:
-        row.recipient = lead.email.strip()
     row.subject = request.subject
     row.body = request.body
     row.updated_at = datetime.now(UTC)
     session.commit()
     session.refresh(row)
-    return _response(row, fallback_recipient=lead.email) or {}
+    return _response(row) or {}
 
 
 @router.post("/{lead_id}/follow-up/{draft_id}/send")
@@ -188,7 +161,7 @@ def approve_and_send_follow_up(
             LeadFollowUpEmailORM.id == draft_id,
             LeadFollowUpEmailORM.lead_id == lead_id,
             LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
-            _follow_up_kind_filter(),
+            or_(LeadFollowUpEmailORM.kind == "ai_follow_up", LeadFollowUpEmailORM.kind.like("ai_follow_up:%")),
         )
     )
     if row is None:

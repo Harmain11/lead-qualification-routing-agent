@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClientId } from "../clientIds";
-import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave, type Company, type Contact } from "../operationsApi";
+import "./RecordsView.css";
 type Touch = {
   id: string;
   source: string;
@@ -65,7 +65,6 @@ export function RecordsView({
   const [total, setTotal] = useState(0);
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<Form | null>(null);
@@ -153,14 +152,12 @@ export function RecordsView({
     window.addEventListener("corral-record-target", target);
     return () => window.removeEventListener("corral-record-target", target);
   }, [mode]);
-  async function act(task: () => Promise<unknown>, successMessage?: string) {
+  async function act(task: () => Promise<unknown>) {
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       await task();
       setRevision((value) => value + 1);
-      if (successMessage) setNotice(successMessage);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Unable to complete action",
@@ -175,9 +172,6 @@ export function RecordsView({
     );
   }
   function edit(item: Contact | Company) {
-    setError("");
-    setNotice("");
-    setDetail(null);
     const value = blank();
     value.id = item.id;
     value.name = item.name;
@@ -199,27 +193,6 @@ export function RecordsView({
     }
     setForm(value);
   }
-  function enrichCompany(company: Company) {
-    if (!company.website || !company.website_reviewed) {
-      if (!canEdit) {
-        setError(
-          "An editor must add the official company page and mark it reviewed before AI enrichment can run.",
-        );
-        return;
-      }
-      edit(company);
-      setNotice(
-        company.website
-          ? "Review the official page, mark it reviewed, and save before requesting AI enrichment."
-          : "Add the official company page and mark it reviewed before requesting AI enrichment.",
-      );
-      return;
-    }
-    void act(
-      () => opsSave(`/v1/intelligence/companies/${company.id}/research`, {}),
-      "Enrichment draft created. Review its cited suggestions in Intelligence before applying them.",
-    );
-  }
   async function save() {
     if (!form) return;
     const body =
@@ -234,19 +207,16 @@ export function RecordsView({
           }
         : {
             name: form.name,
-            domain: form.domain.trim().toLowerCase() || null,
+            domain: form.domain || null,
             website: form.website || null,
             website_reviewed: form.website_reviewed,
             industry: form.industry || null,
           };
-    await act(
-      async () => {
-        await opsSave(`/v1/records/${mode}/${form.id}`, body, "PUT");
-        setForm(null);
-        setDetail(null);
-      },
-      mode === "companies" ? "Company details saved." : "Contact details saved.",
-    );
+    await act(async () => {
+      await opsSave(`/v1/records/${mode}/${form.id}`, body, "PUT");
+      setForm(null);
+      setDetail(null);
+    });
   }
   const companyById = useMemo(
     () => new Map(companies.map((company) => [company.id, company])),
@@ -273,7 +243,7 @@ export function RecordsView({
         {
           key: "needs-enrichment",
           label: "Needs enrichment",
-          description: "Add details manually or enrich a reviewed website",
+          description: "Add domain or industry",
           items: companiesInView.filter(
             (item) => !item.website_reviewed && !item.website,
           ),
@@ -336,42 +306,11 @@ export function RecordsView({
               <span>{companyItem.domain || "No domain"}</span>
               <span>{companyItem.industry || "Industry not set"}</span>
               <span className={companyItem.website_reviewed ? "records-status is-good" : "records-status"}>
-                {companyItem.website_reviewed
-                  ? "Website reviewed"
-                  : companyItem.website
-                    ? "Needs website review"
-                    : "Needs enrichment"}
+                {companyItem.website_reviewed ? "Website reviewed" : "Needs review"}
               </span>
             </>
           )}
         </div>
-        {mode === "companies" && (
-          <div className="records-card-actions">
-            {canEdit && (
-              <button
-                className="records-card-action"
-                disabled={busy}
-                aria-label={`Enter or edit ${companyItem.name} details manually`}
-                onClick={() => edit(companyItem)}
-              >
-                Manual entry
-              </button>
-            )}
-            {canResearch && (
-              <button
-                className="records-card-action is-enrich"
-                disabled={busy}
-                onClick={() => enrichCompany(companyItem)}
-              >
-                {companyItem.website_reviewed && companyItem.website
-                  ? "Enrich with AI"
-                  : companyItem.website
-                    ? "Review page to enrich"
-                    : "Add website to enrich"}
-              </button>
-            )}
-          </div>
-        )}
         <button className="records-card-footer" onClick={() => void open(item.id)}>
           View {recordLabel} <span aria-hidden="true">→</span>
         </button>
@@ -392,7 +331,7 @@ export function RecordsView({
         </div>
         {canEdit && (
           <div className="records-head-actions" role="group" aria-label={`${recordLabel} actions`}>
-            <button className="records-add-button" onClick={() => { setError(""); setNotice(""); setForm(blank()); }}>
+            <button className="records-add-button" onClick={() => { setError(""); setForm(blank()); }}>
               Add {recordLabel} <span aria-hidden="true">+</span>
             </button>
           </div>
@@ -400,19 +339,17 @@ export function RecordsView({
       </header>
       <nav className="records-view-tabs" aria-label={`${recordLabelPlural} views`}>
         <button className={savedView === "all" ? "is-active" : ""} onClick={() => setSavedView("all")} aria-pressed={savedView === "all"}>
-          All {recordLabelPlural} <strong>{total}</strong>
+          <span aria-hidden="true">▦</span> All {recordLabelPlural} <strong>{total}</strong>
         </button>
         <button className={savedView === "mine" ? "is-active" : ""} onClick={() => setSavedView("mine")} aria-pressed={savedView === "mine"}>
-          My {recordLabelPlural}
+          <span aria-hidden="true">▧</span> My {recordLabelPlural}
         </button>
+        <button className="records-add-view" aria-label="Create saved view" title="Create saved view">+</button>
       </nav>
       {error && (
         <p role="alert" className="team-alert">
           {error}
         </p>
-      )}
-      {notice && !form && !detail && (
-        <p role="status" className="records-notice">{notice}</p>
       )}
       <div className="records-toolbar">
         <label className="records-search">
@@ -429,17 +366,17 @@ export function RecordsView({
           />
         </label>
         <button className={`records-filter-button ${filtersOpen ? "is-active" : ""}`} onClick={() => setFiltersOpen((value) => !value)}>
-          <Icon name="filter" size={16} /> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
+          <span aria-hidden="true">☷</span> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
         </button>
         <button className="records-filter-button" onClick={() => setFiltersOpen(true)}>
-          <Icon name="chevronUpDown" size={16} /> Sort by
+          <span aria-hidden="true">↕</span> Sort by
         </button>
         <div className="records-toolbar-spacer" />
         <div className="records-view-switcher" role="group" aria-label="View mode">
-          <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}><Icon name="layers" size={16} /> Board</button>
-          <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}><Icon name="dashboard" size={16} /> Table</button>
+          <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}>▦ Board</button>
+          <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}>▤ Table</button>
         </div>
-        <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}><Icon name="refresh" size={18} /></button>
+        <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}>↻</button>
       </div>
       {filtersOpen && (
         <div className="records-filter-panel">
@@ -487,7 +424,7 @@ export function RecordsView({
                     <span aria-hidden="true">{expandedColumns[column.key] ? "↑" : "↓"}</span>
                   </button>
                 )}
-                {canEdit && <button className="records-add-inline" onClick={() => { setError(""); setNotice(""); setForm(blank()); }}>+ {mode === "contacts" ? "Contact" : "Company"}</button>}
+                {canEdit && <button className="records-add-inline" onClick={() => { setError(""); setForm(blank()); }}>+ {mode === "contacts" ? "Contact" : "Company"}</button>}
               </div>
             </div>
           ))}
@@ -623,12 +560,6 @@ export function RecordsView({
                 {error}
               </p>
             )}
-            {notice && <p role="status" className="records-notice">{notice}</p>}
-            {mode === "companies" && (
-              <p className="records-form-help">
-                Enter company details manually, or add its official page and mark it reviewed to request a cited AI enrichment draft. Suggestions stay in Intelligence for your approval.
-              </p>
-            )}
             <label>
               Name
               <input
@@ -708,7 +639,7 @@ export function RecordsView({
                     onChange={(event) =>
                       setForm({
                         ...form,
-                        domain: event.target.value,
+                        domain: event.target.value.toLowerCase(),
                       })
                     }
                     placeholder="company.com"
@@ -773,7 +704,6 @@ export function RecordsView({
               {error}
             </p>
           )}
-          {notice && <p role="status" className="records-notice">{notice}</p>}
           <div className="ops-panel">
             <p>{detail.contact?.email || detail.company?.domain}</p>
             {detail.company && (
@@ -782,36 +712,28 @@ export function RecordsView({
                 {detail.company.industry || "Industry unknown"}
               </p>
             )}
-            {mode === "companies" && detail.company && (
-              <div className="records-detail-actions">
-                {canEdit && (
-                  <button
-                    className="secondary-button"
-                    disabled={busy}
-                    onClick={() => edit(detail.company!)}
-                  >
-                    Enter details manually
-                  </button>
-                )}
-                {canResearch && (
-                  <button
-                    className="primary-button"
-                    disabled={busy}
-                    onClick={() => enrichCompany(detail.company!)}
-                  >
-                    {detail.company.website_reviewed && detail.company.website
-                      ? "Enrich with AI"
-                      : detail.company.website
-                        ? "Review page to enrich"
-                        : "Add website to enrich"}
-                  </button>
-                )}
-              </div>
+            {mode === "companies" && detail.company && canResearch && (
+              <button
+                className="primary-button"
+                disabled={busy || !detail.company.website_reviewed}
+                onClick={() =>
+                  void act(() =>
+                    opsSave(
+                      `/v1/intelligence/companies/${detail.company!.id}/research`,
+                      {},
+                    ),
+                  )
+                }
+              >
+                Research reviewed website
+              </button>
             )}
-            {mode === "companies" && detail.company && canResearch &&
-              (!detail.company.website || !detail.company.website_reviewed) && (
+            {mode === "companies" &&
+              detail.company &&
+              !detail.company.website_reviewed && (
                 <p className="ops-muted">
-                  Add the official HTTPS page and mark it reviewed before requesting AI enrichment. Suggestions appear in Intelligence for approval.
+                  Edit this company and review its official page to enable
+                  research. Results appear in Intelligence for review.
                 </p>
               )}
             {detail.contacts && (

@@ -33,75 +33,6 @@ from lead_agent.infrastructure.db.models import (
 
 ExportFormat = Literal["csv", "xlsx", "pdf"]
 ExportScope = Literal["current_filters", "selected", "all"]
-ExportColumn = Literal[
-    "lead_name",
-    "company",
-    "email",
-    "source",
-    "received_date",
-    "service_interest",
-    "icp_score",
-    "intent_score",
-    "engagement_score",
-    "total_score",
-    "qualification_band",
-    "icp_version",
-    "routing_queue",
-    "assigned_representative",
-    "priority",
-    "crm_provider",
-    "crm_sync_state",
-    "provider_record_id",
-    "opportunity_value",
-    "revenue_value",
-    "summary",
-    "recommended_action",
-    "phone",
-    "job_title",
-    "industry",
-    "employee_count",
-    "annual_revenue",
-    "geography",
-    "budget",
-    "source_detail",
-    "inquiry_message",
-]
-DEFAULT_EXPORT_COLUMNS: tuple[ExportColumn, ...] = (
-    "lead_name",
-    "company",
-    "email",
-    "source",
-    "received_date",
-    "service_interest",
-    "icp_score",
-    "intent_score",
-    "engagement_score",
-    "total_score",
-    "qualification_band",
-    "icp_version",
-    "routing_queue",
-    "assigned_representative",
-    "priority",
-    "crm_provider",
-    "crm_sync_state",
-    "provider_record_id",
-    "opportunity_value",
-    "revenue_value",
-    "summary",
-    "recommended_action",
-)
-EXPORT_COLUMNS: tuple[ExportColumn, ...] = (
-    *DEFAULT_EXPORT_COLUMNS,
-    "phone",
-    "job_title",
-    "industry",
-    "employee_count",
-    "annual_revenue",
-    "geography",
-    "budget",
-    "source_detail",
-    "inquiry_message",
-)
 
 
 class LeadExportFilters(BaseModel):
@@ -130,17 +61,9 @@ class LeadExportRequest(BaseModel):
     scope: ExportScope = "current_filters"
     filters: LeadExportFilters = Field(default_factory=LeadExportFilters)
     selected_lead_ids: list[UUID] = Field(default_factory=list, max_length=5000)
-    columns: list[ExportColumn] = Field(
-        default_factory=lambda: list(DEFAULT_EXPORT_COLUMNS),
-        max_length=len(EXPORT_COLUMNS),
-    )
 
     @model_validator(mode="after")
     def validate_scope(self) -> LeadExportRequest:
-        if not self.columns:
-            raise ValueError("At least one export column must be selected")
-        if len(set(self.columns)) != len(self.columns):
-            raise ValueError("Export columns must be unique")
         if self.scope == "selected" and not self.selected_lead_ids:
             raise ValueError("selected scope requires at least one lead")
         if self.scope != "selected" and self.selected_lead_ids:
@@ -172,15 +95,6 @@ class ExportLeadRecord:
     revenue_value: float | None
     summary: str
     recommended_action: str
-    phone: str = ""
-    job_title: str = ""
-    industry: str = ""
-    employee_count: int | None = None
-    annual_revenue: float | None = None
-    geography: str = ""
-    budget: float | None = None
-    source_detail: str = ""
-    inquiry_message: str = ""
 
     @classmethod
     def headings(cls) -> list[str]:
@@ -207,15 +121,6 @@ class ExportLeadRecord:
             "Revenue Value",
             "AI / Grounded Summary",
             "Recommended Action / Action Plan",
-            "Phone",
-            "Job Title",
-            "Industry",
-            "Employee Count",
-            "Company Annual Revenue",
-            "Geography",
-            "Budget",
-            "Source Detail",
-            "Original Inquiry",
         ]
 
     def values(self) -> list[Any]:
@@ -242,15 +147,6 @@ class ExportLeadRecord:
             self.revenue_value,
             self.summary,
             self.recommended_action,
-            self.phone,
-            self.job_title,
-            self.industry,
-            self.employee_count,
-            self.annual_revenue,
-            self.geography,
-            self.budget,
-            self.source_detail,
-            self.inquiry_message,
         ]
 
 
@@ -417,17 +313,6 @@ def canonical_records(rows: list[LeadORM], workspace_id: UUID) -> list[ExportLea
                 else None,
                 summary=" ".join(summary_parts) or "Not available",
                 recommended_action=str(action_plan.get("immediate_action", "Review lead")),
-                phone=row.phone or "",
-                job_title=row.job_title or "",
-                industry=row.industry or "",
-                employee_count=row.employee_count,
-                annual_revenue=float(row.annual_revenue)
-                if row.annual_revenue is not None
-                else None,
-                geography=row.geography or "",
-                budget=float(row.budget) if row.budget is not None else None,
-                source_detail=row.source_detail or "",
-                inquiry_message=row.message or "",
             )
         )
     return records
@@ -439,53 +324,29 @@ def _csv_safe(value: Any) -> Any:
     return value
 
 
-def _resolve_export_columns(columns: list[ExportColumn] | None) -> list[ExportColumn]:
-    selected = list(DEFAULT_EXPORT_COLUMNS if columns is None else columns)
-    if not selected:
-        raise ValueError("At least one export column must be selected")
-    if len(selected) != len(set(selected)):
-        raise ValueError("Export columns must be unique")
-    if any(column not in EXPORT_COLUMNS for column in selected):
-        raise ValueError("The export contains an unknown column")
-    return selected
-
-
-def render_csv(
-    records: list[ExportLeadRecord],
-    columns: list[ExportColumn] | None = None,
-) -> bytes:
-    selected = _resolve_export_columns(columns)
-    indexes = [EXPORT_COLUMNS.index(column) for column in selected]
-    headings = ExportLeadRecord.headings()
+def render_csv(records: list[ExportLeadRecord]) -> bytes:
     output = StringIO(newline="")
     writer = csv.writer(output, lineterminator="\r\n")
-    writer.writerow([headings[index] for index in indexes])
+    writer.writerow(ExportLeadRecord.headings())
     for record in records:
-        values = record.values()
-        writer.writerow([_csv_safe(values[index]) for index in indexes])
+        writer.writerow([_csv_safe(value) for value in record.values()])
     return output.getvalue().encode("utf-8-sig")
 
 
-def render_xlsx(
-    records: list[ExportLeadRecord],
-    columns: list[ExportColumn] | None = None,
-) -> bytes:
-    selected = _resolve_export_columns(columns)
-    indexes = [EXPORT_COLUMNS.index(column) for column in selected]
-    headings = ExportLeadRecord.headings()
+def render_xlsx(records: list[ExportLeadRecord]) -> bytes:
     workbook = Workbook()
     worksheet: Worksheet = workbook.worksheets[0]
     worksheet.title = "Leads"
-    worksheet.append([headings[index] for index in indexes])
+    headings = ExportLeadRecord.headings()
+    worksheet.append(headings)
     for cell in worksheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F2933")
     for record in records:
-        values = record.values()
-        worksheet.append([_csv_safe(values[index]) for index in indexes])
+        worksheet.append([_csv_safe(value) for value in record.values()])
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
-    legacy_widths = [
+    widths = [
         22,
         22,
         28,
@@ -509,26 +370,13 @@ def render_xlsx(
         48,
         42,
     ]
-    width_by_column = dict(zip(DEFAULT_EXPORT_COLUMNS, legacy_widths))
-    width_by_column.update({
-        "phone": 18,
-        "job_title": 22,
-        "industry": 20,
-        "employee_count": 16,
-        "annual_revenue": 22,
-        "geography": 22,
-        "budget": 18,
-        "source_detail": 24,
-        "inquiry_message": 48,
-    })
-    for index, column in enumerate(selected, start=1):
-        worksheet.column_dimensions[get_column_letter(index)].width = width_by_column[column]
+    for index, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[get_column_letter(index)].width = width
     for row in worksheet.iter_rows(min_row=2):
-        for index, column in enumerate(selected):
-            if column in {"icp_score", "intent_score", "engagement_score", "total_score", "employee_count"}:
-                row[index].number_format = "0"
-            elif column in {"opportunity_value", "revenue_value", "annual_revenue", "budget"}:
-                row[index].number_format = "#,##0.00"
+        for index in (7, 8, 9, 10):
+            row[index - 1].number_format = "0"
+        for index in (19, 20):
+            row[index - 1].number_format = "#,##0.00"
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()
@@ -550,10 +398,7 @@ def render_pdf(
     workspace_name: str,
     actor_name: str,
     filters: LeadExportFilters,
-    columns: list[ExportColumn] | None = None,
 ) -> bytes:
-    selected = _resolve_export_columns(columns)
-    indexes = [EXPORT_COLUMNS.index(column) for column in selected]
     output = BytesIO()
     styles = getSampleStyleSheet()
     body = ParagraphStyle(
@@ -633,44 +478,62 @@ def render_pdf(
             body,
         )
     )
-    table_body = ParagraphStyle(
-        "export-table-body",
-        parent=body,
-        fontSize=max(4.5, 6.5 - max(0, len(selected) - 10) * 0.1),
-        leading=max(5.5, 8 - max(0, len(selected) - 10) * 0.12),
-    )
-    table_header = ParagraphStyle(
-        "export-table-header",
-        parent=header,
-        fontSize=max(4, 6 - max(0, len(selected) - 10) * 0.08),
-        leading=max(5, 7 - max(0, len(selected) - 10) * 0.1),
-    )
-    headings = ExportLeadRecord.headings()
-    table_data: list[list[Any]] = [
-        [_paragraph(headings[index], table_header) for index in indexes]
+    table_headings = [
+        "Lead / Company",
+        "Email",
+        "Source / Received",
+        "Service",
+        "Scores / ICP Version",
+        "Qualification",
+        "Queue / Rep",
+        "CRM",
+        "Opportunity / Revenue",
+        "Recommended Action",
     ]
+    table_data: list[list[Any]] = [[_paragraph(value, header) for value in table_headings]]
     for record in records:
-        values = record.values()
-        table_data.append([_paragraph(values[index], table_body) for index in indexes])
-    weight_by_column = {
-        "lead_name": 1.4,
-        "company": 1.3,
-        "email": 1.4,
-        "summary": 1.7,
-        "recommended_action": 1.7,
-        "inquiry_message": 1.7,
-        "source_detail": 1.3,
-        "job_title": 1.2,
-        "geography": 1.2,
-    }
-    weights = [weight_by_column.get(column, 1.0) for column in selected]
-    available_width = landscape(A4)[0] - 20 * mm
-    col_widths = [available_width * weight / sum(weights) for weight in weights]
+        table_data.append(
+            [
+                _paragraph(f"{record.lead_name}<br/>{record.company}", body),
+                _paragraph(record.email, body),
+                _paragraph(f"{record.source}<br/>{record.received_date}", body),
+                _paragraph(record.service_interest, body),
+                _paragraph(
+                    f"{record.icp_score if record.icp_score is not None else '-'} / "
+                    f"{record.intent_score if record.intent_score is not None else '-'} / "
+                    f"{record.engagement_score if record.engagement_score is not None else '-'} / "
+                    f"{record.total_score if record.total_score is not None else '-'}"
+                    f"<br/>ICP {record.icp_version}",
+                    body,
+                ),
+                _paragraph(record.qualification_band, body),
+                _paragraph(f"{record.routing_queue}<br/>{record.assigned_representative}", body),
+                _paragraph(f"{record.crm_provider}<br/>{record.crm_sync_state}", body),
+                _paragraph(
+                    f"{record.opportunity_value if record.opportunity_value is not None else '-'} "
+                    "/ "
+                    f"{record.revenue_value if record.revenue_value is not None else '-'}",
+                    body,
+                ),
+                _paragraph(record.recommended_action, body),
+            ]
+        )
     story.append(
         Table(
             table_data,
             repeatRows=1,
-            colWidths=col_widths,
+            colWidths=[
+                30 * mm,
+                28 * mm,
+                25 * mm,
+                25 * mm,
+                31 * mm,
+                22 * mm,
+                30 * mm,
+                25 * mm,
+                27 * mm,
+                45 * mm,
+            ],
             style=TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2933")),
@@ -727,21 +590,15 @@ def render_export(
     actor_name: str,
 ) -> tuple[bytes, str, str]:
     if request.format == "csv":
-        return render_csv(records, request.columns), "text/csv", "csv"
+        return render_csv(records), "text/csv", "csv"
     if request.format == "xlsx":
         return (
-            render_xlsx(records, request.columns),
+            render_xlsx(records),
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "xlsx",
         )
     return (
-        render_pdf(
-            records,
-            workspace_name,
-            actor_name,
-            _effective_filters(request),
-            request.columns,
-        ),
+        render_pdf(records, workspace_name, actor_name, _effective_filters(request)),
         "application/pdf",
         "pdf",
     )

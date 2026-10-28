@@ -42,7 +42,7 @@ def _message(message_id: str = "m-1", *, subject: str = "Pricing request") -> di
     }
 
 
-def test_outlook_is_coming_soon_read_only_and_has_no_send_scope() -> None:
+def test_outlook_is_marked_coming_soon_and_has_no_send_scope() -> None:
     setup = PROVIDER_SETUP["outlook"]
     assert setup.availability == "future"
     assert setup.required_scopes == OUTLOOK_SCOPES

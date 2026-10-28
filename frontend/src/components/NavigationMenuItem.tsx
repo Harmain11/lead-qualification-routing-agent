@@ -9,7 +9,7 @@ const integrationGroups = [
   { id: "crm", label: "CRM", providers: ["salesforce", "hubspot", "gohighlevel"] },
   { id: "notifications", label: "Notifications", providers: ["slack"] },
   { id: "ai", label: "AI", providers: ["ai"] },
-  { id: "calling", label: "Calling", providers: ["twilio", "aircall", "ringcentral", "vapi", "retell", "cloudtalk"] },
+  { id: "calling", label: "Calling", providers: ["twilio", "aircall", "ringcentral", "vapi", "retell"] },
   { id: "social", label: "Social", providers: ["instagram", "messenger", "whatsapp_business", "clutch"] },
   { id: "other", label: "Other", providers: ["linkedin"] },
 ] as const;
@@ -21,8 +21,7 @@ export type NavigationMenuItemProps = {
   activeChild?: string;
   collapsed?: boolean;
   enabled?: boolean;
-  notificationCount?: number;
-  notificationLabel?: string;
+  badge?: number;
   onNavigate: (childId?: string) => void;
 };
 
@@ -33,15 +32,11 @@ export function NavigationMenuItem({
   activeChild,
   collapsed = false,
   enabled = true,
-  notificationCount = 0,
-  notificationLabel = "New activity",
+  badge,
   onNavigate,
 }: NavigationMenuItemProps) {
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
-  const hasNotification = notificationCount > 0;
-  const visibleNotificationCount =
-    notificationCount > 99 ? "99+" : String(notificationCount);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -49,8 +44,6 @@ export function NavigationMenuItem({
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const childRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const escapeDismissal = useRef(false);
-  const integrationItemsGroupId = useRef<string | null>(null);
-  const returningFromIntegrationItems = useRef(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -74,19 +67,7 @@ export function NavigationMenuItem({
   };
   const leaveMenu = () => {
     clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => setHovered(false), 300);
-  };
-  const enterIntegrationCategory = (groupId: string) => {
-    if (returningFromIntegrationItems.current) {
-      returningFromIntegrationItems.current = false;
-      const cameBackToSameCategory = integrationItemsGroupId.current === groupId;
-      integrationItemsGroupId.current = null;
-      if (cameBackToSameCategory) {
-        setHoveredIntegrationGroupId(null);
-        return;
-      }
-    }
-    setHoveredIntegrationGroupId(groupId);
+    leaveTimer.current = setTimeout(() => setHovered(false), 140);
   };
   useEffect(() => {
     const media = window.matchMedia("(max-width: 760px)");
@@ -105,11 +86,7 @@ export function NavigationMenuItem({
     setHoveredIntegrationGroupId(null);
   }, [enabled]);
   useEffect(() => {
-    if (!open) {
-      setHoveredIntegrationGroupId(null);
-      integrationItemsGroupId.current = null;
-      returningFromIntegrationItems.current = false;
-    }
+    if (!open) setHoveredIntegrationGroupId(null);
   }, [open]);
   useEffect(() => {
     if (item.id !== "integrations" || !activeChild) return;
@@ -146,8 +123,6 @@ export function NavigationMenuItem({
       setPinnedOpen(false);
       setFocused(false);
       setHovered(false);
-      integrationItemsGroupId.current = null;
-      returningFromIntegrationItems.current = false;
     };
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
@@ -183,8 +158,6 @@ export function NavigationMenuItem({
       setPinnedOpen(false);
       setHovered(false);
       setFocused(false);
-      integrationItemsGroupId.current = null;
-      returningFromIntegrationItems.current = false;
       triggerRef.current?.focus();
       return;
     }
@@ -212,8 +185,6 @@ export function NavigationMenuItem({
       setPinnedOpen(false);
       setHovered(false);
       setFocused(false);
-      integrationItemsGroupId.current = null;
-      returningFromIntegrationItems.current = false;
       onNavigate(child.id);
     }}
   >
@@ -241,7 +212,7 @@ export function NavigationMenuItem({
           role="tab"
           aria-selected={selectedIntegrationGroup?.id === group.id}
           className={`${selectedIntegrationGroup?.id === group.id ? "is-active" : ""}${hoveredIntegrationGroupId === group.id ? " is-hovered" : ""}`}
-          onMouseEnter={() => enterIntegrationCategory(group.id)}
+          onMouseEnter={() => setHoveredIntegrationGroupId(group.id)}
           onFocus={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
           onClick={() => { setHoveredIntegrationGroupId(group.id); setIntegrationGroupId(group.id); }}
         >
@@ -249,20 +220,7 @@ export function NavigationMenuItem({
           <b aria-hidden="true">›</b>
         </button>)}
       </div>
-      {displayedIntegrationGroup && <div
-        className="navigation-menu-mega-items"
-        role="tabpanel"
-        aria-label={`${displayedIntegrationGroup.label} providers`}
-        onMouseEnter={() => {
-          integrationItemsGroupId.current = displayedIntegrationGroup.id;
-          returningFromIntegrationItems.current = false;
-        }}
-        onMouseLeave={() => {
-          integrationItemsGroupId.current = displayedIntegrationGroup.id;
-          returningFromIntegrationItems.current = true;
-          setHoveredIntegrationGroupId(null);
-        }}
-      >
+      {displayedIntegrationGroup && <div className="navigation-menu-mega-items" role="tabpanel" aria-label={`${displayedIntegrationGroup.label} providers`}>
         {visibleChildren.map(renderChild)}
       </div>}
     </div> : visibleChildren.map(renderChild)}
@@ -284,26 +242,14 @@ export function NavigationMenuItem({
         className="navigation-menu-trigger"
         onClick={() => { setPinnedOpen(false); setFocused(false); setHovered(false); onNavigate(); }}
         aria-current={active ? "page" : undefined}
-        aria-label={
-          collapsed || hasNotification
-            ? `${item.label}${hasNotification ? `, ${notificationLabel}` : ""}`
-            : undefined
-        }
-        title={
-          hasNotification
-            ? `${item.label} — ${notificationLabel}`
-            : item.label
-        }
+        aria-label={collapsed ? item.label : undefined}
+        title={item.label}
       >
         <i className="navigation-menu-icon">{icon}</i>
         <span className="navigation-menu-label">
           {item.label}
         </span>
-        {hasNotification && (
-          <span className="navigation-menu-notification-count" aria-hidden="true">
-            {visibleNotificationCount}
-          </span>
-        )}
+        {typeof badge === "number" && badge > 0 && <b className="navigation-menu-badge">{badge}</b>}
       </button>
       {hasChildren && (
         <>

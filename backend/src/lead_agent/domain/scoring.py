@@ -6,12 +6,7 @@ from typing import cast
 
 from lead_agent.domain.analysis import AnalyzedField, LeadContextAnalysis
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
-from lead_agent.domain.models import (
-    NormalizedLead,
-    QualificationResult,
-    RecordedLeadEvidence,
-    ScoreLine,
-)
+from lead_agent.domain.models import NormalizedLead, QualificationResult, ScoreLine
 
 
 def _norm(value: str | None) -> str:
@@ -47,122 +42,6 @@ def _line(
     return ScoreLine(
         component, key, max(0, min(points, max_points)), max_points, reason, tuple(evidence)
     )
-
-
-_NEGATIVE_INTENT_SIGNALS = (
-    "not interested",
-    "no longer interested",
-    "not moving forward",
-    "no longer moving forward",
-    "do not contact",
-    "don't contact",
-    "do not follow up",
-    "don't follow up",
-    "declined the proposal",
-    "declined the offer",
-    "chose a competitor",
-    "selected another vendor",
-    "went with another vendor",
-    "closed lost",
-    "lost to a competitor",
-    "not a priority",
-    "no need",
-    "project cancelled",
-    "project canceled",
-    "project paused",
-    "put the project on hold",
-    "not proceeding",
-    "will not proceed",
-)
-_POSITIVE_INTENT_SIGNALS = (
-    "asked for a proposal",
-    "requested a proposal",
-    "asked for pricing",
-    "requested pricing",
-    "requested a demo",
-    "asked to schedule",
-    "wants to proceed",
-    "ready to proceed",
-    "ready to buy",
-    "wants to purchase",
-    "budget approved",
-    "moving forward",
-    "meeting confirmed",
-)
-_NEGATIVE_BUDGET_SIGNALS = (
-    "no budget",
-    "without a budget",
-    "budget unavailable",
-    "budget not approved",
-    "budget was not approved",
-    "budget rejected",
-)
-_POSITIVE_BUDGET_SIGNALS = (
-    "budget approved",
-    "budget allocated",
-    "budget confirmed",
-    "funds approved",
-)
-
-
-def _ordered_evidence(lead: NormalizedLead) -> list[RecordedLeadEvidence]:
-    return sorted(
-        lead.recorded_evidence,
-        key=lambda evidence: evidence.observed_at.timestamp()
-        if evidence.observed_at
-        else 0,
-    )
-
-
-def _latest_directional_evidence(
-    lead: NormalizedLead,
-) -> tuple[str | None, RecordedLeadEvidence | None]:
-    direction: str | None = None
-    latest: RecordedLeadEvidence | None = None
-    for evidence in _ordered_evidence(lead):
-        source = evidence.source.casefold()
-        stage = source.partition(":")[2]
-        text = _norm(evidence.text)
-        if source.startswith("manual_progress:") and stage == "lost":
-            direction = "negative"
-        elif source.startswith("manual_progress:") and stage in {
-            "converted",
-            "meeting_scheduled",
-        }:
-            direction = "positive"
-        elif _contains_any(text, _NEGATIVE_INTENT_SIGNALS):
-            direction = "negative"
-        elif _contains_any(text, _POSITIVE_INTENT_SIGNALS):
-            direction = "positive"
-        else:
-            continue
-        latest = evidence
-    return direction, latest
-
-
-def _latest_signal_state(
-    lead: NormalizedLead,
-    negative_signals: Iterable[str],
-    positive_signals: Iterable[str],
-) -> tuple[str | None, RecordedLeadEvidence | None]:
-    state: str | None = None
-    latest: RecordedLeadEvidence | None = None
-    for evidence in _ordered_evidence(lead):
-        text = _norm(evidence.text)
-        if _contains_any(text, negative_signals):
-            state = "negative"
-            latest = evidence
-        elif _contains_any(text, positive_signals):
-            state = "positive"
-            latest = evidence
-    return state, latest
-
-
-def _evidence_excerpt(evidence: RecordedLeadEvidence | None) -> str | None:
-    if evidence is None:
-        return None
-    excerpt = " ".join(evidence.text.split())
-    return excerpt[:240] if excerpt else None
 
 
 def find_hard_disqualifier(lead: NormalizedLead, icp: IcpConfig) -> tuple[str, str] | None:
@@ -226,31 +105,15 @@ def _field_evidence(field: AnalyzedField | None) -> tuple[str, ...]:
     return tuple(f"{item.source_field}: {item.excerpt}" for item in field.evidence)
 
 
-def _is_known_contact_value(value: str | None) -> bool:
-    normalized = _norm(value)
-    return normalized not in {
-        "",
-        "name not provided",
-        "company not provided",
-        "unknown",
-        "unknown company",
-        "n/a",
-        "not provided",
-        "unspecified",
-    }
-
-
 def qualify_lead(
     lead: NormalizedLead,
     icp: IcpConfig,
     routing: RoutingConfig,
     analysis: LeadContextAnalysis | None = None,
-    *,
-    include_icp: bool = True,
 ) -> QualificationResult:
     """Apply deterministic scoring, optionally using validated reasoning as evidence."""
 
-    disqualifier = find_hard_disqualifier(lead, icp) if include_icp else None
+    disqualifier = find_hard_disqualifier(lead, icp)
     if disqualifier:
         code, reason = disqualifier
         band = routing.band_for(0)
@@ -449,66 +312,33 @@ def qualify_lead(
         )
     )
 
-    budget_state, budget_evidence = _latest_signal_state(
-        lead, _NEGATIVE_BUDGET_SIGNALS, _POSITIVE_BUDGET_SIGNALS
-    )
-    budget_excerpt = (
-        _evidence_excerpt(budget_evidence) if budget_state == "negative" else None
-    )
-    budget_fit = (
-        lead.budget is not None
-        and float(lead.budget) >= icp.budget.minimum
-        and budget_state != "negative"
-    )
+    budget_fit = lead.budget is not None and float(lead.budget) >= icp.budget.minimum
     lines.append(
         _line(
             "icp_fit",
             "budget_fit",
             icp_points.get("budget_fit", 0) if budget_fit else 0,
             icp_points.get("budget_fit", 0),
-            (
-                "A recent update says the budget is unavailable or not approved."
-                if budget_state == "negative"
-                else f"Budget {'meets' if budget_fit else 'does not meet or is missing'} "
-                "the configured minimum."
-            ),
+            f"Budget {'meets' if budget_fit else 'does not meet or is missing'} "
+            "the configured minimum.",
             str(lead.budget) if lead.budget is not None else "budget missing",
-            *([budget_excerpt] if budget_excerpt else []),
         )
     )
 
     intent_points = points.get("intent_urgency", {})
-    text = _norm(
-        " ".join(
-            [
-                lead.message,
-                lead.product_or_service,
-                *(evidence.text for evidence in lead.recorded_evidence),
-            ]
-        )
-    )
-    interest_direction, interest_evidence = _latest_directional_evidence(lead)
-    interest_excerpt = _evidence_excerpt(interest_evidence)
-    negative_interest = interest_direction == "negative"
+    text = _norm(f"{lead.message} {lead.product_or_service}")
     analyzed_urgency = _analysis_field(analysis, "urgency")
     urgent = _contains_any(text, icp.scoring.signals.get("urgent", [])) or _field_signal(
         analyzed_urgency, ["high", "urgent", "immediate"]
     )
-    if negative_interest:
-        urgent = None
     lines.append(
         _line(
             "intent_urgency",
             "urgency",
             intent_points.get("urgency", 0) if urgent else 0,
             intent_points.get("urgency", 0),
-            (
-                "Recent sales evidence lowered current buying interest, so older urgency "
-                "signals are not counted."
-                if negative_interest
-                else f"Urgency signal {'found' if urgent else 'not found'}."
-            ),
-            urgent or (interest_excerpt if negative_interest else "no urgency signal"),
+            f"Urgency signal {'found' if urgent else 'not found'}.",
+            urgent or "no urgency signal",
             *_field_evidence(analyzed_urgency),
         )
     )
@@ -516,31 +346,14 @@ def qualify_lead(
     buying_stage = _contains_any(
         text, icp.scoring.signals.get("ready_to_buy", [])
     ) or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"])
-    if negative_interest:
-        buying_stage = None
-    elif interest_direction == "positive" and interest_evidence is not None:
-        source = interest_evidence.source.casefold()
-        stage = source.partition(":")[2]
-        if source.startswith("manual_progress:") and stage in {
-            "converted",
-            "meeting_scheduled",
-        }:
-            buying_stage = f"recorded {stage.replace('_', ' ')}"
-        elif _contains_any(_norm(interest_evidence.text), _POSITIVE_INTENT_SIGNALS):
-            buying_stage = buying_stage or "recent positive buying update"
     lines.append(
         _line(
             "intent_urgency",
             "buying_stage",
             intent_points.get("buying_stage", 0) if buying_stage else 0,
             intent_points.get("buying_stage", 0),
-            (
-                "Recent sales evidence lowered current buying interest, so older buying-stage "
-                "signals are not counted."
-                if negative_interest
-                else f"Ready-to-buy signal {'found' if buying_stage else 'not found'}."
-            ),
-            buying_stage or (interest_excerpt if negative_interest else "no ready-to-buy signal"),
+            f"Ready-to-buy signal {'found' if buying_stage else 'not found'}.",
+            buying_stage or "no ready-to-buy signal",
             *_field_evidence(analyzed_stage),
         )
     )
@@ -550,55 +363,36 @@ def qualify_lead(
         or _contains_any(text, icp.scoring.signals.get("budget", []))
         or _field_signal(analyzed_budget)
     )
-    if budget_state == "negative":
-        budget_signal = None
     lines.append(
         _line(
             "intent_urgency",
             "budget_signal",
             intent_points.get("budget_signal", 0) if budget_signal else 0,
             intent_points.get("budget_signal", 0),
-            (
-                "A recent update says the budget is unavailable or not approved."
-                if budget_state == "negative"
-                else f"Budget signal {'present' if budget_signal else 'absent'}."
-            ),
-            str(lead.budget)
-            if lead.budget is not None and budget_state != "negative"
-            else (budget_excerpt or "no budget signal")
-            if budget_state == "negative"
-            else "no budget signal",
+            f"Budget signal {'present' if budget_signal else 'absent'}.",
+            str(lead.budget) if lead.budget is not None else "no budget signal",
             *_field_evidence(analyzed_budget),
-            *([budget_excerpt] if budget_excerpt else []),
         )
     )
     analyzed_technical = _analysis_field(analysis, "technical_requirements")
     specific = _contains_any(
         text, icp.scoring.signals.get("specific_request", [])
     ) or _field_signal(analyzed_technical)
-    if negative_interest:
-        specific = None
     lines.append(
         _line(
             "intent_urgency",
             "specific_request",
             intent_points.get("specific_request", 0) if specific else 0,
             intent_points.get("specific_request", 0),
-            (
-                "Recent sales evidence lowered current buying interest, so older request signals "
-                "are not counted."
-                if negative_interest
-                else f"Specific request signal {'found' if specific else 'not found'}."
-            ),
-            specific or (interest_excerpt if negative_interest else "no specific request signal"),
+            f"Specific request signal {'found' if specific else 'not found'}.",
+            specific or "no specific request signal",
             *_field_evidence(analyzed_technical),
         )
     )
 
     engagement_points = points.get("engagement_quality", {})
     detail_max = engagement_points.get("message_detail", 0)
-    source_message = lead.original_message if lead.original_message is not None else lead.message
-    detail_ratio = min(len(source_message) / max(icp.scoring.message_detail_chars, 1), 1)
+    detail_ratio = min(len(lead.message) / max(icp.scoring.message_detail_chars, 1), 1)
     detail_score = round(detail_max * detail_ratio)
     lines.append(
         _line(
@@ -608,7 +402,7 @@ def qualify_lead(
             detail_max,
             f"Message detail earned {detail_score}/{detail_max} points based on length "
             "and specificity.",
-            f"{len(source_message)} original inquiry characters",
+            f"{len(lead.message)} characters",
         )
     )
     completeness_fields = [
@@ -618,7 +412,7 @@ def qualify_lead(
         lead.job_title,
         lead.phone,
     ]
-    completeness = sum(_is_known_contact_value(value) for value in completeness_fields)
+    completeness = sum(bool(value) for value in completeness_fields)
     completeness_max = engagement_points.get("contact_completeness", 0)
     completeness_score = round(completeness_max * completeness / len(completeness_fields))
     lines.append(
@@ -633,7 +427,7 @@ def qualify_lead(
     analyzed_pain = _analysis_field(analysis, "pain_point")
     pain = (
         _contains_any(text, icp.scoring.signals.get("pain_point", []))
-        or (_contains_any(text, icp.pain_points) if include_icp else None)
+        or _contains_any(text, icp.pain_points)
         or _field_signal(analyzed_pain)
     )
     lines.append(
@@ -659,13 +453,7 @@ def qualify_lead(
         )
     )
 
-    if not include_icp:
-        # Until a workspace publishes its own ICP, neither fit points nor
-        # system-default exclusions participate in qualification.
-        lines = [line for line in lines if line.component != "icp_fit"]
-    raw_total = sum(line.points for line in lines)
-    available_points = sum(line.max_points for line in lines)
-    total = round(raw_total * 100 / available_points) if available_points else 0
+    total = sum(line.points for line in lines)
     total = max(0, min(total, 100))
     band = routing.band_for(total)
     rationale = tuple(
@@ -673,11 +461,6 @@ def qualify_lead(
         f"{line.points}/{line.max_points} - {line.reason}"
         for line in lines
     )
-    if not include_icp:
-        rationale += (
-            "ICP fit was not scored because this workspace has no published custom ICP. "
-            "The overall score uses urgency and engagement only.",
-        )
     return QualificationResult(
         total_score=total,
         classification=band.key,

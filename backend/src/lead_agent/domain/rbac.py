@@ -23,7 +23,6 @@ PERMISSION_CATALOG: frozenset[str] = frozenset(
         "members.manage",
         "agents.view",
         "agents.execute",
-        "dialer.call",
         "crm.sync",
         "workspace.manage",
     }

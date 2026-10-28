@@ -481,12 +481,9 @@ def test_oauth_contract_stores_reference_without_returning_authorization_code(tm
                 "oauth",
                 "crm.objects.contacts.read",
                 "crm.objects.contacts.write",
-                "crm.schemas.contacts.read",
-                "crm.schemas.contacts.write",
             ]
             assert (
                 "scope=oauth+crm.objects.contacts.read+crm.objects.contacts.write"
-                "+crm.schemas.contacts.read+crm.schemas.contacts.write"
                 in started_body["authorization_url"]
             )
             completed = client.post(

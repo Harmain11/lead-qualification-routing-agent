@@ -31,7 +31,6 @@ def test_title_patch_is_explicit_local_edit_and_workspace_scoped(tmp_path) -> No
     now = datetime.now(UTC)
     lead = LeadORM(
         workspace_id=workspace_id,
-        lead_number=1,
         source="salesforce",
         source_detail="Web",
         external_id="00Q-test",
@@ -111,7 +110,6 @@ def test_title_patch_requires_leads_edit_permission(tmp_path) -> None:
     now = datetime.now(UTC)
     lead = LeadORM(
         workspace_id=workspace_id,
-        lead_number=1,
         source="website",
         source_detail=None,
         external_id=None,

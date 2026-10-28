@@ -1,10 +1,10 @@
 ---
 name: Integration account policy
-description: One active account per provider, with multiple Gmail mailboxes as an explicit exception.
+description: The user chose one account per provider.
 ---
 
-Use one active account per provider, except Gmail, where multiple mailboxes may stay connected and active at the same time.
+Use one active account per provider, not multiple simultaneous provider accounts.
 
-**Why:** The user selected multiple Gmail accounts for Corral while the existing one-account policy remains in place for other providers.
+**Why:** The user selected “No — use one account per provider.”
 
-**How to apply:** Keep Gmail mailboxes individually selectable and preserve each mailbox's history when reconnecting. Other providers should continue replacing the active account without deleting historical data.
+**How to apply:** Account selection and reconnection should replace the active account for that provider without deleting historical data.

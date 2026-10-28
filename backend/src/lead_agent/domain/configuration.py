@@ -305,17 +305,7 @@ class ScoreBand(BaseModel):
         return self
 
 
-class ManualReviewSettings(BaseModel):
-    personal_email: bool = True
-    missing_person_name: bool = True
-    missing_company_name: bool = True
-    low_confidence: bool = False
-    contradictory_evidence: bool = False
-    missing_qualification_information: bool = False
-    provider_failure: bool = False
-
-
-class ManualReviewConfig(ManualReviewSettings):
+class ManualReviewConfig(BaseModel):
     enabled: bool = True
     minimum_confidence: float = Field(default=0.75, ge=0, le=1)
     retry_limit_before_review: int = Field(default=3, ge=0)

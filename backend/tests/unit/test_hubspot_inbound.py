@@ -151,16 +151,9 @@ def test_hubspot_connection_validation_checks_active_token_scopes_and_read_probe
                 {
                     "active": True,
                     "hub_id": 9001,
-                    "scopes": [
-                        "oauth",
-                        "crm.objects.contacts.read",
-                        "crm.objects.contacts.write",
-                        "crm.schemas.contacts.read",
-                        "crm.schemas.contacts.write",
-                    ],
+                    "scopes": ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"],
                 },
             ),
-            Response(200, {"results": []}),
             Response(200, {"results": []}),
         ]
     )
@@ -171,13 +164,7 @@ def test_hubspot_connection_validation_checks_active_token_scopes_and_read_probe
     result = validator.validate(
         "hubspot",
         {"access_token": "test-access"},
-        [
-            "oauth",
-            "crm.objects.contacts.read",
-            "crm.objects.contacts.write",
-            "crm.schemas.contacts.read",
-            "crm.schemas.contacts.write",
-        ],
+        ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"],
     )
 
     assert result.verified
@@ -185,7 +172,6 @@ def test_hubspot_connection_validation_checks_active_token_scopes_and_read_probe
     assert transport.requests[0]["url"].endswith("/oauth/2026-09/token/introspect")
     assert transport.requests[1]["method"] == "GET"
     assert "contacts?limit=1" in transport.requests[1]["url"]
-    assert transport.requests[2]["url"].endswith("/crm/properties/2026-09/contacts")
 
 
 def test_hubspot_connection_validation_fails_closed_on_missing_write_scope() -> None:
@@ -198,9 +184,7 @@ def test_hubspot_connection_validation_fails_closed_on_missing_write_scope() -> 
     )
     with pytest.raises(ProviderOperationError) as caught:
         validator.validate(
-        "hubspot",
-        {"access_token": "test-access"},
-        ["crm.objects.contacts.read", "crm.schemas.contacts.read"],
+            "hubspot", {"access_token": "test-access"}, ["crm.objects.contacts.read"]
         )
     assert caught.value.category == "insufficient_permissions"
 
@@ -248,13 +232,7 @@ def test_hubspot_oauth_uses_shared_s256_and_versioned_exchange_refresh() -> None
         "state-value",
         "s256-challenge",
         "https://app.test/callback",
-        [
-            "oauth",
-            "crm.objects.contacts.read",
-            "crm.objects.contacts.write",
-            "crm.schemas.contacts.read",
-            "crm.schemas.contacts.write",
-        ],
+        ["oauth", "crm.objects.contacts.read", "crm.objects.contacts.write"],
     )
     tokens = broker.exchange(
         "hubspot", "temporary-code", "pkce-verifier", "https://app.test/callback"
@@ -263,10 +241,7 @@ def test_hubspot_oauth_uses_shared_s256_and_versioned_exchange_refresh() -> None
 
     assert "code_challenge=s256-challenge" in authorization_url
     assert "code_challenge_method=S256" in authorization_url
-    assert (
-        "scope=oauth+crm.objects.contacts.read+crm.objects.contacts.write"
-        "+crm.schemas.contacts.read+crm.schemas.contacts.write"
-    ) in authorization_url
+    assert "scope=oauth+crm.objects.contacts.read+crm.objects.contacts.write" in authorization_url
     assert captured[0].url.path == "/oauth/2026-09/token"
     assert b"code_verifier=pkce-verifier" in captured[0].content
     assert captured[1].url.path == "/oauth/2026-09/token"

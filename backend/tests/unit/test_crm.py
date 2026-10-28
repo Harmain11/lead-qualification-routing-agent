@@ -141,8 +141,7 @@ def test_canonical_crm_payload_contains_phase_1_to_4_decision_data(icp, routing,
         assert payload.internal_lead_id == lead.id
         assert payload.source_channel == "website"
         assert payload.qualification_score == lead.qualification.total_score
-        assert payload.icp_score is None
-        assert payload.icp_source == "not_configured"
+        assert payload.icp_score <= 40
         assert payload.intent_urgency_score <= 35
         assert payload.engagement_score <= 25
         assert payload.rationale
@@ -495,15 +494,6 @@ def test_salesforce_revoker_uses_oauth_revoke_endpoint_without_exposing_token() 
 def test_hubspot_contact_company_deal_mapping_and_associations(crm_config) -> None:
     transport = FakeTransport(
         [
-            FakeResponse(
-                200,
-                {
-                    "results": [
-                        {"name": "qualification_score", "type": "number"},
-                        {"name": "lead_agent_id", "type": "string"},
-                    ]
-                },
-            ),
             FakeResponse(200, {"results": [{"id": "contact-1"}]}),
             FakeResponse(200, {"results": [{"id": "company-1"}]}),
             FakeResponse(204),
@@ -530,8 +520,8 @@ def test_hubspot_contact_company_deal_mapping_and_associations(crm_config) -> No
         transport=transport,
     )
     result = provider.sync(canonical_payload())
-    contact_body = transport.requests[1]["json"]["inputs"][0]
-    deal_body = transport.requests[4]["json"]["inputs"][0]
+    contact_body = transport.requests[0]["json"]["inputs"][0]
+    deal_body = transport.requests[3]["json"]["inputs"][0]
     assert result.entities == CrmEntityReferences(
         contact_id="contact-1", company_id="company-1", opportunity_id="deal-1"
     )
@@ -546,7 +536,7 @@ def test_hubspot_contact_company_deal_mapping_and_associations(crm_config) -> No
 
 def test_hubspot_duplicate_prevention_uses_stable_upsert_identities(crm_config) -> None:
     config: HubSpotCrmConfig = crm_config.hubspot.model_copy(
-        update={"sync_company": False, "sync_deal": False, "contact_fields": {}}
+        update={"sync_company": False, "sync_deal": False}
     )
     transport = FakeTransport(
         [
@@ -571,90 +561,6 @@ def test_hubspot_duplicate_prevention_uses_stable_upsert_identities(crm_config) 
     assert second.entities.contact_id == "contact-1"
 
 
-def test_hubspot_creates_only_missing_contact_properties(crm_config) -> None:
-    config: HubSpotCrmConfig = crm_config.hubspot.model_copy(
-        update={
-            "sync_company": False,
-            "sync_deal": False,
-            "contact_fields": {
-                "summary": "lead_summary",
-                "qualification_score": "qualification_score",
-            },
-        }
-    )
-    transport = FakeTransport(
-        [
-            FakeResponse(
-                200,
-                {"results": [{"name": "lead_summary", "type": "string"}]},
-            ),
-            FakeResponse(201, {"name": "qualification_score"}),
-            FakeResponse(200, {"results": [{"id": "contact-1"}]}),
-        ]
-    )
-    provider = HubSpotCrmProvider(
-        access_token="private-app-token",
-        api_base_url="https://api.hubapi.test",
-        config=config,
-        transport=transport,
-    )
-
-    provider.sync(canonical_payload())
-
-    assert [request["method"] for request in transport.requests] == [
-        "GET",
-        "POST",
-        "POST",
-    ]
-    assert transport.requests[0]["url"].endswith(
-        "/crm/properties/2026-09/contacts"
-    )
-    created = transport.requests[1]
-    assert created["url"].endswith("/crm/properties/2026-09/contacts")
-    assert created["json"] == {
-        "groupName": "contactinformation",
-        "name": "qualification_score",
-        "label": "Qualification Score",
-        "type": "number",
-        "fieldType": "number",
-        "description": "Managed by Corral for lead qualification data.",
-    }
-    assert transport.requests[2]["url"].endswith(
-        "/crm/v3/objects/contacts/batch/upsert"
-    )
-
-
-def test_hubspot_does_not_overwrite_contact_property_with_wrong_type(crm_config) -> None:
-    config: HubSpotCrmConfig = crm_config.hubspot.model_copy(
-        update={
-            "sync_company": False,
-            "sync_deal": False,
-            "contact_fields": {"qualification_score": "qualification_score"},
-        }
-    )
-    transport = FakeTransport(
-        [
-            FakeResponse(
-                200,
-                {"results": [{"name": "qualification_score", "type": "string"}]},
-            )
-        ]
-    )
-    provider = HubSpotCrmProvider(
-        access_token="private-app-token",
-        api_base_url="https://api.hubapi.test",
-        config=config,
-        transport=transport,
-    )
-
-    with pytest.raises(CrmProviderError) as caught:
-        provider.sync(canonical_payload())
-
-    assert caught.value.code == "hubspot_property_type_mismatch"
-    assert "qualification_score" in str(caught.value)
-    assert len(transport.requests) == 1
-
-
 @pytest.mark.parametrize(
     ("status", "category", "retryable"),
     [(401, "authentication", False), (429, "rate_limit", True), (400, "validation", False)],
@@ -664,9 +570,7 @@ def test_hubspot_error_classification(status, category, retryable, crm_config) -
     provider = HubSpotCrmProvider(
         access_token="private-app-token",
         api_base_url="https://api.hubapi.test",
-        config=crm_config.hubspot.model_copy(
-            update={"sync_company": False, "sync_deal": False, "contact_fields": {}}
-        ),
+        config=crm_config.hubspot.model_copy(update={"sync_company": False, "sync_deal": False}),
         transport=transport,
     )
     with pytest.raises(CrmProviderError) as caught:
@@ -711,9 +615,7 @@ def test_cross_provider_contract_returns_canonical_entity_references(crm_config)
     hubspot = HubSpotCrmProvider(
         access_token="token",
         api_base_url="https://hubspot.test",
-        config=crm_config.hubspot.model_copy(
-            update={"sync_company": False, "sync_deal": False, "contact_fields": {}}
-        ),
+        config=crm_config.hubspot.model_copy(update={"sync_company": False, "sync_deal": False}),
         transport=hubspot_transport,
     )
     for provider in (MockCrmProvider(), salesforce, hubspot):

@@ -9,7 +9,6 @@ if [[ "${APP_ENV:-development}" == "production" ]]; then
 fi
 
 export APP_ENV=development
-export LOG_FORMAT=json
 export SECRET_STORE_PROVIDER=managed
 export MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend
 : "${SECRET_STORE_ENCRYPTION_KEY:?SECRET_STORE_ENCRYPTION_KEY must be configured in Replit Secrets}"

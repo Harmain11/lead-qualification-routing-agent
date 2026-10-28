@@ -12,12 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
-from lead_agent.application.meeting_email import (
-    can_replace_unbooked_offer,
-    create_selected_slot_offer_draft,
-)
+from lead_agent.application.governance import assert_outreach_allowed
 from lead_agent.application.meetings import (
-    _parse_provider_time,
     appointment_event_exists,
     find_meeting_request,
     meeting_description,
@@ -32,6 +28,7 @@ from lead_agent.infrastructure.calendar_providers import (
     CalendlyClient,
     GoogleCalendarClient,
 )
+from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE, GmailOutboundProvider
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM, ProviderConnectionORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.oauth import get_oauth_broker
@@ -41,9 +38,10 @@ from lead_agent.infrastructure.secrets import get_secret_store
 router = APIRouter(prefix="/v1/leads", tags=["lead-meetings"])
 MeetingProvider = Literal["google_calendar", "calendly"]
 MeetingOfferStatus = Literal[
-    "awaiting_send",
+    "draft",
     "sending",
     "awaiting_confirmation",
+    "awaiting_booking",
     "booking",
     "booked",
     "needs_attention",
@@ -69,12 +67,25 @@ class MeetingIntegrationState(BaseModel):
     connected: bool
     account_name: str | None = None
     message: str | None = None
+    booking_ready: bool = False
+    booking_url: str | None = None
+    booking_event_title: str | None = None
 
 
 class MeetingCalendlyEventType(BaseModel):
     event_type_uri: str
     event_type_name: str
     status: Literal["available", "no_times", "calendar_unavailable"]
+    scheduling_url: str | None = None
+
+
+class ScheduledMeetingSummary(BaseModel):
+    provider: MeetingProvider
+    title: str
+    start_at: datetime
+    end_at: datetime
+    time_zone: str
+    event_url: str | None = None
 
 
 class MeetingProviderError(BaseModel):
@@ -100,7 +111,11 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_booking_error: str | None = None
     offer_calendar_provider: MeetingProvider | None = None
     offer_has_confirmed_selection: bool = False
-    offer_can_be_replaced: bool = False
+    offer_email_subject: str | None = None
+    offer_email_body: str | None = None
+    offer_booking_url: str | None = None
+    offer_gmail_connection_id: str | None = None
+    scheduled_meeting: ScheduledMeetingSummary | None = None
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -132,6 +147,22 @@ class ConfirmMeetingRequest(BaseModel):
         return self
 
 
+class MeetingBookingDraftEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    source_message_id: str = Field(min_length=1, max_length=512)
+    source_gmail_connection_id: UUID | None = None
+    subject: str = Field(min_length=1, max_length=255)
+    body: str = Field(min_length=10, max_length=5000)
+
+
+class MeetingBookingDraftSendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    source_message_id: str = Field(min_length=1, max_length=512)
+    source_gmail_connection_id: UUID | None = None
+
+
 class ConfirmMeetingResponse(BaseModel):
     lead_id: UUID
     provider: MeetingProvider
@@ -143,11 +174,6 @@ class ConfirmMeetingResponse(BaseModel):
     end_at: datetime
     time_zone: str
     status: Literal["scheduled"]
-
-
-class MeetingOfferDraftResponse(BaseModel):
-    draft_id: UUID
-    status: Literal["draft"]
 
 
 def _lead_or_404(
@@ -162,6 +188,43 @@ def _lead_or_404(
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found.")
     return lead
+
+
+def _offer_for_source(
+    session: Session,
+    lead_id: UUID,
+    workspace_id: UUID,
+    source_message_id: str,
+    source_gmail_connection_id: UUID | None = None,
+) -> PipelineEventORM | None:
+    rows = session.scalars(
+        select(PipelineEventORM)
+        .where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.workspace_id == workspace_id,
+            PipelineEventORM.stage == "meeting_email_offer",
+        )
+        .order_by(PipelineEventORM.created_at.desc())
+        .limit(50)
+    )
+    return next(
+        (
+            row
+            for row in rows
+            if isinstance(row.details, dict)
+            and row.details.get("source_message_id") == source_message_id
+            and (
+                source_gmail_connection_id is None
+                or str(
+                    row.details.get("source_gmail_connection_id")
+                    or row.details.get("gmail_connection_id")
+                    or ""
+                )
+                == str(source_gmail_connection_id)
+            )
+        ),
+        None,
+    )
 
 
 def _workspace_calendar_connections(
@@ -191,16 +254,37 @@ def _integration_states(
     states: list[MeetingIntegrationState] = []
     for provider in ("google_calendar", "calendly"):
         connection = connections.get(provider)
+        metadata = (
+            connection.connection_metadata
+            if connection is not None and isinstance(connection.connection_metadata, dict)
+            else {}
+        )
+        booking_url = (
+            str(metadata.get("google_appointment_schedule_url") or "").strip()
+            if provider == "google_calendar"
+            else ""
+        )
+        event_title = (
+            str(metadata.get("google_appointment_schedule_title") or "").strip()
+            if provider == "google_calendar"
+            else ""
+        )
+        booking_ready = bool(connection and booking_url and event_title) if provider == "google_calendar" else False
         states.append(
             MeetingIntegrationState(
                 provider=provider,  # type: ignore[arg-type]
                 connected=connection is not None,
                 account_name=connection.account_name if connection else None,
                 message=(
-                    None
+                    "Add a Google Appointment Schedule link in Integrations."
+                    if connection and provider == "google_calendar" and not booking_ready
+                    else None
                     if connection
                     else "Connect this workspace’s account in Integrations."
                 ),
+                booking_ready=booking_ready,
+                booking_url=booking_url if booking_ready else None,
+                booking_event_title=event_title if booking_ready else None,
             )
         )
     return states
@@ -367,13 +451,9 @@ def get_meeting_recommendations(
     automation_message = (
         "Date-only requests get open times for that day. If the lead gives an exact "
         "date and time, Corral books it only when the calendar confirms it is free; "
-        "otherwise, Corral emails open options and books after the lead selects one."
+        "otherwise, Corral prepares a booking-link email draft for review."
     )
-    requested_text = source.get("excerpt", "")
-    requested_reference = _parse_provider_time(source.get("sent_at"))
-    requested_date = requested_meeting_date(
-        requested_text, reference=requested_reference
-    )
+    requested_date = requested_meeting_date(source.get("excerpt", ""))
     offer_details = (
         offer_event.details
         if offer_event is not None and isinstance(offer_event.details, dict)
@@ -402,10 +482,15 @@ def get_meeting_recommendations(
         else None
     )
     if offer_event is not None:
-        if offer_event.status == "awaiting_send":
+        if offer_event.status == "draft":
             automation_message = (
-                "An editable meeting email draft is ready in this lead’s Emails tab. "
-                "Send it after review; booking waits for the lead’s clear numbered reply."
+                "A booking-link email draft is ready for review. The lead can choose a "
+                "time directly on the connected provider’s booking page."
+            )
+        elif offer_event.status == "awaiting_booking":
+            automation_message = (
+                "The booking link was sent. Corral is checking the selected calendar "
+                "for a confirmed appointment."
             )
         elif offer_event.status == "awaiting_confirmation":
             automation_message = (
@@ -476,8 +561,6 @@ def get_meeting_recommendations(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
-                    requested_text=requested_text,
-                    reference=requested_reference,
                 )
             else:
                 slots = recommend_calendly_slots(
@@ -486,8 +569,6 @@ def get_meeting_recommendations(
                     source_message_id=source["message_id"],
                     source_gmail_connection_id=source.get("gmail_connection_id"),
                     requested_date=requested_date,
-                    requested_text=requested_text,
-                    reference=requested_reference,
                     event_type_statuses=calendly_event_types,
                 )
                 for slot in slots:
@@ -506,6 +587,54 @@ def get_meeting_recommendations(
                 )
             )
     suggestions.sort(key=lambda row: row.start_at)
+    integration_states = _integration_states(connections)
+    calendly_booking_type = next(
+        (item for item in calendly_event_types if item.get("scheduling_url")),
+        None,
+    )
+    if calendly_booking_type is not None:
+        integration_states = [
+            state.model_copy(
+                update={
+                    "booking_ready": True,
+                    "booking_url": str(calendly_booking_type["scheduling_url"]),
+                    "message": None,
+                }
+            )
+            if state.provider == "calendly"
+            else state
+            for state in integration_states
+        ]
+
+    scheduled_summary: ScheduledMeetingSummary | None = None
+    for event in session.scalars(
+        select(PipelineEventORM).where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.stage == "meeting_scheduled",
+        )
+    ):
+        details = event.details if isinstance(event.details, dict) else {}
+        if (
+            details.get("source_message_id") != source["message_id"]
+            or str(details.get("source_gmail_connection_id") or "")
+            != str(source.get("gmail_connection_id") or "")
+        ):
+            continue
+        try:
+            scheduled_summary = ScheduledMeetingSummary(
+                provider=details["provider"],
+                title=str(details.get("title") or f"Meeting with {lead.full_name}"),
+                start_at=datetime.fromisoformat(str(details["start_at"])),
+                end_at=datetime.fromisoformat(str(details["end_at"])),
+                time_zone=str(details.get("time_zone") or "UTC"),
+                event_url=str(details.get("event_url") or "") or None,
+            )
+        except (KeyError, TypeError, ValueError):
+            scheduled_summary = None
+        if scheduled_summary is not None:
+            break
+
     return MeetingRecommendationsResponse(
         lead_id=lead_id,
         detected=True,
@@ -518,7 +647,7 @@ def get_meeting_recommendations(
         ),
         source_subject=source["subject"] or None,
         source_excerpt=source["excerpt"] or None,
-        integrations=_integration_states(connections),
+        integrations=integration_states,
         suggestions=suggestions,
         calendly_event_types=[
             MeetingCalendlyEventType.model_validate(event_type)
@@ -529,8 +658,160 @@ def get_meeting_recommendations(
         offer_booking_error=offer_booking_error,
         offer_calendar_provider=offer_calendar_provider,
         offer_has_confirmed_selection=offer_has_confirmed_selection,
-        offer_can_be_replaced=can_replace_unbooked_offer(offer_event),
+        offer_email_subject=str(offer_details.get("email_subject") or "") or None,
+        offer_email_body=str(offer_details.get("email_body") or "") or None,
+        offer_booking_url=str(offer_details.get("booking_url") or "") or None,
+        offer_gmail_connection_id=str(offer_details.get("gmail_connection_id") or "") or None,
+        scheduled_meeting=scheduled_summary,
     )
+
+
+@router.patch("/{lead_id}/meeting-booking-draft")
+def update_meeting_booking_draft(
+    lead_id: UUID,
+    request: MeetingBookingDraftEdit,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> dict[str, str]:
+    _lead_or_404(session, lead_id, workspace.workspace_id)
+    offer = _offer_for_source(
+        session,
+        lead_id,
+        workspace.workspace_id,
+        request.source_message_id,
+        request.source_gmail_connection_id,
+    )
+    if offer is None or offer.status != "draft":
+        raise HTTPException(status_code=409, detail="There is no editable booking email draft for this request.")
+    details = dict(offer.details) if isinstance(offer.details, dict) else {}
+    booking_url = str(details.get("booking_url") or "")
+    if not booking_url or booking_url not in request.body:
+        raise HTTPException(
+            status_code=422,
+            detail="Keep the booking link in the email so the lead can choose a time.",
+        )
+    details["email_subject"] = request.subject
+    details["email_body"] = request.body
+    details["draft_updated_at"] = datetime.now(UTC).isoformat()
+    offer.details = details
+    session.commit()
+    return {"status": "draft", "subject": request.subject, "body": request.body}
+
+
+@router.post("/{lead_id}/meeting-booking-draft/send")
+def send_meeting_booking_draft(
+    lead_id: UUID,
+    request: MeetingBookingDraftSendRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> dict[str, str]:
+    lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    offer = _offer_for_source(
+        session,
+        lead_id,
+        workspace.workspace_id,
+        request.source_message_id,
+        request.source_gmail_connection_id,
+    )
+    if offer is None or offer.status != "draft":
+        raise HTTPException(status_code=409, detail="There is no unsent booking email draft.")
+    details = dict(offer.details) if isinstance(offer.details, dict) else {}
+    subject = str(details.get("email_subject") or "").strip()
+    body = str(details.get("email_body") or "")
+    booking_url = str(details.get("booking_url") or "")
+    if not subject or not body or not booking_url or booking_url not in body:
+        raise HTTPException(status_code=409, detail="Save a complete draft with its booking link before sending.")
+    latest = find_meeting_request(
+        session,
+        lead,
+        workspace.workspace_id,
+        thread_id=str(details.get("thread_id") or "") or None,
+        gmail_connection_id=str(details.get("gmail_connection_id") or "") or None,
+    )
+    if latest is None or latest.get("message_id") != request.source_message_id:
+        raise HTTPException(status_code=409, detail="The conversation changed. Refresh meeting recommendations before sending.")
+    same_request_meeting = any(
+        isinstance(event.details, dict)
+        and event.details.get("source_message_id") == request.source_message_id
+        and str(event.details.get("source_gmail_connection_id") or "")
+        == str(request.source_gmail_connection_id or details.get("gmail_connection_id") or "")
+        for event in session.scalars(
+            select(PipelineEventORM).where(
+                PipelineEventORM.lead_id == lead_id,
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.stage == "meeting_scheduled",
+            )
+        )
+    )
+    if same_request_meeting:
+        raise HTTPException(status_code=409, detail="A meeting is already recorded for this request.")
+    try:
+        gmail_connection_id = UUID(str(details["gmail_connection_id"]))
+    except (KeyError, ValueError) as error:
+        raise HTTPException(status_code=409, detail="The Gmail connection for this draft is unavailable.") from error
+    gmail_connection = session.scalar(
+        select(ProviderConnectionORM).where(
+            ProviderConnectionORM.id == gmail_connection_id,
+            ProviderConnectionORM.workspace_id == workspace.workspace_id,
+            ProviderConnectionORM.provider_type == "gmail",
+            ProviderConnectionORM.is_active.is_(True),
+            ProviderConnectionORM.status == "verified",
+        )
+    )
+    if gmail_connection is None:
+        raise HTTPException(status_code=409, detail="Reconnect Gmail before sending this booking email.")
+    if GMAIL_SEND_SCOPE not in set(gmail_connection.scopes or []):
+        raise HTTPException(status_code=409, detail="Reconnect Gmail and grant permission to send email.")
+    try:
+        assert_outreach_allowed(session, workspace.workspace_id, lead.email)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+    try:
+        credentials = _resolve_credentials(session, workspace, gmail_connection)
+        metadata = (
+            gmail_connection.connection_metadata
+            if isinstance(gmail_connection.connection_metadata, dict)
+            else {}
+        )
+        mailbox = str(metadata.get("gmail_email") or gmail_connection.account_name)
+        offer.status = "sending"
+        session.commit()
+        message_id = GmailOutboundProvider(
+            gmail_connection.id, credentials["access_token"], mailbox
+        ).send_email(
+            recipient=lead.email,
+            subject=subject,
+            body=body,
+            thread_id=str(details.get("thread_id") or "") or None,
+            in_reply_to=str(details.get("source_rfc_message_id") or "") or None,
+        )
+        if not message_id:
+            raise ProviderOperationError(
+                "Gmail did not confirm the booking email.",
+                provider="gmail",
+                code="gmail_meeting_booking_send_unconfirmed",
+                category="malformed_response",
+            )
+    except ProviderOperationError as error:
+        offer.status = "needs_attention"
+        offer.details = {**details, "booking_error": str(error)[:500], "error_code": error.code}
+        session.commit()
+        raise HTTPException(status_code=502, detail="Gmail could not confirm delivery. Check Sent before sending again.") from error
+    except Exception as error:
+        offer.status = "needs_attention"
+        offer.details = {**details, "booking_error": type(error).__name__}
+        session.commit()
+        raise HTTPException(status_code=502, detail="Delivery could not be confirmed. Check Gmail Sent before retrying.") from error
+
+    offer.status = "awaiting_booking"
+    offer.details = {
+        **details,
+        "outbound_message_id": message_id,
+        "offered_at": datetime.now(UTC).isoformat(),
+    }
+    session.commit()
+    return {"status": "awaiting_booking", "message": "Booking link email sent. Corral will watch for a confirmed meeting."}
 
 
 def _existing_confirmation_response(
@@ -549,51 +830,6 @@ def _existing_confirmation_response(
         time_zone=str(details.get("time_zone") or "UTC"),
         status="scheduled",
     )
-
-
-@router.post(
-    "/{lead_id}/meetings/offer-draft",
-    response_model=MeetingOfferDraftResponse,
-)
-def create_meeting_offer_draft(
-    lead_id: UUID,
-    request: ConfirmMeetingRequest,
-    session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
-) -> MeetingOfferDraftResponse:
-    lead = _lead_or_404(session, lead_id, workspace.workspace_id)
-    current = get_meeting_recommendations(
-        lead_id,
-        session=session,
-        workspace=workspace,
-    )
-    selected = next(
-        (
-            slot
-            for slot in current.suggestions
-            if slot.provider == request.provider
-            and slot.connection_id == request.connection_id
-            and slot.source_message_id == request.source_message_id
-            and slot.source_gmail_connection_id == request.source_gmail_connection_id
-            and slot.start_at.astimezone(UTC) == request.start_at.astimezone(UTC)
-            and slot.end_at.astimezone(UTC) == request.end_at.astimezone(UTC)
-            and slot.time_zone == request.time_zone
-            and slot.event_type_uri == request.event_type_uri
-        ),
-        None,
-    )
-    if selected is None:
-        raise HTTPException(
-            status_code=409,
-            detail="That time is no longer available. Refresh the recommendations.",
-        )
-    draft = create_selected_slot_offer_draft(
-        session,
-        lead=lead,
-        workspace_id=workspace.workspace_id,
-        slot=selected.model_dump(mode="json"),
-    )
-    return MeetingOfferDraftResponse(draft_id=draft.id, status="draft")
 
 
 @router.post(
@@ -707,7 +943,14 @@ def confirm_meeting(
                 and str(offer_details.get("gmail_connection_id") or "")
                 == source_gmail_connection_id
                 and offer.status
-                in {"sending", "awaiting_confirmation", "booking", "needs_attention"}
+                in {
+                    "draft",
+                    "sending",
+                    "awaiting_confirmation",
+                    "awaiting_booking",
+                    "booking",
+                    "needs_attention",
+                }
             ):
                 offer.status = "booked"
                 offer.details = {
@@ -786,8 +1029,8 @@ def confirm_meeting(
                     event_id=event_id,
                     summary=title,
                     description=description,
-                start_at=request.start_at.astimezone(ZoneInfo(time_zone)),
-                end_at=request.end_at.astimezone(ZoneInfo(time_zone)),
+                    start_at=request.start_at,
+                    end_at=request.end_at,
                     time_zone=time_zone,
                     attendee_email=lead.email,
                     attendee_name=lead.full_name,
@@ -958,7 +1201,14 @@ def confirm_meeting(
             and str(offer_details.get("gmail_connection_id") or "")
             == source_gmail_connection_id
             and offer.status
-            in {"sending", "awaiting_confirmation", "booking", "needs_attention"}
+            in {
+                "draft",
+                "sending",
+                "awaiting_confirmation",
+                "awaiting_booking",
+                "booking",
+                "needs_attention",
+            }
         ):
             offer.status = "booked"
             offer.details = {

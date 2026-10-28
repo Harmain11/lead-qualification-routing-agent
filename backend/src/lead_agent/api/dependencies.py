@@ -209,20 +209,3 @@ def require_permissions(*permissions: str) -> Callable[..., WorkspaceContext]:
 
 def require_permission(permission: str) -> Callable[..., WorkspaceContext]:
     return require_permissions(permission)
-
-
-def require_any_permission(*permissions: str) -> Callable[..., WorkspaceContext]:
-    if not permissions or any(not permission for permission in permissions):
-        raise ValueError("permissions must not be empty")
-
-    def dependency(
-        workspace: WorkspaceContext = Depends(get_workspace_context),
-    ) -> WorkspaceContext:
-        if not any(permission in workspace.permissions for permission in permissions):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"one of these permissions is required: {', '.join(permissions)}",
-            )
-        return workspace
-
-    return dependency

@@ -82,7 +82,6 @@ def build_crm_provider(settings: Settings) -> CrmProvider:
             access_token=settings.hubspot_access_token,
             api_base_url=settings.hubspot_api_base_url,
             config=config.hubspot,
-            properties_api_version=settings.hubspot_oauth_api_version,
             timeout_seconds=settings.crm_timeout_seconds,
         )
     raise ValueError(f"Unsupported CRM_PROVIDER: {settings.crm_provider}")
@@ -115,7 +114,6 @@ def build_connected_crm_provider(
             access_token=credentials.get("access_token", ""),
             api_base_url=settings.hubspot_api_base_url,
             config=config.hubspot,
-            properties_api_version=settings.hubspot_oauth_api_version,
             timeout_seconds=settings.crm_timeout_seconds,
         )
     raise ValueError(f"Unsupported workspace CRM provider: {provider_type}")

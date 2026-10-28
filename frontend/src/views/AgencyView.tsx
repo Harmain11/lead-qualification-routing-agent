@@ -58,13 +58,7 @@ export function AgencyView({
     try {
       const result = await opsSave<{ configuration: Policy; version: number }>(
         "/v1/ops/policy",
-        {
-          configuration: {
-            ...policy.configuration,
-            custom_domain: policy.configuration.custom_domain?.trim().toLowerCase() || null,
-          },
-          version: policy.version,
-        },
+        { configuration: policy.configuration, version: policy.version },
         "PUT",
       );
       setPolicy({ ...policy, ...result });
@@ -184,7 +178,7 @@ export function AgencyView({
                   value={policy.configuration.custom_domain || ""}
                   onChange={(event) =>
                     branding({
-                      custom_domain: event.target.value || null,
+                      custom_domain: event.target.value.toLowerCase() || null,
                     })
                   }
                   placeholder="sales.yourcompany.com"
