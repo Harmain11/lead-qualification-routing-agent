@@ -85,6 +85,7 @@ def test_routing_config_accepts_percentages_and_preserves_legacy_weights(tmp_pat
     try:
         with TestClient(app) as client:
             before = client.get("/v1/routing/config")
+            default_review = before.json()["manual_review"]
             saved = client.put(
                 "/v1/routing/config",
                 json={
@@ -108,7 +109,30 @@ def test_routing_config_accepts_percentages_and_preserves_legacy_weights(tmp_pat
                 "/v1/routing/config",
                 json={"member_weights": {str(user_id): 2.5}},
             )
+            saved_review = client.put(
+                "/v1/routing/config",
+                json={
+                    "manual_review": {
+                        "personal_email": False,
+                        "missing_person_name": True,
+                        "missing_company_name": False,
+                        "low_confidence": True,
+                        "contradictory_evidence": False,
+                        "missing_qualification_information": False,
+                        "provider_failure": False,
+                    }
+                },
+            )
         assert before.status_code == 200
+        assert default_review == {
+            "personal_email": True,
+            "missing_person_name": True,
+            "missing_company_name": True,
+            "low_confidence": False,
+            "contradictory_evidence": False,
+            "missing_qualification_information": False,
+            "provider_failure": False,
+        }
         assert {
             item["user_id"] for item in before.json()["members"]
         } == {str(user_id), str(second_user_id)}
@@ -122,6 +146,13 @@ def test_routing_config_accepts_percentages_and_preserves_legacy_weights(tmp_pat
             item["user_id"]: item["weight"] for item in legacy.json()["members"]
         }
         assert legacy_weights == {str(user_id): 2.5, str(second_user_id): 1.0}
+        assert saved_review.status_code == 200
+        assert saved_review.json()["manual_review"]["personal_email"] is False
+        assert saved_review.json()["manual_review"]["low_confidence"] is True
+        saved_review_weights = {
+            item["user_id"]: item["weight"] for item in saved_review.json()["members"]
+        }
+        assert saved_review_weights == legacy_weights
     finally:
         app.dependency_overrides.clear()
         session.close()

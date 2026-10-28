@@ -238,6 +238,42 @@
   width: 70px;
   flex-shrink: 0;
 }
+
+.automation-enrollment-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(88dvh, 840px);
+  overflow-y: auto;
+}
+.automation-enrollment { display: grid; gap: 20px; }
+.ops-enrollment-options,
+.ops-enrollment-leads { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; }
+.ops-enrollment-option,
+.ops-enrollment-lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.ops-enrollment-option span,
+.ops-enrollment-lead span { display: grid; gap: 3px; }
+.ops-enrollment-option small,
+.ops-enrollment-lead small { color: var(--muted); font-size: 12px; }
+.ops-enrollment-lead input { flex: none; }
+.ops-enrollment-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.ops-enrollment-selected { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ops-enrollment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12px; }
+.ops-enrollment-chip .button-quiet { min-width: 28px; min-height: 28px; padding: 2px 6px; }
+.ops-enrollment-success {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  background: var(--surface);
+}
 .ops-builder {
   height: 400px;
   max-width: 100%;

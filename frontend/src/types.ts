@@ -77,9 +77,9 @@ export type IcpConfiguration = {
 export type IcpVersion = {
   id: string | null;
   workspace_id: string;
-  source: "system_default" | "workspace";
+  source: "system_default" | "workspace" | "not_configured";
   version_number: number | null;
-  status: "draft" | "published" | "archived";
+  status: "draft" | "published" | "archived" | "not_configured";
   name: string;
   description: string;
   configuration: IcpConfiguration;
@@ -279,10 +279,13 @@ export type CrmSync = {
 
 export type Lead = {
   id: string;
+  /** Internal compatibility field; do not display sequential lead numbers in the UI. */
+  lead_number: number;
   workspace_id: string;
   source: string;
   source_detail: string | null;
   external_id: string | null;
+  is_generated: boolean;
   full_name: string;
   email: string;
   phone: string | null;
@@ -304,11 +307,19 @@ export type Lead = {
   crm_sync: CrmSync | null;
   confirmation_email?: ConfirmationEmail | null;
   outcome?: LeadOutcome | null;
+  review_reasons?: string[];
+};
+
+export type LeadAssignmentOption = {
+  user_id: string;
+  display_name: string;
 };
 
 export type LeadOutcome = {
   pipeline_stage: string;
+  opportunity_value?: number | null;
   conversion_type: "project" | "sale" | null;
+  send_direct_message: boolean;
   credited_user_id: string | null;
   credited_name: string | null;
   closed_revenue: number | null;
@@ -334,11 +345,12 @@ export type ConfirmationEmail = {
 export type FollowUpEmail = {
   id: string;
   lead_id: string;
+  kind: string;
   recipient: string;
   subject: string;
   body: string | null;
   rationale: string | null;
-  generation_method: "openai" | "template" | null;
+  generation_method: "openai" | "template" | "meeting_request" | null;
   generation_note: string | null;
   status: string;
   attempts: number;
@@ -386,25 +398,12 @@ export type MeetingIntegrationState = {
   connected: boolean;
   account_name: string | null;
   message: string | null;
-  booking_ready: boolean;
-  booking_url: string | null;
-  booking_event_title: string | null;
 };
 
 export type MeetingCalendlyEventType = {
   event_type_uri: string;
   event_type_name: string;
   status: "available" | "no_times" | "calendar_unavailable";
-  scheduling_url: string | null;
-};
-
-export type ScheduledMeetingSummary = {
-  provider: MeetingProvider;
-  title: string;
-  start_at: string;
-  end_at: string;
-  time_zone: string;
-  event_url: string | null;
 };
 
 export type MeetingProviderError = {
@@ -426,15 +425,16 @@ export type MeetingRecommendations = {
   suggestions: MeetingSuggestion[];
   calendly_event_types: MeetingCalendlyEventType[];
   provider_errors: MeetingProviderError[];
-  offer_status: "draft" | "sending" | "awaiting_confirmation" | "awaiting_booking" | "booking" | "booked" | "needs_attention" | "superseded" | null;
+  offer_status: "awaiting_send" | "sending" | "awaiting_confirmation" | "booking" | "booked" | "needs_attention" | "superseded" | null;
   offer_booking_error: string | null;
   offer_calendar_provider: MeetingProvider | null;
   offer_has_confirmed_selection: boolean;
-  offer_email_subject: string | null;
-  offer_email_body: string | null;
-  offer_booking_url: string | null;
-  offer_gmail_connection_id: string | null;
-  scheduled_meeting: ScheduledMeetingSummary | null;
+  offer_can_be_replaced: boolean;
+};
+
+export type MeetingOfferDraftResult = {
+  draft_id: string;
+  status: "draft";
 };
 
 export type RetryConfirmedMeetingBookingResult = {
@@ -505,7 +505,7 @@ export type GmailConversationSyncResult = {
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail"
+  "id" | "lead_number" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail" | "is_generated"
 > & {
   source: string;
   source_detail: string;
@@ -582,6 +582,15 @@ export type RoutingConfig = {
   workspace_id: string;
   default_strategy: "equal" | string;
   updated_at: string | null;
+  manual_review: {
+    personal_email: boolean;
+    missing_person_name: boolean;
+    missing_company_name: boolean;
+    low_confidence: boolean;
+    contradictory_evidence: boolean;
+    missing_qualification_information: boolean;
+    provider_failure: boolean;
+  };
   members: Array<{
     user_id: string;
     display_name: string;
@@ -656,12 +665,22 @@ export type IntegrationCard = {
   connections: ProviderConnection[];
 };
 
+export type LeadApprovalPolicy = {
+  provider: string;
+  display_name: string;
+  auto_approve_leads: boolean;
+  policy_source: "default" | "legacy_migration" | "user";
+  verified_connection: boolean;
+  updated_at: string | null;
+};
+
 export type SlackNotificationRule = {
   id: string;
   name: string;
   connection_id: string;
   destination_type: "channel" | "direct_message";
   channel_id: string | null;
+  fallback_to_channel: boolean;
   queues: string[];
   qualification_bands: string[];
   sources: string[];
@@ -698,30 +717,53 @@ export type CrmInboundSyncState = {
 export type CrmInboundSyncRun = {
   id: string;
   status: string;
-  mode: "initial" | "incremental" | "manual";
+  mode: "initial" | "incremental" | "manual" | "review_recent" | "review_previous";
+  created_at: string;
+  last_error: string | null;
   records_fetched: number;
   records_created: number;
   records_updated: number;
   records_unchanged: number;
   records_skipped: number;
   records_failed: number;
+  records_processed: number;
+  records_succeeded: number;
+};
+
+export type CrmInboundSyncAccepted = {
+  status: "queued";
+  queued_at: string;
+  message: string;
 };
 
 export type TimeRange = "weekly" | "monthly" | "annual";
 
-export type OpenAIUsagePeriod = "weekly" | "monthly" | "quarterly" | "annual";
-export type OpenAIUsage = {
-  period: OpenAIUsagePeriod;
-  starts_at: string;
-  ends_at: string;
-  timezone: string;
+export type ReasoningUsagePeriod = "weekly" | "monthly" | "quarterly" | "annual";
+export type ReasoningUsageModel = {
+  model: string;
   requests: number;
   successful_requests: number;
   failed_requests: number;
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
-  models: Array<{ model: string; requests: number; input_tokens: number; output_tokens: number; total_tokens: number }>;
+};
+export type ReasoningUsageProvider = {
+  provider: "openai" | "gemini" | "claude" | "deepseek" | "xai";
+  requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  models: ReasoningUsageModel[];
+};
+export type ReasoningUsage = {
+  period: ReasoningUsagePeriod;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  providers: ReasoningUsageProvider[];
 };
 
 export type AnalyticsMetadata = {
@@ -760,6 +802,7 @@ export type DashboardAnalytics = {
     previous_value: number | null;
   }>;
   band_distribution: Array<{ band: string; count: number }>;
+  active_pipeline_by_origin?: Array<{ origin: string; value: number }>;
   attention_leads: LeadCard[];
   recent_leads: LeadCard[];
 };
@@ -772,6 +815,10 @@ export type ChannelAnalytics = {
     share_percent: number;
     qualification_rate: number;
     qualified_leads?: number;
+    booked_leads?: number;
+    booked_rate?: number;
+    qualified_to_booked_rate?: number | null;
+    closed_won_count?: number;
     scored_leads?: number;
     sql_conversion_rate: number;
     closed_won_conversion_rate: number;
@@ -781,15 +828,22 @@ export type ChannelAnalytics = {
   }>;
 };
 
+export type PipelineStageAnalytics = {
+  stage: string;
+  label: string;
+  count: number;
+  value: number;
+  leads: LeadCard[];
+};
+
+export type SalesPipelineStageAnalytics = Omit<PipelineStageAnalytics, "value"> & {
+  value: null;
+};
+
 export type PipelineAnalytics = {
   metadata: AnalyticsMetadata;
-  stages: Array<{
-    stage: string;
-    label: string;
-    count: number;
-    value: number;
-    leads: LeadCard[];
-  }>;
+  stages: PipelineStageAnalytics[];
+  sales_stages: SalesPipelineStageAnalytics[];
   bands: Array<{ band: string; count: number }>;
   manual_review: number;
 };
@@ -879,6 +933,197 @@ export type AgentActivity = {
 
 export type ManualReviewAnalytics = {
   metadata: AnalyticsMetadata;
-  items: Array<LeadCard & { review_reasons: string[] }>;
+  items: Array<LeadCard & {
+    review_reasons: string[];
+    priority?: string;
+    sla_overdue?: boolean;
+    attention_score?: number;
+  }>;
   total: number;
+};
+
+export type ExtendedAnalytics = {
+  metadata: AnalyticsMetadata;
+  speed_to_qualify: {
+    average_minutes: number | null;
+    median_minutes: number | null;
+    sample_size: number;
+  };
+  qualified_to_booked: {
+    qualified: number;
+    booked: number;
+    rate: number | null;
+  };
+  sla: {
+    configured: number;
+    compliant: number;
+    breached: number;
+    pending: number;
+    unverified: number;
+    rate: number | null;
+    definition?: string;
+  };
+  escalations: Array<LeadCard & {
+    sla_target_at: string;
+    hours_overdue: number;
+    priority: string;
+    late_response: boolean;
+  }>;
+  stale_leads: Array<LeadCard & {
+    last_activity_at: string;
+    inactive_days: number;
+  }>;
+  calibration: Array<{
+    score_band: string;
+    closed: number;
+    won: number;
+    win_rate: number | null;
+  }>;
+  sales_cycle_by_segment: Array<{
+    segment: string;
+    sample_size: number;
+    average_days: number;
+    median_days: number;
+  }>;
+  icp_fit_distribution: Array<{
+    criterion: string;
+    statuses: Record<string, number>;
+    evaluated: number;
+  }>;
+  response_heatmap: Array<{
+    weekday: number;
+    hour: number;
+    inbound: number;
+    outbound: number;
+  }>;
+  stage_velocity: Array<{
+    transition: string;
+    sample_size: number;
+    median_hours: number;
+  }>;
+  channel_mix: Array<{ source: string; month: string; leads: number }>;
+  team_utilization_trend: Array<{ month: string; rep: string; assignments: number }>;
+  quarterly_scorecard: Array<{
+    metric: string;
+    current: number | null;
+    previous: number | null;
+  }>;
+  revenue_by_conversion_type: Array<{ type: string; revenue: number; won: number }>;
+  competitive_mentions: Array<{ mention: string; count: number }>;
+  data_gaps: Array<{ key: string; label: string; reason: string }>;
+};
+
+export type AdvancedAnalytics = {
+  forecast: {
+    closed_usd_this_month: number;
+    open_pipeline_usd: number;
+    historical_close_rate: number | null;
+    expected_open_pipeline_usd: number | null;
+    quota_usd: number | null;
+    coverage: number | null;
+    closed_sample_size: number;
+    method: string;
+    unvalued_open_leads: number;
+    scope: string;
+  };
+  channels: Array<{
+    source: string;
+    month: string;
+    leads: number;
+    qualified: number;
+    won: number;
+    lost: number;
+    cost_usd: number | null;
+    closed_usd: number;
+    cost_per_qualified: number | null;
+    roi_percent: number | null;
+    method: string;
+  }>;
+  cohorts: Array<{
+    week: string;
+    campaign: string;
+    leads: number;
+    qualified: number;
+    won: number;
+    lost: number;
+  }>;
+  members: Array<{
+    user_id: string;
+    name: string;
+    closed: number;
+    wins: number;
+    comparable_leads: number;
+    expected_wins: number;
+    adjusted_win_index: number | null;
+  }>;
+  summary: string;
+  summary_method: string;
+  fairness_method: string;
+  sample_size: number;
+  truncated: boolean;
+};
+
+export type GmailMailboxMessage = {
+  message_id: string;
+  thread_id: string;
+  sender: string;
+  sender_name: string;
+  recipients: string;
+  subject: string;
+  sent_at: string;
+  snippet: string;
+  direction: "inbound" | "outbound" | string;
+  unread: boolean;
+};
+
+export type GmailThreadMessage = {
+  message_id: string;
+  thread_id: string;
+  sender: string;
+  sender_name: string;
+  recipients: string;
+  subject: string;
+  sent_at: string;
+  rfc_message_id: string;
+  direction: "inbound" | "outbound" | string;
+  body: string;
+};
+
+export type GmailMailboxMessagePage = {
+  messages: GmailMailboxMessage[];
+  next_page_token: string | null;
+};
+
+export type GmailSendRequest = {
+  connection_id: string;
+  recipient: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  body: string;
+  html_body?: string;
+  attachments?: GmailAttachmentRequest[];
+  lead_id?: string;
+  thread_id?: string;
+  in_reply_to?: string;
+};
+
+export type GmailSendAccount = {
+  id: string;
+  account_name: string;
+  sender_email: string;
+};
+
+export type GmailAttachmentRequest = {
+  filename: string;
+  content_type: string;
+  content_base64: string;
+};
+
+export type GmailSendResult = {
+  message_id: string;
+  thread_id: string | null;
+  sender: string;
+  recipient: string;
+  sent_at: string;
 };

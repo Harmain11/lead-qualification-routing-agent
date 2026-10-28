@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { FormEvent } from "react";
 
 import { getAccountProfile, updateAccountProfile } from "../api";
@@ -118,23 +118,32 @@ export function AccountProfilePanel() {
   };
 
   if (loading) {
-    return <section className="panel account-profile-panel"><p className="account-profile-loading">Loading your account profile…</p></section>;
+    return (
+      <AccountProfileDisclosure>
+        <p className="account-profile-loading">Loading your account profile…</p>
+      </AccountProfileDisclosure>
+    );
   }
   if (!draft || !profile) {
-    return <section className="panel account-profile-panel"><h2>My account</h2><p className="account-profile-error" role="alert">{error || "Your account profile is unavailable."}</p></section>;
+    return (
+      <AccountProfileDisclosure>
+        <p className="account-profile-error" role="alert">
+          {error || "Your account profile is unavailable."}
+        </p>
+      </AccountProfileDisclosure>
+    );
   }
 
   const initials = draft.display_name.trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "?";
   const unchanged = JSON.stringify(draft) === JSON.stringify(toDraft(profile));
 
   return (
-    <section className="panel account-profile-panel" aria-labelledby="account-profile-title">
+    <AccountProfileDisclosure>
       <div className="account-profile-heading">
         <div className="account-profile-photo">
           {draft.avatar_data_url ? <img src={draft.avatar_data_url} alt="Your profile" /> : <span>{initials}</span>}
         </div>
         <div className="account-profile-summary">
-          <h2 id="account-profile-title">My account</h2>
           <p>Personal details and profile photo for your Corral account.</p>
           <div className="account-profile-photo-actions">
             <input
@@ -181,6 +190,24 @@ export function AccountProfilePanel() {
           {notice && <span className="account-profile-notice" role="status">{notice}</span>}
         </div>
       </form>
-    </section>
+    </AccountProfileDisclosure>
+  );
+}
+
+function AccountProfileDisclosure({ children }: { children: ReactNode }) {
+  return (
+    <details className="panel account-profile-panel settings-collapsible">
+      <summary className="settings-collapsible-summary account-profile-collapsible-summary">
+        <div className="settings-collapsible-heading">
+          <span className="eyebrow">Personal profile</span>
+          <h2>My account</h2>
+        </div>
+        <small>Profile details and photo</small>
+        <span className="settings-collapsible-icon" aria-hidden="true" />
+      </summary>
+      <div className="settings-collapsible-content account-profile-collapsible-content">
+        {children}
+      </div>
+    </details>
   );
 }

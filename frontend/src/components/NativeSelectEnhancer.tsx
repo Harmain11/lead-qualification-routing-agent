@@ -64,7 +64,8 @@ export function NativeSelectEnhancer() {
         if (!select.disabled) {
           event.preventDefault();
           event.stopPropagation();
-          open(select);
+          if (menu && source === select) close();
+          else open(select);
         }
         return;
       }

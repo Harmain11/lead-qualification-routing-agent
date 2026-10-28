@@ -3,6 +3,7 @@ import { listLeads } from "../api";
 import { opsGet, type Company, type Contact } from "../operationsApi";
 import { OperationsDialog } from "./OperationsDialog";
 import type { AppPage } from "../appNavigation";
+export const OPEN_SEARCH_EVENT = "corral:open-search";
 type Result = {
   id: string;
   label: string;
@@ -13,11 +14,14 @@ export function CommandPalette({
   canSearch,
   onNavigate,
   onInspect,
+  hideTrigger = false,
 }: {
   pages: { id: AppPage; label: string }[];
   canSearch: boolean;
   onNavigate: (id: AppPage) => void;
   onInspect: (id: string) => void;
+  /** When the shell provides its own search affordance, it opens the palette with the OPEN_SEARCH_EVENT. */
+  hideTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -33,8 +37,16 @@ export function CommandPalette({
         setOpen((current) => !current);
       }
     }
+    function openFromShell() {
+      setQuery("");
+      setOpen(true);
+    }
     window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    window.addEventListener(OPEN_SEARCH_EVENT, openFromShell);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener(OPEN_SEARCH_EVENT, openFromShell);
+    };
   }, []);
   useEffect(() => {
     setResults([]);
@@ -47,7 +59,7 @@ export function CommandPalette({
     setLoading(true);
     const timer = setTimeout(
       () =>
-        void Promise.all([
+        void Promise.allSettled([
           listLeads({ search: query, limit: 8 }, controller.signal).then(
             (data) =>
               data.items.map((item) => ({
@@ -78,7 +90,10 @@ export function CommandPalette({
           ),
         ])
           .then((groups) => {
-            if (!controller.signal.aborted) setResults(groups.flat());
+            if (!controller.signal.aborted) {
+              setResults(groups.flatMap<Result>((group) => group.status === "fulfilled" ? group.value : []));
+              if (groups.every((group) => group.status === "rejected")) setError("Records could not be searched. Try again in a moment.");
+            }
           })
           .catch((reason) => {
             if (!controller.signal.aborted) setError(reason.message);
@@ -95,7 +110,7 @@ export function CommandPalette({
   }, [query, open, canSearch]);
   return (
     <>
-      <button
+      {!hideTrigger && <button
         className="secondary-button command-launch"
         onClick={() => {
           setQuery("");
@@ -104,7 +119,7 @@ export function CommandPalette({
         aria-haspopup="dialog"
       >
         Search
-      </button>
+      </button>}
       {open && (
         <OperationsDialog
           title="Search Corral"

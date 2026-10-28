@@ -75,8 +75,8 @@
 .records-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--workspace-accent, var(--orange)) 45%, var(--line)); box-shadow: 0 8px 20px color-mix(in srgb, var(--text) 11%, transparent); }
 .records-card-topline { display: flex; align-items: center; gap: 9px; padding: 13px 13px 8px; }
 .records-avatar { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: 0 0 30px; border: 1px solid var(--line-bright); border-radius: 9px; color: var(--workspace-accent, var(--orange)); background: var(--surface-high); font-size: 11px; font-weight: 800; }
-.records-card-name { min-width: 0; overflow: hidden; border: 0; padding: 0; color: var(--text); background: transparent; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.records-card-name:hover { color: var(--workspace-accent, var(--orange)); text-decoration: underline; text-underline-offset: 3px; }
+.records-card-name { min-width: 0; overflow: hidden; border: 0; padding: 0; color: var(--text); background: transparent; font-weight: 750; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.records-card-name:hover { color: var(--workspace-accent, var(--orange)); text-decoration: none; }
 .records-card-menu { margin-left: auto; border: 0; padding: 1px 4px; color: var(--muted); background: transparent; letter-spacing: 2px; }
 .records-card-meta { display: flex; flex-direction: column; gap: 4px; padding: 0 13px 12px 52px; color: var(--muted); font-size: 12px; line-height: 1.35; }
 .records-card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -84,11 +84,32 @@
 .records-status.is-good { color: var(--workspace-accent, var(--orange)); background: color-mix(in srgb, var(--workspace-accent, var(--orange)) 12%, var(--surface)); }
 .records-card-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 36px; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; padding: 0 13px; color: var(--workspace-accent, var(--orange)); background: transparent; font-size: 12px; font-weight: 700; text-align: left; }
 .records-card-footer:hover { background: var(--surface-high); }
+.records-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; }
+.records-card-action {
+  flex: 1 1 105px;
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--line-bright);
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--text);
+  background: var(--surface-high);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.records-card-action:not(:disabled):hover { border-color: var(--workspace-accent, var(--orange)); }
+.records-card-action.is-enrich { border-color: transparent; color: var(--workspace-accent-text, #fff); background: var(--workspace-accent, var(--orange)); }
+.records-card-action.is-enrich:not(:disabled):hover { filter: brightness(.96); }
+.records-card-action:disabled { cursor: wait; opacity: .65; }
 .records-add-inline { min-height: 38px; border: 1px dashed var(--line-bright); border-radius: 9px; color: var(--muted); background: transparent; font-weight: 700; }
 .records-add-inline:hover { color: var(--workspace-accent, var(--orange)); border-color: var(--workspace-accent, var(--orange)); background: var(--surface); }
 .records-see-more { display: flex; align-items: center; justify-content: space-between; min-height: 38px; border: 0; border-radius: 9px; padding: 0 10px; color: var(--workspace-accent, var(--orange)); background: transparent; font-size: 13px; font-weight: 750; text-align: left; }
 .records-see-more:hover { background: var(--surface); }
 .records-see-more span { font-size: 16px; }
+.records-notice { margin: 0; padding: 10px 12px; border-radius: 9px; color: var(--workspace-accent, var(--orange)); background: color-mix(in srgb, var(--workspace-accent, var(--orange)) 9%, var(--surface)); font-size: 13px; line-height: 1.5; }
+.records-form-help { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.records-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .records-view .ops-table-wrap { border-radius: 13px; background: var(--surface); overflow: auto; }
 .records-view .ops-table tbody tr { transition: background .14s ease; }

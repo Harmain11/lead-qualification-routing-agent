@@ -18,10 +18,17 @@ from lead_agent.domain.analysis import (
     ReasoningProviderTimeout,
     ReasoningProviderUnavailable,
 )
+from lead_agent.domain.gmail import GmailLeadExtraction
+from lead_agent.domain.meeting_reply import MeetingReplyClassification
 from lead_agent.domain.models import NormalizedLead
+from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.infrastructure.observability import reset_request_id, set_request_id
 from lead_agent.infrastructure.reasoning import openai_provider
+from lead_agent.infrastructure.reasoning.assistant_prompts import (
+    LEAD_ASSISTANT_SYSTEM_PROMPT,
+    WORKSPACE_ASSISTANT_SYSTEM_PROMPT,
+)
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 from lead_agent.infrastructure.reasoning.factory import build_reasoning_provider
 from lead_agent.infrastructure.reasoning.openai_provider import OpenAIReasoningProvider
@@ -55,6 +62,43 @@ def make_lead(**overrides: object) -> NormalizedLead:
     }
     values.update(overrides)
     return NormalizedLead(**values)  # type: ignore[arg-type]
+
+
+def test_shared_assistant_prompts_are_compact_and_keep_safety_rules() -> None:
+    # Current context-correction, note and approval rules must not be truncated.
+    assert len(LEAD_ASSISTANT_SYSTEM_PROMPT) < 3500
+    assert len(WORKSPACE_ASSISTANT_SYSTEM_PROMPT) < 8000
+    assert "latest user message directly asks" in LEAD_ASSISTANT_SYSTEM_PROMPT
+    assert "never starts a call" in LEAD_ASSISTANT_SYSTEM_PROMPT
+    assert "bounded matches, not complete history" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+    assert "Never execute or claim a change until the user explicitly approves it" in (
+        WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+    )
+    assert "Never send automatically or claim sent" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+
+
+def test_openai_workspace_assistant_uses_compact_prompt_and_output_cap() -> None:
+    request: dict[str, object] = {}
+
+    class Responses:
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            request.update(kwargs)
+            return SimpleNamespace(output_parsed={"reply": "Hello."}, usage=None)
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=10,
+        max_retries=0,
+        store_responses=False,
+        client=SimpleNamespace(responses=Responses()),
+    )
+    result = provider.assist_with_workspace({"messages": []})
+
+    assert result.reply == "Hello."
+    assert request["max_output_tokens"] == 1800
+    assert request["input"][0]["content"] == WORKSPACE_ASSISTANT_SYSTEM_PROMPT
+    assert request["input"][1]["content"] == '{"messages":[]}'
 
 
 def test_high_intent_context_is_grounded_and_structured(icp) -> None:
@@ -257,27 +301,59 @@ class UnexpectedProviderError(Exception):
         (UnavailableProvider(), "provider_unavailable"),
     ],
 )
-def test_provider_failures_fall_back_to_manual_review(
+def test_provider_failures_keep_error_status_without_default_manual_review(
     icp, routing, provider, expected_code: str
 ) -> None:
     analysis = _context_analysis(make_lead(), icp, routing, provider)
     assert analysis.status == "provider_error"
-    assert analysis.requires_manual_review is True
+    assert analysis.requires_manual_review is False
     assert analysis.error_code == expected_code
     assert analysis.summary.need
 
 
-def test_low_confidence_and_contradictions_require_manual_review(icp, routing) -> None:
+def test_default_review_rules_only_use_personal_email_or_missing_identity(icp, routing) -> None:
+    base_lead = make_lead()
+    baseline = DeterministicReasoningProvider().analyze(base_lead, icp)
+    low = baseline.model_copy(update={"overall_confidence": 0.2})
+    contradictory = baseline.model_copy(
+        update={"contradictions": ["Timeline says both this week and no planned date."]}
+    )
+
+    assert not _context_analysis(
+        base_lead, icp, routing, StaticProvider(low)
+    ).requires_manual_review
+    assert not _context_analysis(
+        base_lead, icp, routing, StaticProvider(contradictory)
+    ).requires_manual_review
+    assert _context_analysis(
+        make_lead(email="avery@gmail.com"), icp, routing, StaticProvider(baseline)
+    ).requires_manual_review
+    assert _context_analysis(
+        make_lead(full_name="Name not provided"), icp, routing, StaticProvider(baseline)
+    ).requires_manual_review
+    assert _context_analysis(
+        make_lead(company_name="Unknown"), icp, routing, StaticProvider(baseline)
+    ).requires_manual_review
+
+
+def test_optional_analysis_review_rules_can_be_enabled(icp, routing) -> None:
     lead = make_lead()
     baseline = DeterministicReasoningProvider().analyze(lead, icp)
     low = baseline.model_copy(update={"overall_confidence": 0.2})
     contradictory = baseline.model_copy(
         update={"contradictions": ["Timeline says both this week and no planned date."]}
     )
+    enabled = routing.model_copy(
+        update={
+            "manual_review": routing.manual_review.model_copy(
+                update={"low_confidence": True, "contradictory_evidence": True}
+            )
+        }
+    )
 
-    assert _context_analysis(lead, icp, routing, StaticProvider(low)).requires_manual_review
+    assert _context_analysis(lead, icp, enabled, StaticProvider(low)).requires_manual_review
     assert _context_analysis(
-        lead, icp, routing, StaticProvider(contradictory)
+        lead, icp, enabled, StaticProvider(contradictory)
     ).requires_manual_review
 
 
@@ -294,6 +370,35 @@ def test_hard_disqualifier_bypasses_configured_provider(icp, routing) -> None:
     )
     assert analysis.status == "skipped_hard_disqualifier"
     assert analysis.requires_manual_review is False
+
+
+def test_manual_context_can_be_analyzed_even_for_a_hard_disqualifier(icp, routing) -> None:
+    lead = make_lead(
+        source_detail="manual-control-center",
+        job_title="Student",
+        message="Discovery completed; technical review is the next step.",
+    )
+    output = DeterministicReasoningProvider().analyze(lead, icp)
+
+    class RecordingProvider(StaticProvider):
+        received_message: str | None = None
+
+        def analyze(self, analyzed_lead, config):
+            self.received_message = analyzed_lead.message
+            return super().analyze(analyzed_lead, config)
+
+    provider = RecordingProvider(output)
+    analysis = _context_analysis(
+        lead,
+        icp,
+        routing,
+        provider,
+        analyze_hard_disqualified=True,
+    )
+
+    assert provider.received_message == lead.message
+    assert analysis.provider == "test-provider"
+    assert analysis.status != "skipped_hard_disqualifier"
 
 
 def test_missing_openai_key_is_a_safe_configuration_event(
@@ -350,7 +455,19 @@ def test_openai_sdk_initialization_error_is_classified_safely(
 def test_openai_request_is_bounded_correlated_and_records_safe_usage(
     icp, caplog: pytest.LogCaptureFixture
 ) -> None:
-    lead = make_lead()
+    lead = make_lead(
+        source_detail="manual-control-center",
+        message="Discovery is complete; technical review is next week.",
+    )
+    business_profile = WorkspaceBusinessProfile(
+        business_name="Corral Systems",
+        alternate_names=["Corral", "Ingenuity Systems"],
+        website="https://corral.example",
+        email_domains=["corral.example"],
+        description="Sales operations software.",
+        products_services="Lead qualification and routing.",
+        lead_distinction_notes="The lead's company is the prospective customer.",
+    )
     output = DeterministicReasoningProvider().analyze(lead, icp)
 
     class Responses:
@@ -376,7 +493,7 @@ def test_openai_request_is_bounded_correlated_and_records_safe_usage(
             client=SimpleNamespace(responses=responses),
         )
         with caplog.at_level("INFO", logger="lead_agent.openai"):
-            parsed = provider.analyze(lead, icp)
+            parsed = provider.analyze(lead, icp, business_profile)
     finally:
         reset_request_id(token)
 
@@ -385,8 +502,14 @@ def test_openai_request_is_bounded_correlated_and_records_safe_usage(
     assert request["extra_headers"] == {"X-Client-Request-Id": "app-request-123"}
     assert request["model"] == "test-model"
     assert request["text_format"] is ReasoningOutput
+    assert "not guaranteed to be the prospect's exact wording" in request["input"][0]["content"]
     user_payload = json.loads(request["input"][1]["content"])
     assert user_payload["normalized_lead"]["email_domain"] == "example.com"
+    assert user_payload["normalized_lead"]["source_detail"] == "manual-control-center"
+    assert user_payload["normalized_lead"]["message"] == lead.message
+    assert user_payload["workspace_business_profile"] == business_profile.model_dump(
+        mode="json"
+    )
     assert "email" not in user_payload["normalized_lead"]
     assert "phone" not in user_payload["normalized_lead"]
     assert "raw_payload" not in user_payload["normalized_lead"]
@@ -402,6 +525,31 @@ def test_openai_request_is_bounded_correlated_and_records_safe_usage(
     assert "test-only-key" not in caplog.text
     assert lead.email not in caplog.text
     assert lead.message not in caplog.text
+
+
+def test_context_analysis_passes_nonempty_business_profile_to_provider(icp, routing) -> None:
+    profile = WorkspaceBusinessProfile(business_name="Corral Systems")
+
+    class ProfileCaptureProvider:
+        provider_name = "profile-test"
+        model_name = "test-model"
+        prompt_version = "test-v1"
+        received_profile: WorkspaceBusinessProfile | None = None
+
+        def analyze(self, lead, config, business_profile=None):
+            self.received_profile = business_profile
+            return DeterministicReasoningProvider().analyze(lead, config)
+
+    provider = ProfileCaptureProvider()
+    _context_analysis(
+        make_lead(),
+        icp,
+        routing,
+        provider,
+        business_profile=profile,
+    )
+
+    assert provider.received_profile is profile
 
 
 @pytest.mark.parametrize(
@@ -541,6 +689,43 @@ def test_openai_schema_failure_is_explicit_and_safe(icp, caplog: pytest.LogCaptu
     assert operation.fields["retryable"] is False
 
 
+def test_openai_meeting_reply_classifier_uses_strict_schema_without_storing_response() -> None:
+    request: dict[str, object] = {}
+
+    class Responses:
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            request.update(kwargs)
+            return SimpleNamespace(
+                output_parsed={
+                    "intent": "confirm",
+                    "option_number": 2,
+                    "confidence": 0.99,
+                    "evidence": "the second one",
+                },
+                usage=None,
+            )
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=7,
+        max_retries=1,
+        store_responses=True,
+        client=SimpleNamespace(responses=Responses()),
+    )
+
+    result = provider.classify_meeting_reply(
+        {"reply": "Sure, the second one.", "options": [{"number": 1}, {"number": 2}]}
+    )
+
+    assert isinstance(result, MeetingReplyClassification)
+    assert result.intent == "confirm"
+    assert result.option_number == 2
+    assert request["text_format"] is MeetingReplyClassification
+    assert request["store"] is False
+    assert request["max_output_tokens"] == 300
+
+
 def test_openai_sdk_retries_mocked_server_errors_to_configured_limit(
     icp, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -676,3 +861,160 @@ def test_evaluation_dataset_covers_all_supported_channels() -> None:
     cases = json.loads(fixture.read_text(encoding="utf-8"))
     assert {case["channel"] for case in cases} == {"website", "email", "linkedin", "clutch"}
     assert all(case["expected"]["qualification_category"] for case in cases)
+
+
+def test_gmail_extraction_timeout_has_bounded_timeout_and_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    options: dict[str, object] = {}
+
+    class APITimeoutError(Exception):
+        pass
+
+    class Responses:
+        def parse(self, **_kwargs: object) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise APITimeoutError("private email payload")
+
+    class Client:
+        responses = Responses()
+
+        def with_options(self, **kwargs: object) -> Client:
+            options.update(kwargs)
+            return self
+
+    monkeypatch.setattr(openai_provider, "sleep", lambda _seconds: None)
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=90,
+        max_retries=8,
+        store_responses=False,
+        client=Client(),
+    )
+    with pytest.raises(ReasoningProviderTimeout):
+        provider.extract_gmail_lead(headers={}, subject="Question", body="Need help.")
+    assert attempts == 3
+    assert options == {"timeout": 15, "max_retries": 0}
+
+
+def test_gmail_extraction_retries_transient_network_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    options: dict[str, object] = {}
+
+    class APIConnectionError(Exception):
+        pass
+
+    class Responses:
+        def parse(self, **_kwargs: object) -> SimpleNamespace:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise APIConnectionError("transient")
+            return SimpleNamespace(
+                output_parsed=GmailLeadExtraction(
+                    is_genuine_inquiry=True,
+                    reason="A clear request.",
+                    inquiry_evidence="Need help",
+                ),
+                usage=None,
+            )
+
+    class Client:
+        responses = Responses()
+
+        def with_options(self, **kwargs: object) -> Client:
+            options.update(kwargs)
+            return self
+
+    monkeypatch.setattr(openai_provider, "sleep", lambda _seconds: None)
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=90,
+        max_retries=8,
+        store_responses=False,
+        client=Client(),
+    )
+    result = provider.extract_gmail_lead(
+        headers={}, subject="Question", body="Need help."
+    )
+    assert result.is_genuine_inquiry
+    assert attempts == 2
+    assert options == {"timeout": 15, "max_retries": 0}
+
+
+def test_gmail_extraction_uses_workspace_profile_and_excludes_routine_marketing() -> None:
+    business_profile = WorkspaceBusinessProfile(
+        business_name="Corral Systems",
+        alternate_names=["Corral"],
+        email_domains=["corral.example"],
+        description="CRM and sales operations software.",
+    )
+    request: dict[str, object] = {}
+
+    class Responses:
+        def parse(self, **kwargs: object) -> SimpleNamespace:
+            request.update(kwargs)
+            return SimpleNamespace(
+                output_parsed=GmailLeadExtraction(
+                    is_genuine_inquiry=False,
+                    reason="Routine promotional message, not a prospect inquiry.",
+                ),
+                usage=None,
+            )
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=10,
+        max_retries=0,
+        store_responses=False,
+        client=SimpleNamespace(responses=Responses()),
+    )
+    result = provider.extract_gmail_lead(
+        headers={
+            "workspace-business-profile": business_profile.model_dump_json(),
+            "internal-domains": "corral.example",
+        },
+        subject="Weekly promotions",
+        body="A vendor promotion sent to the workspace.",
+    )
+
+    assert not result.is_genuine_inquiry
+    user_payload = json.loads(request["input"][1]["content"])
+    assert user_payload["workspace_business_profile"] == business_profile.model_dump(
+        mode="json"
+    )
+    system_prompt = request["input"][0]["content"]
+    assert "Exclude routine promotional or marketing messages sent to the workspace" in (
+        system_prompt
+    )
+    assert "Keep relevant replies in existing sales conversations eligible" in system_prompt
+
+
+def test_gmail_extraction_maps_unknown_provider_errors_to_safe_unavailable() -> None:
+    class Responses:
+        def parse(self, **_kwargs: object) -> None:
+            raise RuntimeError("private email body")
+
+    class Client:
+        responses = Responses()
+
+    provider = OpenAIReasoningProvider(
+        api_key="test-only-key",
+        model="test-model",
+        timeout_seconds=90,
+        max_retries=8,
+        store_responses=False,
+        client=Client(),
+    )
+    with pytest.raises(
+        ReasoningProviderUnavailable, match="OpenAI Gmail extraction failed"
+    ) as error:
+        provider.extract_gmail_lead(headers={}, subject="Question", body="Need help.")
+    assert "private email body" not in str(error.value)

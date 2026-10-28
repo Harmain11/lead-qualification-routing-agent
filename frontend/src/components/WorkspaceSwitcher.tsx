@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { AuthSession } from "../types";
-import "./workspaceSwitcher.css";
 
 export function WorkspaceSwitcher({
   session,

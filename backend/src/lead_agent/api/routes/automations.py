@@ -5,13 +5,21 @@ from typing import Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
-from lead_agent.api.operations_schemas import AutomationPage, AutomationRecord, RunPage, RunRecord
+from lead_agent.api.operations_schemas import (
+    AutomationEnrollmentBatch,
+    AutomationEnrollmentItem,
+    AutomationPage,
+    AutomationRecord,
+    RunPage,
+    RunRecord,
+)
 from lead_agent.application.automations import advance_run, latest_reply
 from lead_agent.application.governance import audit_operation, operations_policy
 from lead_agent.domain.operations import AutomationInput, StrictModel
@@ -102,6 +110,70 @@ class Enrollment(StrictModel):
     lead_id: UUID
 
 
+class BulkEnrollment(StrictModel):
+    lead_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+    @field_validator("lead_ids")
+    @classmethod
+    def unique_lead_ids(cls, value: list[UUID]) -> list[UUID]:
+        return list(dict.fromkeys(value))
+
+
+def _enroll_one(
+    session: Session,
+    definition: AutomationDefinitionORM,
+    lead: LeadORM,
+    workspace: WorkspaceContext,
+) -> tuple[AutomationRunORM, bool]:
+    existing = session.scalar(
+        select(AutomationRunORM).where(
+            AutomationRunORM.definition_id == definition.id,
+            AutomationRunORM.lead_id == lead.id,
+        )
+    )
+    if existing:
+        return existing, False
+    start = next(
+        node["id"]
+        for node in definition.specification["nodes"]
+        if node["type"] == "start"
+    )
+    row = AutomationRunORM(
+        workspace_id=workspace.workspace_id,
+        definition_id=definition.id,
+        lead_id=lead.id,
+        specification=definition.specification,
+        cursor=start,
+        created_by=workspace.actor_id,
+        state={
+            "enrolled_at": datetime.now(UTC).isoformat(),
+            "definition_version": definition.version,
+        },
+    )
+    try:
+        with session.begin_nested():
+            session.add(row)
+            session.flush()
+    except IntegrityError:
+        existing = session.scalar(
+            select(AutomationRunORM).where(
+                AutomationRunORM.definition_id == definition.id,
+                AutomationRunORM.lead_id == lead.id,
+            )
+        )
+        if existing is None:
+            raise
+        return existing, False
+    audit_operation(
+        session,
+        workspace.workspace_id,
+        workspace.actor_id,
+        "automation.enrolled",
+        {"run_id": str(row.id), "lead_id": str(lead.id)},
+    )
+    return row, True
+
+
 @router.post("/{definition_id}/enroll", status_code=201, response_model=RunRecord)
 def enroll(
     definition_id: UUID,
@@ -117,48 +189,61 @@ def enroll(
         raise HTTPException(404, "Lead not found")
     if not definition.active:
         raise HTTPException(409, "Activate the definition before enrollment")
-    old = session.scalar(
-        select(AutomationRunORM).where(
-            AutomationRunORM.definition_id == definition_id, AutomationRunORM.lead_id == lead.id
-        )
-    )
-    if old:
-        return old
-    start = next(
-        node["id"] for node in definition.specification["nodes"] if node["type"] == "start"
-    )
-    row = AutomationRunORM(
-        workspace_id=workspace.workspace_id,
-        definition_id=definition_id,
-        lead_id=lead.id,
-        specification=definition.specification,
-        cursor=start,
-        created_by=workspace.actor_id,
-        state={
-            "enrolled_at": datetime.now(UTC).isoformat(),
-            "definition_version": definition.version,
-        },
-    )
-    try:
-        with session.begin_nested():
-            session.add(row)
-            session.flush()
-    except IntegrityError:
-        return session.scalar(
-            select(AutomationRunORM).where(
-                AutomationRunORM.definition_id == definition_id, AutomationRunORM.lead_id == lead.id
-            )
-        )
-    audit_operation(
-        session,
-        workspace.workspace_id,
-        workspace.actor_id,
-        "automation.enrolled",
-        {"run_id": str(row.id), "lead_id": str(lead.id)},
-    )
+    row, _ = _enroll_one(session, definition, lead, workspace)
     session.commit()
     session.refresh(row)
     return row
+
+
+@router.post(
+    "/{definition_id}/enroll-bulk",
+    response_model=AutomationEnrollmentBatch,
+)
+def enroll_bulk(
+    definition_id: UUID,
+    request: BulkEnrollment,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> AutomationEnrollmentBatch:
+    definition = session.get(AutomationDefinitionORM, definition_id)
+    if definition is None or definition.workspace_id != workspace.workspace_id:
+        raise HTTPException(404, "Playbook not found")
+    if not definition.active:
+        raise HTTPException(409, "Activate the definition before enrollment")
+
+    leads = {
+        lead.id: lead
+        for lead in session.scalars(
+            select(LeadORM).where(
+                LeadORM.workspace_id == workspace.workspace_id,
+                LeadORM.id.in_(request.lead_ids),
+            )
+        )
+    }
+    if len(leads) != len(request.lead_ids):
+        raise HTTPException(404, "One or more leads were not found")
+
+    items: list[AutomationEnrollmentItem] = []
+    enrolled = 0
+    already_enrolled = 0
+    for lead_id in request.lead_ids:
+        run, created = _enroll_one(session, definition, leads[lead_id], workspace)
+        enrolled += int(created)
+        already_enrolled += int(not created)
+        items.append(
+            AutomationEnrollmentItem(
+                lead_id=lead_id,
+                run_id=run.id,
+                status="enrolled" if created else "already_enrolled",
+            )
+        )
+    session.commit()
+    return AutomationEnrollmentBatch(
+        definition_id=definition_id,
+        enrolled=enrolled,
+        already_enrolled=already_enrolled,
+        items=items,
+    )
 
 
 @router.get("/runs/list", response_model=RunPage)

@@ -10,7 +10,7 @@ ignorePorts = false
 
 [nix]
 channel = "stable-25_05"
-packages = ["mailpit", "redis"]
+packages = ["mailpit", "redis", "codex"]
 
 [workflows]
 runButton = "Project"
@@ -38,21 +38,30 @@ outputType = "webview"
 
 [[ports]]
 localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 5115
-externalPort = 3001
+externalPort = 5000
 
 [[ports]]
 localPort = 23636
+externalPort = 80
+
+[[ports]]
+localPort = 24678
 externalPort = 3000
 
 [userenv]
 
 [userenv.shared]
+VITE_RINGCENTRAL_EMBED_CLIENT_ID = "no have it yet"
 
 [userenv.production]
 EMAIL_PROVIDER = "gmail"
 REDIS_DEPLOYMENT_MODE = "local_vm"
 REDIS_URL = "redis://127.0.0.1:6380/0"
+CORS_ALLOWED_ORIGINS = "https://corralai.tech,https://www.corralai.tech,https://lead-qualification-routing-agent.replit.app"
+FRONTEND_PUBLIC_BASE_URL = "https://corralai.tech"
+INTEGRATION_PUBLIC_BASE_URL = "https://corralai.tech"
+OAUTH_BROKER = "provider"
+
+[postMerge]
+path = "scripts/replit_build.sh"
+timeoutMs = 180000

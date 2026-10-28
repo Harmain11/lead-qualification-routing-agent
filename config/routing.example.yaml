@@ -31,6 +31,13 @@ manual_review:
   enabled: true
   minimum_confidence: 0.75
   retry_limit_before_review: 3
+  personal_email: true
+  missing_person_name: true
+  missing_company_name: true
+  low_confidence: false
+  contradictory_evidence: false
+  missing_qualification_information: false
+  provider_failure: false
 manual_review_queue: "manual_review"
 safe_default_queue: "manual_review"
 queues:

@@ -1,0 +1,1037 @@
+#corral-agent-window .corral-agent-choice-group {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+#corral-agent-window .corral-agent-choice-heading {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+#corral-agent-window .corral-agent-choice-list {
+  display: grid;
+  width: 100%;
+  max-width: 420px;
+  min-width: 0;
+  gap: 8px;
+  overflow: visible;
+}
+
+#corral-agent-window .corral-agent-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  box-sizing: border-box;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+}
+
+#corral-agent-window .corral-agent-choice-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+#corral-agent-window .corral-agent-choice-copy strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+#corral-agent-window .corral-agent-choice-copy > span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+#corral-agent-window .corral-agent-choice-indicator {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+#corral-agent-window .corral-agent-choice:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--green) 60%, var(--line));
+  background: color-mix(in srgb, var(--surface-high) 55%, var(--surface));
+}
+
+#corral-agent-window .corral-agent-choice:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+#corral-agent-window .corral-agent-choice[aria-pressed="true"] {
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+
+#corral-agent-window .corral-agent-choice[aria-pressed="true"] .corral-agent-choice-indicator {
+  border-color: var(--green);
+  background: var(--green);
+  color: var(--surface);
+}
+
+#corral-agent-window .corral-agent-choice:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+@media (max-width: 767px) {
+  #corral-agent-window {
+    position: fixed;
+    top: var(--corral-agent-visual-top, 0px);
+    right: auto;
+    bottom: auto;
+    left: var(--corral-agent-visual-left, 0px);
+    width: var(--corral-agent-visual-width, 100vw);
+    max-width: none;
+    height: var(--corral-agent-visual-height, 100vh);
+    height: var(--corral-agent-visual-height, 100dvh);
+    max-height: none;
+    min-height: 0;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    padding-block:
+      max(8px, env(safe-area-inset-top))
+      max(8px, env(safe-area-inset-bottom));
+    padding-inline:
+      max(12px, env(safe-area-inset-left))
+      max(12px, env(safe-area-inset-right));
+    overflow: clip;
+    border: 0;
+    border-radius: 0;
+    color: var(--text);
+    background: var(--surface);
+    overscroll-behavior-x: none;
+    overscroll-behavior-y: auto;
+  }
+
+  #corral-agent-window > .v-agent-head {
+    height: auto;
+    min-height: 54px;
+    min-width: 0;
+    gap: 8px;
+    padding: 5px 8px;
+  }
+
+  #corral-agent-window .v-agent-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 8px;
+    font-size: 16px;
+  }
+
+  #corral-agent-window .v-agent-title strong {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 16px;
+    white-space: nowrap;
+  }
+
+  #corral-agent-window .v-agent-title .v-btn {
+    flex: 0 1 auto;
+    min-width: 44px;
+    max-width: 104px;
+    min-height: 44px;
+    height: auto;
+    padding: 4px 8px;
+    font-size: 16px;
+    line-height: 1.15;
+    white-space: normal;
+  }
+
+  #corral-agent-window .corral-agent-close {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  #corral-agent-window .v-agent-context {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 8px 10px;
+  }
+
+  #corral-agent-window .v-agent-scope {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  #corral-agent-window .v-agent-scope button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    min-height: 44px;
+    height: 44px;
+    padding-inline: 9px;
+    font: 700 16px/1.2 var(--font);
+    white-space: nowrap;
+  }
+
+  #corral-agent-window .v-agent-subject {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    font-size: 16px;
+    line-height: 1.35;
+  }
+
+  #corral-agent-window .v-agent-subject b,
+  #corral-agent-window .v-agent-subject span {
+    min-width: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    text-overflow: ellipsis;
+  }
+
+  #corral-agent-window .v-agent-subject b {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 16px;
+    line-height: 1.3;
+    white-space: normal;
+  }
+
+  #corral-agent-window .v-agent-context > .corral-agent-change-lead {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    justify-self: end;
+    min-width: 64px;
+    min-height: 44px;
+    height: auto;
+    padding-inline: 9px;
+    font-size: 16px;
+    white-space: normal;
+  }
+
+  #corral-agent-window .corral-agent-window-body {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: clip;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
+  }
+
+  #corral-agent-window .corral-agent-mode {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: clip;
+  }
+
+  #corral-agent-window .corral-agent-start {
+    height: 100%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 14px 12px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
+  }
+
+  #corral-agent-window .corral-agent-search {
+    min-width: 0;
+  }
+
+  #corral-agent-window .corral-agent-search > div {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  #corral-agent-window .corral-agent-search input {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+
+  #corral-agent-window .corral-agent-lead-option,
+  #corral-agent-window .corral-agent-lead-option strong,
+  #corral-agent-window .corral-agent-lead-option small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  #corral-agent-window .corral-workspace-chat,
+  #corral-agent-window .lead-agent {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: clip;
+  }
+
+  #corral-agent-window .corral-workspace-chat {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  #corral-agent-window .lead-agent {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  #corral-agent-window .lead-agent-heading {
+    display: none;
+  }
+
+  #corral-agent-window .lead-agent-quick-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  #corral-agent-window .lead-agent-phone-card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 4px;
+    padding: 0;
+  }
+
+  #corral-agent-window .lead-agent-quick-buttons {
+    justify-content: flex-start;
+    gap: 4px;
+  }
+
+  #corral-agent-window .lead-agent-email-shortcut {
+    width: 100%;
+    min-width: 44px;
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+
+  #corral-agent-window .lead-agent-email-shortcut-note {
+    display: none;
+  }
+
+  #corral-agent-window .lead-agent :is(p, li, small, label, span, strong, b, dt, dd, summary, time, a) {
+    font-size: 16px !important;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .lead-agent button {
+    font-size: 16px !important;
+  }
+
+  #corral-agent-window .corral-workspace-chat-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  #corral-agent-window .corral-workspace-chat-toolbar__title {
+    min-width: 0;
+  }
+
+  #corral-agent-window .corral-workspace-chat-toolbar__title strong,
+  #corral-agent-window .corral-workspace-chat-toolbar__title > span {
+    max-width: 100%;
+    font-size: 16px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-chat-toolbar__actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  #corral-agent-window .corral-workspace-transcript,
+  #corral-agent-window .lead-agent-transcript {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 12px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
+    scrollbar-width: thin;
+  }
+
+  #corral-agent-window .corral-workspace-transcript > *,
+  #corral-agent-window .lead-agent-transcript > *,
+  #corral-agent-window .corral-workspace-welcome,
+  #corral-agent-window .corral-workspace-action {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-message,
+  #corral-agent-window .lead-agent-message {
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-message > span,
+  #corral-agent-window .lead-agent-role,
+  #corral-agent-window .corral-workspace-action strong {
+    font-size: 16px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-welcome {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 12px 0;
+  }
+
+  #corral-agent-window .corral-workspace-welcome h2 {
+    font-size: 20px;
+  }
+
+  #corral-agent-window .corral-workspace-action pre {
+    max-height: none;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-composer {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+    padding: 9px 10px;
+  }
+
+  #corral-agent-window .corral-workspace-composer-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  #corral-agent-window .corral-workspace-composer-footer small {
+    max-width: none;
+    font-size: 16px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-composer textarea {
+    width: 100%;
+    min-width: 0;
+    min-height: 60px;
+    max-height: min(144px, 24dvh);
+    padding: 10px 11px;
+    font-size: 16px;
+    line-height: 1.45;
+    resize: none;
+  }
+
+  #corral-agent-window .lead-agent-composer {
+    display: grid;
+    min-width: 0;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  #corral-agent-window .lead-agent-composer > div {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  #corral-agent-window .lead-agent-composer textarea {
+    flex: 1 1 170px;
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    height: 56px;
+    max-height: 120px;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+
+  #corral-agent-window :is(button, input, textarea, select, summary) {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 16px;
+    scroll-margin-block: 12px;
+  }
+
+  #corral-agent-window button {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-chat-toolbar__actions button,
+  #corral-agent-window .corral-workspace-composer-footer button,
+  #corral-agent-window .lead-agent-composer button,
+  #corral-agent-window .lead-agent-quick-buttons button,
+  #corral-agent-window .lead-agent-email-shortcut,
+  #corral-agent-window .lead-agent-suggestions button,
+  #corral-agent-window .corral-agent-search button,
+  #corral-agent-window .corral-agent-refresh {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 16px;
+    line-height: 1.35;
+  }
+
+  #corral-agent-window .corral-workspace-prompts button {
+    min-width: 0;
+    min-height: 44px;
+    padding: 9px 11px;
+    font-size: 16px;
+    line-height: 1.4;
+  }
+
+  #corral-agent-window .corral-workspace-composer-footer button {
+    min-width: 72px;
+    padding-inline: 12px;
+  }
+
+  #corral-agent-window .corral-agent-window-body :is(p, li, small, label, [role="status"]) {
+    font-size: 16px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window :is(button, input, textarea, select, summary):focus-visible {
+    outline: 2px solid var(--orange);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+
+  .corral-agent-launcher {
+    right: max(8px, env(safe-area-inset-right));
+  }
+}
+
+@media (max-width: 767px) and (max-height: 480px) {
+  #corral-agent-window {
+    padding-block:
+      max(4px, env(safe-area-inset-top))
+      max(4px, env(safe-area-inset-bottom));
+  }
+
+  #corral-agent-window > .v-agent-head {
+    min-height: 48px;
+    padding-block: 2px;
+  }
+
+  #corral-agent-window .v-agent-context {
+    gap: 3px 6px;
+    padding-block: 4px;
+  }
+
+  #corral-agent-window .corral-workspace-chat-toolbar {
+    gap: 4px;
+    padding-block: 2px;
+  }
+
+  #corral-agent-window .corral-workspace-transcript,
+  #corral-agent-window .lead-agent-transcript {
+    padding-block: 8px;
+  }
+
+  #corral-agent-window .corral-workspace-composer {
+    gap: 4px;
+    padding-block: 5px;
+  }
+
+  #corral-agent-window .corral-workspace-composer textarea,
+  #corral-agent-window .lead-agent-composer textarea {
+    min-height: 48px;
+    height: 48px;
+    max-height: 72px;
+  }
+
+  #corral-agent-window .lead-agent-heading,
+  #corral-agent-window .lead-agent-phone-card,
+  #corral-agent-window .lead-agent-email-shortcut-note,
+  #corral-agent-window .lead-agent-composer small {
+    display: none;
+  }
+
+  #corral-agent-window .lead-agent-quick-actions {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 4px 10px;
+  }
+}
+
+@media (max-width: 560px) and (max-height: 360px) {
+  #corral-agent-window .v-agent-context {
+    grid-template-rows: auto;
+  }
+
+  #corral-agent-window .v-agent-subject,
+  #corral-agent-window .corral-workspace-chat-toolbar__title,
+  #corral-agent-window .corral-workspace-composer-footer small {
+    display: none;
+  }
+
+  #corral-agent-window .v-agent-context > .corral-agent-change-lead {
+    grid-row: 1;
+  }
+}
+
+@media (min-width: 561px) and (max-width: 767px) and (max-height: 480px) {
+  #corral-agent-window .v-agent-context {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  #corral-agent-window .v-agent-scope {
+    grid-column: 1;
+    grid-row: 1;
+    width: max-content;
+  }
+
+  #corral-agent-window .v-agent-subject {
+    grid-column: 2;
+    grid-row: 1;
+    max-height: 44px;
+    overflow: hidden;
+    padding-left: 12px;
+    border-left: 1px solid var(--line);
+  }
+
+  #corral-agent-window .v-agent-subject b {
+    -webkit-line-clamp: 1;
+  }
+
+  #corral-agent-window .v-agent-context > .corral-agent-change-lead {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 767px) {
+  #corral-agent-window .corral-agent-choice-group {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  #corral-agent-window .corral-agent-choice-heading {
+    margin: 0;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  #corral-agent-window .corral-agent-choice-list {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 8px;
+    overflow: visible;
+  }
+
+  #corral-agent-window .corral-agent-choice {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 24px;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    box-sizing: border-box;
+    gap: 10px;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+  }
+
+  #corral-agent-window .corral-agent-choice-copy {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  #corral-agent-window .corral-agent-choice-copy strong {
+    min-width: 0;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-agent-choice-copy > span {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-agent-choice-indicator {
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    box-sizing: border-box;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    color: var(--muted);
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  #corral-agent-window .corral-agent-choice:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--green) 60%, var(--line));
+    background: color-mix(in srgb, var(--surface-high) 55%, var(--surface));
+  }
+
+  #corral-agent-window .corral-agent-choice:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  #corral-agent-window .corral-agent-choice[aria-pressed="true"] {
+    border-color: var(--green);
+    background: color-mix(in srgb, var(--green) 8%, var(--surface));
+    box-shadow: inset 0 0 0 1px var(--green);
+  }
+
+  #corral-agent-window .corral-agent-choice[aria-pressed="true"] .corral-agent-choice-indicator {
+    border-color: var(--green);
+    background: var(--green);
+    color: var(--surface);
+  }
+
+  #corral-agent-window .corral-agent-choice:focus-visible,
+  #corral-agent-window .corral-agent-lead-option:focus-visible,
+  #corral-agent-window .corral-workspace-prompts button:focus-visible,
+  #corral-agent-window .lead-agent-suggestions button:focus-visible,
+  #corral-agent-window .corral-workspace-action-buttons button:focus-visible,
+  #corral-agent-window .lead-agent-action-buttons button:focus-visible,
+  #corral-agent-window .corral-workspace-action-heading:focus-visible,
+  #corral-agent-window .lead-agent-action-title:focus-visible {
+    outline: 2px solid var(--orange);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+
+  #corral-agent-window .corral-agent-lead-option {
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    box-sizing: border-box;
+  }
+
+  #corral-agent-window .corral-agent-lead-option strong {
+    font-size: 16px;
+    line-height: 1.3;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-agent-lead-option small {
+    font-size: 14px;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-message-group {
+    width: 100%;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  #corral-agent-window .corral-workspace-message.is-assistant,
+  #corral-agent-window .lead-agent-message {
+    display: grid;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    gap: 8px;
+    padding: 14px 16px;
+    overflow: visible;
+  }
+
+  #corral-agent-window .corral-workspace-message.is-assistant > span,
+  #corral-agent-window .lead-agent-role {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.3;
+  }
+
+  #corral-agent-window .corral-workspace-message.is-assistant > p,
+  #corral-agent-window .lead-agent-message > p {
+    min-width: 0;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5 !important;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-action,
+  #corral-agent-window .lead-agent-action {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    gap: 12px;
+    padding: 14px 16px;
+    overflow: visible;
+  }
+
+  #corral-agent-window .corral-workspace-action-heading,
+  #corral-agent-window .lead-agent-action-title {
+    display: grid;
+    min-width: 0;
+    min-height: 44px;
+    align-items: center;
+    gap: 6px;
+    padding-right: 26px;
+    font-size: 16px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-action-heading strong,
+  #corral-agent-window .lead-agent-action-title strong {
+    font-size: 16px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-action-heading p,
+  #corral-agent-window .corral-workspace-action > p,
+  #corral-agent-window .lead-agent-action-copy {
+    margin: 0;
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-action dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  #corral-agent-window .corral-workspace-action dd {
+    margin: 0 0 8px;
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .lead-agent-changes {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  #corral-agent-window .lead-agent-changes dt,
+  #corral-agent-window .lead-agent-changes dd {
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .lead-agent-changes dd {
+    margin: 1px 0 0;
+  }
+
+  #corral-agent-window .corral-workspace-action :is(summary, details, label),
+  #corral-agent-window .lead-agent-action :is(summary, label) {
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-action pre,
+  #corral-agent-window .lead-agent-action pre {
+    max-height: none;
+    overflow: visible;
+    padding: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+
+  #corral-agent-window .corral-workspace-action-buttons,
+  #corral-agent-window .lead-agent-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  #corral-agent-window .corral-workspace-action-buttons button,
+  #corral-agent-window .lead-agent-action-buttons button {
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 9px 12px;
+    font-size: 16px;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-email-review {
+    min-width: 0;
+    gap: 12px;
+  }
+
+  #corral-agent-window .corral-workspace-email-review label,
+  #corral-agent-window .corral-workspace-email-review input,
+  #corral-agent-window .corral-workspace-email-review select,
+  #corral-agent-window .corral-workspace-email-review textarea,
+  #corral-agent-window .lead-agent-provider-choice,
+  #corral-agent-window .lead-agent-closing-fields label {
+    min-width: 0;
+    font-size: 16px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-email-review input,
+  #corral-agent-window .corral-workspace-email-review select,
+  #corral-agent-window .corral-workspace-email-review textarea,
+  #corral-agent-window .lead-agent-provider-choice select,
+  #corral-agent-window .lead-agent-closing-fields input,
+  #corral-agent-window .lead-agent-closing-fields select {
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 9px 10px;
+    font-size: 16px;
+  }
+
+  #corral-agent-window .corral-workspace-email-review textarea {
+    min-height: 96px;
+  }
+
+  #corral-agent-window .lead-agent-closing-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  #corral-agent-window .corral-workspace-prompts {
+    gap: 8px;
+  }
+
+  #corral-agent-window .corral-workspace-prompts button,
+  #corral-agent-window .lead-agent-suggestions button {
+    min-width: 0;
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.4;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-prompts button:hover:not(:disabled),
+  #corral-agent-window .lead-agent-suggestions button:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--green) 55%, var(--line));
+    background: color-mix(in srgb, var(--surface-high) 55%, var(--surface));
+  }
+
+  #corral-agent-window .corral-workspace-prompts button:active:not(:disabled),
+  #corral-agent-window .lead-agent-suggestions button:active:not(:disabled) {
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+
+  #corral-agent-window .corral-workspace-error,
+  #corral-agent-window .corral-workspace-action-result,
+  #corral-agent-window .corral-workspace-email-unavailable,
+  #corral-agent-window .corral-workspace-readonly-note,
+  #corral-agent-window .lead-agent-error,
+  #corral-agent-window .lead-agent-notice,
+  #corral-agent-window .lead-agent-quick-notice,
+  #corral-agent-window .corral-agent-error,
+  #corral-agent-window .corral-agent-access-note {
+    min-width: 0;
+    padding: 11px 12px;
+    font-size: 16px !important;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  #corral-agent-window .corral-workspace-error,
+  #corral-agent-window .lead-agent-error,
+  #corral-agent-window .corral-agent-error {
+    border-left: 3px solid var(--red, #b3443f);
+  }
+
+  #corral-agent-window .corral-workspace-action-result,
+  #corral-agent-window .lead-agent-notice {
+    border-left: 3px solid var(--green);
+  }
+}

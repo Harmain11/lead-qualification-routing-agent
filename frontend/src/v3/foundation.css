@@ -1,0 +1,227 @@
+/*
+ * Corral v3 — foundation.
+ *
+ * Written from first principles. Only the brand palette and the Corral mark carry
+ * over from earlier versions:
+ *   green  #1e6b52 — the tint: selection, primary actions, positive state
+ *   amber  #f2a541 — attention only: something needs a person
+ *   navy   #0f1b2d — ink
+ *   ink    #0c1116 — the night canvas
+ *   paper  #f5f7f4 — the day canvas
+ *
+ * Pillars: deference (chrome recedes so records lead), clarity (one type system,
+ * one hierarchy), depth (content, then materials, then sheets), and restraint
+ * (one primary action per surface; colour carries meaning, never decoration).
+ */
+@import "@fontsource-variable/inter/opsz.css";
+
+:root {
+  color-scheme: light;
+
+  /* ---------- Type ---------- */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Variable", Inter, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --t-large: 600 32px/38px var(--font-display);   /* page titles */
+  --t-title1: 600 26px/32px var(--font-display);  /* record titles */
+  --t-title2: 600 20px/26px var(--font-display);  /* section titles */
+  --t-title3: 600 17px/22px var(--font);          /* card titles */
+  --t-headline: 600 15px/20px var(--font);        /* emphasised body */
+  --t-body: 400 15px/22px var(--font);
+  --t-callout: 400 14px/20px var(--font);         /* dense lists, controls */
+  --t-subhead: 400 13px/18px var(--font);         /* secondary lines */
+  --t-footnote: 400 12px/16px var(--font);        /* metadata */
+  --tracking-large: -0.021em;
+  --tracking-title: -0.017em;
+  --tracking-body: -0.006em;
+
+  /* ---------- Brand ---------- */
+  --c-green: #1e6b52;
+  --c-amber: #f2a541;
+  --c-navy: #0f1b2d;
+  --ink-night: #0c1116;
+  --paper: #f5f7f4;
+
+  /* ---------- Semantic colour (light) ---------- */
+  --canvas: #f5f7f4;            /* window */
+  --surface: #ffffff;           /* cards, lists, sheets */
+  --surface-raised: #ffffff;
+  --surface-sunken: #eef1ee;    /* wells, inputs at rest */
+  --sidebar: #edf0ec;
+  --material: rgba(245, 247, 244, 0.78);   /* translucent bars */
+  --material-strong: rgba(255, 255, 255, 0.86);
+
+  --label: #0f1b2d;             /* primary text */
+  --label-2: #46525f;           /* secondary text — 7:1 on white */
+  --label-3: #5f6a75;           /* tertiary text — 5.3:1 on white, 4.9:1 on paper */
+  --label-4: #8b949c;           /* placeholders, disabled — decorative only */
+
+  --separator: rgba(15, 27, 45, 0.09);
+  --separator-strong: rgba(15, 27, 45, 0.16);
+  --fill: rgba(15, 27, 45, 0.045);
+  --fill-hover: rgba(15, 27, 45, 0.075);
+  --fill-press: rgba(15, 27, 45, 0.11);
+
+  --tint: #1e6b52;
+  --tint-hover: #195c46;
+  --tint-press: #144b39;
+  --tint-text: #18604a;         /* tint used as text: 6.5:1 on white */
+  --tint-soft: rgba(30, 107, 82, 0.1);
+  --tint-soft-strong: rgba(30, 107, 82, 0.16);
+  --on-tint: #ffffff;
+
+  --attention: #f2a541;
+  --attention-soft: rgba(242, 165, 65, 0.16);
+  --attention-text: #8a5300;    /* 5.6:1 on white */
+  --on-attention: #0f1b2d;
+
+  --danger: #c23b2a;
+  --danger-soft: rgba(194, 59, 42, 0.09);
+  --danger-text: #b03222;
+  --info-soft: rgba(52, 92, 140, 0.1);
+  --info-text: #2f527c;
+
+  --focus: rgba(30, 107, 82, 0.5);
+
+  /* ---------- Shape & depth ---------- */
+  --r-xs: 6px;
+  --r-sm: 8px;      /* controls */
+  --r-md: 12px;     /* grouped lists, inputs groups */
+  --r-lg: 16px;     /* cards */
+  --r-xl: 20px;     /* sheets */
+  --r-pill: 999px;
+  --hairline: 1px;
+
+  --shadow-card: none;
+  --shadow-control: none;
+  --shadow-pop: 0 12px 36px -8px rgba(15, 27, 45, 0.24), 0 2px 8px rgba(15, 27, 45, 0.06);
+  --shadow-sheet: 0 28px 80px -16px rgba(15, 27, 45, 0.38);
+
+  /* ---------- Space (4pt) ---------- */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px; --s16: 64px;
+
+  /* ---------- Layout ---------- */
+  --sidebar-w: 248px;
+  --toolbar-h: 52px;
+  --inspector-w: 400px;
+  --page-pad: 40px;
+  --v-page-max: 1180px;
+  --control-h: 32px;
+  --control-h-lg: 40px;
+  --tabbar-h: 58px;
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --d-fast: 140ms;
+  --d-base: 220ms;
+  --d-slow: 380ms;
+
+  --z-sidebar: 20; --z-toolbar: 30; --z-inspector: 40; --z-tabbar: 45; --z-pop: 60; --z-sheet: 70; --z-toast: 80;
+}
+
+@media (max-width: 1100px) { :root { --page-pad: 28px; } }
+@media (max-width: 767px) {
+  :root {
+    --page-pad: 16px;
+    --control-h: 40px;
+    --t-large: 700 30px/36px var(--font-display);
+    --t-title1: 600 24px/30px var(--font-display);
+  }
+}
+@media (min-resolution: 2dppx) { :root { --hairline: 0.5px; } }
+
+/* ---------- Dark appearance ---------- */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0c1116;
+  --surface: #141b21;
+  --surface-raised: #1a222a;
+  --surface-sunken: #10161b;
+  --sidebar: #10161b;
+  --material: rgba(12, 17, 22, 0.74);
+  --material-strong: rgba(26, 34, 42, 0.88);
+
+  --label: #eef2f0;
+  --label-2: #b6c0c6;
+  --label-3: #a5b0b7;
+  --label-4: #66727b;
+
+  --separator: rgba(238, 242, 240, 0.09);
+  --separator-strong: rgba(238, 242, 240, 0.16);
+  --fill: rgba(238, 242, 240, 0.06);
+  --fill-hover: rgba(238, 242, 240, 0.09);
+  --fill-press: rgba(238, 242, 240, 0.13);
+
+  --tint: #1e6b52;
+  --tint-hover: #237a5e;
+  --tint-press: #19604a;
+  --tint-text: #6fd0a6;
+  --tint-soft: rgba(111, 208, 166, 0.12);
+  --tint-soft-strong: rgba(111, 208, 166, 0.2);
+
+  --attention-soft: rgba(242, 165, 65, 0.16);
+  --attention-text: #f5b961;
+
+  --danger: #e0614f;
+  --danger-soft: rgba(224, 97, 79, 0.14);
+  --danger-text: #f19a8c;
+  --info-soft: rgba(140, 180, 225, 0.13);
+  --info-text: #a9c6e8;
+  --focus: rgba(111, 208, 166, 0.55);
+
+  --shadow-card: none;
+  --shadow-control: none;
+  --shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.7);
+  --shadow-sheet: 0 30px 80px -10px rgba(0, 0, 0, 0.8);
+}
+
+/* ---------- Reset ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html {
+  background: var(--canvas);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--canvas);
+  color: var(--label);
+  font: var(--t-body);
+  letter-spacing: var(--tracking-body);
+  font-feature-settings: "cv11", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd { margin: 0; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+img, svg, video { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; letter-spacing: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+a { color: var(--tint-text); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+::selection { background: var(--tint-soft-strong); }
+:focus { outline: none; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; border-radius: var(--r-xs); }
+[hidden] { display: none !important; }
+
+.num, .v-num { font-variant-numeric: tabular-nums; }
+.v-sr, .cx-sr, .sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
+from lead_agent.domain.lead_sources import MANUAL_SOURCE
 from lead_agent.domain.models import NormalizedLead
 
 
@@ -27,14 +28,44 @@ def _decimal(value: Any) -> Decimal | None:
 def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
     """Map website/manual input to the stable channel-agnostic lead contract."""
 
-    full_name = _clean(payload.get("full_name") or payload.get("name"))
+    source_detail = _clean(payload.get("source_detail"))
+    is_manual_entry = source_detail == "manual-control-center"
+    provided_full_name = _clean(payload.get("full_name") or payload.get("name"))
+    provided_company_name = _clean(payload.get("company_name") or payload.get("company"))
+    full_name = provided_full_name or "Name not provided"
     email = _clean(payload.get("email"))
-    company_name = _clean(payload.get("company_name") or payload.get("company"))
+    company_name = provided_company_name or "Company not provided"
     message = _clean(payload.get("message") or payload.get("inquiry"))
     product = _clean(payload.get("product_or_service") or payload.get("product"))
-    if not full_name or not email or not company_name or not message or not product:
+    gmail_phone_only = (
+        source_detail == "Gmail"
+        and not email
+        and bool(_clean(payload.get("phone")))
+    )
+    if is_manual_entry:
+        known_details = (
+            provided_full_name,
+            email,
+            _clean(payload.get("phone")),
+            _clean(payload.get("job_title") or payload.get("title")),
+            provided_company_name,
+            _clean(payload.get("industry")),
+            payload.get("employee_count"),
+            payload.get("annual_revenue"),
+            _clean(payload.get("geography") or payload.get("country")),
+            payload.get("budget"),
+            product,
+            message,
+        )
+        if not any(value not in (None, "") for value in known_details):
+            raise ValueError("Provide at least one known lead detail before creating")
+    elif (
+        (not email and not gmail_phone_only)
+        or not message
+        or not product
+    ):
         raise ValueError(
-            "full_name, email, company_name, product_or_service, and message are required"
+            "email, product_or_service, and message are required"
         )
 
     employee_count: int | None = None
@@ -54,11 +85,15 @@ def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
 
     return NormalizedLead(
         id=lead_id,
-        source=_clean(payload.get("source")) or "website",
-        source_detail=_clean(payload.get("source_detail")),
+        source=(
+            MANUAL_SOURCE
+            if is_manual_entry
+            else (_clean(payload.get("source")) or "website")
+        ),
+        source_detail=source_detail,
         external_id=_clean(payload.get("external_id")),
         full_name=full_name,
-        email=email.lower(),
+        email=(email or "").lower(),
         phone=_clean(payload.get("phone")),
         job_title=_clean(payload.get("job_title") or payload.get("title")),
         company_name=company_name,
@@ -67,8 +102,8 @@ def normalize_lead(payload: dict[str, Any], lead_id: UUID) -> NormalizedLead:
         annual_revenue=_decimal(payload.get("annual_revenue")),
         geography=_clean(payload.get("geography") or payload.get("country")),
         budget=_decimal(payload.get("budget")),
-        product_or_service=product,
-        message=message,
+        product_or_service=product or "",
+        message=message or "",
         received_at=received_at,
         raw_payload=payload,
     )

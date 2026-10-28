@@ -240,22 +240,6 @@ class GoogleCalendarClient:
             if isinstance(item, dict) and item.get("start") and item.get("end")
         ]
 
-    def events_between(self, time_min: datetime, time_max: datetime) -> list[dict[str, Any]]:
-        result = self.api.request(
-            "GET",
-            "calendars/primary/events",
-            params={
-                "timeMin": time_min.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                "timeMax": time_max.astimezone(UTC).isoformat().replace("+00:00", "Z"),
-                "singleEvents": "true",
-                "showDeleted": "false",
-                "orderBy": "startTime",
-                "maxResults": "2500",
-            },
-        )
-        items = result.get("items", [])
-        return [cast(dict[str, Any], item) for item in items if isinstance(item, dict)]
-
     def create_event(
         self,
         *,

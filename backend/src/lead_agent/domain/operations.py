@@ -1,7 +1,8 @@
 """Validated workspace policies and a bounded, acyclic playbook language."""
 
+import re
 from datetime import datetime
-from typing import Literal, Self
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -34,6 +35,50 @@ def safe_website(value: str) -> str:
     ):
         raise ValueError("Use a public HTTPS website without credentials or a custom port")
     return value
+
+
+class WorkspaceBusinessProfile(StrictModel):
+    """Optional identity context for the organization that owns this CRM workspace."""
+
+    business_name: str = Field(default="", max_length=255)
+    alternate_names: list[str] = Field(default_factory=list, max_length=25)
+    website: str = Field(default="", max_length=500)
+    email_domains: list[str] = Field(default_factory=list, max_length=25)
+    description: str = Field(default="", max_length=2000)
+    products_services: str = Field(default="", max_length=2000)
+    lead_distinction_notes: str = Field(default="", max_length=1500)
+    email_signature: str = Field(default="", max_length=1200)
+
+    @field_validator("alternate_names", "email_domains")
+    @classmethod
+    def clean_identity_values(cls, values: list[str], info: Any) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            value = raw.strip()
+            if info.field_name == "email_domains":
+                value = value.casefold().removeprefix("@")
+                if value and not re.fullmatch(
+                    r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}",
+                    value,
+                ):
+                    raise ValueError("Enter email domains like example.com, without an @ sign")
+            key = value.casefold()
+            if value and key not in seen:
+                if len(value) > 255:
+                    raise ValueError("Business names and domains must be 255 characters or fewer")
+                normalized.append(value)
+                seen.add(key)
+        return normalized
+
+    @field_validator("website")
+    @classmethod
+    def website_is_https(cls, value: str) -> str:
+        return safe_website(value) if value else value
+
+    @property
+    def has_context(self) -> bool:
+        return any(self.model_dump().values())
 
 
 class Territory(StrictModel):
@@ -98,6 +143,7 @@ class OperationsPolicy(StrictModel):
         default=None, max_length=255, pattern=r"^[a-z0-9][a-z0-9.-]+[a-z]$"
     )
     monthly_quota_usd: float | None = Field(default=None, ge=0, le=1e12, allow_inf_nan=False)
+    business_profile: WorkspaceBusinessProfile = Field(default_factory=WorkspaceBusinessProfile)
 
     @field_validator("brand_logo_url")
     @classmethod

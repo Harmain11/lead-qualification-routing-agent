@@ -1,7 +1,6 @@
 import { useEffect,useMemo,useState } from "react";
 import { getLeadPipelineHistory,listLeads } from "../api";
 import type { Lead,LeadPipelineEvent } from "../types";
-import "./ContactsView.css";
 
 type Contact = {
   key: string;

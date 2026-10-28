@@ -1,20 +1,25 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_authenticated_identity, require_permission
+from lead_agent.api.dependencies import (
+    get_authenticated_identity,
+    require_any_permission,
+    require_permission,
+)
 from lead_agent.api.schemas import (
     IntegrationCardResponse,
     ProviderConnectionResponse,
@@ -22,6 +27,7 @@ from lead_agent.api.schemas import (
 )
 from lead_agent.application.auth import membership_permissions, require_membership
 from lead_agent.application.integrations import (
+    activate_reasoning_provider,
     begin_oauth_connection,
     complete_oauth_connection,
     create_manual_connection,
@@ -30,6 +36,12 @@ from lead_agent.application.integrations import (
     reject_oauth_connection,
     update_openai_model,
     validate_connection,
+)
+from lead_agent.application.lead_approval import (
+    LEAD_APPROVAL_PROVIDER_LABELS,
+    lead_approval_policy,
+    provider_has_verified_connection,
+    update_lead_approval_policy,
 )
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
 from lead_agent.domain.integration_directionality import directionality_for
@@ -42,8 +54,10 @@ from lead_agent.domain.integrations import (
     SecretStore,
 )
 from lead_agent.domain.oauth_errors import OAuthProviderError
+from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.communications import CommunicationsClient
 from lead_agent.infrastructure.db.models import (
     AnalysisRunORM,
     LeadORM,
@@ -56,12 +70,14 @@ from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import (
     get_provider_connection_validator,
     get_provider_revoker,
+    get_workspace_connection_resolver,
     record_provider_lifecycle_audit,
 )
 from lead_agent.infrastructure.rate_limit import rate_limit_dependency
 from lead_agent.infrastructure.reasoning.configuration import (
-    default_openai_model,
-    supported_openai_models,
+    REASONING_PROVIDERS,
+    default_reasoning_model,
+    supported_reasoning_models,
 )
 from lead_agent.infrastructure.repositories import (
     ensure_workspace,
@@ -84,6 +100,22 @@ _OPENAI_USAGE_WINDOWS = {
     "quarterly": timedelta(days=90),
     "annual": timedelta(days=365),
 }
+_REASONING_USAGE_PROVIDERS = REASONING_PROVIDERS
+_REASONING_USAGE_ACTIONS = {
+    "openai": "openai_api_usage",
+    "gemini": "reasoning_api_usage",
+    "claude": "reasoning_api_usage",
+    "deepseek": "reasoning_api_usage",
+    "xai": "reasoning_api_usage",
+}
+_USAGE_TOTAL_FIELDS = (
+    "requests",
+    "successful_requests",
+    "failed_requests",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+)
 
 # Social lead sources are workspace-owned business channels. Only workspace
 # admins/owners may authorize or replace them; ordinary members can view the
@@ -118,32 +150,21 @@ class ReconnectRequest(BaseModel):
     credentials: dict[str, str]
 
 
+class CloudTalkAgentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=1, max_length=128, pattern=r"^[0-9]+$")
+
+
+class CloudTalkAgentResponse(BaseModel):
+    id: str
+    name: str
+
+
 class OpenAIModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = Field(min_length=1, max_length=128)
-
-
-class GoogleAppointmentScheduleRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    url: str = Field(default="", max_length=2048)
-    event_title: str = Field(default="", max_length=255)
-
-    @model_validator(mode="after")
-    def validate_schedule(self) -> GoogleAppointmentScheduleRequest:
-        if bool(self.url) != bool(self.event_title):
-            raise ValueError("Provide both the appointment URL and its exact calendar event title.")
-        if self.url:
-            parsed = urlsplit(self.url)
-            if (
-                parsed.scheme != "https"
-                or parsed.username
-                or parsed.password
-                or parsed.hostname not in {"calendar.app.google", "calendar.google.com"}
-            ):
-                raise ValueError("Use a Google Calendar appointment schedule URL.")
-        return self
 
 
 @router.get("/openai/usage")
@@ -204,11 +225,102 @@ def get_openai_usage(
         **totals,
         "models": [
             {"model": model, **usage}
-            for model, usage in sorted(models.items(), key=lambda item: item[1]["total_tokens"], reverse=True)
+            for model, usage in sorted(
+                models.items(),
+                key=lambda item: item[1]["total_tokens"],
+                reverse=True,
+            )
         ],
     }
 
+@router.get("/reasoning/usage")
+def get_reasoning_usage(
+    period: Literal["weekly", "monthly", "quarterly", "annual"] = Query(default="monthly"),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> dict[str, Any]:
+    """Return safe, workspace-scoped usage totals across supported reasoning providers."""
 
+    window_end = datetime.now(UTC)
+    window_start = window_end - _OPENAI_USAGE_WINDOWS[period]
+    provider_filters = [
+        and_(
+            ProviderLifecycleAuditORM.provider == provider,
+            ProviderLifecycleAuditORM.action == _REASONING_USAGE_ACTIONS[provider],
+        )
+        for provider in _REASONING_USAGE_PROVIDERS
+    ]
+    events = session.scalars(
+        select(ProviderLifecycleAuditORM)
+        .where(
+            ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
+            ProviderLifecycleAuditORM.created_at >= window_start,
+            ProviderLifecycleAuditORM.created_at <= window_end,
+            or_(*provider_filters),
+        )
+        .order_by(ProviderLifecycleAuditORM.created_at.desc())
+    ).all()
+
+    providers: dict[str, dict[str, Any]] = {
+        provider: {
+            "provider": provider,
+            **{field: 0 for field in _USAGE_TOTAL_FIELDS},
+            "models": {},
+        }
+        for provider in _REASONING_USAGE_PROVIDERS
+    }
+    for event in events:
+        provider_usage = providers.get(event.provider)
+        if provider_usage is None:
+            continue
+        successful = event.outcome == "success"
+        outcome_field = "successful_requests" if successful else "failed_requests"
+        provider_usage["requests"] += 1
+        provider_usage[outcome_field] += 1
+
+        details = event.details if isinstance(event.details, dict) else {}
+        model = details.get("model")
+        model_name = model[:128].strip() if isinstance(model, str) else ""
+        model_name = model_name or "Unknown model"
+        models = provider_usage["models"]
+        model_usage = models.setdefault(model_name, {
+            **{field: 0 for field in _USAGE_TOTAL_FIELDS},
+        })
+        model_usage["requests"] += 1
+        model_usage[outcome_field] += 1
+        for field in ("input_tokens", "output_tokens", "total_tokens"):
+            value = details.get(field)
+            count = (
+                value
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                else 0
+            )
+            provider_usage[field] += count
+            model_usage[field] += count
+
+    return {
+        "period": period,
+        "starts_at": window_start,
+        "ends_at": window_end,
+        "timezone": "UTC",
+        "providers": [
+            {
+                **{
+                    field: value
+                    for field, value in provider_usage.items()
+                    if field != "models"
+                },
+                "models": [
+                    {"model": model, **usage}
+                    for model, usage in sorted(
+                        provider_usage["models"].items(),
+                        key=lambda item: (-item[1]["total_tokens"], item[0]),
+                    )
+                ],
+            }
+            for provider_usage in providers.values()
+        ],
+    }
 class SlackChannelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel_id: str = Field(min_length=3, max_length=255)
@@ -234,6 +346,7 @@ class SlackNotificationRuleRequest(BaseModel):
     connection_id: UUID
     destination_type: Literal["channel", "direct_message"] = "channel"
     channel_id: str | None = Field(default=None, min_length=3, max_length=255)
+    fallback_to_channel: bool = False
     queues: list[str] = Field(default_factory=list, max_length=10)
     qualification_bands: list[str] = Field(default_factory=list, max_length=10)
     sources: list[str] = Field(default_factory=list, max_length=10)
@@ -271,6 +384,7 @@ class ValidationResponse(BaseModel):
     message: str
     retryable: bool
     error_code: str | None
+    backfill_job_id: str | None = None
 
 
 def _connection_or_404(session: Session, workspace_id: UUID, connection_id: UUID) -> Any:
@@ -280,10 +394,185 @@ def _connection_or_404(session: Session, workspace_id: UUID, connection_id: UUID
     return row
 
 
+def _reasoning_backfill_snapshot(
+    session: Session, connection: ProviderConnectionORM
+) -> tuple[str, str, str]:
+    from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
+
+    provider = resolve_workspace_reasoning_provider(session, connection.workspace_id)
+    provider_name = str(getattr(provider, "provider_name", ""))
+    model_name = str(getattr(provider, "model_name", ""))
+    prompt_version = str(getattr(provider, "prompt_version", ""))
+    if provider_name != connection.provider_type or not model_name or not prompt_version:
+        raise HTTPException(status_code=409, detail="The verified AI provider is not active")
+    return provider_name, model_name, f"{provider_name}|{model_name}|{prompt_version}"
+
+
+def _enqueue_reasoning_backfill(
+    session: Session,
+    connection: ProviderConnectionORM,
+    settings: Settings,
+) -> dict[str, object]:
+    if (
+        connection.provider_type not in REASONING_PROVIDERS
+        or connection.status != "verified"
+        or not connection.is_active
+    ):
+        raise HTTPException(status_code=409, detail="Verify and activate the AI provider first")
+    provider_name, model_name, config_key = _reasoning_backfill_snapshot(session, connection)
+    prompt_version = config_key.rsplit("|", 1)[-1]
+    lock_hash = hashlib.sha256(config_key.encode()).hexdigest()[:24]
+    lock_key = f"reasoning-backfill:{connection.workspace_id}:{connection.id}:{lock_hash}"
+    redis_client = Redis.from_url(
+        settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+    )
+    try:
+        redis_client.ping()
+        existing_job = redis_client.get(lock_key)
+        if existing_job:
+            existing_job_id = (
+                existing_job.decode()
+                if isinstance(existing_job, bytes)
+                else str(existing_job)
+            )
+            return {
+                "status": "already_queued",
+                "job_id": existing_job_id,
+                "queued_count": 0,
+                "message": "A backfill for this provider configuration is already running.",
+            }
+        job_id = str(uuid4())
+        if not redis_client.set(lock_key, job_id, nx=True, ex=21600):
+            active_job = redis_client.get(lock_key)
+            active_job_id = (
+                active_job.decode()
+                if isinstance(active_job, bytes)
+                else str(active_job or "")
+            )
+            return {
+                "status": "already_queued",
+                "job_id": active_job_id,
+                "queued_count": 0,
+                "message": "A backfill for this provider configuration is already running.",
+            }
+    except (RedisError, OSError, ValueError) as error:
+        raise HTTPException(
+            status_code=503, detail="The lead analysis worker is unavailable"
+        ) from error
+    finally:
+        redis_client.close()
+
+    completed_for_config = select(AnalysisRunORM.id).where(
+        AnalysisRunORM.lead_id == LeadORM.id,
+        AnalysisRunORM.provider == provider_name,
+        AnalysisRunORM.model == model_name,
+        AnalysisRunORM.prompt_version == prompt_version,
+        AnalysisRunORM.status.in_(["completed", "manual_review"]),
+    ).exists()
+    queued_count = int(session.scalar(
+        select(func.count(LeadORM.id)).where(
+            LeadORM.workspace_id == connection.workspace_id,
+            ~completed_for_config,
+        )
+    ) or 0)
+    total_leads = int(session.scalar(
+        select(func.count(LeadORM.id)).where(LeadORM.workspace_id == connection.workspace_id)
+    ) or 0)
+    queued_event = ProviderLifecycleAuditORM(
+        id=uuid4(),
+        workspace_id=connection.workspace_id,
+        connection_id=connection.id,
+        provider=provider_name,
+        actor_id="system",
+        action="reasoning_backfill",
+        outcome="queued" if queued_count else "no_eligible_leads",
+        correlation_id=job_id,
+        details={
+            "provider": provider_name,
+            "model": model_name,
+            "config_key": config_key,
+            "total": total_leads,
+            "completed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "status": "queued" if queued_count else "no_eligible_leads",
+        },
+        created_at=datetime.now(UTC),
+    )
+    session.add(queued_event)
+    session.commit()
+    if not queued_count:
+        cleanup = Redis.from_url(
+            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+        )
+        try:
+            cleanup.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                "return redis.call('del', KEYS[1]) else return 0 end",
+                1, lock_key, job_id,
+            )
+        except (RedisError, OSError, ValueError):
+            pass
+        finally:
+            cleanup.close()
+        return {
+            "status": "no_eligible_leads",
+            "job_id": job_id,
+            "queued_count": 0,
+            "message": "There are no existing leads that need this provider configuration.",
+        }
+    from lead_agent.worker.celery_app import reanalyze_workspace_leads
+
+    try:
+        reanalyze_workspace_leads.delay(
+            str(connection.workspace_id), str(connection.id), job_id, config_key
+        )
+    except Exception as error:
+        cleanup = Redis.from_url(
+            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+        )
+        try:
+            cleanup.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                "return redis.call('del', KEYS[1]) else return 0 end",
+                1, lock_key, job_id,
+            )
+        except (RedisError, OSError, ValueError):
+            pass
+        finally:
+            cleanup.close()
+        session.add(ProviderLifecycleAuditORM(
+            id=uuid4(), workspace_id=connection.workspace_id,
+            connection_id=connection.id, provider=provider_name, actor_id="system",
+            action="reasoning_backfill", outcome="failed", correlation_id=job_id,
+            details={
+                "provider": provider_name, "model": model_name,
+                "config_key": config_key, "total": queued_count,
+                "completed": 0, "failed": queued_count, "skipped": 0,
+                "status": "failed", "message": "The analysis worker could not accept the job.",
+            },
+            created_at=datetime.now(UTC),
+        ))
+        session.commit()
+        raise HTTPException(
+            status_code=503, detail="The lead analysis worker is unavailable"
+        ) from error
+    return {
+        "status": "queued",
+        "job_id": job_id,
+        "queued_count": queued_count,
+        "message": (
+            f"Existing leads will be analyzed with {provider_name.title()} in the background."
+        ),
+    }
+
+
 @router.get("", response_model=list[IntegrationCardResponse])
 def list_integrations(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(
+        require_any_permission("integrations.view", "dialer.call")
+    ),
     settings: Settings = Depends(get_settings),
 ) -> list[IntegrationCardResponse]:
     ensure_workspace(session, workspace.workspace_id)
@@ -291,15 +580,26 @@ def list_integrations(
     connections = list_provider_connections(session, workspace.workspace_id)
     latest: dict[str, Any] = {}
     for row in connections:
-        latest.setdefault(row.provider_type, row)
+        current = latest.get(row.provider_type)
+        if current is None or (
+            row.is_active and row.status == "verified"
+            and not (current.is_active and current.status == "verified")
+        ) or (
+            row.is_active and not current.is_active
+        ):
+            latest[row.provider_type] = row
     return [
         IntegrationCardResponse(
             **setup.model_dump(),
             directionality=directionality_for(provider).model_dump(),
             supported_models=(
-                list(supported_openai_models(settings)) if provider == "openai" else []
+                list(supported_reasoning_models(provider, settings))
+                if provider in REASONING_PROVIDERS else []
             ),
-            default_model=(default_openai_model(settings) if provider == "openai" else None),
+            default_model=(
+                default_reasoning_model(provider, settings)
+                if provider in REASONING_PROVIDERS else None
+            ),
             connection=(
                 provider_connection_response(latest[provider]) if provider in latest else None
             ),
@@ -311,6 +611,93 @@ def list_integrations(
         )
         for provider, setup in PROVIDER_SETUP.items()
     ]
+
+
+class LeadApprovalPolicyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auto_approve_leads: bool
+
+
+class LeadApprovalPolicyResponse(BaseModel):
+    provider: str
+    display_name: str
+    auto_approve_leads: bool
+    policy_source: Literal["default", "legacy_migration", "user"]
+    verified_connection: bool
+    updated_at: datetime | None
+
+
+def _lead_approval_policy_response(
+    session: Session, workspace_id: UUID, provider: str
+) -> LeadApprovalPolicyResponse:
+    enabled, source, updated_at = lead_approval_policy(session, workspace_id, provider)
+    return LeadApprovalPolicyResponse(
+        provider=provider,
+        display_name=LEAD_APPROVAL_PROVIDER_LABELS[provider],
+        auto_approve_leads=enabled,
+        policy_source=source,
+        verified_connection=provider_has_verified_connection(
+            session, workspace_id, provider
+        ),
+        updated_at=updated_at,
+    )
+
+
+@router.get(
+    "/lead-approval-policies",
+    response_model=list[LeadApprovalPolicyResponse],
+)
+def list_lead_approval_policies(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> list[LeadApprovalPolicyResponse]:
+    return [
+        _lead_approval_policy_response(session, workspace.workspace_id, provider)
+        for provider in LEAD_APPROVAL_PROVIDER_LABELS
+    ]
+
+
+@router.put(
+    "/lead-approval-policies/{provider}",
+    response_model=LeadApprovalPolicyResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def set_lead_approval_policy(
+    provider: str,
+    request: LeadApprovalPolicyUpdate,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> LeadApprovalPolicyResponse:
+    if provider not in LEAD_APPROVAL_PROVIDER_LABELS:
+        raise HTTPException(
+            status_code=404,
+            detail="provider does not support lead approval policies",
+        )
+    if request.auto_approve_leads:
+        if "manual_review.manage" not in workspace.permissions:
+            raise HTTPException(
+                status_code=403,
+                detail="permission required: manual_review.manage to enable auto-approval",
+            )
+        if not provider_has_verified_connection(session, workspace.workspace_id, provider):
+            name = LEAD_APPROVAL_PROVIDER_LABELS[provider]
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{name} must have an active verified connection before "
+                    "auto-approval can be enabled."
+                ),
+            )
+    update_lead_approval_policy(
+        session,
+        workspace.workspace_id,
+        provider,
+        request.auto_approve_leads,
+        workspace.actor_id,
+    )
+    session.commit()
+    return _lead_approval_policy_response(session, workspace.workspace_id, provider)
 
 
 def _slack_notification_config_response(
@@ -699,6 +1086,7 @@ def test_connection(
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
     validator: ProviderConnectionValidator = Depends(get_provider_connection_validator),
+    settings: Settings = Depends(get_settings),
 ) -> ValidationResponse:
     try:
         row, validation = validate_connection(
@@ -712,6 +1100,11 @@ def test_connection(
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    backfill_job = (
+        _enqueue_reasoning_backfill(session, row, settings)
+        if validation.verified and row.provider_type in REASONING_PROVIDERS
+        else None
+    )
     return ValidationResponse(
         connection=provider_connection_response(row),
         valid=validation.valid,
@@ -720,10 +1113,12 @@ def test_connection(
         message=validation.message,
         retryable=validation.retryable,
         error_code=validation.error_code,
+        backfill_job_id=str(backfill_job["job_id"]) if backfill_job else None,
     )
 
 
 @router.post("/connections/{connection_id}/backfill-openai")
+@router.post("/connections/{connection_id}/backfill-reasoning")
 def backfill_openai_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
@@ -731,64 +1126,39 @@ def backfill_openai_connection(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
     connection = _connection_or_404(session, workspace.workspace_id, connection_id)
-    if (
-        connection.provider_type != "openai"
-        or connection.status != "verified"
-        or not connection.is_active
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Verify and activate the OpenAI connection before backfill",
-        )
-    count = session.scalar(
-        select(func.count(LeadORM.id))
-        .where(
-            LeadORM.workspace_id == workspace.workspace_id,
-            ~select(AnalysisRunORM.id)
-            .where(
-                AnalysisRunORM.lead_id == LeadORM.id,
-                AnalysisRunORM.provider == "openai",
-                AnalysisRunORM.status == "completed",
-            )
-            .exists(),
-        )
-    ) or 0
-    # Backfill is optional. In local development, do not hold the successful
-    # credential verification hostage to a missing Redis/Celery worker.
-    redis_client = Redis.from_url(
-        settings.redis_url,
-        socket_connect_timeout=1,
-        socket_timeout=1,
-    )
-    try:
-        redis_client.ping()
-    except (RedisError, OSError, ValueError) as error:
-        if settings.app_env.lower() in {"development", "test", "local"}:
-            return {
-                "status": "skipped",
-                "queued_count": 0,
-                "message": (
-                    "OpenAI is verified. Backfill will run when the local worker "
-                    "and Redis are available."
-                ),
-            }
-        raise HTTPException(
-            status_code=503, detail="The lead analysis worker is unavailable"
-        ) from error
-    finally:
-        redis_client.close()
-    from lead_agent.worker.celery_app import reanalyze_workspace_leads
+    return _enqueue_reasoning_backfill(session, connection, settings)
 
-    try:
-        reanalyze_workspace_leads.delay(str(workspace.workspace_id))
-    except Exception as error:
-        raise HTTPException(
-            status_code=503, detail="The lead analysis worker is unavailable"
-        ) from error
+
+@router.get("/connections/{connection_id}/backfill-reasoning/{job_id}")
+def reasoning_backfill_status(
+    connection_id: UUID,
+    job_id: str,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> dict[str, object]:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    row = session.scalar(
+        select(ProviderLifecycleAuditORM)
+        .where(
+            ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
+            ProviderLifecycleAuditORM.connection_id == connection.id,
+            ProviderLifecycleAuditORM.action == "reasoning_backfill",
+            ProviderLifecycleAuditORM.correlation_id == job_id,
+        )
+        .order_by(ProviderLifecycleAuditORM.created_at.desc())
+        .limit(1)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Backfill job not found")
     return {
-        "status": "queued",
-        "queued_count": int(count),
-        "message": "Existing leads will be reanalyzed with OpenAI in the background.",
+        "job_id": job_id,
+        "status": str(row.details.get("status", row.outcome)),
+        "total": int(row.details.get("total", 0)),
+        "completed": int(row.details.get("completed", 0)),
+        "failed": int(row.details.get("failed", 0)),
+        "skipped": int(row.details.get("skipped", 0)),
+        "provider": row.details.get("provider", row.provider),
+        "model": row.details.get("model", ""),
     }
 
 
@@ -961,8 +1331,130 @@ def reconnect(
     return provider_connection_response(row)
 
 
+@router.get(
+    "/connections/{connection_id}/cloudtalk-agents",
+    response_model=dict[str, Any],
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def list_cloudtalk_agents(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> dict[str, Any]:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(status_code=404, detail="CloudTalk connection not found")
+    resolved = get_workspace_connection_resolver().resolve_connection(
+        session,
+        workspace.workspace_id,
+        connection_id,
+        actor_id=workspace.actor_id,
+        allow_unverified=True,
+    )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409, detail="Store CloudTalk credentials before loading agents."
+        )
+    client = CommunicationsClient("cloudtalk", resolved.credentials)
+    try:
+        agents = client.list_cloudtalk_agents()
+    except (ProviderOperationError, ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=502,
+            detail="CloudTalk agents could not be loaded. Check the stored Access Key credentials.",
+        ) from None
+    return {
+        "agents": [CloudTalkAgentResponse(**agent) for agent in agents],
+        "selected_agent_id": resolved.credentials.get("agent_id"),
+    }
+
+
+@router.put(
+    "/connections/{connection_id}/cloudtalk-agent",
+    response_model=ProviderConnectionResponse,
+    dependencies=[Depends(rate_limit_dependency("provider_actions"))],
+)
+def select_cloudtalk_agent(
+    connection_id: UUID,
+    request: CloudTalkAgentRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    secret_store: SecretStore = Depends(get_secret_store),
+) -> ProviderConnectionResponse:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    if connection.provider_type != "cloudtalk":
+        raise HTTPException(status_code=404, detail="CloudTalk connection not found")
+    resolved = get_workspace_connection_resolver().resolve_connection(
+        session,
+        workspace.workspace_id,
+        connection_id,
+        actor_id=workspace.actor_id,
+        allow_unverified=True,
+    )
+    if resolved is None or not connection.secret_reference:
+        raise HTTPException(
+            status_code=409, detail="Store CloudTalk credentials before selecting an agent."
+        )
+    client = CommunicationsClient("cloudtalk", resolved.credentials)
+    try:
+        agents = client.list_cloudtalk_agents()
+    except (ProviderOperationError, ValueError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "CloudTalk agents could not be verified. "
+                "Check the stored Access Key credentials."
+            ),
+        ) from None
+    selected = next((agent for agent in agents if agent["id"] == request.agent_id), None)
+    if selected is None:
+        raise HTTPException(
+            status_code=422, detail="Choose an agent listed in this CloudTalk account."
+        )
+    credentials = {**resolved.credentials, "agent_id": request.agent_id}
+    try:
+        connection.secret_reference = secret_store.replace_for_workspace(
+            workspace.workspace_id,
+            "cloudtalk",
+            connection.secret_reference,
+            credentials,
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="The CloudTalk agent selection could not be saved."
+        ) from None
+    connection.connection_metadata = {
+        **connection.connection_metadata,
+        "cloudtalk_agent_id": selected["id"],
+        "cloudtalk_agent_name": selected["name"],
+    }
+    connection.status = "connected"
+    connection.credential_state = "configured"
+    connection.last_validation_at = None
+    connection.last_validation_result = {
+        "status": "not_verified",
+        "message": "CloudTalk agent selected; verify the connection before calling.",
+    }
+    connection.updated_at = datetime.now(UTC)
+    record_provider_lifecycle_audit(
+        session,
+        connection,
+        action="cloudtalk_agent_selected",
+        outcome="configured",
+        actor_id=workspace.actor_id,
+        details={"agent_id": selected["id"]},
+    )
+    session.commit()
+    session.refresh(connection)
+    return provider_connection_response(connection)
+
+
 @router.put(
     "/connections/{connection_id}/openai-model",
+    response_model=ProviderConnectionResponse,
+)
+@router.put(
+    "/connections/{connection_id}/reasoning-model",
     response_model=ProviderConnectionResponse,
 )
 def configure_openai_model(
@@ -986,28 +1478,21 @@ def configure_openai_model(
     return provider_connection_response(row)
 
 
-@router.put(
-    "/connections/{connection_id}/google-appointment-schedule",
+@router.post(
+    "/connections/{connection_id}/activate-reasoning",
     response_model=ProviderConnectionResponse,
 )
-def configure_google_appointment_schedule(
+def activate_reasoning_connection(
     connection_id: UUID,
-    request: GoogleAppointmentScheduleRequest,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
 ) -> ProviderConnectionResponse:
-    row = _connection_or_404(session, workspace.workspace_id, connection_id)
-    if row.provider_type != "google_calendar":
-        raise HTTPException(status_code=409, detail="This setting is only available for Google Calendar.")
-    metadata = dict(row.connection_metadata or {})
-    if request.url:
-        metadata["google_appointment_schedule_url"] = request.url
-        metadata["google_appointment_schedule_title"] = request.event_title
-    else:
-        metadata.pop("google_appointment_schedule_url", None)
-        metadata.pop("google_appointment_schedule_title", None)
-    row.connection_metadata = metadata
-    row.updated_at = datetime.now(UTC)
-    session.commit()
-    session.refresh(row)
+    try:
+        row = activate_reasoning_provider(
+            session, workspace.workspace_id, connection_id, actor_id=workspace.actor_id
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return provider_connection_response(row)

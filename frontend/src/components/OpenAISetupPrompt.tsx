@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { OperationsDialog } from "./OperationsDialog";
 import {
   addIntegrationCredential,
-  backfillOpenAI,
+  backfillReasoning,
+  getReasoningBackfillStatus,
   reconnectIntegration,
   testIntegration,
-  updateOpenAIModel,
+  updateReasoningModel,
 } from "../api";
+import type { ReasoningBackfillStatus } from "../api";
 import type { IntegrationCard } from "../types";
 
 function withTimeout<T>(promise: Promise<T>, milliseconds = 45000): Promise<T> {
@@ -23,12 +25,14 @@ export function OpenAISetupPrompt({
   card,
   cards,
   onVerified,
+  onClose,
   onLater,
   onSettings,
 }: {
   card: IntegrationCard;
   cards: IntegrationCard[];
   onVerified: () => void;
+  onClose: () => void;
   onLater: () => void;
   onSettings: () => void;
 }) {
@@ -41,6 +45,15 @@ export function OpenAISetupPrompt({
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<"saving" | "verifying" | "backfilling" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connectionId, setConnectionId] = useState<string | null>(
+    selectedCard.connection?.id ?? null,
+  );
+  const [jobId, setJobId] = useState<string | null>(() => {
+    const id = selectedCard.connection?.id;
+    return id ? window.localStorage.getItem(`corral:reasoning-backfill:${id}`) : null;
+  });
+  const [jobStatus, setJobStatus] = useState<ReasoningBackfillStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const isOpenAI = selectedCard.provider === "openai";
 
   function chooseProvider(nextProvider: string) {
@@ -50,6 +63,39 @@ export function OpenAISetupPrompt({
     setApiKey("");
     setError(null);
   }
+
+  useEffect(() => {
+    setModel(selectedCard.connection?.selected_model ?? selectedCard.default_model ?? selectedCard.supported_models[0] ?? "");
+  }, [selectedCard]);
+
+  useEffect(() => {
+    const id = selectedCard.connection?.id;
+    if (!id) return;
+    setConnectionId(id);
+    const saved = window.localStorage.getItem(`corral:reasoning-backfill:${id}`);
+    if (saved) setJobId(saved);
+  }, [selectedCard.connection?.id]);
+
+  useEffect(() => {
+    if (!connectionId || !jobId) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const result = await getReasoningBackfillStatus(connectionId, jobId);
+        if (active) {
+          setJobStatus(result);
+          setStatusError(null);
+        }
+      } catch (requestError) {
+        if (active) setStatusError(requestError instanceof Error ? requestError.message : "Progress is temporarily unavailable.");
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [connectionId, jobId]);
+
+  if (!card) return null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -69,14 +115,18 @@ export function OpenAISetupPrompt({
           isOpenAI ? { selected_model: model } : {},
         ));
       setApiKey("");
-      if (isOpenAI) {
-        if (connection.selected_model !== model) await withTimeout(updateOpenAIModel(connection.id, model));
-        setPhase("verifying");
-        const result = await withTimeout(testIntegration(connection.id));
-        if (!result.verified) throw new Error(result.message);
-        setPhase("backfilling");
-        await withTimeout(backfillOpenAI(connection.id), 5000);
+      if (model && connection.selected_model !== model) {
+        await withTimeout(updateReasoningModel(connection.id, model));
       }
+      setPhase("verifying");
+      const result = await withTimeout(testIntegration(connection.id));
+      if (!result.verified) throw new Error(result.message);
+      setConnectionId(connection.id);
+      const queued = result.backfill_job_id
+        ? { job_id: result.backfill_job_id }
+        : await withTimeout(backfillReasoning(connection.id), 5000);
+      window.localStorage.setItem(`corral:reasoning-backfill:${connection.id}`, queued.job_id);
+      setJobId(queued.job_id);
       onVerified();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : `${selectedCard.display_name} setup failed. Check the key and provider access.`);
@@ -84,6 +134,23 @@ export function OpenAISetupPrompt({
       setBusy(false);
       setPhase(null);
     }
+  }
+
+  if (jobId) {
+    const status = jobStatus?.status ?? "queued";
+    const terminal = ["completed", "partial_failure", "failed", "no_eligible_leads"].includes(status);
+    const total = jobStatus?.total ?? 0;
+    const progress = total ? Math.min(100, Math.round(((jobStatus?.completed ?? 0) + (jobStatus?.failed ?? 0) + (jobStatus?.skipped ?? 0)) / total * 100)) : 0;
+    const heading = status === "no_eligible_leads" ? "No leads need analysis" : status === "completed" ? "Analysis backfill complete" : status === "partial_failure" ? "Backfill completed with some failures" : status === "failed" ? "Backfill could not complete" : "AI analysis has started";
+    return <OperationsDialog title="AI analysis progress" className="team-modal openai-setup-prompt reasoning-backfill-modal" showHeader={false} onClose={onClose}>
+      <div className="team-modal-head"><div><span className="eyebrow">Workspace analysis</span><h2>{heading}</h2><p>{jobStatus?.provider ?? selectedCard.display_name}{jobStatus?.model ? ` · ${jobStatus.model}` : ""}</p></div><button className="button-quiet" onClick={onClose}>Close</button></div>
+      <p className="backfill-live-status" role="status">{terminal ? "This background job has finished." : status === "running" ? "Analyzing eligible leads in the background…" : "The background job is queued and will continue if you close this window."}</p>
+      {status !== "no_eligible_leads" && <div className="backfill-progress"><div className="backfill-progress-track"><span style={{ width: `${progress}%` }} /></div><div className="backfill-counts"><strong>{jobStatus?.completed ?? 0} / {total} completed</strong><span>{jobStatus?.failed ?? 0} failed · {jobStatus?.skipped ?? 0} skipped</span></div></div>}
+      {statusError && <p className="team-alert" role="status">{statusError} The job continues; progress will retry automatically.</p>}
+      {status === "partial_failure" && <p className="backfill-note">Successful analyses were saved. Failed leads remain unchanged and can be retried.</p>}
+      <p className="backfill-cost-note">This uses the workspace’s provider key. Estimated costs are approximate and may differ from the provider’s invoice.</p>
+      {!terminal && <p className="backfill-note">You can close this window; background analysis will continue.</p>}
+    </OperationsDialog>;
   }
 
   return <OperationsDialog title="AI analysis setup" className="team-modal openai-setup-prompt" showHeader={false} onClose={() => { if (!busy) onLater(); }}>
@@ -94,7 +161,7 @@ export function OpenAISetupPrompt({
       <label>{isOpenAI ? "OpenAI project API key" : `${selectedCard.display_name} API key`}<input type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} required aria-label={`${selectedCard.display_name} API key`} /></label>
       {selectedCard.supported_models.length > 0 && <label>Model<select value={model} onChange={(event) => setModel(event.target.value)}>{selectedCard.supported_models.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
       {error && <p className="team-alert" role="alert">{error}</p>}
-      <div className="team-modal-actions"><button className="button-quiet" type="button" onClick={onLater} disabled={busy}>Not now</button><button className="button-quiet" type="button" onClick={onSettings} disabled={busy}>Integration settings</button><button className="primary-button" type="submit" disabled={busy || !apiKey.trim() || (selectedCard.supported_models.length > 0 && !model)}>{phase === "saving" ? "Saving key…" : phase === "verifying" ? `Verifying with ${selectedCard.display_name}…` : phase === "backfilling" ? "Applying to existing leads…" : isOpenAI ? "Save and verify key" : "Save key"}</button></div>
+      <div className="team-modal-actions"><button className="button-quiet" type="button" onClick={onLater} disabled={busy}>Not now</button><button className="button-quiet" type="button" onClick={onSettings} disabled={busy}>Integration settings</button><button className="primary-button" type="submit" disabled={busy || !apiKey.trim() || (selectedCard.supported_models.length > 0 && !model)}>{phase === "saving" ? "Saving key…" : phase === "verifying" ? `Verifying with ${selectedCard.display_name}…` : phase === "backfilling" ? "Applying to existing leads…" : `Save and verify with ${selectedCard.display_name}`}</button></div>
     </form>
     <p className="openai-setup-fallback">If you skip this, leads still receive deterministic analysis. A verified workspace key takes priority when you add one.</p>
   </OperationsDialog>;
