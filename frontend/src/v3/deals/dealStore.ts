@@ -163,6 +163,7 @@ type DealsState = {
   quoteCounter: number;
   syncStatus: "loading" | "saving" | "saved" | "error";
   syncError: string | null;
+  dirty: boolean;
 };
 
 /* ---------------------------------------------------------------- Catalog */
@@ -191,11 +192,13 @@ let settingsVersion = 0;
 let saveSequence = 0;
 let pending: Promise<void> = Promise.resolve();
 let loadPromise: Promise<void> = Promise.resolve();
+let loadFailures = 0;
+let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let state: DealsState = emptyState();
 const listeners = new Set<() => void>();
 
 function emptyState(): DealsState {
-  return { version: 1, deals: {}, catalog: DEFAULT_CATALOG, monthlyGoal: null, quoteCounter: 0, syncStatus: "loading", syncError: null };
+  return { version: 1, deals: {}, catalog: DEFAULT_CATALOG, monthlyGoal: null, quoteCounter: 0, syncStatus: "loading", syncError: null, dirty: false };
 }
 
 function read(key: string): DealsState {
@@ -212,7 +215,8 @@ function read(key: string): DealsState {
       catalog: Array.isArray(parsed.catalog) && parsed.catalog.length ? parsed.catalog : DEFAULT_CATALOG,
       monthlyGoal: typeof parsed.monthlyGoal === "number" ? parsed.monthlyGoal : null,
       quoteCounter: typeof parsed.quoteCounter === "number" ? parsed.quoteCounter : 0,
-      syncStatus: "loading", syncError: typeof parsed.syncError === "string" ? parsed.syncError : null,
+      syncStatus: "loading", syncError: parsed.dirty && typeof parsed.syncError === "string" ? parsed.syncError : null,
+      dirty: parsed.dirty === true,
     };
   } catch {
     return emptyState();
@@ -241,6 +245,9 @@ export function bindDealWorkspace(workspaceId: string, editable = false, managea
   canWrite = editable;
   canManage = manageable;
   ready = false;
+  if (loadRetryTimer) clearTimeout(loadRetryTimer);
+  loadRetryTimer = null;
+  loadFailures = 0;
   versions = {};
   settingsVersion = 0;
   saveSequence = 0;
@@ -267,15 +274,22 @@ export async function refreshDeals({ migrateLegacy = false, discardDraft = false
   try {
     const server = await request<ServerDeals>("/v1/deals");
     if (id !== activeId || sequence !== saveSequence) return;
+    loadFailures = 0;
+    if (loadRetryTimer) clearTimeout(loadRetryTimer);
+    loadRetryTimer = null;
     const cached = state;
-    if (cached.syncError && !discardDraft) {
+    const remote = Object.fromEntries(Object.entries(server.deals).map(([leadId, row]) => [leadId, row.deal]));
+    const cachedMatchesServer = JSON.stringify(cached.deals) === JSON.stringify(remote)
+      && (!server.settings || (JSON.stringify(cached.catalog) === JSON.stringify(server.settings.catalog.length ? server.settings.catalog : DEFAULT_CATALOG)
+        && cached.monthlyGoal === server.settings.monthlyGoal
+        && cached.quoteCounter === server.settings.quoteCounter));
+    if (cached.dirty && !discardDraft && !cachedMatchesServer) {
       ready = true;
-      state = { ...cached, syncStatus: "error" }; emit(); return;
+      state = { ...cached, syncStatus: "error", syncError: cached.syncError ?? "An unsaved deal edit needs another save attempt." }; emit(); return;
     }
     versions = Object.fromEntries(Object.entries(server.deals).map(([leadId, row]) => [leadId, row.version]));
     settingsVersion = server.settings?.version ?? 0;
-    const remote = Object.fromEntries(Object.entries(server.deals).map(([leadId, row]) => [leadId, row.deal]));
-    state = { ...state, deals: remote, ...(server.settings ? { catalog: server.settings.catalog.length ? server.settings.catalog : DEFAULT_CATALOG, monthlyGoal: server.settings.monthlyGoal, quoteCounter: server.settings.quoteCounter } : {}), syncStatus: "saved", syncError: null };
+    state = { ...state, deals: remote, ...(server.settings ? { catalog: server.settings.catalog.length ? server.settings.catalog : DEFAULT_CATALOG, monthlyGoal: server.settings.monthlyGoal, quoteCounter: server.settings.quoteCounter } : {}), syncStatus: "saved", syncError: null, dirty: false };
     ready = true;
     // Migrate the old device-only records once; never replace a saved server record.
     for (const [leadId, deal] of Object.entries(cached.deals)) {
@@ -283,17 +297,28 @@ export async function refreshDeals({ migrateLegacy = false, discardDraft = false
     }
     if (migrateLegacy && !server.settings && canManage && (cached.monthlyGoal != null || JSON.stringify(cached.catalog) !== JSON.stringify(DEFAULT_CATALOG))) queueSettings();
     persist(); emit();
-  } catch (reason) { if (id === activeId) syncFailure(reason); }
+  } catch (reason) {
+    if (id !== activeId) return;
+    if (state.dirty) { syncFailure(reason); return; }
+    if (loadFailures < 3) {
+      loadFailures += 1;
+      if (loadRetryTimer) clearTimeout(loadRetryTimer);
+      loadRetryTimer = setTimeout(() => { void refreshDeals({ migrateLegacy, discardDraft }); }, 1500 * loadFailures);
+      return;
+    }
+    state = { ...state, syncStatus: "error", syncError: reason instanceof Error ? reason.message : "Deal records could not be loaded.", dirty: false };
+    emit();
+  }
 }
 
 function enqueue(save: () => Promise<void>) {
   const id = activeId;
   const sequence = ++saveSequence;
-  state = { ...state, syncStatus: "saving", syncError: null }; emit();
+  state = { ...state, syncStatus: "saving", syncError: null, dirty: true }; persist(); emit();
   const task = pending.then(async () => {
     if (id !== activeId || id !== getActiveWorkspace()) return;
     await save();
-    if (id === activeId && sequence === saveSequence) { state = { ...state, syncStatus: "saved", syncError: null }; persist(); emit(); }
+    if (id === activeId && sequence === saveSequence) { state = { ...state, syncStatus: "saved", syncError: null, dirty: false }; persist(); emit(); }
   });
   pending = task;
   // Report failed persistence without creating an unhandled rejection. Subsequent
@@ -322,6 +347,7 @@ export async function reloadDealRecords() {
 
 /** Retry the kept draft using the last acknowledged versions; conflicts stay explicit. */
 export async function retryDealChanges() {
+  if (!state.dirty) { loadFailures = 0; await refreshDeals(); return; }
   await pending.catch(() => undefined);
   pending = Promise.resolve();
   if (!ready) {

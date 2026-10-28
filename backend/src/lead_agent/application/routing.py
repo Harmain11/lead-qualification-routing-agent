@@ -691,7 +691,8 @@ def route_and_notify(
         current.is_current = False
 
     manual_review = bool(
-        analysis
+        lead.manual_review_completed_at is None
+        and analysis
         and analysis.requires_manual_review
     )
     selected_rule, matching_rules = _select_rule(routing.rules, lead, qualification, analysis)

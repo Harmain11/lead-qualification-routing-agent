@@ -1,8 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
+  deleteWorkspaceEmailDraft,
+  getActiveWorkspace,
+  getWorkspaceEmailDraft,
   getGmailMailboxThread,
   listGmailMailboxMessages,
   listIntegrations,
+  listWorkspaceEmailDrafts,
 } from "../api";
 import { EmailComposer, type GmailComposerSeed } from "../components/EmailComposer";
 import { getProviderEmailPreview, ProviderEmailBody } from "../components/ProviderEmailBody";
@@ -10,9 +14,19 @@ import type {
   GmailMailboxMessage,
   GmailThreadMessage,
   ProviderConnection,
+  WorkspaceEmailDraft,
+  WorkspaceEmailDraftSummary,
 } from "../types";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const mailboxCache = new Map<string, { messages: GmailMailboxMessage[]; nextPageToken: string | null; fetchedAt: number }>();
+const threadCache = new Map<string, GmailThreadMessage[]>();
+
+function remember<T>(cache: Map<string, T>, key: string, value: T) {
+  cache.delete(key);
+  cache.set(key, value);
+  if (cache.size > 30) cache.delete(cache.keys().next().value!);
+}
 
 function emailDate(value: string) {
   const date = new Date(value);
@@ -49,6 +63,11 @@ export function EmailWorkspace({
   const [threadRevision, setThreadRevision] = useState(0);
   const [composeSeed, setComposeSeed] = useState<GmailComposerSeed | null>(null);
   const [composerRevision, setComposerRevision] = useState(0);
+  const [drafts, setDrafts] = useState<WorkspaceEmailDraftSummary[]>([]);
+  const [activeDraft, setActiveDraft] = useState<WorkspaceEmailDraft | null>(null);
+  const [draftRevision, setDraftRevision] = useState(0);
+  const lastMailboxKey = useRef("");
+  const backgroundRefresh = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -72,6 +91,7 @@ export function EmailWorkspace({
 
   useEffect(() => {
     if (!connectionId) {
+      lastMailboxKey.current = "";
       setMessages([]);
       setSelected(null);
       setThread([]);
@@ -80,25 +100,74 @@ export function EmailWorkspace({
       return;
     }
     const controller = new AbortController();
-    setLoadingMessages(true);
-    setError(null);
-    setSelected(null);
-    setThread([]);
-    setExpandedMessageIds(new Set());
+    const mailboxKey = JSON.stringify([getActiveWorkspace(), connectionId, folder, query, pageToken]);
+    const changedMailbox = lastMailboxKey.current !== mailboxKey;
+    lastMailboxKey.current = mailboxKey;
+    const cached = mailboxCache.get(mailboxKey);
+    const quiet = (backgroundRefresh.current && !changedMailbox) || Boolean(changedMailbox && cached);
+    backgroundRefresh.current = false;
+    if (!quiet) setLoadingMessages(true);
+    if (!quiet) setError(null);
+    if (changedMailbox && cached) {
+      setMessages(cached.messages);
+      setSelected(cached.messages[0] ?? null);
+      setThread([]);
+      setExpandedMessageIds(new Set());
+      setNextPageToken(cached.nextPageToken);
+    } else if (changedMailbox) {
+      setSelected(null);
+      setThread([]);
+      setExpandedMessageIds(new Set());
+    }
+    // Navigating back to a recently opened mailbox should show its saved rows
+    // immediately. The visible 60-second poll and manual refresh still check Gmail.
+    if (changedMailbox && cached && Date.now() - cached.fetchedAt < 60_000) {
+      setLoadingMessages(false);
+      return () => controller.abort();
+    }
     listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
       if (controller.signal.aborted) return;
-      setMessages(page.messages);
-      setSelected(page.messages[0] ?? null);
+      remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
+      const changedRows = JSON.stringify(page.messages) !== JSON.stringify(changedMailbox && cached ? cached.messages : messages);
+      if (changedRows) {
+        setMessages(page.messages);
+        setSelected((current) => changedMailbox && !cached
+          ? page.messages[0] ?? null
+          : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
+        if (quiet && !changedMailbox && selected?.thread_id) setThreadRevision((current) => current + 1);
+      }
       setNextPageToken(page.next_page_token);
       setLoadingMessages(false);
     }).catch((reason) => {
       if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "Mailbox messages could not be loaded.");
+        if (!quiet) setError(reason instanceof Error ? reason.message : "Mailbox messages could not be loaded.");
         setLoadingMessages(false);
       }
     });
     return () => controller.abort();
   }, [connectionId, folder, query, pageToken, revision]);
+
+  useEffect(() => {
+    if (!connectionId) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        backgroundRefresh.current = true;
+        setRevision((current) => current + 1);
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [connectionId]);
+
+  useEffect(() => {
+    if (!canSend || folder !== "drafts") return;
+    let alive = true;
+    listWorkspaceEmailDrafts().then((rows) => {
+      if (alive) setDrafts(rows);
+    }).catch((reason) => {
+      if (alive) setError(reason instanceof Error ? reason.message : "Saved drafts could not be loaded.");
+    });
+    return () => { alive = false; };
+  }, [canSend, folder, draftRevision]);
 
   useEffect(() => {
     if (!connectionId || !selected?.thread_id) {
@@ -107,18 +176,27 @@ export function EmailWorkspace({
       return;
     }
     const controller = new AbortController();
-    setLoadingThread(true);
-    setThread([]);
-    setExpandedMessageIds(new Set());
+    const key = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
+    const cached = threadCache.get(key);
+    if (cached && !threadRevision) {
+      setThread(cached);
+      setLoadingThread(false);
+      return;
+    }
+    if (!cached) {
+      setLoadingThread(true);
+      setThread([]);
+      setExpandedMessageIds(new Set());
+    }
     getGmailMailboxThread(connectionId, selected.thread_id, controller.signal).then((result) => {
       if (!controller.signal.aborted) {
-        setThread(result.messages);
-        setExpandedMessageIds(new Set());
+        remember(threadCache, key, result.messages);
+        setThread((current) => JSON.stringify(current) === JSON.stringify(result.messages) ? current : result.messages);
         setLoadingThread(false);
       }
     }).catch((reason) => {
       if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : "Email thread could not be loaded.");
+        if (!cached) setError(reason instanceof Error ? reason.message : "Email thread could not be loaded.");
         setLoadingThread(false);
       }
     });
@@ -134,6 +212,7 @@ export function EmailWorkspace({
   function beginReply() {
     const lastInbound = [...thread].reverse().find((message) => message.direction === "inbound");
     if (!selected || !lastInbound) return;
+    setActiveDraft(null);
     const subject = lastInbound.subject || selected.subject;
     setComposeSeed({
       recipient: lastInbound.sender,
@@ -146,6 +225,7 @@ export function EmailWorkspace({
   }
 
   function beginCompose() {
+    setActiveDraft(null);
     setComposeSeed({ connectionId });
     setComposerRevision((current) => current + 1);
   }
@@ -176,9 +256,30 @@ export function EmailWorkspace({
   return <div className="page-view operational-page email-workspace-page">
     <header className="page-hero email-workspace-hero">
       <div><span className="eyebrow">Workspace / Email</span><h1>Shared inbox</h1><p>Read and send email from connected Gmail accounts, with mailbox selection kept explicit.</p></div>
-      <button className="primary-button" type="button" onClick={beginCompose} disabled={!accounts.length}>Compose email</button>
+      <button className="primary-button" type="button" onClick={beginCompose} disabled={!canSend}>New draft</button>
     </header>
     {error && <div className="notice" role="alert">{error}</div>}
+    {composeSeed && <EmailComposer
+      key={composerRevision}
+      accounts={accounts}
+      canSend={canSend}
+      seed={composeSeed}
+      draft={activeDraft ?? undefined}
+      onClose={() => { setComposeSeed(null); setActiveDraft(null); }}
+      onSaved={() => {
+        setComposeSeed(null);
+        setActiveDraft(null);
+        setFolder("drafts");
+        setDraftRevision((current) => current + 1);
+      }}
+      onSent={() => {
+        setComposeSeed(null);
+        setActiveDraft(null);
+        setRevision((current) => current + 1);
+        setThreadRevision((current) => current + 1);
+        setDraftRevision((current) => current + 1);
+      }}
+    />}
     <section className="email-mailbox-toolbar panel">
       <label>Gmail account
         <select value={connectionId} onChange={(event) => {
@@ -215,10 +316,29 @@ export function EmailWorkspace({
         <input id="shared-email-search" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="Search this mailbox" />
         <button className="secondary-button" type="submit">Search</button>
       </form>
-      <button className="button-quiet" type="button" onClick={() => setRevision((current) => current + 1)} disabled={!connectionId || loadingMessages}>Refresh</button>
+      <button className="button-quiet" type="button" onClick={() => { backgroundRefresh.current = false; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>Refresh Gmail</button>
     </section>
     {loadingAccounts && <div className="email-empty-state"><span>Loading connected Gmail accounts…</span></div>}
     {!loadingAccounts && accounts.length === 0 && <div className="email-empty-state"><strong>No verified Gmail account is connected.</strong><span>Connect one or more Gmail accounts to read the shared inbox.</span><button className="secondary-button" type="button" onClick={onOpenIntegrations}>Open Integrations</button></div>}
+    {folder === "drafts" && canSend && <section className="panel email-saved-drafts" aria-label="Corral drafts">
+      <header><div><span className="eyebrow">Private to you</span><h2>Corral drafts</h2></div><span>{drafts.length} saved</span></header>
+      <p>Saved in this workspace until you send or delete them. Gmail drafts appear in the mailbox list below.</p>
+      {drafts.length === 0 ? <p className="email-list-empty">No saved Corral drafts yet. Select New draft to write one.</p> : <ul>
+        {drafts.map((draft) => <li key={draft.id}>
+          <button type="button" className="email-draft-open" onClick={() => {
+            getWorkspaceEmailDraft(draft.id).then((full) => {
+              setActiveDraft(full);
+              setComposeSeed({ connectionId: full.data.connection_id ?? undefined });
+              setComposerRevision((current) => current + 1);
+            }).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be opened."));
+          }}><strong>{draft.subject || "(no subject)"}</strong><span>{draft.recipient || "Recipient not set"} · {emailDate(draft.updated_at)}</span></button>
+          <button type="button" className="button-quiet" aria-label={`Delete draft ${draft.subject || "without subject"}`} onClick={() => {
+            if (!window.confirm("Delete this saved draft? This cannot be undone.")) return;
+            deleteWorkspaceEmailDraft(draft.id).then(() => setDraftRevision((current) => current + 1)).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be deleted."));
+          }}>Delete</button>
+        </li>)}
+      </ul>}
+    </section>}
     {!loadingAccounts && accounts.length > 0 && <div className="email-workspace-grid">
        <section className="email-message-list panel" aria-label={`${folderLabel} messages`}>
          <header><div><span className="eyebrow">{folderLabel}</span><h2>{activeAccount?.account_name ?? "Mailbox"}</h2></div><span>{messages.length} shown</span></header>
@@ -290,18 +410,6 @@ export function EmailWorkspace({
             })}
           </div>
         </>}
-        {composeSeed && <EmailComposer
-          key={composerRevision}
-          accounts={accounts}
-          canSend={canSend}
-          seed={composeSeed}
-          onClose={() => setComposeSeed(null)}
-          onSent={() => {
-            setComposeSeed(null);
-            setRevision((current) => current + 1);
-            setThreadRevision((current) => current + 1);
-          }}
-        />}
       </section>
     </div>}
   </div>;

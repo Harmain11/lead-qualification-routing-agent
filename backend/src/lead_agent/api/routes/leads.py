@@ -42,6 +42,7 @@ from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     lead_history_context,
 )
+from lead_agent.application.gmail_profile import extract_stated_gmail_profile
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
@@ -202,6 +203,7 @@ class LeadProgressResponse(BaseModel):
 
 class GmailConversationSyncResponse(BaseModel):
     messages_added: int
+    profile_updated_fields: list[str] = Field(default_factory=list)
     threads_checked: int
     threads_unreadable: int = 0
     truncated: bool
@@ -849,7 +851,11 @@ def complete_lead_manual_review(
         if structured_output.get("status") == "manual_review":
             structured_output["status"] = "completed"
         analysis.structured_output = structured_output
-    row.updated_at = datetime.now(UTC)
+    row.manual_review_completed_at = datetime.now(UTC)
+    row.updated_at = row.manual_review_completed_at
+    if row.source_event is not None and row.source_event.status == "manual_review":
+        row.source_event.status = "processed"
+        row.source_event.updated_at = row.manual_review_completed_at
     record_pipeline_event(
         session,
         row.id,
@@ -1379,6 +1385,8 @@ def sync_lead_gmail_conversation(
         tuple[ProviderConnectionORM, list[dict[str, str]]]
     ] = []
     messages_added = 0
+    stated_company: str | None = None
+    stated_industry: str | None = None
     threads_unreadable = 0
     truncated = False
     try:
@@ -1434,6 +1442,9 @@ def sync_lead_gmail_conversation(
                 )
                 if thread_messages:
                     automation_threads.append((connection, thread_messages))
+                    company, industry = extract_stated_gmail_profile(thread_messages, row.email)
+                    stated_company = stated_company or company
+                    stated_industry = stated_industry or industry
     except ProviderOperationError as error:
         session.rollback()
         raise HTTPException(
@@ -1441,7 +1452,16 @@ def sync_lead_gmail_conversation(
             detail=str(error),
         ) from error
 
-    if messages_added:
+    profile_updated_fields: list[str] = []
+    current_company = (row.company_name or "").strip().lower()
+    if stated_company and current_company in {"", "unknown", "unknown company"}:
+        row.company_name = stated_company
+        profile_updated_fields.append("company name")
+    if stated_industry and not (row.industry or "").strip():
+        row.industry = stated_industry
+        profile_updated_fields.append("industry")
+
+    if messages_added or profile_updated_fields:
         session.flush()
         classification, score, _rationale = _reanalyze_lead_with_history(
             session, row, workspace.workspace_id, policies, notification_provider,
@@ -1480,6 +1500,7 @@ def sync_lead_gmail_conversation(
             )
     return GmailConversationSyncResponse(
         messages_added=messages_added,
+        profile_updated_fields=profile_updated_fields,
         threads_checked=len(checked_threads),
         threads_unreadable=threads_unreadable,
         truncated=truncated,

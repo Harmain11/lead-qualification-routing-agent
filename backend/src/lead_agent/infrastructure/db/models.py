@@ -41,6 +41,50 @@ class WorkspaceORM(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceEmailDraftORM(Base):
+    """Private, workspace-scoped drafts saved before Gmail delivery."""
+
+    __tablename__ = "workspace_email_drafts"
+    __table_args__ = (
+        Index("ix_workspace_email_drafts_owner_updated", "workspace_id", "created_by", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WorkspaceCalendarEventORM(Base):
+    """Workspace-owned manual calendar entries, optionally linked to a lead."""
+
+    __tablename__ = "workspace_calendar_events"
+    __table_args__ = (
+        Index("ix_workspace_calendar_events_start", "workspace_id", "start_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkspaceEmailTemplateORM(Base):
     """Workspace-owned confirmation and follow-up email templates."""
 
@@ -768,6 +812,9 @@ class LeadORM(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     normalization_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    manual_review_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -839,6 +886,10 @@ class LeadFollowUpEmailORM(Base):
     recipient: Mapped[str] = mapped_column(String(320), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cc: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    bcc: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    html_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachments: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     generation_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
     generation_note: Mapped[str | None] = mapped_column(Text, nullable=True)

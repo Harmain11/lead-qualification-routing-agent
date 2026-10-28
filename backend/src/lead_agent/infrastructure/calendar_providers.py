@@ -181,6 +181,8 @@ class _CalendarTransport:
             ) from None
         if response.status_code >= 400:
             raise _http_error(self.provider, response, path)
+        if response.status_code == 204 or not response.content:
+            return {}
         try:
             result = response.json()
         except ValueError:
@@ -276,6 +278,24 @@ class GoogleCalendarClient:
 
     def event(self, event_id: str) -> dict[str, Any]:
         return self.api.request("GET", f"calendars/primary/events/{event_id}")
+
+    def cancel_event(self, event_id: str) -> None:
+        self.api.request(
+            "DELETE", f"calendars/primary/events/{event_id}",
+            params={"sendUpdates": "all"},
+        )
+
+    def reschedule_event(
+        self, event_id: str, *, start_at: datetime, end_at: datetime, time_zone: str
+    ) -> dict[str, Any]:
+        return self.api.request(
+            "PATCH", f"calendars/primary/events/{event_id}",
+            params={"sendUpdates": "all"},
+            payload={
+                "start": {"dateTime": start_at.isoformat(), "timeZone": time_zone},
+                "end": {"dateTime": end_at.isoformat(), "timeZone": time_zone},
+            },
+        )
 
     def events_between(
         self, time_min: datetime, time_max: datetime
@@ -395,6 +415,25 @@ class CalendlyClient:
         )
         collection = result.get("collection", [])
         return [cast(dict[str, Any], row) for row in collection if isinstance(row, dict)]
+
+    def scheduled_event(self, event_id: str) -> dict[str, Any]:
+        result = self.api.request("GET", f"scheduled_events/{event_id}")
+        resource = result.get("resource")
+        return cast(dict[str, Any], resource) if isinstance(resource, dict) else {}
+
+    def event_invitees(self, event_id: str, email: str | None = None) -> list[dict[str, Any]]:
+        result = self.api.request(
+            "GET", f"scheduled_events/{event_id}/invitees",
+            params={**({"email": email} if email else {}), "status": "active", "count": "100"},
+        )
+        collection = result.get("collection", [])
+        return [cast(dict[str, Any], row) for row in collection if isinstance(row, dict)]
+
+    def cancel_event(self, event_id: str, reason: str) -> None:
+        self.api.request(
+            "POST", f"scheduled_events/{event_id}/cancellation",
+            payload={"reason": reason},
+        )
 
 
 class GoogleCalendarConnectionValidator:

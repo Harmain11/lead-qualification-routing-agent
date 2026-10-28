@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createLeadMeetingBookingLinkDraft, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
 import type { Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
+import { LeadMeetingManagement } from "./LeadMeetingManagement";
 
 type Props = {
   lead: Lead;
@@ -125,7 +126,7 @@ const styles = `
 .lmp-group-head { display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid var(--lmp-line); background:var(--lmp-wash); }
 .lmp-provider-mark { width:24px; height:24px; display:grid; place-items:center; border:1px solid var(--lmp-line); border-radius:7px; background:var(--surface); color:var(--lmp-green); font:700 13px "Cascadia Mono","SFMono-Regular",monospace; }
 .lmp-group-head div { min-width:0; }
-.lmp-group-head b { display:block; overflow:hidden; color:var(--lmp-ink); font-size:14px; text-overflow:ellipsis; var(--surface)-space:nowrap; }
+.lmp-group-head b { display:block; overflow:hidden; color:var(--lmp-ink); font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
 .lmp-group-head small { display:block; margin-top:2px; color:var(--lmp-muted); font-size:14px; }
 .lmp-options { display:grid; gap:0; }
 .lmp-option { position:relative; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:54px; padding:10px 12px; border-bottom:1px solid var(--lmp-line); cursor:pointer; transition:background 150ms ease; }
@@ -135,7 +136,7 @@ const styles = `
 .lmp-option input { width:14px; height:14px; margin:0; accent-color:var(--lmp-green); }
 .lmp-option-time { color:var(--lmp-ink); font-size:14px; font-weight:700; }
 .lmp-option-zone { display:block; margin-top:3px; color:var(--lmp-muted); font:13px "Cascadia Mono","SFMono-Regular",monospace; }
-.lmp-option-duration { color:var(--lmp-muted); font-size:14px; var(--surface)-space:nowrap; }
+.lmp-option-duration { color:var(--lmp-muted); font-size:14px; white-space:nowrap; }
 .lmp-footnote { margin:12px 0 0; color:var(--lmp-muted); font-size:14px; line-height:1.55; }
 .lmp-integrations { display:grid; gap:7px; margin-top:13px; }
 .lmp-integration { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 11px; border:1px solid var(--lmp-line); border-radius:8px; background:var(--surface); color:var(--lmp-muted); font-size:14px; }
@@ -168,7 +169,7 @@ const styles = `
 .lmp-outcome-failure { border-color:var(--lmp-error-line); background:var(--lmp-error-bg); }
 .lmp-outcome-failure .lmp-outcome-icon { background:var(--lmp-error-bg); color:var(--red); }
 .lmp-outcome-failure h4 { color:var(--red); }.lmp-outcome-failure p { color:var(--lmp-muted); }
-.lmp-sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); var(--surface)-space:nowrap; }
+.lmp-sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
 @media(max-width:640px) {
  .lmp-head { padding:17px 15px 15px; }.lmp-body { padding:15px; }.lmp h3 { font-size:17px; }
  .lmp .lmp-refresh { width:44px; padding:0; justify-content:center; font-size:0; }.lmp-refresh-mark { font-size:16px; }
@@ -283,7 +284,7 @@ export function LeadMeetingPanel({
   const calendlyCalendarError = recommendations?.provider_errors.some(
     (error) => error.code === "calendly_external_calendar_unavailable",
   ) ?? false;
-  const noThread = !recommendations?.source_message_id;
+  const noThread = !recommendations?.source_message_id && recommendations?.offer_status !== "booked";
   const noMeetingDetected = Boolean(recommendations && !recommendations.detected && recommendations.source_message_id);
   const bookedOfferForCurrentRequest = Boolean(
     recommendations
@@ -448,6 +449,13 @@ export function LeadMeetingPanel({
     </header>
 
     <div className="lmp-body">
+      <LeadMeetingManagement
+        leadId={lead.id}
+        canEdit={canEdit}
+        refreshToken={refreshToken}
+        onChanged={() => setRetryCount((value) => value + 1)}
+        onStatusChange={onStatusChange}
+      />
       {loadState === "loading" && renderSkeleton()}
       {loadState === "error" && renderLoadError()}
       {loadState === "ready" && recommendations && <>
@@ -468,7 +476,7 @@ export function LeadMeetingPanel({
           <div><h4>No meeting request detected</h4><p>{recommendations.message || "The latest conversation does not contain a meeting request or proposed time."}</p></div>
         </div>}
 
-        {!draftCreated && !noThread && !noMeetingDetected && recommendations.detected && <>
+        {!draftCreated && !noThread && !noMeetingDetected && recommendations.detected && recommendations.source_message_id && <>
           {(recommendations.source_subject || recommendations.source_excerpt) && <div className="lmp-context">
             <div className="lmp-context-top"><span className="lmp-context-label">Conversation evidence</span>{recommendations.source_subject && <span className="lmp-subject">{recommendations.source_subject}</span>}</div>
             {recommendations.source_excerpt && <p className="lmp-excerpt">{recommendations.source_excerpt}</p>}

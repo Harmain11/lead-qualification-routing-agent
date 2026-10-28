@@ -304,7 +304,7 @@ code, pre, .eyebrow { font-family: "Cascadia Mono", "SFMono-Regular", Consolas, 
 .follow-up-recipient { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
 .follow-up-recipient b { color: var(--text); }
 .follow-up-field { display: grid; gap: 6px; margin: 10px 0; color: var(--muted); font-size: 13px; font-weight: 650; }
-.follow-up-field input, .follow-up-field textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--text); font-size: 13px; line-height: 1.6; }
+.follow-up-field input, .follow-up-field textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--text); font-family: inherit; font-size: 14px; letter-spacing: normal; word-spacing: normal; line-height: 1.6; }
 .follow-up-field textarea { resize: vertical; }
 .follow-up-rationale { margin: 9px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .follow-up-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }

@@ -204,6 +204,11 @@ def update_lead_with_result(
 
     if row.id != lead.id:
         raise ValueError("normalized lead identity does not match the persisted lead")
+    if row.manual_review_completed_at is not None and analysis.requires_manual_review:
+        analysis = analysis.model_copy(update={
+            "requires_manual_review": False,
+            "status": "completed" if analysis.status == "manual_review" else analysis.status,
+        })
     now = datetime.now(UTC)
     email_changed = row.email != lead.email
     row.source = lead.source

@@ -349,6 +349,13 @@ export type FollowUpEmail = {
   recipient: string;
   subject: string;
   body: string | null;
+  cc: string;
+  bcc: string;
+  html_body: string | null;
+  attachments: GmailAttachmentRequest[];
+  thread_id: string | null;
+  in_reply_to: string | null;
+  connection_id: string | null;
   rationale: string | null;
   generation_method: "openai" | "template" | "meeting_request" | null;
   generation_note: string | null;
@@ -379,6 +386,22 @@ export type LeadPipelineEvent = {
 };
 
 export type MeetingProvider = "google_calendar" | "calendly";
+
+export type WorkspaceCalendarEvent = {
+  id: string;
+  kind: "meeting" | "call" | "event";
+  source: "manual" | MeetingProvider;
+  title: string;
+  start_at: string;
+  end_at: string;
+  location: string | null;
+  notes: string | null;
+  lead_id: string | null;
+  lead_name: string | null;
+  company_name: string | null;
+  event_url: string | null;
+  editable: boolean;
+};
 
 export type MeetingSuggestion = {
   provider: MeetingProvider;
@@ -431,6 +454,19 @@ export type MeetingRecommendations = {
   offer_has_confirmed_selection: boolean;
   offer_can_be_replaced: boolean;
   booked_meeting_at: string | null;
+};
+
+export type ManagedMeeting = {
+  id: string;
+  provider: MeetingProvider;
+  title: string;
+  start_at: string;
+  end_at: string;
+  time_zone: string;
+  event_url: string | null;
+  reschedule_url: string | null;
+  cancel_url: string | null;
+  can_cancel_here: boolean;
 };
 
 export type MeetingOfferDraftResult = {
@@ -497,6 +533,7 @@ export type LeadProgressResult = {
 
 export type GmailConversationSyncResult = {
   messages_added: number;
+  profile_updated_fields: string[];
   threads_checked: number;
   threads_unreadable: number;
   truncated: boolean;
@@ -1107,6 +1144,38 @@ export type GmailSendRequest = {
   lead_id?: string;
   thread_id?: string;
   in_reply_to?: string;
+  draft_id?: string;
+};
+
+export type WorkspaceEmailDraftInput = {
+  connection_id?: string | null;
+  recipient: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  html_body?: string | null;
+  attachments: GmailAttachmentRequest[];
+  thread_id?: string | null;
+  in_reply_to?: string | null;
+  lead_id?: string | null;
+  expected_version?: number;
+};
+
+export type WorkspaceEmailDraft = {
+  id: string;
+  version: number;
+  data: WorkspaceEmailDraftInput;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceEmailDraftSummary = {
+  id: string;
+  version: number;
+  subject: string;
+  recipient: string;
+  updated_at: string;
 };
 
 export type GmailSendAccount = {

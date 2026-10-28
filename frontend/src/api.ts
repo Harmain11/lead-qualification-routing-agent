@@ -19,7 +19,9 @@ import type {
   LeadProgressResult,
   GmailConversationSyncResult,
   MeetingRecommendations,
+  ManagedMeeting,
   MeetingSuggestion,
+  WorkspaceCalendarEvent,
   ConfirmMeetingResult,
   RetryConfirmedMeetingBookingResult,
   LeadListResponse,
@@ -640,6 +642,29 @@ export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResu
   });
 }
 
+export function listWorkspaceEmailDrafts(): Promise<import("./types").WorkspaceEmailDraftSummary[]> {
+  return request("/v1/email/drafts");
+}
+
+export function getWorkspaceEmailDraft(draftId: string): Promise<import("./types").WorkspaceEmailDraft> {
+  return request(`/v1/email/drafts/${draftId}`);
+}
+
+export function saveWorkspaceEmailDraft(
+  payload: import("./types").WorkspaceEmailDraftInput,
+  draftId?: string,
+): Promise<import("./types").WorkspaceEmailDraft> {
+  return request(draftId ? `/v1/email/drafts/${draftId}` : "/v1/email/drafts", {
+    method: draftId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWorkspaceEmailDraft(draftId: string): Promise<void> {
+  return request(`/v1/email/drafts/${draftId}`, { method: "DELETE" }, { activityToast: false });
+}
+
 export function listGmailSendAccounts(): Promise<GmailSendAccount[]> {
   return request("/v1/email/send-accounts");
 }
@@ -1012,6 +1037,30 @@ export function getLeadPipelineHistory(leadId: string, signal?: AbortSignal): Pr
   return jsonRequest<LeadPipelineEvent[]>(`/v1/leads/${leadId}/pipeline-history`, { signal });
 }
 
+export function listCalendarEvents(start: string, end: string, signal?: AbortSignal): Promise<WorkspaceCalendarEvent[]> {
+  const query = new URLSearchParams({ start, end });
+  return jsonRequest<WorkspaceCalendarEvent[]>(`/v1/calendar/events?${query}`, { signal });
+}
+
+export function createCalendarEvent(input: {
+  kind: WorkspaceCalendarEvent["kind"];
+  title: string;
+  start_at: string;
+  end_at: string;
+  location?: string | null;
+  notes?: string | null;
+  lead_id?: string | null;
+}): Promise<WorkspaceCalendarEvent> {
+  return jsonRequest<WorkspaceCalendarEvent>("/v1/calendar/events", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+}
+
+export function deleteCalendarEvent(id: string): Promise<void> {
+  if (!id.startsWith("manual:")) throw new Error("Only manual events can be deleted here.");
+  return jsonRequest<void>(`/v1/calendar/events/${encodeURIComponent(id.slice(7))}`, { method: "DELETE" });
+}
+
 export function getLeadFollowUpHistory(leadId: string, signal?: AbortSignal): Promise<FollowUpEmail[]> {
   return jsonRequest<FollowUpEmail[]>(`/v1/leads/${leadId}/follow-up/history`, { signal });
 }
@@ -1064,6 +1113,25 @@ export function retryConfirmedMeetingBooking(
 
 export function getLeadMeetingRecommendations(leadId: string, signal?: AbortSignal): Promise<MeetingRecommendations> {
   return jsonRequest<MeetingRecommendations>(`/v1/leads/${leadId}/meeting-recommendations`, { signal });
+}
+
+export function getLeadManagedMeeting(leadId: string, signal?: AbortSignal): Promise<ManagedMeeting | null> {
+  return jsonRequest<ManagedMeeting | null>(`/v1/leads/${leadId}/meeting-management`, { signal });
+}
+
+export function cancelLeadMeeting(leadId: string, bookingId: string, reason: string): Promise<{ status: string; message: string }> {
+  return jsonRequest(`/v1/leads/${leadId}/meetings/${bookingId}/cancel`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }),
+  });
+}
+
+export function rescheduleLeadMeeting(
+  leadId: string, bookingId: string, startAt: string, endAt: string, timeZone: string,
+): Promise<ManagedMeeting> {
+  return jsonRequest(`/v1/leads/${leadId}/meetings/${bookingId}/reschedule`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start_at: startAt, end_at: endAt, time_zone: timeZone }),
+  });
 }
 
 export function createLeadMeetingOfferDraft(
@@ -1122,7 +1190,10 @@ export function generateLeadFollowUp(leadId: string): Promise<FollowUpEmail> {
   return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/draft`, { method: "POST" });
 }
 
-export function updateLeadFollowUp(leadId: string, draftId: string, input: { subject: string; body: string }): Promise<FollowUpEmail> {
+export function updateLeadFollowUp(leadId: string, draftId: string, input: {
+  subject: string; body: string; cc?: string; bcc?: string;
+  html_body?: string | null; attachments?: import("./types").GmailAttachmentRequest[];
+}): Promise<FollowUpEmail> {
   return jsonRequest<FollowUpEmail>(`/v1/leads/${leadId}/follow-up/${draftId}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
   });

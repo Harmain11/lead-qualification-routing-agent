@@ -1849,6 +1849,9 @@ def test_recommendations_expose_saved_offer_source_message_id(
     }
 
     class RecommendationsSession:
+        def scalar(self, _statement):
+            return None
+
         def scalars(self, _statement):
             return iter([offer])
 
@@ -1874,6 +1877,74 @@ def test_recommendations_expose_saved_offer_source_message_id(
     assert result.source_message_id == "numbered-reply-1"
     assert result.offer_source_message_id == "original-request-1"
     assert result.offer_has_confirmed_selection is True
+
+
+def test_booked_meeting_survives_unavailable_thread_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead_id, workspace_id = uuid4(), uuid4()
+    booked_at = datetime.now(UTC) + timedelta(days=1)
+
+    class BookedSession:
+        def scalar(self, _statement):
+            return SimpleNamespace(details={
+                "provider": "calendly",
+                "start_at": booked_at.isoformat(),
+            })
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._lead_or_404",
+        lambda *_args, **_kwargs: SimpleNamespace(id=lead_id),
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings._workspace_calendar_connections",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.meetings.find_meeting_request",
+        lambda *_args, **_kwargs: None,
+    )
+
+    result = get_meeting_recommendations(
+        lead_id,
+        session=BookedSession(),  # type: ignore[arg-type]
+        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="owner"),
+    )
+
+    assert result.offer_status == "booked"
+    assert result.booked_meeting_at == booked_at
+    assert result.offer_calendar_provider == "calendly"
+
+
+def test_sent_appointment_link_does_not_create_another_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = {
+        "thread_id": "gmail-thread-1",
+        "gmail_connection_id": str(uuid4()),
+        "message_id": "request-1",
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+    offer = SimpleNamespace(
+        status="awaiting_confirmation",
+        details={
+            "source_message_id": "request-1",
+            "offered_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    monkeypatch.setattr(meeting_email, "_find_meeting_request_for_draft", lambda *_args: source)
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args: offer)
+
+    with pytest.raises(HTTPException) as error:
+        meeting_email.create_booking_link_offer_draft(
+            session=object(),  # type: ignore[arg-type]
+            lead=SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]
+            workspace_id=uuid4(),
+            actor_id="owner",
+        )
+
+    assert error.value.status_code == 409
+    assert "already sent" in error.value.detail
 
 
 def test_find_meeting_request_ignores_messages_without_meeting_intent() -> None:

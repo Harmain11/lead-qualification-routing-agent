@@ -89,6 +89,21 @@ _POSITIVE_INTENT_SIGNALS = (
     "moving forward",
     "meeting confirmed",
 )
+
+
+def _meeting_request_signal(text: str) -> str | None:
+    """Recognize a concrete meeting request without treating a date alone as intent."""
+    request = re.search(
+        r"\b(?:can|could|shall|should) we (?:do (?:it|this)|meet|talk|call|schedule)\b"
+        r"|\b(?:please|let'?s|want to|would like to) (?:meet|talk|call|schedule)\b",
+        text,
+    )
+    time = re.search(
+        r"\b(?:tomorrow|next (?:monday|tuesday|wednesday|thursday|friday|week)"
+        r"|(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:am|pm))\b",
+        text,
+    )
+    return request.group(0) if request and time else None
 _NEGATIVE_BUDGET_SIGNALS = (
     "no budget",
     "without a budget",
@@ -494,6 +509,8 @@ def qualify_lead(
     urgent = _contains_any(text, icp.scoring.signals.get("urgent", [])) or _field_signal(
         analyzed_urgency, ["high", "urgent", "immediate"]
     )
+    meeting_request = _meeting_request_signal(text)
+    urgent = urgent or (meeting_request if "tomorrow" in text else None)
     if negative_interest:
         urgent = None
     lines.append(
@@ -515,7 +532,7 @@ def qualify_lead(
     analyzed_stage = _analysis_field(analysis, "buying_stage")
     buying_stage = _contains_any(
         text, icp.scoring.signals.get("ready_to_buy", [])
-    ) or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"])
+    ) or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"]) or meeting_request
     if negative_interest:
         buying_stage = None
     elif interest_direction == "positive" and interest_evidence is not None:
@@ -538,7 +555,7 @@ def qualify_lead(
                 "Recent sales evidence lowered current buying interest, so older buying-stage "
                 "signals are not counted."
                 if negative_interest
-                else f"Ready-to-buy signal {'found' if buying_stage else 'not found'}."
+                else f"Buying interest signal {'found' if buying_stage else 'not found'}."
             ),
             buying_stage or (interest_excerpt if negative_interest else "no ready-to-buy signal"),
             *_field_evidence(analyzed_stage),

@@ -828,7 +828,8 @@ class AnalyticsService:
                 else f"{volume_change:+.1f}% lead volume versus the prior period"
             )
             summary = (
-                f"Analyzed {len(leads)} leads: {sql_ready} are SQL-ready ({sql_rate}%), "
+                f"Analyzed {len(leads)} leads: {sql_ready} "
+                f"{'is' if sql_ready == 1 else 'are'} SQL-ready ({sql_rate}%), "
                 f"{manual_review} need manual review, with {change_text}."
             )
         else:
@@ -1489,6 +1490,8 @@ class AnalyticsService:
 
     @staticmethod
     def _is_manual_review(lead: LeadORM) -> bool:
+        if lead.manual_review_completed_at is not None:
+            return False
         route = _latest_route(lead)
         return bool(
             (lead.analysis is not None and lead.analysis.requires_manual_review)

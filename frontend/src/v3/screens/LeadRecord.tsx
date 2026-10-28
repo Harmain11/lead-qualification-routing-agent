@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { dedupeGmailEvents } from "../../utils/gmailEvents";
+import { dedupeGmailEvents, latestGmailReplyTarget } from "../../utils/gmailEvents";
 import {
   deleteLead,
   completeLeadManualReview,
@@ -31,7 +31,7 @@ import { getLeadTalkingPoints } from "../../leadActionPlan";
 import { leadSectionHref, type LeadDetailSection } from "../../leadSections";
 import { buildLeadProfileUpdates, createLeadProfileDraft, type LeadProfileDraft } from "../../leadProfileEditor";
 import type { CrmSync, Lead, LeadAssignmentOption, LeadMomentum, LeadOutcome, ProviderConnection, Qualification } from "../../types";
-import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
+import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageFromBackend, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
 import { StageMoveSheet } from "../deals/StageMoveSheet";
 import { togglePhone, type LeadAction } from "../shell/events";
 import { Icon } from "../ui/Icon";
@@ -56,11 +56,10 @@ import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 /** The record's sections, in the order a person works a lead. */
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "overview", label: "Overview" },
-  { id: "deal", label: "Deal" },
-  { id: "calls", label: "Calls" },
-  { id: "email", label: "Email" },
-  { id: "follow-ups", label: "Follow-up" },
   { id: "ai", label: "Qualification" },
+  { id: "email", label: "Email" },
+  { id: "calls", label: "Calls" },
+  { id: "deal", label: "Deal" },
   { id: "history", label: "Activity" },
   { id: "agent", label: "Ask Corral" },
 ];
@@ -135,7 +134,7 @@ export function LeadRecord({
   const dealView = viewDeal(lead, store.deals[lead.id], recordedStage);
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabs = TABS.filter((tab) => (tab.id !== "email" || canViewEmail));
-  const shownSection: LeadDetailSection = activeSection === "closing" ? "history" : activeSection;
+  const shownSection: LeadDetailSection = activeSection === "closing" ? "history" : activeSection === "follow-ups" ? "email" : activeSection;
   const updatedRef = useRef(onUpdated);
   useEffect(() => { updatedRef.current = onUpdated; }, [onUpdated]);
   useEffect(() => {
@@ -522,14 +521,14 @@ export function LeadRecord({
                     : activeMeetingIndicator.kind === "booked" ? activeMeetingIndicator.bookedAt
                       ? `Meeting set for ${formatMeetingDate(activeMeetingIndicator.bookedAt)}.`
                       : "The calendar confirmed this meeting."
-                      : "Open Follow-up to review the booking issue."}
+                      : "Open Email to review the booking issue."}
             </p>
           </div>
           {activeMeetingIndicator.kind === "draft_ready" && canViewEmail && (
             <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open email draft</Button>
           )}
           {activeMeetingIndicator.kind === "needs_attention" && (
-            <Button kind="plain" size="sm" onClick={() => onSectionChange("follow-ups")}>Open Follow-up</Button>
+            <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open Email</Button>
           )}
           {activeMeetingIndicator.kind === "awaiting_booking" && (
             <Button kind="plain" size="sm" onClick={() => setMeetingRefresh((value) => value + 1)}>Refresh status</Button>
@@ -592,6 +591,7 @@ export function LeadRecord({
           />
         )}
       </div>
+      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Calls */}
       <div id="lead-panel-calls" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-calls" tabIndex={0} hidden={shownSection !== "calls"}>
@@ -752,22 +752,21 @@ export function LeadRecord({
         </div>
       </div>
 
-      {/* --------------------------------------------------------- Follow-up */}
-      <div id="lead-panel-follow-ups" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-follow-ups" tabIndex={0} hidden={shownSection !== "follow-ups"}>
+      {/* ------------------------------------------------------------- Email */}
+      <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
         <div className="v-stack">
-          {route && (
-            <section className="v-card v-card-pad">
-              <h2 className="v-card-title">Follow-up plan</h2>
-              <p className="v-card-sub">Goal: {route.action_plan.conversion_goal || route.action_plan.next_step_recommendation}</p>
-              <ol className="v-steps">
-                {(route.action_plan.follow_up_strategy?.length ? route.action_plan.follow_up_strategy : [route.action_plan.immediate_action, route.action_plan.next_step_recommendation]).map((step, index) => (
-                  <li key={`${index}-${step}`}>{step}</li>
-                ))}
-              </ol>
-              {route.manual_review && <Banner tone="attention" title="Validate the analysis before contacting this lead." />}
-            </section>
-          )}
-          <FollowUpComposer lead={lead} canEdit={canEdit} />
+          {canEdit && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
+          <div className="v-legacy-block">
+            <LeadEmailPanel
+              lead={lead}
+              active={shownSection === "email"}
+              canView={canViewEmail}
+              canSend={canEdit}
+              hideComposeButton
+              onAskAgent={() => onSectionChange("agent")}
+              onConversationSynced={synced}
+            />
+          </div>
           <div className="v-legacy-block">
             <LeadMeetingPanel
               lead={lead}
@@ -779,28 +778,9 @@ export function LeadRecord({
             />
           </div>
         </div>
-      </div>
-
-      {/* ------------------------------------------------------------- Email */}
-      <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
-        <div className="v-stack">
-          {canEdit && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
-          <div className="v-legacy-block">
-            <LeadEmailPanel
-              lead={lead}
-              active={shownSection === "email"}
-              canView={canViewEmail}
-              canSend={canEdit}
-              onAskAgent={() => onSectionChange("agent")}
-              onConversationSynced={synced}
-            />
-          </div>
-        </div>
       </section>
 
       {/* ---------------------------------------------- Progress & History */}
-      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
-
       {/* --------------------------------------------------------- Assistant */}
       <section id="lead-panel-agent" className="v-panel v-legacy-block" role="tabpanel" aria-labelledby="lead-tab-agent" tabIndex={0} hidden={shownSection !== "agent"}>
         <LeadAssistantPanel
@@ -1200,10 +1180,15 @@ function FollowUpComposer({
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ subject?: string; body?: string; quoteId?: string }>({});
+  const [gmailEvents, setGmailEvents] = useState<Awaited<ReturnType<typeof getLeadPipelineHistory>>>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyFailed, setHistoryFailed] = useState(false);
+  const [newConversation, setNewConversation] = useState(false);
   useEffect(() => {
     if (!seed) return;
     setDraft({ subject: seed.subject, body: seed.body, quoteId: seed.quoteId });
     setNotice(null);
+    setNewConversation(false);
     setOpen(true);
     setRevision((value) => value + 1);
   }, [seed]);
@@ -1222,6 +1207,26 @@ function FollowUpComposer({
       .catch((error) => { if (active) setNotice(error instanceof Error ? error.message : "Gmail accounts couldn’t be loaded."); });
     return () => { active = false; };
   }, [canEdit, lead.id]);
+  useEffect(() => {
+    if (!canEdit) return;
+    const controller = new AbortController();
+    setHistoryLoaded(false);
+    setHistoryFailed(false);
+    getLeadPipelineHistory(lead.id, controller.signal)
+      .then((rows) => { if (!controller.signal.aborted) { setGmailEvents(rows); setHistoryFailed(false); } })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setHistoryFailed(true);
+          setNotice(error instanceof Error ? error.message : "Gmail history could not be loaded.");
+        }
+      })
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoaded(true); });
+    return () => controller.abort();
+  }, [canEdit, lead.id]);
+  const replyTarget = latestGmailReplyTarget(gmailEvents, lead.email, accounts.filter((account) =>
+    account.is_active && account.status === "verified"
+      && account.scopes.includes("https://www.googleapis.com/auth/gmail.send"),
+  ).map((account) => account.id));
   const classification = lead.qualification?.classification.toLowerCase();
   const disqualified = Boolean(lead.qualification?.hard_disqualified) || ["disqualify", "disqualified", "hard_disqualified"].includes(classification || "");
   const needsReview = Boolean(lead.routing?.manual_review || lead.analysis?.requires_manual_review);
@@ -1238,20 +1243,31 @@ function FollowUpComposer({
           <p className="v-card-sub">Write from your connected Gmail. Nothing sends until you press Send; sent mail is kept in this lead’s history.</p>
         </div>
         {canEdit && !open && (
-          <Button kind="tinted" icon="send" disabled={Boolean(blocked)} onClick={() => { setNotice(null); setDraft({}); setOpen(true); setRevision((value) => value + 1); }}>
-            Compose
+          <Button kind="tinted" icon="send" disabled={Boolean(blocked) || !historyLoaded || historyFailed} onClick={() => { setNotice(null); setDraft({}); setNewConversation(false); setOpen(true); setRevision((value) => value + 1); }}>
+            {historyFailed ? "Gmail history unavailable" : historyLoaded ? replyTarget ? "Reply in conversation" : "Compose" : "Checking Gmail…"}
           </Button>
         )}
       </div>
       {blocked && <Banner tone="attention" title={disqualified ? "Outreach paused · disqualified" : "Outreach paused · review first"}>{blocked}</Banner>}
-      {open && !blocked && (
+      {open && !blocked && !historyLoaded && <p role="status">Checking the existing Gmail conversation…</p>}
+      {open && !blocked && historyLoaded && !historyFailed && (
         <div className="v-legacy-block v-composer">
+          {replyTarget && <div className="v-inline-actions">
+            <button type="button" className="button-quiet" onClick={() => { setNewConversation((value) => !value); setRevision((value) => value + 1); }}>
+              {newConversation ? "Reply in conversation" : "Start a new conversation"}
+            </button>
+          </div>}
           <EmailComposer
             key={revision}
             accounts={accounts}
             canSend={canEdit}
             leadId={lead.id}
-            seed={{ recipient: lead.email?.trim() ?? "", purpose: "follow_up", subject: draft.subject, body: draft.body }}
+            seed={{
+              recipient: lead.email?.trim() ?? "", purpose: "follow_up", body: draft.body,
+              ...(replyTarget && !newConversation
+                ? { ...replyTarget, subject: replyTarget.subject }
+                : { subject: draft.subject }),
+            }}
             onClose={() => setOpen(false)}
             onSent={() => {
               setOpen(false); setNotice("Email sent. You’ll find it in this lead’s email history.");
@@ -1355,7 +1371,10 @@ function ProgressAndHistory({
       const unreadable = result.threads_unreadable
         ? ` Google denied access to ${result.threads_unreadable} thread${result.threads_unreadable === 1 ? "" : "s"}; check that the connected mailbox can open ${result.threads_unreadable === 1 ? "it" : "them"}.`
         : "";
-      setNotice(`${summary}${unreadable}`);
+      const profileUpdate = result.profile_updated_fields?.length
+        ? ` Updated ${result.profile_updated_fields.join(" and ")} from the lead’s own message.`
+        : "";
+      setNotice(`${summary}${unreadable}${profileUpdate}`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to sync Gmail conversation");
     } finally {
@@ -1375,12 +1394,18 @@ function ProgressAndHistory({
         ...(closing ? { credited_user_id: creditedId || null } : {}),
         ...(stage === "converted" ? { send_direct_message: sendDirectMessage } : {}),
       });
+      const dealStage = stageFromBackend(stage);
+      let workspaceSyncError = false;
+      if (!closing && dealStage && getDeal(lead.id).stage !== dealStage) {
+        dealActions.setStage(lead.id, dealStage, note.trim());
+        try { await flushDealChanges(); } catch { workspaceSyncError = true; }
+      }
       setNote("");
       if (closing) {
         setOutcome(result.outcome ?? null);
         setNotice(stage === "converted" ? `${titleize(conversionType)} win recorded in Corral. Qualification is unchanged; no CRM record was created.` : "Closed – lost recorded. Qualification is unchanged.");
       } else {
-        setNotice(`Progress saved. Corral re-checked this lead: ${titleize(result.classification)} (${result.score}/100).`);
+        setNotice(`Progress saved. Corral re-checked this lead: ${titleize(result.classification)} (${result.score}/100).${workspaceSyncError ? " The Pipeline card could not sync; check its save banner. Do not submit the update again." : ""}`);
       }
       onConversationSynced();
     } catch (error) {
@@ -1424,7 +1449,7 @@ function ProgressAndHistory({
   const closing = stage === "converted" || stage === "lost";
   return (
     <>
-      <section id="lead-panel-closing" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-history" tabIndex={0} hidden={activeSection !== "history"}>
+      <section id="lead-panel-closing" className="v-panel" role="region" aria-label="Pipeline activity updates" tabIndex={0} hidden={activeSection !== "deal"}>
         <div className="v-stack">
           {outcome && (
             <OutcomeReceipt
@@ -1444,8 +1469,8 @@ function ProgressAndHistory({
             <form className="v-card v-card-pad v-form" onSubmit={(event) => void save(event)}>
               <div className="v-card-headrow">
                 <div>
-                  <h2 className="v-card-title">Record progress</h2>
-                  <p className="v-card-sub">Each update needs a short, verified comment. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
+                  <h2 className="v-card-title">Pipeline activity update</h2>
+                  <p className="v-card-sub">Record a verified update at the correct stage. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
                 </div>
                 <Button size="sm" disabled={syncBusy || busy} onClick={() => void syncConversation()} icon="refresh">
                   {syncBusy ? "Syncing Gmail…" : "Sync Gmail & Re-check"}

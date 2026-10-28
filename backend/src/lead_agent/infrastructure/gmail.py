@@ -25,6 +25,7 @@ from lead_agent.domain.crm_inbound import (
     InboundCursor,
 )
 from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailProspectCandidate
+from lead_agent.application.gmail_profile import extract_stated_gmail_profile
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -2134,6 +2135,18 @@ class GmailInboundProvider:
             and not sender_name.strip()
             and not (extracted and extracted.full_name)
         )
+        explicit_company, explicit_industry = extract_stated_gmail_profile(
+            [
+                {
+                    "direction": "inbound",
+                    "sender": str(message.get("headers", {}).get("from", "")),
+                    "body": str(message.get("body", "")),
+                }
+                for message in participant_messages
+                if isinstance(message.get("headers"), dict)
+            ],
+            email,
+        )
         payload = {
             "source": "email",
             "source_detail": "Gmail",
@@ -2151,8 +2164,9 @@ class GmailInboundProvider:
                 contact_phone and contact_phone.get("country")
             ),
             "company_name": (
-                (extracted.company_name if extracted else None) or company or "Unknown company"
+                (extracted.company_name if extracted else None) or explicit_company or company or "Unknown company"
             ),
+            "industry": explicit_industry,
             "product_or_service": (
                 (extracted.requested_service if extracted else None) or "Inbound inquiry"
             ),

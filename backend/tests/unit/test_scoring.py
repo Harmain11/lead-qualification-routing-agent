@@ -129,6 +129,23 @@ def test_recent_status_or_comment_can_raise_or_lower_qualification(icp, routing)
     )
 
 
+def test_concrete_meeting_request_counts_as_interest_without_inventing_a_sale(icp, routing) -> None:
+    baseline = qualify_lead(make_lead(message="Tell me more.", budget=None), icp, routing)
+    requested = qualify_lead(
+        make_lead(message="Can we do it at 2 pm tomorrow?", budget=None), icp, routing
+    )
+    assert requested.total_score > baseline.total_score
+    assert next(line for line in requested.score_breakdown if line.key == "buying_stage").points > 0
+    assert next(line for line in requested.score_breakdown if line.key == "urgency").points > 0
+
+    date_only = qualify_lead(
+        make_lead(message="Tomorrow at 2 pm is our internal meeting.", budget=None),
+        icp,
+        routing,
+    )
+    assert next(line for line in date_only.score_breakdown if line.key == "buying_stage").points == 0
+
+
 def test_team_note_length_does_not_inflate_message_detail_score(icp, routing) -> None:
     original = "Please send information about your service."
     note = "Routine follow-up note. " * 80

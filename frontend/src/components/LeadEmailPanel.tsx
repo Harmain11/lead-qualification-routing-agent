@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getLeadPipelineHistory,
   listIntegrations,
@@ -9,9 +9,10 @@ import { EmailComposer } from "./EmailComposer";
 import { MeetingOfferDrafts } from "./MeetingOfferDrafts";
 import { ProviderEmailBody } from "./ProviderEmailBody";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
-import { dedupeGmailEvents } from "../utils/gmailEvents";
+import { dedupeGmailEvents, latestGmailReplyTarget } from "../utils/gmailEvents";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 function stringDetail(details: Record<string, unknown>, key: string): string {
   const value = details[key];
@@ -53,6 +54,7 @@ export function LeadEmailPanel({
   canSend,
   onConversationSynced,
   onAskAgent,
+  hideComposeButton = false,
 }: {
   lead: Lead;
   active: boolean;
@@ -60,6 +62,7 @@ export function LeadEmailPanel({
   canSend: boolean;
   onConversationSynced: () => void;
   onAskAgent?: () => void;
+  hideComposeButton?: boolean;
 }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [events, setEvents] = useState<LeadPipelineEvent[]>([]);
@@ -71,6 +74,9 @@ export function LeadEmailPanel({
   const [revision, setRevision] = useState(0);
   const [composeSeed, setComposeSeed] = useState<GmailComposerSeed | null>(null);
   const [composerRevision, setComposerRevision] = useState(0);
+  const syncInFlight = useRef(false);
+  const onConversationSyncedRef = useRef(onConversationSynced);
+  onConversationSyncedRef.current = onConversationSynced;
 
   useEffect(() => {
     if (!canView) return;
@@ -110,8 +116,6 @@ export function LeadEmailPanel({
     return () => controller.abort();
   }, [active, canView, lead.id, revision]);
 
-  if (!canView) return null;
-
   const groups = new Map<string, LeadPipelineEvent[]>();
   for (const event of dedupeGmailEvents(events)) {
     const threadId = threadIdForEvent(event) || `message-${event.id}`;
@@ -131,27 +135,55 @@ export function LeadEmailPanel({
   const activeAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_READONLY_SCOPE),
   );
+  const replyTarget = latestGmailReplyTarget(events, lead.email, accounts.filter((account) =>
+    account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_SEND_SCOPE),
+  ).map((account) => account.id));
 
-  async function refreshConversation() {
-    setSyncBusy(true);
-    setError(null);
-    setNotice(null);
+  const refreshConversation = useCallback(async (manual = true) => {
+    if (syncInFlight.current) return;
+    syncInFlight.current = true;
+    if (manual) {
+      setSyncBusy(true);
+      setError(null);
+      setNotice(null);
+    }
     try {
       const result = await syncLeadGmailConversation(lead.id);
       setRevision((current) => current + 1);
-      onConversationSynced();
-      setNotice(result.messages_added
-        ? `Imported ${result.messages_added} new email${result.messages_added === 1 ? "" : "s"} from ${result.threads_checked} thread${result.threads_checked === 1 ? "" : "s"}.`
-        : `No new email found across ${result.threads_checked} thread${result.threads_checked === 1 ? "" : "s"}.`);
+      onConversationSyncedRef.current();
+      if (manual || result.messages_added || result.profile_updated_fields?.length) {
+        const message = result.messages_added
+          ? `Imported ${result.messages_added} new email${result.messages_added === 1 ? "" : "s"} from ${result.threads_checked} thread${result.threads_checked === 1 ? "" : "s"}.`
+          : `No new email found across ${result.threads_checked} thread${result.threads_checked === 1 ? "" : "s"}.`;
+        setNotice(`${message}${result.profile_updated_fields?.length ? ` Updated ${result.profile_updated_fields.join(" and ")} from the lead’s own message.` : ""}`);
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Gmail conversation could not be refreshed.");
+      if (manual) setError(reason instanceof Error ? reason.message : "Gmail conversation could not be refreshed.");
     } finally {
-      setSyncBusy(false);
+      syncInFlight.current = false;
+      if (manual) setSyncBusy(false);
     }
-  }
+  }, [lead.id]);
+
+  useEffect(() => {
+    if (!active || !canView || activeAccounts.length === 0) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshConversation(false);
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [active, canView, activeAccounts.length, refreshConversation]);
+
+  if (!canView) return null;
 
   function replyTo(event: LeadPipelineEvent) {
     const details = event.details;
+    const threadId = threadIdForEvent(event);
+    const connectionId = stringDetail(details, "gmail_connection_id");
+    const reference = [...events]
+      .filter((message) => threadIdForEvent(message) === threadId
+        && stringDetail(message.details, "gmail_connection_id") === connectionId
+        && stringDetail(message.details, "rfc_message_id"))
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
     const recipients = stringDetail(details, "recipients").split(",")[0].trim();
     const recipient = stringDetail(details, "direction") === "outbound"
       ? recipients
@@ -160,8 +192,9 @@ export function LeadEmailPanel({
     setComposeSeed({
       recipient,
       subject: originalSubject && !/^re:/i.test(originalSubject) ? `Re: ${originalSubject}` : originalSubject,
-      threadId: threadIdForEvent(event) || undefined,
-      inReplyTo: stringDetail(details, "rfc_message_id") || undefined,
+      threadId: threadId || undefined,
+      inReplyTo: reference ? stringDetail(reference.details, "rfc_message_id") : undefined,
+      connectionId: connectionId || undefined,
     });
     setComposerRevision((current) => current + 1);
   }
@@ -171,15 +204,20 @@ export function LeadEmailPanel({
       <div><span className="eyebrow">Email conversation</span><h2>{lead.full_name}</h2><p>Review this lead’s Gmail history or start a new conversation.</p></div>
       <div className="lead-email-actions">
         {onAskAgent && <button className="secondary-button" type="button" onClick={onAskAgent}>Ask Corral</button>}
-        <button className="primary-button" type="button" onClick={() => {
+        {!hideComposeButton && <button className="primary-button" type="button" onClick={() => {
+          setComposeSeed({ recipient: lead.email?.trim() || "", ...replyTarget });
+          setComposerRevision((current) => current + 1);
+        }}>{replyTarget ? "Reply in conversation" : "Compose"}</button>}
+        {!hideComposeButton && replyTarget && <button className="secondary-button" type="button" onClick={() => {
           setComposeSeed({ recipient: lead.email?.trim() || "" });
           setComposerRevision((current) => current + 1);
-        }}>Compose</button>
+        }}>New conversation</button>}
         <button className="secondary-button" type="button" onClick={() => void refreshConversation()} disabled={syncBusy || activeAccounts.length === 0}>
           {syncBusy ? "Refreshing…" : "Refresh from Gmail"}
         </button>
       </div>
     </header>
+    {activeAccounts.length > 0 && <p className="email-status lead-email-status">Gmail checks for new messages every 60 seconds while this tab is open.</p>}
     {accountsLoading && <p className="email-status lead-email-status" role="status">Checking connected Gmail accounts…</p>}
     {!accountsLoading && !loading && !error && activeAccounts.length === 0 && orderedThreads.length === 0 && <LeadEmailEmptyState
       title="No verified Gmail mailbox"
@@ -204,6 +242,7 @@ export function LeadEmailPanel({
       leadEmail={lead.email}
       active={active}
       canSend={canSend}
+      accounts={accounts}
       onSent={() => {
         setRevision((current) => current + 1);
         onConversationSynced();
@@ -235,7 +274,9 @@ export function LeadEmailPanel({
                 <time>{new Date(event.created_at).toLocaleString()}</time></header>
               <div className="lead-email-addresses"><span>From <b>{sender || "Unknown"}</b></span>{recipients && <span>To <b>{recipients}</b></span>}{mailboxName && <span>Mailbox <b>{mailboxName}</b></span>}</div>
               <ProviderEmailBody content={body} />
-              {canSend && <button className="button-quiet" type="button" onClick={() => replyTo(event)}>Reply</button>}
+              {canSend && stringDetail(details, "gmail_connection_id") &&
+                messages.some((message) => stringDetail(message.details, "rfc_message_id")) &&
+                <button className="button-quiet" type="button" onClick={() => replyTo(event)}>Reply</button>}
             </article>;
           })}</div>
         </details>;

@@ -324,9 +324,45 @@ def get_meeting_recommendations(
 ) -> MeetingRecommendationsResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
     connections = _workspace_calendar_connections(session, workspace.workspace_id)
+    latest_booking = session.scalar(
+        select(PipelineEventORM)
+        .where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.stage == "meeting_scheduled",
+            PipelineEventORM.status == "scheduled",
+        )
+        .order_by(PipelineEventORM.created_at.desc())
+        .limit(1)
+    )
+    booking_details = (
+        latest_booking.details
+        if latest_booking is not None and isinstance(latest_booking.details, dict)
+        else {}
+    )
+    booked_at = _parse_provider_time(str(booking_details.get("start_at") or ""))
+
+    def saved_booking_response() -> MeetingRecommendationsResponse | None:
+        if booked_at is None:
+            return None
+        provider = str(booking_details.get("provider") or "")
+        return MeetingRecommendationsResponse(
+            lead_id=lead_id,
+            detected=True,
+            message="A meeting is booked and recorded in this lead’s calendar activity.",
+            integrations=_integration_states(connections),
+            suggestions=[],
+            provider_errors=[],
+            offer_status="booked",
+            booked_meeting_at=booked_at,
+            offer_calendar_provider=provider if provider in {"google_calendar", "calendly"} else None,
+        )
     try:
         source = find_meeting_request(session, lead, workspace.workspace_id)
     except MeetingIntentUnavailable:
+        saved_booking = saved_booking_response()
+        if saved_booking is not None:
+            return saved_booking
         return MeetingRecommendationsResponse(
             lead_id=lead_id,
             detected=False,
@@ -339,6 +375,9 @@ def get_meeting_recommendations(
             provider_errors=[],
         )
     if source is None:
+        saved_booking = saved_booking_response()
+        if saved_booking is not None:
+            return saved_booking
         any_messages = session.scalar(
             select(PipelineEventORM.id)
             .where(

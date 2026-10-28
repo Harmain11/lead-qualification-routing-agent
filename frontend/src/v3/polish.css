@@ -52,6 +52,7 @@
 .v-flyout-title { display: block; padding: 8px 10px; color: var(--label-3); font: var(--t-footnote); }
 .v-flyout-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
 .v-flyout-group { position: relative; }
+.v-flyout-group::after { content: ""; position: absolute; left: 100%; top: 0; width: 16px; height: 100%; }
 .v-flyout-group > .v-flyout-item { width: 100%; }
 .v-flyout[data-edge=bottom] .v-flyout-submenu { top: 0; bottom: auto; }
 .v-flyout-submenu { display: none; position: absolute; z-index: 1; left: calc(100% + 16px); top: 0; min-width: 220px; max-height: calc(100dvh - 32px); overflow-y: auto; overflow-x: hidden; padding: 8px; border-radius: var(--r-md); background: var(--surface-raised); box-shadow: var(--shadow-pop); }
@@ -101,6 +102,39 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .records-column, .v-app .records-filter-panel, .v-app .records-card, .v-app .records-avatar { border: 0; box-shadow: none; }
 .v-app .records-column { background: transparent; }
 .v-app .records-column-head { border: 0; }
+.v-app .records-card { overflow: hidden; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--elev-1); }
+.v-app .records-card-topline { display: flex; align-items: center; gap: 10px; padding: 14px 14px 8px; }
+.v-app .records-avatar { display: inline-grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border-radius: var(--r-sm); background: var(--tint-soft-strong); color: var(--tint-text); font: 700 12px/1 var(--font); }
+.v-app .records-card-name { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: var(--label); font: 600 14px/20px var(--font); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-app .records-card-menu { flex: none; width: 32px; height: 32px; margin-left: auto; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--label-2); font: 700 16px/1 var(--font); }
+.v-app .records-card-menu:hover { background: var(--fill); }
+.v-app .records-card-meta { display: flex; flex-direction: column; gap: 3px; padding: 0 14px 12px 58px; color: var(--label-3); font: var(--t-footnote); }
+.v-app .records-card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-app .records-status { display: inline-flex; align-self: flex-start; width: auto; max-width: 100%; margin-top: 4px; padding: 3px 8px; border-radius: var(--r-pill); background: var(--fill); color: var(--label-2); font: 600 11px/15px var(--font); }
+.v-app .records-status.is-good { background: var(--tint-soft-strong); color: var(--tint-text); }
+.v-app .records-card-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 14px 12px; }
+.v-app .records-card-action { flex: 1 1 116px; min-width: 0; min-height: 34px; height: auto; padding: 7px 10px; border: 1px solid var(--separator); border-radius: var(--r-sm); background: var(--fill); color: var(--label); font: 600 12px/18px var(--font); text-align: center; white-space: normal; }
+.v-app .records-card-action:hover:not(:disabled) { background: var(--surface-sunken); }
+.v-app .records-card-action.is-enrich { border-color: var(--tint); background: var(--tint); color: #fff; }
+.v-app .records-card-action.is-enrich:hover:not(:disabled) { background: var(--tint-hover); }
+.v-app .records-card-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 38px; padding: 0 14px; border: 0; border-top: 1px solid var(--separator); border-radius: 0; background: transparent; color: var(--tint-text); font: 600 12px/18px var(--font); text-align: left; }
+.v-app .records-card-footer:hover { background: var(--fill); }
+.v-app .dialer-lead-results { display: grid; gap: 8px; max-height: 320px; overflow: auto; }
+.v-app .dialer-lead-option { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px 8px 14px; border: 0; border-radius: var(--r-md); background: var(--fill); }
+.v-app .dialer-lead-option-main { display: flex; flex: 1 1 auto; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; min-height: 40px; padding: 0; border: 0; background: transparent; color: var(--label); font: var(--t-callout); text-align: left; }
+.v-app .dialer-lead-option-main > span:first-child { display: grid; gap: 3px; min-width: 0; }
+.v-app .dialer-lead-option-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/18px var(--font); }
+.v-app .dialer-lead-option-main small { color: var(--label-3); font: var(--t-footnote); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-app .dialer-lead-option-main > span:last-child { flex: none; color: var(--tint-text); font: 600 16px/1 var(--font); }
+.v-app .dialer-lead-call-action { flex: none; min-height: 34px; height: 34px; padding: 0 13px; border: 0; border-radius: var(--r-sm); background: var(--tint); color: #fff; font: 600 12px/18px var(--font); }
+.v-app .dialer-lead-call-action:hover:not(:disabled) { background: var(--tint-hover); }
+.v-app .dialer-lead-call-action:disabled { background: var(--surface-sunken); color: var(--label-3); }
+.v-app .direct-dialer-panel > .dialer-panel-head > div { flex: 1 1 auto; }
+.v-app .direct-dialer-panel > .dialer-panel-head > .dialer-panel-count { flex: 0 0 auto; }
+@media (max-width: 800px) {
+  .v-app .direct-dialer-panel > .dialer-panel-head > div,
+  .v-app .direct-dialer-panel > .dialer-panel-head > .dialer-panel-count { flex: none; }
+}
 .v-app .email-mailbox-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 16px; }
 .v-app .email-mailbox-toolbar > label { display: grid; gap: 6px; flex: 1 1 190px; min-width: 160px; font: var(--t-subhead); }
 .v-app .email-mailbox-toolbar select, .v-app .email-mailbox-toolbar .select-menu-trigger,
@@ -153,11 +187,22 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .integration-section-disclosure-content { padding: 8px 0 20px; }
 .v-app .provider-details .card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .v-app .provider-details .card-actions button { min-height: 36px; font: 500 14px/20px var(--font); }
-.v-app .agent-insight-metrics { display: flex; flex-wrap: wrap; gap: 24px; }
-.v-app .agent-insight-metrics > div { padding: 0; }
-.v-app .agent-insight-card, .v-app .agent-insight-card-header { border: 0; background: transparent; box-shadow: none; }
-.v-app .agent-insight-mode { border: 0; padding: 0; background: transparent; font: var(--t-footnote); letter-spacing: 0; text-transform: none; }
-.v-app .agent-insight-metrics dd { font-family: var(--font); font-variant-numeric: tabular-nums; }
+.v-app .agent-insight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.v-app .agent-insight-card { min-width: 0; padding: 20px; border: 1px solid color-mix(in srgb, var(--tint) 15%, var(--separator)); border-radius: var(--r-lg); background: color-mix(in srgb, var(--tint) 4%, var(--surface)); box-shadow: none; }
+.v-app .agent-insight-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 0; background: transparent; }
+.v-app .agent-insight-card-header .eyebrow { color: var(--label); font: 600 14px/20px var(--font); letter-spacing: 0; text-transform: none; }
+.v-app .agent-insight-mode { flex: none; padding: 4px 8px; border: 0; border-radius: var(--r-pill); background: var(--fill); color: var(--label-3); font: 600 11px/16px var(--font); letter-spacing: 0; text-transform: none; }
+.v-app .agent-insight-card > p { margin: 12px 0 16px; color: var(--label-2); font: var(--t-callout); }
+.v-app .agent-insight-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; margin: 0; }
+.v-app .agent-insight-metrics > div { min-width: 0; padding: 10px; border: 1px solid var(--separator); border-radius: var(--r-sm); background: var(--surface); box-shadow: none; }
+.v-app .agent-insight-metrics dt { color: var(--label-3); font: var(--t-footnote); }
+.v-app .agent-insight-metrics dd { margin: 4px 0 0; color: var(--label); font: 600 18px/24px var(--font); font-variant-numeric: tabular-nums; }
+.v-app .agent-insight-card > ul { display: grid; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }
+.v-app .agent-insight-card > ul li { color: var(--label-2); font: var(--t-footnote); }
+.v-app .agent-insight-card > ul li::before { color: var(--tint-text); }
+@media (max-width: 900px) { .v-app .agent-insight-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.v-app .v-review-foot .v-btn { min-height: 44px; padding-inline: 14px; }
 .v-app .read-only-badge, .v-app .verification-state, .v-app .connection-status { font-family: var(--font); letter-spacing: 0; text-transform: none; }
 .corral-guide { display: grid; gap: 24px; }
 .q-review { display: grid; gap: 24px; }

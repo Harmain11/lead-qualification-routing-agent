@@ -102,6 +102,11 @@ const EmailWorkspace = lazy(() =>
     default: module.EmailWorkspace,
   })),
 );
+const CalendarWorkspace = lazy(() =>
+  import("./views/CalendarWorkspace").then((module) => ({
+    default: module.CalendarWorkspace,
+  })),
+);
 import { CommandPalette, OPEN_SEARCH_EVENT } from "./components/CommandPalette";
 import { useNewLeadIndicators } from "./useNewLeadIndicators";
 import { opsGet } from "./operationsApi";
@@ -146,6 +151,7 @@ type View =
   | "dashboard"
   | "leads"
   | "email"
+  | "calendar"
   | "contacts"
   | "pipeline"
   | "revenue"
@@ -185,6 +191,7 @@ const navigation: Array<{ id: View; label: string; group: string; icon: IconName
   { id: "revenue", label: "Revenue", group: "main", icon: "revenue" },
   { id: "review", label: "Review", group: "work", icon: "review" },
   { id: "email", label: "Inbox", group: "work", icon: "inbox" },
+  { id: "calendar", label: "Calendar", group: "work", icon: "calendar" },
   { id: "dialer", label: "Calls", group: "work", icon: "calls" },
   { id: "contacts", label: "Contacts", group: "records", icon: "contacts" },
   { id: "accounts", label: "Companies", group: "records", icon: "companies" },
@@ -209,7 +216,7 @@ const TAB_BAR_VIEWS: View[] = ["dashboard", "leads", "pipeline", "revenue"];
 // Unchanged from the previous release: when a person cannot open the requested
 // view, they land on the first permitted view in this order.
 const FALLBACK_ORDER: View[] = [
-  "dashboard", "leads", "email", "contacts", "accounts", "pipeline", "agents",
+  "dashboard", "leads", "email", "calendar", "contacts", "accounts", "pipeline", "agents",
   "analytics", "review", "integrations", "dialer", "team", "settings",
 ];
 const LEAD_ACTION_SECTION: Record<LeadAction, LeadDetailSection> = {
@@ -239,6 +246,7 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
   dashboard: "analytics.view",
   leads: "leads.view",
   email: "integrations.view",
+  calendar: "leads.view",
   contacts: "leads.view",
   accounts: "leads.view",
   intelligence: "agents.view",
@@ -1554,7 +1562,7 @@ function App() {
                   <PerformanceScreen data={data} views={dealViews} range={range} rangeControl={rangeControl} />
                 )}
                 {view === "review" && (
-                  <ReviewScreen data={data?.review ?? null} newLeadIds={unseenLeadIdSet} onInspect={(id) => openLeadSection(id, "ai")} />
+                  <ReviewScreen data={data?.review ?? null} newLeadIds={unseenLeadIdSet} onInspect={(id) => openLeadSection(id, "ai")} canManageReview={can(workspacePermissions, "leads.view") && can(workspacePermissions, "manual_review.manage")} onReviewCompleted={() => { void refresh(); }} />
                 )}
                 {view === "agents" && (
                   <div className="v-page" data-width="wide">
@@ -1610,6 +1618,14 @@ function App() {
                   <div className="v-page" data-width="wide">
                     <EmailWorkspace canSend={can(workspacePermissions, "leads.edit")} onOpenIntegrations={() => navigate("integrations", "gmail")} />
                   </div>
+                )}
+                {view === "calendar" && (
+                  <CalendarWorkspace
+                    leads={leads}
+                    canEdit={can(workspacePermissions, "leads.edit")}
+                    onOpenLead={(id) => openLeadSection(id, "overview")}
+                    onOpenIntegrations={() => navigate("integrations", "google_calendar")}
+                  />
                 )}
                 {view === "dialer" && (
                   <div className="v-page" data-width="wide">

@@ -40,6 +40,8 @@ def lead_manual_review_reasons(
     lead: LeadORM,
     routing: RoutingDecisionORM | None = None,
 ) -> list[str]:
+    if getattr(lead, "manual_review_completed_at", None) is not None:
+        return []
     analysis = lead.analysis
     is_held = bool(
         (analysis is not None and analysis.requires_manual_review)
@@ -66,6 +68,10 @@ def lead_manual_review_reasons(
         route_reason = routing.routing_reason.replace(
             " No rep assignment is applicable.", ""
         ).strip()
+        for reason in reasons:
+            if route_reason.startswith(reason):
+                route_reason = route_reason[len(reason):].strip()
+                break
         generic_reasons = (
             "Lead matches an enabled manual-review condition.",
             "Manual-review precedence: analysis uncertainty or provider failure requires human review.",

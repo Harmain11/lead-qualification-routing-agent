@@ -9,19 +9,20 @@ from email.utils import getaddresses
 from html.parser import HTMLParser
 from typing import Literal
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
 from lead_agent.application.gmail_history import append_gmail_thread_messages
+from lead_agent.application.gmail_threading import matches_lead_thread
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import LeadORM, ProviderConnectionORM
+from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM, ProviderConnectionORM, WorkspaceEmailDraftORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.gmail import (
     GMAIL_READONLY_SCOPE,
@@ -158,6 +159,13 @@ class SendEmailRequest(BaseModel):
     lead_id: UUID | None = None
     thread_id: str | None = Field(default=None, max_length=255)
     in_reply_to: str | None = Field(default=None, max_length=998)
+    draft_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def require_reply_reference(self) -> "SendEmailRequest":
+        if self.thread_id and not self.in_reply_to:
+            raise ValueError("Refresh the Gmail conversation before replying so the message stays in its thread")
+        return self
 
     @field_validator("recipient")
     @classmethod
@@ -190,6 +198,90 @@ class SendEmailResponse(BaseModel):
     sender: str
     recipient: str
     sent_at: datetime
+
+
+class SaveEmailDraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    connection_id: UUID | None = None
+    recipient: str = Field(default="", max_length=1024)
+    cc: str = Field(default="", max_length=1024)
+    bcc: str = Field(default="", max_length=1024)
+    subject: str = Field(default="", max_length=180)
+    body: str = Field(default="", max_length=8000)
+    html_body: str | None = Field(default=None, max_length=40_000)
+    attachments: list[EmailAttachment] = Field(default_factory=list, max_length=3)
+    thread_id: str | None = Field(default=None, max_length=255)
+    in_reply_to: str | None = Field(default=None, max_length=998)
+    lead_id: UUID | None = None
+    expected_version: int | None = Field(default=None, ge=1)
+
+    @field_validator("recipient", "cc", "bcc")
+    @classmethod
+    def validate_addresses(cls, value: str) -> str:
+        return _validate_address_list(value, required=False)
+
+    @field_validator("subject", "in_reply_to")
+    @classmethod
+    def reject_draft_header_breaks(cls, value: str | None) -> str | None:
+        if value is not None and ("\r" in value or "\n" in value):
+            raise ValueError("Email headers cannot contain line breaks")
+        return value
+
+    @field_validator("thread_id")
+    @classmethod
+    def validate_draft_thread_id(cls, value: str | None) -> str | None:
+        if value is not None and not _GMAIL_ID.fullmatch(value):
+            raise ValueError("Invalid Gmail thread ID")
+        return value
+
+
+class EmailDraftResponse(BaseModel):
+    id: UUID
+    version: int
+    data: dict
+    created_at: datetime
+    updated_at: datetime
+
+
+class EmailDraftSummary(BaseModel):
+    id: UUID
+    version: int
+    subject: str
+    recipient: str
+    updated_at: datetime
+
+
+def _email_draft_response(row: WorkspaceEmailDraftORM) -> EmailDraftResponse:
+    return EmailDraftResponse(
+        id=row.id, version=row.version, data=row.data,
+        created_at=row.created_at, updated_at=row.updated_at,
+    )
+
+
+def _owned_email_draft(session: Session, workspace: WorkspaceContext, draft_id: UUID) -> WorkspaceEmailDraftORM:
+    row = session.scalar(select(WorkspaceEmailDraftORM).where(
+        WorkspaceEmailDraftORM.id == draft_id,
+        WorkspaceEmailDraftORM.workspace_id == workspace.workspace_id,
+        WorkspaceEmailDraftORM.created_by == str(workspace.actor_id),
+    ))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return row
+
+
+def _draft_payload(request: SaveEmailDraftRequest) -> dict:
+    total_bytes = 0
+    for attachment in request.attachments:
+        try:
+            total_bytes += len(base64.b64decode(attachment.content_base64, validate=True))
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="An attachment could not be decoded.") from None
+    if total_bytes > _MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=413, detail="Attachments must total 10 MB or less.")
+    return request.model_dump(mode="json", exclude={"expected_version"}) | {
+        "html_body": _sanitize_email_html(request.html_body),
+    }
 
 
 class GmailSendAccountResponse(BaseModel):
@@ -330,6 +422,79 @@ def get_mailbox_thread(
     return MailboxThreadResponse(messages=messages)
 
 
+@router.get("/drafts", response_model=list[EmailDraftSummary])
+def list_email_drafts(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> list[EmailDraftSummary]:
+    rows = session.scalars(
+        select(WorkspaceEmailDraftORM).where(
+            WorkspaceEmailDraftORM.workspace_id == workspace.workspace_id,
+            WorkspaceEmailDraftORM.created_by == str(workspace.actor_id),
+        ).order_by(WorkspaceEmailDraftORM.updated_at.desc()).limit(100)
+    ).all()
+    return [EmailDraftSummary(
+        id=row.id, version=row.version,
+        subject=str(row.data.get("subject") or ""),
+        recipient=str(row.data.get("recipient") or ""),
+        updated_at=row.updated_at,
+    ) for row in rows]
+
+
+@router.get("/drafts/{draft_id}", response_model=EmailDraftResponse)
+def get_email_draft(
+    draft_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> EmailDraftResponse:
+    return _email_draft_response(_owned_email_draft(session, workspace, draft_id))
+
+
+@router.post("/drafts", response_model=EmailDraftResponse, status_code=201)
+def create_email_draft(
+    request: SaveEmailDraftRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> EmailDraftResponse:
+    now = datetime.now(UTC)
+    row = WorkspaceEmailDraftORM(
+        id=uuid4(), workspace_id=workspace.workspace_id,
+        created_by=str(workspace.actor_id), version=1,
+        data=_draft_payload(request), created_at=now, updated_at=now,
+    )
+    session.add(row)
+    session.commit()
+    return _email_draft_response(row)
+
+
+@router.put("/drafts/{draft_id}", response_model=EmailDraftResponse)
+def update_email_draft(
+    draft_id: UUID,
+    request: SaveEmailDraftRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> EmailDraftResponse:
+    row = _owned_email_draft(session, workspace, draft_id)
+    if request.expected_version != row.version:
+        raise HTTPException(status_code=409, detail="This draft changed elsewhere. Reopen it before saving.")
+    row.data = _draft_payload(request)
+    row.version += 1
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    return _email_draft_response(row)
+
+
+@router.delete("/drafts/{draft_id}", status_code=204)
+def delete_email_draft(
+    draft_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> None:
+    row = _owned_email_draft(session, workspace, draft_id)
+    session.delete(row)
+    session.commit()
+
+
 @router.post("/send", response_model=SendEmailResponse)
 def send_email(
     request: SendEmailRequest,
@@ -352,6 +517,24 @@ def send_email(
         )
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
+    if lead is not None and request.thread_id:
+        messages = session.scalars(select(PipelineEventORM).where(
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.lead_id == lead.id,
+            PipelineEventORM.stage == "gmail_message",
+        )).all()
+        if not matches_lead_thread(
+            (event.details for event in messages if isinstance(event.details, dict)),
+            connection_id=str(connection.id),
+            thread_id=request.thread_id,
+            in_reply_to=request.in_reply_to or "",
+            subject=request.subject,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="This reply no longer matches the lead’s Gmail thread. Refresh its history and reply again.",
+            )
+    draft = _owned_email_draft(session, workspace, request.draft_id) if request.draft_id else None
 
     provider = GmailOutboundProvider(connection.id, access_token, mailbox)
     decoded_attachments: list[tuple[str, str, bytes]] = []
@@ -412,6 +595,9 @@ def send_email(
             connection_id=connection.id,
             messages=[event],
         )
+    if draft is not None:
+        session.delete(draft)
+    if lead is not None or draft is not None:
         try:
             session.commit()
         except SQLAlchemyError as error:
@@ -419,7 +605,7 @@ def send_email(
             raise HTTPException(
                 status_code=500,
                 detail=(
-                    "Gmail accepted the email, but Corral could not save its lead activity. "
+                    "Gmail accepted the email, but Corral could not save its activity. "
                     "Check the Sent folder before trying again."
                 ),
             ) from error
