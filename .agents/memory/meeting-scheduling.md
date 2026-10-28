@@ -44,3 +44,9 @@ For every meeting-intent email, including exact-time requests and newly proposed
 **Why:** The user confirmed exact-time requests should also produce a draft and notification rather than an automatic booking, and wants the representative to review, edit, and send the thread-aware booking-link draft.
 
 **How to apply:** Keep Google booking links workspace-scoped, preserve the Emails “Appointment draft” label, route meeting-draft notifications to Emails, and only reconcile provider events that uniquely match the lead and were created after the link was sent. Do not silently replace a prior unbooked offer.
+
+If Gmail is reconnected, a historical meeting request may still reference the previous connection ID. Reuse a current verified connection only when the Google account ID or normalized mailbox email proves it is the same mailbox; keep source-message identity separate from the connection used to send.
+
+**Why:** Requiring an exact old connection ID can block an editable appointment draft even when that same mailbox has been reauthorized.
+
+**How to apply:** Verify the source event in its original thread, resolve only to an active verified same-mailbox connection for sending, and keep the reconnect error when mailbox identity cannot be proven.
