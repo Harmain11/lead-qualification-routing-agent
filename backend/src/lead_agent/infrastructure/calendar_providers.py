@@ -277,6 +277,23 @@ class GoogleCalendarClient:
     def event(self, event_id: str) -> dict[str, Any]:
         return self.api.request("GET", f"calendars/primary/events/{event_id}")
 
+    def events_between(
+        self, time_min: datetime, time_max: datetime
+    ) -> list[dict[str, Any]]:
+        result = self.api.request(
+            "GET",
+            "calendars/primary/events",
+            params={
+                "timeMin": time_min.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "timeMax": time_max.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "maxResults": "2500",
+                "singleEvents": "true",
+                "orderBy": "startTime",
+            },
+        )
+        items = result.get("items", [])
+        return [cast(dict[str, Any], row) for row in items if isinstance(row, dict)]
+
 
 class CalendlyClient:
     def __init__(

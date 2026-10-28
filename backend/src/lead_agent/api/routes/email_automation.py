@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,35 @@ class LeadConfirmationSourceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool | None
+
+
+class GoogleCalendarBookingLinkUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("url")
+    @classmethod
+    def validate_google_booking_url(cls, value: str | None) -> str | None:
+        if value is None or not value:
+            return None
+        parsed = urlsplit(value)
+        google_calendar_url = (
+            parsed.hostname == "calendar.app.google" and parsed.path.strip("/") != ""
+        ) or (
+            parsed.hostname == "calendar.google.com"
+            and "/appointments/schedules/" in parsed.path
+        )
+        if (
+            parsed.scheme != "https"
+            or not google_calendar_url
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ValueError(
+                "Use an HTTPS Google Calendar appointment-schedule link."
+            )
+        return value
 
 
 def _response(row: WorkspaceEmailAutomationSettingORM | None) -> dict[str, bool]:
@@ -100,6 +130,41 @@ def update_lead_confirmation_automation(
     session.commit()
     session.refresh(row)
     return _response(row)
+
+
+@router.get("/google-calendar-booking-link")
+def get_google_calendar_booking_link(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> dict[str, str]:
+    row = session.get(WorkspaceEmailAutomationSettingORM, workspace.workspace_id)
+    return {"url": row.google_calendar_booking_url if row else ""}
+
+
+@router.put("/google-calendar-booking-link")
+def update_google_calendar_booking_link(
+    request: GoogleCalendarBookingLinkUpdate,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+) -> dict[str, str]:
+    row = session.get(WorkspaceEmailAutomationSettingORM, workspace.workspace_id)
+    now = datetime.now(UTC)
+    if row is None:
+        row = WorkspaceEmailAutomationSettingORM(
+            workspace_id=workspace.workspace_id,
+            lead_confirmation_enabled=False,
+            google_calendar_booking_url=request.url,
+            updated_by=workspace.actor_id[:255],
+            updated_at=now,
+        )
+        session.add(row)
+    else:
+        row.google_calendar_booking_url = request.url
+        row.updated_by = workspace.actor_id[:255]
+        row.updated_at = now
+    session.commit()
+    session.refresh(row)
+    return {"url": row.google_calendar_booking_url or ""}
 
 
 @router.get("/lead-confirmations/sources")

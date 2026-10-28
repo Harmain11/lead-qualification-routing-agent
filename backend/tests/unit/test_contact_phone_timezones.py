@@ -201,8 +201,8 @@ def test_calendly_exact_request_uses_contact_timezone_not_owner_timezone(
         email="buyer@example.test",
         full_name="Buyer",
     )
-    reference = datetime(2026, 10, 27, 12, tzinfo=UTC)
-    requested_start = datetime(2026, 10, 28, 12, tzinfo=ZoneInfo("Asia/Karachi"))
+    reference = datetime(2026, 10, 28, 12, tzinfo=UTC)
+    requested_start = datetime(2026, 10, 29, 12, tzinfo=ZoneInfo("Asia/Karachi"))
     captured: list[ConfirmMeetingRequest] = []
 
     class Calendly:

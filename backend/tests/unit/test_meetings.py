@@ -811,38 +811,24 @@ def test_date_only_request_does_not_attempt_direct_booking() -> None:
     assert booked is False
 
 
-def test_calendar_options_fall_back_when_requested_date_has_no_openings(
+def test_calendar_options_prefers_calendly_booking_link_when_both_are_connected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    connection = SimpleNamespace(
+    calendly = SimpleNamespace(
+        id=uuid4(), provider_type="calendly", account_name="calendar@example.test"
+    )
+    google = SimpleNamespace(
         id=uuid4(), provider_type="google_calendar", account_name="calendar@example.test"
     )
-    queried_dates: list[object] = []
-
-    def recommend(_client, *, requested_date=None, **_kwargs):
-        queried_dates.append(requested_date)
-        return [] if requested_date is not None else [{"start_at": "nearby-slot"}]
 
     monkeypatch.setattr(
         meeting_email,
         "_active_connection",
-        lambda *_args, **_kwargs: connection,
+        lambda _session, _workspace_id, provider: (
+            calendly if provider == "calendly" else google
+        ),
     )
-    monkeypatch.setattr(
-        meeting_email,
-        "_authorized_credentials",
-        lambda *_args, **_kwargs: {"access_token": "calendar-token"},
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "GoogleCalendarClient",
-        lambda _token: object(),
-    )
-    monkeypatch.setattr(
-        meeting_email,
-        "recommend_google_calendar_slots",
-        recommend,
-    )
+    monkeypatch.setattr(meeting_email, "meeting_booking_link", lambda *_args: "https://calendly.com/team/intro")
 
     result = meeting_email._calendar_options(
         object(),  # type: ignore[arg-type]
@@ -850,17 +836,74 @@ def test_calendar_options_fall_back_when_requested_date_has_no_openings(
         {
             "message_id": "source-message-1",
             "gmail_connection_id": str(uuid4()),
-            "excerpt": "Could we book a demo on November 6, 2026?",
-            "sent_at": "2026-10-05T12:00:00+00:00",
         },
         "actor-1",
     )
 
     assert result is not None
-    assert result[1] == [{"start_at": "nearby-slot"}]
-    assert len(queried_dates) == 2
-    assert queried_dates[0].isoformat() == "2026-11-06"
-    assert queried_dates[1] is None
+    assert result[0] is calendly
+    assert result[1][0]["booking_url"] == "https://calendly.com/team/intro"
+    assert result[1][0]["booking_link_mode"] is True
+    assert result[1][0]["source_message_id"] == "source-message-1"
+
+
+def test_booking_link_draft_personalizes_the_gmail_thread_without_numbered_slots() -> None:
+    subject, body = meeting_email._offer_email(
+        SimpleNamespace(full_name="Mina Khan", company_name="Northstar Labs"),  # type: ignore[arg-type]
+        {
+            "subject": "Quarterly demo",
+            "excerpt": "Could we meet next week?",
+            "sent_at": datetime.now(UTC).isoformat(),
+        },
+        "calendly",
+        [{"booking_url": "https://calendly.com/team/intro"}],
+    )
+
+    assert subject == "Re: Quarterly demo"
+    assert body.startswith("Hi Mina,")
+    assert "Thanks for reaching out about Quarterly demo." in body
+    assert "https://calendly.com/team/intro" in body
+    assert "Reply with" not in body
+    assert "option 1" not in body
+
+
+def test_google_booking_link_reconciliation_requires_new_matching_invitee_event() -> None:
+    now = datetime.now(UTC)
+    offered_at = now - timedelta(minutes=10)
+    event = {
+        "created": (now - timedelta(minutes=5)).isoformat(),
+        "attendees": [{"email": "buyer@example.test"}],
+        "organizer": {"self": True},
+        "start": {
+            "dateTime": (now + timedelta(days=2)).isoformat(),
+            "timeZone": "UTC",
+        },
+        "end": {
+            "dateTime": (now + timedelta(days=2, minutes=30)).isoformat(),
+            "timeZone": "UTC",
+        },
+        "id": "google-event-1",
+        "htmlLink": "https://calendar.google.com/event?eid=event-1",
+    }
+
+    match = meeting_email._booking_link_event_matches(
+        event,
+        provider="google_calendar",
+        lead_email="buyer@example.test",
+        offered_at=offered_at,
+        now=now,
+    )
+    assert match is not None
+    assert match["provider_event_id"] == "google-event-1"
+
+    event["created"] = (offered_at - timedelta(seconds=1)).isoformat()
+    assert meeting_email._booking_link_event_matches(
+        event,
+        provider="google_calendar",
+        lead_email="buyer@example.test",
+        offered_at=offered_at,
+        now=now,
+    ) is None
 
 
 def test_confirm_meeting_reuses_existing_booking_and_closes_pending_offer() -> None:

@@ -38,3 +38,9 @@ Direct Calendly bookings must include the selected event type's configured locat
 **Why:** On 2026-10-05, the user confirmed bookings worked after matching the invitee request's location to the selected Calendly event type; omitting it caused Calendly to reject the booking.
 
 **How to apply:** Derive the location from a fresh event-type response, include it in the invitee request, and keep regression coverage for that mapping. Calendly remains responsible for its standard confirmation email.
+
+For meeting-intent emails, prepare a personalized reply in the existing Gmail thread with a public booking link instead of requiring the representative to choose a slot. Prefer Calendly whenever it is connected; use the workspace-configured Google Calendar appointment-schedule link only when Calendly is not connected. Keep the appointment draft editable in Emails and never send it automatically. After the provider confirms a unique matching booking, record the meeting on the lead and notify the assigned representative.
+
+**Why:** The user requested a thread-aware booking-link draft that the representative can review, edit, and send, plus a visible booked date and assigned-representative notification.
+
+**How to apply:** Keep Google booking links workspace-scoped, preserve the Emails “Appointment draft” label, and only reconcile provider events that uniquely match the lead and were created after the link was sent. Do not silently replace a prior unbooked offer.

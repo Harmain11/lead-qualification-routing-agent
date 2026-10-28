@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createLeadMeetingOfferDraft, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
+import { createLeadMeetingBookingLinkDraft, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
 import type { Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
 
 type Props = {
@@ -252,15 +252,15 @@ export function LeadMeetingPanel({
     && recommendations.offer_source_message_id === recommendations.source_message_id,
   );
 
-  const prepareSelectedSlotDraft = async () => {
-    if (!selectedSlot || !canEdit || !canViewEmails || confirming) return;
+  const prepareBookingLinkDraft = async () => {
+    if (!canEdit || !canViewEmails || confirming) return;
     const targetLeadId = lead.id;
     const actionId = ++actionSequence.current;
     setConfirming(true);
     setConfirmError(null);
     setDraftCreated(false);
     try {
-      await createLeadMeetingOfferDraft(targetLeadId, selectedSlot);
+      await createLeadMeetingBookingLinkDraft(targetLeadId);
       if (currentLeadId.current !== targetLeadId || actionSequence.current !== actionId) return;
       setDraftCreated(true);
       setReviewing(false);
@@ -303,6 +303,7 @@ export function LeadMeetingPanel({
     setDraftCreated(false);
     setConfirmError(null);
     setReviewing(false);
+    setRetryCount((count) => count + 1);
   };
 
   const renderLoadError = () => (
@@ -332,7 +333,7 @@ export function LeadMeetingPanel({
         <div>
           <span className="lmp-eyebrow">Gmail · calendar scheduling</span>
           <h3 id={`meeting-title-${lead.id}`}>Schedule from the lead’s email</h3>
-          <p className="lmp-intro">When a recent synced Gmail request has open times, Corral can prepare numbered options and book the lead’s clear choice. Select a time below to create an editable email draft; it will not book until the lead replies.</p>
+          <p className="lmp-intro">When a lead asks to meet in Gmail, Corral prepares a personalized reply in that thread with a Calendly or Google Calendar booking link. No slot selection is needed; review, edit, and send the draft from the lead’s Emails tab.</p>
         </div>
       </div>
       <button className="lmp-refresh" type="button" onClick={() => { scanGmailOnNextLoad.current = canEdit; setRetryCount((count) => count + 1); }} disabled={loadState === "loading" || confirming} aria-label={canEdit ? "Read latest Gmail conversation and refresh meeting recommendations" : "Refresh meeting recommendations"}>
@@ -344,10 +345,10 @@ export function LeadMeetingPanel({
       {loadState === "loading" && renderSkeleton()}
       {loadState === "error" && renderLoadError()}
       {loadState === "ready" && recommendations && <>
-        {draftCreated && selectedSlot && <div className="lmp-outcome" role="status">
+        {draftCreated && <div className="lmp-outcome" role="status">
           <span className="lmp-outcome-icon" aria-hidden="true">✓</span>
-          <div><h4>Meeting email draft prepared</h4><p>{providerName(selectedSlot.provider)} · {meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)}. The editable draft is in the lead’s Emails tab. Sending it does not book the time; Corral books only after the lead clearly replies with 1.</p>
-            <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Review other times</button></div>
+          <div><h4>Appointment draft prepared</h4><p>{hasConnectedCalendly ? "Calendly" : "Google Calendar"} booking link added to a personalized reply in the lead’s Emails tab. Review or edit it before sending. Corral will mark the meeting and notify the assigned teammate when the calendar confirms a booking.</p>
+            <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Refresh meeting status</button></div>
           </div>
         </div>}
 
@@ -368,7 +369,29 @@ export function LeadMeetingPanel({
             {recommendations.message && <p className="lmp-excerpt">{recommendations.message}</p>}
             {bookedOfferForCurrentRequest && <div className="lmp-booking-warning" role="status">
               <b>Meeting already booked</b>
-              <p>This request already has a booked meeting. Corral will offer another time only after the lead sends a new meeting request.</p>
+              <p>{recommendations.booked_meeting_at ? `Meeting set for ${new Date(recommendations.booked_meeting_at).toLocaleString()}.` : "This request already has a booked meeting."} Corral will offer another meeting only after the lead sends a new request.</p>
+            </div>}
+            {!bookedOfferForCurrentRequest && hasCalendar && <div className="lmp-controls">
+              <small>
+                {hasConnectedCalendly
+                  ? "Calendly is preferred when connected, even if Google Calendar is also connected."
+                  : "The workspace Google Calendar appointment link will be used."}
+                {" "}You can review and change the draft before sending.
+              </small>
+              <button
+                className="lmp-primary"
+                type="button"
+                disabled={!canEdit || !canViewEmails || confirming}
+                onClick={() => recommendations.offer_can_be_replaced
+                  ? setReviewing(true)
+                  : void prepareBookingLinkDraft()}
+              >
+                {confirming
+                  ? "Preparing draft…"
+                  : recommendations.offer_can_be_replaced
+                    ? "Review replacement draft"
+                    : "Create appointment draft"}
+              </button>
             </div>}
             {recommendations.offer_status === "needs_attention" && (recommendations.offer_booking_error || recommendations.offer_has_confirmed_selection) && <div className="lmp-booking-warning" role="alert">
               <b>Booking attempt detail</b>
@@ -510,28 +533,28 @@ export function LeadMeetingPanel({
               {!canViewEmails
                 ? "Email access is required to open and review the meeting draft."
                 : canEdit
-                  ? "Prepare an editable email offer for this time. Sending it will not book the meeting."
-                  : "You can review suggested times; an editor can prepare an email offer."}
+              ? "Selecting a time is optional. The appointment draft uses the connected booking link."
+              : "You can review the booking page; an editor can prepare the email draft."}
             </small>
-          <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => setReviewing(true)}>Review selected time</button>
+          <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => void prepareBookingLinkDraft()}>Create appointment draft</button>
         </div>}
-        {!draftCreated && selectedSlot && reviewing && !bookedOfferForCurrentRequest && <div className="lmp-review" role="group" aria-label="Create meeting offer email draft">
-          <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> Prepare an email for this time?</div>
-          <p>This saves an editable draft in the lead’s Emails tab. It will not send or book now. After you review and send it, Corral books this exact slot only if the lead clearly replies with option 1.</p>
+        {!draftCreated && reviewing && !bookedOfferForCurrentRequest && <div className="lmp-review" role="group" aria-label="Create appointment booking-link draft">
+          <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> {recommendations.offer_can_be_replaced ? "Replace the unbooked appointment draft?" : "Prepare the booking-link draft?"}</div>
+          <p>This saves an editable reply in the lead’s Emails tab. It includes the preferred provider’s booking link, and you can review, change, and send it there. The lead books a time on that booking page.</p>
           {recommendations.offer_can_be_replaced && <div className="lmp-booking-warning" role="status">
             <b>Replaces the unbooked offer</b>
-            <p>The previous email remains in history, but replies to its old time options will no longer book a meeting.</p>
+            <p>The previous email remains in history. The new appointment draft will use the current provider booking link.</p>
           </div>}
-          <div className="lmp-review-slot">{providerName(selectedSlot.provider)} · {selectedSlot.account_name}<br />{meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)} · {selectedSlot.time_zone}</div>
+          {selectedSlot && <div className="lmp-review-slot">{providerName(selectedSlot.provider)} · {selectedSlot.account_name}<br />{meetingWindow(selectedSlot.start_at, selectedSlot.end_at, selectedSlot.time_zone)} · {selectedSlot.time_zone}</div>}
           {confirmError && <div className="lmp-provider-error" role="alert" style={{ marginTop: 10 }}>{confirmError}</div>}
           <div className="lmp-review-actions">
-            <button className="lmp-secondary" type="button" disabled={confirming} onClick={() => { setReviewing(false); setConfirmError(null); }}>Back to times</button>
-            <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => void prepareSelectedSlotDraft()}>{confirming ? "Saving draft…" : "Create email draft"}</button>
+            <button className="lmp-secondary" type="button" disabled={confirming} onClick={() => { setReviewing(false); setConfirmError(null); }}>Back to availability</button>
+            <button className="lmp-primary" type="button" disabled={!canEdit || !canViewEmails || confirming} onClick={() => void prepareBookingLinkDraft()}>{confirming ? "Preparing draft…" : "Create appointment draft"}</button>
           </div>
         </div>}
         {!draftCreated && confirmError && !reviewing && <div className="lmp-outcome lmp-outcome-failure" role="alert">
           <span className="lmp-outcome-icon" aria-hidden="true">!</span>
-          <div><h4>Email draft not prepared</h4><p>{confirmError}</p><div><button className="lmp-link-button" type="button" onClick={() => { setConfirmError(null); setReviewing(true); }}>Review selected time and try again</button></div></div>
+          <div><h4>Appointment draft not prepared</h4><p>{confirmError}</p><div><button className="lmp-link-button" type="button" onClick={() => void prepareBookingLinkDraft()}>Try again</button></div></div>
         </div>}
       </>}
     </div>

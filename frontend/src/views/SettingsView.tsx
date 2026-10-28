@@ -1,12 +1,14 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   generateEmailTemplate,
+  getGoogleCalendarBookingLink,
   getLeadConfirmationAutomation,
   getEmailTemplates,
   getPublicIntakeConfig,
   getRoutingConfig,
   rotatePublicIntakeConfig,
   setLeadConfirmationAutomation,
+  setGoogleCalendarBookingLink,
   saveEmailTemplate,
   updateRoutingConfig,
 } from "../api";
@@ -318,6 +320,10 @@ function EmailTemplatesPanel({
   const [templates, setTemplates] = useState<WorkspaceEmailTemplate[]>([]);
   const [automaticConfirmationEnabled, setAutomaticConfirmationEnabled] =
     useState(false);
+  const [googleBookingUrl, setGoogleBookingUrl] = useState("");
+  const [bookingUrlLoading, setBookingUrlLoading] = useState(true);
+  const [bookingUrlBusy, setBookingUrlBusy] = useState(false);
+  const [bookingUrlNotice, setBookingUrlNotice] = useState<string | null>(null);
   const [automationLoading, setAutomationLoading] = useState(true);
   const [automationBusy, setAutomationBusy] = useState(false);
   const [importantContext, setImportantContext] = useState<
@@ -346,7 +352,38 @@ function EmailTemplatesPanel({
         ),
       )
       .finally(() => setAutomationLoading(false));
+    void getGoogleCalendarBookingLink()
+      .then((setting) => setGoogleBookingUrl(setting.url))
+      .catch((error) =>
+        setBookingUrlNotice(
+          error instanceof Error
+            ? error.message
+            : "Unable to load the Google Calendar booking link",
+        ),
+      )
+      .finally(() => setBookingUrlLoading(false));
   }, [canManage]);
+  const saveGoogleBookingUrl = async () => {
+    setBookingUrlBusy(true);
+    setBookingUrlNotice(null);
+    try {
+      const saved = await setGoogleCalendarBookingLink(googleBookingUrl.trim());
+      setGoogleBookingUrl(saved.url);
+      setBookingUrlNotice(
+        saved.url
+          ? "Google Calendar appointment link saved."
+          : "Google Calendar appointment link removed.",
+      );
+    } catch (error) {
+      setBookingUrlNotice(
+        error instanceof Error
+          ? error.message
+          : "Unable to save the Google Calendar booking link",
+      );
+    } finally {
+      setBookingUrlBusy(false);
+    }
+  };
   const toggleAutomaticConfirmation = async () => {
     setAutomationBusy(true);
     setNotice(null);
@@ -514,6 +551,42 @@ function EmailTemplatesPanel({
         </p>
         <button className="button-quiet" type="button" onClick={onIntegrations}>
           Configure platform settings →
+        </button>
+      </div>
+      <div className="email-automation-control google-booking-link-control">
+        <div className="email-automation-copy">
+          <div className="email-automation-title">
+            <h3>Google Calendar appointment link</h3>
+            <span className={`email-automation-state${googleBookingUrl ? " is-on" : ""}`}>
+              {bookingUrlLoading ? "Loading" : googleBookingUrl ? "Configured" : "Not set"}
+            </span>
+          </div>
+          <p>
+            Add the public appointment-schedule link from Google Calendar. It is
+            used in meeting drafts only when Calendly is not connected.
+          </p>
+          <label className="follow-up-field">
+            Google Calendar booking URL
+            <input
+              type="url"
+              inputMode="url"
+              value={googleBookingUrl}
+              placeholder="https://calendar.app.google/…"
+              disabled={bookingUrlLoading || bookingUrlBusy}
+              onChange={(event) => setGoogleBookingUrl(event.target.value)}
+            />
+          </label>
+          {bookingUrlNotice && (
+            <p role="status" className="panel-copy">{bookingUrlNotice}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          className="button-quiet"
+          disabled={bookingUrlLoading || bookingUrlBusy}
+          onClick={() => void saveGoogleBookingUrl()}
+        >
+          {bookingUrlBusy ? "Saving…" : "Save booking link"}
         </button>
       </div>
       <div className="email-template-grid">

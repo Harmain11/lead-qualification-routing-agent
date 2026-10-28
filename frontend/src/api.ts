@@ -354,6 +354,7 @@ export const generateEmailTemplate = (
   });
 
 export type LeadConfirmationAutomation = { enabled: boolean };
+export type GoogleCalendarBookingLink = { url: string };
 export type LeadConfirmationSource = {
   source: string;
   label: string;
@@ -375,6 +376,19 @@ export const setLeadConfirmationAutomation = (enabled: boolean) =>
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled }),
+    },
+  );
+export const getGoogleCalendarBookingLink = () =>
+  request<GoogleCalendarBookingLink>(
+    "/v1/settings/email-automation/google-calendar-booking-link",
+  );
+export const setGoogleCalendarBookingLink = (url: string) =>
+  request<GoogleCalendarBookingLink>(
+    "/v1/settings/email-automation/google-calendar-booking-link",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
     },
   );
 export const getLeadConfirmationSources = () =>
@@ -1071,6 +1085,15 @@ export function createLeadMeetingOfferDraft(
       event_type_name: slot.event_type_name,
     }),
   });
+}
+
+export function createLeadMeetingBookingLinkDraft(
+  leadId: string,
+): Promise<import("./types").MeetingOfferDraftResult> {
+  return jsonRequest<import("./types").MeetingOfferDraftResult>(
+    `/v1/leads/${leadId}/meetings/booking-link-draft`,
+    { method: "POST" },
+  );
 }
 
 export function confirmLeadMeeting(leadId: string, slot: MeetingSuggestion): Promise<ConfirmMeetingResult> {
