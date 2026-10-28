@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { dedupeGmailEvents } from "../../utils/gmailEvents";
 import {
   deleteLead,
   completeLeadManualReview,
@@ -502,14 +503,17 @@ export function LeadRecord({
           <span className="v-meeting-status-mark" aria-hidden="true"><Icon name="calendar" size={18} /></span>
           <div className="v-meeting-status-copy">
             <b>
-              {activeMeetingIndicator.kind === "draft_ready" ? "Appointment draft ready to send"
+              {activeMeetingIndicator.kind === "appointment_needed" ? "Appointment needed"
+                : activeMeetingIndicator.kind === "draft_ready" ? "Appointment draft ready to send"
                 : activeMeetingIndicator.kind === "sending" ? "Appointment link is being sent"
                   : activeMeetingIndicator.kind === "awaiting_booking" ? "Booking link sent"
                     : activeMeetingIndicator.kind === "booked" ? "Meeting booked"
                       : "Meeting booking needs attention"}
             </b>
             <p>
-              {activeMeetingIndicator.kind === "draft_ready"
+              {activeMeetingIndicator.kind === "appointment_needed"
+                ? "This lead asked to set up a meeting. Prepare an appointment draft, then review and send it from Emails."
+                : activeMeetingIndicator.kind === "draft_ready"
                 ? canViewEmail
                   ? "Review or edit the draft in Emails, then send it so the lead can book a meeting."
                   : "An appointment draft is ready. Ask a teammate with email access to review and send it."
@@ -1387,7 +1391,7 @@ function ProgressAndHistory({
   };
 
   const progressEvents = events.filter((event) => event.stage === "manual_progress").reverse();
-  const emailEvents = events.filter((event) => event.stage === "gmail_message").reverse();
+  const emailEvents = dedupeGmailEvents(events.filter((event) => event.stage === "gmail_message")).reverse();
   const meetingEvents = events.filter((event) => event.stage === "meeting_scheduled").reverse();
   type Entry = { id: string; icon: "note" | "mail" | "calendar"; title: string; when: string; body?: string; meta?: string; link?: string };
   const timeline: Entry[] = [
