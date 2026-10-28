@@ -19,6 +19,7 @@ from lead_agent.application.meeting_email import (
     reconcile_booking_link_offer,
 )
 from lead_agent.application.meetings import (
+    MeetingIntentUnavailable,
     _parse_provider_time,
     appointment_event_exists,
     find_meeting_request,
@@ -323,7 +324,20 @@ def get_meeting_recommendations(
 ) -> MeetingRecommendationsResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
     connections = _workspace_calendar_connections(session, workspace.workspace_id)
-    source = find_meeting_request(session, lead, workspace.workspace_id)
+    try:
+        source = find_meeting_request(session, lead, workspace.workspace_id)
+    except MeetingIntentUnavailable:
+        return MeetingRecommendationsResponse(
+            lead_id=lead_id,
+            detected=False,
+            message=(
+                "AI could not check this synced Gmail thread. Check the workspace "
+                "reasoning provider, then refresh."
+            ),
+            integrations=_integration_states(connections),
+            suggestions=[],
+            provider_errors=[],
+        )
     if source is None:
         any_messages = session.scalar(
             select(PipelineEventORM.id)
@@ -728,13 +742,22 @@ def confirm_meeting(
         or ""
     )
     source_thread_id = str(source_details.get("thread_id") or "")
-    latest_request = find_meeting_request(
-        session,
-        lead,
-        workspace.workspace_id,
-        thread_id=source_thread_id or None,
-        gmail_connection_id=source_gmail_connection_id or None,
-    )
+    try:
+        latest_request = find_meeting_request(
+            session,
+            lead,
+            workspace.workspace_id,
+            thread_id=source_thread_id or None,
+            gmail_connection_id=source_gmail_connection_id or None,
+        )
+    except MeetingIntentUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "AI could not verify the latest email thread. Retry after checking "
+                "the workspace reasoning provider."
+            ),
+        ) from None
     if latest_request is None or latest_request["message_id"] != request.source_message_id:
         raise HTTPException(
             status_code=409,
