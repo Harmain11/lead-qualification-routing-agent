@@ -1,4 +1,6 @@
 import { mkdirSync, writeFileSync } from 'fs';
+import { request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { Socket } from 'node:net';
 import path from 'path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import glob from 'fast-glob';
@@ -29,6 +31,75 @@ const GENERATED_MODULE = 'src/.generated/mockup-components.ts';
 interface DiscoveredComponent {
   globKey: string;
   importPath: string;
+}
+
+function isMockupRequest(pathname: string, configuredBasePath: string): boolean {
+  const basePath = configuredBasePath.startsWith('/')
+    ? configuredBasePath
+    : `/${configuredBasePath}`;
+  const mountPath = basePath.replace(/\/+$/, '') || '/';
+  return pathname === mountPath || pathname.startsWith(`${mountPath}/`);
+}
+
+function corralProxyOptions(request: IncomingMessage) {
+  const target = new URL(process.env.CORRAL_PREVIEW_PROXY_TARGET || 'http://127.0.0.1:5000');
+  return {
+    hostname: target.hostname,
+    port: Number(target.port || (target.protocol === 'https:' ? 443 : 80)),
+    method: request.method,
+    path: request.url || '/',
+    headers: { ...request.headers, host: target.host },
+  };
+}
+
+function proxyToCorral(request: IncomingMessage, response: ServerResponse): void {
+  const upstream = httpRequest(corralProxyOptions(request), (upstreamResponse) => {
+    response.statusCode = upstreamResponse.statusCode || 502;
+    for (const [name, value] of Object.entries(upstreamResponse.headers)) {
+      if (value !== undefined) response.setHeader(name, value);
+    }
+    upstreamResponse.pipe(response);
+  });
+  upstream.on('error', () => {
+    if (!response.headersSent) {
+      response.statusCode = 502;
+      response.end('Corral preview is unavailable.');
+    } else {
+      response.destroy();
+    }
+  });
+  request.pipe(upstream);
+}
+
+function proxyUpgradeToCorral(
+  request: IncomingMessage,
+  socket: Socket,
+  head: Buffer,
+): void {
+  const upstream = httpRequest(corralProxyOptions(request));
+  upstream.on('upgrade', (upstreamResponse, upstreamSocket, upstreamHead) => {
+    const statusCode = upstreamResponse.statusCode || 502;
+    socket.write(`HTTP/${upstreamResponse.httpVersion} ${statusCode} ${upstreamResponse.statusMessage || ''}\r\n`);
+    for (const [name, value] of Object.entries(upstreamResponse.headers)) {
+      if (Array.isArray(value)) {
+        for (const item of value) socket.write(`${name}: ${item}\r\n`);
+      } else if (value !== undefined) {
+        socket.write(`${name}: ${value}\r\n`);
+      }
+    }
+    socket.write('\r\n');
+    if (upstreamHead.length) socket.write(upstreamHead);
+    if (head.length) upstreamSocket.write(head);
+    upstreamSocket.pipe(socket).pipe(upstreamSocket);
+  });
+  upstream.on('response', (upstreamResponse) => {
+    socket.end(
+      `HTTP/1.1 ${upstreamResponse.statusCode || 502} ${upstreamResponse.statusMessage || 'Bad Gateway'}\r\nConnection: close\r\n\r\n`,
+    );
+    upstreamResponse.resume();
+  });
+  upstream.on('error', () => socket.destroy());
+  upstream.end();
 }
 
 export function mockupPreviewPlugin(): Plugin {
@@ -149,6 +220,23 @@ export function mockupPreviewPlugin(): Plugin {
 
       const mockupsAbsDir = getMockupsAbsDir();
       mkdirSync(mockupsAbsDir, { recursive: true });
+      const configuredBasePath = process.env.BASE_PATH || '/__mockup/';
+
+      viteServer.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+        if (isMockupRequest(pathname, configuredBasePath)) {
+          next();
+          return;
+        }
+        proxyToCorral(req, res);
+      });
+
+      viteServer.httpServer?.on('upgrade', (req, socket, head) => {
+        const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+        if (!isMockupRequest(pathname, configuredBasePath)) {
+          proxyUpgradeToCorral(req, socket, head);
+        }
+      });
 
       watcher = chokidar.watch(mockupsAbsDir, {
         ignoreInitial: true,

@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8001";
   const mailpitProxyTarget = env.VITE_MAILPIT_PROXY_TARGET || "http://127.0.0.1:8025";
+  const mockupProxyTarget = env.VITE_MOCKUP_PROXY_TARGET || "http://127.0.0.1:23636";
   const configuredHosts = env.VITE_ALLOWED_HOSTS
     ? env.VITE_ALLOWED_HOSTS.split(",").map((host) => host.trim()).filter(Boolean)
     : [];
@@ -37,6 +38,11 @@ export default defineConfig(({ mode }) => {
         "/__mailpit": {
           target: mailpitProxyTarget,
           changeOrigin: true,
+        },
+        "/__mockup": {
+          target: mockupProxyTarget,
+          changeOrigin: true,
+          ws: true,
         },
       },
     },

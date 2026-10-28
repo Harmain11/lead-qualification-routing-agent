@@ -8,11 +8,33 @@ type Props = {
   canEdit: boolean;
   canViewEmails: boolean;
   onDraftCreated?: () => void;
+  onStatusChange?: (status: LeadMeetingIndicator | null) => void;
 };
 type LoadState = "loading" | "ready" | "error";
 
+export type LeadMeetingIndicator = {
+  kind: "draft_ready" | "sending" | "awaiting_booking" | "booked" | "needs_attention";
+  bookedAt: string | null;
+};
+
 const providerName = (provider: string) => provider === "google_calendar" ? "Google Calendar" : provider === "calendly" ? "Calendly" : provider;
 const slotKey = (slot: MeetingSuggestion) => [slot.provider, slot.connection_id, slot.source_message_id, slot.start_at, slot.end_at].join("|");
+
+function meetingIndicatorFor(
+  recommendations: MeetingRecommendations | null,
+  draftCreated: boolean,
+): LeadMeetingIndicator | null {
+  if (!recommendations) return draftCreated ? { kind: "draft_ready", bookedAt: null } : null;
+  switch (recommendations.offer_status) {
+    case "awaiting_send": return { kind: "draft_ready", bookedAt: null };
+    case "sending":
+    case "booking": return { kind: "sending", bookedAt: null };
+    case "awaiting_confirmation": return { kind: "awaiting_booking", bookedAt: null };
+    case "booked": return { kind: "booked", bookedAt: recommendations.booked_meeting_at };
+    case "needs_attention": return { kind: "needs_attention", bookedAt: null };
+    default: return draftCreated ? { kind: "draft_ready", bookedAt: null } : null;
+  }
+}
 
 function dateLabel(value: string, timeZone: string, options: Intl.DateTimeFormatOptions) {
   try {
@@ -158,6 +180,7 @@ export function LeadMeetingPanel({
   canEdit,
   canViewEmails,
   onDraftCreated,
+  onStatusChange,
 }: Props) {
   const [recommendations, setRecommendations] = useState<MeetingRecommendations | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -213,6 +236,16 @@ export function LeadMeetingPanel({
       actionSequence.current += 1;
     };
   }, [lead.id, refreshToken, retryCount, canEdit]);
+
+  useEffect(() => {
+    if (loadState === "ready") {
+      onStatusChange?.(
+        recommendations?.lead_id === lead.id
+          ? meetingIndicatorFor(recommendations, draftCreated)
+          : null,
+      );
+    }
+  }, [lead.id, loadState, recommendations, draftCreated, onStatusChange]);
 
   const calendlyEventTypes = recommendations?.calendly_event_types ?? [];
   const visibleSuggestions = useMemo(

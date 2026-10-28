@@ -12,6 +12,7 @@
 - [Dashboard brand alignment](dashboard-brand-alignment.md) — Follow Corral's existing brand, typography, and UI patterns when changing or redesigning screens.
 - [Corral cascade layers](corral-cascade-layers.md) — Legacy-layer `!important` rules can outrank unlayered v3 overrides; update or remove duplicate declarations before adding specificity.
 - [OAuth production diagnosis](oauth-production-diagnosis.md) — successful background Salesforce refreshes do not prove a new browser authorization succeeded.
+- [Replit preview OAuth routing](preview-oauth-routing.md) — Keep root-domain OAuth callbacks mapped to the primary app; proxy canvas mockups beneath their dedicated path.
 - [Salesforce package prerequisite](salesforce-package-prerequisite.md) — install the user-supplied package before OAuth; Connect must present the installer and setup steps.
 - [Member performance and wins](member-win-policy.md) — separate status updates from comments and keep Project/Sale credit explicit.
 - [Full-page editors](full-page-editors.md) — keep lead profile editing easy to find and broad enough for company and contact details.
