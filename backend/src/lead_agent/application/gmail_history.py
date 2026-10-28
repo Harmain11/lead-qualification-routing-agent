@@ -232,8 +232,10 @@ def append_gmail_thread_messages(
         details = {**message, "gmail_connection_id": connection_key}
         if mailbox:
             details["gmail_mailbox_email"] = mailbox
+        event_identity = mailbox or connection_key
         event_id = uuid5(
-            NAMESPACE_URL, f"corral:gmail:{workspace_id}:{lead_id}:{connection_key}:{message_id}"
+            NAMESPACE_URL,
+            f"corral:gmail:{workspace_id}:{lead_id}:{event_identity}:{message_id}",
         )
         event_time = now
         sent_at = str(message.get("sent_at") or "")
@@ -253,21 +255,22 @@ def append_gmail_thread_messages(
             details=details,
             created_at=event_time,
         )
+        inserted = True
         try:
             with session.begin_nested():
                 session.add(event)
                 session.flush()
         except IntegrityError:
-            # Concurrent importer/manual syncs may have stored this deterministic
-            # message event after the known-ID query.
+            # Concurrent syncs or reconnects may have stored this mailbox message.
             if session.get(PipelineEventORM, event_id) is None:
                 raise
+            inserted = False
         known_message_ids_by_connection.add(scoped_id)
         if mailbox_scoped_id is not None:
             known_message_ids_by_mailbox.add(mailbox_scoped_id)
             known_events_by_mailbox[mailbox_scoped_id] = event
         legacy_known_message_ids.discard(message_id)
-        added += 1
+        added += int(inserted)
     return added
 
 
