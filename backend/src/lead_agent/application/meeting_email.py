@@ -275,9 +275,17 @@ def _thread_offer(
     )
     for event in events:
         details = event.details if isinstance(event.details, dict) else {}
-        if details.get("thread_id") == thread_id and (
-            gmail_connection_id is None
-            or str(details.get("gmail_connection_id") or "") == gmail_connection_id
+        if details.get("thread_id") != thread_id:
+            continue
+        stored_connection_id = str(details.get("gmail_connection_id") or "")
+        if gmail_connection_id is None or stored_connection_id == gmail_connection_id:
+            return event
+        reconnected_connection = _active_gmail_connection_for_source(
+            session, workspace_id, stored_connection_id
+        )
+        if (
+            reconnected_connection is not None
+            and str(reconnected_connection.id) == gmail_connection_id
         ):
             return event
     return None
@@ -307,51 +315,15 @@ def record_gmail_thread_messages(
     gmail_connection_id: UUID,
     messages: list[dict[str, str]],
 ) -> int:
-    existing = list(
-        session.scalars(
-            select(PipelineEventORM).where(
-                PipelineEventORM.workspace_id == workspace_id,
-                PipelineEventORM.lead_id == lead_id,
-                PipelineEventORM.stage == "gmail_message",
-            )
-        )
+    from lead_agent.application.gmail_history import append_gmail_thread_messages
+
+    return append_gmail_thread_messages(
+        session,
+        workspace_id=workspace_id,
+        lead_id=lead_id,
+        connection_id=gmail_connection_id,
+        messages=messages,
     )
-    known_ids_by_connection: set[tuple[str, str]] = set()
-    legacy_known_ids: set[str] = set()
-    for event in existing:
-        if not isinstance(event.details, dict) or not event.details.get("message_id"):
-            continue
-        message_id = str(event.details["message_id"])
-        connection_id = str(event.details.get("gmail_connection_id") or "")
-        if connection_id:
-            known_ids_by_connection.add((connection_id, message_id))
-        else:
-            legacy_known_ids.add(message_id)
-    added = 0
-    for message in messages:
-        message_id = str(message.get("message_id") or "")
-        scoped_id = (str(gmail_connection_id), message_id)
-        if not message_id or scoped_id in known_ids_by_connection or message_id in legacy_known_ids:
-            continue
-        details = dict(message)
-        details["gmail_connection_id"] = str(gmail_connection_id)
-        sent_at = _parse_datetime(details.get("sent_at"))
-        session.add(
-            PipelineEventORM(
-                id=uuid4(),
-                workspace_id=workspace_id,
-                lead_id=lead_id,
-                stage="gmail_message",
-                status=str(details.get("direction") or "inbound"),
-                details=details,
-                created_at=sent_at or datetime.now(UTC),
-            )
-        )
-        known_ids_by_connection.add(scoped_id)
-        added += 1
-    if added:
-        session.flush()
-    return added
 
 
 def _format_slot(index: int, slot: dict[str, Any]) -> str:
@@ -1335,6 +1307,7 @@ def create_selected_slot_offer_draft(
     offer_details: dict[str, Any] = {
         "thread_id": source["thread_id"],
         "source_message_id": source["message_id"],
+        "source_gmail_connection_id": source_gmail_connection_id,
         "source_subject": source.get("subject", ""),
         "source_rfc_message_id": source.get("rfc_message_id", ""),
         "gmail_connection_id": gmail_connection_id,
@@ -2169,7 +2142,11 @@ def reconcile_booking_link_offer(
         "time_zone": matched["time_zone"],
         "title": matched["title"],
         "source_message_id": str(details.get("source_message_id") or ""),
-        "source_gmail_connection_id": str(details.get("gmail_connection_id") or ""),
+        "source_gmail_connection_id": str(
+            details.get("source_gmail_connection_id")
+            or details.get("gmail_connection_id")
+            or ""
+        ),
         "source_subject": str(details.get("source_subject") or ""),
         "booking_method": "provider_booking_link",
     }
