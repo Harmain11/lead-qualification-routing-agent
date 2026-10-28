@@ -154,7 +154,7 @@ def append_gmail_thread_messages(
                 continue
 
     mailbox_by_connection: dict[str, str] = {}
-    if connection_ids_to_lookup and callable(getattr(session, "scalars", None)):
+    if connection_ids_to_lookup and callable(getattr(session, "get_bind", None)):
         rows = session.scalars(
             select(ProviderConnectionORM).where(
                 ProviderConnectionORM.workspace_id == workspace_id,
@@ -257,9 +257,14 @@ def append_gmail_thread_messages(
         )
         inserted = True
         try:
-            with session.begin_nested():
+            begin_nested = getattr(session, "begin_nested", None)
+            if not callable(begin_nested):
                 session.add(event)
                 session.flush()
+            else:
+                with begin_nested():
+                    session.add(event)
+                    session.flush()
         except IntegrityError:
             # Concurrent syncs or reconnects may have stored this mailbox message.
             if session.get(PipelineEventORM, event_id) is None:
@@ -288,12 +293,12 @@ def _normalize_gmail_mailbox(value: Any) -> str:
 
 def _gmail_mailbox_email(connection: ProviderConnectionORM) -> str:
     metadata = (
-        connection.connection_metadata
-        if isinstance(connection.connection_metadata, dict)
+        getattr(connection, "connection_metadata", None)
+        if isinstance(getattr(connection, "connection_metadata", None), dict)
         else {}
     )
     for key in ("gmail_email", "email", "account_email"):
         mailbox = _normalize_gmail_mailbox(metadata.get(key))
         if mailbox:
             return mailbox
-    return _normalize_gmail_mailbox(connection.account_name)
+    return _normalize_gmail_mailbox(getattr(connection, "account_name", ""))

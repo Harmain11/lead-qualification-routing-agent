@@ -14,3 +14,9 @@ Group messages into conversations by Gmail's actual thread ID, not by subject al
 **Why:** The user reported messages from one Gmail conversation appearing as separate one-email cards because existing history could lack or retain an outdated thread ID.
 
 **How to apply:** Use the canonical thread ID returned by Gmail for every message in that conversation. Preserve distinct thread groups even when subjects match, and let a user-requested refresh repair legacy message metadata without duplicating messages.
+
+After Gmail reconnects, the same message may be present under different connection IDs. Treat a message as unique by normalized mailbox identity plus Gmail message ID, not connection ID alone; preserve historical rows while hiding repeated copies in the UI.
+
+**Why:** Reauthorization can create a new provider-connection record while imported history retains the old ID, making one mailbox conversation appear twice.
+
+**How to apply:** Resolve mailbox identity from verified connection metadata where possible, deduplicate display/imports by mailbox and message ID, and keep the original raw events for history and auditability.
