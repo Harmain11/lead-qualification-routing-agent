@@ -460,7 +460,7 @@ export function LeadMeetingPanel({
 
         {!draftCreated && noThread && <div className="lmp-state">
           <span className="lmp-state-icon" aria-hidden="true">G</span>
-          <div><h4>No Gmail conversation found</h4><p>{recommendations.message || "Sync the lead’s Gmail conversation to review meeting intent and available times."} Refresh these recommendations after the parent finishes a Gmail sync.</p></div>
+          <div><h4>No matching meeting request found</h4><p>No meeting request was recognized in the imported conversation. Use “Read Gmail & refresh” to sync the latest messages and check again.</p></div>
         </div>}
 
         {!draftCreated && noMeetingDetected && <div className="lmp-state">
@@ -618,10 +618,10 @@ export function LeadMeetingPanel({
         </div>}
 
         {hasConnectedCalendly && ((!hasCalendlySlots && !calendlyCalendarError) || (hasCalendlySlots && hasUnavailableCalendlyEventType)) && <div className="lmp-calendly-fallback">
-          <b>{hasUnavailableCalendlyEventType ? "Some Calendly event types cannot read the connected calendar" : "Need Calendly options?"}</b>
+          <b>{hasUnavailableCalendlyEventType ? "Some Calendly event types cannot read the connected calendar" : "Calendly slot suggestions are unavailable"}</b>
           <p>{hasUnavailableCalendlyEventType
             ? "Choose an event type marked Available above to use its times. To restore the others, reconnect or connect the calendar in Calendly. Calendly shares connected calendars across event types."
-            : "Check that Calendly has an active event type with future availability and a connected calendar. If you need one, create an event type in Calendly, then check again here."}</p>
+            : "This affects individual time-slot suggestions only. Corral can still prepare a booking-link draft if your Calendly account has a public scheduling URL; the lead chooses a time on Calendly. To show suggested times here, make sure Calendly has an active event type with future availability and a connected calendar."}</p>
           {!hasCalendlySlots && <details className="lmp-calendly-howto">
             <summary>How to create a Calendly event type</summary>
             <ol>
