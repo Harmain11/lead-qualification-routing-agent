@@ -85,6 +85,10 @@
 .email-recipient-options > div { display: flex; gap: 4px; }
 .email-recipient-options .button-quiet { min-height: 26px; padding: 3px 8px; font-size: 10px; }
 .email-rich-editor { display: grid; gap: 6px; }
+.email-ai-compose { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+.email-ai-compose input { flex: 1 1 220px; min-width: 0; }
+.email-ai-compose button { flex: 0 0 auto; }
+.email-composer-footer .button-quiet:first-child { margin-right: auto; }
 .email-field-label { color: var(--muted); font-size: 11px; font-weight: 700; }
 .email-format-toolbar { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: var(--surface-high); }
 .email-format-toolbar button { min-width: 31px; min-height: 29px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; }

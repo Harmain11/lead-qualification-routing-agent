@@ -1,18 +1,18 @@
 export const leadDetailSections = [
   { id: "overview", label: "Overview" },
-  { id: "deal", label: "Deal" },
+  { id: "ai", label: "Qualification" },
+  { id: "follow-ups", label: "Follow up" },
+  { id: "email", label: "Emails" },
   { id: "calls", label: "Calls" },
+  { id: "deal", label: "Deal" },
+  { id: "history", label: "Activity" },
   { id: "agent", label: "Ask Corral" },
-  { id: "ai", label: "AI & qualification" },
-  { id: "email", label: "Email" },
-  { id: "closing", label: "Comments & closing" },
-  { id: "history", label: "History" },
 ] as const;
 
-export type LeadDetailSection = (typeof leadDetailSections)[number]["id"] | "follow-ups";
+export type LeadDetailSection = (typeof leadDetailSections)[number]["id"] | "closing";
 
 export function parseLeadSection(value: string | null): LeadDetailSection {
-  if (value === "follow-ups") return "email";
+  if (value === "closing") return "deal";
   return leadDetailSections.find((section) => section.id === value)?.id ?? "overview";
 }
 

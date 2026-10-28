@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from lead_agent.api.dependencies import require_permission
-from lead_agent.api.routes.email import EmailAttachment, _sanitize_email_html, _validate_address_list
+from lead_agent.api.routes.email import (
+    EmailAttachment,
+    _sanitize_email_html,
+    _validate_address_list,
+)
 from lead_agent.application.follow_up import (
     FollowUpNotEligible,
     generate_follow_up_draft,
@@ -170,6 +174,43 @@ def get_follow_up_history(
         for row in rows
         if (response := _response(row, fallback_recipient=lead.email, session=session)) is not None
     ]
+
+
+@router.delete("/{lead_id}/follow-up/{draft_id}", status_code=204)
+def delete_appointment_draft(
+    lead_id: UUID,
+    draft_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> None:
+    _lead(session, lead_id, workspace.workspace_id)
+    draft = session.scalar(select(LeadFollowUpEmailORM).where(
+        LeadFollowUpEmailORM.id == draft_id,
+        LeadFollowUpEmailORM.lead_id == lead_id,
+        LeadFollowUpEmailORM.workspace_id == workspace.workspace_id,
+    ))
+    if draft is None or not draft.kind.startswith("meeting_options:"):
+        raise HTTPException(status_code=404, detail="Appointment draft not found")
+    if draft.status != "draft":
+        raise HTTPException(
+            status_code=409, detail="Only an unsent appointment draft can be deleted"
+        )
+    try:
+        offer_id = UUID(draft.kind.split(":", 1)[1])
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Appointment offer is invalid") from None
+    offer = session.scalar(select(PipelineEventORM).where(
+        PipelineEventORM.id == offer_id,
+        PipelineEventORM.workspace_id == workspace.workspace_id,
+        PipelineEventORM.lead_id == lead_id,
+    ))
+    if offer is None or offer.status != "awaiting_send":
+        raise HTTPException(status_code=409, detail="Appointment offer is no longer a draft")
+    offer.status = "dismissed"
+    offer.details = {**(offer.details if isinstance(offer.details, dict) else {}),
+                     "dismissed_at": datetime.now(UTC).isoformat()}
+    session.delete(draft)
+    session.commit()
 
 
 @router.post("/{lead_id}/follow-up/draft")

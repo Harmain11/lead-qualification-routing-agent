@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
+import { composeEmailWithAI, deleteWorkspaceEmailDraft, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
 import { createClientId } from "../clientIds";
 import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
 
@@ -28,9 +28,11 @@ type Props = {
   draft?: WorkspaceEmailDraft;
   onSent?: (result: GmailSendResult) => void;
   onSaved?: (draft: WorkspaceEmailDraft) => void;
+  onDeleted?: () => void;
   onClose?: () => void;
   onSaveOverride?: (payload: WorkspaceEmailDraftInput) => Promise<void>;
   onSendOverride?: (payload: GmailSendRequest) => Promise<GmailSendResult>;
+  onDeleteOverride?: () => Promise<void>;
   sendLabel?: string;
   headingLabel?: string;
   headingTitle?: string;
@@ -62,9 +64,11 @@ export function EmailComposer({
   draft,
   onSent,
   onSaved,
+  onDeleted,
   onClose,
   onSaveOverride,
   onSendOverride,
+  onDeleteOverride,
   sendLabel,
   headingLabel,
   headingTitle,
@@ -91,6 +95,8 @@ export function EmailComposer({
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"ai" | "save" | "send" | "delete" | null>(null);
+  const [aiInstruction, setAiInstruction] = useState("");
   const [savedDraft, setSavedDraft] = useState(draft ?? null);
   const replyingInThread = Boolean(seed?.threadId || draft?.data.thread_id);
   const replyConnectionId = seed?.threadId ? seed.connectionId : draft?.data.connection_id;
@@ -145,6 +151,7 @@ export function EmailComposer({
     if (!canSend || busy || encodingAttachments) return;
     const payload = currentDraftPayload();
     setBusy(true);
+    setBusyAction("save");
     setError(null);
     setNotice(null);
     try {
@@ -166,6 +173,60 @@ export function EmailComposer({
       setError(reason instanceof Error ? reason.message : "Draft could not be saved.");
     } finally {
       setBusy(false);
+      setBusyAction(null);
+    }
+  }
+
+  async function composeWithAI() {
+    if (busy) return;
+    setBusy(true);
+    setBusyAction("ai");
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await composeEmailWithAI({
+        connection_id: connectionId || null,
+        lead_id: leadId ?? draft?.data.lead_id ?? null,
+        thread_id: seed?.threadId ?? draft?.data.thread_id ?? null,
+        recipient: recipient.trim(),
+        subject: subject.trim(),
+        current_body: body,
+        instruction: aiInstruction.trim(),
+      });
+      if (!replyingInThread) setSubject(result.subject);
+      setBody(result.body);
+      setBodyHtml("");
+      if (editorRef.current) editorRef.current.innerText = result.body;
+      setNotice("AI draft ready. Review the facts and wording before saving or sending.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "AI could not compose this email.");
+    } finally {
+      setBusy(false);
+      setBusyAction(null);
+    }
+  }
+
+  async function deleteDraft() {
+    if (busy || !window.confirm(savedDraft || onDeleteOverride
+      ? "Delete this saved draft? This cannot be undone."
+      : "Discard this unsent email?")) return;
+    setBusy(true);
+    setBusyAction("delete");
+    setError(null);
+    try {
+      if (onDeleteOverride) await onDeleteOverride();
+      else if (savedDraft) await deleteWorkspaceEmailDraft(savedDraft.id);
+      setSavedDraft(null);
+      setBody("");
+      setBodyHtml("");
+      if (editorRef.current) editorRef.current.innerHTML = "";
+      onDeleted?.();
+      onClose?.();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Draft could not be deleted.");
+    } finally {
+      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -257,6 +318,7 @@ export function EmailComposer({
     event.preventDefault();
     if (!canSend || sendBlockedReason || replyUnavailable || !connectionId || busy) return;
     setBusy(true);
+    setBusyAction("send");
     setNotice(null);
     setError(null);
     try {
@@ -294,6 +356,7 @@ export function EmailComposer({
       setError(reason instanceof Error ? reason.message : "Email could not be sent.");
     } finally {
       setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -367,6 +430,12 @@ export function EmailComposer({
     {replyUnavailable && <div className="notice" role="alert">Reconnect the Gmail account used for this conversation and refresh its history before replying.</div>}
     <div className="email-rich-editor">
       <span className="email-field-label">Message</span>
+      <div className="email-ai-compose">
+        <input aria-label="Instructions for AI email" value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)} maxLength={1000} placeholder="Optional: what should this email say?" disabled={busy} />
+        <button className="secondary-button" type="button" onClick={() => void composeWithAI()} disabled={busy || (!recipient.trim() && !leadId && !subject.trim())}>
+          {busyAction === "ai" ? "Composing…" : "Compose with AI"}
+        </button>
+      </div>
       <div className="email-format-toolbar" role="toolbar" aria-label="Message formatting">
         <button type="button" aria-label="Bold" title="Bold" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("bold")}><strong>B</strong></button>
         <button type="button" aria-label="Italic" title="Italic" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("italic")}><em>I</em></button>
@@ -408,11 +477,14 @@ export function EmailComposer({
     {notice && <div className="notice" role="status">{notice}</div>}
     {sendBlockedReason && <div className="notice" role="status">{sendBlockedReason}</div>}
     <div className="email-composer-footer">
+      <button className="button-quiet" type="button" onClick={() => void deleteDraft()} disabled={busy}>
+        {busyAction === "delete" ? "Deleting…" : savedDraft || onDeleteOverride ? "Delete draft" : "Discard"}
+      </button>
       <button className="secondary-button" type="button" onClick={() => void saveDraft()} disabled={busy || encodingAttachments || (!recipient.trim() && !subject.trim() && !body.trim())}>
-        {busy ? "Saving…" : savedDraft ? "Update draft" : "Save draft"}
+        {busyAction === "save" ? "Saving…" : savedDraft ? "Update draft" : "Save draft"}
       </button>
       <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || replyUnavailable || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
-        {busy ? "Sending…" : sendBlockedReason ? "Human review required" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send email")}
+        {busyAction === "send" ? "Sending…" : sendBlockedReason ? "Human review required" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send email")}
       </button>
     </div>
   </form>;

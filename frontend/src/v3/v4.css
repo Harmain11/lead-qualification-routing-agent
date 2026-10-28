@@ -518,6 +518,37 @@ button.h-kpi:active { transform: scale(0.985); }
 .b-card:hover .b-card-actions, .b-card:focus-within .b-card-actions { opacity: 1; transform: none; pointer-events: auto; }
 @media (hover: none) { .b-card-actions { opacity: 1; transform: none; pointer-events: auto; position: static; justify-self: end; background: transparent; padding: 0; } }
 .b-card-actions .v-menu-root { display: inline-flex; }
+.b-card:has(.b-card-actions .v-menu) { z-index: 6; }
+.b-card:has(.b-card-actions .v-menu) .b-card-actions {
+  position: static;
+  display: flex;
+  grid-column: 1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.b-card:has(.b-card-actions .v-menu) .v-menu-root {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.b-card:has(.b-card-actions .v-menu) .v-menu {
+  position: static;
+  flex: 1 0 100%;
+  min-width: 0;
+  max-width: none;
+  margin-top: 6px;
+  box-shadow: none;
+  animation: none;
+}
 
 .b-list .v-table td { vertical-align: middle; }
 .b-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; }

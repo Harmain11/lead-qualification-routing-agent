@@ -451,6 +451,7 @@ export type MeetingRecommendations = {
   offer_status: "awaiting_send" | "sending" | "awaiting_confirmation" | "booking" | "booked" | "needs_attention" | "superseded" | null;
   offer_booking_error: string | null;
   offer_calendar_provider: MeetingProvider | null;
+  offer_booking_link_mode: boolean;
   offer_has_confirmed_selection: boolean;
   offer_can_be_replaced: boolean;
   booked_meeting_at: string | null;

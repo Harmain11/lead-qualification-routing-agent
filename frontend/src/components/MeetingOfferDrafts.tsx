@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   approveAndSendLeadFollowUp,
+  deleteAppointmentEmailDraft,
   getLeadFollowUpHistory,
   syncLeadGmailConversation,
   updateLeadFollowUp,
@@ -128,6 +129,10 @@ export function MeetingOfferDrafts({ leadId, leadEmail, active, canSend, account
           headingTitle="Write your appointment email"
           onSaveOverride={(payload) => saveDraft(draft, payload)}
           onSendOverride={(payload) => sendDraft(draft, payload)}
+          onDeleteOverride={async () => {
+            await deleteAppointmentEmailDraft(leadId, draft.id);
+            setDrafts((current) => current.filter((item) => item.id !== draft.id));
+          }}
           sendLabel="Send appointment email"
         />}
       </article>;

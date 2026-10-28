@@ -194,12 +194,12 @@ export function LeadAssistantPanel({
       const isEmailComposerAction =
         reply.action.kind === "draft_email" || reply.action.kind === "send_follow_up";
       const assistantMessageId = id();
-      const aiComposerOpened = isEmailComposerAction && canEdit && openFollowUpComposer({
+      const aiComposerOpened = isEmailComposerAction && canEdit && canViewEmail && openFollowUpComposer({
         subject: reply.action.email_subject?.trim() || undefined,
         body: reply.action.email_body?.trim() || undefined,
       }, assistantMessageId);
       const manualComposerFallbackOpened =
-        !aiComposerOpened && emailDraftRequested && canEdit && openFollowUpComposer({}, assistantMessageId);
+        !aiComposerOpened && emailDraftRequested && canEdit && canViewEmail && openFollowUpComposer({}, assistantMessageId);
       const emailComposerOpened = aiComposerOpened || manualComposerFallbackOpened;
       setMessages((current) => [...current, {
         id: assistantMessageId,
@@ -220,7 +220,7 @@ export function LeadAssistantPanel({
       }]);
     } catch (reason) {
       const assistantMessageId = id();
-      if (emailDraftRequested && canEdit && openFollowUpComposer({}, assistantMessageId)) {
+      if (emailDraftRequested && canEdit && canViewEmail && openFollowUpComposer({}, assistantMessageId)) {
         setMessages((current) => [...current, {
           id: assistantMessageId,
           role: "assistant",
@@ -278,7 +278,7 @@ export function LeadAssistantPanel({
   }
 
   function startEmailDraft() {
-    if (!canUseAgent || !canEdit || busy) return;
+    if (!canUseAgent || !canEdit || !canViewEmail || busy) return;
     void submit(undefined, "Write and send a follow-up email");
   }
 
@@ -328,6 +328,10 @@ export function LeadAssistantPanel({
       return;
     }
     if (action.kind === "refresh_email" && !canViewEmail) {
+      changeMessage(message.id, { error: "You do not have access to this lead’s email section." });
+      return;
+    }
+    if (["draft_email", "send_follow_up"].includes(action.kind) && !canViewEmail) {
       changeMessage(message.id, { error: "You do not have access to this lead’s email section." });
       return;
     }
@@ -445,10 +449,10 @@ export function LeadAssistantPanel({
         onSectionChange("email");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_meetings") {
-        onSectionChange("email");
+        onSectionChange("follow-ups");
         changeMessage(message.id, {
           done: true,
-          actionResult: "Meeting controls opened in Email. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
+          actionResult: "Meeting controls opened in Follow up. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
         });
       } else if (action.kind === "open_dialer") {
         if (dialerPhoneConnectionId && lead.phone?.trim()) {
@@ -464,7 +468,7 @@ export function LeadAssistantPanel({
         });
         onNavigateToDialer();
       } else if (action.kind === "open_closing") {
-        onSectionChange("closing");
+        onSectionChange("deal");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_history") {
         onSectionChange("history");
@@ -607,9 +611,9 @@ export function LeadAssistantPanel({
       <button
         className="primary-button lead-agent-email-shortcut"
         type="button"
-        disabled={!canUseAgent || !canEdit || busy}
+        disabled={!canUseAgent || !canEdit || !canViewEmail || busy}
         onClick={startEmailDraft}
-        title={followUpBlockedReason || (!canEdit ? "Lead-edit access is required to send a follow-up." : undefined)}
+        title={followUpBlockedReason || (!canEdit ? "Lead-edit access is required to send a follow-up." : !canViewEmail ? "Email access is required to compose a follow-up." : undefined)}
       >
         Compose follow-up email
       </button>

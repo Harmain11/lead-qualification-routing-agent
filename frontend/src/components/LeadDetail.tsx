@@ -546,7 +546,7 @@ function LeadProgressEditor({
     } finally { setBusy(false); }
   };
   return <>
-  <section id="lead-panel-closing" className="story-section lead-progress" role="tabpanel" aria-labelledby="lead-tab-closing" tabIndex={0} hidden={activeSection !== "closing"}><div className="story-index">↗</div><div>
+  <section id="lead-panel-deal" className="story-section lead-progress" role="tabpanel" aria-labelledby="lead-tab-deal" tabIndex={0} hidden={activeSection !== "deal"}><div className="story-index">↗</div><div>
      <span className="eyebrow">Status</span><h3>Record sales progress or add a comment</h3>
      <p className="story-summary">Choose whether this is a status update or a regular comment. Status updates change sales progress; comments are saved to Team notes and can inform AI reassessment without changing the sales status.</p>
     {!canEdit && <AiStageAssessment analysis={lead.analysis} />}

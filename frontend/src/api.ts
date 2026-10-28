@@ -642,6 +642,22 @@ export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResu
   });
 }
 
+export function composeEmailWithAI(payload: {
+  connection_id: string | null;
+  lead_id: string | null;
+  thread_id: string | null;
+  recipient: string;
+  subject: string;
+  current_body: string;
+  instruction: string;
+}): Promise<{ subject: string; body: string }> {
+  return request("/v1/email/compose-ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function listWorkspaceEmailDrafts(): Promise<import("./types").WorkspaceEmailDraftSummary[]> {
   return request("/v1/email/drafts");
 }
@@ -663,6 +679,10 @@ export function saveWorkspaceEmailDraft(
 
 export function deleteWorkspaceEmailDraft(draftId: string): Promise<void> {
   return request(`/v1/email/drafts/${draftId}`, { method: "DELETE" }, { activityToast: false });
+}
+
+export function deleteAppointmentEmailDraft(leadId: string, draftId: string): Promise<void> {
+  return request(`/v1/leads/${leadId}/follow-up/${draftId}`, { method: "DELETE" }, { activityToast: false });
 }
 
 export function listGmailSendAccounts(): Promise<GmailSendAccount[]> {
@@ -1160,6 +1180,15 @@ export function createLeadMeetingBookingLinkDraft(
 ): Promise<import("./types").MeetingOfferDraftResult> {
   return jsonRequest<import("./types").MeetingOfferDraftResult>(
     `/v1/leads/${leadId}/meetings/booking-link-draft`,
+    { method: "POST" },
+  );
+}
+
+export function createLeadMeetingPreferredOfferDraft(
+  leadId: string,
+): Promise<import("./types").MeetingOfferDraftResult> {
+  return jsonRequest<import("./types").MeetingOfferDraftResult>(
+    `/v1/leads/${leadId}/meetings/preferred-offer-draft`,
     { method: "POST" },
   );
 }

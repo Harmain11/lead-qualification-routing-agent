@@ -323,6 +323,101 @@ def _is_conversation_only_message(messages: list[AssistantMessage]) -> bool:
     }
 
 
+_PENDING_LEAD_ACTION_REPLIES = {
+    "update_profile": (
+        "I can update this lead's profile. Review the proposed fields below and choose "
+        "Apply changes. Nothing has been saved yet."
+    ),
+    "add_note": (
+        "I can save the proposed note after you review it below. "
+        "No note has been saved yet."
+    ),
+    "record_progress": (
+        "I can record this progress update after you review it below. "
+        "The lead's status has not changed yet."
+    ),
+    "draft_email": (
+        "I can prepare an editable email draft. Review its contents in the composer; "
+        "nothing has been sent."
+    ),
+    "send_follow_up": (
+        "I can open an editable email composer. Review the recipient and message, "
+        "then choose Send yourself; nothing has been sent yet."
+    ),
+    "refresh_email": (
+        "I can refresh this lead's Gmail conversation after you choose Refresh Gmail "
+        "below. It has not been refreshed yet."
+    ),
+    "sync_crm": (
+        "I can sync this lead to the selected CRM after you confirm below. "
+        "No CRM write has happened yet."
+    ),
+    "delete_lead": "I can delete this lead after you confirm below. It is still in the workspace.",
+    "reevaluate_lead": (
+        "I can re-evaluate this lead after you confirm below. "
+        "Its assessment has not changed yet."
+    ),
+    "complete_manual_review": (
+        "I can complete this lead's manual review after you confirm below. "
+        "The review hold has not been cleared yet."
+    ),
+    "open_email": "I can open this lead's Emails section. No email has been sent.",
+    "open_meetings": (
+        "I can open meeting controls in Follow up. I haven't booked, cancelled, "
+        "or rescheduled anything. Review the calendar status and confirm any change there."
+    ),
+    "open_dialer": (
+        "I can open the Dialer for the saved number. "
+        "You will need to place the call yourself."
+    ),
+    "open_closing": (
+        "I can open the Deal section to review progress and closing options. "
+        "No status has changed."
+    ),
+    "open_history": "I can open this lead's Activity section. This does not change the lead.",
+}
+
+
+def _truthful_lead_assistant_reply(
+    reply: str, action: LeadAssistantAction, latest_user: str,
+) -> str:
+    """Keep provider prose from reporting a proposed or unsupported action as completed."""
+    if action.kind != "none":
+        return _PENDING_LEAD_ACTION_REPLIES[action.kind]
+    if re.search(
+        r"^\s*(?:please\s+)?(?:cancel|reschedule|book|schedule)\b|"
+        r"\b(?:can|could|would|will)\s+you\b.{0,50}\b(?:cancel|reschedule|book|schedule)\b|"
+        r"\bi\s+(?:need|want)\s+to\s+(?:cancel|reschedule|book|schedule)\b",
+        latest_user, re.I,
+    ):
+        return (
+            "I haven't changed the meeting. Open Follow up to check the booking and "
+            "use the available cancel or reschedule controls. A calendar change needs "
+            "confirmation from the calendar provider."
+        )
+    requested_change = re.search(
+        r"\b(cancel|reschedule|book|schedule|send|save|update|change|delete|"
+        r"remove|complete|mark|sync|refresh|create|add|record|call)\b",
+        latest_user, re.I,
+    )
+    completion_claim = re.search(
+        r"\b(?:done|all set|completed)\b|\bi(?:'ve| have)?\s+"
+        r"(?:cancelled|canceled|rescheduled|booked|scheduled|sent|saved|updated|changed|"
+        r"deleted|removed|completed|marked|synced|refreshed|created|added|recorded|called)\b|"
+        r"\b(?:meeting|appointment|email|lead|record|note|draft)\b.{0,60}"
+        r"\b(?:has been|was|is now)\s+"
+        r"(?:cancelled|canceled|rescheduled|booked|scheduled|sent|saved|updated|changed|"
+        r"deleted|removed|completed|marked|synced|refreshed|created|added|recorded)\b",
+        reply, re.I,
+    )
+    if requested_change and completion_claim:
+        return (
+            "I haven't made that change. I can propose supported lead actions here, "
+            "but a change is complete only after you confirm it and the app reports success."
+        )
+    return reply
+
+
 def _is_lead_creation_request(messages: list[AssistantMessage]) -> bool:
     if _is_conversation_only_message(messages):
         return False
@@ -1154,6 +1249,36 @@ def chat_with_lead_assistant(
                 f"{lead.full_name}’s saved number is {lead.phone}, but you don’t have "
                 "permission to open the phone from this workspace. Ask an admin for Dialer access."
             )
+    lead_edit_actions = {
+        "update_profile", "add_note", "record_progress", "draft_email",
+        "send_follow_up", "refresh_email", "delete_lead", "reevaluate_lead",
+    }
+    email_actions = {"draft_email", "send_follow_up", "refresh_email", "open_email"}
+    if result.action.kind in lead_edit_actions and "leads.edit" not in workspace.permissions:
+        result.action = LeadAssistantAction()
+        result.reply = (
+            "I can't make that change with your current access. "
+            "Ask an admin for lead-edit access."
+        )
+    elif result.action.kind == "sync_crm" and "crm.sync" not in workspace.permissions:
+        result.action = LeadAssistantAction()
+        result.reply = (
+            "I can't sync this lead to a CRM with your current access. "
+            "Ask an admin for CRM-sync access."
+        )
+    elif result.action.kind in email_actions and "integrations.view" not in workspace.permissions:
+        result.action = LeadAssistantAction()
+        result.reply = (
+            "I can't open this lead's email with your current access. "
+            "Ask an admin for integration-view access."
+        )
+    latest_user_message = next(
+        (message.content for message in reversed(request.messages) if message.role == "user"),
+        "",
+    )
+    result.reply = _truthful_lead_assistant_reply(
+        result.reply, result.action, latest_user_message,
+    )
     response = result.model_dump(mode="json")
     if "leads.view" in workspace.permissions:
         lead_links = _lead_assistant_links(

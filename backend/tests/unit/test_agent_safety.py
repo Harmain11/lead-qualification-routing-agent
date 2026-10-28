@@ -32,6 +32,92 @@ from lead_agent.infrastructure.db.models import WorkspaceORM
 from lead_agent.infrastructure.db.session import get_db
 
 
+@pytest.mark.parametrize("kind", ["open_meetings", "update_profile", "send_follow_up"])
+def test_lead_assistant_proposal_cannot_claim_completion(kind):
+    reply = lead_assistant._truthful_lead_assistant_reply(
+        "Done, I cancelled it and sent the email.",
+        LeadAssistantAction(kind=kind),
+        "Please cancel the meeting",
+    )
+    assert "Done" not in reply
+    assert "sent the email" not in reply
+    assert "cancelled it" not in reply
+    assert "not" in reply.casefold() or "haven't" in reply.casefold()
+
+
+def test_unsupported_meeting_change_does_not_get_false_confirmation():
+    for provider_reply in (
+        "Your appointment has been cancelled.",
+        "I can cancel the appointment for you.",
+    ):
+        reply = lead_assistant._truthful_lead_assistant_reply(
+            provider_reply,
+            LeadAssistantAction(),
+            "Cancel the appointment",
+        )
+        assert reply.startswith("I haven't changed the meeting.")
+        assert "calendar provider" in reply
+
+
+def test_lead_assistant_preserves_read_only_answer():
+    reply = lead_assistant._truthful_lead_assistant_reply(
+        "The recorded appointment was cancelled yesterday.",
+        LeadAssistantAction(),
+        "What happened to the appointment?",
+    )
+    assert reply == "The recorded appointment was cancelled yesterday."
+
+
+@pytest.mark.parametrize(
+    ("kind", "extra_permissions", "expected_limit"),
+    [
+        ("update_profile", set(), "lead-edit access"),
+        ("send_follow_up", {"leads.edit"}, "integration-view access"),
+        ("sync_crm", set(), "CRM-sync access"),
+    ],
+)
+def test_lead_assistant_explains_missing_access_instead_of_proposing_action(
+    monkeypatch, kind, extra_permissions, expected_limit,
+):
+    lead_id = uuid4()
+    lead = SimpleNamespace(
+        id=lead_id, full_name="Kathi", email="kathi@example.test", phone=None,
+        job_title=None, company_name=None, industry=None, employee_count=None,
+        annual_revenue=None, geography=None, budget=None, product_or_service=None,
+        message="", source="website", received_at=datetime.now(UTC),
+        qualification=None, outcome=None,
+    )
+    monkeypatch.setattr(lead_assistant, "get_lead", lambda *_: lead)
+    monkeypatch.setattr(lead_assistant, "get_current_routing", lambda *_: None)
+    monkeypatch.setattr(lead_assistant, "lead_manual_review_reasons", lambda *_: [])
+    monkeypatch.setattr(
+        lead_assistant, "operations_policy",
+        lambda *_: SimpleNamespace(
+            business_profile=SimpleNamespace(model_dump=lambda **_: {}),
+        ),
+    )
+    monkeypatch.setattr(
+        lead_assistant, "resolve_workspace_reasoning_provider",
+        lambda *_: SimpleNamespace(assist_with_lead=lambda _: LeadAssistantReply(
+            reply="Done, I made the change.", action=LeadAssistantAction(kind=kind),
+        )),
+    )
+    session = MagicMock()
+    session.scalars.return_value = []
+    result = lead_assistant.chat_with_lead_assistant(
+        lead_id,
+        AssistantChatRequest(messages=[AssistantMessage(role="user", content="Please do it")]),
+        session,
+        WorkspaceContext(
+            workspace_id=uuid4(), actor_id="qa",
+            permissions=frozenset({"agents.execute", "leads.view"} | extra_permissions),
+        ),
+    )
+    assert result["action"]["kind"] == "none"
+    assert expected_limit in result["reply"]
+    assert "Done" not in result["reply"]
+
+
 @pytest.mark.parametrize("permissions", [{"agents.execute"}, {"leads.view"}, set()])
 def test_lead_chat_requires_both_permissions_before_reading_lead(monkeypatch, permissions):
     app = FastAPI()
@@ -245,7 +331,7 @@ def test_lead_call_suggestion_requires_dialer_permission_and_saved_phone(
     def assist(payload):
         provider_payload.update(payload)
         return LeadAssistantReply(
-            reply="I can open the phone for you.",
+            reply="Done. I called Kathi for you.",
             action=LeadAssistantAction(kind="open_dialer"),
         )
 
@@ -272,3 +358,6 @@ def test_lead_call_suggestion_requires_dialer_permission_and_saved_phone(
 
     assert result["action"]["kind"] == expected
     assert provider_payload["permissions"] == sorted(permissions)
+    assert "I called" not in result["reply"]
+    if expected == "open_dialer":
+        assert "place the call yourself" in result["reply"]

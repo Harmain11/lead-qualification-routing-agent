@@ -15,6 +15,7 @@ from lead_agent.api.dependencies import require_permission
 from lead_agent.application.meeting_email import (
     can_replace_unbooked_offer,
     create_booking_link_offer_draft,
+    create_preferred_meeting_offer_draft,
     create_selected_slot_offer_draft,
     reconcile_booking_link_offer,
 )
@@ -102,6 +103,7 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_status: MeetingOfferStatus | None = None
     offer_booking_error: str | None = None
     offer_calendar_provider: MeetingProvider | None = None
+    offer_booking_link_mode: bool = False
     offer_has_confirmed_selection: bool = False
     offer_can_be_replaced: bool = False
     booked_meeting_at: datetime | None = None
@@ -355,7 +357,9 @@ def get_meeting_recommendations(
             provider_errors=[],
             offer_status="booked",
             booked_meeting_at=booked_at,
-            offer_calendar_provider=provider if provider in {"google_calendar", "calendly"} else None,
+            offer_calendar_provider=(
+                provider if provider in {"google_calendar", "calendly"} else None
+            ),
         )
     try:
         source = find_meeting_request(session, lead, workspace.workspace_id)
@@ -433,9 +437,9 @@ def get_meeting_recommendations(
         except ProviderOperationError:
             pass
     automation_message = (
-        "Corral prepares a personalized booking-link draft in the lead’s Emails tab "
-        "for meeting requests. Review or edit it, then send it when ready; Corral "
-        "does not send the draft automatically."
+        "Corral prepares five available times in a draft in the lead’s Emails tab. "
+        "Review and send it when ready. A clear reply choosing one time books the "
+        "meeting after the connected calendar confirms availability."
     )
     requested_text = source.get("excerpt", "")
     requested_reference = _parse_provider_time(source.get("sent_at"))
@@ -472,13 +476,13 @@ def get_meeting_recommendations(
     if offer_event is not None:
         if offer_event.status == "awaiting_send":
             automation_message = (
-                "A personalized appointment-link draft is ready in this lead’s Emails tab. "
+                "An appointment draft is ready in this lead’s Emails tab. "
                 "Review or edit it, then send it when ready."
             )
         elif offer_event.status == "awaiting_confirmation":
             automation_message = (
-                "The booking link was sent in the Gmail thread. Corral is checking the "
-                "connected calendar for a booking."
+                "The meeting offer was sent in the Gmail thread. Corral is checking "
+                "for a clear choice and a confirmed calendar booking."
             )
         elif offer_event.status == "booked":
             if offer_details.get("booking_method") == "provider_booking_link":
@@ -606,7 +610,7 @@ def get_meeting_recommendations(
         source_subject=source["subject"] or None,
         source_excerpt=source["excerpt"] or None,
         integrations=_integration_states(connections),
-        suggestions=suggestions,
+        suggestions=suggestions[:5],
         calendly_event_types=[
             MeetingCalendlyEventType.model_validate(event_type)
             for event_type in calendly_event_types
@@ -615,6 +619,7 @@ def get_meeting_recommendations(
         offer_status=offer_status,
         offer_booking_error=offer_booking_error,
         offer_calendar_provider=offer_calendar_provider,
+        offer_booking_link_mode=bool(offer_details.get("booking_link_mode")),
         offer_has_confirmed_selection=offer_has_confirmed_selection,
         offer_can_be_replaced=can_replace_unbooked_offer(offer_event),
                 booked_meeting_at=(
@@ -694,6 +699,23 @@ def create_meeting_offer_draft(
         lead=lead,
         workspace_id=workspace.workspace_id,
         slot=selected.model_dump(mode="json"),
+    )
+    return MeetingOfferDraftResponse(draft_id=draft.id, status="draft")
+
+
+@router.post(
+    "/{lead_id}/meetings/preferred-offer-draft",
+    response_model=MeetingOfferDraftResponse,
+)
+def create_meeting_preferred_offer_draft(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> MeetingOfferDraftResponse:
+    lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    draft = create_preferred_meeting_offer_draft(
+        session, lead=lead, workspace_id=workspace.workspace_id,
+        actor_id=workspace.actor_id,
     )
     return MeetingOfferDraftResponse(draft_id=draft.id, status="draft")
 

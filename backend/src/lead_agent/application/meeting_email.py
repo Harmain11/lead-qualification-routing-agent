@@ -31,6 +31,8 @@ from lead_agent.application.meetings import (
     meeting_reply_declines_offer,
     meeting_reply_has_uncertain_language,
     meeting_reply_requests_other_times,
+    recommend_calendly_slots,
+    recommend_google_calendar_slots,
     requested_meeting_date,
     requested_meeting_datetime,
     requested_meeting_time,
@@ -604,20 +606,24 @@ def _personalized_meeting_context(lead: LeadORM, source: dict[str, str]) -> str:
 
 
 def manual_selected_slot_body_is_intact(details: dict[str, Any], body: str) -> bool:
-    """Keep the booking URL intact, or preserve legacy numbered offers."""
+    """Keep booking links and numbered options intact before Gmail sends them."""
     expected_url = _safe_booking_url(details.get("booking_link_url"))
     if expected_url:
         return expected_url in body
-    if not details.get("manual_selected_slot"):
-        return True
     options = details.get("options")
-    if not isinstance(options, list) or len(options) != 1 or not isinstance(options[0], dict):
+    if not isinstance(options, list) or not options:
+        return not details.get("manual_selected_slot")
+    if len(options) > 5 or not all(isinstance(option, dict) for option in options):
         return False
-    expected = _format_slot(1, options[0]).casefold()
+    expected = [
+        _format_slot(index, option).casefold()
+        for index, option in enumerate(options, 1)
+    ]
     numbered_lines = [
         line.strip().casefold() for line in body.splitlines() if re.match(r"^\s*\d+[.)]\s+", line)
     ]
-    return numbered_lines == [expected]
+    instruction = "reply with 1" if len(options) == 1 else "reply with the option number"
+    return numbered_lines == expected and instruction in body.casefold()
 
 
 def _calendar_options(
@@ -664,6 +670,64 @@ def _calendar_options(
     ]
 
 
+def _available_offer_slots(
+    session: Session,
+    workspace_id: UUID,
+    lead: LeadORM,
+    source: dict[str, str],
+    actor_id: str,
+) -> tuple[ProviderConnectionORM, list[dict[str, Any]]] | None:
+    """Get five current, provider-backed times for a numbered Gmail offer."""
+    reference = _parse_datetime(source.get("sent_at"))
+    contact_zone = lead_time_zone(lead)
+    for provider_name in ("calendly", "google_calendar"):
+        connection = _active_connection(session, workspace_id, provider_name)
+        if connection is None:
+            continue
+        try:
+            credentials = _authorized_credentials(session, workspace_id, connection, actor_id)
+            client = (
+                CalendlyClient(credentials["access_token"])
+                if provider_name == "calendly"
+                else GoogleCalendarClient(credentials["access_token"])
+            )
+            params = {
+                "connection_id": str(connection.id),
+                "source_message_id": source["message_id"],
+                "source_gmail_connection_id": source.get("gmail_connection_id"),
+                "requested_text": source.get("excerpt", ""),
+                "reference": reference,
+                "time_zone_override": contact_zone,
+            }
+            if provider_name == "calendly":
+                slots = recommend_calendly_slots(client, **params)
+            else:
+                slots = recommend_google_calendar_slots(
+                    client, account_name=connection.account_name, **params,
+                )
+            if not slots:
+                params["requested_text"] = None
+                if provider_name == "calendly":
+                    slots = recommend_calendly_slots(client, **params)
+                else:
+                    slots = recommend_google_calendar_slots(
+                        client, account_name=connection.account_name, **params,
+                    )
+            if slots:
+                ordered = sorted(slots, key=lambda slot: str(slot["start_at"]))
+                return connection, ordered[:5]
+        except ProviderOperationError as error:
+            _LOGGER.warning(
+                "meeting_email.slot_availability_failed",
+                extra={"fields": {
+                    "workspace_id": str(workspace_id),
+                    "provider": provider_name,
+                    "error_code": error.code,
+                }},
+            )
+    return None
+
+
 def _attempt_requested_time_booking(
     session: Session,
     lead: LeadORM,
@@ -677,8 +741,32 @@ def _attempt_requested_time_booking(
     """Book a clearly stated future date/time only if a connected calendar accepts it."""
     if requested_meeting_time(request_text) is None:
         return False
+    if re.search(r"\b(?:or|either|between)\b", request_text, re.I):
+        return False
+    clock_mentions = re.findall(
+        r"\b\d{1,2}(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b|"
+        r"\b(?:[01]\d|2[0-3]):[0-5]\d\b|\b(?:noon|midnight)\b",
+        request_text, re.I,
+    )
+    if len(clock_mentions) != 1:
+        return False
     contact_zone = lead_time_zone(lead)
     if contact_zone is None:
+        return False
+    explicit_zones = re.findall(
+        r"\b(?:Africa|America|Asia|Australia|Europe|Pacific)/[A-Za-z_]+\b|"
+        r"\b(?:UTC|GMT)(?:\s*[+-]\s*\d{1,2}(?::?\d{2})?)?\b|"
+        r"\b(?:PST|PDT|EST|EDT|CST|CDT|MST|MDT|BST|IST|PKT)\b",
+        request_text, re.I,
+    )
+    for stated_zone in explicit_zones:
+        normalized = stated_zone.upper()
+        if stated_zone == contact_zone:
+            continue
+        if normalized == "PKT" and contact_zone == "Asia/Karachi":
+            continue
+        if normalized in {"UTC", "GMT"} and contact_zone == "UTC":
+            continue
         return False
     from lead_agent.api.routes.meetings import ConfirmMeetingRequest, confirm_meeting
 
@@ -839,8 +927,8 @@ def _notify_meeting_draft(
         recipient_user_id=recipient_user_id,
         kind="meeting_reply_draft",
         message=(
-            f"{lead.full_name} asked to meet. Review the personalized booking-link "
-            "draft in this lead’s Emails tab and send it when ready."
+            f"{lead.full_name} asked to meet. Review the appointment draft "
+            "in this lead’s Emails tab and send it when ready."
         ),
     )
 
@@ -853,6 +941,9 @@ def _send_options(
     messages: list[dict[str, str]],
     source: dict[str, str],
     actor_id: str,
+    *,
+    allow_exact_booking: bool = True,
+    allow_booking_link_fallback: bool = True,
 ) -> str:
     thread_id = source.get("thread_id", "").strip()
     if not thread_id:
@@ -866,7 +957,7 @@ def _send_options(
         and isinstance(existing_details, dict)
         and existing_details.get("source_message_id") == source["message_id"]
         and existing_offer.status
-        in {"sending", _OFFER_AWAITING_SEND, _OFFER_PENDING, "booking", "booked"}
+        in {"sending", _OFFER_AWAITING_SEND, _OFFER_PENDING, "booking", "booked", "dismissed"}
     ):
         return "already_offered"
     sent_at = _parse_datetime(source.get("sent_at"))
@@ -874,11 +965,29 @@ def _send_options(
     if sent_at is None or sent_at < now - _MAX_REQUEST_AGE or sent_at > now + timedelta(minutes=5):
         return "stale_request"
 
-    selected_calendar = _calendar_options(session, workspace_id, source, actor_id, lead=lead)
+    try:
+        assert_outreach_allowed(session, workspace_id, lead.email)
+    except OutreachBlocked:
+        return "needs_attention"
+
+    if allow_exact_booking and _attempt_requested_time_booking(
+        session, lead, workspace_id, actor_id, source["message_id"],
+        source.get("gmail_connection_id"), source.get("excerpt", ""), sent_at,
+    ):
+        return "booked"
+
+    selected_calendar = _available_offer_slots(
+        session, workspace_id, lead, source, actor_id,
+    )
+    if selected_calendar is None and allow_booking_link_fallback:
+        selected_calendar = _calendar_options(
+            session, workspace_id, source, actor_id, lead=lead,
+        )
     if selected_calendar is None:
         return "no_calendar_availability"
     calendar_connection, slots = selected_calendar
     provider = calendar_connection.provider_type
+    booking_link_mode = bool(slots[0].get("booking_link_mode"))
 
     offer = PipelineEventORM(
         id=uuid4(),
@@ -894,8 +1003,8 @@ def _send_options(
             "gmail_connection_id": str(gmail_connection.id),
             "calendar_provider": provider,
             "calendar_connection_id": str(calendar_connection.id),
-            "options": [],
-            "booking_link_mode": True,
+            "options": [] if booking_link_mode else slots,
+            "booking_link_mode": booking_link_mode,
             "booking_link_url": str(slots[0].get("booking_url") or ""),
             "created_at": now.isoformat(),
         },
@@ -924,9 +1033,12 @@ def _send_options(
         recipient=lead.email,
         subject=subject,
         body=body,
-        rationale="Personalized meeting booking link prepared for human review before sending.",
+        rationale=(
+            "Personalized meeting booking link prepared for human review before sending."
+            if booking_link_mode else "Five verified meeting times prepared for human review."
+        ),
         generation_method="meeting_request",
-        generation_note="Meeting booking link",
+        generation_note="Meeting booking link" if booking_link_mode else "Five meeting options",
         status="draft",
         attempts=0,
         created_at=now,
@@ -1589,6 +1701,55 @@ def create_booking_link_offer_draft(
     )
 
 
+def create_preferred_meeting_offer_draft(
+    session: Session,
+    *,
+    lead: LeadORM,
+    workspace_id: UUID,
+    actor_id: str,
+) -> LeadFollowUpEmailORM:
+    """Offer five verified times, falling back to a booking link when needed."""
+    source = _find_meeting_request_for_draft(session, lead, workspace_id)
+    if source is None or not source.get("thread_id"):
+        raise HTTPException(
+            status_code=409,
+            detail="Refresh the lead's Gmail conversation before creating a meeting draft.",
+        )
+    gmail_connection = _active_gmail_connection_for_source(
+        session, workspace_id, source.get("gmail_connection_id", ""),
+    )
+    if gmail_connection is None:
+        raise HTTPException(409, "Reconnect the Gmail mailbox used for this conversation.")
+    result = _send_options(
+        session, lead, workspace_id, gmail_connection, [], source, actor_id,
+        allow_exact_booking=False, allow_booking_link_fallback=False,
+    )
+    if result == "no_calendar_availability":
+        return create_booking_link_offer_draft(
+            session, lead=lead, workspace_id=workspace_id, actor_id=actor_id,
+        )
+    if result not in {"draft_created", "already_offered"}:
+        raise HTTPException(409, "Meeting options are no longer current. Refresh and try again.")
+    offer = _thread_offer(
+        session, workspace_id, lead.id, source["thread_id"], str(gmail_connection.id),
+    )
+    details = offer.details if offer is not None and isinstance(offer.details, dict) else {}
+    try:
+        draft_id = UUID(str(details.get("email_draft_id") or ""))
+    except ValueError:
+        raise HTTPException(409, "The saved meeting draft could not be found.") from None
+    draft = session.scalar(
+        select(LeadFollowUpEmailORM).where(
+            LeadFollowUpEmailORM.id == draft_id,
+            LeadFollowUpEmailORM.workspace_id == workspace_id,
+            LeadFollowUpEmailORM.lead_id == lead.id,
+        )
+    )
+    if draft is None or draft.status != "draft":
+        raise HTTPException(409, "The meeting draft has already been sent or changed.")
+    return draft
+
+
 def _book_selected_option(
     session: Session,
     lead: LeadORM,
@@ -1746,7 +1907,7 @@ def process_gmail_meeting_thread(
     messages: list[dict[str, str]],
     actor_id: str,
 ) -> str:
-    """Prepare a booking link and reconcile provider bookings for a Gmail thread."""
+    """Prepare available times and reconcile confirmed bookings for a Gmail thread."""
     locked_lead_id = session.scalar(
         select(LeadORM.id)
         .where(
@@ -1810,7 +1971,10 @@ def process_gmail_meeting_thread(
             sent_marker = (
                 str(details.get("booking_link_url") or "").lower()
                 if details.get("booking_link_mode")
-                else "reply with the option number"
+                else (
+                    "reply with 1" if len(details.get("options") or []) == 1
+                    else "reply with the option number"
+                )
             )
             for message in messages:
                 sent_at = _parse_datetime(message.get("sent_at"))
@@ -2137,7 +2301,7 @@ def process_recent_gmail_imports(
                     messages=messages,
                     actor_id=actor_id,
                 )
-                processed += int(result in {"options_sent", "draft_created"})
+                processed += int(result in {"options_sent", "draft_created", "booked"})
         except ProviderOperationError as error:
             _LOGGER.warning(
                 "meeting_email.imported_thread_failed",

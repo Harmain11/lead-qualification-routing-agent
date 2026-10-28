@@ -18,11 +18,19 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.gmail_threading import matches_lead_thread
+from lead_agent.application.governance import operations_policy
+from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM, ProviderConnectionORM, WorkspaceEmailDraftORM
+from lead_agent.infrastructure.db.models import (
+    LeadORM,
+    PipelineEventORM,
+    ProviderConnectionORM,
+    WorkspaceEmailDraftORM,
+)
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.gmail import (
     GMAIL_READONLY_SCOPE,
@@ -31,6 +39,7 @@ from lead_agent.infrastructure.gmail import (
     GmailOutboundProvider,
 )
 from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
+from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 
 router = APIRouter(prefix="/v1/email", tags=["email"])
 _EMAIL_ADDRESS = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
@@ -143,6 +152,30 @@ class MailboxMessagePageResponse(BaseModel):
 
 class MailboxThreadResponse(BaseModel):
     messages: list[dict[str, str]]
+
+
+class ComposeWithAIRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    connection_id: UUID | None = None
+    lead_id: UUID | None = None
+    thread_id: str | None = Field(default=None, max_length=255)
+    recipient: str = Field(default="", max_length=1024)
+    subject: str = Field(default="", max_length=180)
+    current_body: str = Field(default="", max_length=8000)
+    instruction: str = Field(default="", max_length=1000)
+
+    @field_validator("thread_id")
+    @classmethod
+    def validate_thread_id(cls, value: str | None) -> str | None:
+        if value is not None and not _GMAIL_ID.fullmatch(value):
+            raise ValueError("Invalid Gmail thread ID")
+        return value
+
+
+class ComposeWithAIResponse(BaseModel):
+    subject: str
+    body: str
 
 
 class SendEmailRequest(BaseModel):
@@ -420,6 +453,141 @@ def get_mailbox_thread(
             detail=str(error),
         ) from error
     return MailboxThreadResponse(messages=messages)
+
+
+@router.post("/compose-ai", response_model=ComposeWithAIResponse)
+def compose_email_with_ai(
+    request: ComposeWithAIRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> ComposeWithAIResponse:
+    lead = None
+    if request.lead_id:
+        lead = session.scalar(
+            select(LeadORM).where(
+                LeadORM.id == request.lead_id,
+                LeadORM.workspace_id == workspace.workspace_id,
+            )
+        )
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+    if not any(
+        (request.thread_id, lead, request.subject, request.current_body, request.instruction)
+    ):
+        raise HTTPException(
+            status_code=422, detail="Add a subject or describe what the email should say."
+        )
+
+    conversation: list[dict[str, str]] = []
+    if request.thread_id:
+        if not request.connection_id:
+            raise HTTPException(status_code=409, detail="Select the Gmail account for this thread.")
+        connection, access_token = _gmail_connection(
+            session,
+            workspace,
+            request.connection_id,
+            required_scope=GMAIL_READONLY_SCOPE,
+        )
+        mailbox = (
+            str(connection.connection_metadata.get("gmail_email") or connection.account_name)
+            .strip()
+            .lower()
+        )
+        try:
+            thread = GmailInboundProvider(
+                connection.id, access_token, mailbox
+            ).fetch_mailbox_thread(request.thread_id)
+        except ProviderOperationError as error:
+            raise HTTPException(
+                status_code=503 if error.retryable else 502, detail=str(error)
+            ) from error
+        recipient_addresses = {
+            address.lower() for _name, address in getaddresses([request.recipient]) if address
+        }
+        if lead:
+            recipient_addresses.add(lead.email.lower())
+        if not recipient_addresses:
+            raise HTTPException(
+                status_code=422, detail="Choose a recipient before composing a reply."
+            )
+        conversation = [
+            item
+            for item in thread
+            if item.get("sender", "").lower() in recipient_addresses
+            or any(
+                address.lower() in recipient_addresses
+                for _name, address in getaddresses([item.get("recipients", "")])
+            )
+        ]
+        if not conversation:
+            raise HTTPException(
+                status_code=409,
+                detail="This Gmail thread does not match the recipient. Refresh before drafting.",
+            )
+    elif lead:
+        events = session.scalars(
+            select(PipelineEventORM)
+            .where(
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "gmail_message",
+            )
+            .order_by(PipelineEventORM.created_at.desc())
+            .limit(12)
+        ).all()
+        conversation = [
+            {
+                "direction": str(event.details.get("direction") or ""),
+                "subject": str(event.details.get("subject") or "")[:180],
+                "body": str(event.details.get("body") or "")[:2000],
+                "sent_at": event.created_at.isoformat(),
+            }
+            for event in reversed(events)
+            if isinstance(event.details, dict)
+        ]
+
+    profile = operations_policy(session, workspace.workspace_id).business_profile
+    facts = {
+        "email_purpose": "compose",
+        "lead_name": lead.full_name if lead else "",
+        "company": lead.company_name if lead else "",
+        "industry": lead.industry if lead else "",
+        "requested_product_or_service": lead.product_or_service if lead else "",
+        "original_message": lead.message[:1600] if lead else "",
+        "recipient": request.recipient,
+        "subject": request.subject,
+        "existing_draft": request.current_body,
+        "draft_instruction": request.instruction,
+        "recent_activity": conversation[-12:],
+        "workspace_business_profile": profile.model_dump(mode="json"),
+    }
+    provider = resolve_workspace_reasoning_provider(session, workspace.workspace_id)
+    draft_method = getattr(provider, "draft_follow_up", None)
+    if not callable(draft_method):
+        raise HTTPException(status_code=409, detail="Connect and verify OpenAI to compose with AI.")
+    try:
+        generated = FollowUpEmailContent.model_validate(draft_method(facts))
+    except Exception as error:
+        raise HTTPException(
+            status_code=503,
+            detail="AI drafting did not complete. Check the OpenAI connection and retry.",
+        ) from error
+    if request.current_body:
+        protected_lines = [
+            line.strip()
+            for line in request.current_body.splitlines()
+            if re.match(r"^[1-5][.)]\s", line.strip())
+        ]
+        if protected_lines and any(line not in generated.body for line in protected_lines):
+            raise HTTPException(
+                status_code=409,
+                detail="AI could not preserve the meeting options. The current draft was kept.",
+            )
+    subject = request.subject if request.thread_id else generated.subject
+    return ComposeWithAIResponse(
+        subject=subject,
+        body=apply_workspace_email_signature(generated.body, profile),
+    )
 
 
 @router.get("/drafts", response_model=list[EmailDraftSummary])
