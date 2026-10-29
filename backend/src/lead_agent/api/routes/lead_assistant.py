@@ -418,6 +418,84 @@ def _truthful_lead_assistant_reply(
     return reply
 
 
+_UNVERIFIED_MEETING_CLAIM_REPLACEMENTS = (
+    (re.compile(r"\b(?:I|we) wanted to confirm\b", re.I), "I wanted to help arrange"),
+    (re.compile(r"\band\s+confirmed\b", re.I), "and is not confirmed yet"),
+    (re.compile(r"\b(?:has|have) been (?:booked|scheduled|confirmed)\b", re.I), "has not been confirmed yet"),
+    (re.compile(r"\b(?:was|were) (?:booked|scheduled|confirmed)\b", re.I), "was not confirmed"),
+    (re.compile(r"\bis (?:booked|scheduled|confirmed)\b", re.I), "is not confirmed yet"),
+    (re.compile(r"\b(?:has|have) been (?:cancelled|canceled|rescheduled)\b", re.I), "has not been changed yet"),
+    (re.compile(r"\b(?:was|were) (?:cancelled|canceled|rescheduled)\b", re.I), "was not changed"),
+    (re.compile(r"\bI(?:'ve| have)?\s+(?:booked|scheduled|confirmed)\b", re.I), "I have not booked"),
+)
+
+
+def _guard_unverified_meeting_claims(text: str | None, *, verified: bool) -> str | None:
+    """Keep an editable draft from stating that an unverified calendar action happened."""
+    if not text or verified:
+        return text
+    guarded = text
+    for pattern, replacement in _UNVERIFIED_MEETING_CLAIM_REPLACEMENTS:
+        guarded = pattern.sub(replacement, guarded)
+    return guarded
+
+
+def _has_verified_meeting(events: list[PipelineEventORM]) -> bool:
+    return any(
+        event.stage == "meeting_scheduled"
+        and event.status in {"meeting_scheduled", "booked", "confirmed"}
+        for event in events
+    )
+
+
+def _has_verified_workspace_meeting(workspace_context: dict[str, Any]) -> bool:
+    records = workspace_context.get("workspace_records")
+    events = records.get("recent_emails_and_meetings", []) if isinstance(records, dict) else []
+    return any(
+        isinstance(event, dict)
+        and event.get("kind") == "meeting_scheduled"
+        and event.get("status") in {"meeting_scheduled", "booked", "confirmed"}
+        for event in events
+    )
+
+
+def _truthful_workspace_assistant_reply(
+    reply: str,
+    action: WorkspaceAssistantAction,
+    latest_user: str,
+) -> str:
+    """Prevent workspace chat from reporting a proposed action as completed."""
+    completion_claim = re.search(
+        r"\b(?:done|completed|finished)\b|"
+        r"\b(?:I|we)\s+(?:have\s+)?(?:already\s+)?"
+        r"(?:booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b"
+        r"|\b(?:it|that|the action|the meeting|the appointment)\s+(?:has been|was|is now)\s+"
+        r"(?:booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b",
+        reply,
+        re.I,
+    )
+    if action.kind == "send_email":
+        return (
+            "I prepared an editable email draft for your review. Nothing has been sent; "
+            "a meeting is not confirmed unless the calendar provider reports a successful booking."
+        )
+    if not completion_claim:
+        return reply
+    requested_change = re.search(
+        r"\b(?:book|schedule|cancel|reschedule|send|delete|save|create|update|change|sync|"
+        r"complete|mark|invite|disconnect|suspend|reactivate|add|record|call|open|enable|"
+        r"publish|refresh|confirm|re-?evaluate)\w*\b",
+        latest_user,
+        re.I,
+    )
+    if requested_change or action.kind != "none":
+        return (
+            "I have not completed that action. I can prepare the supported workflow for review, "
+            "but it is only complete after you approve it and the app reports a successful result."
+        )
+    return reply
+
+
 def _is_lead_creation_request(messages: list[AssistantMessage]) -> bool:
     if _is_conversation_only_message(messages):
         return False
@@ -1078,6 +1156,23 @@ def chat_with_workspace_assistant(
                         f"Clear {result.action.target_label}'s review hold and apply "
                         "current routing rules. The resulting assignee may be notified."
                     )
+    result.reply = _truthful_workspace_assistant_reply(
+        result.reply,
+        result.action,
+        latest_user_message,
+    )
+    if result.action.kind == "send_email":
+        verified_meeting = _has_verified_workspace_meeting(workspace_context)
+        guarded_body = _guard_unverified_meeting_claims(
+            result.action.email_body,
+            verified=verified_meeting,
+        )
+        if guarded_body != result.action.email_body:
+            result.action.email_body = guarded_body
+            result.action.summary = (
+                f"{result.action.summary.rstrip('.')} "
+                "The draft does not confirm a meeting until a calendar provider reports success."
+            ).strip()
     response = result.model_dump(mode="json")
     response["context_warnings"] = workspace_context.get("context_warnings", [])
     if "leads.view" in workspace.permissions and _wants_lead_links(request.messages):
@@ -1279,6 +1374,11 @@ def chat_with_lead_assistant(
     result.reply = _truthful_lead_assistant_reply(
         result.reply, result.action, latest_user_message,
     )
+    if result.action.kind in {"draft_email", "send_follow_up"}:
+        result.action.email_body = _guard_unverified_meeting_claims(
+            result.action.email_body,
+            verified=_has_verified_meeting(events),
+        )
     response = result.model_dump(mode="json")
     if "leads.view" in workspace.permissions:
         lead_links = _lead_assistant_links(

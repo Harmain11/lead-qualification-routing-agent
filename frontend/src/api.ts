@@ -817,7 +817,7 @@ export function chatWithLeadAssistant(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
-  });
+  }, { activityToast: false });
 }
 
 export function chatWithWorkspaceAssistant(
@@ -835,7 +835,7 @@ export function chatWithWorkspaceAssistant(
       conversation_id: conversationId,
       message_count: messageCount,
     }),
-  });
+  }, { activityToast: false });
 }
 
 export function listWorkspaceAgentConversations(): Promise<{ items: WorkspaceAgentConversationSummary[] }> {

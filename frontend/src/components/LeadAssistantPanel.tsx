@@ -206,7 +206,7 @@ export function LeadAssistantPanel({
         role: "assistant",
         content: emailComposerOpened
           ? aiComposerOpened
-            ? "I’ve opened an editable follow-up email below. Review and edit the recipient, subject, and message before sending."
+            ? "I’ve opened an editable follow-up email below. Review and edit it before sending. Nothing is sent, and a meeting is not confirmed unless the calendar reports a successful booking."
             : "I couldn’t generate a draft from that response, so I opened the full email editor below. Add or edit the recipient, subject, and message there; nothing is sent automatically."
           : isDialerAction
           ? `${reply.reply}\n\nClick below to open the Dialer. Corral will not place the call.`

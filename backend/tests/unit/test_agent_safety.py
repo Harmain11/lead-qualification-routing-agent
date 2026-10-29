@@ -69,6 +69,32 @@ def test_lead_assistant_preserves_read_only_answer():
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        "Thanks. Your meeting has been scheduled for Friday at 3 PM.",
+        "I confirmed the meeting and it is booked.",
+        "The appointment has been cancelled.",
+    ],
+)
+def test_unverified_meeting_claims_are_removed_from_editable_email_drafts(body):
+    guarded = lead_assistant._guard_unverified_meeting_claims(body, verified=False)
+    assert guarded != body
+    assert not any(
+        phrase in guarded.casefold()
+        for phrase in (
+            "meeting has been scheduled",
+            "meeting is booked",
+            "appointment has been cancelled",
+        )
+    )
+
+
+def test_verified_meeting_claims_are_preserved_for_existing_booking_context():
+    body = "Your meeting has been scheduled for Friday at 3 PM."
+    assert lead_assistant._guard_unverified_meeting_claims(body, verified=True) == body
+
+
+@pytest.mark.parametrize(
     ("kind", "extra_permissions", "expected_limit"),
     [
         ("update_profile", set(), "lead-edit access"),
