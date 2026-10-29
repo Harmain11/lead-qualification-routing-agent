@@ -63,7 +63,6 @@ const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_age
 const CSRF_COOKIE_NAMES = Array.from(new Set(["lead_agent_csrf", CSRF_COOKIE_NAME]));
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
-const inFlightGets = new Map<string, Promise<unknown>>();
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number) {
@@ -251,26 +250,70 @@ function withWorkspace(headers?: HeadersInit): Headers {
   return result;
 }
 
+type SharedGet = { promise: Promise<unknown>; controller: AbortController; waiting: number };
+const sharedGets = new Map<string, SharedGet>();
+
+function abortError(): DOMException {
+  return new DOMException("The request was aborted.", "AbortError");
+}
+
+/**
+ * Identical concurrent GETs share one network request. Each caller keeps its own
+ * abort signal; the shared request is cancelled only when every caller has left.
+ */
 export async function request<T>(
   url: string,
   options?: RequestInit,
   feedback: { activityToast?: boolean } = {},
 ): Promise<T> {
   const method = options?.method?.toUpperCase() ?? "GET";
-  const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
-  if (key) {
-    const existing = inFlightGets.get(key);
-    if (existing) return existing as Promise<T>;
-  }
+  if (method !== "GET") return performRequest<T>(url, options, feedback.activityToast !== false);
 
-  const pending = performRequest<T>(url, options, feedback.activityToast !== false);
-  if (!key) return pending;
-  inFlightGets.set(key, pending);
-  try {
-    return await pending;
-  } finally {
-    if (inFlightGets.get(key) === pending) inFlightGets.delete(key);
+  const callerSignal = options?.signal ?? null;
+  if (callerSignal?.aborted) throw abortError();
+  const key = `${activeWorkspaceId}:${url}`;
+  let shared = sharedGets.get(key);
+  if (!shared) {
+    const controller = new AbortController();
+    const entry: SharedGet = {
+      controller,
+      waiting: 0,
+      promise: performRequest<T>(url, { ...options, signal: controller.signal }, feedback.activityToast !== false),
+    };
+    entry.promise.then(
+      () => { if (sharedGets.get(key) === entry) sharedGets.delete(key); },
+      () => { if (sharedGets.get(key) === entry) sharedGets.delete(key); },
+    );
+    sharedGets.set(key, entry);
+    shared = entry;
   }
+  const entry = shared;
+  entry.waiting += 1;
+  if (!callerSignal) {
+    try { return (await entry.promise) as T; } finally { entry.waiting -= 1; }
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const leave = () => {
+      if (settled) return;
+      settled = true;
+      callerSignal.removeEventListener("abort", onAbort);
+      entry.waiting -= 1;
+    };
+    const onAbort = () => {
+      leave();
+      if (entry.waiting <= 0) {
+        entry.controller.abort();
+        if (sharedGets.get(key) === entry) sharedGets.delete(key);
+      }
+      reject(abortError());
+    };
+    callerSignal.addEventListener("abort", onAbort, { once: true });
+    entry.promise.then(
+      (value) => { if (!settled) { leave(); resolve(value as T); } },
+      (error) => { if (!settled) { leave(); reject(error); } },
+    );
+  });
 }
 
 async function performRequest<T>(

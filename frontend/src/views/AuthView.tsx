@@ -4,6 +4,7 @@ import { useEffect,useState } from "react";
 
 import { getPasswordSignupStatus,resendVerification,signIn,signInWithWorkspaceCode,signUp,startDevelopmentSession,startGoogleAuth } from "../api";
 import type { AuthSession } from "../types";
+import { SUPPORT_EMAIL } from "../brand";
 
 const BRAND = "/asset/brand";
 
@@ -178,7 +179,7 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
         <nav aria-label="Legal information">
           <a href="/terms.html">Terms</a>
           <a href="/privacy.html">Privacy</a>
-          <a href="mailto:harmainmughal8@gmail.com">Contact</a>
+          <a href={`mailto:${SUPPORT_EMAIL}`}>Contact</a>
         </nav>
         <span>Corral by Ingenuity Systems</span>
       </footer>

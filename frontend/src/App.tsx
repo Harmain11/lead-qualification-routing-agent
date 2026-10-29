@@ -39,6 +39,7 @@ import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { DialerPhoneDock } from "./components/DialerPhoneDock";
 import { useTheme } from "./theme";
+import { SUPPORT_EMAIL } from "./brand";
 import { useOnline } from "./useOnline";
 import {
   OPEN_DIALER_PHONE_EVENT,
@@ -286,6 +287,8 @@ function App() {
   const [view, setView] = useState<AppView>(() =>
     pageFromSearch(window.location.search),
   );
+  const viewRef = useRef<AppView>(view);
+  viewRef.current = view;
   const [dialerConnections, setDialerConnections] = useState<DialerPhoneConnection[]>([]);
   const [preferredDialerId, setPreferredDialerId] = useState("");
   const [dialerPhoneOpen, setDialerPhoneOpen] = useState(false);
@@ -390,7 +393,13 @@ function App() {
     const saved = new URLSearchParams(window.location.search).get("range");
     return saved === "weekly" || saved === "annual" ? saved : "monthly";
   });
-  const [data, setData] = useState<AnalyticsBundle | null>(null);
+  const [analytics, setData] = useState<Partial<AnalyticsBundle> | null>(null);
+  const data = useMemo<AnalyticsBundle | null>(
+    () => (analytics ? { ...EMPTY_ANALYTICS, ...analytics } : null),
+    [analytics],
+  );
+  const loadedRange = useRef<Partial<Record<AnalyticsKey, TimeRange>>>({});
+  const inflightKeys = useRef(new Set<AnalyticsKey>());
   const [leads, setLeads] = useState<Lead[]>([]);
   const [leadNotificationSnapshot, setLeadNotificationSnapshot] = useState<{
     workspaceId: string;
@@ -521,7 +530,7 @@ function App() {
     bindDealWorkspace(can(workspacePermissions, "leads.view") ? auth?.current_workspace_id ?? "" : "", can(workspacePermissions, "leads.edit"), can(workspacePermissions, "workspace.manage"));
   }, [auth?.current_workspace_id, workspacePermissions]);
   useEffect(() => {
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void pollDealRecords(); }, 15000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void pollDealRecords(); }, 30000);
     return () => window.clearInterval(timer);
   }, [auth?.current_workspace_id]);
   const workspaceLeads = useWorkspaceLeads(Boolean(auth) && can(workspacePermissions, "leads.view"), leadRevision);
@@ -561,7 +570,6 @@ function App() {
   const leadRequestVersion = useRef(0);
   const leadController = useRef<AbortController | null>(null);
   const leadSignature = useRef<string | null>(null);
-  const reasoningPromptDismissed = useRef(new Set<string>());
   const tourSeenKey = auth?.current_workspace_id
     ? `corral-product-tour-seen:v1:${auth.current_workspace_id}`
     : null;
@@ -600,13 +608,14 @@ function App() {
   }, []);
 
   const refresh = useCallback(
-    async (activeRange = range) => {
+    async (activeRange = range, keys?: AnalyticsKey[]) => {
       refreshController.current?.abort();
       const controller = new AbortController();
       refreshController.current = controller;
       const requestVersion = ++refreshVersion.current;
       setLoading(true);
       setError(null);
+      let requestKeys: AnalyticsKey[] = [];
       try {
         const activePermissions = permissionsForWorkspace(
           auth,
@@ -616,79 +625,45 @@ function App() {
         const canViewAgents = can(activePermissions, "agents.view");
         const canViewReview = can(activePermissions, "manual_review.view");
         const canViewLeads = can(activePermissions, "leads.view");
-        const [
-          dashboard,
-          channels,
-          pipeline,
-          revenue,
-          reps,
-          series,
-          agents,
-          review,
-          extended,
-          advanced,
-          leadRows,
-        ] = await Promise.all([
-          canViewAnalytics
-            ? getDashboard(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getChannelAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getPipelineAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getRevenueAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getRepAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getTimeSeriesAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAgents
-            ? getAgentActivity(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewReview
-            ? getManualReview(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getExtendedAnalytics(activeRange, controller.signal)
-            : Promise.resolve(null),
-          canViewAnalytics
-            ? getAdvancedAnalytics(6, controller.signal)
-            : Promise.resolve(null),
-          canViewLeads
-            ? listLeads({ limit: 50 }, controller.signal)
-            : Promise.resolve(null),
+        const permitted: Record<AnalyticsKey, boolean> = {
+          dashboard: canViewAnalytics, channels: canViewAnalytics, pipeline: canViewAnalytics,
+          revenue: canViewAnalytics, reps: canViewAnalytics, series: canViewAnalytics,
+          extended: canViewAnalytics, advanced: canViewAnalytics,
+          agents: canViewAgents, review: canViewReview,
+        };
+        const fetchers: Record<AnalyticsKey, () => Promise<unknown>> = {
+          dashboard: () => getDashboard(activeRange, controller.signal),
+          channels: () => getChannelAnalytics(activeRange, controller.signal),
+          pipeline: () => getPipelineAnalytics(activeRange, controller.signal),
+          revenue: () => getRevenueAnalytics(activeRange, controller.signal),
+          reps: () => getRepAnalytics(activeRange, controller.signal),
+          series: () => getTimeSeriesAnalytics(activeRange, controller.signal),
+          agents: () => getAgentActivity(activeRange, controller.signal),
+          review: () => getManualReview(activeRange, controller.signal),
+          extended: () => getExtendedAnalytics(activeRange, controller.signal),
+          advanced: () => getAdvancedAnalytics(6, controller.signal),
+        };
+        const wanted = [...new Set(keys ?? analyticsKeysFor(viewRef.current))];
+        const deferred = keys ? [] : (DEFERRED_ANALYTICS[viewRef.current] ?? []).filter((key) => !wanted.includes(key));
+        requestKeys = wanted;
+        wanted.forEach((key) => inflightKeys.current.add(key));
+        const [values, leadRows] = await Promise.all([
+          Promise.all(wanted.map((key) => (permitted[key] ? fetchers[key]() : Promise.resolve(null)))),
+          canViewLeads ? listLeads({ limit: 50 }, controller.signal) : Promise.resolve(null),
         ]);
         if (requestVersion !== refreshVersion.current) return;
-        setData(
-          dashboard ||
-            channels ||
-            pipeline ||
-            revenue ||
-            reps ||
-            series ||
-            agents ||
-            review ||
-            extended ||
-            advanced
-            ? {
-                dashboard,
-                channels,
-                pipeline,
-                revenue,
-                reps,
-                series,
-                agents,
-                review,
-                extended,
-                advanced,
-              }
-            : null,
-        );
+        const fetched = Object.fromEntries(wanted.map((key, index) => [key, values[index]])) as Partial<AnalyticsBundle>;
+        wanted.forEach((key) => { loadedRange.current[key] = activeRange; inflightKeys.current.delete(key); });
+        setData((previous) => ({ ...(previous ?? {}), ...fetched }));
+        if (deferred.length) {
+          void Promise.all(deferred.map((key) => (permitted[key] ? fetchers[key]() : Promise.resolve(null))))
+            .then((more) => {
+              if (requestVersion !== refreshVersion.current) return;
+              deferred.forEach((key) => { loadedRange.current[key] = activeRange; });
+              setData((previous) => ({ ...(previous ?? {}), ...Object.fromEntries(deferred.map((key, index) => [key, more[index]])) }));
+            })
+            .catch(() => { /* Secondary panels show their own unavailable state. */ });
+        }
         const nextLeads = leadRows?.items ?? [];
         const newArrivalIds = leadRows
           ? await observeLeadSnapshot(nextLeads, {
@@ -768,6 +743,7 @@ function App() {
           }
         }
       } finally {
+        requestKeys.forEach((key) => inflightKeys.current.delete(key));
         if (requestVersion === refreshVersion.current) setLoading(false);
       }
     },
@@ -791,9 +767,19 @@ function App() {
   useEffect(() => {
     if (!auth) return;
     leadSignature.current = null;
+    loadedRange.current = {};
     void refresh(range);
     return () => refreshController.current?.abort();
   }, [auth?.current_workspace_id, range, refresh]);
+
+  // Load only what the newly opened view needs; anything already loaded for
+  // this range stays on screen while background refreshes keep it current.
+  useEffect(() => {
+    if (!auth) return;
+    const missing = analyticsKeysFor(view).filter((key) => loadedRange.current[key] !== range && !inflightKeys.current.has(key));
+    if (missing.length) void refresh(range, missing);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   useEffect(() => {
     const permissions = permissionsForWorkspace(
@@ -848,7 +834,7 @@ function App() {
     };
     // Keep the dashboard, manual review count, and CRM lead archive in sync
     // with public intake without requiring a browser refresh.
-    const timer = window.setInterval(() => void poll(), 5000);
+    const timer = window.setInterval(() => void poll(), 10000);
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         lastFullRefresh = 0;
@@ -871,7 +857,6 @@ function App() {
     if (auth) return;
     setOpenaiSetupCard(null);
     setAiSetupCards([]);
-    reasoningPromptDismissed.current.clear();
   }, [auth]);
 
   useEffect(() => {
@@ -900,7 +885,7 @@ function App() {
     );
     if (
       !workspace?.effective_permissions.includes("integrations.manage") ||
-      reasoningPromptDismissed.current.has(auth.current_workspace_id)
+      aiSetupDismissed(auth.current_workspace_id)
     )
       return;
     let active = true;
@@ -1091,7 +1076,8 @@ function App() {
     if (authLoading) return;
     const url = new URL(window.location.href);
     url.searchParams.set("view", view);
-    url.searchParams.set("range", range);
+    if (RANGE_VIEWS.has(view)) url.searchParams.set("range", range);
+    else url.searchParams.delete("range");
     if (pageSection && view !== "leads")
       url.searchParams.set("section", pageSection);
     else url.searchParams.delete("section");
@@ -1115,7 +1101,8 @@ function App() {
     if (next !== "leads") closeLead();
     const url = new URL(window.location.href);
     url.searchParams.set("view", next);
-    url.searchParams.set("range", range);
+    if (RANGE_VIEWS.has(next)) url.searchParams.set("range", range);
+    else url.searchParams.delete("range");
     url.searchParams.delete("lead");
     url.searchParams.delete("lead_tab");
     if (section && next !== "leads") url.searchParams.set("section", section);
@@ -1413,7 +1400,7 @@ function App() {
             </div>
           )}
           {!hasViewPermission(view, workspacePermissions) ||
-          (loading && !data && !VIEWS_WITHOUT_ANALYTICS.has(view)) ? (
+          (!error && !VIEWS_WITHOUT_ANALYTICS.has(view) && !analyticsKeysFor(view).every((key) => analytics?.[key] !== undefined)) ? (
             <ContentLoadingState />
           ) : (
             <Suspense fallback={<ContentLoadingState />}>
@@ -1671,11 +1658,8 @@ function App() {
           <nav aria-label="Legal information">
             <a href="/terms.html">Terms</a>
             <a href="/privacy.html">Privacy</a>
-            <a href="mailto:harmainmughal8@gmail.com">Contact</a>
+            <a href={`mailto:${SUPPORT_EMAIL}`}>Contact</a>
           </nav>
-          <span>
-            Updated {metadata ? new Date(metadata.generated_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "—"} · Workspace {getActiveWorkspace().slice(0, 8)}
-          </span>
         </footer>
       </div>
       {isMobile && (
@@ -1696,11 +1680,11 @@ function App() {
           }}
           onClose={() => setOpenaiSetupCard(null)}
           onLater={() => {
-            reasoningPromptDismissed.current.add(auth.current_workspace_id);
+            dismissAiSetup(auth.current_workspace_id);
             setOpenaiSetupCard(null);
           }}
           onSettings={() => {
-            reasoningPromptDismissed.current.add(auth.current_workspace_id);
+            dismissAiSetup(auth.current_workspace_id);
             setOpenaiSetupCard(null);
             setView("integrations");
           }}
@@ -1857,6 +1841,47 @@ function ContentLoadingState() {
       </div>
     </div>
   );
+}
+
+// Views whose figures depend on the selected time range.
+const RANGE_VIEWS: ReadonlySet<string> = new Set(["dashboard", "revenue", "performance", "review", "agents", "analytics"]);
+
+const AI_SETUP_DISMISSED = "corral:ai-setup-dismissed:";
+function aiSetupDismissed(workspaceId: string): boolean {
+  try { return window.localStorage.getItem(AI_SETUP_DISMISSED + workspaceId) === "1"; } catch { return false; }
+}
+function dismissAiSetup(workspaceId: string) {
+  try { window.localStorage.setItem(AI_SETUP_DISMISSED + workspaceId, "1"); } catch { /* Session-only dismissal. */ }
+}
+
+type AnalyticsKey = keyof AnalyticsBundle;
+
+const EMPTY_ANALYTICS: AnalyticsBundle = {
+  dashboard: null, channels: null, pipeline: null, revenue: null, reps: null,
+  series: null, agents: null, review: null, extended: null, advanced: null,
+};
+
+// Every view keeps the review count current for the sidebar badge.
+const ALWAYS_LOADED: AnalyticsKey[] = ["review"];
+const VIEW_ANALYTICS: Partial<Record<string, AnalyticsKey[]>> = {
+  dashboard: ["dashboard", "pipeline", "review"],
+  pipeline: ["pipeline"],
+  revenue: ["revenue", "reps", "series", "pipeline"],
+  performance: ["revenue", "reps", "series", "pipeline"],
+  review: ["review"],
+  agents: ["agents", "pipeline"],
+  analytics: ["dashboard", "channels", "pipeline", "revenue", "reps", "series", "extended", "advanced"],
+  settings: ["dashboard"],
+  team: ["dashboard"],
+};
+
+// Loaded after the first paint, for panels further down the page.
+const DEFERRED_ANALYTICS: Partial<Record<string, AnalyticsKey[]>> = {
+  dashboard: ["channels", "extended", "revenue", "series", "advanced", "agents", "reps"],
+};
+
+function analyticsKeysFor(view: string): AnalyticsKey[] {
+  return [...new Set([...ALWAYS_LOADED, ...(VIEW_ANALYTICS[view] ?? [])])];
 }
 
 const VIEWS_WITHOUT_ANALYTICS: ReadonlySet<string> = new Set([

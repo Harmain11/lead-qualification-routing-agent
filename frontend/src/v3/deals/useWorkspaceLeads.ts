@@ -52,7 +52,7 @@ export function useWorkspaceLeads(enabled: boolean, revision = 0) {
     if (!enabled) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") setTick((value) => value + 1);
-    }, 20_000);
+    }, 120_000);
     return () => window.clearInterval(timer);
   }, [enabled]);
 
