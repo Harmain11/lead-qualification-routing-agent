@@ -192,7 +192,7 @@ export function EmailComposer({
         subject: subject.trim(),
         current_body: body,
         instruction: aiInstruction.trim() || (replyingInThread
-          ? "Read the full email thread and reply to the newest customer message. Address specific questions and proposed meeting dates or times using the conversation context. Keep the reply natural and specific, and do not say a meeting is booked unless the thread confirms it."
+          ? "Read the full email thread and reply to the newest customer message. Address specific questions and proposed meeting dates or times using the conversation context. When suitable, guide them toward booking with one friendly invitation. Keep the reply natural and specific, and do not say a meeting is booked unless the thread confirms it."
           : ""),
       });
       if (!replyingInThread) setSubject(result.subject);
