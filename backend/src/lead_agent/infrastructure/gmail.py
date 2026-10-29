@@ -1322,7 +1322,7 @@ class GmailInboundProvider:
         page_token: str | None = None
         while len(thread_ids) < max_threads:
             params: dict[str, object] = {
-                "q": f"{{from:{target} to:{target}}} -in:spam -in:trash",
+                "q": f"{{from:{target} to:{target} cc:{target}}} -in:spam -in:trash",
                 "maxResults": 100,
             }
             if page_token:
@@ -1494,11 +1494,6 @@ class GmailInboundProvider:
                 if isinstance(item, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
-            to_recipients = [
-                address.strip().lower()
-                for _name, address in getaddresses([headers.get("to", "")])
-                if address
-            ]
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses(
@@ -1507,7 +1502,7 @@ class GmailInboundProvider:
                 if address
             ]
             sender = sender.strip().lower()
-            if sender != target and target not in to_recipients:
+            if sender != target and target not in recipients:
                 continue
             try:
                 timestamp = datetime.fromtimestamp(

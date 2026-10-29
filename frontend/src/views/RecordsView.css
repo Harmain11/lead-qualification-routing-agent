@@ -82,6 +82,7 @@
 .records-card-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .records-status { display: inline-flex; width: fit-content; border-radius: 999px; padding: 3px 8px; color: var(--muted); background: var(--surface-high); font-size: 11px; font-weight: 700; }
 .records-status.is-good { color: var(--workspace-accent, var(--orange)); background: color-mix(in srgb, var(--workspace-accent, var(--orange)) 12%, var(--surface)); }
+.records-card-meta .records-missing-fields { color: var(--muted); font-size: 11px; line-height: 1.4; white-space: normal; }
 .records-card-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 36px; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; padding: 0 13px; color: var(--workspace-accent, var(--orange)); background: transparent; font-size: 12px; font-weight: 700; text-align: left; }
 .records-card-footer:hover { background: var(--surface-high); }
 .records-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; }

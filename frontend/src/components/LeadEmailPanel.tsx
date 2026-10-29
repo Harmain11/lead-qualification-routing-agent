@@ -179,21 +179,19 @@ export function LeadEmailPanel({
     const details = event.details;
     const threadId = threadIdForEvent(event);
     const connectionId = stringDetail(details, "gmail_connection_id");
-    const reference = [...events]
-      .filter((message) => threadIdForEvent(message) === threadId
-        && stringDetail(message.details, "gmail_connection_id") === connectionId
-        && stringDetail(message.details, "rfc_message_id"))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-    const recipients = stringDetail(details, "recipients").split(",")[0].trim();
+    const recipients = stringDetail(details, "recipients")
+      .split(",")
+      .map((address) => address.trim())
+      .filter(Boolean);
     const recipient = stringDetail(details, "direction") === "outbound"
-      ? recipients
+      ? recipients.find((address) => address.toLowerCase() === lead.email?.trim().toLowerCase()) || recipients[0] || ""
       : stringDetail(details, "sender");
     const originalSubject = stringDetail(details, "subject");
     setComposeSeed({
       recipient,
       subject: originalSubject && !/^re:/i.test(originalSubject) ? `Re: ${originalSubject}` : originalSubject,
       threadId: threadId || undefined,
-      inReplyTo: reference ? stringDetail(reference.details, "rfc_message_id") : undefined,
+      inReplyTo: stringDetail(details, "rfc_message_id") || undefined,
       connectionId: connectionId || undefined,
     });
     setComposerRevision((current) => current + 1);

@@ -2,7 +2,6 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createLead, listIntegrations, listLeads } from "../api";
 import { CallsPanel } from "../components/CallsPanel";
 import { CallReviewDetails } from "../components/CallReviewDetails";
-import { DirectDialer } from "../components/DirectDialer";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave } from "../operationsApi";
 import type { IntegrationCard, Lead, LeadPayload } from "../types";
@@ -55,13 +54,9 @@ export function DialerView({
   selectedSection = "",
   canViewLeads,
   canEditLeads,
-  canCall,
   canCallLeads,
   canViewIntegrations,
-  preferredDialerId,
-  onPreferredDialerChange,
   dialerCallActive,
-  ringCentralEmbedReady,
 }: {
   onOpenIntegrations: () => void;
   onOpenLead: (leadId: string) => void;
@@ -271,23 +266,6 @@ export function DialerView({
     [cards],
   );
   const connected = dialers.filter((card) => card.connections.some((connection) => connection.is_active && ["connected", "verified", "configured"].includes(connection.status)));
-  const verifiedDialers = useMemo(
-    () => dialers.flatMap((card) => card.connections
-      .filter((connection) => connection.is_active && connection.status === "verified")
-      .map((connection) => ({
-        id: connection.id,
-        provider: card.provider,
-        account_name: connection.account_name,
-      }))),
-    [dialers],
-  );
-  const selectedDialer = verifiedDialers.find(
-    (connection) => connection.id === preferredDialerId,
-  );
-  const embeddedPhoneSelected =
-    selectedDialer?.provider === "cloudtalk" ||
-    selectedDialer?.provider === "aircall" ||
-    (selectedDialer?.provider === "ringcentral" && ringCentralEmbedReady);
   const potentialLeadCount = activity?.records.filter((record) => assessCallLeadPotential({
     summary: record.insights?.summary,
     transcript: record.transcript,
@@ -432,26 +410,6 @@ export function DialerView({
                 </>
               )}
             </section>
-            {!embeddedPhoneSelected && (
-              <>
-                <DirectDialer
-                  connections={verifiedDialers}
-                  canCall={canCall}
-                  canViewLeads={canViewLeads}
-                  canEditLeads={canEditLeads}
-                  onOpenLead={onOpenLead}
-                  preferredConnectionId={preferredDialerId}
-                  onPreferredConnectionChange={onPreferredDialerChange}
-                  phoneCallActive={dialerCallActive}
-                  ringCentralEmbedReady={ringCentralEmbedReady}
-                />
-                <section className="dialer-workflow-grid">
-                  <article><span className="dialer-step">01</span><div><h3>Confirm before dialing</h3><p>Corral-started calls are placed individually with consent and permission checks. Calls started from a provider phone’s own keypad may not pass through those checks.</p></div></article>
-                  <article><span className="dialer-step">02</span><div><h3>Sync provider activity</h3><p>Import status, duration, recording links and transcripts from the connected provider.</p></div></article>
-                  <article><span className="dialer-step">03</span><div><h3>Review the conversation</h3><p>Use the history and transcript views to prepare follow-ups and qualification decisions.</p></div></article>
-                </section>
-              </>
-            )}
           </>}
 
           {(tab === "history" || tab === "analysis") && <section className="dialer-panel dialer-history-panel">

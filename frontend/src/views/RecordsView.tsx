@@ -312,6 +312,13 @@ export function RecordsView({
       ? companyById.get(contact.company_id || "")
       : (item as Company);
     const companyItem = item as Company;
+    const companyMissing = company
+      ? [
+          !company.domain && "company domain",
+          !company.website && "official website",
+          !company.industry && "industry",
+        ].filter(Boolean) as string[]
+      : [];
     return (
       <article className="records-card" key={item.id}>
         <div className="records-card-topline">
@@ -319,7 +326,7 @@ export function RecordsView({
           <button className="records-card-name" onClick={() => void open(item.id)}>
             {item.name}
           </button>
-          {canEdit && (
+          {canEdit && mode !== "companies" && (
             <button className="records-card-menu" aria-label={`Edit ${item.name}`} onClick={() => edit(item)}>•••</button>
           )}
         </div>
@@ -342,6 +349,9 @@ export function RecordsView({
                     ? "Needs website review"
                     : "Needs enrichment"}
               </span>
+              {companyMissing.length > 0 && (
+                <span className="records-missing-fields">Missing: {companyMissing.join(", ")}</span>
+              )}
             </>
           )}
         </div>
@@ -351,23 +361,10 @@ export function RecordsView({
               <button
                 className="records-card-action"
                 disabled={busy}
-                aria-label={`Enter or edit ${companyItem.name} details manually`}
+                aria-label={`Edit ${companyItem.name}`}
                 onClick={() => edit(companyItem)}
               >
-                Edit details
-              </button>
-            )}
-            {canResearch && (
-              <button
-                className="records-card-action is-enrich"
-                disabled={busy}
-                onClick={() => enrichCompany(companyItem)}
-              >
-                {companyItem.website_reviewed && companyItem.website
-                  ? "Enrich with AI"
-                  : companyItem.website
-                    ? "Review website"
-                    : "Add website"}
+                Edit company
               </button>
             )}
           </div>

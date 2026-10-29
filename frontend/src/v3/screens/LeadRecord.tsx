@@ -122,6 +122,7 @@ export function LeadRecord({
   const [profileDraft, setProfileDraft] = useState<LeadProfileDraft>(() => createLeadProfileDraft(lead));
   const [savingProfile, setSavingProfile] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [phoneCopied, setPhoneCopied] = useState(false);
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [activityRefresh, setActivityRefresh] = useState(0);
   const [compose, setCompose] = useState<{ subject?: string; body?: string; quoteId?: string; nonce: number } | null>(null);
@@ -227,12 +228,16 @@ export function LeadRecord({
       setAssigning(false);
     }
   };
-  const startCall = () => {
-    if (embeddedPhone) {
-      togglePhone(true);
-      return;
+  const copyPhoneNumber = async () => {
+    if (!lead.phone) return;
+    try {
+      await navigator.clipboard.writeText(lead.phone);
+      setPhoneCopied(true);
+      setNotice("Phone number copied.");
+      window.setTimeout(() => setPhoneCopied(false), 1800);
+    } catch {
+      setNotice("Could not copy the phone number. Select and copy it from the lead details.");
     }
-    onNavigateToDialer();
   };
   const startEmail = (seed?: { subject?: string; body?: string; quoteId?: string }) => {
     onSectionChange("email");
@@ -269,8 +274,8 @@ export function LeadRecord({
           </div>
         </div>
         <div className="v-record-actions">
-          {canCall && (
-            <Button kind="filled" icon="phone" onClick={startCall} disabled={!lead.phone} title={lead.phone ? `Call ${lead.phone}` : "No phone number on record"}>Call</Button>
+          {lead.phone && (
+            <Button kind="filled" icon="copy" onClick={() => void copyPhoneNumber()} title={`Copy ${lead.phone}`}>{phoneCopied ? "Copied" : "Copy number"}</Button>
           )}
           {canViewEmail && canEdit && (
             <Button kind="tinted" icon="mail" onClick={() => startEmail()} disabled={!lead.email} title={lead.email ? `Email ${lead.email}` : "No email address on record"}>Email</Button>
