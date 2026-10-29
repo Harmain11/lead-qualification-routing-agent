@@ -19,6 +19,7 @@ import type {
 } from "../types";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const MAILBOX_CACHE_FRESH_MS = 5 * 60_000;
 const mailboxCache = new Map<string, { messages: GmailMailboxMessage[]; nextPageToken: string | null; fetchedAt: number }>();
 const threadCache = new Map<string, GmailThreadMessage[]>();
 
@@ -121,7 +122,7 @@ export function EmailWorkspace({
     }
     // Navigating back to a recently opened mailbox should show its saved rows
     // immediately. The visible 60-second poll and manual refresh still check Gmail.
-    if (changedMailbox && cached && Date.now() - cached.fetchedAt < 60_000) {
+    if (changedMailbox && cached && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS) {
       setLoadingMessages(false);
       return () => controller.abort();
     }

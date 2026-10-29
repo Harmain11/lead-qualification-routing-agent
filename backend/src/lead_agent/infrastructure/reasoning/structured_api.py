@@ -248,9 +248,13 @@ class StructuredAPIReasoningProvider:
             )
         elif facts.get("email_purpose") == "compose":
             prompt = (
-                "Compose a personal email for human review using the chronological Gmail "
-                "conversation, lead profile, current draft, and draft instruction. Answer the "
-                "newest relevant customer message. Preserve the original subject for replies. "
+                "Compose a personal email for human review using the full chronological Gmail "
+                "conversation, lead profile, current draft, and draft instruction. For a reply, "
+                "answer the newest relevant customer message and use earlier messages to "
+                "understand references. Acknowledge a specific meeting date or time the customer "
+                "proposes; use current_datetime_utc only to resolve relative dates when the "
+                "timezone is clear. Do not invent calendar availability or claim a meeting is "
+                "booked. Preserve the original subject for replies. "
                 "If the existing draft lists numbered meeting options, preserve every option "
                 "exactly and tell the recipient to reply with the option number. Do not claim "
                 "booking, sending, or any completed action without evidence. Do not invent "

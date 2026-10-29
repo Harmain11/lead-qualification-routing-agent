@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import re
@@ -1371,16 +1372,26 @@ class GmailInboundProvider:
         listed = self.api.get("messages", **params)
         summaries: list[dict[str, Any]] = []
         listed_messages = listed.get("messages", [])
-        for item in listed_messages if isinstance(listed_messages, list) else []:
-            if not isinstance(item, dict) or not item.get("id"):
-                continue
+        message_items = [
+            item for item in listed_messages
+            if isinstance(item, dict) and item.get("id")
+        ] if isinstance(listed_messages, list) else []
+
+        def get_metadata(item: dict[str, Any]) -> dict[str, Any]:
             message_id = str(item["id"])
-            metadata = self.api.get(
+            return self.api.get(
                 f"messages/{message_id}",
                 format="metadata",
                 metadataHeaders=["From", "To", "Cc", "Subject", "Date"],
                 fields="id,threadId,labelIds,internalDate,snippet,payload(headers)",
             )
+
+        # Gmail requires one metadata lookup per message; fetch a page concurrently
+        # while preserving its order instead of waiting on each network round trip.
+        with ThreadPoolExecutor(max_workers=min(8, len(message_items) or 1)) as executor:
+            metadata_items = list(executor.map(get_metadata, message_items))
+
+        for item, metadata in zip(message_items, metadata_items, strict=True):
             payload = metadata.get("payload", {})
             raw_headers = payload.get("headers", []) if isinstance(payload, dict) else []
             headers = {

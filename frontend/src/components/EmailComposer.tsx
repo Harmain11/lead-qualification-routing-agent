@@ -191,7 +191,9 @@ export function EmailComposer({
         recipient: recipient.trim(),
         subject: subject.trim(),
         current_body: body,
-        instruction: aiInstruction.trim(),
+        instruction: aiInstruction.trim() || (replyingInThread
+          ? "Read the full email thread and reply to the newest customer message. Address specific questions and proposed meeting dates or times using the conversation context. Keep the reply natural and specific, and do not say a meeting is booked unless the thread confirms it."
+          : ""),
       });
       if (!replyingInThread) setSubject(result.subject);
       setBody(result.body);
@@ -431,11 +433,12 @@ export function EmailComposer({
     <div className="email-rich-editor">
       <span className="email-field-label">Message</span>
       <div className="email-ai-compose">
-        <input aria-label="Instructions for AI email" value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)} maxLength={1000} placeholder="Optional: what should this email say?" disabled={busy} />
+        <input aria-label="Optional guidance for AI email" value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)} maxLength={1000} placeholder={replyingInThread ? "Optional: tone or details to emphasize" : "Optional: what should the email focus on?"} disabled={busy} />
         <button className="secondary-button" type="button" onClick={() => void composeWithAI()} disabled={busy || (!recipient.trim() && !leadId && !subject.trim())}>
           {busyAction === "ai" ? "Composing…" : "Compose with AI"}
         </button>
       </div>
+      {replyingInThread && <small className="email-status">AI reads this whole thread and lead details automatically. Guidance is optional.</small>}
       <div className="email-format-toolbar" role="toolbar" aria-label="Message formatting">
         <button type="button" aria-label="Bold" title="Bold" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("bold")}><strong>B</strong></button>
         <button type="button" aria-label="Italic" title="Italic" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("italic")}><em>I</em></button>

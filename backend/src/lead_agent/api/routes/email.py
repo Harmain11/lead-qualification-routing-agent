@@ -556,6 +556,7 @@ def compose_email_with_ai(
         "original_message": lead.message[:1600] if lead else "",
         "recipient": request.recipient,
         "subject": request.subject,
+        "current_datetime_utc": datetime.now(UTC).isoformat(),
         "existing_draft": request.current_body,
         "draft_instruction": request.instruction,
         "recent_activity": conversation[-12:],
