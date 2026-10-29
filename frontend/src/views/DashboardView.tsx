@@ -194,9 +194,9 @@ export function DashboardView({
     {
       id: "qualification-rate",
       label: "Qualification rate",
-      rows: data.channels.channels.map((row) => ({
+      rows: data.channels.channels.filter((row) => row.qualification_rate != null).map((row) => ({
         label: pretty(row.channel),
-        value: row.qualification_rate,
+        value: row.qualification_rate ?? 0,
       })),
       formatter: (value: number) => `${value}%`,
       scaleMaximum: 100,
@@ -204,9 +204,9 @@ export function DashboardView({
     {
       id: "sql-rate",
       label: "SQL conversion rate",
-      rows: data.channels.channels.map((row) => ({
+      rows: data.channels.channels.filter((row) => row.sql_conversion_rate != null).map((row) => ({
         label: pretty(row.channel),
-        value: row.sql_conversion_rate,
+        value: row.sql_conversion_rate ?? 0,
       })),
       formatter: (value: number) => `${value}%`,
       scaleMaximum: 100,

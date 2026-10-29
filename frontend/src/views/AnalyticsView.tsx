@@ -270,11 +270,11 @@ export function AnalyticsView({
                         <span>
                           {row.lead_volume} · {row.share_percent}%
                         </span>
-                        <span>{row.qualification_rate}%</span>
-                        <span>{row.sql_conversion_rate}%</span>
+                        <RateCell value={row.qualification_rate} sample={row.lead_volume} minimum={row.rate_sample_minimum} />
+                        <RateCell value={row.sql_conversion_rate} sample={row.lead_volume} minimum={row.rate_sample_minimum} />
                         <span>{row.booked_leads ?? 0}</span>
-                        <span>{row.booked_rate ?? 0}%</span>
-                        <span>{row.closed_won_conversion_rate}%</span>
+                        <RateCell value={row.booked_rate ?? null} sample={row.lead_volume} minimum={row.rate_sample_minimum} />
+                        <RateCell value={row.closed_won_conversion_rate} sample={row.lead_volume} minimum={row.rate_sample_minimum} />
                         <span>{money(row.revenue)}</span>
                         <em>{row.importance_index}</em>
                       </div>
@@ -414,4 +414,11 @@ export function AnalyticsView({
       )}
     </div>
   );
+}
+
+function RateCell({ value, sample, minimum = 5 }: { value: number | null | undefined; sample: number; minimum?: number }) {
+  if (value == null) {
+    return <span className="rate-withheld" title={`Not enough data: ${sample} lead${sample === 1 ? "" : "s"}, at least ${minimum} needed`}>—</span>;
+  }
+  return <span>{value}%</span>;
 }

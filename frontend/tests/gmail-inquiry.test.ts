@@ -197,3 +197,23 @@ test("extracts inline sender/security banners and deduplicates flat-text legal n
   assert.match(sections.footers.join(" "), /opt out/);
   assert.match(sections.footers.join(" "), /aka\.ms/);
 });
+
+test("recovers a message body that was flattened onto the To line", () => {
+  const inquiry = parseGmailInquiry(
+    "From: Harmain Mughal <harmain@example.test> Date: Wed, 28 Oct 2026 15:28:00 +0500 Subject: AI agent To: junaid@ingenuity.example Hey, I want to ask you about making an AI automation for my business, need more details?",
+  );
+  assert.ok(inquiry);
+  const [message] = inquiry.messages;
+  assert.equal(message.to, "junaid@ingenuity.example");
+  assert.equal(message.subject, "AI agent");
+  assert.match(message.body, /^Hey, I want to ask you about making an AI automation/);
+});
+
+test("keeps display names and multiple recipients in address headers", () => {
+  const inquiry = parseGmailInquiry(
+    'From: Ana <ana@example.test>\nTo: "Sales Team" <sales@example.test>, ops@example.test\nSubject: Pricing\n\nCan you share pricing?',
+  );
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].to, '"Sales Team" <sales@example.test>, ops@example.test');
+  assert.equal(inquiry.messages[0].body, "Can you share pricing?");
+});

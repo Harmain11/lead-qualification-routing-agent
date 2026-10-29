@@ -206,9 +206,9 @@
 .v-ask[aria-expanded="true"] img { filter: brightness(0) invert(1); }
 
 .v-content { flex: 1; min-width: 0; padding: 12px var(--page-pad) 72px; }
-.v-page { width: 100%; max-width: var(--v-page-max); margin: 0 auto; animation: v-page-in var(--d-slow) var(--ease-out); }
+.v-page { width: 100%; max-width: var(--v-page-max); margin: 0 auto; animation: v-page-in var(--d-fast) var(--ease-out); }
 .v-page[data-width="wide"] { max-width: 1440px; }
-@keyframes v-page-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes v-page-in { from { opacity: 0; } }
 
 .v-footer {
   display: flex;

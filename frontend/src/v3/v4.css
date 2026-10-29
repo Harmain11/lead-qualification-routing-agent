@@ -419,7 +419,16 @@ button.h-kpi:active { transform: scale(0.985); }
   padding: 2px 2px 18px;
   margin: 0 -2px;
   scroll-snap-type: x proximity;
+  scroll-padding-inline: 2px;
   overscroll-behavior-x: contain;
+  /* Fade the trailing edge so a column past the edge reads as "scroll for more", not cut off. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.b-board::after { content: ""; flex: 0 0 24px; }
+@media (min-width: 1680px) {
+  .b-board { mask-image: none; }
+  .b-col { flex: 1 1 0; min-width: 0; }
+  .b-col[data-empty] { flex: 0.7 1 0; }
 }
 .b-col {
   flex: 1 0 264px;

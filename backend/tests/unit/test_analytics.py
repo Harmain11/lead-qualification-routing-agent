@@ -278,7 +278,9 @@ def test_channel_percentages_and_scores_use_recorded_results(
         assert row["lead_volume"] == 2
         assert row["scored_leads"] == 2
         assert row["qualified_leads"] == 1
-        assert row["qualification_rate"] == 50
+        # Two leads are below the sample minimum, so the rate is withheld, not "50%".
+        assert row["qualification_rate"] is None
+        assert row["rate_sample_minimum"] == 5
         assert row["average_score"] == 52
 
 
@@ -609,3 +611,11 @@ def test_analytics_api_smoke_and_unknown_workspace(icp: IcpConfig, routing: Rout
             assert unavailable.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_rates_are_withheld_below_the_sample_minimum() -> None:
+    from lead_agent.application.analytics import MIN_RATE_SAMPLE, _rate
+
+    assert _rate(1, 1) is None
+    assert _rate(0, MIN_RATE_SAMPLE - 1) is None
+    assert _rate(2, MIN_RATE_SAMPLE) == 40.0

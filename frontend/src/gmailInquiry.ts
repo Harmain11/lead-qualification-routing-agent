@@ -100,6 +100,24 @@ function recoverBodyAppendedToDateHeader(value: string) {
   return { date, body };
 }
 
+const ADDRESS_TOKEN = /^\s*(?:(?:"[^"]*"|[^<>,@"\n]+?)\s*<[^<>\s@]+@[^<>\s]+>|<?[^\s,<>@]+@[^\s,<>]+>?)\s*(?:,\s*)?/;
+
+/** Address headers hold only addresses; text after the last address is the start of the body. */
+function recoverBodyAppendedToAddressHeader(value: string) {
+  let rest = value;
+  let consumed = "";
+  for (let guard = 0; guard < 50; guard += 1) {
+    const match = ADDRESS_TOKEN.exec(rest);
+    if (!match || !match[0].trim()) break;
+    consumed += match[0];
+    rest = rest.slice(match[0].length);
+  }
+  const body = rest.trim();
+  const addresses = consumed.trim().replace(/,\s*$/, "");
+  if (!addresses || !body) return null;
+  return { addresses, body };
+}
+
 function parseHeadersAndBody(source: string) {
   const normalized = normalizeHeaderBoundaries(source);
   const separator = normalized.search(/\n\s*\n/);
@@ -131,6 +149,14 @@ function parseHeadersAndBody(source: string) {
       const inlineBody = headers.subject.slice(inlineBodyStart.index).trim();
       headers.subject = headers.subject.slice(0, inlineBodyStart.index).trim();
       body = [inlineBody, body].filter(Boolean).join("\n");
+    }
+  }
+  for (const name of ["to", "cc", "bcc", "from", "reply-to"]) {
+    if (!headers[name]) continue;
+    const recovered = recoverBodyAppendedToAddressHeader(headers[name]);
+    if (recovered) {
+      headers[name] = recovered.addresses;
+      body = [recovered.body, body].filter(Boolean).join("\n").trim();
     }
   }
   if (headers.date) {

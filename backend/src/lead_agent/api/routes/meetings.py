@@ -107,6 +107,9 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_has_confirmed_selection: bool = False
     offer_can_be_replaced: bool = False
     booked_meeting_at: datetime | None = None
+    cancelled_meeting_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    cancellation_reason: str | None = None
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -323,6 +326,34 @@ def get_meeting_recommendations(
     lead_id: UUID,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> MeetingRecommendationsResponse:
+    response = _meeting_recommendations(lead_id, session, workspace)
+    if response.offer_status == "booked":
+        return response
+    # A cancelled meeting must not read as "appointment needed" with no history.
+    latest = session.scalar(
+        select(PipelineEventORM)
+        .where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.stage == "meeting_scheduled",
+        )
+        .order_by(PipelineEventORM.created_at.desc())
+        .limit(1)
+    )
+    if latest is not None and latest.status == "cancelled":
+        details = latest.details if isinstance(latest.details, dict) else {}
+        response.cancelled_meeting_at = _parse_provider_time(str(details.get("start_at") or ""))
+        response.cancelled_at = _parse_provider_time(str(details.get("cancelled_at") or ""))
+        reason = str(details.get("cancellation_reason") or "").strip()
+        response.cancellation_reason = reason[:300] or None
+    return response
+
+
+def _meeting_recommendations(
+    lead_id: UUID,
+    session: Session,
+    workspace: WorkspaceContext,
 ) -> MeetingRecommendationsResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
     connections = _workspace_calendar_connections(session, workspace.workspace_id)

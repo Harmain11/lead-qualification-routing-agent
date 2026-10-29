@@ -28,6 +28,7 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 
 RangeKey = Literal["weekly", "monthly", "annual"]
 SQL_BANDS = {"hot", "warm"}
@@ -81,6 +82,16 @@ class AnalyticsWindow:
             previous_end=start,
         )
 
+
+
+# Rates over fewer leads than this are withheld: "100%" from one lead misleads.
+MIN_RATE_SAMPLE = 5
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    if denominator < MIN_RATE_SAMPLE:
+        return None
+    return round((numerator / denominator) * 100, 1)
 
 def _safe_change(current: float, previous: float) -> float | None:
     if previous == 0:
@@ -222,7 +233,10 @@ class AnalyticsService:
                 PipelineEventORM.workspace_id == self.workspace_id,
                 PipelineEventORM.lead_id.in_(lead_ids),
                 (
-                    (PipelineEventORM.stage == "meeting_scheduled")
+                    (
+                        (PipelineEventORM.stage == "meeting_scheduled")
+                        & PipelineEventORM.status.in_(VERIFIED_MEETING_STATUSES)
+                    )
                     | (
                         (PipelineEventORM.stage == "manual_progress")
                         & (PipelineEventORM.status == "meeting_scheduled")
@@ -266,16 +280,15 @@ class AnalyticsService:
                     "lead_volume": len(items),
                     "qualified_leads": qualified,
                     "booked_leads": booked,
-                    "booked_rate": round((booked / len(items)) * 100, 1) if items else 0,
-                    "qualified_to_booked_rate": (
-                        round((booked / qualified) * 100, 1) if qualified else None
-                    ),
+                    "booked_rate": _rate(booked, len(items)),
+                    "qualified_to_booked_rate": _rate(booked, qualified),
                     "closed_won_count": won,
                     "scored_leads": len(scored),
                     "share_percent": round((len(items) / total) * 100, 1) if total else 0,
-                    "qualification_rate": round((qualified / len(items)) * 100, 1),
-                    "sql_conversion_rate": round((sqls / len(items)) * 100, 1),
-                    "closed_won_conversion_rate": round((won / len(items)) * 100, 1),
+                    "qualification_rate": _rate(qualified, len(items)),
+                    "sql_conversion_rate": _rate(sqls, len(items)),
+                    "closed_won_conversion_rate": _rate(won, len(items)),
+                    "rate_sample_minimum": MIN_RATE_SAMPLE,
                     "revenue": round(revenue, 2),
                     "average_score": average_score,
                     "importance_index": importance,
@@ -974,7 +987,7 @@ class AnalyticsService:
         booked_ids = {
             event.lead_id
             for event in events
-            if event.stage == "meeting_scheduled"
+            if (event.stage == "meeting_scheduled" and event.status in VERIFIED_MEETING_STATUSES)
             or (
                 event.stage == "manual_progress"
                 and event.status == "meeting_scheduled"

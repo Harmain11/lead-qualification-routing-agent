@@ -35,6 +35,7 @@ from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import get_current_routing, get_lead
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 
 router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
 workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
@@ -427,7 +428,7 @@ def _guard_unverified_meeting_claims(text: str | None, *, verified: bool) -> str
 def _has_verified_meeting(events: list[PipelineEventORM]) -> bool:
     return any(
         event.stage == "meeting_scheduled"
-        and event.status in {"meeting_scheduled", "booked", "confirmed"}
+        and event.status in VERIFIED_MEETING_STATUSES
         for event in events
     )
 
@@ -438,7 +439,7 @@ def _has_verified_workspace_meeting(workspace_context: dict[str, Any]) -> bool:
     return any(
         isinstance(event, dict)
         and event.get("kind") == "meeting_scheduled"
-        and event.get("status") in {"meeting_scheduled", "booked", "confirmed"}
+        and event.get("status") in VERIFIED_MEETING_STATUSES
         for event in events
     )
 

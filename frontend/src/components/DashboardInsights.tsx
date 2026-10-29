@@ -49,21 +49,21 @@ export function DashboardInsights({
   const sources = (channels?.channels ?? [])
     .filter((source) => Number.isFinite(source.lead_volume) && source.lead_volume > 0);
   const qualificationRows = [...sources]
-    .filter((source) => Number.isFinite(source.qualification_rate))
-    .sort((a, b) => b.qualification_rate - a.qualification_rate || b.lead_volume - a.lead_volume)
+    .filter((source) => source.qualification_rate != null && Number.isFinite(source.qualification_rate))
+    .sort((a, b) => (b.qualification_rate ?? 0) - (a.qualification_rate ?? 0) || b.lead_volume - a.lead_volume)
     .map((source) => ({
       label: readable(source.channel),
-      value: source.qualification_rate,
+      value: source.qualification_rate ?? 0,
       note: `${source.qualified_leads !== undefined ? `${source.qualified_leads} qualified / ` : ""}${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
     }));
   const qualityRows = [...sources]
     .sort((a, b) => (b.closed_won_count ?? 0) - (a.closed_won_count ?? 0)
-      || b.closed_won_conversion_rate - a.closed_won_conversion_rate
+      || (b.closed_won_conversion_rate ?? 0) - (a.closed_won_conversion_rate ?? 0)
       || b.lead_volume - a.lead_volume)
     .map((source) => ({
       label: readable(source.channel),
       value: source.closed_won_count ?? 0,
-      note: `${source.closed_won_conversion_rate}% win rate · ${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
+      note: `${source.closed_won_conversion_rate == null ? "Win rate needs more leads" : `${source.closed_won_conversion_rate}% win rate`} · ${source.lead_volume.toLocaleString()} ${source.lead_volume === 1 ? "lead" : "leads"}`,
     }));
   const qualificationFormat = (value: number) => `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
 
@@ -152,7 +152,7 @@ export function DashboardInsights({
                 {
                   id: "booked-rate",
                   label: "Booked rate",
-                  rows: sources.map((source) => ({
+                  rows: sources.filter((source) => source.booked_rate != null).map((source) => ({
                     label: readable(source.channel),
                     value: source.booked_rate ?? 0,
                   })),
@@ -162,9 +162,9 @@ export function DashboardInsights({
                 {
                   id: "sql-rate",
                   label: "SQL conversion rate",
-                  rows: sources.map((source) => ({
+                  rows: sources.filter((source) => source.sql_conversion_rate != null).map((source) => ({
                     label: readable(source.channel),
-                    value: source.sql_conversion_rate,
+                    value: source.sql_conversion_rate ?? 0,
                   })),
                   formatter: qualificationFormat,
                   scaleMaximum: 100,
@@ -194,9 +194,9 @@ export function DashboardInsights({
                 {
                   id: "win-rate",
                   label: "Win rate",
-                  rows: sources.map((source) => ({
+                  rows: sources.filter((source) => source.closed_won_conversion_rate != null).map((source) => ({
                     label: readable(source.channel),
-                    value: source.closed_won_conversion_rate,
+                    value: source.closed_won_conversion_rate ?? 0,
                   })),
                   formatter: qualificationFormat,
                   scaleMaximum: 100,

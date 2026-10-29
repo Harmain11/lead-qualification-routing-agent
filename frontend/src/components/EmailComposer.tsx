@@ -492,7 +492,7 @@ export function EmailComposer({
     </ul>}
     {error && <div className="notice" role="alert">{error}</div>}
     {notice && <div className="notice" role="status">{notice}</div>}
-    {sendBlockedReason && <div className="notice" role="status">{sendBlockedReason}</div>}
+    {sendBlockedReason && <div className="notice email-composer-hold" role="status"><b>Sending is on hold.</b> {sendBlockedReason}</div>}
     <div className="email-composer-footer">
       <button className="button-quiet" type="button" onClick={() => void deleteDraft()} disabled={busy}>
         {busyAction === "delete" ? "Deleting…" : savedDraft || onDeleteOverride ? "Delete draft" : "Discard"}
@@ -501,7 +501,7 @@ export function EmailComposer({
         {busyAction === "save" ? "Saving…" : savedDraft ? "Update draft" : "Save draft"}
       </button>
       <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || replyUnavailable || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
-        {busyAction === "send" ? "Sending…" : sendBlockedReason ? "Human review required" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send email")}
+        {busyAction === "send" ? "Sending…" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send email")}
       </button>
     </div>
   </form>;

@@ -53,6 +53,7 @@ import {
 import { DealRoom, StageRail } from "./DealRoom";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 import { confirmAction } from "../ui/confirm";
+import { LeadHighlights } from "./LeadHighlights";
 
 /** The record's sections, in the order a person works a lead. */
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
@@ -138,6 +139,12 @@ export function LeadRecord({
   const tabsRef = useRef<HTMLDivElement>(null);
   const tabs = TABS.filter((tab) => (tab.id !== "email" || canViewEmail));
   const shownSection: LeadDetailSection = activeSection === "closing" ? "deal" : activeSection;
+  // Panels mount on first visit and stay mounted, so opening a lead doesn't run every tab's requests.
+  const [visited, setVisited] = useState<Set<LeadDetailSection>>(() => new Set([shownSection, "follow-ups"]));
+  useEffect(() => {
+    setVisited((current) => (current.has(shownSection) ? current : new Set([...current, shownSection])));
+  }, [shownSection]);
+  useEffect(() => { setVisited(new Set([shownSection, "follow-ups"])); }, [lead.id]);
   const updatedRef = useRef(onUpdated);
   useEffect(() => { updatedRef.current = onUpdated; }, [onUpdated]);
   useEffect(() => {
@@ -478,77 +485,23 @@ export function LeadRecord({
       {notice && <Banner title={notice} action={<Button kind="plain" size="sm" onClick={() => setNotice(null)}>Dismiss</Button>} />}
       {manualReviewError && <Banner tone="attention" title="Manual review wasn't completed">{manualReviewError}</Banner>}
 
-      {review && (
-        <div className="v-hold" role="status" aria-labelledby={`hold-${lead.id}`}>
-          <span className="v-hold-icon"><Icon name="hand" size={18} /></span>
-          <div className="v-hold-copy">
-            <b id={`hold-${lead.id}`}>Waiting for a person to review</b>
-            <p>{reviewReasons[0] ?? "This lead matched one of your review rules. Check the details and analysis before contacting them."}</p>
-            {reviewReasons.length > 1 && (
-              <details>
-                <summary>{reviewReasons.length - 1} more matched condition{reviewReasons.length > 2 ? "s" : ""}</summary>
-                <ul>{reviewReasons.slice(1).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-              </details>
-            )}
-          </div>
-          {canManageManualReview && (
-            <div className="v-hold-actions">
-              <Button
-                kind="filled"
-                size="sm"
-                type="button"
-                disabled={completingManualReview}
-                onClick={() => void completeManualReview()}
-              >
-                {completingManualReview ? "Completing…" : "Mark review done"}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-      {activeMeetingIndicator && (
-        <div className="v-meeting-status" data-state={activeMeetingIndicator.kind} role="status" aria-label="Meeting status">
-          <span className="v-meeting-status-mark" aria-hidden="true"><Icon name="calendar" size={18} /></span>
-          <div className="v-meeting-status-copy">
-            <b>
-              {activeMeetingIndicator.kind === "appointment_needed" ? "Appointment needed"
-                : activeMeetingIndicator.kind === "draft_ready" ? "Appointment draft ready to send"
-                : activeMeetingIndicator.kind === "sending" ? "Appointment link is being sent"
-                  : activeMeetingIndicator.kind === "awaiting_booking" ? "Booking link sent"
-                    : activeMeetingIndicator.kind === "booked" ? "Meeting booked"
-                      : "Meeting booking needs attention"}
-            </b>
-            <p>
-              {activeMeetingIndicator.kind === "appointment_needed"
-                ? "This lead asked to set up a meeting. Prepare an appointment draft, then review and send it from Emails."
-                : activeMeetingIndicator.kind === "draft_ready"
-                ? canViewEmail
-                  ? "Review or edit the draft in Emails, then send it so the lead can book a meeting."
-                  : "An appointment draft is ready. Ask a teammate with email access to review and send it."
-                : activeMeetingIndicator.kind === "sending" ? "The appointment email is being processed."
-                  : activeMeetingIndicator.kind === "awaiting_booking" ? "The lead has the booking link; waiting for them to choose a time."
-                    : activeMeetingIndicator.kind === "booked" ? activeMeetingIndicator.bookedAt
-                      ? `Meeting set for ${formatMeetingDate(activeMeetingIndicator.bookedAt)}.`
-                      : "The calendar confirmed this meeting."
-                      : "Open Follow up to review the booking issue."}
-            </p>
-          </div>
-          {activeMeetingIndicator.kind === "draft_ready" && canViewEmail && (
-            <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open email draft</Button>
-          )}
-          {activeMeetingIndicator.kind === "needs_attention" && (
-            <Button kind="plain" size="sm" onClick={() => onSectionChange("follow-ups")}>Open Follow up</Button>
-          )}
-          {activeMeetingIndicator.kind === "awaiting_booking" && (
-            <Button kind="plain" size="sm" onClick={() => setMeetingRefresh((value) => value + 1)}>Refresh status</Button>
-          )}
-        </div>
-      )}
-      {analysis?.status === "provider_error" && (
-        <Banner tone="attention" title="The AI analysis didn’t complete">
-          A rules-based fallback assessment was used. It appears in Review only when that rule is enabled or another rule applies.
-        </Banner>
-      )}
+      <LeadHighlights
+        lead={lead}
+        review={review}
+        reviewReasons={reviewReasons}
+        meeting={activeMeetingIndicator}
+        slaDue={slaDue ?? null}
+        canEdit={canEdit}
+        canViewEmail={canViewEmail}
+        canManageManualReview={canManageManualReview}
+        completingReview={completingManualReview}
+        onCompleteReview={() => void completeManualReview()}
+        onOpenSection={(section) => onSectionChange(section)}
+        onEditDetails={() => { setProfileDraft(createLeadProfileDraft(lead)); setEditingProfile(true); setNotice(null); }}
+        onRefreshMeeting={() => setMeetingRefresh((value) => value + 1)}
+        formatDate={formatMeetingDate}
+        formatDuration={formatDuration}
+      />
 
       <div className="v-tabs" ref={tabsRef} role="tablist" aria-label="Lead sections">
         {tabs.map((tab, index) => (
@@ -640,6 +593,7 @@ export function LeadRecord({
             {analysis && (
               <section className="v-card v-card-pad v-gist">
                 <h2 className="v-card-title">In short</h2>
+                <p className="v-card-sub">Read from the inquiry when it was qualified. The current status is shown at the top of this lead.</p>
                 <dl>
                   {analysis.summary.need && <div><dt>Need</dt><dd>{analysis.summary.need}</dd></div>}
                   {analysis.summary.pain_point && <div><dt>Pain</dt><dd>{analysis.summary.pain_point}</dd></div>}
@@ -804,8 +758,8 @@ export function LeadRecord({
       {/* ------------------------------------------------------------- Email */}
       <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
         <div className="v-stack">
-          {canEdit && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
-          <div className="v-legacy-block">
+          {visited.has("email") && canEdit && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
+          {visited.has("email") && <div className="v-legacy-block">
             <LeadEmailPanel
               lead={lead}
               active={shownSection === "email"}
@@ -815,14 +769,14 @@ export function LeadRecord({
               onAskAgent={() => onSectionChange("agent")}
               onConversationSynced={synced}
             />
-          </div>
+          </div>}
         </div>
       </section>
 
       {/* ---------------------------------------------- Progress & History */}
       {/* --------------------------------------------------------- Assistant */}
       <section id="lead-panel-agent" className="v-panel v-legacy-block" role="tabpanel" aria-labelledby="lead-tab-agent" tabIndex={0} hidden={shownSection !== "agent"}>
-        <LeadAssistantPanel
+        {visited.has("agent") && <LeadAssistantPanel
           lead={lead}
           canEdit={canEdit}
           canManageManualReview={canManageManualReview}
@@ -835,7 +789,7 @@ export function LeadRecord({
           onUpdated={(updated) => onUpdated?.(updated)}
           onDeleted={(leadId) => onDeleted?.(leadId)}
           onSectionChange={onSectionChange}
-        />
+        />}
       </section>
       {move && (
         <StageMoveSheet

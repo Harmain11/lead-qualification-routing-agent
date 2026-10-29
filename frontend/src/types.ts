@@ -455,6 +455,9 @@ export type MeetingRecommendations = {
   offer_has_confirmed_selection: boolean;
   offer_can_be_replaced: boolean;
   booked_meeting_at: string | null;
+  cancelled_meeting_at?: string | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
 };
 
 export type ManagedMeeting = {
@@ -852,15 +855,16 @@ export type ChannelAnalytics = {
     channel: string;
     lead_volume: number;
     share_percent: number;
-    qualification_rate: number;
+    qualification_rate: number | null;
     qualified_leads?: number;
     booked_leads?: number;
-    booked_rate?: number;
+    booked_rate?: number | null;
     qualified_to_booked_rate?: number | null;
+    rate_sample_minimum?: number;
     closed_won_count?: number;
     scored_leads?: number;
-    sql_conversion_rate: number;
-    closed_won_conversion_rate: number;
+    sql_conversion_rate: number | null;
+    closed_won_conversion_rate: number | null;
     revenue: number;
     average_score: number;
     importance_index: number;

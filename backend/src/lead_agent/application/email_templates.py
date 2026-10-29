@@ -29,7 +29,7 @@ DEFAULT_EMAIL_TEMPLATES: dict[str, dict[str, str]] = {
         "body": (
             "Hi {{lead_name}},\n\nThanks for reaching out about {{product_or_service}}. "
             "We have received your inquiry and a member of our team will review it.\n\n"
-            "Best,\nThe team"
+            "Best regards,"
         ),
     },
     "follow_up": {
@@ -38,7 +38,7 @@ DEFAULT_EMAIL_TEMPLATES: dict[str, dict[str, str]] = {
             "Hi {{lead_name}},\n\nThanks for reaching out to us about "
             "{{product_or_service}}. I read your note and would be glad to learn more about "
             "what {{company_name}} is looking for.\n\nWould a brief conversation about your "
-            "needs be useful?\n\nBest,\nThe team"
+            "needs be useful?\n\nBest regards,"
         ),
     },
 }
@@ -61,6 +61,14 @@ def get_email_template(
         "body": row.body,
         "generation_method": row.generation_method,
     }
+
+
+def lead_signoff(lead: LeadORM) -> str:
+    """Sign as the assigned rep; with no owner, close without inventing a sender."""
+    current = [item for item in getattr(lead, "routing_decisions", []) or [] if item.is_current]
+    route = max(current, key=lambda item: item.created_at, default=None)
+    name = (getattr(route, "assigned_rep_name", None) or "").strip()
+    return f"Best regards,\n{name}" if name else "Best regards,"
 
 
 def apply_workspace_email_signature(

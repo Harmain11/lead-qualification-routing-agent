@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from lead_agent.application.assignment_notifications import notify_lead_action
 from lead_agent.application.email_templates import (
+    lead_signoff,
     apply_workspace_email_signature,
     get_email_template,
 )
@@ -407,7 +408,7 @@ def _offer_email(
             f"Choose a time that works for you using my {provider_name} booking link:\n"
             f"{booking_url}{time_note}\n\n"
             "Looking forward to speaking with you.\n\n"
-            "Best,\nThe team"
+            f"{lead_signoff(lead)}"
         )
         return subject, body
 
@@ -464,7 +465,7 @@ def _offer_email(
         f"{reply_instruction}"
         f"We’ll add the meeting to {provider_name} and send you a calendar invitation. "
         "If none of these times work, reply “none” and Corral will flag it for your team.\n\n"
-        "Best,\nThe team"
+        f"{lead_signoff(lead)}"
     )
     return subject, body
 

@@ -41,6 +41,7 @@ from lead_agent.infrastructure.gmail import (
 )
 from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 
 router = APIRouter(prefix="/v1/email", tags=["email"])
 _EMAIL_ADDRESS = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
@@ -610,7 +611,7 @@ def compose_email_with_ai(
                 PipelineEventORM.workspace_id == workspace.workspace_id,
                 PipelineEventORM.lead_id == lead.id,
                 PipelineEventORM.stage == "meeting_scheduled",
-                PipelineEventORM.status.in_(("meeting_scheduled", "booked", "confirmed")),
+                PipelineEventORM.status.in_(VERIFIED_MEETING_STATUSES),
             )
         )
         is not None

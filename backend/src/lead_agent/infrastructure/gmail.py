@@ -4,6 +4,7 @@ import base64
 import binascii
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import html
 import json
 import re
 import time
@@ -1420,7 +1421,8 @@ class GmailInboundProvider:
                 "recipients": ", ".join(recipients)[:1000],
                 "subject": headers.get("subject", "(no subject)")[:500],
                 "sent_at": sent_at,
-                "snippet": str(metadata.get("snippet") or "")[:500],
+                # Gmail API snippets are HTML-escaped ("wasn&#39;t"); show plain text.
+                "snippet": html.unescape(str(metadata.get("snippet") or ""))[:500],
                 "direction": (
                     "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
                 ),
@@ -1480,7 +1482,7 @@ class GmailInboundProvider:
                 "direction": (
                     "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
                 ),
-                "body": (body or str(message.get("snippet") or ""))[:8000],
+                "body": (body or html.unescape(str(message.get("snippet") or "")))[:8000],
             })
         rows.sort(key=lambda item: item["sent_at"])
         return rows
@@ -2652,7 +2654,7 @@ class GmailOutboundProvider:
             f"We have received your request for {company_name or 'your team'} and "
             "our team will review it shortly.\n\n"
             "We will follow up with the next step soon.\n\n"
-            "Best,\nThe team"
+            "Best regards,"
         )
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
         payload = self.api.post("messages/send", {"raw": raw})
