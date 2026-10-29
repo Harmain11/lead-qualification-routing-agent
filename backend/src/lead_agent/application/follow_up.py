@@ -10,6 +10,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.email_templates import (
     apply_workspace_email_signature,
     get_email_template,
@@ -190,13 +191,28 @@ def generate_follow_up_draft(
         raise FollowUpNotEligible(
             "Connect and verify OpenAI to generate an AI follow-up. No template draft was created."
         )
+    meeting_verified = (
+        session.scalar(
+            select(PipelineEventORM.id).where(
+                PipelineEventORM.workspace_id == lead.workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "meeting_scheduled",
+                PipelineEventORM.status.in_(("meeting_scheduled", "booked", "confirmed")),
+            )
+        )
+        is not None
+    )
     try:
         content = FollowUpEmailContent.model_validate(draft_method(facts))
+        guarded = guard_outgoing_email(
+            content.subject, content.body, meeting_verified=meeting_verified
+        )
         content = FollowUpEmailContent.model_validate(
             {
                 **content.model_dump(),
+                "subject": guarded.subject or content.subject,
                 "body": apply_workspace_email_signature(
-                    content.body,
+                    guarded.body or content.body,
                     business_profile,
                     fallback_business_name=workspace.name if workspace else "",
                 ),

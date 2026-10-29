@@ -111,7 +111,9 @@ def test_workspace_agent_safety_matrix(case: MatrixCase):
     assert "has been scheduled" not in str(action.get("email_body", "")).casefold()
     if case.action_kind == "send_email":
         assert action["kind"] == "send_email"
-        assert "not confirmed" in str(action["email_body"]).casefold()
+        assert "confirmed" not in str(action["email_body"]).casefold()
+        assert "confirmation" not in str(action["email_subject"]).casefold()
+        assert "does not confirm a meeting" in str(action["summary"]).casefold()
 
 
 def test_workspace_capability_inventory_is_explicit_and_reviewable():

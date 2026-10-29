@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission, require_permissions
+from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.manual_review import lead_manual_review_reasons
@@ -418,26 +419,9 @@ def _truthful_lead_assistant_reply(
     return reply
 
 
-_UNVERIFIED_MEETING_CLAIM_REPLACEMENTS = (
-    (re.compile(r"\b(?:I|we) wanted to confirm\b", re.I), "I wanted to help arrange"),
-    (re.compile(r"\band\s+confirmed\b", re.I), "and is not confirmed yet"),
-    (re.compile(r"\b(?:has|have) been (?:booked|scheduled|confirmed)\b", re.I), "has not been confirmed yet"),
-    (re.compile(r"\b(?:was|were) (?:booked|scheduled|confirmed)\b", re.I), "was not confirmed"),
-    (re.compile(r"\bis (?:booked|scheduled|confirmed)\b", re.I), "is not confirmed yet"),
-    (re.compile(r"\b(?:has|have) been (?:cancelled|canceled|rescheduled)\b", re.I), "has not been changed yet"),
-    (re.compile(r"\b(?:was|were) (?:cancelled|canceled|rescheduled)\b", re.I), "was not changed"),
-    (re.compile(r"\bI(?:'ve| have)?\s+(?:booked|scheduled|confirmed)\b", re.I), "I have not booked"),
-)
-
-
 def _guard_unverified_meeting_claims(text: str | None, *, verified: bool) -> str | None:
     """Keep an editable draft from stating that an unverified calendar action happened."""
-    if not text or verified:
-        return text
-    guarded = text
-    for pattern, replacement in _UNVERIFIED_MEETING_CLAIM_REPLACEMENTS:
-        guarded = pattern.sub(replacement, guarded)
-    return guarded
+    return guard_outgoing_email(None, text, meeting_verified=verified).body
 
 
 def _has_verified_meeting(events: list[PipelineEventORM]) -> bool:
@@ -1163,12 +1147,14 @@ def chat_with_workspace_assistant(
     )
     if result.action.kind == "send_email":
         verified_meeting = _has_verified_workspace_meeting(workspace_context)
-        guarded_body = _guard_unverified_meeting_claims(
+        guarded = guard_outgoing_email(
+            result.action.email_subject,
             result.action.email_body,
-            verified=verified_meeting,
+            meeting_verified=verified_meeting,
         )
-        if guarded_body != result.action.email_body:
-            result.action.email_body = guarded_body
+        if guarded.changed:
+            result.action.email_subject = guarded.subject
+            result.action.email_body = guarded.body
             result.action.summary = (
                 f"{result.action.summary.rstrip('.')} "
                 "The draft does not confirm a meeting until a calendar provider reports success."
@@ -1375,10 +1361,13 @@ def chat_with_lead_assistant(
         result.reply, result.action, latest_user_message,
     )
     if result.action.kind in {"draft_email", "send_follow_up"}:
-        result.action.email_body = _guard_unverified_meeting_claims(
+        guarded = guard_outgoing_email(
+            result.action.email_subject,
             result.action.email_body,
-            verified=_has_verified_meeting(events),
+            meeting_verified=_has_verified_meeting(events),
         )
+        result.action.email_subject = guarded.subject
+        result.action.email_body = guarded.body
     response = result.model_dump(mode="json")
     if "leads.view" in workspace.permissions:
         lead_links = _lead_assistant_links(

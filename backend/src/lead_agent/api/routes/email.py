@@ -18,6 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.gmail_threading import matches_lead_thread
@@ -603,10 +604,24 @@ def compose_email_with_ai(
                 status_code=409,
                 detail="AI could not preserve the meeting options. The current draft was kept.",
             )
-    subject = request.subject if request.thread_id else generated.subject
+    meeting_verified = lead is not None and (
+        session.scalar(
+            select(PipelineEventORM.id).where(
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "meeting_scheduled",
+                PipelineEventORM.status.in_(("meeting_scheduled", "booked", "confirmed")),
+            )
+        )
+        is not None
+    )
+    guarded = guard_outgoing_email(
+        generated.subject, generated.body, meeting_verified=meeting_verified
+    )
+    subject = request.subject if request.thread_id else guarded.subject
     return ComposeWithAIResponse(
-        subject=subject,
-        body=apply_workspace_email_signature(generated.body, profile),
+        subject=subject or "",
+        body=apply_workspace_email_signature(guarded.body or generated.body, profile),
     )
 
 

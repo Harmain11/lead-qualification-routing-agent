@@ -35,15 +35,23 @@ def request_id_for(value: str | None) -> str:
     return value if value and _REQUEST_ID_PATTERN.fullmatch(value) else str(uuid4())
 
 
-def apply_security_headers(response: Response, *, production: bool) -> None:
+def apply_security_headers(
+    response: Response, *, production: bool, interactive_docs: bool = False
+) -> None:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = (
         'camera=(), microphone=(self "https://phone.cloudtalk.io"), geolocation=()'
     )
+    script_src = "'self' https://i.replit.com"
+    if interactive_docs:
+        script_src += " 'unsafe-inline' https://cdn.jsdelivr.net"
     response.headers["Content-Security-Policy"] = (
-        "frame-src 'self' https://phone.cloudtalk.io; "
+        f"default-src 'self'; script-src {script_src}; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; "
+        "font-src 'self' data:; connect-src 'self'; form-action 'self'; "
+        "frame-src 'self' https://phone.cloudtalk.io https://apps.ringcentral.com; "
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     )
     if production:
@@ -68,7 +76,11 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
         safe_path = redact_intake_path(request.url.path)
         try:
             response = await call_next(request)
-            apply_security_headers(response, production=settings.app_env == "production")
+            apply_security_headers(
+                response,
+                production=settings.app_env == "production",
+                interactive_docs=request.url.path in {"/docs", "/redoc"},
+            )
             response.headers["X-Request-ID"] = request_id
             _LOGGER.info(
                 "http.request",
@@ -100,7 +112,11 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
                 },
             )
             response = JSONResponse({"detail": "internal server error"}, status_code=500)
-            apply_security_headers(response, production=settings.app_env == "production")
+            apply_security_headers(
+                response,
+                production=settings.app_env == "production",
+                interactive_docs=request.url.path in {"/docs", "/redoc"},
+            )
             response.headers["X-Request-ID"] = request_id
             return response
         finally:

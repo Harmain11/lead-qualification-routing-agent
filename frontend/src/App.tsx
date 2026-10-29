@@ -1435,7 +1435,7 @@ function App() {
             </div>
           )}
           {!hasViewPermission(view, workspacePermissions) ||
-          (loading && !data && view !== "settings" && view !== "team" && view !== "icp") ? (
+          (loading && !data && !VIEWS_WITHOUT_ANALYTICS.has(view)) ? (
             <ContentLoadingState />
           ) : (
             <Suspense fallback={<ContentLoadingState />}>
@@ -1881,16 +1881,32 @@ function ContentLoadingState() {
   );
 }
 
+const VIEWS_WITHOUT_ANALYTICS: ReadonlySet<string> = new Set([
+  "settings",
+  "team",
+  "icp",
+  "email",
+  "calendar",
+  "dialer",
+  "contacts",
+  "accounts",
+  "automations",
+  "integrations",
+  "policies",
+  "compliance",
+  "intelligence",
+]);
+
 function LoadingState() {
   return (
-    <div className="loading-state">
+    <div className="loading-state" role="status" aria-live="polite">
       <div className="loading-core">
         <i />
         <i />
         <i />
       </div>
-      <b>Synchronizing workspace intelligence</b>
-      <span>Loading analytics, pipeline and agent activity…</span>
+      <b>Signing you in</b>
+      <span>Checking your session…</span>
     </div>
   );
 }
