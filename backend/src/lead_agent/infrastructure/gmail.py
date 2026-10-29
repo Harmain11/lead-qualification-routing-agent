@@ -1413,7 +1413,7 @@ class GmailInboundProvider:
                 sent_at = headers.get("date", "")
             labels = metadata.get("labelIds", [])
             summaries.append({
-                "message_id": message_id,
+                "message_id": str(metadata.get("id") or item["id"]),
                 "thread_id": str(metadata.get("threadId") or item.get("threadId") or ""),
                 "sender": parseaddr(headers.get("from", ""))[1].strip().lower(),
                 "sender_name": sender_name[:255],
