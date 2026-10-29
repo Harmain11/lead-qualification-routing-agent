@@ -28,6 +28,7 @@ import { FeatureGuide } from "../../components/FeatureGuide";
 import { StageMoveSheet } from "../deals/StageMoveSheet";
 import { Icon } from "../ui/Icon";
 import { Badge, Banner, Button, EmptyState, IconButton, Segmented, Sheet, formatShortDate } from "../ui/primitives";
+import { confirmAction } from "../ui/confirm";
 
 type Member = { user_id: string; display_name: string };
 
@@ -223,9 +224,8 @@ export function DealRoom({
                         <IconButton icon="download" label={`Print or save ${quote.number} as PDF`} size={16} onClick={() => printQuote(quote, lead)} />
                         {canEdit && quote.status === "draft" && <IconButton icon="edit" label={`Edit ${quote.number}`} size={16} onClick={() => setEditing(quote)} />}
                         {canEdit && quote.status === "draft" && !quote.sentAt && <IconButton icon="trash" label={`Delete draft ${quote.number}`} size={16} onClick={() => {
-                          if (window.confirm(`Delete draft ${quote.number}, version ${quote.version}? This cannot be undone.`)) {
-                            dealActions.deleteQuote(lead.id, quote.id);
-                          }
+                          void confirmAction({ title: `Delete draft ${quote.number}?`, message: `Version ${quote.version} is removed. This can't be undone.`, confirmLabel: "Delete draft", tone: "danger" })
+                            .then((confirmed) => { if (confirmed) dealActions.deleteQuote(lead.id, quote.id); });
                         }} />}
                         {canEmail && quote.status !== "superseded" && <IconButton icon="send" label={`Review and email ${quote.number}`} size={16} onClick={() => setReviewing(quote)} />}
                         {canEdit && quote.status !== "superseded" && (

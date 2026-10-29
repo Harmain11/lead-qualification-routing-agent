@@ -344,7 +344,7 @@ export function Sheet({
     const element = dialog.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     element?.showModal();
-    element?.querySelector<HTMLElement>("[autofocus], input:not([type=radio]):not([type=checkbox]), textarea, select")?.focus();
+    element?.querySelector<HTMLElement>("[data-autofocus], [autofocus], input:not([type=radio]):not([type=checkbox]), textarea, select")?.focus();
     return () => {
       element?.close();
       if (previous?.isConnected) previous.focus();

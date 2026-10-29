@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { cancelLeadMeeting, getLeadManagedMeeting, rescheduleLeadMeeting } from "../api";
 import type { ManagedMeeting } from "../types";
 import type { LeadMeetingIndicator } from "./LeadMeetingPanel";
+import { confirmAction } from "../v3/ui/confirm";
 
 type Props = {
   leadId: string;
@@ -45,7 +46,7 @@ export function LeadMeetingManagement({ leadId, canEdit, refreshToken, onChanged
   async function cancel(event: FormEvent) {
     event.preventDefault();
     if (!meeting || !reason.trim() || busy) return;
-    if (!window.confirm(`Cancel the ${formatTime(meeting.start_at)} meeting? The calendar may notify attendees.`)) return;
+    if (!(await confirmAction({ title: `Cancel the ${formatTime(meeting.start_at)} meeting?`, message: "The calendar provider may notify every attendee.", confirmLabel: "Cancel meeting", cancelLabel: "Keep meeting", tone: "danger" }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -71,7 +72,7 @@ export function LeadMeetingManagement({ leadId, canEdit, refreshToken, onChanged
       setError("Choose a valid start and end time.");
       return;
     }
-    if (!window.confirm(`Move the meeting to ${formatTime(startAt.toISOString())}? The calendar may notify attendees.`)) return;
+    if (!(await confirmAction({ title: `Move the meeting to ${formatTime(startAt.toISOString())}?`, message: "The calendar provider may notify every attendee.", confirmLabel: "Move meeting" }))) return;
     setBusy(true);
     setError(null);
     try {

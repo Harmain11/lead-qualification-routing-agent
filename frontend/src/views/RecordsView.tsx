@@ -3,6 +3,7 @@ import { createClientId } from "../clientIds";
 import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave, type Company, type Contact } from "../operationsApi";
+import { confirmAction } from "../v3/ui/confirm";
 type Touch = {
   id: string;
   source: string;
@@ -579,11 +580,12 @@ export function RecordsView({
                 <button
                   className="secondary-button"
                   onClick={() => {
-                    if (
-                      window.confirm(
-                        "Merge these contact records? Lead touches move to the first person. Both email identities and consent histories remain recorded.",
-                      )
-                    )
+                    void confirmAction({
+                      title: "Merge these contacts?",
+                      message: "Lead touches move to the first person. Both email identities and consent histories stay recorded.",
+                      confirmLabel: "Merge contacts",
+                    }).then((confirmed) => {
+                      if (!confirmed) return;
                       void act(async () => {
                         await opsSave(
                           `/v1/records/contacts/${row.right_id}/merge`,
@@ -593,6 +595,7 @@ export function RecordsView({
                           current.filter((value) => value !== row),
                         );
                       });
+                    });
                   }}
                 >
                   Merge after review

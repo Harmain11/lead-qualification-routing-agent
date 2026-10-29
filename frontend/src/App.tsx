@@ -47,7 +47,6 @@ import {
   ringCentralEmbedClientId,
   type DialerPhoneConnection,
 } from "./components/dialerPhoneConfig";
-import { ActivityToasts } from "./components/ActivityToasts";
 import { LeadNotificationCenter } from "./components/LeadNotificationCenter";
 import { PHONE_CALL_ENDED } from "./components/phoneBridge";
 import { useAssignmentNotifications } from "./useAssignmentNotifications";
@@ -1289,7 +1288,6 @@ function App() {
       style={{ "--workspace-accent": branding.accent, "--workspace-accent-text": accentText } as CSSProperties}
     >
       <a className="v-skip" href="#main">Skip to content</a>
-      <ActivityToasts />
       <NativeSelectEnhancer />
       <Sidebar
         sections={navSections}

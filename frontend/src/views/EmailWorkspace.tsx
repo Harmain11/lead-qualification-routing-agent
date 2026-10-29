@@ -17,6 +17,7 @@ import type {
   WorkspaceEmailDraft,
   WorkspaceEmailDraftSummary,
 } from "../types";
+import { confirmAction } from "../v3/ui/confirm";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAILBOX_CACHE_FRESH_MS = 60_000;
@@ -356,8 +357,10 @@ export function EmailWorkspace({
             }).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be opened."));
           }}><strong>{draft.subject || "(no subject)"}</strong><span>{draft.recipient || "Recipient not set"} · {emailDate(draft.updated_at)}</span></button>
           <button type="button" className="button-quiet" aria-label={`Delete draft ${draft.subject || "without subject"}`} onClick={() => {
-            if (!window.confirm("Delete this saved draft? This cannot be undone.")) return;
-            deleteWorkspaceEmailDraft(draft.id).then(() => setDraftRevision((current) => current + 1)).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be deleted."));
+            void confirmAction({ title: "Delete this draft?", message: "The saved draft is removed. This can't be undone.", confirmLabel: "Delete draft", tone: "danger" }).then((confirmed) => {
+              if (!confirmed) return;
+              deleteWorkspaceEmailDraft(draft.id).then(() => setDraftRevision((current) => current + 1)).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be deleted."));
+            });
           }}>Delete</button>
         </li>)}
       </ul>}

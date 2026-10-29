@@ -8,6 +8,7 @@ import {
   type PolicyResponse,
 } from "../operationsApi";
 import type { Lead } from "../types";
+import { confirmAction } from "../v3/ui/confirm";
 type Retention = {
   lead_ids: string[];
   count: number;
@@ -447,11 +448,13 @@ export function ComplianceView() {
               className="secondary-button"
               disabled={!plan.count || busy}
               onClick={() => {
-                if (
-                  window.confirm(
-                    `Permanently delete these ${plan.count} inactive leads and their dependent history? Export anything you need first. This cannot be undone from Corral.`,
-                  )
-                )
+                void confirmAction({
+                  title: `Permanently delete ${plan.count} inactive lead${plan.count === 1 ? "" : "s"}?`,
+                  message: "Their dependent history is deleted too. Export anything you need first. This can't be undone from Corral.",
+                  confirmLabel: "Delete permanently",
+                  tone: "danger",
+                }).then((confirmed) => {
+                  if (!confirmed) return;
                   void action(async () => {
                     await opsSave("/v1/ops/retention/apply", {
                       proof: plan.proof,
@@ -459,6 +462,7 @@ export function ComplianceView() {
                     });
                     setPlan(null);
                   }, "Retention plan applied.");
+                });
               }}
             >
               Apply reviewed deletion plan

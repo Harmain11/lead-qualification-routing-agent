@@ -3,6 +3,7 @@ import { createCalendarEvent, deleteCalendarEvent, listCalendarEvents } from "..
 import type { Lead, WorkspaceCalendarEvent } from "../types";
 import { Icon } from "../v3/ui/Icon";
 import "./calendarWorkspace.css";
+import { confirmAction } from "../v3/ui/confirm";
 
 function dayKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -125,7 +126,8 @@ export function CalendarWorkspace({ leads, canEdit, onOpenLead, onOpenIntegratio
   }
 
   async function remove(event: WorkspaceCalendarEvent) {
-    if (!event.editable || !window.confirm(`Delete “${event.title}” from the workspace calendar?`)) return;
+    if (!event.editable) return;
+    if (!(await confirmAction({ title: `Delete “${event.title}”?`, message: "The event is removed from the workspace calendar.", confirmLabel: "Delete event", tone: "danger" }))) return;
     setError("");
     try {
       await deleteCalendarEvent(event.id);

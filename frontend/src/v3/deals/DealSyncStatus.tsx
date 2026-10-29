@@ -1,4 +1,5 @@
 import { reloadDealRecords, retryDealChanges, useDeals } from "./dealStore";
+import { confirmAction } from "../ui/confirm";
 
 export function DealSyncStatus() {
   const store = useDeals();
@@ -11,7 +12,8 @@ export function DealSyncStatus() {
     <div><strong>Deal changes need attention</strong><p>{store.syncError} Your unsaved draft is kept in this browser.</p></div>
     <button type="button" className="v-btn" onClick={() => void retryDealChanges()}>Retry save</button>
     <button type="button" className="v-btn" onClick={() => {
-      if (window.confirm("Reload the saved workspace records? This replaces the current unsaved deal draft.")) void reloadDealRecords();
+      void confirmAction({ title: "Reload saved records?", message: "This replaces your current unsaved deal draft.", confirmLabel: "Reload", tone: "danger" })
+        .then((confirmed) => { if (confirmed) void reloadDealRecords(); });
     }}>Reload saved records</button>
   </div>;
 }

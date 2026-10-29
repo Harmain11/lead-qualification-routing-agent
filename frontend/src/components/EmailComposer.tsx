@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "r
 import { composeEmailWithAI, deleteWorkspaceEmailDraft, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
 import { createClientId } from "../clientIds";
 import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
+import { confirmAction } from "../v3/ui/confirm";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -221,9 +222,11 @@ export function EmailComposer({
   }
 
   async function deleteDraft() {
-    if (busy || !window.confirm(savedDraft || onDeleteOverride
-      ? "Delete this saved draft? This cannot be undone."
-      : "Discard this unsent email?")) return;
+    if (busy) return;
+    const saved = Boolean(savedDraft || onDeleteOverride);
+    if (!(await confirmAction(saved
+      ? { title: "Delete this draft?", message: "The saved draft is removed. This can't be undone.", confirmLabel: "Delete draft", tone: "danger" }
+      : { title: "Discard this email?", message: "Your unsent changes will be lost.", confirmLabel: "Discard", tone: "danger" }))) return;
     setBusy(true);
     setBusyAction("delete");
     setError(null);
@@ -385,10 +388,9 @@ export function EmailComposer({
       attachments.length > 0 ||
       recipient !== (seed?.recipient ?? "") ||
       subject !== (seed?.subject ?? ""));
-    if (
-      hasUnsentChanges &&
-      !window.confirm("Close this composer and discard these unsent changes?")
-    ) {
+    if (hasUnsentChanges) {
+      void confirmAction({ title: "Discard unsent changes?", message: "Closing the composer loses what you've written.", confirmLabel: "Discard", cancelLabel: "Keep editing", tone: "danger" })
+        .then((confirmed) => { if (confirmed) onClose?.(); });
       return;
     }
     onClose?.();

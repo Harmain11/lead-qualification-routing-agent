@@ -26,6 +26,7 @@ import type {
   WorkspaceEmailTemplate,
 } from "../types";
 import { Panel, pretty } from "./productShared";
+import { confirmAction } from "../v3/ui/confirm";
 
 export function SettingsView({
   metadata,
@@ -1078,11 +1079,7 @@ function PublicIntakePanel({
     }
   };
   const rotate = async () => {
-    if (
-      !window.confirm(
-        "Rotate this URL? The old website form URL will stop accepting leads.",
-      )
-    )
+    if (!(await confirmAction({ title: "Rotate the form URL?", message: "The old website form URL stops accepting leads immediately. Update your website with the new one.", confirmLabel: "Rotate URL", tone: "danger" })))
       return;
     setBusy(true);
     setNotice(null);

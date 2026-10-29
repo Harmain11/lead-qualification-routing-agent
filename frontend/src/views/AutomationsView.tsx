@@ -12,6 +12,7 @@ import {
   type PlaybookNode,
   type Run,
 } from "../operationsApi";
+import { confirmAction } from "../v3/ui/confirm";
 
 const nodeTypes: NodeType[] = [
   "wait",
@@ -401,12 +402,8 @@ export function AutomationsView({
                               className="secondary-button"
                               disabled={busy || run.status === "processing"}
                               onClick={() => {
-                                if (
-                                  window.confirm(
-                                    "Cancel this run? Its recorded history will be kept.",
-                                  )
-                                )
-                                  void action(run, "cancel");
+                                void confirmAction({ title: "Cancel this run?", message: "No further steps run for this lead. Its recorded history is kept.", confirmLabel: "Cancel run", cancelLabel: "Keep running", tone: "danger" })
+                                  .then((confirmed) => { if (confirmed) void action(run, "cancel"); });
                               }}
                             >
                               Cancel

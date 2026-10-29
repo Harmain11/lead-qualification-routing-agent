@@ -19,6 +19,7 @@ import {
   titleize,
 } from "../ui/primitives";
 import { sourceLabel } from "./leadFormat";
+import { confirmAction } from "../ui/confirm";
 
 /* ================================================================= Today */
 
@@ -356,7 +357,7 @@ export function ReviewScreen({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   async function completeReview(id: string, name: string) {
-    if (!window.confirm(`Mark ${name}'s review done? This clears the hold, applies current routing, and may notify the assignee.`)) return;
+    if (!(await confirmAction({ title: `Mark ${name}'s review done?`, message: "This clears the hold, applies current routing and may notify the assignee.", confirmLabel: "Mark done" }))) return;
     setBusyId(id);
     setError(null);
     try {

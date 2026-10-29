@@ -27,6 +27,7 @@ import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AgentLeadChoices } from "./AgentLeadChoices";
 import "../views/emailWorkspace.css";
 import "./leadAssistant.css";
+import { confirmAction } from "../v3/ui/confirm";
 
 type ChatMessage = {
   id: string;
@@ -339,9 +340,11 @@ export function LeadAssistantPanel({
     changeMessage(message.id, { busy: true, error: undefined });
     try {
       if (action.kind === "reevaluate_lead") {
-        if (!window.confirm(
-          `Re-evaluate ${lead.full_name}'s qualification and routing using its current profile and recorded history?`,
-        )) return;
+        if (!(await confirmAction({
+          title: `Re-evaluate ${lead.full_name}?`,
+          message: "Qualification and routing are recalculated from the current profile and recorded history. The owner may change.",
+          confirmLabel: "Re-evaluate",
+        }))) return;
         const updated = await reevaluateLead(lead.id);
         onUpdated(updated);
         changeMessage(message.id, { done: true });
@@ -435,14 +438,14 @@ export function LeadAssistantPanel({
           ? action.crm_provider!
           : selectedCrm;
         if (!provider) throw new Error("Select a verified CRM connection first.");
-        if (!window.confirm(`Sync ${lead.full_name} to ${crmName(provider)} now?`)) return;
+        if (!(await confirmAction({ title: `Sync ${lead.full_name} to ${crmName(provider)}?`, message: "The CRM record is created or updated with this lead's current details.", confirmLabel: "Sync now" }))) return;
         changeMessage(message.id, { busy: true, error: undefined });
         await sendLeadToCrm(lead.id, provider);
         changeMessage(message.id, { busy: false, done: true });
         void refreshLeadAfterAction(message.id);
       } else if (action.kind === "delete_lead") {
         if (!canEdit) throw new Error("You need lead-edit access to delete this lead.");
-        if (!window.confirm(`Delete ${lead.full_name} from this workspace? A later matching inquiry may be imported again.`)) return;
+        if (!(await confirmAction({ title: `Delete ${lead.full_name}?`, message: "The lead is removed from this workspace. A later matching inquiry may be imported again.", confirmLabel: "Delete lead", tone: "danger" }))) return;
         await deleteLead(lead.id);
         onDeleted(lead.id);
       } else if (action.kind === "open_email") {

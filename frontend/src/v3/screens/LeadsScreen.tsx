@@ -33,6 +33,7 @@ import {
 } from "../ui/primitives";
 import { LeadRecord, type LeadIntent } from "./LeadRecord";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
+import { confirmAction } from "../ui/confirm";
 
 const LEAD_PAGE_SIZE = 50;
 
@@ -334,7 +335,9 @@ export function LeadsScreen({
   };
 
   const deleteSelected = async () => {
-    if (!selectedIds.size || !window.confirm(`Delete ${selectedIds.size} selected lead${selectedIds.size === 1 ? "" : "s"}? A later matching inquiry can be imported again.`)) return;
+    if (!selectedIds.size) return;
+    const count = selectedIds.size;
+    if (!(await confirmAction({ title: `Delete ${count} lead${count === 1 ? "" : "s"}?`, message: "They are removed from the workspace. Later matching inquiries can be imported again.", confirmLabel: `Delete ${count === 1 ? "lead" : "leads"}`, tone: "danger" }))) return;
     try {
       const result = await bulkDeleteLeads([...selectedIds]);
       setSelectedIds(new Set());
@@ -346,7 +349,7 @@ export function LeadsScreen({
     }
   };
   const transferSelected = async () => {
-    if (!window.confirm(`Transfer or update ${selectedIds.size} selected leads in ${providerLabel(bulkProvider)}?`)) return;
+    if (!(await confirmAction({ title: `Sync ${selectedIds.size} lead${selectedIds.size === 1 ? "" : "s"} to ${providerLabel(bulkProvider)}?`, message: "Records are created or updated in the CRM with each lead's current details.", confirmLabel: "Sync" }))) return;
     try {
       const result = await bulkSendLeadsToCrm([...selectedIds], bulkProvider);
       const firstFailure = result.results.find((item) => item.status !== "synced" && item.error)?.error;

@@ -52,6 +52,7 @@ import {
 } from "../ui/primitives";
 import { DealRoom, StageRail } from "./DealRoom";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
+import { confirmAction } from "../ui/confirm";
 
 /** The record's sections, in the order a person works a lead. */
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
@@ -189,9 +190,11 @@ export function LeadRecord({
   };
 
   const completeManualReview = async () => {
-    if (!window.confirm(
-      `Mark ${lead.full_name || "this lead"}'s manual review done? This clears the hold, applies current routing, and may notify the assignee.`,
-    )) return;
+    if (!(await confirmAction({
+      title: `Mark ${lead.full_name || "this lead"}'s review done?`,
+      message: "This clears the hold, applies current routing and may notify the assignee.",
+      confirmLabel: "Mark done",
+    }))) return;
     setCompletingManualReview(true);
     setManualReviewError(null);
     try {
@@ -209,7 +212,7 @@ export function LeadRecord({
   };
 
   const deleteThisLead = async () => {
-    if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
+    if (!(await confirmAction({ title: "Delete this lead?", message: "It is removed from the workspace. A later matching inquiry can be imported again.", confirmLabel: "Delete lead", tone: "danger" }))) return;
     try {
       await deleteLead(lead.id);
       onDeleted?.(lead.id);
