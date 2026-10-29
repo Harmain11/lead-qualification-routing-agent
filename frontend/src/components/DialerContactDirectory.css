@@ -3,7 +3,7 @@
   gap: 12px;
   margin-top: 20px;
   padding-top: 18px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--separator-strong);
 }
 
 .dialer-contact-directory-head {
@@ -22,7 +22,7 @@
 .dialer-contact-feedback,
 .dialer-contact-call-note {
   margin: 0;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -30,16 +30,16 @@
 .dialer-contact-search {
   display: grid;
   gap: 6px;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 13px;
 }
 
 .dialer-contact-search input {
   min-height: 42px;
   padding: 9px 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--separator-strong);
   border-radius: 8px;
-  color: var(--text);
+  color: var(--label);
   background: var(--surface);
 }
 
@@ -56,9 +56,9 @@
   align-items: center;
   gap: 12px;
   padding: 9px 10px 9px 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--separator-strong);
   border-radius: 9px;
-  background: var(--surface-high);
+  background: var(--surface-sunken);
 }
 
 .dialer-contact-main {
@@ -67,7 +67,7 @@
   min-width: 0;
   padding: 0;
   border: 0;
-  color: var(--text);
+  color: var(--label);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -81,12 +81,12 @@
 }
 
 .dialer-contact-main span {
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 12px;
 }
 
 .dialer-contact-main bdi {
-  color: var(--text);
+  color: var(--label);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -102,17 +102,17 @@
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--separator-strong);
   border-radius: 8px;
-  color: var(--text);
+  color: var(--label);
   background: var(--surface);
   cursor: pointer;
 }
 
 .dialer-contact-action:hover:not(:disabled),
 .dialer-contact-action:focus-visible {
-  border-color: var(--workspace-accent, var(--orange));
-  color: var(--workspace-accent, var(--orange));
+  border-color: var(--workspace-accent, var(--tint));
+  color: var(--workspace-accent, var(--tint-text));
 }
 
 .dialer-contact-action:disabled {
@@ -137,7 +137,7 @@
 
 .dialer-contact-main:focus-visible,
 .dialer-contact-action:focus-visible {
-  outline: 2px solid var(--workspace-accent, var(--orange));
+  outline: 2px solid var(--workspace-accent, var(--tint));
   outline-offset: 2px;
 }
 

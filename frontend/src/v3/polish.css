@@ -479,7 +479,7 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .corral-workspace-action,
 .v-app .lead-agent-action {
   border: 0;
-  background: var(--surface-high);
+  background: var(--surface-sunken);
   box-shadow: none;
 }
 

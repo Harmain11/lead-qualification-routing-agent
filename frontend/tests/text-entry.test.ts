@@ -19,8 +19,8 @@ test("ICP list preserves raw typing and paste until blur", async () => {
 
 test("representative free-form fields keep the exact typed value", async () => {
   const records = await readSource("../src/views/RecordsView.tsx");
-  const lead = await readSource("../src/views/LeadsView.tsx");
-  const detail = await readSource("../src/components/LeadDetail.tsx");
+  const lead = await readSource("../src/v3/screens/LeadsScreen.tsx");
+  const detail = await readSource("../src/v3/screens/LeadRecord.tsx");
   const composer = await readSource("../src/components/EmailComposer.tsx");
   const assistantChat = await readSource("../src/components/WorkspaceAssistantChat.tsx");
 

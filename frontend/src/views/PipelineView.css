@@ -4,7 +4,7 @@
   max-width: 100%;
   margin-bottom: 16px;
   padding: 4px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--separator-strong);
   border-radius: 10px;
   background: var(--surface);
 }
@@ -15,7 +15,7 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: var(--muted);
+  color: var(--label-2);
   font: inherit;
   font-size: 13px;
   font-weight: 600;

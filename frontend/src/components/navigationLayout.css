@@ -15,7 +15,7 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--line-bright) transparent;
+  scrollbar-color: var(--separator-strong) transparent;
   padding-right: 4px;
   margin-right: -4px;
 }
@@ -40,7 +40,7 @@
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--surface-high, #fff);
+  background: var(--surface-sunken);
   opacity: 1;
   transform: none;
   animation: none;
@@ -80,7 +80,7 @@
   display: flex;
   overflow-x: auto;
   border-right: 0;
-  border-bottom: 1px solid var(--line-bright);
+  border-bottom: 1px solid var(--separator-strong);
 }
 .navigation-menu-flyout.is-inline.is-integrations .navigation-menu-mega-categories button {
   min-height: 42px;

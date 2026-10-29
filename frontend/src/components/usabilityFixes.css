@@ -5,7 +5,7 @@
 .side-rail nav { min-height: 0; }
 
 .field { min-width: 0; gap: 7px; }
-.field span { color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.field span { color: var(--label); font-size: 13px; font-weight: 600; line-height: 1.4; }
 .field input,
 .field select,
 .field textarea,
@@ -16,10 +16,10 @@
   min-width: 0;
   min-height: 42px;
   padding-inline: 12px;
-  border: 1px solid var(--line-bright);
+  border: 1px solid var(--separator-strong);
   border-radius: 9px;
-  background: var(--surface-solid, var(--surface));
-  color: var(--text);
+  background: var(--surface);
+  color: var(--label);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -28,11 +28,11 @@
 .field :is(input, select, textarea):focus,
 .lead-toolbar :is(input, select):focus,
 .follow-up-field :is(input, textarea):focus {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 3px var(--orange-soft);
+  border-color: var(--tint);
+  box-shadow: 0 0 0 3px var(--tint-soft);
 }
 .field input::placeholder,
-.field textarea::placeholder { color: var(--subtle); opacity: .9; }
+.field textarea::placeholder { color: var(--label-3); opacity: .9; }
 .form-grid { align-items: start; gap: 16px; }
 
 .lead-detail-navigation { min-width: 0; }

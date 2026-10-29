@@ -23,7 +23,7 @@
 
 .analytics-data-table thead th {
   color: var(--text-secondary, #69756f);
-  background: var(--surface-high, #f6f8f6);
+  background: var(--surface-sunken);
   font-size: 0.74rem;
   font-weight: 650;
   letter-spacing: 0.035em;
@@ -131,7 +131,7 @@
 }
 
 .heatmap-legend i.outbound {
-  background: var(--orange, #d88442);
+  background: var(--tint);
 }
 
 .heatmap-legend small {

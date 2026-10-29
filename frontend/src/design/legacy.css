@@ -5,7 +5,6 @@
  * migrated one at a time and the legacy layer shrinks as they are.
  * (Legacy !important declarations still win; v2 avoids competing with them.)
  */
-@import "../designTokens.css" layer(legacy);
 @import "../styles.css" layer(legacy);
 /* Component styles that were imported by eagerly loaded modules */
 @import "../components/ActivityToasts.css" layer(legacy);

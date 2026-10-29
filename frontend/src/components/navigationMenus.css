@@ -24,29 +24,29 @@
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
-  color: var(--muted);
+  color: var(--label-2);
   text-align: left;
   transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
 .navigation-menu-trigger:hover,
 .navigation-menu-item:hover .navigation-menu-trigger {
-  color: var(--text);
+  color: var(--label);
   background: transparent;
 }
 
 .navigation-menu-item:hover {
-  color: var(--text);
-  background: var(--surface-high);
+  color: var(--label);
+  background: var(--surface-sunken);
 }
 
 .navigation-menu-item.is-active {
-  color: var(--text);
+  color: var(--label);
   background: transparent;
 }
 
 .navigation-menu-item.is-active > .navigation-menu-trigger {
-  color: var(--text);
+  color: var(--label);
   border-color: transparent;
 }
 
@@ -64,7 +64,7 @@
   padding: 0 5px;
   border: 1px solid var(--surface);
   border-radius: 999px;
-  background: var(--green, #1e6b52);
+  background: var(--tint);
   color: #fff;
   font-size: 10px;
   font-weight: 800;
@@ -85,13 +85,13 @@
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: var(--subtle);
+  color: var(--label-3);
   transition: color 160ms ease, background-color 160ms ease, transform 160ms ease;
 }
 
 .navigation-menu-disclosure:hover,
 .navigation-menu-disclosure:focus-visible,
-.navigation-menu-item:hover > .navigation-menu-disclosure { color: var(--text); background: transparent; }
+.navigation-menu-item:hover > .navigation-menu-disclosure { color: var(--label); background: transparent; }
 .navigation-menu-disclosure svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .navigation-menu-item.is-open > .navigation-menu-disclosure svg { transform: rotate(90deg); }
 
@@ -106,9 +106,9 @@
   display: grid;
   gap: 3px;
   padding: 7px;
-  border: 1px solid var(--line-bright);
+  border: 1px solid var(--separator-strong);
   border-radius: 12px;
-  background: var(--surface-solid, var(--surface));
+  background: var(--surface);
   box-shadow: 0 16px 38px rgba(15, 27, 45, .18);
   animation: navigation-flyout-in 140ms ease both;
 }
@@ -138,7 +138,7 @@
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: var(--muted);
+  color: var(--label-2);
   cursor: pointer;
   font-size: 13px;
   line-height: 1.35;
@@ -148,15 +148,15 @@
 }
 
 .navigation-menu-child:hover,
-.navigation-menu-child:focus-visible { color: var(--text); border-color: var(--line); background: var(--surface-high); }
-.navigation-menu-child.is-active { color: var(--text); background: var(--orange-soft); }
+.navigation-menu-child:focus-visible { color: var(--label); border-color: var(--separator-strong); background: var(--surface-sunken); }
+.navigation-menu-child.is-active { color: var(--label); background: var(--tint-soft); }
 .navigation-menu-child > span { min-width: 0; }
-.navigation-menu-child > i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--orange); }
+.navigation-menu-child > i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--tint); }
 
 .navigation-menu-subheading {
   padding: 6px 10px 5px;
-  border-bottom: 1px solid var(--line);
-  color: var(--subtle);
+  border-bottom: 1px solid var(--separator-strong);
+  color: var(--label-3);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .08em;
@@ -189,8 +189,8 @@
   gap: 3px;
   padding: 10px;
   overflow-y: auto;
-  border-right: 1px solid var(--line-bright);
-  background: color-mix(in srgb, var(--surface-high) 76%, var(--surface));
+  border-right: 1px solid var(--separator-strong);
+  background: color-mix(in srgb, var(--surface-sunken) 76%, var(--surface));
 }
 .navigation-menu-mega-categories button {
   min-height: 39px;
@@ -202,7 +202,7 @@
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: var(--muted);
+  color: var(--label-2);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
@@ -210,10 +210,10 @@
   text-align: left;
   transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
-.navigation-menu-mega-categories button.is-active { border-color: transparent; background: transparent; color: var(--text); }
+.navigation-menu-mega-categories button.is-active { border-color: transparent; background: transparent; color: var(--label); }
 .navigation-menu-mega-categories button:hover,
 .navigation-menu-mega-categories button:focus-visible,
-.navigation-menu-mega-categories button.is-hovered { border-color: var(--line); background: var(--surface); color: var(--text); }
+.navigation-menu-mega-categories button.is-hovered { border-color: var(--separator-strong); background: var(--surface); color: var(--label); }
 .navigation-menu-mega-categories button b { color: currentColor; font-size: 18px; font-weight: 400; line-height: 1; }
 .navigation-menu-mega-items {
   display: grid;

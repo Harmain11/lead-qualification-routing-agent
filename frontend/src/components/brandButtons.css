@@ -12,7 +12,7 @@
   padding: 9px 16px;
   margin: 0;
   border: 1px solid var(--workspace-accent, #1e6b52);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
   background: var(--workspace-accent, #1e6b52);
   color: var(--workspace-accent-text, #fff);
   font-size: 13px;
@@ -50,10 +50,10 @@ html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-butto
   max-width: 100%;
   padding: 9px 14px;
   margin: 0;
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--r-sm);
   background: var(--surface);
-  color: var(--text);
+  color: var(--label);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -61,9 +61,9 @@ html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-butto
   transform: none;
 }
 html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-button, .button-quiet, .invitation-actions button):hover:not(:disabled) {
-  border-color: var(--orange);
-  background: var(--surface-high);
-  color: var(--text);
+  border-color: var(--tint);
+  background: var(--surface-sunken);
+  color: var(--label);
   box-shadow: none;
   transform: none;
 }
@@ -72,9 +72,9 @@ button:disabled { cursor: not-allowed; }
 html[data-theme] .danger-button {
   min-height: 40px;
   padding: 9px 14px;
-  border-color: var(--red);
+  border-color: var(--danger);
   background: var(--surface);
-  color: var(--red);
+  color: var(--danger-text);
   font-size: 13px;
   font-weight: 600;
 }

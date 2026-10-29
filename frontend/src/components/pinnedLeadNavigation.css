@@ -1,4 +1,4 @@
-.pinned-lead-navigation { padding: 12px 16px; border-top: 1px solid var(--line, #deded8); flex-shrink: 0; }
+.pinned-lead-navigation { padding: 12px 16px; border-top: 1px solid var(--separator-strong); flex-shrink: 0; }
 .pinned-lead-navigation h3 { display: flex; justify-content: space-between; margin: 0 0 8px; font-size: 13px; font-weight: 650; }
 .pinned-lead-navigation h3 > span { opacity: .6; }
 .pinned-lead-list { max-height: 180px; overflow-y: auto; }

@@ -22,7 +22,7 @@
   border: 0;
   border-radius: 0;
   background: #f8faf5;
-  color: var(--text, #183c30);
+  color: var(--label);
   box-shadow: 0 28px 90px rgba(15, 27, 45, .26);
   animation: salesforce-dialog-in 220ms cubic-bezier(.2, .75, .25, 1) both;
 }
@@ -44,12 +44,12 @@
 }
 
 .salesforce-guide-heading .eyebrow {
-  color: var(--brand-orange, #1e6b52);
+  color: var(--tint-text);
 }
 
 .salesforce-guide-heading h2 {
   margin: 9px 0 8px;
-  color: var(--text, #183c30);
+  color: var(--label);
   font-size: clamp(25px, 4vw, 34px);
   font-weight: 550;
   line-height: 1.08;
@@ -59,7 +59,7 @@
 .salesforce-guide-heading p {
   max-width: 560px;
   margin: 0;
-  color: var(--muted, #4d6259);
+  color: var(--label-2);
   font-size: 13px;
   line-height: 1.65;
 }
@@ -73,7 +73,7 @@
   border: 1px solid rgba(30, 107, 82, .17);
   border-radius: 10px;
   background: rgba(255, 255, 255, .68);
-  color: var(--muted, #4d6259);
+  color: var(--label-2);
   font-size: 25px;
   line-height: 1;
   transition: background 180ms ease, color 180ms ease, transform 180ms ease;
@@ -82,7 +82,7 @@
 .salesforce-guide-close:hover:not(:disabled) {
   transform: rotate(4deg);
   background: #fff;
-  color: var(--text, #183c30);
+  color: var(--label);
 }
 
 .salesforce-guide-content {
@@ -136,7 +136,7 @@
 
 .salesforce-step-copy h3 {
   margin: 2px 0 7px;
-  color: var(--text, #183c30);
+  color: var(--label);
   font-size: 16px;
   font-weight: 650;
   letter-spacing: -.02em;
@@ -144,13 +144,13 @@
 
 .salesforce-step-copy p {
   margin: 0;
-  color: var(--muted, #4d6259);
+  color: var(--label-2);
   font-size: 14px;
   line-height: 1.7;
 }
 
 .salesforce-step-copy strong {
-  color: var(--text, #183c30);
+  color: var(--label);
   font-weight: 650;
 }
 
@@ -249,7 +249,7 @@
   gap: 6px;
   margin: 11px 0 8px;
   padding-left: 18px;
-  color: var(--muted, #4d6259);
+  color: var(--label-2);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -375,34 +375,34 @@
 }
 
 html[data-theme="dark"] .salesforce-guide.team-modal {
-  background: var(--surface-solid);
-  border-color: var(--line-bright);
+  background: var(--surface);
+  border-color: var(--separator-strong);
 }
 
 html[data-theme="dark"] .salesforce-guide-header,
 html[data-theme="dark"] .salesforce-guide-footer,
 html[data-theme="dark"] .salesforce-troubleshooting,
 html[data-theme="dark"] .salesforce-installed-check {
-  background: var(--surface-high);
-  border-color: var(--line-bright);
+  background: var(--surface-sunken);
+  border-color: var(--separator-strong);
 }
 
 html[data-theme="dark"] .salesforce-guide-close,
 html[data-theme="dark"] .salesforce-step-number,
 html[data-theme="dark"] .salesforce-step-copy code {
-  background: var(--surface-soft);
-  border-color: var(--line-bright);
+  background: var(--tint-soft);
+  border-color: var(--separator-strong);
   color: #a7dfc6;
 }
 
 html[data-theme="dark"] .salesforce-installed-check,
 html[data-theme="dark"] .salesforce-troubleshooting summary {
-  color: var(--text);
+  color: var(--label);
 }
 
 html[data-theme="dark"] .salesforce-guide-note,
 html[data-theme="dark"] .salesforce-troubleshooting p {
-  color: var(--muted);
+  color: var(--label-2);
 }
 
 html[data-theme="dark"] .salesforce-guide-error {

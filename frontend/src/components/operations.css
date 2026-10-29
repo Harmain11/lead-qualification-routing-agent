@@ -50,8 +50,8 @@
 }
 .ops-panel,
 .ops-empty {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--r-md);
   padding: 24px;
   background: var(--surface);
   min-width: 0;
@@ -61,7 +61,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: var(--text);
+  color: var(--label);
   font-size: 14px;
   font-weight: 600;
 }
@@ -74,10 +74,10 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--r-sm);
   padding: 11px 12px;
-  color: var(--text);
+  color: var(--label);
   background: var(--surface);
   font-size: 15px;
   font-weight: 400;
@@ -118,15 +118,15 @@
   grid-column: 1/-1;
 }
 .ops-muted {
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 14px;
 }
 .ops-tag {
   display: inline-block;
   font-size: 13px;
   padding: 4px 10px;
-  background: var(--surface-high);
-  border: 1px solid var(--line);
+  background: var(--surface-sunken);
+  border: 1px solid var(--separator-strong);
   border-radius: 100px;
 }
 .ops-metrics {
@@ -138,29 +138,29 @@
 .ops-metrics span {
   display: flex;
   flex-direction: column;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 14px;
 }
 .ops-metrics b {
   font-size: 26px;
-  color: var(--text);
+  color: var(--label);
 }
 .ops-note {
   padding: 18px 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--separator-strong);
 }
 .ops-note blockquote {
-  border-left: 3px solid var(--line-bright);
+  border-left: 3px solid var(--separator-strong);
   margin: 12px 0;
   padding: 8px 16px;
-  color: var(--muted);
+  color: var(--label-2);
 }
 .ops-link,
 .text-link {
   background: none;
   border: 0;
   padding: 2px 0;
-  color: var(--text);
+  color: var(--label);
   text-decoration: underline;
   text-underline-offset: 3px;
   text-align: left;
@@ -177,15 +177,15 @@
   min-width: 580px;
 }
 .ops-page th {
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 13px;
   font-weight: 600;
-  background: var(--surface-high);
+  background: var(--surface-sunken);
 }
 .ops-page td,
 .ops-page th {
   padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--separator-strong);
   vertical-align: top;
 }
 .ops-page td small {
@@ -195,12 +195,12 @@
   width: min(1200px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   overflow: auto;
-  color: var(--text);
+  color: var(--label);
   background: var(--surface);
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--r-lg);
   padding: 28px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-card);
   font-size: 15px;
   line-height: 1.6;
 }
@@ -233,7 +233,7 @@
   justify-content: flex-start;
 }
 .ops-result-list span {
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 13px;
   width: 70px;
   flex-shrink: 0;
@@ -253,7 +253,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--separator-strong);
   border-radius: 10px;
   background: var(--surface);
   cursor: pointer;
@@ -261,32 +261,32 @@
 .ops-enrollment-option span,
 .ops-enrollment-lead span { display: grid; gap: 3px; }
 .ops-enrollment-option small,
-.ops-enrollment-lead small { color: var(--muted); font-size: 12px; }
+.ops-enrollment-lead small { color: var(--label-2); font-size: 12px; }
 .ops-enrollment-lead input { flex: none; }
 .ops-enrollment-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .ops-enrollment-selected { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.ops-enrollment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 12px; }
+.ops-enrollment-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--separator-strong); border-radius: 999px; background: var(--surface); font-size: 12px; }
 .ops-enrollment-chip .button-quiet { min-width: 28px; min-height: 28px; padding: 2px 6px; }
 .ops-enrollment-success {
   padding: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--separator-strong);
   border-radius: 10px;
-  color: var(--text);
+  color: var(--label);
   background: var(--surface);
 }
 .ops-builder {
   height: 400px;
   max-width: 100%;
   overflow: auto;
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius);
-  background: var(--surface-high);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
 }
 .ops-canvas {
   position: relative;
   width: 2050px;
   height: 1350px;
-  background-image: radial-gradient(var(--line-bright) 1px, transparent 1px);
+  background-image: radial-gradient(var(--separator-strong) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 .ops-canvas svg {
@@ -296,14 +296,14 @@
 }
 .ops-canvas path {
   fill: none;
-  stroke: var(--muted);
+  stroke: var(--label-2);
   stroke-width: 2.5;
 }
 .ops-canvas .false-branch {
   stroke-dasharray: 6;
 }
 .ops-canvas text {
-  fill: var(--text);
+  fill: var(--label);
   font-size: 13px;
 }
 .ops-node {
@@ -311,10 +311,10 @@
   width: 170px;
   height: 70px;
   padding: 10px 16px;
-  border: 1px solid var(--line-bright);
+  border: 1px solid var(--separator-strong);
   border-radius: 12px;
   background: var(--surface);
-  color: var(--text);
+  color: var(--label);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -323,11 +323,11 @@
   touch-action: none;
 }
 .ops-node.selected {
-  border: 2px solid var(--workspace-accent, var(--orange));
+  border: 2px solid var(--workspace-accent, var(--tint));
 }
 .ops-node small {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--label-2);
 }
 .ops-page button,
 .ops-dialog button {
@@ -335,7 +335,7 @@
 }
 .ops-page .primary-button,
 .ops-dialog .primary-button {
-  background: var(--workspace-accent, var(--orange));
+  background: var(--workspace-accent, var(--tint));
   color: var(--workspace-accent-text, white);
 }
 .command-launch kbd {
@@ -401,11 +401,11 @@
 
 /* Shared focus and brand treatment applies across the modular product screens. */
 .app-shell :is(button, a, input, textarea, select, [tabindex]):focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--label);
   outline-offset: 3px;
 }
 html[data-theme] .app-shell .primary-button {
-  background: var(--workspace-accent, var(--orange));
+  background: var(--workspace-accent, var(--tint));
   color: var(--workspace-accent-text, white);
 }
 
@@ -416,6 +416,6 @@ body:has(dialog[open]) {
   overscroll-behavior: contain;
 }
 .ops-node.selected {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--label);
   outline-offset: 2px;
 }

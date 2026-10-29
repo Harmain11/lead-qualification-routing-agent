@@ -38,6 +38,8 @@ import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { ProductTour } from "./components/ProductTour";
 import { DialerPhoneDock } from "./components/DialerPhoneDock";
+import { useTheme } from "./theme";
+import { useOnline } from "./useOnline";
 import {
   OPEN_DIALER_PHONE_EVENT,
   isDialerPhoneAvailable,
@@ -170,17 +172,6 @@ type View =
   | "compliance";
 // Team administration is opened from Settings and keeps the primary rail calm.
 type AppView = View | "icp";
-type Theme = "light" | "dark";
-
-function savedTheme(): Theme {
-  try {
-    return window.localStorage.getItem("corral-theme") === "dark"
-      ? "dark"
-      : "light";
-  } catch {
-    return "light";
-  }
-}
 
 // Navigation follows the day: what needs you, the people and companies it
 // concerns, what Corral learns from them, and how the workspace is set up.
@@ -475,7 +466,8 @@ function App() {
     window.addEventListener(AGENT_STATE_EVENT, onAgentState);
     return () => window.removeEventListener(AGENT_STATE_EVENT, onAgentState);
   }, []);
-  const [theme, setTheme] = useState<Theme>(savedTheme);
+  const { theme, preference: themePreference, setPreference: setThemePreference, toggle: toggleTheme } = useTheme();
+  const online = useOnline();
   const activeWorkspace = auth?.workspaces.find(
     (item) => item.id === auth.current_workspace_id,
   );
@@ -575,14 +567,6 @@ function App() {
     ? `corral-product-tour-seen:v1:${auth.current_workspace_id}`
     : null;
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try {
-      window.localStorage.setItem("corral-theme", theme);
-    } catch {
-      /* Appearance still works for this session. */
-    }
-  }, [theme]);
 
   useEffect(() => {
     if (!tourSeenKey) {
@@ -1162,11 +1146,6 @@ function App() {
     return item.id === "agents" && navigationChildren("agents").some((child) => child.view === view) && !navigation.some((entry) => entry.id === view);
   }
 
-  function toggleTheme() {
-    const next = theme === "light" ? "dark" : "light";
-    document.documentElement.dataset.theme = next;
-    setTheme(next);
-  }
 
   const visibleNavigation = navigation.filter((item) =>
     hasViewPermission(item.id, workspacePermissions),
@@ -1282,9 +1261,10 @@ function App() {
   const account = {
     name: auth.user.display_name || "",
     email: auth.user.email || "",
-    online: !error,
+    online,
     theme,
-    onToggleTheme: toggleTheme,
+    themePreference,
+    onSetThemePreference: setThemePreference,
     onGuide: () => setTourOpen(true),
     onSignOut: () => {
       refreshController.current?.abort();

@@ -1,13 +1,13 @@
 .assistant-lead-draft {
-  --lead-draft-line: var(--line);
+  --lead-draft-line: var(--separator-strong);
   display: grid;
   min-width: 0;
   gap: 14px;
   padding: 14px;
   border: 1px solid var(--lead-draft-line);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface-high) 74%, var(--surface));
-  color: var(--text);
+  background: color-mix(in srgb, var(--surface-sunken) 74%, var(--surface));
+  color: var(--label);
 }
 
 .assistant-lead-draft__header {
@@ -32,7 +32,7 @@
 .assistant-lead-draft__intro p {
   max-width: 52ch;
   margin: 4px 0 0;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -40,10 +40,10 @@
 .assistant-lead-draft__badge {
   flex: 0 0 auto;
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--orange) 34%, var(--lead-draft-line));
+  border: 1px solid color-mix(in srgb, var(--tint) 34%, var(--lead-draft-line));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--orange-soft) 58%, var(--surface));
-  color: var(--orange);
+  background: color-mix(in srgb, var(--tint-soft) 58%, var(--surface));
+  color: var(--tint-text);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .045em;
@@ -63,7 +63,7 @@
   min-width: 0;
   align-content: start;
   gap: 5px;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 11px;
   font-weight: 650;
   line-height: 1.35;
@@ -82,7 +82,7 @@
   border: 1px solid var(--lead-draft-line);
   border-radius: 8px;
   background: var(--surface);
-  color: var(--text);
+  color: var(--label);
   font: inherit;
   font-size: 12px;
   font-weight: 450;
@@ -100,13 +100,13 @@
 
 .assistant-lead-draft__field input::placeholder,
 .assistant-lead-draft__field textarea::placeholder {
-  color: var(--muted);
+  color: var(--label-2);
   opacity: .75;
 }
 
 .assistant-lead-draft__field input:focus-visible,
 .assistant-lead-draft__field textarea:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--orange) 48%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--tint) 48%, transparent);
   outline-offset: 2px;
 }
 
@@ -118,7 +118,7 @@
 
 .assistant-lead-draft__section-note {
   margin: -7px 0 0;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -133,7 +133,7 @@
 
 .assistant-lead-draft__follow-up > p {
   margin: 0;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 11px;
   line-height: 1.5;
 }

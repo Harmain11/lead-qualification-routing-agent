@@ -25,20 +25,20 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 10px;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 13px;
   white-space: nowrap;
 }
 .lead-browser .lead-selection-bar .lead-transfer-control .select-menu-trigger {
   width: 260px;
-  min-height: var(--control-height);
-  border-color: var(--line-bright);
+  min-height: var(--control-h-lg);
+  border-color: var(--separator-strong);
   background: var(--surface);
-  font-size: var(--font-control);
+  font-size: var(--fs-callout);
 }
 .lead-browser .lead-selection-bar .lead-transfer-control + button {
   align-self: center;
-  min-height: var(--control-height);
+  min-height: var(--control-h-lg);
 }
 .lead-browser .lead-selection-bar > button {
   align-self: center;
@@ -49,10 +49,10 @@
   min-width: 120px;
   max-width: 100%;
   padding: 6px 10px;
-  border: 1px solid var(--line-bright);
+  border: 1px solid var(--separator-strong);
   border-radius: 8px;
-  background: var(--surface-solid);
-  color: var(--text);
+  background: var(--surface);
+  color: var(--label);
 }
 .app-shell .panel::before,
 .app-shell .metric-card::before,

@@ -1,13 +1,13 @@
 .assistant-note-draft {
-  --note-line: var(--line);
+  --note-line: var(--separator-strong);
   display: grid;
   min-width: 0;
   gap: 9px;
   padding: 13px;
   border: 1px solid var(--note-line);
   border-radius: 11px;
-  background: var(--surface-high);
-  color: var(--text);
+  background: var(--surface-sunken);
+  color: var(--label);
 }
 
 .assistant-note-draft__heading {
@@ -20,7 +20,7 @@
 
 .assistant-note-draft__label {
   min-width: 0;
-  color: var(--text);
+  color: var(--label);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
@@ -30,10 +30,10 @@
 .assistant-note-draft__badge {
   flex: 0 0 auto;
   padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--orange) 34%, var(--note-line));
+  border: 1px solid color-mix(in srgb, var(--tint) 34%, var(--note-line));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--orange-soft) 58%, var(--surface));
-  color: var(--orange);
+  background: color-mix(in srgb, var(--tint-soft) 58%, var(--surface));
+  color: var(--tint-text);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .045em;
@@ -52,7 +52,7 @@
   border: 1px solid var(--note-line);
   border-radius: 9px;
   background: var(--surface);
-  color: var(--text);
+  color: var(--label);
   font: inherit;
   font-size: 13px;
   line-height: 1.55;
@@ -60,12 +60,12 @@
 }
 
 .assistant-note-draft__textarea::placeholder {
-  color: var(--muted);
+  color: var(--label-2);
   opacity: .78;
 }
 
 .assistant-note-draft__textarea:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--orange) 48%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--tint) 48%, transparent);
   outline-offset: 2px;
 }
 
@@ -85,7 +85,7 @@
 .assistant-note-draft__guidance,
 .assistant-note-draft__count {
   margin: 0;
-  color: var(--muted);
+  color: var(--label-2);
   font-size: 11px;
   line-height: 1.45;
 }
