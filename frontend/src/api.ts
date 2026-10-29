@@ -646,6 +646,7 @@ export function composeEmailWithAI(payload: {
   connection_id: string | null;
   lead_id: string | null;
   thread_id: string | null;
+  in_reply_to: string | null;
   recipient: string;
   subject: string;
   current_body: string;

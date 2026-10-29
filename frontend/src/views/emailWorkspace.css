@@ -49,6 +49,9 @@
 .email-empty-state strong { font-size: 14px; }
 .email-empty-state span { color: var(--muted); font-size: 12px; }
 .email-composer { display: grid; gap: 14px; margin-top: 14px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-soft); }
+.email-composer { scroll-margin-top: 24px; }
+.email-thread-message-actions { display: flex; justify-content: flex-end; padding: 0 12px 8px; }
+.email-message-reply-button { min-width: 76px; min-height: 40px; }
 .meeting-reply-drafts { display: grid; gap: 14px; min-width: 0; }
 .meeting-reply-draft { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-solid); box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 5%, transparent); }
 .meeting-reply-intro { display: grid; gap: 6px; }

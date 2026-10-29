@@ -160,6 +160,7 @@ class ComposeWithAIRequest(BaseModel):
     connection_id: UUID | None = None
     lead_id: UUID | None = None
     thread_id: str | None = Field(default=None, max_length=255)
+    in_reply_to: str | None = Field(default=None, max_length=998)
     recipient: str = Field(default="", max_length=1024)
     subject: str = Field(default="", max_length=180)
     current_body: str = Field(default="", max_length=8000)
@@ -170,6 +171,13 @@ class ComposeWithAIRequest(BaseModel):
     def validate_thread_id(cls, value: str | None) -> str | None:
         if value is not None and not _GMAIL_ID.fullmatch(value):
             raise ValueError("Invalid Gmail thread ID")
+        return value
+
+    @field_validator("in_reply_to")
+    @classmethod
+    def validate_reply_reference(cls, value: str | None) -> str | None:
+        if value is not None and ("\r" in value or "\n" in value):
+            raise ValueError("Invalid Gmail message reference")
         return value
 
 
@@ -524,6 +532,13 @@ def compose_email_with_ai(
                 status_code=409,
                 detail="This Gmail thread does not match the recipient. Refresh before drafting.",
             )
+        if request.in_reply_to and not any(
+            item.get("rfc_message_id") == request.in_reply_to for item in conversation
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The selected message is no longer in this Gmail thread. Refresh before drafting.",
+            )
     elif lead:
         events = session.scalars(
             select(PipelineEventORM)
@@ -560,6 +575,10 @@ def compose_email_with_ai(
         "existing_draft": request.current_body,
         "draft_instruction": request.instruction,
         "recent_activity": conversation[-12:],
+        "reply_target_message": next(
+            (item for item in conversation if item.get("rfc_message_id") == request.in_reply_to),
+            {},
+        ) if request.in_reply_to else {},
         "workspace_business_profile": profile.model_dump(mode="json"),
     }
     provider = resolve_workspace_reasoning_provider(session, workspace.workspace_id)

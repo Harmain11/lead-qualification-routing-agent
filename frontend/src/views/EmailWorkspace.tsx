@@ -19,9 +19,10 @@ import type {
 } from "../types";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-const MAILBOX_CACHE_FRESH_MS = 5 * 60_000;
+const MAILBOX_CACHE_FRESH_MS = 60_000;
+const accountCache = new Map<string, ProviderConnection[]>();
 const mailboxCache = new Map<string, { messages: GmailMailboxMessage[]; nextPageToken: string | null; fetchedAt: number }>();
-const threadCache = new Map<string, GmailThreadMessage[]>();
+const threadCache = new Map<string, { messages: GmailThreadMessage[]; fetchedAt: number }>();
 
 function remember<T>(cache: Map<string, T>, key: string, value: T) {
   cache.delete(key);
@@ -69,9 +70,17 @@ export function EmailWorkspace({
   const [draftRevision, setDraftRevision] = useState(0);
   const lastMailboxKey = useRef("");
   const backgroundRefresh = useRef(false);
+  const lastThreadRefresh = useRef(0);
 
   useEffect(() => {
     let alive = true;
+    const workspaceId = getActiveWorkspace();
+    const cachedAccounts = accountCache.get(workspaceId);
+    if (cachedAccounts) {
+      setAccounts(cachedAccounts);
+      setConnectionId((current) => cachedAccounts.some((account) => account.id === current) ? current : cachedAccounts[0]?.id ?? "");
+      setLoadingAccounts(false);
+    }
     listIntegrations().then((cards) => {
       if (!alive) return;
       const gmail = cards.find((card) => card.provider === "gmail");
@@ -79,6 +88,7 @@ export function EmailWorkspace({
       const available = rows.filter((account) =>
         account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_READONLY_SCOPE),
       );
+      accountCache.set(workspaceId, available);
       setAccounts(available);
       setConnectionId((current) => available.some((account) => account.id === current) ? current : available[0]?.id ?? "");
       setLoadingAccounts(false);
@@ -135,7 +145,11 @@ export function EmailWorkspace({
         setSelected((current) => changedMailbox && !cached
           ? page.messages[0] ?? null
           : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
-        if (quiet && !changedMailbox && selected?.thread_id) setThreadRevision((current) => current + 1);
+        if (quiet && !changedMailbox && selected?.thread_id) {
+          const selectedThreadKey = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
+          threadCache.delete(selectedThreadKey);
+          setThreadRevision((current) => current + 1);
+        }
       }
       setNextPageToken(page.next_page_token);
       setLoadingMessages(false);
@@ -179,19 +193,23 @@ export function EmailWorkspace({
     const controller = new AbortController();
     const key = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
     const cached = threadCache.get(key);
-    if (cached && !threadRevision) {
-      setThread(cached);
+    const refreshRequested = threadRevision !== lastThreadRefresh.current;
+    lastThreadRefresh.current = threadRevision;
+    if (cached) {
+      setThread(cached.messages);
       setLoadingThread(false);
-      return;
     }
     if (!cached) {
       setLoadingThread(true);
       setThread([]);
       setExpandedMessageIds(new Set());
     }
+    if (cached && !refreshRequested && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS) {
+      return () => controller.abort();
+    }
     getGmailMailboxThread(connectionId, selected.thread_id, controller.signal).then((result) => {
       if (!controller.signal.aborted) {
-        remember(threadCache, key, result.messages);
+        remember(threadCache, key, { messages: result.messages, fetchedAt: Date.now() });
         setThread((current) => JSON.stringify(current) === JSON.stringify(result.messages) ? current : result.messages);
         setLoadingThread(false);
       }
@@ -210,19 +228,23 @@ export function EmailWorkspace({
     setQuery(queryInput.trim());
   }
 
-  function beginReply() {
-    const lastInbound = [...thread].reverse().find((message) => message.direction === "inbound");
-    if (!selected || !lastInbound) return;
+  function beginReplyTo(message: GmailThreadMessage) {
+    if (!selected || message.direction !== "inbound") return;
     setActiveDraft(null);
-    const subject = lastInbound.subject || selected.subject;
+    const subject = message.subject || selected.subject;
     setComposeSeed({
-      recipient: lastInbound.sender,
+      recipient: message.sender,
       subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
-      threadId: lastInbound.thread_id || selected.thread_id,
-      inReplyTo: lastInbound.rfc_message_id || undefined,
+      threadId: message.thread_id || selected.thread_id,
+      inReplyTo: message.rfc_message_id || undefined,
       connectionId,
     });
     setComposerRevision((current) => current + 1);
+  }
+
+  function beginReply() {
+    const lastInbound = [...thread].reverse().find((message) => message.direction === "inbound");
+    if (lastInbound) beginReplyTo(lastInbound);
   }
 
   function beginCompose() {
@@ -403,6 +425,14 @@ export function EmailWorkspace({
                     <span className="email-thread-message-toggle-label">{expanded ? "Collapse" : "Expand"}</span>
                   </span>
                 </button>
+                {message.direction === "inbound" && <div className="email-thread-message-actions">
+                  <button
+                    className="button-quiet email-message-reply-button"
+                    type="button"
+                    aria-label={`Reply to ${message.sender_name || message.sender || "this message"}`}
+                    onClick={() => beginReplyTo(message)}
+                  >Reply</button>
+                </div>}
                 {expanded && <div className="email-thread-message-body" id={bodyId}>
                   <div className="email-thread-addresses"><span>To</span>{message.recipients || "Not listed"}</div>
                   <ProviderEmailBody content={body} />

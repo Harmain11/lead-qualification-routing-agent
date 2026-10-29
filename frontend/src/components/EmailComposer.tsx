@@ -109,7 +109,18 @@ export function EmailComposer({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      composerRef.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     if (!replyingInThread && !sendableAccounts.some((account) => account.id === connectionId)) {
@@ -188,11 +199,12 @@ export function EmailComposer({
         connection_id: connectionId || null,
         lead_id: leadId ?? draft?.data.lead_id ?? null,
         thread_id: seed?.threadId ?? draft?.data.thread_id ?? null,
+        in_reply_to: seed?.inReplyTo ?? draft?.data.in_reply_to ?? null,
         recipient: recipient.trim(),
         subject: subject.trim(),
         current_body: body,
         instruction: aiInstruction.trim() || (replyingInThread
-          ? "Read the full email thread and reply to the newest customer message. Address specific questions and proposed meeting dates or times using the conversation context. When suitable, guide them toward booking with one friendly invitation. Keep the reply natural and specific, and do not say a meeting is booked unless the thread confirms it."
+          ? "Read the full email thread and reply directly to the selected message (or the newest customer message when none is selected). Identify what the sender is asking, explaining, or deciding, then answer that point with relevant details from the thread. Acknowledge notices or concerns without copying or summarizing the whole email back to them. Do not force a meeting invitation when it does not fit the sender's message; when a meeting is relevant, offer one clear next step. Never claim a meeting or other action is completed unless the thread confirms it."
           : ""),
       });
       if (!replyingInThread) setSubject(result.subject);
@@ -385,7 +397,7 @@ export function EmailComposer({
   if (!canSend) {
     return <div className="email-composer-empty">You can read this conversation. Sending email requires lead edit permission.</div>;
   }
-  return <form className="email-composer" onSubmit={(event) => void submit(event)}>
+  return <form ref={composerRef} className="email-composer" onSubmit={(event) => void submit(event)}>
     <div className="email-composer-heading">
       <div><span className="eyebrow">{headingLabel ?? (seed?.purpose === "follow_up" ? "Lead follow-up" : seed?.threadId ? "Reply" : "Compose")}</span><h3>{headingTitle ?? (seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply to email" : "New email")}</h3></div>
       <div className="email-composer-heading-actions">
