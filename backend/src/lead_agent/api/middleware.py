@@ -51,7 +51,8 @@ def apply_security_headers(
         f"default-src 'self'; script-src {script_src}; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; "
         "font-src 'self' data:; connect-src 'self'; form-action 'self'; "
-        "frame-src 'self' https://phone.cloudtalk.io https://apps.ringcentral.com; "
+        "frame-src 'self' https://phone.cloudtalk.io https://workspace.aircall.io "
+        "https://apps.ringcentral.com; "
         "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
     )
     if production:
