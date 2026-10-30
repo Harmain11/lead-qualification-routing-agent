@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -1382,3 +1382,54 @@ def test_cloudtalk_lead_handoff_requires_dialer_and_lead_permissions(calls):
     )
     assert response.status_code == 403
     assert adapter.count == 0
+
+
+def _stored_call(session, lead, connection, *, phone, direction, status, duration, minutes_ago, linked):
+    now = datetime.now(UTC)
+    row = CallRecordORM(
+        workspace_id=lead.workspace_id,
+        lead_id=lead.id if linked else None,
+        connection_id=connection.id,
+        provider="twilio",
+        external_id=f"ext-{uuid4().hex[:8]}",
+        status=status,
+        direction=direction,
+        customer_phone=phone,
+        started_at=now - timedelta(minutes=minutes_ago),
+        duration_seconds=duration,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def test_unified_history_reports_direction_outcome_and_lead(calls):
+    session, client, _, lead, connection, other, _ = calls
+    _stored_call(session, lead, connection, phone=TARGET, direction="outbound", status="completed", duration=95, minutes_ago=30, linked=True)
+    missed = _stored_call(session, lead, connection, phone=TARGET, direction="inbound", status="no-answer", duration=None, minutes_ago=10, linked=False)
+    _stored_call(session, lead, connection, phone="+15555550199", direction="inbound", status="completed", duration=40, minutes_ago=5, linked=False)
+
+    payload = client.get("/v1/calling/history").json()
+    assert [record["outcome"] for record in payload["records"]] == ["answered", "missed", "answered"]
+    by_id = {record["id"]: record for record in payload["records"]}
+    # An unlinked call from a known number is matched to its lead but not marked linked.
+    assert by_id[str(missed.id)]["lead_id"] == str(lead.id)
+    assert by_id[str(missed.id)]["linked"] is False
+
+    only_missed = client.get("/v1/calling/history", params={"direction": "missed"}).json()["records"]
+    assert [record["id"] for record in only_missed] == [str(missed.id)]
+    outbound = client.get("/v1/calling/history", params={"direction": "outbound"}).json()["records"]
+    assert [record["direction"] for record in outbound] == ["outbound"]
+
+
+def test_link_call_to_lead_sets_the_lead_once(calls):
+    session, client, _, lead, connection, _, _ = calls
+    call = _stored_call(session, lead, connection, phone="+15555550111", direction="inbound", status="completed", duration=12, minutes_ago=1, linked=False)
+    response = client.post(f"/v1/calling/calls/{call.id}/link", json={"lead_id": str(lead.id)})
+    assert response.status_code == 200, response.text
+    session.refresh(call)
+    assert call.lead_id == lead.id
+    history = client.get("/v1/calling/history").json()["records"]
+    assert history[0]["linked"] is True

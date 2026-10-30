@@ -11,7 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from lead_agent.application.governance import (
     operations_policy,
     outreach_allowed,
 )
+from lead_agent.domain.call_outcome import call_outcome
 from lead_agent.domain.operations import StrictModel
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -1112,3 +1113,126 @@ def sync_calls(
         "refreshed": refreshed,
         "message": "Recent calls matching this lead number were refreshed.",
     }
+
+
+def _digits(value: str | None) -> str:
+    return "".join(character for character in (value or "") if character.isdigit())
+
+
+@router.get("/history")
+def call_history(
+    direction: str = Query("all", pattern="^(all|inbound|outbound|missed)$"),
+    search: str = Query("", max_length=120),
+    before: datetime | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
+) -> dict[str, object]:
+    """Every call recorded in this workspace, newest first, with one outcome vocabulary."""
+    when = func.coalesce(CallRecordORM.started_at, CallRecordORM.created_at)
+    query = (
+        select(CallRecordORM, LeadORM.full_name, LeadORM.company_name)
+        .outerjoin(
+            LeadORM,
+            and_(LeadORM.id == CallRecordORM.lead_id, LeadORM.workspace_id == workspace.workspace_id),
+        )
+        .where(CallRecordORM.workspace_id == workspace.workspace_id)
+    )
+    if before is not None:
+        query = query.where(when < before)
+    if direction in {"inbound", "outbound"}:
+        query = query.where(func.lower(CallRecordORM.direction) == direction)
+    if direction == "missed":
+        query = query.where(func.lower(CallRecordORM.direction) == "inbound")
+    term = search.strip()
+    if term:
+        like = f"%{term}%"
+        digits = _digits(term)
+        conditions = [LeadORM.full_name.ilike(like), LeadORM.company_name.ilike(like)]
+        if len(digits) >= 3:
+            conditions.append(CallRecordORM.customer_phone.like(f"%{digits[-7:]}%"))
+        query = query.where(or_(*conditions))
+    fetch = limit * 3 if direction == "missed" else limit + 1
+    rows = session.execute(query.order_by(when.desc(), CallRecordORM.created_at.desc()).limit(fetch)).all()
+
+    unlinked_digits = {_digits(row[0].customer_phone)[-7:] for row in rows if row[0].lead_id is None and len(_digits(row[0].customer_phone)) >= 7}
+    phone_matches: dict[str, tuple[str, str, str]] = {}
+    if unlinked_digits:
+        candidates = session.execute(
+            select(LeadORM.id, LeadORM.full_name, LeadORM.company_name, LeadORM.phone).where(
+                LeadORM.workspace_id == workspace.workspace_id,
+                or_(*[LeadORM.phone.like(f"%{tail}%") for tail in unlinked_digits]),
+            )
+        ).all()
+        for lead_id, full_name, company_name, phone in candidates:
+            phone_matches[_digits(phone)] = (str(lead_id), full_name, company_name)
+
+    lead_ids = {row[0].lead_id for row in rows if row[0].lead_id is not None}
+    reps = {
+        decision.lead_id: decision.assigned_rep_name
+        for decision in session.scalars(
+            select(RoutingDecisionORM).where(
+                RoutingDecisionORM.workspace_id == workspace.workspace_id,
+                RoutingDecisionORM.lead_id.in_(lead_ids),
+                RoutingDecisionORM.is_current.is_(True),
+            )
+        )
+    } if lead_ids else {}
+
+    records: list[dict[str, object]] = []
+    for call, lead_name, company_name in rows:
+        outcome = call_outcome(call.status, call.direction, call.duration_seconds)
+        if direction == "missed" and outcome != "missed":
+            continue
+        item = CallRecord.model_validate(call).model_dump(mode="json")
+        match = None if call.lead_id else phone_matches.get(_digits(call.customer_phone))
+        item.update(
+            outcome=outcome,
+            linked=call.lead_id is not None,
+            lead_id=str(call.lead_id) if call.lead_id else (match[0] if match else None),
+            lead_name=lead_name if call.lead_id else (match[1] if match else None),
+            company_name=company_name if call.lead_id else (match[2] if match else None),
+            representative_name=reps.get(call.lead_id) if call.lead_id else None,
+        )
+        records.append(item)
+        if len(records) > limit:
+            break
+    has_more = len(records) > limit
+    records = records[:limit]
+    return {
+        "records": records,
+        "has_more": has_more,
+        "next_before": records[-1]["started_at"] or records[-1]["created_at"] if has_more and records else None,
+    }
+
+
+class LinkCall(StrictModel):
+    lead_id: UUID
+
+
+@router.post("/calls/{call_id}/link")
+def link_call_to_lead(
+    call_id: UUID,
+    request: LinkCall,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permissions("dialer.call", "leads.edit")),
+) -> dict[str, str]:
+    call = session.scalar(
+        select(CallRecordORM).where(
+            CallRecordORM.id == call_id,
+            CallRecordORM.workspace_id == workspace.workspace_id,
+        )
+    )
+    if call is None:
+        raise HTTPException(404, "Call not found")
+    if call.lead_id is not None and call.lead_id != request.lead_id:
+        raise HTTPException(409, "This call is already linked to another lead.")
+    lead = session.scalar(
+        select(LeadORM).where(LeadORM.id == request.lead_id, LeadORM.workspace_id == workspace.workspace_id)
+    )
+    if lead is None:
+        raise HTTPException(404, "Lead not found")
+    call.lead_id = lead.id
+    call.updated_at = datetime.now(UTC)
+    session.commit()
+    return {"call_id": str(call.id), "lead_id": str(lead.id)}
