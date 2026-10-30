@@ -18,6 +18,8 @@ import type {
   WorkspaceEmailDraftSummary,
 } from "../types";
 import { confirmAction } from "../v3/ui/confirm";
+import { Icon, type IconName } from "../v3/ui/Icon";
+import { Banner, Button, EmptyState, IconButton, Monogram, PageHeader, Sheet } from "../v3/ui/primitives";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAILBOX_CACHE_FRESH_MS = 60_000;
@@ -37,6 +39,31 @@ function emailDate(value: string) {
     ? value
     : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
+
+function listTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (date.getFullYear() === now.getFullYear()) return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function addressesOf(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => (item.match(/<([^>]+)>/)?.[1] ?? item).trim().toLowerCase())
+    .filter((item) => item.includes("@"));
+}
+
+const FOLDERS: Array<{ id: "inbox" | "sent" | "drafts" | "spam" | "trash" | "archive"; label: string; icon: IconName }> = [
+  { id: "inbox", label: "Inbox", icon: "inbox" },
+  { id: "sent", label: "Sent", icon: "send" },
+  { id: "drafts", label: "Drafts", icon: "edit" },
+  { id: "archive", label: "Archive", icon: "layers" },
+  { id: "spam", label: "Spam", icon: "shield" },
+  { id: "trash", label: "Trash", icon: "trash" },
+];
 
 export function EmailWorkspace({
   canSend,
@@ -65,6 +92,7 @@ export function EmailWorkspace({
   const [revision, setRevision] = useState(0);
   const [threadRevision, setThreadRevision] = useState(0);
   const [composeSeed, setComposeSeed] = useState<GmailComposerSeed | null>(null);
+  const [composerMode, setComposerMode] = useState<"sheet" | "reply">("sheet");
   const [composerRevision, setComposerRevision] = useState(0);
   const [drafts, setDrafts] = useState<WorkspaceEmailDraftSummary[]>([]);
   const [activeDraft, setActiveDraft] = useState<WorkspaceEmailDraft | null>(null);
@@ -198,6 +226,7 @@ export function EmailWorkspace({
     lastThreadRefresh.current = threadRevision;
     if (cached) {
       setThread(cached.messages);
+      setExpandedMessageIds((current) => current.size ? current : new Set(cached.messages.slice(-1).map((message) => message.message_id)));
       setLoadingThread(false);
     }
     if (!cached) {
@@ -212,6 +241,7 @@ export function EmailWorkspace({
       if (!controller.signal.aborted) {
         remember(threadCache, key, { messages: result.messages, fetchedAt: Date.now() });
         setThread((current) => JSON.stringify(current) === JSON.stringify(result.messages) ? current : result.messages);
+        setExpandedMessageIds((current) => current.size ? current : new Set(result.messages.slice(-1).map((message) => message.message_id)));
         setLoadingThread(false);
       }
     }).catch((reason) => {
@@ -229,28 +259,60 @@ export function EmailWorkspace({
     setQuery(queryInput.trim());
   }
 
-  function beginReplyTo(message: GmailThreadMessage) {
-    if (!selected || message.direction !== "inbound") return;
+  const activeMailbox = (accounts.find((account) => account.id === connectionId)?.account_name ?? "").toLowerCase();
+
+  function replySubject(subject: string) {
+    return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
+  }
+
+  function beginReplyTo(message: GmailThreadMessage, mode: "reply" | "all" = "reply") {
+    if (!selected) return;
     setActiveDraft(null);
     const subject = message.subject || selected.subject;
+    const outbound = message.direction !== "inbound";
+    const primary = outbound ? addressesOf(message.recipients)[0] ?? "" : message.sender;
+    const others = mode === "all"
+      ? [...addressesOf(message.recipients), message.sender.toLowerCase()].filter((address) => address && address !== activeMailbox && address !== primary.toLowerCase())
+      : [];
     setComposeSeed({
-      recipient: message.sender,
-      subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
+      recipient: primary,
+      cc: [...new Set(others)].join(", ") || undefined,
+      subject: replySubject(subject),
       threadId: message.thread_id || selected.thread_id,
       inReplyTo: message.rfc_message_id || undefined,
       connectionId,
     });
+    setComposerMode("reply");
     setComposerRevision((current) => current + 1);
   }
 
-  function beginReply() {
-    const lastInbound = [...thread].reverse().find((message) => message.direction === "inbound");
-    if (lastInbound) beginReplyTo(lastInbound);
+  function beginForward(message: GmailThreadMessage) {
+    setActiveDraft(null);
+    const subject = message.subject || selected?.subject || "";
+    const quoted = [
+      "",
+      "",
+      "---------- Forwarded message ----------",
+      `From: ${message.sender_name ? `${message.sender_name} <${message.sender}>` : message.sender}`,
+      `Date: ${emailDate(message.sent_at)}`,
+      `Subject: ${subject}`,
+      `To: ${message.recipients}`,
+      "",
+      message.body || "",
+    ].join("\n");
+    setComposeSeed({ subject: /^fwd?:/i.test(subject) ? subject : `Fwd: ${subject}`, body: quoted, connectionId });
+    setComposerMode("sheet");
+    setComposerRevision((current) => current + 1);
+  }
+
+  function latestReplyTarget() {
+    return [...thread].reverse().find((message) => message.direction === "inbound") ?? thread[thread.length - 1];
   }
 
   function beginCompose() {
     setActiveDraft(null);
     setComposeSeed({ connectionId });
+    setComposerMode("sheet");
     setComposerRevision((current) => current + 1);
   }
 
@@ -268,181 +330,187 @@ export function EmailWorkspace({
     thread.every((message) => expandedMessageIds.has(message.message_id));
 
   const activeAccount = accounts.find((account) => account.id === connectionId);
-  const folderLabel = {
-    inbox: "Inbox",
-    sent: "Sent",
-    drafts: "Drafts",
-    spam: "Spam",
-    trash: "Trash",
-    archive: "Archive",
-  }[folder];
+  const folderLabel = FOLDERS.find((item) => item.id === folder)?.label ?? "Inbox";
+  const unreadCount = folder === "inbox" ? messages.filter((message) => message.unread).length : 0;
 
-  return <div className="page-view operational-page email-workspace-page">
-    <header className="page-hero email-workspace-hero">
-      <div><span className="eyebrow">Workspace / Email</span><h1>Shared inbox</h1><p>Read and send email from connected Gmail accounts, with mailbox selection kept explicit.</p></div>
-      <button className="primary-button" type="button" onClick={beginCompose} disabled={!canSend}>New draft</button>
-    </header>
-    {error && <div className="notice" role="alert">{error}</div>}
-    {composeSeed && <EmailComposer
-      key={composerRevision}
-      accounts={accounts}
-      canSend={canSend}
-      seed={composeSeed}
-      draft={activeDraft ?? undefined}
-      onClose={() => { setComposeSeed(null); setActiveDraft(null); }}
-      onSaved={() => {
-        setComposeSeed(null);
-        setActiveDraft(null);
-        setFolder("drafts");
-        setDraftRevision((current) => current + 1);
-      }}
-      onSent={() => {
-        setComposeSeed(null);
-        setActiveDraft(null);
-        setRevision((current) => current + 1);
-        setThreadRevision((current) => current + 1);
-        setDraftRevision((current) => current + 1);
-      }}
-    />}
-    <section className="email-mailbox-toolbar panel">
-      <label>Gmail account
-        <select value={connectionId} onChange={(event) => {
-          setConnectionId(event.target.value);
-          setPageToken(null);
-          setSelected(null);
-          setThread([]);
-        }} disabled={loadingAccounts || !accounts.length}>
-          {accounts.map((account) => <option value={account.id} key={account.id}>{account.account_name}</option>)}
-        </select>
-      </label>
-      <div className="email-folder-switch" role="group" aria-label="Mailbox folder">
-        {([
-          ["inbox", "Inbox"],
-          ["sent", "Sent"],
-          ["drafts", "Drafts"],
-          ["spam", "Spam"],
-          ["trash", "Trash"],
-          ["archive", "Archive"],
-        ] as const).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={folder === value ? "is-active" : ""}
-            aria-pressed={folder === value}
-            onClick={() => { setFolder(value); setPageToken(null); }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <form className="email-search" onSubmit={submitSearch}>
-        <label className="sr-only" htmlFor="shared-email-search">Search email</label>
-        <input id="shared-email-search" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="Search this mailbox" />
-        <button className="secondary-button" type="submit">Search</button>
-      </form>
-      <button className="button-quiet" type="button" onClick={() => { backgroundRefresh.current = false; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>Refresh Gmail</button>
-    </section>
-    {loadingAccounts && <div className="email-empty-state"><span>Loading connected Gmail accounts…</span></div>}
-    {!loadingAccounts && accounts.length === 0 && <div className="email-empty-state"><strong>No verified Gmail account is connected.</strong><span>Connect one or more Gmail accounts to read the shared inbox.</span><button className="secondary-button" type="button" onClick={onOpenIntegrations}>Open Integrations</button></div>}
-    {folder === "drafts" && canSend && <section className="panel email-saved-drafts" aria-label="Corral drafts">
-      <header><div><span className="eyebrow">Private to you</span><h2>Corral drafts</h2></div><span>{drafts.length} saved</span></header>
-      <p>Saved in this workspace until you send or delete them. Gmail drafts appear in the mailbox list below.</p>
-      {drafts.length === 0 ? <p className="email-list-empty">No saved Corral drafts yet. Select New draft to write one.</p> : <ul>
-        {drafts.map((draft) => <li key={draft.id}>
-          <button type="button" className="email-draft-open" onClick={() => {
-            getWorkspaceEmailDraft(draft.id).then((full) => {
-              setActiveDraft(full);
-              setComposeSeed({ connectionId: full.data.connection_id ?? undefined });
-              setComposerRevision((current) => current + 1);
-            }).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be opened."));
-          }}><strong>{draft.subject || "(no subject)"}</strong><span>{draft.recipient || "Recipient not set"} · {emailDate(draft.updated_at)}</span></button>
-          <button type="button" className="button-quiet" aria-label={`Delete draft ${draft.subject || "without subject"}`} onClick={() => {
-            void confirmAction({ title: "Delete this draft?", message: "The saved draft is removed. This can't be undone.", confirmLabel: "Delete draft", tone: "danger" }).then((confirmed) => {
-              if (!confirmed) return;
-              deleteWorkspaceEmailDraft(draft.id).then(() => setDraftRevision((current) => current + 1)).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be deleted."));
-            });
-          }}>Delete</button>
-        </li>)}
-      </ul>}
-    </section>}
-    {!loadingAccounts && accounts.length > 0 && <div className="email-workspace-grid">
-       <section className="email-message-list panel" aria-label={`${folderLabel} messages`}>
-         <header><div><span className="eyebrow">{folderLabel}</span><h2>{activeAccount?.account_name ?? "Mailbox"}</h2></div><span>{messages.length} shown</span></header>
-        {loadingMessages && <p className="email-status">Loading messages…</p>}
-        {!loadingMessages && messages.length === 0 && <div className="email-list-empty">No email matches this view.</div>}
-        <div className="email-message-list-rows">
-          {messages.map((message) => <button
-            type="button"
-            key={`${message.message_id}-${message.thread_id}`}
-            className={`email-message-row${selected?.message_id === message.message_id ? " is-selected" : ""}${message.unread ? " is-unread" : ""}`}
-            onClick={() => setSelected(message)}
-          >
-            <span className="email-row-top"><strong>{message.sender_name || message.sender || "Unknown sender"}</strong><time>{emailDate(message.sent_at)}</time></span>
-            <b>{message.subject || "(no subject)"}</b>
-            <span className="email-row-snippet">{message.snippet || "Open to read this message."}</span>
-          </button>)}
+  const composer = composeSeed && <EmailComposer
+    key={composerRevision}
+    accounts={accounts}
+    canSend={canSend}
+    seed={composeSeed}
+    draft={activeDraft ?? undefined}
+    onClose={() => { setComposeSeed(null); setActiveDraft(null); }}
+    onSaved={() => {
+      setComposeSeed(null);
+      setActiveDraft(null);
+      setFolder("drafts");
+      setDraftRevision((current) => current + 1);
+    }}
+    onSent={() => {
+      setComposeSeed(null);
+      setActiveDraft(null);
+      setRevision((current) => current + 1);
+      setThreadRevision((current) => current + 1);
+      setDraftRevision((current) => current + 1);
+    }}
+  />;
+
+  return <div className="mailbox">
+    <PageHeader
+      title="Inbox"
+      subtitle={activeAccount ? activeAccount.account_name : "Shared Gmail inbox for your workspace"}
+      actions={<Button kind="filled" icon="edit" onClick={beginCompose} disabled={!canSend || !accounts.length}>New email</Button>}
+    />
+    {error && <Banner tone="danger" title={error} action={<Button kind="plain" size="sm" onClick={() => setError(null)}>Dismiss</Button>} />}
+    {composeSeed && composerMode === "sheet" && (
+      <Sheet title={activeDraft ? "Edit draft" : composeSeed.subject?.startsWith("Fwd") ? "Forward" : "New email"} onClose={() => { setComposeSeed(null); setActiveDraft(null); }} width={760}>
+        {composer}
+      </Sheet>
+    )}
+    {loadingAccounts && <div className="mailbox-skeleton" role="status" aria-label="Loading mailbox"><i /><i /><i /></div>}
+    {!loadingAccounts && accounts.length === 0 && (
+      <EmptyState icon="mail" title="Connect Gmail to use the inbox" action={<Button kind="filled" onClick={onOpenIntegrations}>Connect Gmail</Button>}>
+        Read, reply and send from your team's Gmail accounts without leaving Corral.
+      </EmptyState>
+    )}
+    {!loadingAccounts && accounts.length > 0 && <div className="mailbox-grid" data-reading={selected ? "" : undefined}>
+      <nav className="mailbox-rail" aria-label="Mailbox">
+        {accounts.length > 1 && <label className="mailbox-account">
+          <span className="v-sr">Gmail account</span>
+          <select value={connectionId} onChange={(event) => {
+            setConnectionId(event.target.value);
+            setPageToken(null);
+            setSelected(null);
+            setThread([]);
+          }}>
+            {accounts.map((account) => <option value={account.id} key={account.id}>{account.account_name}</option>)}
+          </select>
+        </label>}
+        <ul>
+          {FOLDERS.map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className="mailbox-folder"
+                aria-current={folder === item.id ? "page" : undefined}
+                onClick={() => { setFolder(item.id); setPageToken(null); setSelected(null); }}
+              >
+                <Icon name={item.icon} size={16} />
+                <span>{item.label}</span>
+                {item.id === "inbox" && unreadCount > 0 && <span className="mailbox-count num">{unreadCount}</span>}
+                {item.id === "drafts" && drafts.length > 0 && folder === "drafts" && <span className="mailbox-count num">{drafts.length}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <Button kind="plain" size="sm" icon="refresh" onClick={() => { backgroundRefresh.current = false; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>
+          {loadingMessages ? "Refreshing…" : "Refresh"}
+        </Button>
+      </nav>
+
+      <section className="mailbox-list" aria-label={`${folderLabel} messages`}>
+        <form className="mailbox-search" onSubmit={submitSearch} role="search">
+          <Icon name="search" size={15} />
+          <label className="v-sr" htmlFor="shared-email-search">Search {folderLabel}</label>
+          <input id="shared-email-search" type="search" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder={`Search ${folderLabel.toLowerCase()}`} />
+        </form>
+        {folder === "drafts" && canSend && drafts.length > 0 && <div className="mailbox-drafts" aria-label="Drafts saved in Corral">
+          <h3>Saved in Corral</h3>
+          {drafts.map((draft) => <div className="mailbox-draft" key={draft.id}>
+            <button type="button" onClick={() => {
+              getWorkspaceEmailDraft(draft.id).then((full) => {
+                setActiveDraft(full);
+                setComposeSeed({ connectionId: full.data.connection_id ?? undefined });
+                setComposerMode("sheet");
+                setComposerRevision((current) => current + 1);
+              }).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be opened."));
+            }}>
+              <b>{draft.subject || "(no subject)"}</b>
+              <span>{draft.recipient || "No recipient yet"} · {listTime(draft.updated_at)}</span>
+            </button>
+            <IconButton icon="trash" size={15} label={`Delete draft ${draft.subject || "without subject"}`} onClick={() => {
+              void confirmAction({ title: "Delete this draft?", message: "The saved draft is removed. This can't be undone.", confirmLabel: "Delete draft", tone: "danger" }).then((confirmed) => {
+                if (!confirmed) return;
+                deleteWorkspaceEmailDraft(draft.id).then(() => setDraftRevision((current) => current + 1)).catch((reason) => setError(reason instanceof Error ? reason.message : "Draft could not be deleted."));
+              });
+            }} />
+          </div>)}
+        </div>}
+        {loadingMessages && messages.length === 0 && <div className="mailbox-skeleton" role="status" aria-label="Loading messages"><i /><i /><i /><i /></div>}
+        {!loadingMessages && messages.length === 0 && <p className="mailbox-empty">{query ? `Nothing in ${folderLabel} matches “${query}”.` : `${folderLabel} is empty.`}</p>}
+        <div className="mailbox-rows">
+          {messages.map((message) => {
+            const name = folder === "sent" ? (message.recipients || "No recipient") : (message.sender_name || message.sender || "Unknown sender");
+            return <button
+              type="button"
+              key={`${message.message_id}-${message.thread_id}`}
+              className="mailbox-row"
+              aria-current={selected?.message_id === message.message_id ? "true" : undefined}
+              data-unread={message.unread || undefined}
+              onClick={() => { setSelected(message); setComposeSeed(null); }}
+            >
+              <Monogram text={name} size={32} />
+              <span className="mailbox-row-text">
+                <span className="mailbox-row-top">
+                  <b>{name}</b>
+                  <time dateTime={message.sent_at} title={emailDate(message.sent_at)}>{listTime(message.sent_at)}</time>
+                </span>
+                <span className="mailbox-row-subject">{message.subject || "(no subject)"}</span>
+                <span className="mailbox-row-snippet">{message.snippet}</span>
+              </span>
+              {message.unread && <span className="mailbox-unread" aria-label="Unread" />}
+            </button>;
+          })}
         </div>
-        {nextPageToken && <button className="secondary-button email-next-page" type="button" onClick={() => setPageToken(nextPageToken)} disabled={loadingMessages}>Next page</button>}
+        {nextPageToken && <Button className="mailbox-more" onClick={() => setPageToken(nextPageToken)} disabled={loadingMessages}>Load more</Button>}
       </section>
-      <section className="email-thread-detail panel" aria-label="Email thread">
-        {!selected && <div className="email-list-empty">Select an email to read the conversation.</div>}
+
+      <section className="mailbox-reader" aria-label="Conversation">
+        {!selected && <div className="mailbox-reader-empty"><Icon name="mail" size={28} /><p>Select a conversation to read it.</p></div>}
         {selected && <>
-          <header className="email-thread-heading">
-            <div><span className="eyebrow">{selected.direction === "outbound" ? "Sent email" : "Inbox conversation"}</span><h2>{selected.subject || "(no subject)"}</h2></div>
-            <div className="email-thread-heading-actions">
-              {thread.length > 0 && <button className="button-quiet" type="button" onClick={() => {
-                setExpandedMessageIds(
-                  allThreadMessagesExpanded
-                    ? new Set()
-                    : new Set(thread.map((message) => message.message_id)),
-                );
-              }}>{allThreadMessagesExpanded ? "Collapse all" : "Expand all"}</button>}
-              {thread.some((message) => message.direction === "inbound") && <button className="secondary-button" type="button" onClick={beginReply}>Reply</button>}
+          <header className="mailbox-reader-head">
+            <IconButton icon="chevronLeft" label="Back to messages" className="mailbox-back" onClick={() => setSelected(null)} />
+            <h2>{selected.subject || "(no subject)"}</h2>
+            <div className="mailbox-reader-actions">
+              {thread.length > 1 && <Button kind="plain" size="sm" onClick={() => setExpandedMessageIds(allThreadMessagesExpanded ? new Set() : new Set(thread.map((message) => message.message_id)))}>
+                {allThreadMessagesExpanded ? "Collapse all" : "Expand all"}
+              </Button>}
             </div>
           </header>
-          {loadingThread && <p className="email-status">Loading conversation…</p>}
-          <div className="email-thread-messages">
+          {loadingThread && thread.length === 0 && <div className="mailbox-skeleton" role="status" aria-label="Loading conversation"><i /><i /></div>}
+          <div className="mailbox-thread">
             {thread.map((message, index) => {
               const expanded = expandedMessageIds.has(message.message_id);
               const body = message.body || "";
-              const excerpt = getProviderEmailPreview(body);
-              const bodyId = `email-thread-message-body-${index}`;
-              return <article className={`email-thread-message${message.direction === "outbound" ? " is-outbound" : ""}`} key={message.message_id}>
-                <button
-                  className="email-thread-message-toggle"
-                  type="button"
-                  aria-expanded={expanded}
-                  aria-controls={bodyId}
-                  aria-label={`${expanded ? "Collapse" : "Expand"} message from ${message.sender_name || message.sender || "Unknown sender"}`}
-                  onClick={() => toggleThreadMessage(message.message_id)}
-                >
-                  <span className="email-thread-message-summary-header">
-                    <span className="email-thread-message-sender">
-                      <strong>{message.sender_name || message.sender || "Unknown sender"}</strong>
-                      <span>{message.sender}</span>
-                    </span>
-                    <time>{emailDate(message.sent_at)}</time>
+              const bodyId = `mail-message-${index}`;
+              const who = message.sender_name || message.sender || "Unknown sender";
+              return <article className="mailbox-message" data-expanded={expanded || undefined} data-outbound={message.direction !== "inbound" || undefined} key={message.message_id}>
+                <button type="button" className="mailbox-message-head" aria-expanded={expanded} aria-controls={bodyId} onClick={() => toggleThreadMessage(message.message_id)}>
+                  <Monogram text={who} size={36} />
+                  <span className="mailbox-message-who">
+                    <b>{who}</b>
+                    {expanded ? <small>to {message.recipients || "undisclosed recipients"}</small> : <small className="mailbox-message-preview">{getProviderEmailPreview(body)}</small>}
                   </span>
-                  <span className="email-thread-message-summary-footer">
-                    {!expanded && <span className="email-thread-message-preview">{excerpt}</span>}
-                    <span className="email-thread-message-toggle-label">{expanded ? "Collapse" : "Expand"}</span>
-                  </span>
+                  <time dateTime={message.sent_at}>{emailDate(message.sent_at)}</time>
                 </button>
-                {message.direction === "inbound" && <div className="email-thread-message-actions">
-                  <button
-                    className="button-quiet email-message-reply-button"
-                    type="button"
-                    aria-label={`Reply to ${message.sender_name || message.sender || "this message"}`}
-                    onClick={() => beginReplyTo(message)}
-                  >Reply</button>
-                </div>}
-                {expanded && <div className="email-thread-message-body" id={bodyId}>
-                  <div className="email-thread-addresses"><span>To</span>{message.recipients || "Not listed"}</div>
+                {expanded && <div className="mailbox-message-body" id={bodyId}>
                   <ProviderEmailBody content={body} />
+                  {canSend && <div className="mailbox-message-actions">
+                    <Button size="sm" icon="reply" onClick={() => beginReplyTo(message, "reply")}>Reply</Button>
+                    <Button size="sm" icon="replyAll" onClick={() => beginReplyTo(message, "all")}>Reply all</Button>
+                    <Button size="sm" icon="forward" onClick={() => beginForward(message)}>Forward</Button>
+                  </div>}
                 </div>}
               </article>;
             })}
           </div>
+          {composeSeed && composerMode === "reply" ? <div className="mailbox-reply">{composer}</div> : canSend && thread.length > 0 && (
+            <div className="mailbox-quick-actions">
+              <Button icon="reply" onClick={() => { const target = latestReplyTarget(); if (target) beginReplyTo(target, "reply"); }}>Reply</Button>
+              <Button icon="replyAll" onClick={() => { const target = latestReplyTarget(); if (target) beginReplyTo(target, "all"); }}>Reply all</Button>
+              <Button icon="forward" onClick={() => { const target = thread[thread.length - 1]; if (target) beginForward(target); }}>Forward</Button>
+            </div>
+          )}
         </>}
       </section>
     </div>}

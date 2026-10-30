@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { composeEmailWithAI, deleteWorkspaceEmailDraft, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
+import { composeEmailWithAI, deleteWorkspaceEmailDraft, getGoogleCalendarBookingLink, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
 import { createClientId } from "../clientIds";
 import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
 import { confirmAction } from "../v3/ui/confirm";
+import { sanitizeHtml } from "../sanitizeHtml";
+import { Icon } from "../v3/ui/Icon";
+import { Banner, Button, IconButton, Menu, MenuItem } from "../v3/ui/primitives";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -98,6 +101,11 @@ export function EmailComposer({
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<"ai" | "save" | "send" | "delete" | null>(null);
   const [aiInstruction, setAiInstruction] = useState("");
+  const [aiOpen, setAiOpen] = useState(false);
+  const [beforeAi, setBeforeAi] = useState<{ subject: string; body: string; html: string } | null>(null);
+  const [proposeOpen, setProposeOpen] = useState(false);
+  const [proposals, setProposals] = useState<string[]>(["", "", ""]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [savedDraft, setSavedDraft] = useState(draft ?? null);
   const replyingInThread = Boolean(seed?.threadId || draft?.data.thread_id);
   const replyConnectionId = seed?.threadId ? seed.connectionId : draft?.data.connection_id;
@@ -138,7 +146,7 @@ export function EmailComposer({
     setBody(initialBody);
     setBodyHtml(draft?.data.html_body ?? seed?.htmlBody ?? "");
     if (editorRef.current) {
-      if (draft?.data.html_body || seed?.htmlBody) editorRef.current.innerHTML = draft?.data.html_body ?? seed?.htmlBody ?? "";
+      if (draft?.data.html_body || seed?.htmlBody) editorRef.current.innerHTML = sanitizeHtml(draft?.data.html_body ?? seed?.htmlBody ?? "");
       else editorRef.current.innerText = initialBody;
     }
   }, [draft, seed?.body, seed?.htmlBody]);
@@ -195,6 +203,7 @@ export function EmailComposer({
     setBusyAction("ai");
     setError(null);
     setNotice(null);
+    const snapshot = { subject, body, html: editorRef.current?.innerHTML ?? bodyHtml };
     try {
       const result = await composeEmailWithAI({
         connection_id: connectionId || null,
@@ -212,7 +221,9 @@ export function EmailComposer({
       setBody(result.body);
       setBodyHtml("");
       if (editorRef.current) editorRef.current.innerText = result.body;
-      setNotice("AI draft ready. Review the facts and wording before saving or sending.");
+      setBeforeAi(snapshot);
+      setAiOpen(false);
+      setNotice("AI draft ready. Check the facts and wording before you send.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "AI could not compose this email.");
     } finally {
@@ -396,113 +407,209 @@ export function EmailComposer({
     onClose?.();
   }
 
-  if (!canSend) {
-    return <div className="email-composer-empty">You can read this conversation. Sending email requires lead edit permission.</div>;
+  function undoAi() {
+    if (!beforeAi) return;
+    if (!replyingInThread) setSubject(beforeAi.subject);
+    setBody(beforeAi.body);
+    setBodyHtml(beforeAi.html);
+    if (editorRef.current) editorRef.current.innerHTML = sanitizeHtml(beforeAi.html) || "";
+    if (editorRef.current && !beforeAi.html) editorRef.current.innerText = beforeAi.body;
+    setBeforeAi(null);
+    setNotice("Restored your previous text.");
   }
-  return <form ref={composerRef} className="email-composer" onSubmit={(event) => void submit(event)}>
-    <div className="email-composer-heading">
-      <div><span className="eyebrow">{headingLabel ?? (seed?.purpose === "follow_up" ? "Lead follow-up" : seed?.threadId ? "Reply" : "Compose")}</span><h3>{headingTitle ?? (seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply to email" : "New email")}</h3></div>
-      <div className="email-composer-heading-actions">
-         <small>Check the recipient and message, then send.</small>
-        {onClose && <button
-          className="email-composer-close button-quiet"
-          type="button"
-          aria-label={seed?.threadId ? "Close reply" : "Close email composer"}
-          title={seed?.threadId ? "Close reply" : "Close email composer"}
-          disabled={busy}
-          onClick={closeComposer}
-        >
-          <span aria-hidden="true">×</span>
-        </button>}
+
+  function insertText(text: string) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (savedRangeRef.current && selection) {
+      selection.removeAllRanges();
+      selection.addRange(savedRangeRef.current);
+    } else if (selection) {
+      selection.selectAllChildren(editor);
+      selection.collapseToEnd();
+    }
+    document.execCommand("insertText", false, text);
+    savedRangeRef.current = null;
+    syncBody();
+  }
+
+  async function insertBookingLink() {
+    try {
+      const link = await getGoogleCalendarBookingLink();
+      if (!link.url) {
+        setError("No booking link is set. Add your Google Calendar booking page in Settings → Email automation.");
+        return;
+      }
+      insertText(`\nYou can choose a time that suits you here: ${link.url}\n`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The booking link couldn't be loaded.");
+    }
+  }
+
+  function insertProposedTimes() {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const times = proposals
+      .map((value) => new Date(value))
+      .filter((date) => !Number.isNaN(date.getTime()))
+      .map((date, index) => `${index + 1}. ${date.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`);
+    if (!times.length) {
+      setError("Choose at least one date and time to propose.");
+      return;
+    }
+    insertText(`\nWould any of these times work for you? (${zone})\n${times.join("\n")}\nReply with the number that suits you, or suggest another time.\n`);
+    setProposeOpen(false);
+    setProposals(["", "", ""]);
+    setError(null);
+  }
+
+  const canSubmit = !busy && !sendBlockedReason && !replyUnavailable && !encodingAttachments && Boolean(connectionId)
+    && Boolean(recipient.trim()) && Boolean(subject.trim()) && Boolean(body.trim());
+
+  if (!canSend) {
+    return <p className="mail-readonly">You can read this conversation. Sending email needs lead edit access.</p>;
+  }
+  const heading = headingTitle ?? (seed?.purpose === "follow_up" ? "Follow-up email" : seed?.threadId ? "Reply" : "New email");
+  return <form
+    ref={composerRef}
+    className="mail-composer"
+    aria-label={heading}
+    onSubmit={(event) => void submit(event)}
+    onKeyDown={(event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && canSubmit) {
+        event.preventDefault();
+        composerRef.current?.requestSubmit();
+      }
+    }}
+  >
+    <header className="mail-composer-head">
+      <div>
+        {headingLabel && <span className="mail-composer-eyebrow">{headingLabel}</span>}
+        <h3>{heading}</h3>
       </div>
-    </div>
-    {sendableAccounts.length === 0 && <div className="notice" role="status">You can save this draft now. Connect a verified Gmail account with send access before sending.</div>}
-    <div className="email-composer-address-grid">
-      <label>From
+      {onClose && <IconButton icon="close" label={seed?.threadId ? "Close reply" : "Close composer"} size={16} disabled={busy} onClick={closeComposer} />}
+    </header>
+    {sendableAccounts.length === 0 && <Banner tone="info" title="Connect Gmail to send">You can save this as a draft now. Sending needs a verified Gmail account with send access.</Banner>}
+    <div className="mail-fields">
+      <label className="mail-field">
+        <span>From</span>
         <select value={connectionId} onChange={(event) => setConnectionId(event.target.value)} disabled={replyingInThread}>
-          {sendableAccounts.length === 0 && <option value="">Choose a Gmail account before sending</option>}
+          {sendableAccounts.length === 0 && <option value="">No sending account</option>}
           {sendableAccounts.map((account) => <option key={account.id} value={account.id}>{account.account_name}</option>)}
         </select>
       </label>
-      <div className="email-composer-recipient-fields">
-        <label>To
-          <input value={recipient} onChange={(event) => setRecipient(event.target.value)} maxLength={1024} autoComplete="email" placeholder="name@example.com" required />
-        </label>
-        <div className="email-recipient-options">
-          <small>Separate multiple addresses with commas.</small>
-          <div>
-            <button type="button" className="button-quiet" onClick={() => setShowCc((value) => !value)} aria-expanded={showCc}>Cc</button>
-            <button type="button" className="button-quiet" onClick={() => setShowBcc((value) => !value)} aria-expanded={showBcc}>Bcc</button>
-          </div>
-        </div>
-        {showCc && <label>Cc<input value={cc} onChange={(event) => setCc(event.target.value)} maxLength={1024} placeholder="copy@example.com" /></label>}
-        {showBcc && <label>Bcc<input value={bcc} onChange={(event) => setBcc(event.target.value)} maxLength={1024} placeholder="hidden-copy@example.com" /></label>}
+      <div className="mail-field">
+        <span>To</span>
+        <input value={recipient} onChange={(event) => setRecipient(event.target.value)} maxLength={1024} autoComplete="email" placeholder="name@company.com" required aria-label="To" />
+        <span className="mail-field-toggles">
+          {!showCc && <button type="button" onClick={() => setShowCc(true)}>Cc</button>}
+          {!showBcc && <button type="button" onClick={() => setShowBcc(true)}>Bcc</button>}
+        </span>
       </div>
+      {showCc && <label className="mail-field"><span>Cc</span><input value={cc} onChange={(event) => setCc(event.target.value)} maxLength={1024} placeholder="Separate addresses with commas" /></label>}
+      {showBcc && <label className="mail-field"><span>Bcc</span><input value={bcc} onChange={(event) => setBcc(event.target.value)} maxLength={1024} placeholder="Separate addresses with commas" /></label>}
+      <label className="mail-field">
+        <span>Subject</span>
+        <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required readOnly={replyingInThread} title={replyingInThread ? "Replies keep the original subject so they stay in the conversation." : undefined} />
+      </label>
     </div>
-    <label>Subject
-      <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={180} required readOnly={replyingInThread} />
-    </label>
-    {replyingInThread && <small className="email-status">This reply keeps the original Gmail account and subject so it stays in the conversation.</small>}
-    {replyUnavailable && <div className="notice" role="alert">Reconnect the Gmail account used for this conversation and refresh its history before replying.</div>}
-    <div className="email-rich-editor">
-      <span className="email-field-label">Message</span>
-      <div className="email-ai-compose">
-        <input aria-label="Optional guidance for AI email" value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)} maxLength={1000} placeholder={replyingInThread ? "Optional: tone or details to emphasize" : "Optional: what should the email focus on?"} disabled={busy} />
-        <button className="secondary-button" type="button" onClick={() => void composeWithAI()} disabled={busy || (!recipient.trim() && !leadId && !subject.trim())}>
-          {busyAction === "ai" ? "Composing…" : "Compose with AI"}
-        </button>
-      </div>
-      {replyingInThread && <small className="email-status">AI reads this whole thread and lead details automatically. Guidance is optional.</small>}
-      <div className="email-format-toolbar" role="toolbar" aria-label="Message formatting">
-        <button type="button" aria-label="Bold" title="Bold" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("bold")}><strong>B</strong></button>
-        <button type="button" aria-label="Italic" title="Italic" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("italic")}><em>I</em></button>
-        <button type="button" aria-label="Underline" title="Underline" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("underline")}><u>U</u></button>
-        <button type="button" aria-label="Bulleted list" title="Bulleted list" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("insertUnorderedList")}>• List</button>
-        <button type="button" aria-label="Numbered list" title="Numbered list" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("insertOrderedList")}>1. List</button>
-        <button type="button" aria-label="Insert link" title="Insert link" onMouseDown={(event) => { event.preventDefault(); saveSelection(); }} onClick={() => { setLinkOpen((value) => !value); setError(null); }}>Link</button>
-      </div>
-      {linkOpen && <div className="email-link-entry">
-        <input type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.com" aria-label="Link URL" />
-        <button type="button" className="secondary-button" onClick={insertLink} disabled={!linkUrl.trim()}>Insert link</button>
-      </div>}
-      <div
-        ref={editorRef}
-        className="email-rich-editor-input"
-        contentEditable={!busy}
-        role="textbox"
-        aria-label="Message"
-        aria-multiline="true"
-        aria-required="true"
-        data-placeholder="Write your message…"
-        onInput={syncBody}
-        onPaste={() => window.setTimeout(syncBody, 0)}
+    {replyUnavailable && <Banner tone="danger" title="This reply can't be sent yet">Reconnect the Gmail account used for this conversation, then refresh the thread.</Banner>}
+    <div className="mail-toolbar" role="toolbar" aria-label="Formatting and tools">
+      <IconButton icon="bold" label="Bold" size={16} onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("bold")} />
+      <IconButton icon="italic" label="Italic" size={16} onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("italic")} />
+      <IconButton icon="underline" label="Underline" size={16} onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("underline")} />
+      <span className="mail-toolbar-sep" aria-hidden="true" />
+      <IconButton icon="listBullets" label="Bulleted list" size={16} onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("insertUnorderedList")} />
+      <IconButton icon="listNumbers" label="Numbered list" size={16} onMouseDown={(event) => event.preventDefault()} onClick={() => applyFormat("insertOrderedList")} />
+      <IconButton icon="link" label="Insert link" size={16} onMouseDown={(event) => { event.preventDefault(); saveSelection(); }} onClick={() => { setLinkOpen((value) => !value); setError(null); }} />
+      <span className="mail-toolbar-sep" aria-hidden="true" />
+      <IconButton icon="paperclip" label="Attach files" size={16} disabled={busy || encodingAttachments || attachments.length >= MAX_FILES} onClick={() => fileInputRef.current?.click()} />
+      <Menu label="Scheduling" iconOnly="calendar" trigger={null}>
+        {(close) => (
+          <>
+            <MenuItem icon="link" onSelect={() => { close(); saveSelection(); void insertBookingLink(); }}>Insert booking link</MenuItem>
+            <MenuItem icon="clock" onSelect={() => { close(); saveSelection(); setProposeOpen(true); }}>Propose times…</MenuItem>
+          </>
+        )}
+      </Menu>
+      <span className="mail-toolbar-spacer" />
+      <Button kind={aiOpen ? "tinted" : "plain"} size="sm" icon="sparkle" aria-expanded={aiOpen} onClick={() => setAiOpen((value) => !value)} disabled={busy}>
+        {busyAction === "ai" ? "Writing…" : "Compose with AI"}
+      </Button>
+    </div>
+    <input ref={fileInputRef} type="file" multiple hidden onChange={(event) => void addAttachments(event)} />
+    {aiOpen && <div className="mail-ai">
+      <label className="mail-ai-label" htmlFor="mail-ai-instruction">
+        {replyingInThread ? "Corral reads the whole thread and the lead record." : "Tell Corral what the email should say."} Add instructions if you like.
+      </label>
+      <textarea
+        id="mail-ai-instruction"
+        rows={2}
+        value={aiInstruction}
+        onChange={(event) => setAiInstruction(event.target.value)}
+        maxLength={1000}
+        placeholder={replyingInThread ? "e.g. Answer their pricing question and offer a call next week" : "e.g. Follow up on the proposal, friendly and brief"}
+        disabled={busy}
       />
-    </div>
-    <label className="email-attachment-picker">Attachments
-      <input type="file" multiple disabled={busy || encodingAttachments || attachments.length >= MAX_FILES} onChange={(event) => void addAttachments(event)} />
-      <small>Up to {MAX_FILES} files, {MAX_FILE_BYTES / 1024 / 1024} MB each, 10 MB total.</small>
-    </label>
-    {encodingAttachments && <small role="status">Preparing attachments…</small>}
-    {attachmentError && <div className="notice" role="alert">{attachmentError}</div>}
-    {attachments.length > 0 && <ul className="email-attachment-list">
+      <div className="mail-ai-actions">
+        <Button kind="plain" size="sm" onClick={() => setAiOpen(false)}>Cancel</Button>
+        <Button kind="filled" size="sm" icon="sparkle" disabled={busy || (!recipient.trim() && !leadId && !subject.trim() && !replyingInThread)} onClick={() => void composeWithAI()}>
+          {busyAction === "ai" ? "Writing…" : body.trim() ? "Rewrite draft" : "Write draft"}
+        </Button>
+      </div>
+    </div>}
+    {linkOpen && <div className="mail-inline-panel">
+      <input type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.com" aria-label="Link address" autoFocus />
+      <Button size="sm" onClick={() => setLinkOpen(false)}>Cancel</Button>
+      <Button kind="filled" size="sm" onClick={insertLink} disabled={!linkUrl.trim()}>Insert</Button>
+    </div>}
+    {proposeOpen && <div className="mail-inline-panel mail-propose" role="group" aria-label="Propose meeting times">
+      <span className="mail-propose-label">Propose up to three times. Nothing is booked until they confirm.</span>
+      {proposals.map((value, index) => (
+        <input key={index} type="datetime-local" value={value} aria-label={`Option ${index + 1}`} onChange={(event) => setProposals((current) => current.map((item, i) => (i === index ? event.target.value : item)))} />
+      ))}
+      <Button size="sm" onClick={() => setProposeOpen(false)}>Cancel</Button>
+      <Button kind="filled" size="sm" onClick={insertProposedTimes}>Insert times</Button>
+    </div>}
+    <div
+      ref={editorRef}
+      className="mail-editor"
+      contentEditable={!busy}
+      role="textbox"
+      aria-label="Message"
+      aria-multiline="true"
+      aria-required="true"
+      data-placeholder="Write your message…"
+      onInput={syncBody}
+      onBlur={saveSelection}
+      onPaste={() => window.setTimeout(syncBody, 0)}
+    />
+    {(encodingAttachments || attachments.length > 0) && <ul className="mail-attachments" aria-label="Attachments">
       {attachments.map((file) => <li key={file.id}>
-        <span>{file.filename} · {(file.size / 1024).toFixed(0)} KB</span>
-        <button type="button" className="button-quiet" onClick={() => setAttachments((current) => current.filter((item) => item.id !== file.id))} disabled={busy}>Remove</button>
+        <Icon name="paperclip" size={14} />
+        <span>{file.filename}</span>
+        <small>{(file.size / 1024).toFixed(0)} KB</small>
+        <IconButton icon="close" size={12} label={`Remove ${file.filename}`} disabled={busy} onClick={() => setAttachments((current) => current.filter((item) => item.id !== file.id))} />
       </li>)}
+      {encodingAttachments && <li role="status">Preparing attachments…</li>}
     </ul>}
-    {error && <div className="notice" role="alert">{error}</div>}
-    {notice && <div className="notice" role="status">{notice}</div>}
-    {sendBlockedReason && <div className="notice email-composer-hold" role="status"><b>Sending is on hold.</b> {sendBlockedReason}</div>}
-    <div className="email-composer-footer">
-      <button className="button-quiet" type="button" onClick={() => void deleteDraft()} disabled={busy}>
+    {attachmentError && <Banner tone="danger" title={attachmentError} />}
+    {error && <Banner tone="danger" title={error} />}
+    {notice && <Banner title={notice} action={beforeAi ? <Button kind="plain" size="sm" onClick={undoAi}>Undo AI draft</Button> : undefined} />}
+    {sendBlockedReason && <Banner tone="attention" title="Sending is on hold">{sendBlockedReason}</Banner>}
+    <footer className="mail-composer-foot">
+      <Button kind="plain" onClick={() => void deleteDraft()} disabled={busy} icon="trash">
         {busyAction === "delete" ? "Deleting…" : savedDraft || onDeleteOverride ? "Delete draft" : "Discard"}
-      </button>
-      <button className="secondary-button" type="button" onClick={() => void saveDraft()} disabled={busy || encodingAttachments || (!recipient.trim() && !subject.trim() && !body.trim())}>
+      </Button>
+      <span className="mail-toolbar-spacer" />
+      <small className="mail-shortcut" aria-hidden="true">⌘↵ to send</small>
+      <Button onClick={() => void saveDraft()} disabled={busy || encodingAttachments || (!recipient.trim() && !subject.trim() && !body.trim())}>
         {busyAction === "save" ? "Saving…" : savedDraft ? "Update draft" : "Save draft"}
-      </button>
-      <button className="primary-button" type="submit" disabled={busy || Boolean(sendBlockedReason) || replyUnavailable || encodingAttachments || !connectionId || !recipient.trim() || !subject.trim() || !body.trim()}>
-        {busyAction === "send" ? "Sending…" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send email")}
-      </button>
-    </div>
+      </Button>
+      <Button kind="filled" type="submit" icon="send" disabled={!canSubmit} title={sendBlockedReason ? `On hold: ${sendBlockedReason}` : undefined}>
+        {busyAction === "send" ? "Sending…" : sendLabel ?? (seed?.purpose === "follow_up" ? "Send follow-up" : "Send")}
+      </Button>
+    </footer>
   </form>;
 }

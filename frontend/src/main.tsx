@@ -11,6 +11,7 @@ import "./v3/auth.css";
 import "./v3/v4.css";
 import "./v3/polish.css";
 import "./v3/audit.css";
+import "./v3/mail.css";
 import App from "./App";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { ConfirmHost } from "./v3/ui/confirm";
