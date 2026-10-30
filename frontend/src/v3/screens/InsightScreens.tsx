@@ -9,7 +9,7 @@ import {
   type DealView,
 } from "../deals/dealStore";
 import { BarList, ColumnChart, GoalRing } from "../ui/charts";
-import { Icon } from "../ui/Icon";
+import { Icon, type IconName } from "../ui/Icon";
 import { Badge, Button, EmptyState, Monogram, PageHeader, Segmented, formatShortDate, titleize } from "../ui/primitives";
 import { sourceLabel } from "./leadFormat";
 
@@ -178,7 +178,7 @@ function periodLabel(period: string) {
   return period.length === 7 ? date.toLocaleDateString(undefined, { month: "short", year: "2-digit" }) : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function Kpi({ icon, label, value, foot, accent }: { icon: string; label: string; value: string; foot?: React.ReactNode; accent?: boolean }) {
+function Kpi({ icon, label, value, foot, accent }: { icon: IconName; label: string; value: string; foot?: React.ReactNode; accent?: boolean }) {
   return (
     <div className="r-kpi" data-accent={accent || undefined}>
       <span className="r-kpi-label"><Icon name={icon} size={15} />{label}</span>

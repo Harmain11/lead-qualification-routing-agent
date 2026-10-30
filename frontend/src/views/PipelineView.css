@@ -24,7 +24,7 @@
 }
 
 .pipeline-view-toggle button[aria-pressed="true"] {
-  background: #1e6b52;
+  background: var(--tint);
   color: #fff;
 }
 

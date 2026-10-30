@@ -3,7 +3,7 @@
  * sit on the text baseline next to 13–15px labels. Icons are always paired with
  * text or an accessible name; they never carry meaning alone.
  */
-const paths: Record<string, string> = {
+const paths = {
   today: "M4 6.5A2.5 2.5 0 0 1 6.5 4h7A2.5 2.5 0 0 1 16 6.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 13.5zM4 8h12M7.5 2.75v2.5M12.5 2.75v2.5M8.5 11.5l1.25 1.25L12 10.5",
   leads: "M7.5 9.25a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5zM2.75 16.25c.5-2.6 2.4-4.25 4.75-4.25s4.25 1.65 4.75 4.25M13 4.1a2.6 2.6 0 0 1 0 5M14.5 12.3c1.45.55 2.45 1.9 2.75 3.95",
   review: "M10 3.25 17.25 16H2.75zM10 8v3.5M10 13.6v.15",
@@ -97,12 +97,12 @@ const paths: Record<string, string> = {
   hangup: "M2.75 11.25c4.2-3.6 10.3-3.6 14.5 0l-1.5 2.25-3-1v-2a8.6 8.6 0 0 0-5.5 0v2l-3 1z",
   copy: "M7.25 7.25h9.5v9.5h-9.5zM4.75 12.75h-1.5v-9.5h9.5v1.5",
   wand: "M3.25 16.75 12.5 7.5M11 6l3-3 3 3-3 3zM15.5 12.25v2.5M14.25 13.5h2.5M5.5 3.25v2.5M4.25 4.5h2.5",
-};
+} satisfies Record<string, string>;
 
 export type IconName = keyof typeof paths;
 
-export function Icon({ name, size = 18, className, strokeWidth = 1.5 }: { name: IconName | string; size?: number; className?: string; strokeWidth?: number }) {
-  const d = paths[name] ?? paths.info;
+export function Icon({ name, size = 18, className, strokeWidth = 1.5 }: { name: IconName; size?: number; className?: string; strokeWidth?: number }) {
+  const d: string = paths[name] ?? paths.info;
   const dot = name === "more" || name === "grip" || name === "keypad";
   return (
     <svg

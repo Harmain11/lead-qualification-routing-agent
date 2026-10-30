@@ -225,7 +225,7 @@ export function Sidebar({
                         <small>{label}</small>
                       </span>
                     </a>
-                    <button type="button" className="v-pin-remove" onClick={() => onRemovePin(pin)} aria-label={`Unpin ${pin.company} · ${label}`}>
+                    <button type="button" className="v-pin-remove" onClick={() => onRemovePin(pin)} aria-label={`Unpin ${[pin.company, label].filter(Boolean).join(" · ")}`}>
                       <Icon name="close" size={12} />
                     </button>
                   </li>

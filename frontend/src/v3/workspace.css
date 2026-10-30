@@ -1,0 +1,92 @@
+/* Insights and workspace screens (Automations, Team, Analytics, Settings) on the v3 system. */
+
+/* ---------------------------------------------------------- Automations */
+.v-app .auto-page { display: grid; gap: var(--s5); }
+.v-app .auto-page .v-pagehead { margin-bottom: 0; }
+.auto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--s3); }
+.auto-card {
+  display: grid; align-content: start; gap: var(--s2); padding: var(--s4);
+  border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface);
+}
+.auto-card-head { display: flex; align-items: center; gap: var(--s2); }
+.auto-kind { font: var(--t-footnote); font-weight: 600; color: var(--label-3); }
+.auto-card h2 { font: var(--t-headline); color: var(--label); overflow-wrap: anywhere; }
+.auto-steps { margin: 0; font: var(--t-subhead); color: var(--label-2); }
+.auto-card-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
+.auto-templates { display: grid; gap: var(--s3); }
+.auto-templates h2 { font: var(--t-title3); color: var(--label); }
+.auto-templates > div > p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label-3); }
+.auto-guides { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
+.auto-trust { font: var(--t-footnote); color: var(--label-3); }
+
+/* ---------------------------------------------------- Research & Coaching */
+.v-app .coach-page { display: grid; gap: var(--s5); width: 100%; max-width: 1180px; margin: 0 auto; }
+.v-app .coach-page .v-pagehead { margin-bottom: 0; }
+.coach-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--s3); }
+.coach-tile {
+  display: grid; align-content: start; gap: var(--s3); padding: var(--s4);
+  border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface);
+}
+.coach-tile > .v-btn { justify-self: start; }
+.coach-tile-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--tint-soft); color: var(--tint-text); }
+.coach-tile h2 { font: var(--t-headline); color: var(--label); }
+.coach-tile p { margin: -4px 0 0; font: var(--t-subhead); color: var(--label-2); }
+.coach-lead {
+  display: flex; align-items: center; gap: var(--s2); width: 100%; min-height: var(--control-h-lg); padding: var(--s2) var(--s3);
+  border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-sm); background: var(--surface-sunken);
+  color: var(--label); text-align: left;
+}
+.coach-lead > span { display: grid; flex: 1; min-width: 0; }
+.coach-lead b { font: var(--t-callout); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach-lead small { font: var(--t-footnote); color: var(--label-3); }
+.coach-lead-empty { font: var(--t-callout); color: var(--label-3); }
+.coach-lead:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+@media (hover: hover) and (pointer: fine) { .coach-lead:hover { background: var(--fill-hover); } }
+
+.coach-reports { display: grid; gap: var(--s3); }
+.coach-reports-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s3); }
+.coach-reports-head h2 { display: inline-flex; align-items: center; gap: var(--s2); font: var(--t-title3); color: var(--label); }
+.coach-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.coach-filters .calls-search { min-width: 220px; }
+.coach-list { display: grid; gap: var(--s3); }
+.coach-card {
+  display: grid; gap: var(--s3); padding: var(--s4) var(--s5);
+  border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface);
+}
+.coach-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.coach-card-head time { font: var(--t-footnote); color: var(--label-3); }
+.coach-card-head .v-btn { margin-left: auto; }
+.coach-card-kind { display: inline-flex; align-items: center; gap: 6px; font: var(--t-footnote); font-weight: 600; color: var(--label-2); }
+.coach-card h3 { font: var(--t-headline); color: var(--label); line-height: 1.35; }
+.coach-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s2); margin: 0; }
+.coach-metrics div { padding: var(--s3); border-radius: var(--r-md); background: var(--surface-sunken); }
+.coach-metrics dt { font: var(--t-footnote); color: var(--label-3); }
+.coach-metrics dd { margin: 2px 0 0; font: 600 20px/1.2 var(--font-display); font-variant-numeric: tabular-nums; color: var(--label); }
+.coach-section { display: grid; gap: var(--s2); }
+.coach-section h4 { font: var(--t-footnote); font-weight: 600; letter-spacing: 0.02em; color: var(--label-3); }
+.coach-section ol { display: grid; gap: var(--s1); margin: 0; padding-left: 1.25em; font: var(--t-callout); color: var(--label); }
+.coach-note { display: grid; gap: var(--s1); padding: var(--s3); border-radius: var(--r-md); background: var(--surface-sunken); }
+.coach-note p { margin: 0; font: var(--t-callout); color: var(--label); }
+.coach-note .v-btn { justify-self: start; }
+.coach-page blockquote, .coach-objections blockquote, .coach-evidence blockquote {
+  margin: 0; padding: var(--s1) 0 var(--s1) var(--s3); border-left: 2px solid var(--separator-strong);
+  font: var(--t-subhead); color: var(--label-2); white-space: pre-wrap;
+}
+.coach-evidence blockquote small { display: block; margin-top: 2px; font: var(--t-footnote); color: var(--label-3); }
+.coach-source { font: var(--t-footnote); color: var(--tint-text); }
+.coach-muted { margin: 0; font: var(--t-footnote); color: var(--label-3); }
+.coach-evidence > summary { font: var(--t-subhead); font-weight: 600; color: var(--label-2); cursor: pointer; }
+.coach-evidence[open] { display: grid; gap: var(--s2); }
+.coach-table { overflow-x: auto; border: var(--hairline) solid var(--separator); border-radius: var(--r-md); }
+.coach-table table { width: 100%; border-collapse: collapse; font: var(--t-subhead); }
+.coach-table th { padding: var(--s2) var(--s3); text-align: left; font: var(--t-footnote); font-weight: 600; color: var(--label-3); background: var(--surface-sunken); }
+.coach-table td { padding: var(--s2) var(--s3); border-top: var(--hairline) solid var(--separator); color: var(--label); }
+.coach-table td.num { font-variant-numeric: tabular-nums; }
+.coach-card-actions { display: flex; flex-wrap: wrap; gap: var(--s2); padding-top: var(--s1); }
+.coach-objections { display: grid; gap: var(--s3); margin: 0; padding: 0; list-style: none; }
+.coach-objections li { display: grid; gap: var(--s2); padding: var(--s3); border-radius: var(--r-md); background: var(--surface-sunken); }
+.coach-objections .v-btn { justify-self: start; }
+.coach-objection-head { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.coach-response small { font: var(--t-footnote); color: var(--label-3); }
+.coach-response p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label); }
+@media (max-width: 640px) { .coach-card { padding: var(--s4); } .coach-filters .calls-search { min-width: 0; flex: 1; } }

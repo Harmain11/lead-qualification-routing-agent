@@ -681,7 +681,7 @@ function App() {
             : `${newArrivalIds.length} new leads arrived.`;
           notifyActivity(message, "info");
         }
-        setLeads(nextLeads.slice(0, 1));
+        setLeads(nextLeads);
         if (leadRows) {
           const nextSignature = JSON.stringify([
             leadRows.total,
@@ -1230,7 +1230,7 @@ function App() {
     );
   }
   // Pages with their own header carry the range there; the rest keep it in the toolbar.
-  const wantsRange = ["agents", "analytics", "review", "team"].includes(view);
+  const wantsRange = ["agents", "analytics", "review"].includes(view);
   const rangeControl = (
     <Segmented
       label="Time range"
@@ -1571,6 +1571,7 @@ function App() {
                       canManage={can(workspacePermissions, "workspace.manage")}
                       canEdit={can(workspacePermissions, "leads.edit")}
                       onInspect={inspect}
+                      leadName={(id) => workspaceLeads.leads.find((lead) => lead.id === id)?.full_name}
                     />
                   </div>
                 )}
@@ -1586,7 +1587,7 @@ function App() {
                 )}
                 {view === "calendar" && (
                   <CalendarWorkspace
-                    leads={leads}
+                    leads={workspaceLeads.leads.length ? workspaceLeads.leads : leads}
                     canEdit={can(workspacePermissions, "leads.edit")}
                     onOpenLead={(id) => openLeadSection(id, "overview")}
                     onOpenIntegrations={() => navigate("integrations", "google_calendar")}

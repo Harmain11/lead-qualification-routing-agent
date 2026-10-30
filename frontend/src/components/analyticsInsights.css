@@ -2,7 +2,7 @@
 .response-heatmap-scroll {
   max-width: 100%;
   overflow: auto;
-  border: 1px solid var(--border-subtle, #e5e9e6);
+  border: 1px solid var(--border-subtle, var(--separator-strong));
   border-radius: 12px;
 }
 
@@ -17,12 +17,12 @@
 .analytics-data-table th,
 .analytics-data-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border-subtle, #e5e9e6);
+  border-bottom: 1px solid var(--border-subtle, var(--separator-strong));
   vertical-align: top;
 }
 
 .analytics-data-table thead th {
-  color: var(--text-secondary, #69756f);
+  color: var(--text-secondary, var(--label-2));
   background: var(--surface-sunken);
   font-size: 0.74rem;
   font-weight: 650;
@@ -35,11 +35,11 @@
 }
 
 .analytics-data-table td {
-  color: var(--text-primary, #26332d);
+  color: var(--text-primary, var(--label));
 }
 
 .analytics-data-table .analytics-table-note td {
-  color: var(--text-secondary, #69756f);
+  color: var(--text-secondary, var(--label-2));
   font-size: 0.78rem;
   white-space: normal;
 }
@@ -52,23 +52,23 @@
 
 .analytics-commentary p {
   margin: 0;
-  color: var(--text-primary, #26332d);
+  color: var(--text-primary, var(--label));
 }
 
 .analytics-commentary small {
-  color: var(--text-secondary, #69756f);
+  color: var(--text-secondary, var(--label-2));
 }
 
 .analytics-not-tracked {
   display: grid;
   gap: 6px;
   padding: 10px 0;
-  color: var(--text-secondary, #69756f);
+  color: var(--text-secondary, var(--label-2));
   line-height: 1.5;
 }
 
 .analytics-not-tracked b {
-  color: var(--text-primary, #26332d);
+  color: var(--text-primary, var(--label));
 }
 
 .response-heatmap-scroll {
@@ -83,7 +83,7 @@
 
 .response-heatmap th {
   min-width: 22px;
-  color: var(--text-secondary, #69756f);
+  color: var(--text-secondary, var(--label-2));
   text-align: center;
   font-weight: 550;
 }
@@ -112,7 +112,7 @@
   align-items: center;
   gap: 14px;
   padding: 8px 4px 2px;
-  color: var(--text-secondary, #69756f);
+  color: var(--text-secondary, var(--label-2));
   font-size: 0.78rem;
   flex-wrap: wrap;
 }

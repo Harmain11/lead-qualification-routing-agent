@@ -49,7 +49,7 @@
 .workspace-business-profile-analyze { min-height: 42px; padding: 7px 12px; white-space: nowrap; }
 .workspace-business-profile-hint,
 .workspace-business-profile-analysis-error { color: var(--label-3); font-size: 11px; line-height: 1.4; }
-.workspace-business-profile-analysis-error { color: var(--danger, #a43d35); }
+.workspace-business-profile-analysis-error { color: var(--danger, var(--label-2)); }
 .workspace-business-profile-service-field { display: grid; gap: 5px; min-width: 0; }
 .workspace-business-profile-service-add { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); align-items: center; gap: 8px; }
 .workspace-business-profile-service-add small,

@@ -64,7 +64,7 @@ export function CommandPalette({
             (data) =>
               data.items.map((item) => ({
                 id: item.id,
-                label: `${item.full_name} · ${item.company_name}`,
+                label: [item.full_name, item.company_name].filter(Boolean).join(" · ") || "Unnamed lead",
                 kind: "Lead" as const,
               })),
           ),
@@ -74,7 +74,7 @@ export function CommandPalette({
           ).then((data) =>
             data.items.map((item) => ({
               id: item.id,
-              label: item.name + " · " + (item.email || ""),
+              label: [item.name, item.email].filter(Boolean).join(" · ") || "Unnamed contact",
               kind: "Contact" as const,
             })),
           ),
@@ -84,7 +84,7 @@ export function CommandPalette({
           ).then((data) =>
             data.items.map((item) => ({
               id: item.id,
-              label: item.name + " · " + (item.domain || ""),
+              label: [item.name, item.domain].filter(Boolean).join(" · ") || "Unnamed company",
               kind: "Company" as const,
             })),
           ),

@@ -11,7 +11,7 @@
 .workspace-chooser-heading p { max-width: 55ch; color: var(--label-2); line-height: 1.65; }
 .workspace-chooser-heading > button { flex: 0 0 auto; }
 .workspace-options { display: grid; gap: 14px; }
-.workspace-option { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; padding: 24px; border: 1px solid var(--separator-strong); border-radius: 12px; background: var(--surface, #fff); color: var(--label); text-align: left; }
+.workspace-option { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; padding: 24px; border: 1px solid var(--separator-strong); border-radius: 12px; background: var(--surface, var(--surface)); color: var(--label); text-align: left; }
 .workspace-option.selected { border-color: var(--tint); }
 .workspace-option > span:first-child { min-width: 0; display: grid; gap: 8px; }
 .workspace-option strong { font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; }

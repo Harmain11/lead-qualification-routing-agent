@@ -13,6 +13,54 @@ import {
   type Run,
 } from "../operationsApi";
 import { confirmAction } from "../v3/ui/confirm";
+import { Badge, Banner, Button, PageHeader } from "../v3/ui/primitives";
+import { automationDraftSpec } from "../components/workspaceAssistantActions";
+
+const NODE_LABELS: Record<NodeType, string> = {
+  start: "Start", wait: "Wait", condition: "Check", draft: "Draft email",
+  research: "Research", coach: "Coaching", note: "Note", end: "End",
+};
+
+// Starting points offered when a workspace has no sequences yet.
+const AUTOMATION_TEMPLATES = [
+  {
+    name: "Speed to lead", kind: "sequence", summary: "Same-day reply, then two nudges over a week.",
+    steps: [
+      { type: "draft", text: "Thank them for reaching out, answer the question they asked, and offer two meeting times." },
+      { type: "wait", wait_hours: 48 },
+      { type: "draft", text: "Short nudge: one line on the outcome they mentioned and a booking link." },
+      { type: "wait", wait_hours: 120 },
+      { type: "draft", text: "Polite close-the-loop email that makes it easy to reply later." },
+    ],
+  },
+  {
+    name: "Post-demo follow-up", kind: "sequence", summary: "Recap, resources, then a decision check-in.",
+    steps: [
+      { type: "draft", text: "Recap the demo: their goals, what they saw, agreed next step and owner." },
+      { type: "wait", wait_hours: 72 },
+      { type: "coach", text: "Call the champion if there is no reply. Ask who else needs to see it." },
+      { type: "wait", wait_hours: 96 },
+      { type: "draft", text: "Check in on the decision timeline and offer a call with the decision maker." },
+    ],
+  },
+  {
+    name: "Re-engage a quiet lead", kind: "sequence", summary: "Fresh angle after silence, with research first.",
+    steps: [
+      { type: "research", text: "Look for news, hiring or funding at the company since the last touch." },
+      { type: "draft", text: "Lead with what changed for them, one relevant result, and a soft question." },
+      { type: "wait", wait_hours: 168 },
+      { type: "draft", text: "Final note asking whether to close the file or reconnect next quarter." },
+    ],
+  },
+  {
+    name: "Qualification handoff", kind: "playbook", summary: "Checklist before a lead goes to an account executive.",
+    steps: [
+      { type: "note", text: "Confirm fit, need, decision maker, budget range and timeline." },
+      { type: "coach", text: "If any are unknown, book a 15-minute discovery call before handoff." },
+      { type: "note", text: "Write a three-line handoff summary on the lead for the account executive." },
+    ],
+  },
+];
 
 const nodeTypes: NodeType[] = [
   "wait",
@@ -100,10 +148,12 @@ export function AutomationsView({
   canManage,
   canEdit,
   onInspect,
+  leadName,
 }: {
   canManage: boolean;
   canEdit: boolean;
   onInspect: (id: string) => void;
+  leadName?: (id: string) => string | undefined;
 }) {
   const [definitions, setDefinitions] = useState<Automation[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -210,106 +260,126 @@ export function AutomationsView({
     }
   }
   const node = editor?.spec.nodes.find((item) => item.id === selected);
+  function startNew(kind: "sequence" | "playbook") {
+    setError("");
+    setSelected("start");
+    setEditor({ id: createClientId(), spec: initial(kind) });
+  }
+  async function toggleActive(item: Automation) {
+    setBusy(true);
+    setError("");
+    try {
+      await opsSave(`/v1/automations/${item.id}`, { ...item.specification, version: item.version, active: !item.active }, "PUT");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The sequence could not be updated.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <div className="page-view ops-page">
-      <header className="ops-page-head">
-        <div>
-          <span className="eyebrow">Durable steps · human approval</span>
-          <h1>Sequences & playbooks</h1>
-          <p>
-            Branch on recorded signals, schedule draft preparation, and review
-            every outgoing email.
-          </p>
+    <div className="page-view ops-page auto-page">
+      <PageHeader
+        title="Sequences & playbooks"
+        subtitle="Timed follow-ups and guided plays. Every outgoing email waits for your approval."
+        actions={canManage ? (
+          <>
+            <Button kind="gray" onClick={() => startNew("playbook")}>New playbook</Button>
+            <Button kind="filled" icon="plus" onClick={() => startNew("sequence")}>New sequence</Button>
+          </>
+        ) : undefined}
+      />
+      {error && <Banner tone="danger">{error}</Banner>}
+      {definitions.length > 0 && (
+        <div className="auto-grid">
+          {definitions.map((item) => {
+            const steps = item.specification.nodes.filter((node) => node.type !== "start" && node.type !== "end");
+            return (
+              <article className="auto-card" key={item.id}>
+                <div className="auto-card-head">
+                  <Badge tone={item.active ? "tint" : "neutral"} dot>{item.active ? "Active" : "Paused"}</Badge>
+                  <span className="auto-kind">{item.kind === "sequence" ? "Sequence" : "Playbook"}</span>
+                </div>
+                <h2>{item.name}</h2>
+                <p className="auto-steps">
+                  {steps.length} step{steps.length === 1 ? "" : "s"}
+                  {steps.length > 0 && <> · {steps.slice(0, 4).map((node) => NODE_LABELS[node.type]).join(" → ")}{steps.length > 4 ? " → …" : ""}</>}
+                </p>
+                <div className="auto-card-actions">
+                  {canManage && (
+                    <Button
+                      size="sm"
+                      kind={item.active ? "gray" : "tinted"}
+                      disabled={busy}
+                      onClick={() => void toggleActive(item)}
+                    >
+                      {item.active ? "Pause" : "Activate"}
+                    </Button>
+                  )}
+                  {canManage && (
+                    <Button
+                      size="sm"
+                      kind="gray"
+                      onClick={() => {
+                        setSelected("start");
+                        setEditor({ id: item.id, spec: { ...item.specification, version: item.version } });
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                  {canEdit && (
+                    <Button
+                      size="sm"
+                      kind="gray"
+                      disabled={!item.active}
+                      title={item.active ? undefined : "Activate it first"}
+                      onClick={() => setEnrolling(item)}
+                    >
+                      Enroll leads
+                    </Button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
-        {canManage && (
-          <div className="ops-actions">
-            {(["sequence", "playbook"] as const).map((kind) => (
-              <button
-                className={kind === "sequence" ? "primary-button" : "secondary-button"}
-                key={kind}
-                onClick={() => {
-                  setError("");
-                  setSelected("start");
-                  setEditor({ id: createClientId(), spec: initial(kind) });
-                }}
-              >
-                New {kind}
-              </button>
+      )}
+      {!definitions.length && (
+        <section className="auto-templates" aria-labelledby="auto-templates-title">
+          <div>
+            <h2 id="auto-templates-title">Start from a template</h2>
+            <p>Each one saves as a paused draft you can edit before anyone is enrolled.</p>
+          </div>
+          <div className="auto-grid">
+            {AUTOMATION_TEMPLATES.map((template) => (
+              <article className="auto-card" key={template.name}>
+                <div className="auto-card-head"><span className="auto-kind">{template.kind === "sequence" ? "Sequence" : "Playbook"}</span></div>
+                <h2>{template.name}</h2>
+                <p className="auto-steps">{template.summary}</p>
+                {canManage && (
+                  <div className="auto-card-actions">
+                    <Button size="sm" kind="tinted" disabled={busy} onClick={() => {
+                      setError("");
+                      setSelected("start");
+                      setEditor({ id: createClientId(), spec: automationDraftSpec(template) });
+                    }}>Use template</Button>
+                  </div>
+                )}
+              </article>
             ))}
           </div>
+        </section>
+      )}
+      <div className="auto-guides">
+        <FeatureGuide topic="sequence" />
+        <FeatureGuide topic="playbook" />
+        {trust && trust.score !== null && trust.sample_size >= 5 && (
+          <span className="auto-trust" title={trust.method}>
+            {trust.score}% of {trust.sample_size} recent runs completed without being blocked
+          </span>
         )}
-      </header>
-      {error && (
-        <p className="team-alert" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="ops-actions"><FeatureGuide topic="sequence" /><FeatureGuide topic="playbook" /></div>
-      {trust && (
-        <p className="ops-muted">
-          Operational trust:{" "}
-          {trust.score === null
-            ? "Not enough completed runs"
-            : `${trust.score}%`}{" "}
-          · {trust.sample_size} observed runs. {trust.method}
-        </p>
-      )}
-      <div className="ops-card-grid">
-        {definitions.map((item) => (
-          <article className="ops-panel" key={item.id}>
-            <span className="ops-tag">
-              {item.kind} · {item.active ? "Active" : "Paused"} · v
-              {item.version}
-            </span>
-            <h2>{item.name}</h2>
-            <p>
-              {item.specification.nodes.length} steps ·{" "}
-              {item.specification.timezone}
-            </p>
-            <div className="ops-actions">
-              {canManage && (
-                <button className={item.active ? "button-quiet" : "primary-button"} disabled={busy} onClick={async () => {
-                  setBusy(true); setError("");
-                  try { await opsSave(`/v1/automations/${item.id}`, { ...item.specification, version: item.version, active: !item.active }, "PUT"); await load(); }
-                  catch (reason) { setError(reason instanceof Error ? reason.message : "The definition could not be updated."); }
-                  finally { setBusy(false); }
-                }}>{item.active ? "Pause definition" : "Activate definition"}</button>
-              )}
-              {canManage && (
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    setSelected("start");
-                    setEditor({
-                      id: item.id,
-                      spec: { ...item.specification, version: item.version },
-                    });
-                  }}
-                >
-                  Edit definition
-                </button>
-              )}
-              {canEdit && (
-                <button
-                  className="secondary-button"
-                  disabled={!item.active}
-                  onClick={() => {
-                    setEnrolling(item);
-                  }}
-                >
-                  Enroll leads
-                </button>
-              )}
-            </div>
-          </article>
-        ))}
       </div>
-      {!definitions.length && (
-        <p className="ops-empty">
-          Create a sequence or playbook to begin. Saving an active definition
-          does not enroll existing leads.
-        </p>
-      )}
       <section className="ops-panel">
         <div className="ops-page-head">
           <h2>Run history</h2>
@@ -336,11 +406,11 @@ export function AutomationsView({
                       className="text-link"
                       onClick={() => onInspect(run.lead_id)}
                     >
-                      {run.lead_id.slice(0, 8)}
+                      {leadName?.(run.lead_id) || "Open lead"}
                     </button>
                   </td>
                   <td>
-                    {run.cursor || "Finished"} ·{" "}
+                    {run.cursor ? `Step ${run.cursor}` : "Finished"} ·{" "}
                     {run.status.replaceAll("_", " ")}
                     {run.last_error && <p role="status">{run.last_error}</p>}
                   </td>
