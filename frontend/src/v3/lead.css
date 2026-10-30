@@ -61,17 +61,17 @@
 @container record (max-width: 480px) { .lp-facts { grid-template-columns: minmax(0, 1fr); } }
 
 /* --------------------------------------------- Tab strip: scroll with edges */
-.v-app .v-tabs {
+.v-app :is(.v-tabs, .v-section-tabs) {
   overflow-x: auto; overscroll-behavior-x: contain; scroll-behavior: smooth; scrollbar-width: none;
   scroll-padding-inline: 24px; padding-inline: 2px;
   --fade-start: 0px; --fade-end: 0px;
   -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
   mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
 }
-.v-app .v-tabs[data-more-start] { --fade-start: 28px; }
-.v-app .v-tabs[data-more-end] { --fade-end: 36px; }
-.v-app .v-tabs::-webkit-scrollbar { display: none; }
-.v-app .v-tabs .v-tab-pill { flex: none; scroll-snap-align: start; }
+.v-app :is(.v-tabs, .v-section-tabs)[data-more-start] { --fade-start: 28px; }
+.v-app :is(.v-tabs, .v-section-tabs)[data-more-end] { --fade-end: 36px; }
+.v-app :is(.v-tabs, .v-section-tabs)::-webkit-scrollbar { display: none; }
+.v-app :is(.v-tabs, .v-section-tabs) .v-tab-pill { flex: none; scroll-snap-align: start; }
 
 /* ------------------------------------------------ Overview: where it stands */
 .ls { --ls-accent: var(--tint); display: grid; gap: var(--s4); padding: var(--s5); border-radius: var(--r-xl); background: var(--surface);

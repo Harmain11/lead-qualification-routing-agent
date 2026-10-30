@@ -129,14 +129,6 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .direct-dialer-panel > .dialer-panel-head > div, .v-app .direct-dialer-panel > .dialer-panel-head > .dialer-panel-count { flex: none; }
 }
 .v-app .email-empty-state { padding: 32px; background: var(--surface); border: 0; border-radius: var(--r-lg); }
-.v-app .section-picker-groups { display: grid; gap: 20px; grid-template-columns: 1fr; }
-.v-app .section-picker-group { padding: 0; margin: 0; background: transparent; border: 0; }
-.v-app .section-picker-group legend { margin-bottom: 8px; font: var(--t-headline); }
-.v-app .section-picker-options { display: flex; flex-wrap: wrap; gap: 6px 20px; background: transparent; }
-.v-app .section-picker-option { display: inline-flex; align-items: center; gap: 8px; width: auto; min-height: 32px; margin: 0; padding: 4px 0; border: 0; background: transparent; border-radius: 0; font: var(--t-callout); }
-.v-app .section-picker-option:has(input:checked) { background: transparent; }
-.v-app .section-picker-option input { width: 16px; height: 16px; margin: 0; flex: 0 0 16px; }
-.v-app .section-picker-option span { white-space: nowrap; }
 .v-app .v-agent-scope { padding: 3px; min-height: 36px; }
 .v-app .v-agent-scope button { min-height: 30px; height: 30px; }
 .v-app .corral-agent-start { padding: 24px 20px; gap: 16px; }
@@ -208,7 +200,6 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   .v-app .provider-head { flex-wrap: wrap; }
   .v-app .provider-head .provider-identity { flex: 1; min-width: 120px; }
   .v-app .integration-card { padding: 16px; }
-  .v-app .section-picker-option span { white-space: normal; }
 }
 
 /* Keep every filled Corral action legible, including legacy page controls. */

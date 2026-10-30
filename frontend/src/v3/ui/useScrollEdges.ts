@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { createElement, useEffect, useRef, type ComponentProps, type RefObject } from "react";
 
 /**
  * Marks a horizontal scroller with data-start / data-end while there is more
@@ -23,4 +23,11 @@ export function useScrollEdges(ref: RefObject<HTMLElement | null>, deps: unknown
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
+}
+
+/** A horizontal nav that fades whichever edge hides more items. */
+export function EdgeFadeNav(props: ComponentProps<"nav">) {
+  const ref = useRef<HTMLElement>(null);
+  useScrollEdges(ref);
+  return createElement("nav", { ...props, ref });
 }

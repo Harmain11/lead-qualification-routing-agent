@@ -270,14 +270,6 @@ html[data-theme] .app-shell :is(.panel, .integration-card, .metric-card):hover {
 .app-shell .section-heading .eyebrow { display: block; margin-bottom: 6px; }
 .app-shell .section-heading h2 { margin: 0; }
 .app-shell .panel-action { font-size: 13px; }
-.app-shell .section-picker { padding: 0; margin-bottom: 24px; }
-.section-picker-summary { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 14px 20px; color: var(--label); font-weight: 600; cursor: pointer; list-style: none; }
-.section-picker-summary::-webkit-details-marker { display: none; }
-.section-picker-summary::after { content: '+'; margin-left: auto; font-size: 20px; font-weight: 400; color: var(--label-2); }
-.section-picker[open] .section-picker-summary::after { content: '-'; }
-.section-picker-summary small { font-size: 13px; color: var(--label-2); font-weight: 400; }
-.section-picker-content { padding: 20px; border-top: 1px solid var(--separator-strong); }
-.app-shell .section-picker-note { font-size: 13px; }
 .app-shell .ops-toolbar { justify-content: flex-start; align-items: flex-end; gap: 12px; }
 .app-shell .ops-toolbar > label { flex: 1 1 220px; max-width: 420px; }
 .app-shell .ops-toolbar > h2 { flex: 1 1 100%; }
@@ -335,8 +327,6 @@ body:has(.team-modal-backdrop, .lead-drawer-backdrop, dialog[open]) { overflow: 
   .ops-dialog, .ops-dialog:has(.ops-builder) { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); padding: 18px; }
   .ops-dialog-head { top: -18px; }
   .ops-pagination { flex-wrap: wrap; }
-  .section-picker-summary { flex-wrap: wrap; padding: 14px 16px; }
-  .section-picker-content { padding: 16px; }
   .app-shell .section-heading { flex-wrap: wrap; align-items: flex-start; }
 }
 
@@ -445,7 +435,6 @@ html[data-theme] body :is(.app-shell, .ops-dialog, .lead-drawer) button:is(.prim
 /* Product layout contract: spacing belongs to the containing stack. */
 html { scrollbar-gutter: stable; }
 .app-shell .page-view { display: flex; flex-direction: column; gap: var(--s6); }
-.app-shell .page-view > :is(.page-hero, .metric-grid, .section-picker, .dashboard-grid, .dashboard-command-grid, .analytics-grid, .agent-layout, .pipeline-inspector, .team-summary-grid) { margin: 0; }
 .app-shell :is(.dashboard-grid, .analytics-grid, .settings-grid, .agent-layout, .pipeline-inspector, .ops-card-grid, .dashboard-command-grid) { align-items: start; gap: var(--s6); }
 .app-shell .page-view > .ops-page { padding: 0; }
 .app-shell .page-hero h1, .app-shell .ops-page h1 { font-size: 32px; margin: 4px 0 8px; }
@@ -525,7 +514,6 @@ html[data-theme] .ops-dialog select {
 html[data-theme] :is(.app-shell, .ops-dialog, .auth-shell) textarea { min-height: 120px; padding: 12px; line-height: 1.5; }
 .app-shell .ops-page input[type=color] { width: 100%; height: var(--control-h-lg); padding: 6px; border: 1px solid var(--separator-strong); border-radius: var(--r-sm); background: var(--surface); }
 .app-shell :is(.command-launch, .icon-button, .guide-launch, .theme-toggle) { min-height: 40px; }
-.app-shell .section-picker-summary { min-height: 44px; padding: 10px 16px; }
 .app-shell .metric-card { min-height: 128px; padding: var(--s4); }
 .app-shell .metric-card > strong { margin: 8px 0; }
 .app-shell .metric-card::after { display: none; }

@@ -150,6 +150,7 @@ import {
   SettingsView,
 } from "./views/ProductViews";
 import type { AnalyticsBundle } from "./views/ProductViews";
+import { EdgeFadeNav } from "./v3/ui/useScrollEdges";
 
 type View =
   | "dashboard"
@@ -1410,7 +1411,7 @@ function App() {
                 {sectionTabs.length > 1 && (
                   <div className="v-page v-section-tabs-wrap">
                     <h1 className="v-section-title">{viewLabel(view)}</h1>
-                    <nav className="v-section-tabs" aria-label={`${viewLabel(view)} sections`}>
+                    <EdgeFadeNav className="v-section-tabs" aria-label={`${viewLabel(view)} sections`}>
                       {sectionTabs.map((child) => (
                         <button
                           key={child.id}
@@ -1422,7 +1423,7 @@ function App() {
                           {child.label}
                         </button>
                       ))}
-                    </nav>
+                    </EdgeFadeNav>
                   </div>
                 )}
                 {view === "dashboard" && (

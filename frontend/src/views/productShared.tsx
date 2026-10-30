@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
-import { memo, useId } from "react";
+import { memo, useState } from "react";
+import { Button, Sheet } from "../v3/ui/primitives";
 import type {
   AdvancedAnalytics,
   AgentActivity,
@@ -79,97 +80,69 @@ export function SectionVisibilityPicker<T extends string>({
   onShowAll: () => void;
   onSubmit: () => void;
 }) {
-  const titleId = useId();
+  const [open, setOpen] = useState(false);
   const hasUnappliedChanges =
     visible.size !== applied.size ||
     [...visible].some((id) => !applied.has(id));
-  const groups = Array.from(
-    new Set(
-      options
-        .map((option) => option.group)
-        .filter((group): group is string => !!group),
-    ),
-  );
-  const renderOptions = (
-    items: readonly VisibilityOption<T>[],
-    groupLabel: string,
-  ) => (
-    <div
-      className="section-picker-options"
-      role="group"
-      aria-label={groupLabel}
-    >
-      {items.map((option) => (
-        <label className="section-picker-option" key={option.id}>
-          <input
-            type="checkbox"
-            checked={visible.has(option.id)}
-            onChange={(event) => onToggle(option.id, event.target.checked)}
-          />
-          <span>{option.label}</span>
-        </label>
-      ))}
-    </div>
-  );
+  const groups = Array.from(new Set(options.map((option) => option.group ?? "Cards")));
+  // Closing without applying drops the draft, so reopening starts from what's shown.
+  const close = () => {
+    if (hasUnappliedChanges) {
+      for (const option of options) {
+        if (visible.has(option.id) !== applied.has(option.id)) onToggle(option.id, applied.has(option.id));
+      }
+    }
+    setOpen(false);
+  };
 
   return (
-    <details className="section-picker panel">
-      <summary className="section-picker-summary">
-        <span>Customize view</span>
-        <small>
-          {hasUnappliedChanges
-            ? `${visible.size} selected · ${applied.size} currently shown`
-            : `${applied.size} of ${options.length} cards shown`}
-        </small>
-      </summary>
-      <div className="section-picker-content" aria-labelledby={titleId}>
-      <div className="section-picker-heading">
-        <div>
-          <span className="eyebrow">Personal view</span>
-          <h2 id={titleId}>Choose what to see</h2>
-          <p>{description}</p>
-        </div>
-        <button
-          className="button-quiet"
-          type="button"
-          onClick={onShowAll}
-          disabled={visible.size === options.length}
-        >
-          {showAllLabel}
-        </button>
+    <>
+      <div className="section-picker-bar">
+        <span className="num">{applied.size} of {options.length} cards shown</span>
+        <Button kind="gray" size="sm" icon="layers" onClick={() => setOpen(true)}>Customize</Button>
       </div>
-      {groups.length ? (
-        <div className="section-picker-groups">
-          {groups.map((group) => (
-            <fieldset className="section-picker-group" key={group}>
-              <legend>{group}</legend>
-              {renderOptions(
-                options.filter((option) => option.group === group),
-                group,
-              )}
-            </fieldset>
-          ))}
-        </div>
-      ) : (
-        renderOptions(options, "Available sections")
+      {open && (
+        <Sheet
+          title="Customize view"
+          subtitle={description}
+          onClose={close}
+          width={620}
+          footer={
+            <div className="section-picker-footer">
+              <Button kind="plain" size="sm" onClick={onShowAll} disabled={visible.size === options.length}>{showAllLabel}</Button>
+              <span className="num" aria-live="polite">{visible.size} selected</span>
+              <Button kind="filled" onClick={() => { onSubmit(); setOpen(false); }} disabled={!hasUnappliedChanges}>Apply</Button>
+            </div>
+          }
+        >
+          <div className="section-picker-groups">
+            {groups.map((group) => {
+              const items = options.filter((option) => (option.group ?? "Cards") === group);
+              const on = items.filter((option) => visible.has(option.id)).length;
+              return (
+                <fieldset className="section-picker-group" key={group}>
+                  <legend><span>{group}</span><small className="num">{on} of {items.length}</small></legend>
+                  <div className="section-picker-options">
+                    {items.map((option) => (
+                      <label className="section-picker-option" key={option.id}>
+                        <span>{option.label}</span>
+                        <input
+                          type="checkbox"
+                          role="switch"
+                          className="v-switch"
+                          checked={visible.has(option.id)}
+                          onChange={(event) => onToggle(option.id, event.target.checked)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              );
+            })}
+          </div>
+        </Sheet>
       )}
-      <div className="section-picker-footer">
-        <small className="section-picker-note" aria-live="polite">
-          {hasUnappliedChanges
-            ? "Changes stay in the current view until you submit."
-            : "Your selection is saved for your account on this device."}
-        </small>
-        <button
-          className="primary-button"
-          type="button"
-          onClick={onSubmit}
-          disabled={!hasUnappliedChanges}
-        >
-          Submit selection
-        </button>
-      </div>
-      </div>
-    </details>
+    </>
   );
 }
 
