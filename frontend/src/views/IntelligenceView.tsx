@@ -19,6 +19,7 @@ import {
   type Tone,
 } from "../v3/ui/primitives";
 import { SelectMenu } from "../components/SelectMenu";
+import { FeatureGuide } from "../components/FeatureGuide";
 
 type Objection = {
   tag: string;
@@ -153,7 +154,7 @@ export function IntelligenceView({
       <PageHeader
         title="Research & Coaching"
         subtitle="Coaching from your recorded calls and emails, research on accounts, and what your wins and losses teach. Every finding links to its evidence."
-        actions={<Button kind="gray" icon="listBullets" disabled={busy} onClick={() => void openObjections()}>Objection library</Button>}
+        actions={<><FeatureGuide topic="coaching" compact /><Button kind="gray" icon="listBullets" disabled={busy} onClick={() => void openObjections()}>Objection library</Button></>}
       />
       {error && <Banner tone="danger">{error}</Banner>}
       {notice && <Banner tone="tint">{notice}</Banner>}

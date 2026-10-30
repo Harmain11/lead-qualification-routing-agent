@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getReasoningUsage } from "../api";
 import type { ReasoningUsage, ReasoningUsagePeriod, ReasoningUsageProvider } from "../types";
 import { estimateModelCostUsd } from "./aiUsagePricing";
+import { IconButton, Segmented } from "../v3/ui/primitives";
 
 type ModelUsageRow = {
   provider: ReasoningUsageProvider["provider"];
@@ -148,24 +149,20 @@ export function OpenAIUsagePanel() {
   return <section className="openai-usage reasoning-usage" aria-label="Workspace AI usage">
     <header className="reasoning-usage-header">
       <div className="reasoning-usage-title">
-        <span className="reasoning-usage-kicker">Workspace reporting</span>
-        <h2>AI usage</h2>
-        <p>Usage is shown for AI models that processed requests in the selected period.</p>
+        <h3>AI usage</h3>
+        <p>Requests, tokens and estimated cost for this workspace.</p>
       </div>
-      <button className="button-quiet reasoning-usage-refresh" type="button" onClick={() => setRevision((value) => value + 1)} disabled={loading}>
-        {loading ? "Refreshing…" : "Refresh"}
-      </button>
+      <IconButton icon="refresh" label={loading ? "Refreshing usage" : "Refresh usage"} onClick={() => setRevision((value) => value + 1)} disabled={loading} />
     </header>
 
     <div className="reasoning-usage-toolbar">
-      <div className="openai-usage-periods reasoning-usage-periods" role="group" aria-label="Reporting period">
-        {periods.map((item) => <button
-          key={item.value}
-          type="button"
-          aria-pressed={period === item.value}
-          onClick={() => setPeriod(item.value)}
-        >{item.label}</button>)}
-      </div>
+      <Segmented
+        label="Reporting period"
+        size="sm"
+        value={period}
+        options={periods.map((item) => ({ value: item.value, label: item.label }))}
+        onChange={(value) => setPeriod(value)}
+      />
       {usage && <label className="reasoning-usage-model-filter">
         <span>AI model</span>
         <select

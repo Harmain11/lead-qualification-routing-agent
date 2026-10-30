@@ -46,6 +46,7 @@ import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
 import { pollInboundSync } from "../inboundSyncPolling";
 import { parseGmailReviewNotes } from "../gmailSyncPresentation";
 import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
+import { Sheet } from "../v3/ui/primitives";
 
 function syncRunMessage(run: CrmInboundSyncRun) {
   const previous = run.mode === "review_previous";
@@ -79,12 +80,16 @@ function ProviderDetailsPanel({
   open,
   onClose,
   id,
+  title,
+  subtitle,
   children,
 }: {
   provider: string;
   open: boolean;
   onClose: () => void;
   id: string;
+  title: string;
+  subtitle?: ReactNode;
   children: ReactNode;
 }) {
   if (provider === "slack") {
@@ -92,7 +97,10 @@ function ProviderDetailsPanel({
       <div className="provider-details slack-provider-details">{children}</div>
     </OperationsDialog> : null;
   }
-  return <div className="provider-details" id={id} hidden={!open}>{children}</div>;
+  // Setup opens in a sheet so the card grid never reflows around an expanded card.
+  return open ? <Sheet title={title} subtitle={subtitle} onClose={onClose} width={680}>
+    <div className="provider-details int-setup" id={id}>{children}</div>
+  </Sheet> : null;
 }
 
 function IntegrationDisclosure({
@@ -488,16 +496,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     aiProviderSelectionInitialized.current = true;
   }, [cards, selectedSection]);
   function toggleProviderExpanded(provider: string) {
-    const opening = !expandedProviders.has(provider);
-    setExpandedProviders((current) => {
-      const next = new Set(current);
-      if (next.has(provider)) next.delete(provider);
-      else next.add(provider);
-      return next;
-    });
-    if (opening) {
-      requestAnimationFrame(() => document.querySelector<HTMLElement>(`.integration-card.provider-${provider}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
-    }
+    // One setup sheet at a time.
+    setExpandedProviders((current) => current.has(provider) ? new Set() : new Set([provider]));
   }
   function showCredentialSetup(provider: string) {
     setExpanded(provider);
@@ -530,7 +530,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   function setExpanded(provider: string | null) {
     if (provider) {
-      setExpandedProviders((current) => new Set(current).add(provider));
+      setExpandedProviders(new Set([provider]));
       return;
     }
     setExpandedProviders((current) => current.size === 1 ? new Set() : current);
@@ -1267,11 +1267,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           (reasoningProvider && connection && canManage) ||
           (!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified"),
         );
-        const expandableSettingsOpen = Boolean(
-          accountChoiceProvider === card.provider ||
-          (connection && syncFeedback[connection.id]) ||
-          leadConfirmationSourceError,
-        );
       const oauthConnected =
         (card.provider === "instagram" || card.provider === "messenger") &&
         connection &&
@@ -1288,19 +1283,15 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                <span className="v-btn-label">{detailsOpen ? "Close" : connectionTone(connection?.status) === "ok" ? "Manage" : connectionTone(connection?.status) === "error" ? "Fix" : connection && connection.status !== "disconnected" ? "Continue setup" : "Connect"}</span>
              </button>
            </div>
-          <ProviderDetailsPanel provider={card.provider} open={detailsOpen} onClose={() => setSlackPanelOpen(false)} id={`integration-details-${card.provider}`}>
+          <ProviderDetailsPanel
+            provider={card.provider}
+            open={detailsOpen}
+            onClose={() => card.provider === "slack" ? setSlackPanelOpen(false) : toggleProviderExpanded(card.provider)}
+            id={`integration-details-${card.provider}`}
+            title={section.id === "ai" ? `AI analysis · ${card.display_name}` : card.display_name}
+            subtitle={<span className="int-status" data-tone={comingSoon ? "idle" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}{connection?.account_name && connection.status !== "disconnected" ? ` · ${connection.account_name}` : ""}</span>}
+          >
          {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
-           <IntegrationDisclosure title="Setup guidance and permissions">
-             <p>{card.credential_help}</p>
-             {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
-               <span className="eyebrow">Meta inbound message setup</span>
-               <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>
-               <p><strong>Subscribe</strong><br />{metaWebhookSubscription}</p>
-               <p>Use the configured <code>WEBHOOK_SIGNING_SECRET</code> as Meta’s verify token. POST signatures are checked with this provider’s existing Meta app secret.</p>
-               <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
-             </div>}
-             {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
-           </IntegrationDisclosure>
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && connection.last_validation_result.message !== operationFeedback[card.provider]?.message && connection.last_validation_result.message !== actionErrors[card.provider] && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}
@@ -1346,21 +1337,21 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              canManage={canManage} onSaved={setSlackRouting} onNotice={setNotice}
              loading={!slackRoutingReady} loadError={slackRoutingLoadError} />
          </>}
-        {!comingSoon && <IntegrationDisclosure title="Connection health details" className="connection-health-disclosure">
+        {!comingSoon && <section className="int-health" aria-label="Connection health">
           <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>
           {openAI && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your OpenAI account</b></span></div>}
           <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
             {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
           </div>
-        </IntegrationDisclosure>}
+        </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
-            {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
+            {card.provider === "salesforce" && <button className="button-quiet" onClick={() => setSalesforceSetupOpen(true)}>Setup guide</button>}
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure
            title={openAI || section.id === "ai" ? "Usage and settings" : crmDirection || mailDirection ? "Sync and settings" : "More settings"}
            className="integration-settings-disclosure"
-           open={expandableSettingsOpen}
+           open
          >
          {openAI && <OpenAIUsagePanel />}
          {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}
@@ -1600,6 +1591,17 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </IntegrationDisclosure>}
         {operationFeedback[card.provider] && <div className={`notice notice-${operationFeedback[card.provider].state} integration-operation-feedback operation-${operationFeedback[card.provider].state}`} role={operationFeedback[card.provider].state === "error" ? "alert" : "status"} aria-live="polite" aria-busy={operationFeedback[card.provider].state === "running"}>{operationFeedback[card.provider].message}</div>}
         {actionErrors[card.provider] && actionErrors[card.provider] !== operationFeedback[card.provider]?.message && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
+           <IntegrationDisclosure title="Setup guide and permissions" className="int-guidance">
+             <p>{card.credential_help}</p>
+             {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
+               <span className="eyebrow">Meta inbound message setup</span>
+               <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>
+               <p><strong>Subscribe</strong><br />{metaWebhookSubscription}</p>
+               <p>Use the configured <code>WEBHOOK_SIGNING_SECRET</code> as Meta’s verify token. POST signatures are checked with this provider’s existing Meta app secret.</p>
+               <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
+             </div>}
+             {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
+           </IntegrationDisclosure>
           </ProviderDetailsPanel>
        </article>;
     })}</div>

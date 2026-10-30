@@ -34,6 +34,7 @@ import {
 import { LeadRecord, type LeadIntent } from "./LeadRecord";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 import { confirmAction } from "../ui/confirm";
+import { FeatureGuide } from "../../components/FeatureGuide";
 
 const LEAD_PAGE_SIZE = 50;
 
@@ -474,6 +475,7 @@ export function LeadsScreen({
         }
         actions={
           <>
+            <FeatureGuide topic="lead" compact />
             {canExport && <Button icon="share" onClick={() => setShowExport(true)}>Export</Button>}
             {canEdit && <Button kind="filled" icon="plus" onClick={() => setShowForm(true)}>New Lead</Button>}
           </>

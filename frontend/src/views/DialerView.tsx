@@ -9,6 +9,7 @@ import type { IntegrationCard, Lead, LeadPayload } from "../types";
 import { callOutcome, formatCallDuration, type CallOutcome } from "../callOutcome";
 import { Icon, type IconName } from "../v3/ui/Icon";
 import { Badge, Banner, Button, EmptyState, IconButton, Menu, MenuItem, Monogram, PageHeader, Segmented, Sheet, type Tone } from "../v3/ui/primitives";
+import { FeatureGuide } from "../components/FeatureGuide";
 
 type CallRecord = {
   id: string;
@@ -223,6 +224,7 @@ export function DialerView({
         title="Calls"
         subtitle={connected.length ? `${connected.map((card) => card.display_name).join(", ")} connected` : "Call history across your phone providers"}
         actions={<>
+          <FeatureGuide topic="calls" compact />
           <Button icon="refresh" onClick={() => { setRefreshing(true); setRevision((value) => value + 1); }} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh"}</Button>
           {canViewLeads && <Button kind="filled" icon="phone" onClick={() => { setCallLead(null); setDialing(true); }} disabled={dialerCallActive}>New call</Button>}
         </>}

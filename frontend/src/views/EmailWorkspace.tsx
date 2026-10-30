@@ -20,6 +20,7 @@ import type {
 import { confirmAction } from "../v3/ui/confirm";
 import { Icon, type IconName } from "../v3/ui/Icon";
 import { Banner, Button, EmptyState, IconButton, Monogram, PageHeader, Sheet } from "../v3/ui/primitives";
+import { FeatureGuide } from "../components/FeatureGuide";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAILBOX_CACHE_FRESH_MS = 60_000;
@@ -359,7 +360,7 @@ export function EmailWorkspace({
     <PageHeader
       title="Inbox"
       subtitle={activeAccount ? activeAccount.account_name : "Shared Gmail inbox for your workspace"}
-      actions={<Button kind="filled" icon="edit" onClick={beginCompose} disabled={!canSend || !accounts.length} title={!canSend ? "Your role can’t send email" : !accounts.length ? "Connect Gmail to send email" : undefined}>New email</Button>}
+      actions={<><FeatureGuide topic="inbox" compact /><Button kind="filled" icon="edit" onClick={beginCompose} disabled={!canSend || !accounts.length} title={!canSend ? "Your role can’t send email" : !accounts.length ? "Connect Gmail to send email" : undefined}>New email</Button></>}
     />
     {error && <Banner tone="danger" title={error} action={<Button kind="plain" size="sm" onClick={() => setError(null)}>Dismiss</Button>} />}
     {composeSeed && composerMode === "sheet" && (
