@@ -248,3 +248,11 @@
 @media (max-width: 640px) { .section-picker-options { grid-template-columns: minmax(0, 1fr); } .section-picker-options::after { display: none; } }
 /* Metric rows fill evenly at any card count instead of leaving holes. */
 .v-app .metric-grid.dashboard-metric-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+
+/* Ask Corral composer: one-line hint with key caps. */
+.corral-workspace-composer-footer small { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
+.corral-workspace-composer-footer kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; background: var(--fill); color: var(--label-2); font: 500 11px/1 var(--font-sans, inherit); }
+.corral-workspace-composer-footer kbd + kbd { margin-left: -2px; }
+.corral-workspace-composer textarea { font-size: 13px; }
+/* Guide buttons never wrap; they shrink to "Guide" where space is tight. */
+.guide-trigger { flex: none; white-space: nowrap; }

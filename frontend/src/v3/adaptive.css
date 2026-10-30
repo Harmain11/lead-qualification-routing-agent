@@ -22,3 +22,39 @@
 
 /* Raw email source wraps inside its disclosure instead of running past it. */
 .v-app .gmail-inquiry-raw pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Lead table: drop the least important columns as the table narrows (for
+   example when Ask Corral is open) instead of squeezing every cell. */
+.v-tablewrap:has(> .v-lead-table) { container: leadtable / inline-size; }
+@container leadtable (max-width: 900px) { .v-lead-table :is(th, td).c-date { display: none; } }
+@container leadtable (max-width: 800px) { .v-lead-table :is(th, td).c-a { display: none; } }
+@container leadtable (max-width: 660px) { .v-lead-table :is(th, td).c-b { display: none; } }
+@container leadtable (max-width: 540px) { .v-lead-table :is(th, td).c-value { display: none; } }
+@container leadtable (max-width: 900px) {
+  .v-lead-table { table-layout: fixed; }
+  .v-lead-table .c-check { width: 40px; }
+  .v-lead-table .c-score { width: 60px; }
+  .v-lead-table .c-stage { width: 128px; }
+  .v-lead-table .c-value { width: 92px; }
+  .v-lead-table .c-actions { width: 0; padding: 0; }
+  .v-lead-table[data-lens] .c-b { width: 156px; }
+}
+/* Meta lines wrap between pieces, never inside one ("Received Oct 24"). */
+.v-sep-dot { white-space: nowrap; }
+
+/* Current stage: a tint of the stage colour with full-contrast text, so light
+   stage colours (New is grey) stay legible. */
+.v-app .d-rail li[data-state="current"] button { background: color-mix(in srgb, var(--stage) 24%, var(--surface)); color: var(--label); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--stage) 45%, transparent); }
+.v-app .d-rail li[data-state="current"] .d-rail-mark { background: var(--stage); box-shadow: 0 0 0 3px color-mix(in srgb, var(--stage) 28%, transparent); }
+
+/* Record actions on a phone: one row, buttons share the width. */
+@container record (max-width: 520px) {
+  .v-app .v-record-actions { flex-wrap: nowrap; gap: 6px; }
+  .v-app .v-record-actions > .v-btn { flex: 1 1 auto; min-width: 0; padding-inline: 10px; }
+  .v-app .v-record-actions > .v-btn > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .v-app .v-record-actions > .v-menu-root { flex: none; }
+}
+
+/* Overview stacks its side column whenever the record is narrow (the base
+   two-column rule is declared after screens.css's own query, so restate it). */
+@container record (max-width: 900px) { .v-overview { grid-template-columns: minmax(0, 1fr); } }

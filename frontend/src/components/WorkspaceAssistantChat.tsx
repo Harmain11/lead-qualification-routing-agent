@@ -455,7 +455,7 @@ export function WorkspaceAssistantChat({
             kind: "open_module",
             area: "dialer",
             title: "Open Dialer",
-            summary: "Choose the lead or enter a number, then start the call yourself. Corral Agent cannot place calls.",
+            summary: "Choose the lead or enter a number, then start the call yourself. Corral never places calls.",
             target_id: null,
             target_label: null,
             email: null,
@@ -529,7 +529,7 @@ export function WorkspaceAssistantChat({
         setError(
           reason instanceof Error
             ? reason.message
-            : "Corral Agent could not answer. Try again.",
+            : "Corral couldn’t answer. Try again.",
         );
       }
     } finally {
@@ -763,12 +763,12 @@ export function WorkspaceAssistantChat({
   }
 
   return (
-    <section className="corral-workspace-chat" aria-label="Chat with Corral Agent">
+    <section className="corral-workspace-chat" aria-label="Chat with Ask Corral">
       <header className="corral-workspace-chat-toolbar">
         <div className="corral-workspace-chat-toolbar__title">
           <strong>
             {conversations.find((conversation) => conversation.id === conversationId)?.title
-              || "Corral Agent"}
+              || "Ask Corral"}
           </strong>
           {historyError && <span role="status">{historyError}</span>}
         </div>
@@ -901,7 +901,7 @@ export function WorkspaceAssistantChat({
         {messages.map((message) => (
           <div className="corral-workspace-message-group" key={message.id}>
             <article className={`corral-workspace-message is-${message.role}`}>
-              <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
+              <span>{message.role === "user" ? "You" : "Corral"}</span>
               <p>{message.content}</p>
               {Boolean(message.leadLinks?.length) && (
                 <AgentLeadChoices
@@ -1293,7 +1293,7 @@ export function WorkspaceAssistantChat({
         ))}
         {busy && (
           <p className="corral-workspace-thinking" role="status">
-            Corral Agent is thinking…
+            Corral is thinking…
           </p>
         )}
         {error && (
@@ -1308,7 +1308,7 @@ export function WorkspaceAssistantChat({
         className="corral-workspace-composer"
         onSubmit={(event) => void submit(event)}
       >
-        <label htmlFor="corral-workspace-prompt">Message Corral Agent</label>
+        <label htmlFor="corral-workspace-prompt" className="v-sr">Message Ask Corral</label>
         <textarea
           id="corral-workspace-prompt"
           rows={3}
@@ -1324,7 +1324,7 @@ export function WorkspaceAssistantChat({
           placeholder="Ask a question or describe something to create…"
         />
         <div className="corral-workspace-composer-footer">
-          <small>Press Enter to send · Shift+Enter for a new line</small>
+          <small><kbd>↵</kbd> send · <kbd>⇧</kbd><kbd>↵</kbd> new line</small>
           <button
             className="primary-button"
             type="submit"

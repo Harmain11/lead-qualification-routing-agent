@@ -397,7 +397,7 @@ export function CorralAgentDock({
           .filter(Boolean)
           .join(" ")}
         data-lead-active={Boolean(targetLead && !showLeadPicker)}
-        aria-label="Corral Agent"
+        aria-label="Ask Corral"
         aria-hidden={!open}
         inert={!open}
         hidden={!panelVisible}
@@ -406,7 +406,7 @@ export function CorralAgentDock({
           <div className="v-agent-title">
             <img src="/asset/brand/corral-mark.png" alt="" width="20" height="20" />
             <strong>Ask Corral</strong>
-            <FeatureGuide topic="agent" />
+            <FeatureGuide topic="agent" compact />
           </div>
           <button
             ref={closeButtonRef}
@@ -620,7 +620,7 @@ export function CorralAgentDock({
         <span className="corral-agent-launcher-mark" aria-hidden="true">
           CA
         </span>
-        <span>Corral Agent</span>
+        <span>Ask Corral</span>
         <span className="corral-agent-launcher-state" aria-hidden="true">
           {open ? "−" : "+"}
         </span>

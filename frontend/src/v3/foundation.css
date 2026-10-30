@@ -54,7 +54,7 @@
   --surface-sunken: #eef1ee;    /* wells, inputs at rest */
   --sidebar: #edf0ec;
   --material: rgba(245, 247, 244, 0.78);   /* translucent bars */
-  --material-strong: rgba(255, 255, 255, 0.86);
+  --material-strong: rgba(255, 255, 255, 0.96);   /* popovers: often nested in a blurred bar, so they cannot rely on their own blur */
 
   --label: #0f1b2d;             /* primary text */
   --label-2: #46525f;           /* secondary text — 7:1 on white */
@@ -146,7 +146,7 @@ html[data-theme="dark"] {
   --surface-sunken: #10161b;
   --sidebar: #10161b;
   --material: rgba(12, 17, 22, 0.74);
-  --material-strong: rgba(26, 34, 42, 0.88);
+  --material-strong: rgba(26, 34, 42, 0.96);
 
   --label: #eef2f0;
   --label-2: #b6c0c6;
