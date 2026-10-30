@@ -14,6 +14,7 @@ import {
   SectionVisibilityPicker,
   Unavailable,
 } from "./productShared";
+import { Badge } from "../v3/ui/primitives";
 
 const analyticsPanelOptions = [
   { id: "channel-performance", label: "Channel performance" },
@@ -101,6 +102,10 @@ export function AnalyticsView({
     !data.reps
   )
     return <Unavailable />;
+  const REVENUE_SOURCE_LABEL: Record<string, string> = {
+    demo: "Sample revenue", crm: "Revenue from CRM", manual: "Revenue recorded in Corral",
+    mixed: "Revenue from several sources", unavailable: "No revenue yet",
+  };
   const provenance =
     data.revenue.data_status === "demo"
       ? "Illustrative values—not production revenue"
@@ -191,28 +196,12 @@ export function AnalyticsView({
   };
   return (
     <div className={`page-view${selectedSection ? " focused-page" : ""}`}>
-      <header className="page-hero compact-hero">
-        <div>
-          <span className="eyebrow">Workspace analytics</span>
-          <h1>
-            {selectedSection ? (
-              analyticsPanelOptions.find((item) => item.id === selectedSection)
-                ?.label
-            ) : (
-              "Analytics"
-            )}
-          </h1>
-          <p>
-            Time-bounded metrics generated server-side from workspace-owned
-            records.
-          </p>
-        </div>
-        <div className={`data-provenance ${data.revenue.data_status}`}>
-          <span>Revenue provenance</span>
-          <b>{pretty(data.revenue.data_status)}</b>
-          <small>{provenance}</small>
-        </div>
-      </header>
+      <p className="analytics-source" title={provenance}>
+        <Badge tone={data.revenue.data_status === "demo" ? "attention" : data.revenue.data_status === "unavailable" ? "neutral" : "tint"} dot>
+          {REVENUE_SOURCE_LABEL[data.revenue.data_status] ?? pretty(data.revenue.data_status)}
+        </Badge>
+        <span>{provenance}. Rates show once a group has enough leads to be meaningful.</span>
+      </p>
       {totalLeads === 0 && (
         <section className="panel workspace-empty">
           <Empty

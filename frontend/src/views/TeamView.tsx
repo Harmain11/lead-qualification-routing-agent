@@ -23,6 +23,7 @@ WorkspaceAuditEvent,
 WorkspaceInvitation,
 WorkspaceMember,
 } from "../types";
+import { PageHeader } from "../v3/ui/primitives";
 
 type TeamViewProps = {
   auth: AuthSession;
@@ -252,24 +253,22 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
 
   return (
     <div className="page-view operational-page team-page">
-      <header className="page-hero compact-hero team-hero" data-tour="team">
-        <div>
-          <button className="team-back" onClick={onBack}>← Settings</button>
-          <span className="eyebrow">Workspace users</span>
-          <h1>Users &amp; permissions</h1>
-          <p>Review each user’s role, edit their workspace permissions, and remove access when needed.</p>
-        </div>
-        <div className="team-context-card"><span>Editing workspace</span><strong>{workspaceName}</strong><i>Permissions are workspace-specific</i></div>
-      </header>
+      <div data-tour="team">
+        <PageHeader
+          back={{ label: "Settings", onClick: onBack }}
+          title="Team"
+          subtitle={<>People with access to <b>{workspaceName}</b>, their roles and permissions. Changes apply to this workspace only.</>}
+        />
+      </div>
 
       {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message">×</button></div>}
       {!canView && !loading && <div className="team-denied panel"><span className="eyebrow">Members view</span><h2>Team visibility is restricted</h2><p>Your current workspace permissions do not include <code>members.view</code>. Ask an owner or admin to grant access.</p></div>}
       {canView && (
         <>
           <section className="team-summary-grid">
-            <div className="team-summary panel"><span className="eyebrow">Workspace roster</span><strong>{members.length}</strong><small>{members.filter((member) => member.status === "active").length} active members</small></div>
-            <div className="team-summary panel"><span className="eyebrow">Pending invitations</span><strong>{invitations.filter((invitation) => invitation.status === "pending").length}</strong><small>Delivery is represented as pending</small></div>
-            <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} effective permissions</small></div>
+            <div className="team-summary panel"><span className="eyebrow">Members</span><strong>{members.length}</strong><small>{members.filter((member) => member.status === "active").length} active members</small></div>
+            <div className="team-summary panel"><span className="eyebrow">Invitations</span><strong>{invitations.filter((invitation) => invitation.status === "pending").length}</strong><small>Waiting to be accepted</small></div>
+            <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} permissions</small></div>
           </section>
           <section className="team-layout team-roster-layout">
             <div className="team-main-column">

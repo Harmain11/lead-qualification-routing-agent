@@ -9,6 +9,7 @@ import {
 } from "../operationsApi";
 import type { Lead } from "../types";
 import { confirmAction } from "../v3/ui/confirm";
+import { PageHeader } from "../v3/ui/primitives";
 type Retention = {
   lead_ids: string[];
   count: number;
@@ -108,16 +109,10 @@ export function ComplianceView() {
   }
   return (
     <div className="page-view ops-page">
-      <header className="ops-page-head">
-        <div>
-          <span className="eyebrow">Consent and evidence</span>
-          <h1>Compliance controls</h1>
-          <p>
-            Record contact permissions, enforce outreach suppression, export
-            decision history and review retention.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Consent & governance"
+        subtitle="Record contact permissions, block outreach to people who opted out, export a lead’s decision history and review data retention."
+      />
       {error && (
         <p role="alert" className="team-alert">
           {error}

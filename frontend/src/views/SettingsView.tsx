@@ -27,6 +27,7 @@ import type {
 } from "../types";
 import { Panel, pretty } from "./productShared";
 import { confirmAction } from "../v3/ui/confirm";
+import { PageHeader } from "../v3/ui/primitives";
 
 export function SettingsView({
   metadata,
@@ -98,21 +99,12 @@ export function SettingsView({
       className={`page-view operational-page${selectedSection ? " focused-page" : ""}`}
       data-settings-page={selectedSection || "overview"}
     >
-      <header className="page-hero compact-hero">
-        <div>
-          <span className="eyebrow">Workspace settings</span>
-          <h1>
-            {isLegacyDetail
-              ? pretty(selectedSection.replaceAll("-", "_"))
-              : "Settings"}
-          </h1>
-          <p>
-            {isLegacyDetail
-              ? "Manage this section for your current workspace."
-              : "Choose what you need to manage: your company workspace or your Corral account."}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={isLegacyDetail ? pretty(selectedSection.replaceAll("-", "_")) : "Settings"}
+        subtitle={isLegacyDetail
+          ? "Changes here apply to your current workspace."
+          : "Your company workspace and your own Corral account."}
+      />
       <div
         className="settings-category-tabs"
         role="tablist"
@@ -180,10 +172,6 @@ export function SettingsView({
                 <SettingsLink label="Privacy & compliance" onClick={onCompliance} disabled={!canViewCompliance} />
               </SettingsLinkGroup>
             </div>
-            <div className="settings-other-options">
-              <span className="eyebrow">Also in Company</span>
-              <p>Analytics range, workspace data mode, and product readiness are shown below.</p>
-            </div>
           </>
         )}
         {overview && activeCategory === "user" && (
@@ -234,31 +222,21 @@ export function SettingsView({
         )}
         {show("icp") && (
           <Panel collapsible title="Ideal Customer Profile" eyebrow="Qualification policy">
-            <p className="panel-copy">Build, validate, and safely test the workspace-specific 40-point ICP. Published versions remain immutable and historical scores retain their exact policy reference.</p>
-            <button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>Open ICP Builder</button>
+            <p className="panel-copy">Describe who you sell to and test it against existing leads before publishing. Past scores keep the version they were scored with.</p>
+            <button className="primary-button" disabled={!canViewIcp} onClick={onIcp}>Open ICP builder</button>
           </Panel>
         )}
         {show("policies") && (
-          <Panel collapsible title="Segmenting & Routing" eyebrow="Workspace policy">
-            <p className="panel-copy">Open the existing workspace policy controls for segmentation, routing, and operational rules.</p>
-            <button className="primary-button" disabled={!canViewPolicies} onClick={onPolicies}>Open policies</button>
+          <Panel collapsible title="Routing & capacity" eyebrow="Workspace policy">
+            <p className="panel-copy">Territories, response targets, rep limits and what the agent may do without asking.</p>
+            <button className="primary-button" disabled={!canViewPolicies} onClick={onPolicies}>Open routing & capacity</button>
           </Panel>
         )}
         {show("compliance") && (
-          <Panel collapsible title="Privacy & Compliance" eyebrow="Workspace safeguards">
-            <p className="panel-copy">Review the existing privacy and compliance controls for this workspace.</p>
-            <button className="primary-button" disabled={!canViewCompliance} onClick={onCompliance}>Open privacy & compliance</button>
+          <Panel collapsible title="Consent & governance" eyebrow="Workspace safeguards">
+            <p className="panel-copy">Contact permissions, opt-outs, audit exports and data retention.</p>
+            <button className="primary-button" disabled={!canViewCompliance} onClick={onCompliance}>Open consent & governance</button>
           </Panel>
-        )}
-        {overview && activeCategory === "company" && (
-          <>
-            <Panel collapsible title="Data range" eyebrow="Analytics contract">
-              <p className="panel-copy">Weekly, monthly, and annual windows are available. Period-over-period change is withheld when the prior period has no valid denominator.</p>
-            </Panel>
-            <Panel collapsible title="Product state" eyebrow="Release readiness">
-              <p className="panel-copy">Analytics, team controls, workspace-specific ICP qualification, secure exports, and certified provider workflows are active.</p>
-            </Panel>
-          </>
         )}
       </section>
     </div>

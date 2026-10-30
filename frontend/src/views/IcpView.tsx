@@ -13,6 +13,7 @@ validateIcpDraft,
 } from "../api";
 import type { IcpConfiguration,IcpPreview,IcpValidation,IcpVersion } from "../types";
 import { parseCommaSeparatedList } from "../textEntry";
+import { PageHeader } from "../v3/ui/primitives";
 
 const SECTIONS = [
   "Company Profile",
@@ -195,13 +196,12 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
   if (!configuration || !selected) return <div className="icp-loading">{error || "ICP is unavailable."}</div>;
 
   return <div className="page-view operational-page icp-page">
-    <header className="page-hero compact-hero icp-hero">
-      <div><span className="eyebrow">Workspace qualification policy</span><h1>Ideal customer profile</h1><p>Define fit once, test it safely, then publish a deterministic 40-point ICP for this workspace.</p></div>
-      <div className="icp-current-card"><small>Current ICP</small>{current?.source === "not_configured" ? <><strong>No custom ICP published</strong><span>ICP fit scoring and ICP hard exclusions are disabled.</span><span>Publish a workspace ICP to enable them.</span></> : <><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "Built-in template" : `Workspace v${current?.version_number}`} · {current?.status}</span><span>Last updated {current?.updated_at ? new Date(current.updated_at).toLocaleString() : "by system policy"}</span></>}</div>
+    <header className="icp-hero-v3">
+      <PageHeader back={{ label: "Settings", onClick: onBack }} title="Ideal customer profile" subtitle="Describe who you sell to, test it against existing leads, then publish. Corral scores every new lead’s fit out of 40 points." />
+      <div className="icp-current-card"><small>Live profile</small>{current?.source === "not_configured" ? <><strong>None published yet</strong><span>Fit scoring and hard exclusions are off until you publish one.</span></> : <><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "Built-in template" : `Workspace v${current?.version_number}`} · {current?.status}</span><span>Last updated {current?.updated_at ? new Date(current.updated_at).toLocaleString() : "by system policy"}</span></>}</div>
     </header>
     <div className="icp-toolbar">
-      <button className="button-quiet" onClick={onBack}>← Settings</button>
-      <span className={`icp-status status-${selected.status}`}>{selected.source === "system_default" ? "Built-in template" : selected.source === "not_configured" ? "Not configured" : `v${selected.version_number}`} · {pretty(selected.status)}</span>
+      <span className={`icp-status status-${selected.status}`}>{selected.source === "not_configured" ? "Not configured" : `${selected.source === "system_default" ? "Built-in template" : `v${selected.version_number}`} · ${pretty(selected.status)}`}</span>
       <span className={`weight-pill ${total === 40 ? "valid" : "invalid"}`} aria-label={`${total} of 40 ICP points configured`}><b>{total} / 40</b> ICP points · {total === 40 ? "valid" : "needs attention"}</span>
       {editable && <button className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>Save draft</button>}
       {canManage && !editable && <button className="primary-button" disabled={busy} onClick={() => void createDraft()}>Create new draft</button>}

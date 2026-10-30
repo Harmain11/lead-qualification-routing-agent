@@ -1,6 +1,6 @@
 .cw-page{max-width:1440px;margin:0 auto;padding:28px 32px 60px;color:var(--label)}
 .cw-header{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:25px}
-.cw-eyebrow{display:block;color:var(--tint-text);font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.cw-eyebrow{display:block;color:var(--tint-text);font-size:11px;font-weight:800;letter-spacing:.01em;text-transform: none}
 .cw-header h1{font-size:clamp(28px,3vw,38px);line-height:1.15;letter-spacing:-.04em;margin:5px 0 8px}
 .cw-header p,.cw-agenda-heading p{color:var(--label-2);font-size:14px;line-height:1.5;margin:0}
 .cw-header-actions,.cw-form-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
@@ -24,7 +24,7 @@
 .cw-filters button[aria-pressed="true"]{background:var(--surface-sunken);color:var(--tint-text)}
 .cw-weekdays,.cw-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
 .cw-weekdays{border-top:1px solid var(--separator-strong);background:var(--surface-sunken)}
-.cw-weekdays span{padding:11px 8px;text-align:center;font-size:11px;color:var(--label-2);font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.cw-weekdays span{padding:11px 8px;text-align:center;font-size:11px;color:var(--label-2);font-weight:800;text-transform: none;letter-spacing:.04em}
 .cw-grid{border-top:1px solid var(--separator-strong)}
 .cw-day{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:5px;min-width:0;height:115px;padding:9px 7px;border:0;border-right:1px solid var(--separator-strong);border-bottom:1px solid var(--separator-strong);background:var(--surface,var(--surface));color:var(--label);text-align:left;cursor:pointer}
 .cw-day:nth-child(7n){border-right:0}

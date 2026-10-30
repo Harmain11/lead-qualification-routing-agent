@@ -25,7 +25,7 @@
 .lead-drawer .story-head > div:first-child,
 .lead-story .story-head > div:first-child { min-width: 0; }
 .lead-drawer .story-head .eyebrow,
-.lead-story .story-head .eyebrow { font-size: 13px; letter-spacing: .12em; }
+.lead-story .story-head .eyebrow { font-size: 13px; letter-spacing: .01em; }
 .lead-drawer .story-head h2,
 .lead-story .story-head h2 {
   margin: 5px 0 4px;
@@ -191,7 +191,7 @@
   background: var(--surface-sunken);
 }
 .lead-drawer .fact span,
-.lead-story .fact span { color: var(--label-2); font-size: 13px; letter-spacing: .06em; }
+.lead-story .fact span { color: var(--label-2); font-size: 13px; letter-spacing: .01em; }
 .lead-drawer .fact b,
 .lead-story .fact b { margin-top: 5px; color: var(--label); font-size: 13px; line-height: 1.45; }
 

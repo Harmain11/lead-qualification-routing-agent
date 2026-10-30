@@ -8,13 +8,13 @@
 .direct-dialer-number-field, .direct-dialer-account-field { display: grid; align-content: start; gap: var(--s3); min-width: 0; }
 .direct-dialer-keypad { display: grid; gap: var(--s2); width: 100%; max-width: 320px; margin-top: var(--s2); }
 .direct-dialer-keypad-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
-.direct-dialer-keypad-head span { color: var(--label-2); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.direct-dialer-keypad-head span { color: var(--label-2); font-size: 12px; font-weight: 700; letter-spacing: .01em; text-transform: none; }
 .direct-dialer-keypad-head button.direct-dialer-clear { min-height: 30px; border: 0; padding: 2px 4px; color: var(--workspace-accent, var(--tint-text)); background: transparent; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .direct-dialer-keypad-head button:disabled { opacity: .5; cursor: not-allowed; }
 .direct-dialer-keypad-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); }
 .direct-dialer-key { display: grid; align-content: center; justify-items: center; min-height: 44px; border: 1px solid var(--separator-strong); border-radius: var(--r-sm); color: var(--label); background: var(--surface); font: inherit; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
 .direct-dialer-key strong { font-size: 16px; line-height: 1.1; }
-.direct-dialer-key small { color: var(--label-2); font-size: 8px; font-weight: 700; letter-spacing: .08em; line-height: 1; }
+.direct-dialer-key small { color: var(--label-2); font-size: 8px; font-weight: 700; letter-spacing: .01em; line-height: 1; }
 .direct-dialer-key:hover:not(:disabled) { border-color: var(--workspace-accent, var(--tint)); background: var(--surface-sunken); transform: translateY(-1px); }
 .direct-dialer-key:focus-visible, .direct-dialer-keypad-head button:focus-visible { outline: 2px solid var(--workspace-accent, var(--tint)); outline-offset: 2px; }
 .direct-dialer-key:disabled { opacity: .55; cursor: not-allowed; }
@@ -91,7 +91,7 @@
 }
 .calls-heading-mark svg { width: 20px; height: 20px; }
 .calls-heading-copy { min-width: 0; }
-.calls-heading-copy .eyebrow { color: var(--tint-text); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.calls-heading-copy .eyebrow { color: var(--tint-text); font-size: 11px; font-weight: 750; letter-spacing: .01em; text-transform: none; }
 .calls-heading-copy h3 { margin: 5px 0 8px; font-size: clamp(20px, 2.4vw, 23px); }
 .calls-lead-number { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--label-2); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .calls-lead-number::before { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--tint); content: ""; }
@@ -344,7 +344,7 @@
 .call-insights > h4 { margin:0; font-size:15px; }
 .call-insight-summary { min-width:0; padding:14px 15px; border:1px solid color-mix(in srgb,var(--tint) 16%,var(--separator-strong)); border-left:3px solid var(--tint); border-radius:10px; background:color-mix(in srgb,var(--tint) 4%,var(--surface)); }
 .call-insight-summary p { margin:6px 0 0; color:var(--label); line-height:1.6; overflow-wrap:anywhere; }
-.call-insight-label { display:block; margin-bottom:4px; color:var(--label-2); font-size:11px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.call-insight-label { display:block; margin-bottom:4px; color:var(--label-2); font-size:11px; font-weight:800; letter-spacing:.01em; text-transform: none; }
 .call-insight-unavailable { margin:4px 0 0; color:var(--label-2); font-size:13px; font-style:italic; }
 .call-insight-facts { display:grid; grid-template-columns:minmax(130px,.65fr) minmax(0,1.35fr); gap:12px; }
 .call-insight-facts > div { min-width:0; padding:10px 12px; border:1px solid var(--separator-strong); border-radius:8px; }
@@ -371,7 +371,7 @@
 .call-review-transcript summary small { color:var(--label-2); font-size:11px; font-weight:500; }
 .call-transcript-text { max-height:360px; margin:0; overflow:auto; padding:14px 16px; border-top:1px solid var(--separator-strong); color:var(--label); background:var(--surface); font-family:inherit; font-size:13px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; }
 .call-lead-assessment { display:grid; gap:4px; min-width:0; padding:13px 15px; border:1px solid var(--separator-strong); border-left:3px solid var(--workspace-accent,var(--tint)); border-radius:10px; background:var(--surface); }
-.call-lead-assessment-label { color:var(--label-2); font-size:10px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; }
+.call-lead-assessment-label { color:var(--label-2); font-size:10px; font-weight:800; letter-spacing:.01em; text-transform: none; }
 .call-lead-assessment strong { font-size:13px; }
 .call-lead-assessment p { margin:0; color:var(--label-2); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .call-review-details .call-record-receipt { margin:0; }

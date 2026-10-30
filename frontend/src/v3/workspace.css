@@ -90,3 +90,6 @@
 .coach-response small { font: var(--t-footnote); color: var(--label-3); }
 .coach-response p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label); }
 @media (max-width: 640px) { .coach-card { padding: var(--s4); } .coach-filters .calls-search { min-width: 0; flex: 1; } }
+
+/* ------------------------------------------------------------ Analytics */
+.analytics-source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0 0 var(--s4); font: var(--t-footnote); color: var(--label-3); }

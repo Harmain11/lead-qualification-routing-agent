@@ -6,6 +6,7 @@ import {
   type Policy,
   type PolicyResponse,
 } from "../operationsApi";
+import { PageHeader } from "../v3/ui/primitives";
 const words = (value: string) =>
   value
     .split(",")
@@ -61,16 +62,10 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
   const config = data.configuration;
   return (
     <div className="page-view ops-page">
-      <header className="ops-page-head">
-        <div>
-          <span className="eyebrow">Workspace controls</span>
-          <h1>Team policies</h1>
-          <p>
-            Define territory ownership, response targets, representative limits
-            and approval boundaries.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Routing & capacity"
+        subtitle="Who owns which territory, how fast leads must be answered, how many each rep can hold, and what the agent may do without asking."
+      />
       <div className="ops-panel">
         <h2>My availability</h2>
         <p>
@@ -312,9 +307,9 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
           <section className="ops-panel">
             <h2>Agent approvals & monitoring</h2>
             <div className="ops-form-grid">
-              {["research", "coach", "note"].map((action) => (
+              {([["research", "Company research"], ["coach", "Coaching reports"], ["note", "Lead notes"]] as const).map(([action, label]) => (
                 <label key={action}>
-                  {action} approval
+                  {label}
                   <select
                     value={config.approval_tiers[action] || "approve"}
                     onChange={(event) =>
@@ -326,18 +321,18 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
                       })
                     }
                   >
-                    <option value="automatic">Automatic internal work</option>
-                    <option value="approve">One-click approval</option>
+                    <option value="automatic">Runs without approval</option>
+                    <option value="approve">Needs one-click approval</option>
                     <option value="full_review">
-                      Review by another manager
+                      Needs a second manager’s review
                     </option>
                   </select>
                 </label>
               ))}
             </div>
             <p>
-              Follow-up drafts always require a representative to review and
-              send. Trust scores never grant additional access.
+              Follow-up emails always wait for a rep to review and send them,
+              whatever you choose here.
             </p>
             <label className="ops-check">
               <input
@@ -347,7 +342,7 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
                   change({ watcher_enabled: event.target.checked })
                 }
               />
-              Watch acquired email and progress evidence continuously
+              Watch new emails and lead progress, and alert on changes
             </label>
             <label className="ops-check">
               <input

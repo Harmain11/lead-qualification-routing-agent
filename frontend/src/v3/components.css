@@ -453,3 +453,9 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-meta { font: var(--t-footnote); color: var(--label-3); }
 .v-sep-dot::before { content: "·"; margin: 0 6px; color: var(--label-4); }
 .v-kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 5px; background: var(--fill); font: 500 11px/1 var(--font); color: var(--label-2); }
+.v-pagehead-back {
+  display: inline-flex; align-items: center; gap: 2px; margin: 0 0 6px -4px; padding: 2px 6px 2px 2px;
+  border: 0; border-radius: var(--r-xs); background: none; color: var(--tint-text); font: var(--t-subhead); font-weight: 500;
+}
+.v-pagehead-back:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+@media (hover: hover) and (pointer: fine) { .v-pagehead-back:hover { background: var(--fill-hover); } }

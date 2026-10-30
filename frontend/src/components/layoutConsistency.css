@@ -308,7 +308,7 @@ html[data-theme] .app-shell .range-picker button.active { background: var(--surf
 .app-shell .side-rail { padding: 22px 14px 18px; }
 .app-shell .rail-brand-row { margin-bottom: 16px; }
 .app-shell .brand-lockup { gap: 10px; padding: 0 8px; }
-.app-shell .nav-group { font-family: inherit; font-size: 13px; letter-spacing: .08em; margin: 16px 12px 6px; }
+.app-shell .nav-group { font-family: inherit; font-size: 13px; letter-spacing: .01em; margin: 16px 12px 6px; }
 .app-shell .navigation-menu-trigger { min-height: 42px; }
 .app-shell .navigation-menu-label { font-size: 13px; font-weight: 500; }
 .app-shell .navigation-menu-item.is-active > .navigation-menu-trigger,
@@ -353,7 +353,7 @@ html[data-theme] .app-shell .range-picker button.active { background: var(--surf
   overflow-wrap: anywhere;
 }
 .app-shell .page-hero p, .app-shell .ops-page-head p { max-width: 75ch; margin: 0; color: var(--label-2); font-size: 14px; line-height: 1.65; }
-.app-shell .eyebrow { font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.5; letter-spacing: .08em; color: var(--tint-text); }
+.app-shell .eyebrow { font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.5; letter-spacing: .01em; color: var(--tint-text); }
 .app-shell .section-heading h2, .app-shell .ops-page h2, .ops-dialog h2 { font-family: inherit; font-size: 20px; font-weight: 600; line-height: 1.35; letter-spacing: -.02em; margin: 0 0 8px; }
 .app-shell .ops-page h3, .ops-dialog h3 { font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.4; letter-spacing: -.01em; margin: 0 0 8px; }
 html[data-theme] .app-shell :is(.panel, .ops-panel, .integration-card, .metric-card, .team-summary-card) {
@@ -886,7 +886,7 @@ html[data-theme] .ops-dialog.lead-drawer .story-section blockquote { font-size: 
 .app-shell .dashboard-insights > .insight-source { display: grid; grid-template-rows: auto 1fr; }
 .app-shell .insight-source header { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-bottom: 20px; }
 .app-shell .insight-source header > div { min-width: 0; }
-.app-shell .insight-source header > div > span { font-family: inherit; letter-spacing: .05em; line-height: 1.5; }
+.app-shell .insight-source header > div > span { font-family: inherit; letter-spacing: .01em; line-height: 1.5; }
 .app-shell .insight-source h2 { min-height: 27px; margin-top: 4px; font-size: 20px; line-height: 1.35; }
 .app-shell .insight-source header p { max-width: none; min-height: 44px; width: 100%; font-size: 14px; line-height: 22px; text-align: left; }
 .app-shell .insight-source .insight-empty { min-height: 180px; padding: 24px; gap: 8px; }
@@ -1206,7 +1206,7 @@ html[data-theme] .ops-dialog.lead-drawer .lead-story { background: transparent; 
 .app-shell .integration-card:not(.is-collapsed) .integration-guide > .eyebrow {
   color: var(--tint-text);
   font-size: 11px;
-  letter-spacing: .12em;
+  letter-spacing: .01em;
 }
 .app-shell .integration-card:not(.is-collapsed) .integration-guide > strong {
   color: var(--label);

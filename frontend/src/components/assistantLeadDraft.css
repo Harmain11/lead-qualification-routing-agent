@@ -48,7 +48,7 @@
   font-weight: 800;
   letter-spacing: .045em;
   line-height: 1.2;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .assistant-lead-draft__fields {
