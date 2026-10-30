@@ -161,7 +161,7 @@ test("opening the Dialer requires dialer access and never places a call", async 
   );
 
   assert.equal(opened, "dialer");
-  assert.equal(result, "Opened the Dialer. Corral has not placed a call.");
+  assert.equal(result, "Opened Calls. Corral has not placed a call.");
   assert.equal(requests.length, 0);
   await assert.rejects(
     actions.applyWorkspaceAssistantAction(action, denied, noNavigate, noNavigate),

@@ -121,22 +121,38 @@ function requirePermission(
   }
 }
 
+// Every page Ask Corral can open, its visible name and the permissions that
+// unlock it. Mirrors the app's view permissions and the server's area list.
+export const ASSISTANT_AREAS: Record<WorkspaceAssistantArea, { label: string; permissions: string[] }> = {
+  dashboard: { label: "Today", permissions: ["analytics.view"] },
+  leads: { label: "Leads", permissions: ["leads.view"] },
+  pipeline: { label: "Pipeline", permissions: ["analytics.view"] },
+  revenue: { label: "Revenue", permissions: ["analytics.view"] },
+  review: { label: "Review", permissions: ["manual_review.view"] },
+  email: { label: "Inbox", permissions: ["integrations.view"] },
+  calendar: { label: "Calendar", permissions: ["leads.view"] },
+  dialer: { label: "Calls", permissions: ["dialer.call"] },
+  contacts: { label: "Contacts", permissions: ["leads.view"] },
+  accounts: { label: "Companies", permissions: ["leads.view"] },
+  performance: { label: "Team Performance", permissions: ["analytics.view"] },
+  analytics: { label: "Analytics", permissions: ["analytics.view"] },
+  agents: { label: "AI Activity", permissions: ["agents.view"] },
+  intelligence: { label: "Research & Coaching", permissions: ["agents.view"] },
+  automations: { label: "Automations", permissions: ["agents.view"] },
+  integrations: { label: "Integrations", permissions: ["integrations.view"] },
+  team: { label: "Team", permissions: ["members.view"] },
+  settings: { label: "Settings", permissions: ["routing.view", "integrations.view", "workspace.manage"] },
+  icp: { label: "Ideal customer profile", permissions: ["icp.view"] },
+  policies: { label: "Routing & capacity", permissions: ["routing.view"] },
+  compliance: { label: "Consent & governance", permissions: ["workspace.manage"] },
+};
+
 export function canOpenAssistantArea(
   area: WorkspaceAssistantArea | null,
   permissions: ReadonlySet<string>,
 ): area is WorkspaceAssistantArea {
   if (!area) return false;
-  const permissionByArea: Record<WorkspaceAssistantArea, string[]> = {
-    analytics: ["analytics.view"],
-    agents: ["agents.view"],
-    automations: ["agents.view"],
-    icp: ["icp.view"],
-    settings: ["routing.view", "integrations.view", "workspace.manage"],
-    integrations: ["integrations.view"],
-    team: ["members.view"],
-    dialer: ["dialer.call"],
-  };
-  return permissionByArea[area].some((permission) => permissions.has(permission));
+  return ASSISTANT_AREAS[area].permissions.some((permission) => permissions.has(permission));
 }
 
 export function canApplyWorkspaceAssistantAction(
@@ -237,10 +253,8 @@ export async function applyWorkspaceAssistantAction(
       }
       onNavigate(action.area);
       return action.area === "dialer"
-        ? "Opened the Dialer. Corral has not placed a call."
-        : action.area === "agents"
-          ? "Opened AI Activity."
-        : `Opened ${action.area}.`;
+        ? "Opened Calls. Corral has not placed a call."
+        : `Opened ${ASSISTANT_AREAS[action.area].label}.`;
     case "open_lead":
       requirePermission(permissions, "leads.view");
       if (!action.target_id) {

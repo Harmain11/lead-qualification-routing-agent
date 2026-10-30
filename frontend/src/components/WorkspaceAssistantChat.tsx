@@ -22,7 +22,10 @@ import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AssistantLeadDraft } from "./AssistantLeadDraft";
 import { AgentLeadChoices } from "./AgentLeadChoices";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
+import { parseAssistantCommand } from "./assistantCommands";
+import { TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
 import {
+  ASSISTANT_AREAS,
   applyWorkspaceAssistantAction,
   applyWorkspaceEmailSignature,
   canOpenAssistantArea,
@@ -66,6 +69,16 @@ const prompts: Array<{
     label: "Coach the pipeline from recorded data",
     prompt: "Coach the pipeline using only recorded analytics and verified workspace records. Flag stalled or at-risk deals only when actual data supports it, recommend next actions, and do not invent forecasts or probabilities.",
     requires: ["analytics.view"],
+  },
+  {
+    label: "Coach me on a recent call",
+    prompt: "Coach me on my most recent recorded call with a lead. Give a short summary, what went well, what to improve, a talk track for the next touch and one next step with a date. Use only the recorded transcript and notes; if none exist, say so.",
+    requires: ["leads.view"],
+  },
+  {
+    label: "Write meeting minutes",
+    prompt: "Write minutes for a recent meeting with a lead: attendees, summary, decisions, action items with owners, and the next step. Ask me which lead if it is unclear. Use only recorded notes and transcripts.",
+    requires: ["leads.view"],
   },
   {
     label: "Check workspace document sources",
@@ -361,6 +374,38 @@ export function WorkspaceAssistantChat({
       || applyingMessageIdsRef.current.size || sendingMessageIdsRef.current.size) return;
     if (messages.length >= 500) {
       setError("This chat reached its history limit. Start a new conversation to continue.");
+      return;
+    }
+
+    // Safe UI moves run instantly; only work that needs judgement reaches the model.
+    const command = parseAssistantCommand(content);
+    if (command?.kind === "close") {
+      setDraft("");
+      window.dispatchEvent(new CustomEvent(TOGGLE_AGENT_EVENT, { detail: { open: false } }));
+      return;
+    }
+    if (command?.kind === "new_chat") {
+      void startNewConversation();
+      return;
+    }
+    if (command?.kind === "navigate") {
+      const { area } = command;
+      const { label } = ASSISTANT_AREAS[area];
+      const allowed = canOpenAssistantArea(area, permissions);
+      if (allowed) onNavigate(area);
+      setDraft("");
+      setError("");
+      setMessages((current) => [
+        ...current,
+        { id: createClientId(), role: "user", content },
+        {
+          id: createClientId(),
+          role: "assistant",
+          content: allowed
+            ? `Opened ${label}.`
+            : `Your workspace role can’t open ${label}. Ask a workspace admin for access.`,
+        },
+      ]);
       return;
     }
 

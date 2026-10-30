@@ -121,14 +121,27 @@ class WorkspaceAssistantAction(BaseModel):
         "complete_lead_manual_review",
     ] = "none"
     area: Literal[
+        "dashboard",
+        "leads",
+        "pipeline",
+        "revenue",
+        "review",
+        "email",
+        "calendar",
+        "dialer",
+        "contacts",
+        "accounts",
+        "performance",
         "analytics",
         "agents",
+        "intelligence",
         "automations",
-        "icp",
-        "settings",
         "integrations",
         "team",
-        "dialer",
+        "settings",
+        "icp",
+        "policies",
+        "compliance",
     ] | None = None
     title: str = Field(default="", max_length=120)
     summary: str = Field(default="", max_length=800)

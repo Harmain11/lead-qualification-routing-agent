@@ -26,6 +26,33 @@ WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "reactivate_member": ("members.manage",),
 }
 
+# Every page the assistant may open, with the permissions that unlock it. Kept
+# in step with the frontend's view permissions so the agent never offers a page
+# the person cannot see.
+WORKSPACE_AREA_PERMISSIONS: dict[str, tuple[str, ...]] = {
+    "dashboard": ("analytics.view",),
+    "leads": ("leads.view",),
+    "pipeline": ("analytics.view",),
+    "revenue": ("analytics.view",),
+    "review": ("manual_review.view",),
+    "email": ("integrations.view",),
+    "calendar": ("leads.view",),
+    "dialer": ("dialer.call",),
+    "contacts": ("leads.view",),
+    "accounts": ("leads.view",),
+    "performance": ("analytics.view",),
+    "analytics": ("analytics.view",),
+    "agents": ("agents.view",),
+    "intelligence": ("agents.view",),
+    "automations": ("agents.view",),
+    "integrations": ("integrations.view",),
+    "team": ("members.view",),
+    "settings": ("routing.view", "integrations.view", "workspace.manage"),
+    "icp": ("icp.view",),
+    "policies": ("routing.view",),
+    "compliance": ("workspace.manage",),
+}
+
 _REQUIRED_FIELDS = {
     "open_module": ["area"],
     "open_lead": ["target_id"],
@@ -53,16 +80,7 @@ _REQUIRED_FIELDS = {
 
 
 def workspace_action_capabilities(permissions: Collection[str]) -> list[dict[str, object]]:
-    area_permissions = {
-        "analytics": ("analytics.view",),
-        "agents": ("agents.view",),
-        "automations": ("agents.view",),
-        "icp": ("icp.view",),
-        "settings": ("routing.view", "integrations.view", "workspace.manage"),
-        "integrations": ("integrations.view",),
-        "team": ("members.view",),
-        "dialer": ("dialer.call",),
-    }
+    area_permissions = WORKSPACE_AREA_PERMISSIONS
     areas = [
         area for area, required in area_permissions.items()
         if any(permission in permissions for permission in required)

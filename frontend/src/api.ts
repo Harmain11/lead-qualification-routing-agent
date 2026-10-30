@@ -93,14 +93,27 @@ export type LeadAssistantReply = {
 };
 
 export type WorkspaceAssistantArea =
+  | "dashboard"
+  | "leads"
+  | "pipeline"
+  | "revenue"
+  | "review"
+  | "email"
+  | "calendar"
+  | "dialer"
+  | "contacts"
+  | "accounts"
+  | "performance"
   | "analytics"
   | "agents"
+  | "intelligence"
   | "automations"
-  | "icp"
-  | "settings"
   | "integrations"
   | "team"
-  | "dialer";
+  | "settings"
+  | "icp"
+  | "policies"
+  | "compliance";
 
 export type AssignmentNotification = {
   id: string;
