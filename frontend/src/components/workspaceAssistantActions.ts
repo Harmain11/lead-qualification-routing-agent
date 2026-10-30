@@ -19,7 +19,8 @@ import {
   type WorkspaceAssistantArea,
 } from "../api";
 import type { IcpConfiguration, Lead, LeadPayload } from "../types";
-import { opsGet, opsSave, type Automation } from "../operationsApi";
+import { opsGet, opsSave, type Automation, type AutomationSpec, type PlaybookNode } from "../operationsApi";
+import { createClientId } from "../clientIds";
 
 export function applyWorkspaceEmailSignature(
   body: string,
@@ -112,6 +113,49 @@ export async function createWorkspaceLead(
   });
 }
 
+const DRAFT_STEP_TYPES = new Set(["wait", "draft", "research", "coach", "note"]);
+
+/**
+ * Turns the agent's ordered step list into a paused, linear automation graph.
+ * The result is always inactive: people review and activate it in Automations.
+ */
+export function automationDraftSpec(payload: Record<string, unknown>): AutomationSpec {
+  const name = typeof payload.name === "string" ? payload.name.trim().slice(0, 120) : "";
+  if (!name) throw new Error("Give the sequence or playbook a name.");
+  const kind = payload.kind === "playbook" ? "playbook" : "sequence";
+  const steps = Array.isArray(payload.steps) ? payload.steps : [];
+  const body = steps.flatMap((step): PlaybookNode[] => {
+    if (!step || typeof step !== "object") return [];
+    const item = step as Record<string, unknown>;
+    const type = typeof item.type === "string" ? item.type : "";
+    if (!DRAFT_STEP_TYPES.has(type)) return [];
+    const hours = Number(item.wait_hours);
+    return [{
+      id: "", type: type as PlaybookNode["type"], x: 60, y: 60, next: null, otherwise: null,
+      wait_hours: Number.isFinite(hours) ? Math.min(2160, Math.max(1, Math.round(hours))) : 24,
+      condition: "hot",
+      text: typeof item.text === "string" ? item.text.slice(0, 2000) : "",
+    }];
+  }).slice(0, 48);
+  if (!body.length) throw new Error("Add at least one step to the draft.");
+  const chain: PlaybookNode[] = [
+    { id: "start", type: "start", x: 60, y: 60, next: null, otherwise: null, wait_hours: 24, condition: "hot", text: "" },
+    ...body,
+    { id: "end", type: "end", x: 60, y: 60, next: null, otherwise: null, wait_hours: 24, condition: "hot", text: "" },
+  ];
+  const nodes = chain.map((node, index, all) => ({
+    ...node,
+    id: node.id || `step-${index}`,
+    y: 60 + index * 80, // 50 nodes stay inside the 4000px canvas limit
+    next: index < all.length - 1 ? (all[index + 1].id || `step-${index + 1}`) : null,
+  }));
+  return {
+    name, kind, active: false, nodes,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    preferred_hour: 9, optimize_time: true, version: 0,
+  };
+}
+
 function requirePermission(
   permissions: ReadonlySet<string>,
   permission: string,
@@ -171,6 +215,9 @@ export function canApplyWorkspaceAssistantAction(
   if (["update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead"].includes(action.kind)) {
     return Boolean(action.target_id && permissions.has("leads.view") && permissions.has("leads.edit"));
   }
+  if (action.kind === "enroll_lead_in_automation") {
+    return Boolean(action.target_id && permissions.has("leads.view") && permissions.has("leads.edit"));
+  }
   if (action.kind === "complete_lead_manual_review") {
     return Boolean(
       action.target_id &&
@@ -181,6 +228,7 @@ export function canApplyWorkspaceAssistantAction(
   const requiredPermission: Partial<Record<WorkspaceAssistantAction["kind"], string>> = {
     set_automation_active: "workspace.manage",
     create_icp_draft: "icp.manage",
+    create_automation_draft: "workspace.manage",
     update_routing_config: "routing.manage",
     set_lead_confirmation: "integrations.manage",
     disconnect_integration: "integrations.disconnect",
@@ -302,6 +350,25 @@ export async function applyWorkspaceAssistantAction(
         });
       }
       return `Created ICP draft “${draft.name}”. It has not been published.`;
+    }
+    case "create_automation_draft": {
+      requirePermission(permissions, "workspace.manage");
+      const spec = automationDraftSpec(parsePayload(action));
+      await opsSave(`/v1/automations/${createClientId()}`, spec, "PUT");
+      return `Saved “${spec.name}” as a paused ${spec.kind} draft with ${spec.nodes.length - 2} steps. Review and activate it in Automations; nobody is enrolled.`;
+    }
+    case "enroll_lead_in_automation": {
+      requirePermission(permissions, "leads.view");
+      requirePermission(permissions, "leads.edit");
+      if (!action.target_id) throw new Error("Choose a verified lead first.");
+      const payload = parsePayload(action);
+      if (typeof payload.definition_id !== "string") throw new Error("Choose which automation to use.");
+      const { items } = await opsGet<{ items: Automation[] }>("/v1/automations");
+      const target = items.find((item) => item.id === payload.definition_id);
+      if (!target) throw new Error("That automation is no longer available.");
+      if (!target.active) throw new Error(`${target.name} is paused. Activate it in Automations before enrolling leads.`);
+      await opsSave(`/v1/automations/${target.id}/enroll`, { lead_id: action.target_id });
+      return `Enrolled ${action.target_label || "the lead"} in ${target.name}. Its steps create drafts for review; nothing sends automatically.`;
     }
     case "update_routing_config": {
       requirePermission(permissions, "routing.manage");

@@ -16,6 +16,8 @@ WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "send_email": ("leads.edit",),
     "set_automation_active": ("workspace.manage",),
     "create_icp_draft": ("icp.manage",),
+    "create_automation_draft": ("agents.view", "workspace.manage"),
+    "enroll_lead_in_automation": ("leads.view", "leads.edit", "agents.view"),
     "update_routing_config": ("routing.manage",),
     "set_lead_confirmation": ("integrations.manage",),
     "disconnect_integration": ("integrations.disconnect",),
@@ -68,6 +70,12 @@ _REQUIRED_FIELDS = {
     "send_email": ["email_subject", "email_body", "recipient reviewed in UI", "verified Gmail sender"],
     "set_automation_active": ["target_id", "enabled"],
     "create_icp_draft": ["payload_json"],
+    "create_automation_draft": [
+        "payload_json: name, kind (sequence|playbook), steps[] of {type: wait|draft|research|coach|note, wait_hours for wait, text}"
+    ],
+    "enroll_lead_in_automation": [
+        "target_id: verified workspace lead", "payload_json: definition_id of an active automation"
+    ],
     "update_routing_config": ["payload_json"],
     "set_lead_confirmation": ["enabled"],
     "disconnect_integration": ["target_id"],

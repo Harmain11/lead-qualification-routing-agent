@@ -135,6 +135,8 @@ export type WorkspaceAssistantAction = {
     | "create_lead"
     | "set_automation_active"
     | "create_icp_draft"
+    | "create_automation_draft"
+    | "enroll_lead_in_automation"
     | "update_routing_config"
     | "set_lead_confirmation"
     | "disconnect_integration"

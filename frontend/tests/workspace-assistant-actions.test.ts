@@ -247,3 +247,15 @@ test("AI Activity navigation is gated by its view permission", async () => {
   assert.equal(navigated, "agents");
   assert.equal(result, "Opened AI Activity.");
 });
+
+test("automation drafts become a paused linear graph", () => {
+  const spec = actions.automationDraftSpec({
+    name: "Post-demo follow up", kind: "sequence",
+    steps: [{ type: "draft", text: "Recap" }, { type: "wait", wait_hours: 48 }, { type: "send" }, { type: "draft", text: "Nudge" }],
+  });
+  assert.equal(spec.active, false);
+  assert.deepEqual(spec.nodes.map((node) => node.type), ["start", "draft", "wait", "draft", "end"]);
+  assert.equal(spec.nodes.at(-1)?.next, null);
+  spec.nodes.slice(0, -1).forEach((node, index) => assert.equal(node.next, spec.nodes[index + 1].id));
+  assert.throws(() => actions.automationDraftSpec({ name: "Empty", steps: [] }), /at least one step/);
+});

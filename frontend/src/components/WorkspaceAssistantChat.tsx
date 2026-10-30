@@ -26,6 +26,7 @@ import { parseAssistantCommand } from "./assistantCommands";
 import { TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
 import {
   ASSISTANT_AREAS,
+  automationDraftSpec,
   applyWorkspaceAssistantAction,
   applyWorkspaceEmailSignature,
   canOpenAssistantArea,
@@ -104,6 +105,36 @@ const prompts: Array<{
     requires: ["leads.view", "leads.edit"],
   },
 ];
+
+const STEP_LABELS: Record<string, string> = {
+  wait: "Wait", draft: "Draft email", research: "Research", coach: "Coaching tip", note: "Note",
+};
+
+function AutomationDraftPreview({ action }: { action: WorkspaceAssistantAction }) {
+  let spec: ReturnType<typeof automationDraftSpec> | null = null;
+  try {
+    spec = automationDraftSpec(JSON.parse(action.payload_json ?? "{}"));
+  } catch {
+    return <p className="corral-workspace-error" role="alert">This draft is incomplete. Ask Corral to rebuild it.</p>;
+  }
+  const steps = spec.nodes.slice(1, -1);
+  return (
+    <ol className="corral-automation-draft" aria-label={`${spec.name} steps`}>
+      {steps.map((step, index) => (
+        <li key={step.id}>
+          <span className="corral-automation-draft-index">{index + 1}</span>
+          <div>
+            <strong>
+              {STEP_LABELS[step.type] ?? step.type}
+              {step.type === "wait" ? ` ${step.wait_hours >= 24 && step.wait_hours % 24 === 0 ? `${step.wait_hours / 24} day${step.wait_hours === 24 ? "" : "s"}` : `${step.wait_hours} h`}` : ""}
+            </strong>
+            {step.text && <p>{step.text}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 type Props = {
   permissions: ReadonlySet<string>;
@@ -1141,7 +1172,10 @@ export function WorkspaceAssistantChat({
                         ))}
                       />
                     )}
-                    {message.action.payload_json && !["add_lead_note", "create_lead"].includes(message.action.kind) && (
+                    {message.action.kind === "create_automation_draft" && (
+                      <AutomationDraftPreview action={message.action} />
+                    )}
+                    {message.action.payload_json && !["add_lead_note", "create_lead", "create_automation_draft"].includes(message.action.kind) && (
                       <details open={["update_lead_profile", "add_lead_note", "record_lead_progress"].includes(message.action.kind) || undefined}>
                         <summary>Review exact changes</summary>
                         <pre>{message.action.payload_json}</pre>
@@ -1228,11 +1262,7 @@ export function WorkspaceAssistantChat({
                         {message.actionStatus === "applying"
                           ? "Applying…"
                           : message.action.kind === "open_module"
-                            ? message.action.area === "dialer"
-                              ? "Open Dialer"
-                              : message.action.area === "agents"
-                                ? "Open AI Activity"
-                              : `Open ${message.action.area ?? "workspace"}`
+                            ? `Open ${message.action.area ? ASSISTANT_AREAS[message.action.area].label : "page"}`
                             : message.action.kind === "open_lead"
                               ? "Open lead"
                               : message.action.kind === "open_deal_desk"
@@ -1241,6 +1271,8 @@ export function WorkspaceAssistantChat({
                               ? "Complete review & reroute"
                             : message.action.kind === "add_lead_note" ? "Save note"
                             : message.action.kind === "create_lead" ? "Create lead"
+                            : message.action.kind === "create_automation_draft" ? "Save as paused draft"
+                            : message.action.kind === "enroll_lead_in_automation" ? "Enroll lead"
                             : "Approve and apply"}
                       </button>
                       {message.action.kind !== "open_module" && (
