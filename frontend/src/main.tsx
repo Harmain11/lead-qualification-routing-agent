@@ -15,6 +15,8 @@ import "./v3/mail.css";
 import "./v3/calls.css";
 import "./v3/integrations.css";
 import "./v3/workspace.css";
+import "./v3/lead.css";
+import "./v3/meetings.css";
 import "./v3/adaptive.css";
 import App from "./App";
 import { ActivityToasts } from "./components/ActivityToasts";

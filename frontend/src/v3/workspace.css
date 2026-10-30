@@ -175,3 +175,20 @@
 .auto-runs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); padding: var(--s4); border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface); }
 .auto-runs-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
 .auto-runs-head h2 { font: var(--t-title3); color: var(--label); }
+
+/* --------------------------------------------------------------- Guides */
+.guide { display: grid; gap: var(--s4); }
+.guide-steps { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.guide-steps li { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--s3); padding-bottom: var(--s4); }
+.guide-steps li:not(:last-child)::before { content: ""; position: absolute; top: 30px; bottom: 4px; left: 13.5px; width: 1px; background: var(--separator-strong); }
+.guide-num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--tint-soft); color: var(--tint-text); font: 600 13px/1 var(--font); font-variant-numeric: tabular-nums; }
+.guide-steps h3 { margin: 4px 0 2px; font: var(--t-headline); color: var(--label); text-wrap: balance; }
+.guide-steps p { margin: 0; font: var(--t-callout); color: var(--label-2); text-wrap: pretty; }
+.guide-tip { display: flex; gap: var(--s2); align-items: flex-start; margin: 0; padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--tint-soft); color: var(--tint-text); font: var(--t-callout); }
+.guide-tip svg { flex: none; margin-top: 2px; }
+.guide-stuck { border-radius: var(--r-md); background: var(--surface-sunken); }
+.guide-stuck > summary { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); font: var(--t-callout); font-weight: 600; color: var(--label); cursor: pointer; list-style: none; }
+.guide-stuck > summary::-webkit-details-marker { display: none; }
+.guide-stuck > summary::after { content: ""; width: 7px; height: 7px; margin-left: auto; border-right: 1.5px solid var(--label-3); border-bottom: 1.5px solid var(--label-3); transform: rotate(45deg); transition: transform var(--d-fast) var(--ease-out); }
+.guide-stuck[open] > summary::after { transform: rotate(-135deg); }
+.guide-stuck p { margin: 0; padding: 0 var(--s4) var(--s4); font: var(--t-callout); color: var(--label-2); }

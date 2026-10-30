@@ -51,6 +51,9 @@ import {
   titleize,
 } from "../ui/primitives";
 import { DealRoom, StageRail } from "./DealRoom";
+import { LeadPipeline } from "./LeadPipeline";
+import { LeadStanding } from "./LeadStanding";
+import { useScrollEdges } from "../ui/useScrollEdges";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 import { confirmAction } from "../ui/confirm";
 import { LeadHighlights } from "./LeadHighlights";
@@ -59,7 +62,7 @@ import { LeadHighlights } from "./LeadHighlights";
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "ai", label: "Qualification" },
-  { id: "follow-ups", label: "Follow up" },
+  { id: "pipeline", label: "Pipeline" },
   { id: "email", label: "Emails" },
   { id: "calls", label: "Calls" },
   { id: "deal", label: "Deal" },
@@ -137,14 +140,15 @@ export function LeadRecord({
   const store = useDeals();
   const dealView = viewDeal(lead, store.deals[lead.id], recordedStage);
   const tabsRef = useRef<HTMLDivElement>(null);
+  useScrollEdges(tabsRef);
   const tabs = TABS.filter((tab) => (tab.id !== "email" || canViewEmail));
   const shownSection: LeadDetailSection = activeSection === "closing" ? "deal" : activeSection;
   // Panels mount on first visit and stay mounted, so opening a lead doesn't run every tab's requests.
-  const [visited, setVisited] = useState<Set<LeadDetailSection>>(() => new Set([shownSection, "follow-ups"]));
+  const [visited, setVisited] = useState<Set<LeadDetailSection>>(() => new Set([shownSection]));
   useEffect(() => {
     setVisited((current) => (current.has(shownSection) ? current : new Set([...current, shownSection])));
   }, [shownSection]);
-  useEffect(() => { setVisited(new Set([shownSection, "follow-ups"])); }, [lead.id]);
+  useEffect(() => { setVisited(new Set([shownSection])); }, [lead.id]);
   const updatedRef = useRef(onUpdated);
   useEffect(() => { updatedRef.current = onUpdated; }, [onUpdated]);
   useEffect(() => {
@@ -547,13 +551,11 @@ export function LeadRecord({
             canEdit={canEdit}
             canEmail={canViewEmail && canEdit && Boolean(lead.email)}
             onEmailQuote={(subject, body, quoteId) => startEmail({ subject, body, quoteId })}
-            onMoved={(fresh, message) => { setNotice(message); if (fresh) onUpdated?.(fresh); else synced(); }}
             startNewQuote={newQuote}
             onQuoteStarted={() => setNewQuote(false)}
           />
         )}
       </div>
-      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Calls */}
       <div id="lead-panel-calls" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-calls" tabIndex={0} hidden={shownSection !== "calls"}>
@@ -577,9 +579,24 @@ export function LeadRecord({
       <div id="lead-panel-overview" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-overview" tabIndex={0} hidden={shownSection !== "overview"}>
         <div className="v-overview">
           <div className="v-overview-main">
-            <section className="v-card v-card-pad">
-              <h2 className="v-card-title">{lead.source_detail === "manual-control-center" ? "Inquiry and context" : "Original inquiry"}</h2>
-              <p className="v-card-sub">From {sourceLabel(lead.source)} · {new Date(lead.received_at).toLocaleString()}</p>
+            <LeadStanding
+              lead={lead}
+              view={dealView}
+              meeting={activeMeetingIndicator}
+              canEdit={canEdit}
+              canEmail={canViewEmail && canEdit}
+              canCall={canCall}
+              onOpenSection={(section) => onSectionChange(section)}
+              onEmail={() => startEmail()}
+            />
+            {/* The inquiry leads the page while the lead is new; later it folds away. */}
+            <details className="v-card v-card-pad ls-inquiry" open={dealView.stage === "new" || undefined}>
+              <summary>
+                <span>
+                  <h2 className="v-card-title">{lead.source_detail === "manual-control-center" ? "Inquiry and context" : "Original inquiry"}</h2>
+                  <span className="v-card-sub">From {sourceLabel(lead.source)} · {new Date(lead.received_at).toLocaleString()}</span>
+                </span>
+              </summary>
               <div className="v-inquiry">
                 <GmailInquiryView
                   message={lead.message}
@@ -589,7 +606,7 @@ export function LeadRecord({
                   displayAsContext={lead.source_detail === "manual-control-center"}
                 />
               </div>
-            </section>
+            </details>
             {analysis && (
               <section className="v-card v-card-pad v-gist">
                 <h2 className="v-card-title">In short</h2>
@@ -715,45 +732,23 @@ export function LeadRecord({
         </div>
       </div>
 
-      {/* ---------------------------------------------------------- Follow up */}
-      <section id="lead-panel-follow-ups" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-follow-ups" tabIndex={0} hidden={shownSection !== "follow-ups"}>
-        <div className="v-stack">
-          <section className="v-card v-card-pad">
-            <div className="v-card-headrow">
-              <div>
-                <h2 className="v-card-title">Follow-up plan</h2>
-                <p className="v-card-sub">Use the latest lead assessment to decide what to do next.</p>
-              </div>
-              {canViewEmail && canEdit && <Button kind="plain" size="sm" onClick={() => startEmail()}>Write email</Button>}
-            </div>
-            {route ? <>
-              <div className="v-nextstep">
-                <span>Recommended now</span>
-                <b>{route.action_plan.immediate_action}</b>
-                <p>{route.action_plan.next_step_recommendation}</p>
-              </div>
-              <h3 className="v-mini-title" style={{ marginTop: 20 }}>Recommended sequence</h3>
-              <ol className="v-steps">
-                {(route.action_plan.follow_up_strategy?.length
-                  ? route.action_plan.follow_up_strategy
-                  : [route.action_plan.immediate_action, route.action_plan.next_step_recommendation]
-                ).map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}
-              </ol>
-              {route.action_plan.conversion_goal && <p className="v-card-sub" style={{ marginTop: 18 }}>Goal: {route.action_plan.conversion_goal}</p>}
-            </> : <p className="v-card-sub">A follow-up plan will appear after this lead is routed.</p>}
-          </section>
-          <div className="v-legacy-block">
-            <LeadMeetingPanel
-              lead={lead}
-              canEdit={canEdit}
-              canViewEmails={canViewEmail}
-              refreshToken={meetingRefresh}
-              onDraftCreated={() => onSectionChange("email")}
-              onStatusChange={handleMeetingStatusChange}
-            />
-          </div>
-        </div>
+      {/* ---------------------------------------------------------- Pipeline */}
+      <section id="lead-panel-pipeline" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-pipeline" tabIndex={0} hidden={shownSection !== "pipeline"}>
+        {shownSection === "pipeline" && (
+          <LeadPipeline
+            lead={lead}
+            view={dealView}
+            canEdit={canEdit}
+            canViewEmail={canViewEmail}
+            meetingRefresh={meetingRefresh}
+            onMove={(target) => setMove(target)}
+            onDraftCreated={() => onSectionChange("email")}
+            onMeetingStatusChange={handleMeetingStatusChange}
+          />
+        )}
       </section>
+
+      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Email */}
       <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
@@ -1442,7 +1437,7 @@ function ProgressAndHistory({
   const closing = stage === "converted" || stage === "lost";
   return (
     <>
-      <section id="lead-panel-closing" className="v-panel" role="region" aria-label="Pipeline activity updates" tabIndex={0} hidden={activeSection !== "deal"}>
+      <section id="lead-panel-closing" className="v-panel" role="region" aria-label="Pipeline activity updates" tabIndex={0} hidden={activeSection !== "pipeline"}>
         <div className="v-stack">
           {outcome && (
             <OutcomeReceipt

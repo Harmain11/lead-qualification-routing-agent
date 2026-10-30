@@ -452,10 +452,10 @@ export function LeadAssistantPanel({
         onSectionChange("email");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_meetings") {
-        onSectionChange("follow-ups");
+        onSectionChange("pipeline");
         changeMessage(message.id, {
           done: true,
-          actionResult: "Meeting controls opened in Follow up. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
+          actionResult: "Meeting controls opened in Pipeline. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
         });
       } else if (action.kind === "open_dialer") {
         if (dialerPhoneConnectionId && lead.phone?.trim()) {

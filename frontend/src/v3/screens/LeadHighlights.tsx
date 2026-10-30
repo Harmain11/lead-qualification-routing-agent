@@ -27,7 +27,7 @@ type Props = {
   canManageManualReview: boolean;
   completingReview: boolean;
   onCompleteReview: () => void;
-  onOpenSection: (section: "email" | "follow-ups" | "ai") => void;
+  onOpenSection: (section: "email" | "pipeline" | "ai") => void;
   onEditDetails: () => void;
   onRefreshMeeting: () => void;
   formatDate: (value: string) => string;
@@ -90,7 +90,7 @@ export function buildLeadHighlights(props: Props): LeadHighlight[] {
     const openEmail = props.canViewEmail
       ? <Button kind="tinted" size="sm" onClick={() => props.onOpenSection("email")}>Open draft</Button>
       : undefined;
-    const followUp = <Button kind="plain" size="sm" onClick={() => props.onOpenSection("follow-ups")}>Open Follow up</Button>;
+    const followUp = <Button kind="plain" size="sm" onClick={() => props.onOpenSection("pipeline")}>Open meetings</Button>;
     const meetingItem: Record<LeadMeetingIndicator["kind"], Omit<LeadHighlight, "id" | "icon">> = {
       appointment_needed: {
         tone: "attention", priority: 2, title: "Meeting requested, not booked yet",
