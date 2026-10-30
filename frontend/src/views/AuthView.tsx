@@ -22,15 +22,19 @@ type Mode = "signin" | "signup" | "access";
 // "forgot" asks for an email, "reset" sets a new password from an emailed link.
 type Flow = "form" | "verify" | "forgot" | "forgot-sent" | "reset" | "reset-done";
 
+// Kept in memory only, so repeated reads (React may call initializers twice) agree.
+let pendingResetToken: string | null = null;
+
 /** Reads a reset token from the link once, then removes it from the address bar and history. */
 function takeResetToken(): string {
+  if (pendingResetToken !== null) return pendingResetToken;
   const url = new URL(window.location.href);
-  const token = url.searchParams.get("reset_password") ?? "";
-  if (token) {
+  pendingResetToken = url.searchParams.get("reset_password") ?? "";
+  if (pendingResetToken) {
     url.searchParams.delete("reset_password");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }
-  return token;
+  return pendingResetToken;
 }
 
 export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenticated: (session: AuthSession) => void; theme: "light" | "dark"; onToggleTheme: () => void }) {
@@ -114,6 +118,7 @@ export function AuthView({ onAuthenticated, theme, onToggleTheme }: { onAuthenti
     }
     await run(async () => {
       await confirmPasswordReset(resetToken, newPassword.password);
+      pendingResetToken = "";
       setNewPassword({ password: "", confirm: "" });
       setFlow("reset-done");
     }, "Your password couldn’t be updated. Try again.");
