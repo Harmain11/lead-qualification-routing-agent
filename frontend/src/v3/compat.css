@@ -6,6 +6,8 @@
  */
 
 /* Older stylesheets read these names; they now resolve to v3 tokens. */
+
+/* Older stylesheets read these names; they now resolve to v3 tokens. */
 :root, html[data-theme="dark"] {
   --bg: var(--canvas);
   --bg-deep: var(--canvas);
@@ -58,6 +60,8 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .app-shell::before { display: none !important; }
 
 /* ---------------------------------------------------------------- Pages */
+
+/* ---------------------------------------------------------------- Pages */
 .v-compat .page-view, .v-content > .page-view, .v-content .page-view {
   max-width: none; margin: 0; padding: 0; animation: none;
 }
@@ -78,9 +82,7 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .v-app .hero-pulse { transform: none; border: 0; box-shadow: none; background: var(--surface); border-radius: var(--r-lg); }
 
 /* -------------------------------------------------------------- Surfaces */
-.v-app .panel, .v-app .ops-panel, .v-app .story-section, .v-app .data-panel, .v-app .metric-card,
-.v-app .integration-card, .v-app .review-card, .v-app .team-card, .v-app .settings-card, .v-app .dialer-panel,
-.v-app .analytics-panel, .v-app .insight-card, .v-app .signal-card, .v-app .provider-card, .v-app [class$="-card"]:not(.v-tile):not(.v-boardcard) {
+.v-app .panel, .v-app .ops-panel, .v-app .data-panel, .v-app .metric-card, .v-app .integration-card, .v-app .review-card, .v-app .settings-card, .v-app .dialer-panel, .v-app .insight-card, .v-app .provider-card, .v-app [class$="-card"]:not(.v-tile):not(.v-boardcard) {
   border: 0 !important;
   border-radius: var(--r-lg);
   background: var(--surface) !important;
@@ -89,14 +91,16 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 }
 .v-app .metric-card, .v-app .metric-card.metric-featured { background: var(--surface) !important; }
 .v-app .metric-card > strong, .v-app .metric-card strong { color: var(--label); font-family: var(--font-display); letter-spacing: -0.025em; font-weight: 600; }
-.v-app .panel-copy, .v-app .story-summary, .v-app .ops-muted, .v-app .panel-action { color: var(--label-2); font: var(--t-callout); }
+.v-app .panel-copy, .v-app .ops-muted, .v-app .panel-action { color: var(--label-2); font: var(--t-callout); }
 .v-app .section-heading h2, .v-app .panel h2, .v-app .ops-panel h2 { font: var(--t-title3); letter-spacing: -0.012em; color: var(--label); }
-.v-app .story-index { display: none; }
-.v-app .story-section { display: block; padding: 20px; }
 .v-app hr { border: 0; height: var(--hairline); background: var(--separator); }
 
 /* Nested content is separated by spacing within its parent surface. */
+
+/* Nested content is separated by spacing within its parent surface. */
 .v-app .panel .panel, .v-app .ops-panel .ops-panel, .v-app .panel [class$="-card"] { background: transparent !important; }
+
+/* --------------------------------------------------------------- Buttons */
 
 /* --------------------------------------------------------------- Buttons */
 .v-app .primary-button, .v-app .secondary-button, .v-app .button-quiet, .v-app .danger-button,
@@ -121,6 +125,9 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 
 /* ---------------------------------------------------------------- Inputs */
 /* New-system surfaces (mail) style their own fields; this legacy reset skips them. */
+
+/* ---------------------------------------------------------------- Inputs */
+/* New-system surfaces (mail) style their own fields; this legacy reset skips them. */
 .v-app :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not(.v-popup), select:not(.v-popup), textarea):not(:where(.mail-composer *, .mailbox *, .calls *, .auto-builder *, .integrations-page .manual-credential *)) {
   border: 0 !important;
   border-radius: var(--r-sm);
@@ -139,18 +146,20 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .v-app fieldset { border: 0; border-radius: var(--r-md); background: var(--fill); }
 
 /* ----------------------------------------------------------------- Tables */
-.v-app .ops-table-wrap, .v-app .lead-table-wrap, .v-app .table-wrap { border: 0 !important; border-radius: var(--r-lg); background: var(--surface); box-shadow: none; }
+.v-app .ops-table-wrap, .v-app .lead-table-wrap { border: 0 !important; border-radius: var(--r-lg); background: var(--surface); box-shadow: none; }
 .v-app table:not(.v-table) th { background: transparent; border: 0; font: 500 12px/1.2 var(--font); letter-spacing: 0; text-transform: none; color: var(--label-3); }
 .v-app table:not(.v-table) td { border: 0; border-top: var(--hairline) solid var(--separator); font: var(--t-callout); }
 .v-app table:not(.v-table) tr:first-child td { border-top: 0; }
 
 /* ------------------------------------------------------------ Feedback */
-.v-app .notice, .v-app .team-alert, .v-app .ops-note, .v-app .calls-notice, .v-app .api-error {
+.v-app .notice, .v-app .team-alert, .v-app .ops-note, .v-app .calls-notice {
   border: 0 !important; border-radius: var(--r-md); background: var(--fill); color: var(--label); box-shadow: none; padding: 12px 16px; font: var(--t-callout);
 }
 .v-app .attention-callout { border: 0 !important; border-radius: var(--r-md); background: var(--attention-soft) !important; color: var(--label); box-shadow: none; }
 .v-app .notice.notice-error, .v-app .team-alert { background: var(--danger-soft); color: var(--danger-text); }
 .v-app .notice.notice-success { background: var(--tint-soft); color: var(--tint-text); }
+
+/* ---------------------------------------------------------------- Dialogs */
 
 /* ---------------------------------------------------------------- Dialogs */
 .ops-dialog, .team-modal, .workspace-chooser, .command-palette {
@@ -163,17 +172,20 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .workspace-option.selected { background: var(--tint-soft); }
 
 /* Command palette */
+
+/* Command palette */
 .command-palette { width: min(640px, calc(100vw - 32px)); padding: 0 !important; }
 .command-palette input { height: 52px; font-size: 18px !important; border-radius: 0 !important; background: transparent !important; padding: 0 20px !important; }
 .command-palette input:focus { box-shadow: none !important; }
 
 /* Lead email, meetings, collaboration, assistant — functional modules inside the record. */
-.v-legacy-block .story-section, .v-legacy-block .panel, .v-collab .panel, .v-collab section { border-radius: var(--r-lg); }
+.v-legacy-block .panel, .v-collab .panel, .v-collab section { border-radius: var(--r-lg); }
 .v-legacy-block { min-width: 0; }
-.v-legacy-block .story-section > div { min-width: 0; }
 .v-collab > * { border: 0 !important; box-shadow: none !important; }
-.v-app .lead-agent-message.is-assistant, .v-app .assistant-message { background: var(--fill); border: 0; }
+.v-app .lead-agent-message.is-assistant { background: var(--fill); border: 0; }
 .v-app .lead-agent-message.is-user { background: var(--tint); color: var(--on-tint); border: 0; }
+
+/* Toasts */
 
 /* Toasts */
 .activity-toasts .activity-toast, .activity-toast {
@@ -182,19 +194,26 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 }
 
 /* Notification inbox popover */
+
+/* Notification inbox popover */
 .lead-notification-inbox { border: 0 !important; border-radius: var(--r-lg) !important; background: var(--material-strong) !important; -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); box-shadow: var(--shadow-pop) !important; }
+
+/* Tabs and segmented controls inside older screens */
 
 /* Tabs and segmented controls inside older screens */
 .v-app [role="tablist"]:not(.v-tabs) { border: 0; }
 .v-app [role="tablist"]:not(.v-tabs) [role="tab"] { border: 0; border-radius: var(--r-pill); font: 500 14px/1 var(--font); letter-spacing: -0.01em; text-transform: none; }
 .v-app [role="tablist"]:not(.v-tabs) [role="tab"][aria-selected="true"] { background: var(--label); color: var(--canvas); box-shadow: none; }
-.v-app .pipeline-view-toggle, .v-app .range-picker { border: 0; background: var(--fill); border-radius: 9px; }
+
+/* Dashboard mode: older panels sit on the canvas as tonal cards. */
 
 /* Dashboard mode: older panels sit on the canvas as tonal cards. */
 .v-compat .dashboard-hero > div:first-child { display: none; }
 .v-compat .dashboard-hero { justify-content: flex-start; margin-bottom: 16px; }
 .v-compat .dashboard-hero:not(:has(.hero-pulse)) { display: none; }
 .v-compat .page-view { padding: 0; }
+
+/* Legacy nested regions inherit the parent surface; keyboard focus remains visible. */
 
 /* Legacy nested regions inherit the parent surface; keyboard focus remains visible. */
 .v-app .v-page :where(div, section, article, aside, header, footer, li, a, button, label, span, nav, details, summary, dl, ol, ul, form, fieldset, p)[class]:not([class*="v-"]):not(.v-legacy-block *):not(.v-collab *),
@@ -208,6 +227,8 @@ html[data-theme="dark"] { --green: #6fd0a6; }
   background-color: transparent;
   border-radius: 0;
 }
+
+/* Ask Corral conversation (lead and workspace) */
 
 /* Ask Corral conversation (lead and workspace) */
 .corral-agent-window .lead-agent-quick-actions, .v-legacy-block .lead-agent-quick-actions {
@@ -227,13 +248,3 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .lead-agent-transcript { min-height: 0; }
 
 /* Proposal state chips (from operationState) */
-.cx-chip {
-  display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: var(--r-pill);
-  background: var(--fill-hover); color: var(--label-2); font: 600 12px/1 var(--font); letter-spacing: 0; white-space: nowrap;
-}
-.cx-chip[data-tone="attn"] { background: var(--c-amber); color: var(--on-attention); }
-.cx-chip[data-tone="accent"] { background: var(--tint-soft); color: var(--tint-text); }
-.cx-chip[data-tone="strong"] { background: var(--tint); color: var(--on-tint); }
-.cx-chip[data-tone="danger"] { background: var(--danger-soft); color: var(--danger-text); }
-.cx-chip[data-tone="info"] { background: var(--info-soft); color: var(--info-text); }
-.cx-op { border: 0 !important; border-radius: var(--r-md) !important; background: var(--fill) !important; }

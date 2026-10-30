@@ -121,14 +121,6 @@
   color: var(--label-2);
   font-size: 14px;
 }
-.ops-tag {
-  display: inline-block;
-  font-size: 13px;
-  padding: 4px 10px;
-  background: var(--surface-sunken);
-  border: 1px solid var(--separator-strong);
-  border-radius: 100px;
-}
 .ops-metrics {
   display: flex;
   gap: 30px;
@@ -274,61 +266,6 @@
   color: var(--label);
   background: var(--surface);
 }
-.ops-builder {
-  height: 400px;
-  max-width: 100%;
-  overflow: auto;
-  border: 1px solid var(--separator-strong);
-  border-radius: var(--r-md);
-  background: var(--surface-sunken);
-}
-.ops-canvas {
-  position: relative;
-  width: 2050px;
-  height: 1350px;
-  background-image: radial-gradient(var(--separator-strong) 1px, transparent 1px);
-  background-size: 20px 20px;
-}
-.ops-canvas svg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.ops-canvas path {
-  fill: none;
-  stroke: var(--label-2);
-  stroke-width: 2.5;
-}
-.ops-canvas .false-branch {
-  stroke-dasharray: 6;
-}
-.ops-canvas text {
-  fill: var(--label);
-  font-size: 13px;
-}
-.ops-node {
-  position: absolute;
-  width: 170px;
-  height: 70px;
-  padding: 10px 16px;
-  border: 1px solid var(--separator-strong);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--label);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  text-transform: capitalize;
-  touch-action: none;
-}
-.ops-node.selected {
-  border: 2px solid var(--workspace-accent, var(--tint));
-}
-.ops-node small {
-  font-size: 13px;
-  color: var(--label-2);
-}
 .ops-page button,
 .ops-dialog button {
   min-height: 40px;
@@ -342,14 +279,6 @@
   font-size: 13px;
   opacity: 0.8;
   margin-left: 8px;
-}
-.side-rail nav,
-.mini-rail-nav {
-  overflow: auto;
-  min-height: 0;
-}
-.rail-foot {
-  flex-shrink: 0;
 }
 @media (max-width: 700px) {
   .ops-page {
@@ -375,13 +304,6 @@
   .command-launch kbd {
     display: none;
   }
-  .ops-builder {
-    height: 320px;
-  }
-  .bar-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
   .ops-page input,
   .ops-page select,
   .ops-dialog input,
@@ -400,6 +322,8 @@
 }
 
 /* Shared focus and brand treatment applies across the modular product screens. */
+
+/* Shared focus and brand treatment applies across the modular product screens. */
 .app-shell :is(button, a, input, textarea, select, [tabindex]):focus-visible {
   outline: 2px solid var(--label);
   outline-offset: 3px;
@@ -414,8 +338,4 @@ body:has(dialog[open]) {
 }
 .ops-dialog {
   overscroll-behavior: contain;
-}
-.ops-node.selected {
-  outline: 2px solid var(--label);
-  outline-offset: 2px;
 }

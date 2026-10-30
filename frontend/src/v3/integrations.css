@@ -41,6 +41,8 @@
 .int-toggle { grid-area: action; }
 
 /* Setup panel content, restyled from the legacy markup it reuses. */
+
+/* Setup panel content, restyled from the legacy markup it reuses. */
 .v-app .integrations-page .provider-details { display: grid; gap: var(--s3); padding: 0 var(--s4) var(--s4); border: 0; background: none; }
 .v-app .integrations-page .provider-details[hidden] { display: none; }
 .v-app .integrations-page .integration-section-disclosure { border: var(--hairline) solid var(--separator); border-radius: var(--r-md); background: var(--surface); }

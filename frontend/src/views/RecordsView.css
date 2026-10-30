@@ -35,7 +35,6 @@
 .records-view-tabs button:hover { background: var(--surface-sunken); color: var(--label); }
 .records-view-tabs button.is-active { color: var(--label); border-bottom-color: var(--workspace-accent, var(--tint)); }
 .records-view-tabs strong { color: var(--label-2); font-size: 12px; }
-.records-view-tabs .records-add-view { padding-inline: 12px; font-size: 22px; font-weight: 400; }
 
 .records-toolbar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;

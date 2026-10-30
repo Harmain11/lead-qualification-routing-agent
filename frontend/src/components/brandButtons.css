@@ -1,8 +1,5 @@
 /* One control scale for every product screen and editor. */
-.primary-button,
-.app-shell .primary-button,
-.lead-drawer .primary-button,
-.ops-dialog .primary-button {
+.primary-button, .app-shell .primary-button, .ops-dialog .primary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -22,10 +19,7 @@
   box-shadow: none;
   transform: none;
 }
-.primary-button:hover:not(:disabled),
-.app-shell .primary-button:hover:not(:disabled),
-.lead-drawer .primary-button:hover:not(:disabled),
-.ops-dialog .primary-button:hover:not(:disabled) {
+.primary-button:hover:not(:disabled), .app-shell .primary-button:hover:not(:disabled), .ops-dialog .primary-button:hover:not(:disabled) {
   background: var(--workspace-accent, var(--tint));
   border-color: var(--workspace-accent, var(--tint));
   color: var(--workspace-accent-text, #fff);
@@ -33,10 +27,7 @@
   box-shadow: none;
   transform: none;
 }
-.primary-button:disabled,
-.app-shell .primary-button:disabled,
-.lead-drawer .primary-button:disabled,
-.ops-dialog .primary-button:disabled {
+.primary-button:disabled, .app-shell .primary-button:disabled, .ops-dialog .primary-button:disabled {
   opacity: .5;
   box-shadow: none;
   cursor: not-allowed;

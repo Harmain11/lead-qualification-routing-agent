@@ -4,11 +4,12 @@
 .lead-subpage-results { overflow-x: auto; }
 .lead-subpage-table td { font-size: 13px; }
 .lead-table-wrap[hidden] { display: none; }
-[data-lead-page]:not([data-lead-page="overview"]) .lead-selection-bar { display: none; }
 .focused-page .settings-grid { grid-template-columns: minmax(0, 1fr); }
 .focused-page .integration-grid { grid-template-columns: minmax(0, 800px); }
 .focused-page .page-hero h1 { font-size: clamp(26px, 3vw, 38px); line-height: 1.2; }
 .focused-page .page-hero p { max-width: 720px; line-height: 1.6; }
+
+/* Settings category navigation */
 
 /* Settings category navigation */
 .settings-category-tabs {
@@ -144,6 +145,8 @@
 .settings-grid[role="tabpanel"] > .account-profile-panel,
 .settings-grid[role="tabpanel"] > .panel,
 .settings-grid[role="tabpanel"] > .settings-email-templates { grid-column: 1 / -1; }
+
+/* Settings cards collapse to their headings by default, then size to content. */
 
 /* Settings cards collapse to their headings by default, then size to content. */
 .settings-grid > .settings-collapsible,

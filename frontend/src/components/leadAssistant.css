@@ -197,7 +197,6 @@
 }
 .lead-agent-closing-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .lead-agent-email-compose { width: 100%; min-width: 0; }
-.lead-agent-email-compose .email-composer { margin-top: 0; padding: 12px; }
 .lead-agent-action-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .lead-agent-action-buttons button { min-height: 36px; padding: 0 11px; font-size: 12px; }
 
@@ -245,8 +244,6 @@
   .lead-agent-quick-buttons { justify-content: flex-start; }
   .lead-agent-email-shortcut { width: 100%; }
   .lead-agent-email-shortcut-note { grid-column: 1; margin-top: -5px; }
-  .lead-agent-email-compose .email-composer { padding: 12px; }
-  .lead-agent-email-compose .email-composer-address-grid { grid-template-columns: minmax(0, 1fr); }
   .lead-agent-heading { padding: 16px; }
   .lead-agent-heading h2 { font-size: 18px; }
   .lead-agent { grid-template-rows: auto auto minmax(360px, 1fr) auto; }
@@ -262,6 +259,8 @@
 @media (prefers-reduced-motion: reduce) {
   .lead-agent-thinking i { animation: none; }
 }
+
+/* Lead-mode visual QA refinements, scoped to the assistant panel. */
 
 /* Lead-mode visual QA refinements, scoped to the assistant panel. */
 .lead-agent {

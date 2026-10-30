@@ -3,6 +3,8 @@
 .v-icon { flex: none; }
 
 /* ---------------------------------------------------------------- Buttons */
+
+/* ---------------------------------------------------------------- Buttons */
 .v-btn {
   --btn-h: var(--control-h);
   display: inline-flex;
@@ -61,6 +63,8 @@
 .v-iconbtn:disabled { opacity: 0.4; }
 
 /* -------------------------------------------------------------- Segmented */
+
+/* -------------------------------------------------------------- Segmented */
 .v-seg {
   --seg-pad: 2px;
   position: relative;
@@ -102,6 +106,8 @@ html[data-theme="dark"] .v-seg-thumb { background: #2b363f; box-shadow: none; }
 @media (hover: hover) { .v-seg button:hover { color: var(--label); } }
 
 /* ----------------------------------------------------------------- Badges */
+
+/* ----------------------------------------------------------------- Badges */
 .v-badge {
   display: inline-flex;
   align-items: center;
@@ -137,6 +143,8 @@ html[data-theme="dark"] .v-seg-thumb { background: #2b363f; box-shadow: none; }
 .v-count[data-tone="tint"] { background: var(--tint); color: var(--on-tint); }
 
 /* ------------------------------------------------------------------- Ring */
+
+/* ------------------------------------------------------------------- Ring */
 .v-ring { position: relative; display: inline-grid; place-items: center; flex: none; }
 .v-ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
 .v-ring circle { fill: none; }
@@ -148,6 +156,8 @@ html[data-theme="dark"] .v-ring[data-tone="strong"] .v-ring-value, html[data-the
 .v-ring[data-tone="info"] .v-ring-value { stroke: #4f78a8; }
 .v-ring[data-tone="danger"] .v-ring-value { stroke: var(--danger); }
 .v-ring b { position: relative; font-weight: 650; letter-spacing: -0.03em; color: var(--label); line-height: 1; }
+
+/* ------------------------------------------------------------------- Menu */
 
 /* ------------------------------------------------------------------- Menu */
 .v-menu-root { position: relative; display: inline-flex; }
@@ -195,6 +205,8 @@ html[data-theme="dark"] .v-ring[data-tone="strong"] .v-ring-value, html[data-the
 .v-menu-label { display: block; padding: 8px 10px 4px; font: 600 12px/1 var(--font); color: var(--label-3); }
 
 /* ------------------------------------------------------------------ Sheet */
+
+/* ------------------------------------------------------------------ Sheet */
 .v-sheet {
   width: min(var(--sheet-w, 560px), calc(100vw - 32px));
   max-height: min(86dvh, 860px);
@@ -240,6 +252,8 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 @keyframes v-sheet-up { from { transform: translateY(100%); } }
 
 /* ---------------------------------------------------------- Grouped lists */
+
+/* ---------------------------------------------------------- Grouped lists */
 .v-group + .v-group { margin-top: 28px; }
 .v-group-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 0 4px 8px; }
 .v-group-head h3 { font: var(--t-headline); letter-spacing: -0.01em; color: var(--label); }
@@ -277,6 +291,8 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 }
 
 /* -------------------------------------------------------- Banner & empty */
+
+/* -------------------------------------------------------- Banner & empty */
 .v-banner {
   display: flex;
   align-items: center;
@@ -309,6 +325,8 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-empty .v-btn { margin-top: 10px; }
 
 /* --------------------------------------------------------------- Monogram */
+
+/* --------------------------------------------------------------- Monogram */
 .v-mono {
   display: inline-grid;
   place-items: center;
@@ -325,10 +343,12 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-mono[data-hue="4"] { background: linear-gradient(180deg, #3c7a86, #245b66); }
 
 /* ------------------------------------------------------------ Form fields */
+
+/* ------------------------------------------------------------ Form fields */
 .v-field { display: grid; gap: 6px; min-width: 0; }
 .v-field > span, .v-field > label { font: 500 13px/1.2 var(--font); color: var(--label-2); }
 .v-field small { font: var(--t-footnote); color: var(--label-3); }
-.v-input, .v-field input:not([type=checkbox]):not([type=radio]), .v-field select, .v-field textarea {
+.v-field input:not([type=checkbox]):not([type=radio]), .v-field select, .v-field textarea {
   width: 100%;
   min-height: 36px;
   padding: 7px 11px;
@@ -340,9 +360,9 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
   transition: box-shadow var(--d-fast) ease;
 }
 .v-field textarea { min-height: 96px; resize: vertical; }
-.v-input:focus, .v-field input:focus, .v-field select:focus, .v-field textarea:focus { outline: none; background: var(--surface); box-shadow: 0 0 0 3px var(--focus); }
-.v-field ::placeholder, .v-input::placeholder { color: var(--label-4); }
-@media (max-width: 767px) { .v-input, .v-field input, .v-field select, .v-field textarea { font-size: 16px; } }
+.v-field input:focus, .v-field select:focus, .v-field textarea:focus { outline: none; background: var(--surface); box-shadow: 0 0 0 3px var(--focus); }
+.v-field ::placeholder { color: var(--label-4); }
+@media (max-width: 767px) { .v-field input, .v-field select, .v-field textarea { font-size: 16px; } }
 
 .v-switch {
   appearance: none;
@@ -399,6 +419,8 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-check:disabled { opacity: 0.4; cursor: default; }
 
 /* Pop-up button: a native select dressed as a quiet control. */
+
+/* Pop-up button: a native select dressed as a quiet control. */
 .v-popup {
   appearance: none;
   -webkit-appearance: none;
@@ -419,6 +441,8 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-popup:disabled { cursor: default; color: var(--label-2); background-image: none; padding-right: 8px; }
 
 /* ---------------------------------------------------------- Page header */
+
+/* ---------------------------------------------------------- Page header */
 .v-pagehead {
   display: flex;
   flex-wrap: wrap;
@@ -433,6 +457,8 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-pagehead-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 /* ---------------------------------------------------------------- Cards */
+
+/* ---------------------------------------------------------------- Cards */
 .v-card {
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -444,15 +470,18 @@ html[data-theme="dark"] .v-sheet::backdrop { background: rgba(0, 0, 0, 0.55); }
 .v-section-title { font: var(--t-title2); letter-spacing: var(--tracking-title); margin-bottom: 14px; }
 
 /* --------------------------------------------------------------- Skeleton */
+
+/* --------------------------------------------------------------- Skeleton */
 .v-skel { display: block; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--fill) 0 40%, var(--fill-hover) 50%, var(--fill) 60% 100%) 0 0 / 300% 100%; animation: v-shimmer 1.4s linear infinite; }
 @keyframes v-shimmer { to { background-position: -150% 0; } }
+
+/* ------------------------------------------------------------------ Misc */
 
 /* ------------------------------------------------------------------ Misc */
 .v-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c-green); flex: none; }
 .v-dot[data-tone="attention"] { background: var(--c-amber); }
 .v-meta { font: var(--t-footnote); color: var(--label-3); }
 .v-sep-dot::before { content: "·"; margin: 0 6px; color: var(--label-4); }
-.v-kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 5px; background: var(--fill); font: 500 11px/1 var(--font); color: var(--label-2); }
 .v-pagehead-back {
   display: inline-flex; align-items: center; gap: 2px; margin: 0 0 6px -4px; padding: 2px 6px 2px 2px;
   border: 0; border-radius: var(--r-xs); background: none; color: var(--tint-text); font: var(--t-subhead); font-weight: 500;

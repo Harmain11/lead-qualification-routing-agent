@@ -276,11 +276,6 @@
 .reasoning-provider-table th:not(:first-child),
 .reasoning-provider-table td:not(:first-child) { text-align: right; }
 
-.reasoning-provider-table .reasoning-provider-name {
-  min-width: 180px;
-  text-align: left;
-}
-
 .reasoning-provider-table .reasoning-model-name {
   min-width: 240px;
   text-align: left;
@@ -308,23 +303,6 @@
   color: var(--label-2);
   font-weight: 600;
   white-space: nowrap;
-}
-
-.reasoning-provider-name strong {
-  display: block;
-  color: var(--label);
-  font-size: 14px;
-  font-weight: 650;
-  line-height: 1.4;
-}
-
-.reasoning-provider-name small {
-  display: block;
-  margin-top: 3px;
-  color: var(--label-2);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.4;
 }
 
 .reasoning-provider-table .provider-metric {
@@ -512,11 +490,6 @@
     border-bottom: 1px solid var(--separator-strong);
     text-align: left !important;
     white-space: normal;
-  }
-  .reasoning-provider-table tbody tr.reasoning-provider-row > .reasoning-provider-name {
-    grid-column: 1 / -1;
-    padding-block: 14px;
-    background: var(--surface-sunken);
   }
   .reasoning-provider-table tbody tr.reasoning-provider-row > .provider-metric::before {
     content: attr(data-label);

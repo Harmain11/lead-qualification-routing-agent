@@ -1,5 +1,4 @@
-.lead-closing-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.lead-stage-context { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+
 .ai-stage-assessment { min-width: 0; padding: 16px; border: 1px solid var(--separator-strong); border-radius: 10px; background: var(--surface); color: var(--label); }
 .ai-stage-assessment h4 { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--label-2); }
 .ai-stage-value { display: block; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
@@ -13,12 +12,3 @@
 .ai-stage-reasoning li { margin-bottom: 10px; overflow-wrap: anywhere; }
 .ai-stage-reasoning li span { display: block; color: var(--label-2); font-size: 13px; }
 .ai-stage-updated { display: block; margin-top: 12px; font-size: 13px; line-height: 1.6; }
-.lead-outcome-receipt { margin: 18px 0; padding: 18px; border: 1px solid rgba(64,215,189,.3); border-radius: 12px; background: rgba(64,215,189,.06); }
-.lead-outcome-receipt h4 { margin: 0 0 8px; font-size: 17px; }
-.lead-outcome-receipt p { font-size: 13px; color: var(--label-2); line-height: 1.6; }
-.lead-outcome-receipt.lost { border-color: rgba(180,140,130,.3); background: rgba(180,140,130,.04); }
-.win-delivery { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 12px 0; border-top: 1px solid rgba(130,160,180,.16); font-size: 13px; }
-.win-delivery small { flex-basis: 100%; color: var(--label-2); line-height: 1.5; }
-.closing-edit-note { color: var(--label-2); line-height: 1.6; }
-.lead-outcome-receipt button { margin-top: 10px; }
-@media (max-width: 600px) { .lead-closing-fields, .lead-stage-context { grid-template-columns: 1fr; } }

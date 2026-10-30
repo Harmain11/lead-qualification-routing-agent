@@ -80,20 +80,6 @@
 .insight-conversion-breakdown > b { color: var(--label); font-size: 13px; }
 .insight-conversion-breakdown > span,
 .insight-conversion-breakdown > small { color: var(--label-2); font-size: 13px; line-height: 1.5; }
-.chart-data-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
-  gap: 7px 14px;
-  max-height: 150px;
-  overflow: auto;
-  margin: 13px 0 0;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--separator-strong);
-  list-style: none;
-}
-
-.chart-data-list li { display: flex; justify-content: space-between; gap: 8px; color: var(--label-2); font-size: 13px; }
-.chart-data-list b { color: var(--label); font-weight: 650; }
 .insight-empty {
   display: grid;
   align-content: center;

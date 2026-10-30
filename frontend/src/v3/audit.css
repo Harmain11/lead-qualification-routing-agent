@@ -8,6 +8,9 @@
 
 /* Legacy modules occasionally set a literal light surface. Keep these regions
  * readable when the active appearance changes. */
+
+/* Legacy modules occasionally set a literal light surface. Keep these regions
+ * readable when the active appearance changes. */
 .v-app :is(
   .email-thread-message,
   .email-composer,
@@ -42,6 +45,9 @@
 
 /* Native form controls need an explicit appearance and a reliable focus state
  * in both colour schemes. */
+
+/* Native form controls need an explicit appearance and a reliable focus state
+ * in both colour schemes. */
 .v-app :is(input, select, textarea), .a-shell :is(input, select, textarea) {
   color-scheme: light;
 }
@@ -58,6 +64,8 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
   background-color: var(--fill-hover) !important;
   opacity: 1;
 }
+
+/* Avoid clipping real customer names, emails, URLs, and external provider text. */
 
 /* Avoid clipping real customer names, emails, URLs, and external provider text. */
 .v-app :is(
@@ -79,6 +87,8 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* Bring older, dense operational UI up to the shared readable metadata scale. */
 
 /* Bring older, dense operational UI up to the shared readable metadata scale. */
 .v-app :is(
@@ -137,6 +147,9 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
 
 /* Every dialog/popover remains within the viewport and lets its content, not
  * the page beneath it, scroll. */
+
+/* Every dialog/popover remains within the viewport and lets its content, not
+ * the page beneath it, scroll. */
 :is(.v-sheet, .ops-dialog, .team-modal, .workspace-chooser, dialog.command-palette) {
   max-width: calc(100vw - 32px);
   max-height: min(86dvh, 860px);
@@ -157,6 +170,8 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
   overflow: visible;
   overscroll-behavior: contain;
 }
+
+/* Dense toolbars and action strips can wrap instead of covering content. */
 
 /* Dense toolbars and action strips can wrap instead of covering content. */
 .v-app :is(
@@ -183,6 +198,9 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
 
 /* Tables and boards preserve their data hierarchy but no longer create page-
  * level horizontal overflow. */
+
+/* Tables and boards preserve their data hierarchy but no longer create page-
+ * level horizontal overflow. */
 .v-app :is(.v-tablewrap, .ops-table-wrap, .lead-table-wrap, .q-review-table, .records-board) {
   max-width: 100%;
   overscroll-behavior-inline: contain;
@@ -193,6 +211,7 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
 }
 
 @media (max-width: 767px) {
+  /* Keep mobile controls comfortably tappable without expanding dense desktop UI. */
   /* Keep mobile controls comfortably tappable without expanding dense desktop UI. */
   .v-btn:not([data-size="sm"]),
   .v-filterbtn,
@@ -210,18 +229,6 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
   .v-app :is(.email-workspace-grid, .email-composer-address-grid, .direct-dialer-fields, .calls-form-grid) {
     grid-template-columns: minmax(0, 1fr);
   }
-  .v-app .email-mailbox-toolbar > label,
-  .v-app .email-search,
-  .v-app .integration-category-filter label {
-    flex-basis: 100%;
-    min-width: 0;
-  }
-  .v-app .email-folder-switch {
-    width: 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-  }
-  .v-app .email-folder-switch button { flex: 1 0 auto; }
   .v-app :is(.email-thread-heading-actions, .lead-email-actions, .direct-dialer-actions > *, .calls-panel .calls-panel-toolbar > *) {
     width: 100%;
   }
@@ -242,6 +249,5 @@ html[data-theme="dark"] .a-shell :is(input, select, textarea) {
   .a-shell { padding: 72px 16px 20px; }
   .a-card { border-radius: 20px; }
   .a-foot { gap: 10px 14px; padding-top: 22px; }
-  .v-app .email-composer-heading, .v-app .lead-email-heading { align-items: stretch; }
-  .v-app .email-recipient-options { align-items: flex-start; flex-wrap: wrap; }
+  .v-app .lead-email-heading { align-items: stretch; }
 }

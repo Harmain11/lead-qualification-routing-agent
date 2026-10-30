@@ -13,6 +13,8 @@
 }
 
 /* Rail */
+
+/* Rail */
 .mailbox-rail { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); border-right: var(--hairline) solid var(--separator); background: var(--sidebar); }
 .mailbox-rail ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .mailbox-account select { width: 100%; height: var(--control-h); padding: 0 var(--s2); border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-sm); background: var(--surface); font: var(--t-callout); }
@@ -25,6 +27,8 @@
 @media (hover: hover) and (pointer: fine) { .mailbox-folder:not([aria-current]):hover { background: var(--fill-hover); } }
 .mailbox-count { margin-left: auto; font: var(--t-footnote); font-weight: 600; color: inherit; }
 .mailbox-rail > .v-btn { margin-top: auto; justify-content: flex-start; }
+
+/* List */
 
 /* List */
 .mailbox-list { display: flex; flex-direction: column; min-width: 0; border-right: var(--hairline) solid var(--separator); }
@@ -58,6 +62,8 @@
 .mailbox-draft > button:first-child b { font: var(--t-callout); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mailbox-draft > button:first-child span { font: var(--t-footnote); color: var(--label-3); }
 @media (hover: hover) and (pointer: fine) { .mailbox-draft > button:first-child:hover { background: var(--fill); } }
+
+/* Reader */
 
 /* Reader */
 .mailbox-reader { display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
@@ -96,6 +102,8 @@
   .mailbox-back { display: inline-grid; }
   .mailbox-message-body { padding-left: var(--s4); }
 }
+
+/* Composer */
 
 /* Composer */
 .mail-composer { display: grid; gap: var(--s3); padding: var(--s4); border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-pop); }

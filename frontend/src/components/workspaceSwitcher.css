@@ -1,5 +1,4 @@
 .workspace-switcher { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.workspace-mark .workspace-trigger { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--label); text-align: left; line-height: 1.5; }
 .workspace-trigger-label { font-size: 13px; color: var(--label-2); }
 .workspace-trigger strong { max-width: 100%; font-size: 13px; white-space: normal; overflow-wrap: anywhere; }
 .workspace-trigger-action { font-size: 13px; color: var(--tint-text); text-decoration: underline; text-underline-offset: 3px; }

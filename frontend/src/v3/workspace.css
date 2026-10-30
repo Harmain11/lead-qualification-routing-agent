@@ -1,6 +1,8 @@
 /* Insights and workspace screens (Automations, Team, Analytics, Settings) on the v3 system. */
 
 /* ---------------------------------------------------------- Automations */
+
+/* ---------------------------------------------------------- Automations */
 .v-app .auto-page { display: grid; gap: var(--s5); }
 .v-app .auto-page .v-pagehead { margin-bottom: 0; }
 .auto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--s3); }
@@ -18,6 +20,8 @@
 .auto-templates > div > p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label-3); }
 .auto-guides { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); }
 .auto-trust { font: var(--t-footnote); color: var(--label-3); }
+
+/* ---------------------------------------------------- Research & Coaching */
 
 /* ---------------------------------------------------- Research & Coaching */
 .v-app .coach-page { display: grid; gap: var(--s5); width: 100%; max-width: 1180px; margin: 0 auto; }
@@ -92,7 +96,10 @@
 @media (max-width: 640px) { .coach-card { padding: var(--s4); } .coach-filters .calls-search { min-width: 0; flex: 1; } }
 
 /* ------------------------------------------------------------ Analytics */
+
+/* ------------------------------------------------------------ Analytics */
 .analytics-source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0 0 var(--s4); font: var(--t-footnote); color: var(--label-3); }
+/* Six filters do not fit a phone; scroll the strip instead of widening the page. */
 /* Six filters do not fit a phone; scroll the strip instead of widening the page. */
 .coach-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .coach-seg::-webkit-scrollbar { display: none; }
@@ -100,8 +107,11 @@
 .coach-filters { min-width: 0; max-width: 100%; }
 .coach-reports-head > * { min-width: 0; }
 /* Single-column grids must never grow past the screen to fit a wide child. */
+/* Single-column grids must never grow past the screen to fit a wide child. */
 .v-app :is(.auto-page, .coach-page, .coach-reports, .coach-list, .coach-card, .coach-section, .coach-tile, .auto-templates, .auto-card) { grid-template-columns: minmax(0, 1fr); }
 .v-app :is(.calls, .calls-history, .calls-picker, .mailbox, .mailbox-thread, .integrations-page, .integration-sections, .integration-section) { grid-template-columns: minmax(0, 1fr); }
+
+/* ---------------------------------------------------- Sequence builder */
 
 /* ---------------------------------------------------- Sequence builder */
 .auto-builder { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
@@ -155,6 +165,7 @@
 .auto-problems { margin: var(--s1) 0 0; padding-left: 1.1em; }
 .auto-builder-foot { margin: 0; font: var(--t-footnote); color: var(--label-3); }
 @media (max-width: 640px) { .auto-builder-settings { grid-template-columns: minmax(0, 1fr); } }
+/* The builder opens inside the legacy .ops-page; keep its own label layout. */
 /* The builder opens inside the legacy .ops-page; keep its own label layout. */
 .auto-builder label { flex-direction: row; font: inherit; color: inherit; }
 .auto-builder label.v-field { display: grid; gap: 6px; }

@@ -461,5 +461,7 @@
 }
 
 /* The embedded provider phone renders its own light UI; keep its frame white. */
+
+/* The embedded provider phone renders its own light UI; keep its frame white. */
 .dialer-phone-frame,
 .dialer-phone-cloudtalk-frame-viewport { background: #fff; }

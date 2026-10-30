@@ -359,7 +359,7 @@ export function EmailWorkspace({
     <PageHeader
       title="Inbox"
       subtitle={activeAccount ? activeAccount.account_name : "Shared Gmail inbox for your workspace"}
-      actions={<Button kind="filled" icon="edit" onClick={beginCompose} disabled={!canSend || !accounts.length}>New email</Button>}
+      actions={<Button kind="filled" icon="edit" onClick={beginCompose} disabled={!canSend || !accounts.length} title={!canSend ? "Your role can’t send email" : !accounts.length ? "Connect Gmail to send email" : undefined}>New email</Button>}
     />
     {error && <Banner tone="danger" title={error} action={<Button kind="plain" size="sm" onClick={() => setError(null)}>Dismiss</Button>} />}
     {composeSeed && composerMode === "sheet" && (
