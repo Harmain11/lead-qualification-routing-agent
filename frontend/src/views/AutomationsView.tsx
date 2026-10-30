@@ -1,19 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createClientId } from "../clientIds";
 import { FeatureGuide } from "../components/FeatureGuide";
 import { AutomationEnrollmentDialog } from "../components/AutomationEnrollmentDialog";
-import { OperationsDialog } from "../components/OperationsDialog";
+import { AutomationBuilder } from "../components/AutomationBuilder";
 import {
   opsGet,
   opsSave,
   type Automation,
   type AutomationSpec,
   type NodeType,
-  type PlaybookNode,
   type Run,
 } from "../operationsApi";
 import { confirmAction } from "../v3/ui/confirm";
-import { Badge, Banner, Button, PageHeader } from "../v3/ui/primitives";
+import { Badge, Banner, Button, EmptyState, IconButton, PageHeader } from "../v3/ui/primitives";
 import { automationDraftSpec } from "../components/workspaceAssistantActions";
 
 const NODE_LABELS: Record<NodeType, string> = {
@@ -62,15 +61,6 @@ const AUTOMATION_TEMPLATES = [
   },
 ];
 
-const nodeTypes: NodeType[] = [
-  "wait",
-  "condition",
-  "draft",
-  "research",
-  "coach",
-  "note",
-  "end",
-];
 const initial = (kind: "sequence" | "playbook"): AutomationSpec => ({
   name: kind === "sequence" ? "Follow-up sequence" : "New playbook",
   kind,
@@ -127,23 +117,6 @@ const initial = (kind: "sequence" | "playbook"): AutomationSpec => ({
   ],
 });
 type Editor = { id: string; spec: AutomationSpec };
-type WaitUnit = "hours" | "days" | "weeks";
-const waitUnitHours: Record<WaitUnit, number> = {
-  hours: 1,
-  days: 24,
-  weeks: 168,
-};
-function waitUnitFor(hours: number): WaitUnit {
-  if (hours % waitUnitHours.weeks === 0) return "weeks";
-  if (hours % waitUnitHours.days === 0) return "days";
-  return "hours";
-}
-function formatWait(hours: number) {
-  const unit = waitUnitFor(hours);
-  const amount = hours / waitUnitHours[unit];
-  const singular = unit.slice(0, -1);
-  return `${amount} ${singular}${amount === 1 ? "" : "s"}`;
-}
 export function AutomationsView({
   canManage,
   canEdit,
@@ -159,7 +132,6 @@ export function AutomationsView({
   const [runs, setRuns] = useState<Run[]>([]);
   const [offset, setOffset] = useState(0);
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [selected, setSelected] = useState("start");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState<Automation | null>(null);
@@ -167,14 +139,6 @@ export function AutomationsView({
     score: number | null;
     sample_size: number;
     method: string;
-  } | null>(null);
-  const canvas = useRef<HTMLDivElement>(null);
-  const drag = useRef<{
-    id: string;
-    x: number;
-    y: number;
-    px: number;
-    py: number;
   } | null>(null);
   function load() {
     return Promise.all([
@@ -211,40 +175,6 @@ export function AutomationsView({
     }, 15000);
     return () => window.clearInterval(timer);
   }, [offset, editor]);
-  function patch(patch: Partial<AutomationSpec>) {
-    setEditor((current) =>
-      current ? { ...current, spec: { ...current.spec, ...patch } } : null,
-    );
-  }
-  function patchNode(id: string, patch: Partial<PlaybookNode>) {
-    setEditor((current) =>
-      current
-        ? {
-            ...current,
-            spec: {
-              ...current.spec,
-              nodes: current.spec.nodes.map((node) =>
-                node.id === id ? { ...node, ...patch } : node,
-              ),
-            },
-          }
-        : null,
-    );
-  }
-  async function save() {
-    if (!editor) return;
-    setBusy(true);
-    setError("");
-    try {
-      await opsSave(`/v1/automations/${editor.id}`, editor.spec, "PUT");
-      setEditor(null);
-      await load();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to save");
-    } finally {
-      setBusy(false);
-    }
-  }
   async function action(run: Run, action: string) {
     setBusy(true);
     setError("");
@@ -259,10 +189,8 @@ export function AutomationsView({
       setBusy(false);
     }
   }
-  const node = editor?.spec.nodes.find((item) => item.id === selected);
   function startNew(kind: "sequence" | "playbook") {
     setError("");
-    setSelected("start");
     setEditor({ id: createClientId(), spec: initial(kind) });
   }
   async function toggleActive(item: Automation) {
@@ -321,7 +249,6 @@ export function AutomationsView({
                       size="sm"
                       kind="gray"
                       onClick={() => {
-                        setSelected("start");
                         setEditor({ id: item.id, spec: { ...item.specification, version: item.version } });
                       }}
                     >
@@ -361,7 +288,6 @@ export function AutomationsView({
                   <div className="auto-card-actions">
                     <Button size="sm" kind="tinted" disabled={busy} onClick={() => {
                       setError("");
-                      setSelected("start");
                       setEditor({ id: createClientId(), spec: automationDraftSpec(template) });
                     }}>Use template</Button>
                   </div>
@@ -380,14 +306,18 @@ export function AutomationsView({
           </span>
         )}
       </div>
-      <section className="ops-panel">
-        <div className="ops-page-head">
-          <h2>Run history</h2>
-          <button className="secondary-button" onClick={() => void load()}>
-            Refresh runs
-          </button>
+      <section className="auto-runs" aria-labelledby="auto-runs-title">
+        <div className="auto-runs-head">
+          <h2 id="auto-runs-title">Run history</h2>
+          <IconButton icon="refresh" label="Refresh runs" onClick={() => void load()} />
         </div>
-        <div className="ops-table-wrap" role="region" aria-label="Table; scroll horizontally to view all columns" tabIndex={0}>
+        {!runs.length && !offset ? (
+          <EmptyState icon="automations" title="No runs yet">
+            Enroll a lead in an active sequence or playbook to follow its progress here.
+          </EmptyState>
+        ) : (
+        <>
+        <div className="ops-table-wrap" role="region" aria-label="Run history; scroll sideways to see every column" tabIndex={0}>
           <table>
             <thead>
               <tr>
@@ -398,7 +328,7 @@ export function AutomationsView({
               </tr>
             </thead>
             <tbody>
-              {!runs.length && <tr><td colSpan={4}><div className="ops-empty-inline"><strong>No runs yet</strong><span>Enroll a lead in an active sequence or playbook to see its progress here.</span></div></td></tr>}
+              {!runs.length && <tr><td colSpan={4}><div className="ops-empty-inline"><strong>No more runs</strong><span>Go back to the previous page.</span></div></td></tr>}
               {runs.map((run) => (
                 <tr key={run.id}>
                   <td>
@@ -504,458 +434,20 @@ export function AutomationsView({
           </button>
           </div>
         </div>
+        </>
+        )}
       </section>
       {editor && (
-        <OperationsDialog
-          title={
-            editor.spec.kind === "playbook"
-              ? "Visual playbook builder"
-              : "Sequence builder"
-          }
+        <AutomationBuilder
+          key={editor.id}
+          id={editor.id}
+          initial={editor.spec}
           onClose={() => setEditor(null)}
-        >
-          <form
-            className="ops-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save();
-            }}
-          >
-            <div className="ops-form-grid">
-              <label>
-                Name
-                <input
-                  required
-                  maxLength={120}
-                  value={editor.spec.name}
-                  onChange={(event) => patch({ name: event.target.value })}
-                />
-              </label>
-              <label>
-                Timezone
-                <input
-                  required
-                  value={editor.spec.timezone}
-                  onChange={(event) => patch({ timezone: event.target.value })}
-                  placeholder="Asia/Karachi"
-                />
-              </label>
-              <label>
-                Preferred contact-local hour
-                <input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={editor.spec.preferred_hour}
-                  onChange={(event) =>
-                    patch({ preferred_hour: Number(event.target.value) })
-                  }
-                />
-              </label>
-              <label className="ops-check">
-                <input
-                  type="checkbox"
-                  checked={editor.spec.active}
-                  onChange={(event) => patch({ active: event.target.checked })}
-                />
-                Active for enrolled leads
-              </label>
-              <label className="ops-check">
-                <input
-                  type="checkbox"
-                  checked={editor.spec.optimize_time}
-                  onChange={(event) =>
-                    patch({ optimize_time: event.target.checked })
-                  }
-                />
-                Suggest timing from at least three recorded replies
-              </label>
-            </div>
-            <p className="ops-muted">
-              Select a step to configure it. Drag steps to arrange the canvas,
-              or use arrow keys on a focused step. Connections are editable
-              below. Every branch must reach an end; cycles and disconnected
-              steps are rejected.
-            </p>
-            <div
-              className="ops-builder"
-              ref={canvas}
-              onPointerMove={(event) => {
-                if (!drag.current) return;
-                patchNode(drag.current.id, {
-                  x: Math.max(
-                    0,
-                    Math.min(
-                      1800,
-                      drag.current.x + event.clientX - drag.current.px,
-                    ),
-                  ),
-                  y: Math.max(
-                    0,
-                    Math.min(
-                      1100,
-                      drag.current.y + event.clientY - drag.current.py,
-                    ),
-                  ),
-                });
-              }}
-              onPointerUp={() => {
-                drag.current = null;
-              }}
-              onPointerCancel={() => {
-                drag.current = null;
-              }}
-            >
-              <div className="ops-canvas">
-                <svg width="2050" height="1350" aria-hidden="true">
-                  {editor.spec.nodes.flatMap((from) =>
-                    (
-                      [
-                        ["next", from.next],
-                        ["otherwise", from.otherwise],
-                      ] as const
-                    ).map(([branch, target]) => {
-                      const to = editor.spec.nodes.find(
-                        (item) => item.id === target,
-                      );
-                      return to ? (
-                        <g key={from.id + branch}>
-                          <path
-                            className={
-                              branch === "otherwise" ? "false-branch" : ""
-                            }
-                            d={`M ${from.x + 170} ${from.y + 35} C ${from.x + 210} ${from.y + 35}, ${to.x - 40} ${to.y + 35}, ${to.x} ${to.y + 35}`}
-                          />
-                          <text x={from.x + 176} y={from.y + 24}>
-                            {from.type === "condition"
-                              ? branch === "next"
-                                ? "Yes"
-                                : "No"
-                              : ""}
-                          </text>
-                        </g>
-                      ) : null;
-                    }),
-                  )}
-                </svg>
-                {editor.spec.nodes.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-label={`${item.type} step ${item.id}. Use arrow keys to move.`}
-                    aria-pressed={selected === item.id}
-                    className={`ops-node ${selected === item.id ? "selected" : ""}`}
-                    style={{ left: item.x, top: item.y }}
-                    onClick={() => setSelected(item.id)}
-                    onPointerDown={(event) => {
-                      if (event.button !== 0) return;
-                      event.currentTarget.setPointerCapture(event.pointerId);
-                      drag.current = {
-                        id: item.id,
-                        x: item.x,
-                        y: item.y,
-                        px: event.clientX,
-                        py: event.clientY,
-                      };
-                      setSelected(item.id);
-                    }}
-                    onKeyDown={(event) => {
-                      const direction = (
-                        {
-                          ArrowLeft: [-20, 0],
-                          ArrowRight: [20, 0],
-                          ArrowUp: [0, -20],
-                          ArrowDown: [0, 20],
-                        } as Record<string, number[]>
-                      )[event.key];
-                      if (direction) {
-                        event.preventDefault();
-                        patchNode(item.id, {
-                          x: Math.max(0, Math.min(1800, item.x + direction[0])),
-                          y: Math.max(0, Math.min(1100, item.y + direction[1])),
-                        });
-                      }
-                    }}
-                  >
-                    <b>{item.type}</b>
-                    <small>
-                      {item.type === "wait"
-                        ? formatWait(item.wait_hours)
-                        : item.type === "condition"
-                          ? item.condition
-                          : item.id}
-                    </small>
-                  </button>
-                ))}
-              </div>
-            </div>
-            {node && (
-              <section className="ops-panel">
-                <h3>Selected step: {node.id}</h3>
-                <div className="ops-form-grid">
-                  {node.type !== "start" && node.type !== "end" && (
-                    <label>
-                      Action
-                      <select
-                        value={node.type}
-                        onChange={(event) =>
-                          patchNode(node.id, {
-                            type: event.target.value as NodeType,
-                            next:
-                              event.target.value === "end" ? null : node.next,
-                            otherwise:
-                              event.target.value === "condition"
-                                ? node.otherwise
-                                : null,
-                          })
-                        }
-                      >
-                        {nodeTypes.map((type) => (
-                          <option key={type}>{type}</option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {node.type !== "end" && (
-                    <label>
-                      {node.type === "condition" ? "If yes" : "Next step"}
-                      <select
-                        required
-                        value={node.next || ""}
-                        onChange={(event) =>
-                          patchNode(node.id, {
-                            next: event.target.value || null,
-                          })
-                        }
-                      >
-                        <option value="">Select step</option>
-                        {editor.spec.nodes
-                          .filter(
-                            (item) =>
-                              item.id !== node.id && item.type !== "start",
-                          )
-                          .map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.id} ({item.type})
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  )}
-                  {node.type === "condition" && (
-                    <>
-                      <label>
-                        Recorded signal
-                        <select
-                          value={node.condition}
-                          onChange={(event) =>
-                            patchNode(node.id, {
-                              condition: event.target.value,
-                            })
-                          }
-                        >
-                          {[
-                            "hot",
-                            "warm",
-                            "replied",
-                            "silent",
-                            "won",
-                            "lost",
-                            "stalled",
-                            "competitor",
-                          ].map((value) => (
-                            <option key={value}>{value}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        If no
-                        <select
-                          required
-                          value={node.otherwise || ""}
-                          onChange={(event) =>
-                            patchNode(node.id, {
-                              otherwise: event.target.value || null,
-                            })
-                          }
-                        >
-                          <option value="">Select step</option>
-                          {editor.spec.nodes
-                            .filter(
-                              (item) =>
-                                item.id !== node.id && item.type !== "start",
-                            )
-                            .map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.id}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                    </>
-                  )}
-                  {node.type === "wait" && (
-                    <label>
-                      Wait before next step
-                      <input
-                        type="number"
-                        min={1}
-                        max={Math.floor(2160 / waitUnitHours[waitUnitFor(node.wait_hours)])}
-                        value={
-                          node.wait_hours /
-                          waitUnitHours[waitUnitFor(node.wait_hours)]
-                        }
-                        onChange={(event) =>
-                          patchNode(node.id, {
-                            wait_hours: Math.max(
-                              1,
-                              Math.min(
-                                2160,
-                                Number(event.target.value) *
-                                  waitUnitHours[waitUnitFor(node.wait_hours)],
-                              ),
-                            ),
-                          })
-                        }
-                      />
-                    </label>
-                  )}
-                  {node.type === "wait" && (
-                    <label>
-                      Time unit
-                      <select
-                        value={waitUnitFor(node.wait_hours)}
-                        onChange={(event) => {
-                          const unit = event.target.value as WaitUnit;
-                          const amount = Math.max(
-                            1,
-                            Math.round(
-                              node.wait_hours / waitUnitHours[unit],
-                            ),
-                          );
-                          patchNode(node.id, {
-                            wait_hours: Math.min(
-                              2160,
-                              amount * waitUnitHours[unit],
-                            ),
-                          });
-                        }}
-                      >
-                        <option value="hours">Hours</option>
-                        <option value="days">Days</option>
-                        <option value="weeks">Weeks</option>
-                      </select>
-                    </label>
-                  )}
-                  {node.type === "wait" && (
-                    <p className="ops-muted">
-                      Add a wait step before each follow-up draft to set its
-                      cadence, such as every 1 week.
-                    </p>
-                  )}
-                  {node.type === "condition" &&
-                    node.condition === "stalled" && (
-                      <label>
-                        Stalled threshold (hours)
-                        <input
-                          type="number"
-                          min={1}
-                          max={2160}
-                          value={node.wait_hours}
-                          onChange={(event) =>
-                            patchNode(node.id, {
-                              wait_hours: Number(event.target.value),
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-                  {node.type === "note" && (
-                    <label>
-                      Shared note
-                      <textarea
-                        required
-                        maxLength={2000}
-                        value={node.text}
-                        onChange={(event) =>
-                          patchNode(node.id, { text: event.target.value })
-                        }
-                      />
-                    </label>
-                  )}
-                  {node.type !== "start" && (
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => {
-                        patch({
-                          nodes: editor.spec.nodes
-                            .filter((item) => item.id !== node.id)
-                            .map((item) => ({
-                              ...item,
-                              next:
-                                item.next === node.id ? node.next : item.next,
-                              otherwise:
-                                item.otherwise === node.id
-                                  ? node.next
-                                  : item.otherwise,
-                            })),
-                        });
-                        setSelected("start");
-                      }}
-                    >
-                      Remove step
-                    </button>
-                  )}
-                </div>
-              </section>
-            )}
-            <div className="ops-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={editor.spec.nodes.length >= 50}
-                onClick={() => {
-                  const id = "step_" + createClientId().slice(0, 8);
-                  const predecessor = selected === "end" ? editor.spec.nodes.find((item) => item.next === "end") : editor.spec.nodes.find((item) => item.id === selected);
-                  if (!predecessor) return;
-                  patch({
-                    nodes: [
-                      ...editor.spec.nodes.map((item) => item.id === predecessor.id ? { ...item, next: id } : item),
-                      {
-                        id,
-                        type: "note",
-                        x: 60,
-                        y: 160 + editor.spec.nodes.length * 25,
-                        next: predecessor.next || "end",
-                        otherwise: null,
-                        wait_hours: 24,
-                        condition: "hot",
-                        text: "",
-                      },
-                    ],
-                  });
-                  setSelected(id);
-                }}
-              >
-                Add step
-              </button>
-              <button className="primary-button" disabled={busy}>
-                Save definition
-              </button>
-            </div>
-            <p className="ops-muted">
-              Existing runs retain the definition they enrolled with. Sequences
-              pause on a new reply; closed leads stop outreach. No sequence
-              sends email automatically.
-            </p>
-            {error && (
-              <p role="alert" className="team-alert">
-                {error}
-              </p>
-            )}
-          </form>
-        </OperationsDialog>
+          onSaved={async () => {
+            setEditor(null);
+            await load();
+          }}
+        />
       )}
       {enrolling && (
         <AutomationEnrollmentDialog

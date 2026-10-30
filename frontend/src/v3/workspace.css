@@ -102,3 +102,65 @@
 /* Single-column grids must never grow past the screen to fit a wide child. */
 .v-app :is(.auto-page, .coach-page, .coach-reports, .coach-list, .coach-card, .coach-section, .coach-tile, .auto-templates, .auto-card) { grid-template-columns: minmax(0, 1fr); }
 .v-app :is(.calls, .calls-history, .calls-picker, .mailbox, .mailbox-thread, .integrations-page, .integration-sections, .integration-section) { grid-template-columns: minmax(0, 1fr); }
+
+/* ---------------------------------------------------- Sequence builder */
+.auto-builder { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+.auto-builder-settings { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--s3); padding-bottom: var(--s4); border-bottom: var(--hairline) solid var(--separator); }
+.auto-builder-settings .auto-check { grid-column: 1 / -1; }
+.auto-check { display: flex; align-items: center; gap: var(--s2); font: var(--t-subhead); color: var(--label-2); }
+.auto-check input { width: 16px; height: 16px; accent-color: var(--tint); }
+.auto-steps-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; margin: 0; padding: 0; list-style: none; }
+.auto-step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--s3); padding-bottom: var(--s3); }
+.auto-step:not(:last-child)::before { content: ""; position: absolute; top: 30px; bottom: 0; left: 13.5px; width: 1px; background: var(--separator-strong); }
+.auto-step-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--surface-sunken); color: var(--label-2); box-shadow: inset 0 0 0 1px var(--separator); }
+.auto-step[data-type="start"] .auto-step-icon, .auto-step[data-type="end"] .auto-step-icon { background: var(--tint-soft); color: var(--tint-text); box-shadow: none; }
+.auto-step[data-type="draft"] .auto-step-icon { background: var(--info-soft); color: var(--info-text); box-shadow: none; }
+.auto-step[data-type="condition"] .auto-step-icon { background: var(--attention-soft); color: var(--attention-text); box-shadow: none; }
+.auto-step-body { display: grid; gap: var(--s2); min-width: 0; padding-top: 3px; }
+.auto-step-head { display: flex; align-items: center; gap: var(--s2); min-height: 24px; }
+.auto-step-head b { font: var(--t-callout); font-weight: 600; color: var(--label); }
+.auto-step-num { font: var(--t-footnote); font-weight: 600; color: var(--label-3); font-variant-numeric: tabular-nums; }
+.auto-step-num:empty { display: none; }
+.auto-step-type select {
+  height: 28px; padding: 0 26px 0 8px; border: 0; border-radius: var(--r-sm); background-color: var(--fill); color: var(--label);
+  font: var(--t-callout); font-weight: 600; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--label-3) 50%), linear-gradient(135deg, var(--label-3) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 12px, calc(100% - 9px) 12px; background-size: 4px 4px; background-repeat: no-repeat;
+}
+.auto-step-type select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.auto-step-remove { margin-left: auto; }
+.auto-step-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.auto-inline input { width: 72px; }
+.auto-inline select { width: auto; min-width: 96px; }
+.auto-step-help { font: var(--t-subhead); color: var(--label-3); }
+.auto-step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: var(--s2) var(--s3); }
+.auto-step textarea { min-height: 60px; }
+.auto-step[data-detached] .auto-step-icon { background: var(--danger-soft); color: var(--danger-text); box-shadow: none; }
+.auto-add {
+  justify-self: start; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px;
+  border: 0; border-radius: var(--r-sm); background: none; color: var(--tint-text); font: var(--t-footnote); font-weight: 600;
+}
+.auto-add:disabled { opacity: 0.45; }
+.auto-add:focus-visible, .auto-add-menu button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+@media (hover: hover) and (pointer: fine) { .auto-add:not(:disabled):hover, .auto-add-menu button:hover { background: var(--fill-hover); } }
+.auto-add-menu { display: flex; flex-wrap: wrap; gap: var(--s1); padding: var(--s1); border-radius: var(--r-md); background: var(--surface-sunken); }
+.auto-add-menu button {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border: 0; border-radius: var(--r-sm); background: var(--surface); color: var(--label); font: var(--t-footnote); font-weight: 500;
+}
+.auto-add-menu .auto-add-cancel { background: none; color: var(--label-3); }
+.auto-detached { display: grid; gap: var(--s2); padding: var(--s3); border-radius: var(--r-md); background: var(--danger-soft); }
+.auto-detached h3 { font: var(--t-callout); font-weight: 600; color: var(--danger-text); }
+.auto-detached > p { margin: 0; font: var(--t-footnote); color: var(--label-2); }
+.auto-problems { margin: var(--s1) 0 0; padding-left: 1.1em; }
+.auto-builder-foot { margin: 0; font: var(--t-footnote); color: var(--label-3); }
+@media (max-width: 640px) { .auto-builder-settings { grid-template-columns: minmax(0, 1fr); } }
+/* The builder opens inside the legacy .ops-page; keep its own label layout. */
+.auto-builder label { flex-direction: row; font: inherit; color: inherit; }
+.auto-builder label.v-field { display: grid; gap: 6px; }
+.auto-builder label.v-field > span { font: 500 13px/1.2 var(--font); color: var(--label-2); }
+.auto-builder .auto-check { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; font: var(--t-subhead); color: var(--label-2); }
+.auto-builder .auto-step-type { display: inline-flex; }
+.auto-runs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); padding: var(--s4); border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface); }
+.auto-runs-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
+.auto-runs-head h2 { font: var(--t-title3); color: var(--label); }
