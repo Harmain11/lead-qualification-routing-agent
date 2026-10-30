@@ -121,7 +121,7 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 
 /* ---------------------------------------------------------------- Inputs */
 /* New-system surfaces (mail) style their own fields; this legacy reset skips them. */
-.v-app :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not(.v-popup), select:not(.v-popup), textarea):not(:where(.mail-composer *, .mailbox *, .calls *)) {
+.v-app :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not(.v-popup), select:not(.v-popup), textarea):not(:where(.mail-composer *, .mailbox *, .calls *, .integrations-page .manual-credential *)) {
   border: 0 !important;
   border-radius: var(--r-sm);
   background-color: var(--fill) !important;
@@ -130,7 +130,7 @@ html[data-theme="dark"] { --green: #6fd0a6; }
   font-family: var(--font);
   font-size: 15px;
 }
-.v-app :where(input:not([type=checkbox]):not([type=radio]), select:not(.v-popup), textarea):not(:where(.mail-composer *, .mailbox *, .calls *)):focus {
+.v-app :where(input:not([type=checkbox]):not([type=radio]), select:not(.v-popup), textarea):not(:where(.mail-composer *, .mailbox *, .calls *, .integrations-page .manual-credential *)):focus {
   background-color: var(--surface) !important; box-shadow: 0 0 0 3px var(--focus) !important; outline: none;
 }
 .v-app .v-searchfield input, .v-app .v-searchfield input:focus { background-color: transparent !important; box-shadow: none !important; }

@@ -150,18 +150,43 @@ function integrationCategory(card: IntegrationCard): IntegrationCategory {
   return "other";
 }
 
+const FAILED_STATUSES = new Set(["needs_attention", "connection_failed", "authorization_expired", "reconnect_required", "expired", "needs_reauthorization", "error"]);
+
 function connectionStage(status?: string) {
   if (status === "verified") return 3;
-  if (["configured", "connected", "validating", "needs_attention", "connection_failed", "authorization_expired", "reconnect_required", "expired", "needs_reauthorization", "error"].includes(status ?? "")) return 2;
+  // A failed or expired connection is not "almost done": it restarts at sign-in.
+  if (FAILED_STATUSES.has(status ?? "")) return 0;
+  if (["configured", "connected", "validating"].includes(status ?? "")) return 2;
   if (["connecting", "awaiting_authorization"].includes(status ?? "")) return 1;
   return 0;
 }
 
+type ConnectionTone = "ok" | "pending" | "error" | "idle";
+function connectionTone(status?: string): ConnectionTone {
+  if (status === "verified") return "ok";
+  if (FAILED_STATUSES.has(status ?? "")) return "error";
+  if (["connected", "configured", "validating", "connecting", "awaiting_authorization"].includes(status ?? "")) return "pending";
+  return "idle";
+}
+
 function connectionStatusLabel(status?: string) {
   if (!status || ["disconnected", "not_connected"].includes(status)) return "Not connected";
-  if (status === "verified") return "Verified";
-  if (["connected", "configured", "validating"].includes(status)) return "Needs verification";
-  return "Needs authorization";
+  if (status === "verified") return "Connected";
+  if (FAILED_STATUSES.has(status)) return status.includes("expire") || status.includes("reauth") ? "Sign-in expired" : "Needs attention";
+  if (["connecting", "awaiting_authorization"].includes(status)) return "Waiting for sign-in";
+  return "Not verified yet";
+}
+
+const BRAND_TINT: Record<string, string> = {
+  gmail: "#d93025", outlook: "#0a64ad", google_calendar: "#1a73e8", calendly: "#006bff", slack: "#4a154b",
+  salesforce: "#0b72c7", hubspot: "#e0613f", gohighlevel: "#155ec9", twilio: "#e22e43", aircall: "#00a379",
+  ringcentral: "#e36b00", vapi: "#1f2937", retell: "#111827", cloudtalk: "#1f5fe0", openai: "#111827",
+  gemini: "#2f6fe4", claude: "#c96442", deepseek: "#4d6bfe", xai: "#111827", linkedin: "#0a66c2",
+  instagram: "#c1356f", messenger: "#0078ff", whatsapp_business: "#1a9e57", clutch: "#17313b",
+};
+
+function ProviderMark({ provider, name }: { provider: string; name: string }) {
+  return <span className="int-mark" style={{ "--int-tint": BRAND_TINT[provider] ?? "var(--tint)" } as React.CSSProperties} aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>;
 }
 
 function oauthConnectFailureMessage(provider: string, message: string) {
@@ -177,7 +202,7 @@ function oauthConnectFailureMessage(provider: string, message: string) {
   };
   const providerSettings = settings[provider];
   if (providerSettings && /OAuth application credentials are not configured|Meta social connections require real provider OAuth credentials/i.test(message)) {
-    return `${providerSettings.name} can't connect yet. Add ${providerSettings.keys.join(" and ")} to Replit Secrets, then try again.`;
+    return `${providerSettings.name} sign-in isn't set up for this workspace yet. Ask your Corral administrator to enable it.`;
   }
   return message;
 }
@@ -625,7 +650,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     const displayName = cards.find((card) => card.provider === provider)?.display_name
       ?? provider.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
     const message = status === "connected"
-      ? `${displayName} connected successfully.`
+      ? `${displayName} signed in. Verify the connection before relying on it.`
       : callbackMessage || `${displayName} authorization was cancelled or failed. Reconnect to try again.`;
     setNotice(message);
     setActionErrors((current) => {
@@ -712,10 +737,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           ? "Slack"
           : provider.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
       const message = params.get("message")?.trim().slice(0, 500);
-      setNotice(status === "connected" ? `${name} connected successfully.` : message || `${name} authorization failed. Reconnect to try again.`);
+      setNotice(status === "connected" ? `${name} signed in. Verify the connection before relying on it.` : message || `${name} authorization failed. Reconnect to try again.`);
       setOperationFeedback((current) => ({ ...current, [provider]: {
         state: status === "connected" ? "success" : "error",
-        message: status === "connected" ? `${name} connected successfully.` : message || `${name} authorization failed.`,
+        message: status === "connected" ? `${name} signed in. Verify the connection before relying on it.` : message || `${name} authorization failed.`,
       } }));
       if (provider === "salesforce" && status !== "connected" && canConnect) {
         setSalesforceSetupOpen(true);
@@ -1108,7 +1133,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
-  const categoryCounts = cards.reduce<Record<string, number>>((counts, card) => {
+  const categoryCounts = cards.filter((card) => card.availability !== "future").reduce<Record<string, number>>((counts, card) => {
     const category = integrationCategory(card);
     counts[category] = (counts[category] ?? 0) + 1;
     return counts;
@@ -1142,31 +1167,37 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       || state?.status === "cancel_requested"
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
-  return <div className={`page-view operational-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
-    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Connect the accounts your team uses for email, calling, CRM and AI.</p></div><FeatureGuide topic="integrations" /></header>
+  const providerCards = cards.filter((card) => card.availability !== "future");
+  const connectedCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "ok").length;
+  const attentionCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "error").length;
+  const comingSoonCards = cards.filter((card) => card.availability === "future");
+  return <div className={`page-view operational-page integrations-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
+    <header className="v-pagehead" data-tour="integrations">
+      <div className="v-pagehead-text">
+        <h1>{focusedLabel || "Integrations"}</h1>
+        <p>{focusedLabel ? "Connection, setup and settings" : `${connectedCount} connected${attentionCount ? ` · ${attentionCount} need${attentionCount === 1 ? "s" : ""} attention` : ""} · Connect the tools your team already uses.`}</p>
+      </div>
+      <div className="v-pagehead-actions"><FeatureGuide topic="integrations" /></div>
+    </header>
     {activeGmailSyncs.map(({ connection, state, feedback }) => <section className="gmail-sync-active-banner" key={connection.id} role="status" aria-live="polite">
       <span className="gmail-sync-active-indicator" aria-hidden="true" />
       <div><span className="eyebrow">Gmail · AI review active</span><strong>{state?.status === "cancel_requested" ? "Stopping Gmail sync" : "Sync is still running"}</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
       <span className="gmail-sync-active-state">{state?.status === "cancel_requested" ? "Stopping" : "In progress"}</span>
     </section>)}
-    {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <div className="integration-category-filter">
-      <div className="integration-category-heading">
-        <span className="eyebrow">Browse integrations</span>
-        <strong>Choose a category</strong>
-      </div>
-      <label>
-        <span className="sr-only">Integration category</span>
-        <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value as IntegrationCategory)}>
-          {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => <option value={id} key={id}>{label}</option>)}
-        </select>
-      </label>
-    </div>}
+    {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <nav className="int-categories" aria-label="Integration categories">
+      {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => (
+        <button type="button" key={id} aria-pressed={activeCategory === id} onClick={() => setActiveCategory(id)}>
+          {id === "all" ? "All" : label}
+          <span className="num">{id === "all" ? providerCards.length : categoryCounts[id]}</span>
+        </button>
+      ))}
+    </nav>}
     {notice && (() => {
       const noticeState = Object.values(operationFeedback).find((item) => item.message === notice)?.state;
       return <div className={`notice${noticeState ? ` notice-${noticeState}` : ""}`} role="status">{notice}</div>;
     })()}
-    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
-      <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
+    {!canView ? <div className="team-denied panel"><h2>Integrations are managed by your admins</h2><p>Ask a workspace admin for access if you need to connect or change an integration.</p></div> : <div className="integration-sections">{displayedSections.filter((section) => section.id !== "coming-soon").map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
+      <div className="integration-section-heading"><h2 id={`integration-section-${section.id}`}>{section.title.replace(/ Integrations$/, "")}</h2><p>{section.description}</p></div>
       <div className={`integration-grid${section.id === "ai" ? " integration-grid-ai" : ""}`}>{section.providers.map((provider) => cardByProvider.get(provider)).filter((card): card is IntegrationCard => Boolean(card)).map((card) => {
        const connection = card.connection;
        const status = connection?.status ?? "not_connected";
@@ -1245,8 +1276,18 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         (card.provider === "instagram" || card.provider === "messenger") &&
         connection &&
         ["connected", "verified"].includes(connection.status);
-         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : ""}`} key={card.provider}>
-           <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${detailsOpen ? "Close" : "Open"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}><span aria-hidden="true">{detailsOpen ? "−" : "+"}</span></button></div>
+         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card int-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : ""}`} key={card.provider}>
+           <div className="int-head">
+             <ProviderMark provider={section.id === "ai" ? card.provider : card.provider} name={section.id === "ai" ? card.display_name : card.display_name} />
+             <div className="int-id">
+               <h2>{section.id === "ai" ? `AI analysis · ${card.display_name}` : card.display_name}</h2>
+               <p>{section.id === "ai" ? "Scores and summarises leads with your own provider key" : connection?.account_name && connection.status !== "disconnected" ? connection.account_name : card.directionality.description || card.category}</p>
+             </div>
+             <span className="int-status" data-tone={comingSoon ? "idle" : cloudTalk && connection?.status === "connected" && !connection.metadata.cloudtalk_agent_id ? "pending" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}</span>
+             <button type="button" className="v-btn int-toggle" data-kind={connectionTone(connection?.status) === "ok" ? "gray" : connectionTone(connection?.status) === "error" ? "destructive" : "tinted"} data-size="md" aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}>
+               <span className="v-btn-label">{detailsOpen ? "Close" : connectionTone(connection?.status) === "ok" ? "Manage" : connectionTone(connection?.status) === "error" ? "Fix" : connection && connection.status !== "disconnected" ? "Continue setup" : "Connect"}</span>
+             </button>
+           </div>
           <ProviderDetailsPanel provider={card.provider} open={detailsOpen} onClose={() => setSlackPanelOpen(false)} id={`integration-details-${card.provider}`}>
          {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
            <IntegrationDisclosure title="Setup guidance and permissions">
@@ -1562,7 +1603,12 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </ProviderDetailsPanel>
        </article>;
     })}</div>
-    </section>)}</div>}
+    </section>)}
+      {!selectedProvider && !aiSection && !callingSection && comingSoonCards.length > 0 && activeCategory === "all" && <section className="int-coming-soon" aria-label="Coming soon">
+        <h2>Coming soon</h2>
+        <p>{comingSoonCards.map((card) => card.display_name).join(", ")}</p>
+      </section>}
+    </div>}
      {salesforceSetupOpen && <SalesforceSetupGuide
        accountName={cards.find((card) => card.provider === "salesforce")?.connection?.account_name}
        onClose={() => setSalesforceSetupOpen(false)}

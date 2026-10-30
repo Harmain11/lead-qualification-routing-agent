@@ -1,0 +1,92 @@
+/* Integrations: categories, provider cards and setup panels on the v3 system. */
+.v-app .integrations-page { display: grid; gap: var(--s5); width: 100%; max-width: 1180px; margin: 0 auto; padding: 0; background: none; }
+
+.int-categories { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.int-categories button {
+  display: inline-flex; align-items: center; gap: var(--s2); height: 32px; padding: 0 var(--s3);
+  border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--label-2); font: var(--t-callout); font-weight: 500;
+}
+.int-categories button span { font: var(--t-footnote); color: var(--label-3); }
+.int-categories button[aria-pressed="true"] { border-color: transparent; background: var(--tint); color: var(--on-tint); }
+.int-categories button[aria-pressed="true"] span { color: color-mix(in srgb, var(--on-tint) 75%, transparent); }
+@media (hover: hover) and (pointer: fine) { .int-categories button[aria-pressed="false"]:hover { background: var(--fill-hover); } }
+
+.v-app .integrations-page .integration-sections { display: grid; gap: var(--s6); }
+.v-app .integrations-page .integration-section { display: grid; gap: var(--s3); margin: 0; padding: 0; border: 0; background: none; box-shadow: none; }
+.v-app .integrations-page .integration-section-heading { display: grid; grid-template-columns: 1fr; justify-items: start; gap: 2px; margin: 0; padding: 0; text-align: left; }
+.v-app .integrations-page .integration-section-heading h2 { font: var(--t-title3); letter-spacing: var(--tracking-title); color: var(--label); }
+.v-app .integrations-page .integration-section-heading p { max-width: none; margin: 0; text-align: left; font: var(--t-subhead); color: var(--label-3); }
+.v-app .integrations-page .integration-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--s3); }
+
+.v-app .integrations-page .int-card {
+  display: grid; align-content: start; gap: 0; min-height: 0; margin: 0; padding: 0;
+  border: var(--hairline) solid var(--separator); border-radius: var(--r-lg);
+  background: var(--surface); box-shadow: none; overflow: hidden;
+}
+.v-app .integrations-page .int-card:has(.provider-details:not([hidden])) { grid-column: 1 / -1; }
+.int-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "mark id action" "mark status action"; align-items: center; column-gap: var(--s3); row-gap: 2px; padding: var(--s4); }
+.int-mark { grid-area: mark; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--int-tint); color: #fff; font: 700 17px/1 var(--font-display); }
+.int-id { grid-area: id; min-width: 0; }
+.int-id h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-headline); color: var(--label); }
+.int-id p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-subhead); color: var(--label-3); }
+.int-status { grid-area: status; display: inline-flex; align-items: center; gap: 6px; font: var(--t-footnote); font-weight: 600; color: var(--label-3); }
+.int-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--label-4); }
+.int-status[data-tone="ok"] { color: var(--tint-text); }
+.int-status[data-tone="ok"] i { background: var(--tint); }
+.int-status[data-tone="pending"] { color: var(--attention-text); }
+.int-status[data-tone="pending"] i { background: var(--attention); }
+.int-status[data-tone="error"] { color: var(--danger-text); }
+.int-status[data-tone="error"] i { background: var(--danger); }
+.int-toggle { grid-area: action; }
+
+/* Setup panel content, restyled from the legacy markup it reuses. */
+.v-app .integrations-page .provider-details { display: grid; gap: var(--s3); padding: 0 var(--s4) var(--s4); border: 0; background: none; }
+.v-app .integrations-page .provider-details[hidden] { display: none; }
+.v-app .integrations-page .integration-section-disclosure { border: var(--hairline) solid var(--separator); border-radius: var(--r-md); background: var(--surface); }
+.v-app .integrations-page .integration-section-disclosure > summary { padding: var(--s3) var(--s4); font: var(--t-callout); font-weight: 600; color: var(--label); cursor: pointer; list-style-position: inside; }
+.v-app .integrations-page .integration-section-disclosure-content { display: grid; gap: var(--s3); padding: 0 var(--s4) var(--s4); font: var(--t-callout); color: var(--label-2); }
+.v-app .integrations-page .integration-guide { display: grid; gap: var(--s2); padding: var(--s3) var(--s4); border: 0; border-radius: var(--r-md); background: var(--surface-sunken); box-shadow: none; }
+.v-app .integrations-page .integration-guide .eyebrow { font: var(--t-footnote); font-weight: 600; letter-spacing: 0.02em; text-transform: none; color: var(--label-3); }
+.v-app .integrations-page .integration-direction { margin: 0; font: var(--t-subhead); color: var(--label-2); }
+.v-app .integrations-page .integration-direction strong { font-weight: 600; color: var(--label); }
+.v-app .integrations-page .card-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0; }
+.v-app .integrations-page .card-actions button,
+.v-app .integrations-page .manual-credential button,
+.v-app .integrations-page .oauth-button,
+.v-app .integrations-page .reasoning-model-config button {
+  height: var(--control-h); padding: 0 var(--s3); border: 0; border-radius: var(--r-sm);
+  background: var(--tint); color: var(--on-tint); font: var(--t-callout); font-weight: 600; box-shadow: none;
+}
+.v-app .integrations-page .card-actions button.button-quiet { background: var(--fill-hover); color: var(--label); }
+.v-app .integrations-page .card-actions button.danger { background: var(--danger-soft); color: var(--danger-text); }
+.v-app .integrations-page .card-actions button:disabled,
+.v-app .integrations-page .manual-credential button:disabled { opacity: 0.45; }
+.v-app .integrations-page .manual-credential { display: grid; gap: var(--s3); padding: var(--s3); border-radius: var(--r-md); background: var(--surface-sunken); }
+.v-app .integrations-page .manual-credential > span { font: var(--t-callout); font-weight: 600; color: var(--label); }
+.v-app .integrations-page .manual-credential label,
+.v-app .integrations-page .reasoning-model-config label,
+.v-app .integrations-page .cloudtalk-agent-picker label { display: grid; gap: var(--s1); font: var(--t-subhead); color: var(--label-2); }
+.v-app .integrations-page .manual-credential small { font: var(--t-footnote); color: var(--label-3); }
+.v-app .integrations-page .connection-facts { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); font: var(--t-subhead); color: var(--label-3); }
+.v-app .integrations-page .connection-facts b { color: var(--label); font-weight: 600; }
+.v-app .integrations-page .scope-list { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.v-app .integrations-page .scope-list code { padding: 2px var(--s2); border-radius: var(--r-xs); background: var(--fill-hover); font: 12px var(--font-mono); color: var(--label-2); }
+.v-app .integrations-page .notice { padding: var(--s3) var(--s4); border: 0; border-radius: var(--r-md); background: var(--info-soft); color: var(--info-text); font: var(--t-callout); }
+.v-app .integrations-page .notice-error, .v-app .integrations-page .integration-action-error { padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--danger-soft); color: var(--danger-text); font: var(--t-callout); }
+.v-app .integrations-page .notice-success { background: var(--tint-soft); color: var(--tint-text); }
+
+.int-coming-soon { display: grid; gap: var(--s1); padding: var(--s4); border: var(--hairline) dashed var(--separator-strong); border-radius: var(--r-lg); }
+.int-coming-soon h2 { font: var(--t-callout); font-weight: 600; color: var(--label-2); }
+.int-coming-soon p { margin: 0; font: var(--t-subhead); color: var(--label-3); }
+
+@media (max-width: 560px) {
+  .int-head { grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "mark id" "mark status" ". action"; }
+  .int-toggle { justify-self: start; margin-top: var(--s2); }
+}
+.v-app .integrations-page .manual-credential :is(input, select) {
+  height: var(--control-h-lg); padding: 0 var(--s3);
+  border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--label); font: var(--t-callout);
+}
+.v-app .integrations-page .manual-credential :is(input, select):focus-visible { outline: none; border-color: var(--tint); box-shadow: 0 0 0 3px var(--focus); }
