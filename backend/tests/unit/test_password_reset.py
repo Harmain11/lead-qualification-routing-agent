@@ -5,12 +5,11 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from test_authentication import auth_harness, signup
 
 from lead_agent.api.main import app
 from lead_agent.infrastructure.db.models import PasswordResetTokenORM
 from lead_agent.infrastructure.email import get_email_provider
-
-from test_authentication import auth_harness, signup
 
 NEW_PASSWORD = "a-brand-new-passphrase"
 
@@ -73,8 +72,9 @@ def test_reset_request_never_reveals_whether_an_account_exists(tmp_path) -> None
             assert signup(client).status_code == 200
             provider = app.dependency_overrides[get_email_provider]()
             sent_before = len(provider.messages)
-            known = client.post("/v1/auth/password-reset/request", json={"email": "owner@example.test"})
-            unknown = client.post("/v1/auth/password-reset/request", json={"email": "nobody@example.test"})
+            reset_url = "/v1/auth/password-reset/request"
+            known = client.post(reset_url, json={"email": "owner@example.test"})
+            unknown = client.post(reset_url, json={"email": "nobody@example.test"})
             assert known.status_code == unknown.status_code == 202
             assert known.json() == unknown.json()
             assert len(provider.messages) == sent_before + 1

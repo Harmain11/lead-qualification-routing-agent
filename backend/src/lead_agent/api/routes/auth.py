@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +38,7 @@ from lead_agent.application.auth import (
     revoke_session_token,
     rotate_csrf_token,
     select_workspace,
+    send_password_reset_email,
     sign_in,
     verify_email_token,
 )
@@ -363,23 +364,23 @@ class PasswordResetConfirmRequest(BaseModel):
 )
 def password_reset_request(
     request: EmailAddressRequest,
+    background: BackgroundTasks,
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_runtime_settings),
     email_provider: EmailProvider = Depends(get_email_provider),
 ) -> EmailVerificationNotice:
     if email_provider.configured:
-        try:
-            request_password_reset(
-                session,
-                email=request.email,
-                email_provider=email_provider,
-                reset_base_url=settings.frontend_public_base_url,
-                expiry_minutes=settings.password_reset_expiry_minutes,
-                resend_after_seconds=settings.email_verification_resend_seconds,
-            )
-        except EmailDeliveryError:
-            session.rollback()
-    # Identical response whether or not the account exists or mail is configured.
+        message = request_password_reset(
+            session,
+            email=request.email,
+            reset_base_url=settings.frontend_public_base_url,
+            expiry_minutes=settings.password_reset_expiry_minutes,
+            resend_after_seconds=settings.email_verification_resend_seconds,
+        )
+        if message is not None:
+            background.add_task(send_password_reset_email, email_provider, message)
+    # Identical response, sent before any mail is handed off, whether or not
+    # the account exists or mail is configured.
     return EmailVerificationNotice(
         message="If an account uses that address, a reset link is on its way."
     )

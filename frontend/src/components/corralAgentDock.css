@@ -2228,3 +2228,4 @@
 .corral-automation-draft-index { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--tint-soft); color: var(--tint-text); font: var(--t-footnote); font-weight: 600; }
 .corral-automation-draft strong { font: var(--t-subhead); font-weight: 600; color: var(--label); }
 .corral-automation-draft p { margin: 2px 0 0; font: var(--t-footnote); color: var(--label-2); white-space: pre-wrap; }
+.corral-agent-loading { margin: 0; padding: var(--s5); font: var(--t-callout); color: var(--label-3); text-align: center; }

@@ -36,7 +36,6 @@ import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
 import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
-import { ProductTour } from "./components/ProductTour";
 import { DialerPhoneDock } from "./components/DialerPhoneDock";
 import { useTheme } from "./theme";
 import { SUPPORT_EMAIL } from "./brand";
@@ -55,6 +54,9 @@ import { CorralAgentDock } from "./components/CorralAgentDock";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { NativeSelectEnhancer } from "./components/NativeSelectEnhancer";
 import { notifyActivity } from "./activity";
+const ProductTour = lazy(() =>
+  import("./components/ProductTour").then((module) => ({ default: module.ProductTour })),
+);
 const IntegrationsView = lazy(() =>
   import("./views/IntegrationsView").then((module) => ({
     default: module.IntegrationsView,
@@ -1691,7 +1693,11 @@ function App() {
           }}
         />
       )}
-      <ProductTour open={tourOpen} currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
+      {tourOpen && (
+        <Suspense fallback={null}>
+          <ProductTour open currentView={view} onNavigate={navigate} onDismiss={closeTour} onComplete={closeTour} />
+        </Suspense>
+      )}
       {can(workspacePermissions, "agents.execute") && (
         <CorralAgentDock
           key={auth.current_workspace_id}

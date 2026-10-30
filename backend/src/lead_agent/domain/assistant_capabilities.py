@@ -67,14 +67,18 @@ _REQUIRED_FIELDS = {
     "complete_lead_manual_review": [
         "target_id: lead with an active manual-review hold"
     ],
-    "send_email": ["email_subject", "email_body", "recipient reviewed in UI", "verified Gmail sender"],
+    "send_email": [
+        "email_subject", "email_body", "recipient reviewed in UI", "verified Gmail sender"
+    ],
     "set_automation_active": ["target_id", "enabled"],
     "create_icp_draft": ["payload_json"],
     "create_automation_draft": [
-        "payload_json: name, kind (sequence|playbook), steps[] of {type: wait|draft|research|coach|note, wait_hours for wait, text}"
+        "payload_json: name, kind (sequence|playbook), steps[] of "
+        "{type: wait|draft|research|coach|note, wait_hours for wait, text}"
     ],
     "enroll_lead_in_automation": [
-        "target_id: verified workspace lead", "payload_json: definition_id of an active automation"
+        "target_id: verified workspace lead",
+        "payload_json: definition_id of an active automation",
     ],
     "update_routing_config": ["payload_json"],
     "set_lead_confirmation": ["enabled"],

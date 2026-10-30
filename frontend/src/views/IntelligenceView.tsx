@@ -235,7 +235,7 @@ export function IntelligenceView({
             Reports {waiting > 0 && <Badge tone="attention">{waiting} to review</Badge>}
           </h2>
           <div className="coach-filters">
-            <Segmented label="Report type" size="sm" value={kind} options={REPORT_KINDS} onChange={setKind} />
+            <div className="coach-seg"><Segmented label="Report type" size="sm" value={kind} options={REPORT_KINDS} onChange={setKind} /></div>
             <label className="calls-search">
               <Icon name="search" size={15} />
               <span className="v-sr">Search reports</span>

@@ -18,8 +18,8 @@ from lead_agent.infrastructure.db.models import (
     AuthOAuthStateORM,
     AuthSessionORM,
     EmailVerificationTokenORM,
-    PasswordResetTokenORM,
     ExternalIdentityORM,
+    PasswordResetTokenORM,
     UserORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
@@ -283,16 +283,20 @@ def request_password_reset(
     session: Session,
     *,
     email: str,
-    email_provider: EmailProvider,
     reset_base_url: str,
     expiry_minutes: int = 30,
     resend_after_seconds: int = 60,
-) -> bool:
-    """Email a single-use reset link without disclosing whether the address exists."""
+) -> VerificationEmail | None:
+    """Store a single-use reset token and return the email to send, if any.
+
+    Sending is left to the caller so the HTTP response can return before any
+    mail is handed off; otherwise response time would reveal which addresses
+    have accounts.
+    """
     normalized_email = email.strip().lower()
     user = session.scalar(select(UserORM).where(UserORM.email == normalized_email))
     if user is None or user.status != "active" or not user.email_verified:
-        return False
+        return None
     now = datetime.now(UTC)
     latest = session.scalar(
         select(PasswordResetTokenORM)
@@ -306,7 +310,7 @@ def request_password_reset(
             else latest.created_at
         )
         if created_at + timedelta(seconds=resend_after_seconds) > now:
-            return False
+            return None
     token = secrets.token_urlsafe(48)
     expires_at = now + timedelta(minutes=expiry_minutes)
     session.add(
@@ -319,21 +323,21 @@ def request_password_reset(
             created_at=now,
         )
     )
-    session.flush()
-    try:
-        email_provider.send_verification_email(
-            VerificationEmail(
-                recipient=normalized_email,
-                verification_url=f"{reset_base_url.rstrip('/')}/?reset_password={token}",
-                expires_at=expires_at.isoformat(),
-                purpose="reset_password",
-            )
-        )
-    except EmailDeliveryError:
-        session.rollback()
-        raise
     session.commit()
-    return True
+    return VerificationEmail(
+        recipient=normalized_email,
+        verification_url=f"{reset_base_url.rstrip('/')}/?reset_password={token}",
+        expires_at=expires_at.isoformat(),
+        purpose="reset_password",
+    )
+
+
+def send_password_reset_email(email_provider: EmailProvider, message: VerificationEmail) -> None:
+    """Background delivery; a failed send leaves an unused token that simply expires."""
+    try:
+        email_provider.send_verification_email(message)
+    except EmailDeliveryError:
+        logger.warning("auth.password_reset_delivery_failed")
 
 
 def reset_password(session: Session, token: str, new_password: str) -> None:

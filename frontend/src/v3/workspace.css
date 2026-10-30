@@ -93,3 +93,12 @@
 
 /* ------------------------------------------------------------ Analytics */
 .analytics-source { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0 0 var(--s4); font: var(--t-footnote); color: var(--label-3); }
+/* Six filters do not fit a phone; scroll the strip instead of widening the page. */
+.coach-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.coach-seg::-webkit-scrollbar { display: none; }
+.coach-seg .v-seg { min-width: max-content; }
+.coach-filters { min-width: 0; max-width: 100%; }
+.coach-reports-head > * { min-width: 0; }
+/* Single-column grids must never grow past the screen to fit a wide child. */
+.v-app :is(.auto-page, .coach-page, .coach-reports, .coach-list, .coach-card, .coach-section, .coach-tile, .auto-templates, .auto-card) { grid-template-columns: minmax(0, 1fr); }
+.v-app :is(.calls, .calls-history, .calls-picker, .mailbox, .mailbox-thread, .integrations-page, .integration-sections, .integration-section) { grid-template-columns: minmax(0, 1fr); }

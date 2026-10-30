@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -9,8 +11,13 @@ import { listLeads } from "../api";
 import type { WorkspaceAssistantArea } from "../api";
 import type { Lead } from "../types";
 import type { LeadDetailSection } from "../leadSections";
+
+// The assistant is the heaviest part of the shell. It loads, and starts fetching
+// chat history, only the first time someone opens it.
+const WorkspaceAssistantChat = lazy(() =>
+  import("./WorkspaceAssistantChat").then((module) => ({ default: module.WorkspaceAssistantChat })),
+);
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
-import { WorkspaceAssistantChat } from "./WorkspaceAssistantChat";
 import { AGENT_STATE_EVENT, TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
 import { FeatureGuide } from "./FeatureGuide";
 
@@ -57,6 +64,7 @@ export function CorralAgentDock({
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [panelVisible, setPanelVisible] = useState(false);
+  const [everOpened, setEverOpened] = useState(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -225,6 +233,7 @@ export function CorralAgentDock({
       window.cancelAnimationFrame(openingFrameRef.current);
     }
     setPanelVisible(true);
+    setEverOpened(true);
     openingFrameRef.current = window.requestAnimationFrame(() => {
       openingFrameRef.current = null;
       setOpen(true);
@@ -456,6 +465,8 @@ export function CorralAgentDock({
         </div>
 
         <div className="corral-agent-window-body">
+          {everOpened && (
+          <Suspense fallback={<p className="corral-agent-loading" role="status">Loading Corral…</p>}>
           <div
             className="corral-agent-mode"
             hidden={Boolean(targetLead) || showLeadPicker}
@@ -496,6 +507,8 @@ export function CorralAgentDock({
               }
             />
             </div>
+          )}
+          </Suspense>
           )}
           {showLeadPicker && (
             <div className="corral-agent-start">
