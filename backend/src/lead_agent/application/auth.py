@@ -18,6 +18,7 @@ from lead_agent.infrastructure.db.models import (
     AuthOAuthStateORM,
     AuthSessionORM,
     EmailVerificationTokenORM,
+    PasswordResetTokenORM,
     ExternalIdentityORM,
     UserORM,
     WorkspaceMembershipORM,
@@ -276,6 +277,103 @@ def resend_email_verification(
         raise
     session.commit()
     return True
+
+
+def request_password_reset(
+    session: Session,
+    *,
+    email: str,
+    email_provider: EmailProvider,
+    reset_base_url: str,
+    expiry_minutes: int = 30,
+    resend_after_seconds: int = 60,
+) -> bool:
+    """Email a single-use reset link without disclosing whether the address exists."""
+    normalized_email = email.strip().lower()
+    user = session.scalar(select(UserORM).where(UserORM.email == normalized_email))
+    if user is None or user.status != "active" or not user.email_verified:
+        return False
+    now = datetime.now(UTC)
+    latest = session.scalar(
+        select(PasswordResetTokenORM)
+        .where(PasswordResetTokenORM.user_id == user.id)
+        .order_by(PasswordResetTokenORM.created_at.desc())
+    )
+    if latest is not None:
+        created_at = (
+            latest.created_at.replace(tzinfo=UTC)
+            if latest.created_at.tzinfo is None
+            else latest.created_at
+        )
+        if created_at + timedelta(seconds=resend_after_seconds) > now:
+            return False
+    token = secrets.token_urlsafe(48)
+    expires_at = now + timedelta(minutes=expiry_minutes)
+    session.add(
+        PasswordResetTokenORM(
+            id=uuid4(),
+            user_id=user.id,
+            token_hash=_digest(token),
+            expires_at=expires_at,
+            consumed_at=None,
+            created_at=now,
+        )
+    )
+    session.flush()
+    try:
+        email_provider.send_verification_email(
+            VerificationEmail(
+                recipient=normalized_email,
+                verification_url=f"{reset_base_url.rstrip('/')}/?reset_password={token}",
+                expires_at=expires_at.isoformat(),
+                purpose="reset_password",
+            )
+        )
+    except EmailDeliveryError:
+        session.rollback()
+        raise
+    session.commit()
+    return True
+
+
+def reset_password(session: Session, token: str, new_password: str) -> None:
+    """Set a new password from a valid reset link and sign the account out everywhere."""
+    if not token.strip():
+        raise AuthenticationError("password reset link is invalid or expired")
+    row = session.scalar(
+        select(PasswordResetTokenORM)
+        .where(PasswordResetTokenORM.token_hash == _digest(token))
+        .with_for_update()
+    )
+    now = datetime.now(UTC)
+    expires_at = (
+        row.expires_at.replace(tzinfo=UTC)
+        if row and row.expires_at.tzinfo is None
+        else (row.expires_at if row else None)
+    )
+    if row is None or row.consumed_at is not None or expires_at is None or expires_at <= now:
+        raise AuthenticationError("password reset link is invalid or expired")
+    user = session.get(UserORM, row.user_id)
+    if user is None or user.status != "active":
+        raise AuthenticationError("password reset link is invalid or expired")
+    user.password_hash = hash_password(new_password)
+    user.updated_at = now
+    # Every outstanding link and every signed-in session stops working.
+    for pending in session.scalars(
+        select(PasswordResetTokenORM).where(
+            PasswordResetTokenORM.user_id == user.id,
+            PasswordResetTokenORM.consumed_at.is_(None),
+        )
+    ):
+        pending.consumed_at = now
+    for active in session.scalars(
+        select(AuthSessionORM).where(
+            AuthSessionORM.user_id == user.id,
+            AuthSessionORM.revoked_at.is_(None),
+        )
+    ):
+        active.revoked_at = now
+    session.commit()
 
 
 def verify_email_token(

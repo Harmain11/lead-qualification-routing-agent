@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     email_from: str = "no-reply@example.invalid"
     email_verification_expiry_minutes: int = 60
     email_verification_resend_seconds: int = 60
+    password_reset_expiry_minutes: int = 30
     email_smtp_host: str = ""
     email_smtp_port: int = 587
     email_smtp_username: str = ""
@@ -170,6 +171,8 @@ class Settings(BaseSettings):
             raise ValueError("EMAIL_VERIFICATION_EXPIRY_MINUTES must be between 5 and 10080")
         if not 10 <= self.email_verification_resend_seconds <= 24 * 3600:
             raise ValueError("EMAIL_VERIFICATION_RESEND_SECONDS must be between 10 and 86400")
+        if not 5 <= self.password_reset_expiry_minutes <= 24 * 60:
+            raise ValueError("PASSWORD_RESET_EXPIRY_MINUTES must be between 5 and 1440")
         if self.email_smtp_port < 1 or self.email_smtp_port > 65535:
             raise ValueError("EMAIL_SMTP_PORT must be between 1 and 65535")
         if self.email_smtp_timeout_seconds <= 0:

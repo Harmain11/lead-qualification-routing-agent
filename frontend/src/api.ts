@@ -517,6 +517,20 @@ export const resendVerification = (email: string) =>
     body: JSON.stringify({ email }),
   });
 
+export const requestPasswordReset = (email: string) =>
+  request<{ message: string }>("/v1/auth/password-reset/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+export const confirmPasswordReset = (token: string, password: string) =>
+  request<{ message: string }>("/v1/auth/password-reset/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
+  });
+
 export function startGoogleAuth(invitationToken?: string): void {
   const query = invitationToken
     ? `?invitation_token=${encodeURIComponent(invitationToken)}`

@@ -11,14 +11,16 @@ export CRM_PROVIDER=mock NOTIFICATION_PROVIDER=mock DEMO_DATA_ENABLED=true
 export SECRET_KEY="local-preview-secret-key-0123456789abcdef"
 export WEBHOOK_SIGNING_SECRET="local-preview-webhook-secret-0123456789"
 PY=backend/.venv/bin/python
-if [[ ! -f local-dev.db ]]; then
-  # Migrations after 0035 are not SQLite-compatible; build the preview schema from the models.
-  "$PY" - <<'PYEOF'
+NEW_DB=$([[ -f local-dev.db ]] && echo 0 || echo 1)
+# Migrations after 0035 are not SQLite-compatible; build the preview schema from the
+# models. create_all only adds missing tables, so new models appear on the next start.
+"$PY" - <<'PYEOF'
 from lead_agent.infrastructure.db import models, operations  # noqa: F401
 from lead_agent.infrastructure.db.session import build_engine
 from lead_agent.infrastructure.db.base import Base
 Base.metadata.create_all(build_engine())
 PYEOF
+if [[ "$NEW_DB" == 1 ]]; then
   "$PY" -m alembic -c backend/alembic.ini stamp head
 fi
 "$PY" -m lead_agent.seed --demo

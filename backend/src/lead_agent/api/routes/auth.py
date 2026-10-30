@@ -30,8 +30,10 @@ from lead_agent.application.auth import (
     list_memberships,
     membership_permissions,
     register_user,
+    request_password_reset,
     require_membership,
     resend_email_verification,
+    reset_password,
     revoke_session,
     revoke_session_token,
     rotate_csrf_token,
@@ -344,6 +346,64 @@ def resend_verification(
     return EmailVerificationNotice(
         message="If the address has a pending account, a verification link will be sent."
     )
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=20, max_length=256)
+    password: str = Field(min_length=10, max_length=256)
+
+
+@router.post(
+    "/password-reset/request",
+    response_model=EmailVerificationNotice,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(rate_limit_dependency("credentials"))],
+)
+def password_reset_request(
+    request: EmailAddressRequest,
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+    email_provider: EmailProvider = Depends(get_email_provider),
+) -> EmailVerificationNotice:
+    if email_provider.configured:
+        try:
+            request_password_reset(
+                session,
+                email=request.email,
+                email_provider=email_provider,
+                reset_base_url=settings.frontend_public_base_url,
+                expiry_minutes=settings.password_reset_expiry_minutes,
+                resend_after_seconds=settings.email_verification_resend_seconds,
+            )
+        except EmailDeliveryError:
+            session.rollback()
+    # Identical response whether or not the account exists or mail is configured.
+    return EmailVerificationNotice(
+        message="If an account uses that address, a reset link is on its way."
+    )
+
+
+@router.post(
+    "/password-reset/confirm",
+    response_model=EmailVerificationNotice,
+    dependencies=[Depends(rate_limit_dependency("credentials"))],
+)
+def password_reset_confirm(
+    request: PasswordResetConfirmRequest,
+    session: Session = Depends(get_db),
+) -> EmailVerificationNotice:
+    try:
+        reset_password(session, request.token, request.password)
+    except AuthenticationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link is invalid or has expired. Request a new one.",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return EmailVerificationNotice(message="Password updated. Sign in with your new password.")
 
 
 @router.get("/verify-email", include_in_schema=False)
