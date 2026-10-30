@@ -116,7 +116,7 @@ export function PipelineBoard({ views, loading, error, truncated, total, canEdit
 
       <section className="b-metrics" aria-label="Pipeline summary">
         <Metric label="Open pipeline" value={formatMoney(openValue)} detail={unvalued ? `${unvalued} without a value` : `${open.length} deals`} />
-        <Metric label="Weighted forecast" value={weighted == null ? "—" : formatMoney(weighted)} detail={weighted == null ? "Not tracked: no recorded close rate" : "Value × recorded cohort win rate"} accent />
+        <Metric label="Weighted forecast" value={weighted == null ? "—" : formatMoney(weighted)} detail={weighted == null ? "Needs 5 closed deals to forecast" : "Value × recorded cohort win rate"} accent />
         <Metric label="Won" value={formatMoney(wonValue)} detail={`${won.length} deal${won.length === 1 ? "" : "s"}`} />
         <Metric label="Win rate" value={winRate == null ? "—" : `${Math.round(winRate * 100)}%`} detail={`${won.length} won · ${lost.length} lost`} />
         <Metric label="Average deal" value={avgDeal == null ? "—" : formatMoney(avgDeal)} detail="Across won deals with a value" />

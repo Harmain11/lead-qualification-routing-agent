@@ -262,6 +262,12 @@
   .direct-call-history li { align-items: flex-start; flex-direction: column; }
   .direct-dialer-panel .dialer-panel-count { text-align: left; }
 }
+/* page-container mirror */
+@container page (max-width: 532px) {
+.direct-dialer-fields { grid-template-columns: minmax(0, 1fr); }
+.direct-call-history li { align-items: flex-start; flex-direction: column; }
+.direct-dialer-panel .dialer-panel-count { text-align: left; }
+}
 @media (max-width: 480px) {
   .direct-dialer-form { padding: var(--s4); }
   .direct-dialer-actions > button { width: 100%; }
@@ -303,3 +309,7 @@
 .call-review-details .call-record-receipt { margin:0; }
 @media (max-width:600px) { .call-insight-notes { grid-template-columns:1fr; }.call-insights { padding:12px; }.call-review-transcript summary { align-items:flex-start; flex-direction:column; justify-content:center; gap:2px; padding-block:8px; } }
 @media (max-width:800px) {.dialer-panel-head { flex-direction:column; } }
+/* page-container mirror */
+@container page (max-width: 552px) {
+.dialer-panel-head { flex-direction:column; }
+}

@@ -15,6 +15,7 @@ import "./v3/mail.css";
 import "./v3/calls.css";
 import "./v3/integrations.css";
 import "./v3/workspace.css";
+import "./v3/adaptive.css";
 import App from "./App";
 import { ActivityToasts } from "./components/ActivityToasts";
 import { ConfirmHost } from "./v3/ui/confirm";

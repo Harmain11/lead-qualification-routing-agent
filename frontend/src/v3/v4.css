@@ -158,11 +158,23 @@ html[data-theme="dark"] {
   .c-quick-label { display: none; }
   .c-quick-item { padding: 0 8px; }
 }
+/* page-container mirror */
+@container page (max-width: 1112px) {
+.c-quick-label { display: none; }
+.c-quick-item { padding: 0 8px; }
+}
 @media (max-width: 1180px) {
   .c-search { width: 36px; padding: 0; justify-content: center; }
   .c-search span, .c-search kbd { display: none; }
   .c-new-label { display: none; }
   .c-new.v-btn { width: 34px; padding: 0; justify-content: center; }
+}
+/* page-container mirror */
+@container page (max-width: 932px) {
+.c-search { width: 36px; padding: 0; justify-content: center; }
+.c-search span, .c-search kbd { display: none; }
+.c-new-label { display: none; }
+.c-new.v-btn { width: 34px; padding: 0; justify-content: center; }
 }
 
 /* ============================================================= Phone panel */
@@ -381,11 +393,21 @@ button.h-kpi:active { transform: scale(0.985); }
 .h-recent .v-list { padding: 0 10px 10px; }
 .v-list-owner { font: var(--t-footnote); color: var(--label-3); white-space: nowrap; }
 @media (max-width: 1180px) { .v-list-owner { display: none; } }
+/* page-container mirror */
+@container page (max-width: 932px) {
+.v-list-owner { display: none; }
+}
 
 @media (max-width: 1100px) {
   .h-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .h-grid { grid-template-columns: minmax(0, 1fr); }
   .h-focus { grid-row: auto; }
+}
+/* page-container mirror */
+@container page (max-width: 852px) {
+.h-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.h-grid { grid-template-columns: minmax(0, 1fr); }
+.h-focus { grid-row: auto; }
 }
 
 /* ============================================================== Shared acts */
@@ -584,6 +606,11 @@ button.h-kpi:active { transform: scale(0.985); }
 .num-col { text-align: right; }
 
 @media (max-width: 1240px) { .b-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } .b-metrics > :nth-child(n+4) { display: none; } }
+/* page-container mirror */
+@container page (max-width: 992px) {
+.b-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.b-metrics > :nth-child(n+4) { display: none; }
+}
 @media (max-width: 767px) {
   .b-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .b-metrics > :nth-child(3) { display: none; }
@@ -869,6 +896,14 @@ button.h-kpi:active { transform: scale(0.985); }
   .q-line { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "item item total" "desc desc del" "qty price disc" "billing billing billing"; }
   .q-terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* page-container mirror */
+@container page (max-width: 652px) {
+.q-editor { grid-template-columns: minmax(0, 1fr); }
+.q-catalog { position: static; }
+.q-catalog ul { grid-auto-flow: column; grid-auto-columns: 200px; overflow-x: auto; max-height: none; }
+.q-line { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "item item total" "desc desc del" "qty price disc" "billing billing billing"; }
+.q-terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Leads table additions */
 
@@ -886,9 +921,9 @@ button.h-kpi:active { transform: scale(0.985); }
   gap: 4px;
   padding: 4px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  /* Solid, so the value and date beneath never show through the pill. */
+  background: var(--surface);
+  border: var(--hairline) solid var(--separator);
   box-shadow: var(--elev-2);
   opacity: 0;
   translate: 0 -50%;
@@ -903,6 +938,11 @@ button.h-kpi:active { transform: scale(0.985); }
 .v-lead-table[data-lens="overview"] .c-b { width: 15%; }
 .v-lead-table .c-date { width: 88px; }
 @media (max-width: 1280px) { .v-lead-table .c-score .v-badge { display: none; } .v-lead-table .c-score { width: 64px; } }
+/* page-container mirror */
+@container page (max-width: 1032px) {
+.v-lead-table .c-score .v-badge { display: none; }
+.v-lead-table .c-score { width: 64px; }
+}
 @media (max-width: 767px) { .v-lead-table .c-stage, .v-lead-table .c-value { display: none !important; } }
 .v-record-head .v-record-actions { justify-content: flex-end; }
 @container record (max-width: 760px) { .v-record-head .v-record-actions { justify-content: flex-start; } }
@@ -994,6 +1034,11 @@ button.h-kpi:active { transform: scale(0.985); }
   .r-hero { grid-template-columns: minmax(0, 1fr); }
   .r-grid { grid-template-columns: minmax(0, 1fr); }
 }
+/* page-container mirror */
+@container page (max-width: 852px) {
+.r-hero { grid-template-columns: minmax(0, 1fr); }
+.r-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 767px) { .r-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .r-goal { flex-direction: column; text-align: center; } .r-goal-text { justify-items: center; } }
 
 /* ========================================================= Performance */
@@ -1055,6 +1100,11 @@ button.h-kpi:active { transform: scale(0.985); }
 @media (max-width: 900px) {
   .t-podium { grid-template-columns: minmax(0, 1fr); }
   .t-grid { grid-template-columns: 120px repeat(var(--cols), minmax(0, 1fr)); }
+}
+/* page-container mirror */
+@container page (max-width: 652px) {
+.t-podium { grid-template-columns: minmax(0, 1fr); }
+.t-grid { grid-template-columns: 120px repeat(var(--cols), minmax(0, 1fr)); }
 }
 
 /* ============================================================== Motion */

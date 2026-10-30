@@ -92,6 +92,13 @@
   .mailbox-folder { justify-content: center; }
   .mailbox-rail > .v-btn .v-btn-label { display: none; }
 }
+/* page-container mirror */
+@container page (max-width: 932px) {
+.mailbox-grid { grid-template-columns: 64px minmax(260px, 320px) minmax(0, 1fr); }
+.mailbox-folder span, .mailbox-count, .mailbox-account { display: none; }
+.mailbox-folder { justify-content: center; }
+.mailbox-rail > .v-btn .v-btn-label { display: none; }
+}
 @media (max-width: 860px) {
   .mailbox-grid { grid-template-columns: 1fr; }
   .mailbox-rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: var(--hairline) solid var(--separator); }
@@ -101,6 +108,16 @@
   .mailbox-grid:not([data-reading]) .mailbox-reader { display: none; }
   .mailbox-back { display: inline-grid; }
   .mailbox-message-body { padding-left: var(--s4); }
+}
+/* page-container mirror */
+@container page (max-width: 612px) {
+.mailbox-grid { grid-template-columns: 1fr; }
+.mailbox-rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: var(--hairline) solid var(--separator); }
+.mailbox-rail ul { display: flex; }
+.mailbox-folder span { display: inline; }
+.mailbox-grid[data-reading] .mailbox-rail, .mailbox-grid[data-reading] .mailbox-list { display: none; }
+.mailbox-grid:not([data-reading]) .mailbox-reader { display: none; }
+.mailbox-back { display: inline-grid; }
 }
 
 /* Composer */

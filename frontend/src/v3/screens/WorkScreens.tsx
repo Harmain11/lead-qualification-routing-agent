@@ -183,7 +183,7 @@ export function TodayScreen({
       <section className="h-kpis" aria-label="Key numbers">
         <HomeKpi label="New leads" value={leads ? leads.value.toLocaleString() : String(views.length)} change={leads?.change_percent ?? null} onClick={canViewLeads ? () => onNavigate("leads") : undefined} />
         <HomeKpi label="Open pipeline" value={formatMoney(pipeline)} detail={`${open.length} open deals`} onClick={() => onNavigate("pipeline")} />
-        <HomeKpi label="Weighted forecast" value={weighted == null ? "—" : formatMoney(weighted)} detail={weighted == null ? "Not tracked: no recorded close rate" : "Recorded cohort win rate"} onClick={() => onNavigate("revenue")} accent />
+        <HomeKpi label="Weighted forecast" value={weighted == null ? "—" : formatMoney(weighted)} detail={weighted == null ? "Needs 5 closed deals to forecast" : "Recorded cohort win rate"} onClick={() => onNavigate("revenue")} accent />
         <HomeKpi
           label="Won this month"
           value={formatMoney(wonMonth)}

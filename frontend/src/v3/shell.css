@@ -419,3 +419,7 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
   padding: var(--s1) var(--s2); font: var(--t-subhead);
 }
 .v-appearance-option[aria-checked="true"] { background: var(--tint-soft); color: var(--tint-text); font-weight: 600; }
+
+/* The page area is a size container: content adapts to the space it actually
+   has (screen minus sidebar, minus Ask Corral when open), never overflowing. */
+.v-window { container: page / inline-size; }

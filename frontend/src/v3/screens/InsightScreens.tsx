@@ -99,7 +99,7 @@ export function RevenueScreen({
         <div className="r-kpis">
           <Kpi icon="revenue" label={`Recorded ${RANGE_LABEL[range] ?? ""}`} value={revenue ? usd(revenue.total_revenue) : "—"} foot={<DataStatus status={revenue?.data_status} />} />
           <Kpi icon="pipeline" label="Open pipeline" value={usd(pipeline)} foot={`${open.length} open deals`} />
-           <Kpi icon="target" label="Weighted forecast" value={weighted == null ? "—" : usd(weighted)} foot={weighted == null ? "Not tracked: no recorded close rate" : "By recorded cohort win rate"} accent />
+           <Kpi icon="target" label="Weighted forecast" value={weighted == null ? "—" : usd(weighted)} foot={weighted == null ? "Needs 5 closed deals to forecast" : "By recorded cohort win rate"} accent />
           <Kpi icon="quote" label="Quotes out" value={usd(quoted)} foot={`${quotes.length} sent or accepted`} />
           <Kpi icon="trophy" label="Average won deal" value={avgDeal ? usd(avgDeal) : "—"} foot={`${won.length} won`} />
           <Kpi icon="star" label="Win rate" value={won.length + lost.length ? `${Math.round((won.length / (won.length + lost.length)) * 100)}%` : "—"} foot={`${won.length} won · ${lost.length} lost`} />

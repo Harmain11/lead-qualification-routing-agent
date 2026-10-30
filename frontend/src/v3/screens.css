@@ -26,6 +26,10 @@
 .v-live i { width: 7px; height: 7px; border-radius: 50%; background: #34a46f; box-shadow: 0 0 0 3px rgba(52, 164, 111, 0.16); }
 .v-refine { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; border-radius: var(--r-lg); background: var(--surface); animation: v-pop var(--d-base) var(--ease-out); }
 @media (max-width: 900px) { .v-refine { grid-template-columns: 1fr 1fr; } }
+/* page-container mirror */
+@container page (max-width: 652px) {
+.v-refine { grid-template-columns: 1fr 1fr; }
+}
 .v-filter-summary { display: flex; align-items: center; gap: 8px; font: var(--t-callout); color: var(--label-2); }
 
 .v-tablewrap { border-radius: var(--r-lg); background: var(--surface); overflow-x: auto; overscroll-behavior-x: contain; }
@@ -179,6 +183,10 @@
 .v-overview-side { display: grid; gap: 22px; }
 .v-overview-side .v-group + .v-group { margin-top: 0; }
 @media (max-width: 1000px) { .v-overview { grid-template-columns: minmax(0, 1fr); } }
+/* page-container mirror */
+@container page (max-width: 752px) {
+.v-overview { grid-template-columns: minmax(0, 1fr); }
+}
 .v-inquiry { margin-top: 16px; font: var(--t-body); }
 .v-gist dl { display: grid; gap: 12px; margin-top: 14px; }
 .v-gist dl div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }

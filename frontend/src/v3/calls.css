@@ -46,3 +46,11 @@
   .calls-actions { grid-row: 1 / span 2; grid-column: 3; }
   .calls-form { grid-template-columns: 1fr; }
 }
+/* page-container mirror */
+@container page (max-width: 612px) {
+.calls-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.calls-row > .v-mono, .calls-row > .calls-unknown, .calls-meta { display: none; }
+.calls-time { grid-column: 2; text-align: left; }
+.calls-actions { grid-row: 1 / span 2; grid-column: 3; }
+.calls-form { grid-template-columns: 1fr; }
+}

@@ -121,6 +121,11 @@
   .records-board { grid-template-columns: repeat(3, minmax(260px, 1fr)); }
   .records-toolbar-spacer { display: none; }
 }
+/* page-container mirror */
+@container page (max-width: 652px) {
+.records-board { grid-template-columns: repeat(3, minmax(260px, 1fr)); }
+.records-toolbar-spacer { display: none; }
+}
 @media (max-width: 650px) {
   .records-head { flex-direction: column; }
   .records-head-actions, .records-add-button { width: 100%; }

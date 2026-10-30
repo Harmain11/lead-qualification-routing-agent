@@ -234,10 +234,16 @@ export function CorralAgentDock({
     }
     setPanelVisible(true);
     setEverOpened(true);
-    openingFrameRef.current = window.requestAnimationFrame(() => {
+    // One frame lets the panel mount before it slides in. Background tabs pause
+    // animation frames, so a short timer guarantees it still opens.
+    const reveal = () => {
+      if (openingFrameRef.current !== null) window.cancelAnimationFrame(openingFrameRef.current);
       openingFrameRef.current = null;
+      window.clearTimeout(openingFallback);
       setOpen(true);
-    });
+    };
+    const openingFallback = window.setTimeout(reveal, 60);
+    openingFrameRef.current = window.requestAnimationFrame(reveal);
   }, []);
 
   const closeAgent = useCallback(() => {

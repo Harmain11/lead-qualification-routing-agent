@@ -1,0 +1,24 @@
+/* Adaptive layout guards: content shrinks to the space it has and never
+   spills past its container, at any width and with Ask Corral open. */
+
+/* Single-column grids are capped at their container, never sized by a wide child. */
+.v-app :is(.v-record, .v-split, .v-split-detail, .v-page, .cx-view, .h-page, .r-page, .t-page) { grid-template-columns: minmax(0, 1fr); }
+.v-app .v-split:has(.v-split-list) { grid-template-columns: minmax(0, 1fr); }
+@container leads (min-width: 1060px) {
+  .v-app .v-split:has(.v-split-list) { grid-template-columns: 236px minmax(0, 1fr); }
+}
+
+/* Stage rail: shrinks with the record; in tight space only the current stage keeps its name. */
+.v-app .d-rail ol { min-width: 0; }
+.v-app .d-rail li { min-width: 0; }
+.v-app .d-rail li button { min-width: 0; width: 100%; }
+.v-app .d-rail-lost { flex: none; }
+@container record (max-width: 820px) {
+  .v-app .d-rail li:not([data-state="current"]) .d-rail-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .v-app .d-rail li:not([data-state="current"]) button { justify-content: center; padding-inline: 0; }
+  .v-app .d-rail ol { grid-auto-columns: minmax(28px, 1fr); }
+  .v-app .d-rail li[data-state="current"] { grid-column: span 3; }
+}
+
+/* Raw email source wraps inside its disclosure instead of running past it. */
+.v-app .gmail-inquiry-raw pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
