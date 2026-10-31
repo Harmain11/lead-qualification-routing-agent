@@ -238,7 +238,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
         {section === 4 && <ExclusionsSection config={configuration} editable={editable} update={updateConfig} />}
         {section === 5 && <WeightsSection config={configuration} editable={editable} update={updateConfig} total={total} />}
         {section === 6 && <ReviewSection selected={selected} total={total} validation={validation} preview={preview} editable={editable} busy={busy} runValidation={runValidation} runPreview={runPreview} openPublish={() => setPublishOpen(true)} />}
-        <div className="icp-step-actions"><Button kind="gray" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Back</Button>{section < 6 ? <Button kind="filled" trailingIcon="arrowRight" onClick={() => setSection((value) => Math.min(6, value + 1))}>Next</Button> : <span />}</div>
+        <div className="icp-step-actions"><Button kind="gray" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Back</Button><Button kind="filled" disabled={section === 6} trailingIcon="arrowRight" onClick={() => setSection((value) => Math.min(6, value + 1))}>Next</Button></div>
       </section>
     </div>
     {publishOpen && <OperationsDialog title="Publish workspace ICP?" className="team-modal confirm-modal icp-publish-modal" showHeader={false} onClose={() => { if (!busy) setPublishOpen(false); }}><button className="modal-close" onClick={() => setPublishOpen(false)} aria-label="Close">×</button><span className="eyebrow">Deliberate policy change</span><h2 id="publish-title">Publish workspace ICP?</h2><p>New qualification runs will use this version. Existing lead scores and their ICP references will not be rewritten.</p><label><input type="checkbox" checked={confirmUse} onChange={(event) => setConfirmUse(event.target.checked)} /> I understand new leads will use this version.</label><label><input type="checkbox" checked={confirmHistory} onChange={(event) => setConfirmHistory(event.target.checked)} /> I understand historical results are preserved.</label>{exclusionsChanged && <label className="exclusion-confirm"><input type="checkbox" checked={confirmExclusions} onChange={(event) => setConfirmExclusions(event.target.checked)} /> I confirm the hard-disqualifier changes may force matching leads to Disqualified.</label>}<div className="team-modal-actions"><button className="button-quiet" onClick={() => setPublishOpen(false)}>Cancel</button><button className="primary-button" disabled={total !== 40 || !confirmUse || !confirmHistory || (exclusionsChanged && !confirmExclusions) || busy} onClick={() => void publish()}>Publish ICP</button></div></OperationsDialog>}
@@ -247,11 +247,11 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
 
 function TextList({ label, value, disabled, onChange, hint }: { label: string; value: string[]; disabled: boolean; onChange: (items: string[]) => void; hint?: string }) {
   const [draft, setDraft] = useState(() => csv(value));
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (document.activeElement !== inputRef.current) setDraft(csv(value));
   }, [value]);
-  return <label className="icp-field icp-list"><span>{label}</span><textarea ref={inputRef} rows={2} value={draft} disabled={disabled} onChange={(event) => setDraft(event.target.value)} onBlur={() => { const normalized = parseCommaSeparatedList(draft); onChange(normalized); setDraft(csv(normalized)); }} placeholder="Separate values with commas" />{hint && <small>{hint}</small>}</label>;
+  return <label className="icp-field"><span>{label}</span><input ref={inputRef} value={draft} disabled={disabled} onChange={(event) => setDraft(event.target.value)} onBlur={() => { const normalized = parseCommaSeparatedList(draft); onChange(normalized); setDraft(csv(normalized)); }} placeholder="Enter values separated by commas" />{hint && <small>{hint}</small>}</label>;
 }
 
 function NumberField({ label, value, disabled, onChange }: { label: string; value: number; disabled: boolean; onChange: (value: number) => void }) {

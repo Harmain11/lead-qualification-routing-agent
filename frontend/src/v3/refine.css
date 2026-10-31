@@ -1120,18 +1120,32 @@ html[data-theme="light"] .v-sidebar, :root:not([data-theme="dark"]) .v-sidebar {
 .v-app .integrations-page .int-setup .integration-section-disclosure-content { padding: 18px 24px 22px; max-width: 880px; }
 .v-app .integrations-page .int-setup .connection-facts { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; }
 
-/* ===== ICP builder: dense, aligned, no dead space */
-.v-app .icp-builder { align-content: start; min-height: 0; }
-.v-app .icp-form-grid, .v-app .icp-profile-meta { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); align-content: start; gap: 16px; }
+/* ===== ICP steps: no dead space (layout of the page itself is unchanged) */
+.v-app .icp-builder { align-content: start; gap: 18px; }
+.v-app .icp-form-grid, .v-app .icp-profile-meta { align-content: start; gap: 16px 20px; }
+.v-app .icp-form-grid > label.icp-field:last-child { grid-column: 1 / -1; }
 .v-app .icp-form-grid .icp-range { display: contents; }
-.v-app .icp-field textarea, .v-app .icp-list textarea { height: 64px; padding: 10px 12px; line-height: 1.45; }
-.v-app .icp-profile-meta { margin-bottom: -2px; }
+.v-app .icp-builder-head { padding-bottom: 14px; }
 .v-app .icp-step-actions { margin-top: 0; padding-top: 16px; }
 .v-app .icp-review { display: grid; gap: 16px; align-content: start; }
 .v-app .review-summary { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .v-app .review-actions { margin-top: 0; }
-.v-app .weight-total { margin: 0; }
-.v-app .exclusion-explainer + .disqualifier-list, .v-app .icp-builder > div > .exclusion-explainer { margin-bottom: 14px; }
-.v-app .icp-form-grid > .icp-list:last-child { grid-column-end: -1; }
-.v-app .icp-form-grid > .icp-list:last-child textarea { height: 64px; }
 .v-app .v-page .dashboard-signals > * { align-self: start; }
+.v-app .rec-pop .rec-pop-check { display: flex !important; flex-direction: row !important; align-items: center; justify-content: flex-start; gap: 10px; padding: 6px 0; text-align: left; }
+.v-app .rec-pop .rec-pop-check input { flex: none; }
+
+/* ===== Sequence builder, compact timeline (scoped to the builder so legacy field rules cannot win) */
+.auto-builder .auto-step { gap: 12px; padding-bottom: 0; }
+.auto-builder .auto-step-body { gap: 8px; padding: 0 0 4px; }
+.auto-builder .auto-step-head { gap: 10px; min-height: 32px; }
+.auto-builder .auto-step-num { min-width: 44px; }
+.auto-builder .auto-step-type select { width: auto; height: 32px; padding: 0 30px 0 12px; border-radius: 999px; background-color: var(--fill) !important; box-shadow: none; font: 600 13px/1 var(--font); }
+.auto-builder .auto-step-row { gap: 8px; }
+.auto-builder .auto-inline input { width: 72px; height: 36px; }
+.auto-builder .auto-inline select { width: auto; min-width: 104px; height: 36px; }
+.auto-builder .auto-step textarea { height: 68px; min-height: 68px; padding: 9px 12px; }
+.auto-builder .auto-add { height: 24px; margin: 0 0 6px; padding: 0 8px; }
+.auto-builder .auto-step-icon { width: 28px; height: 28px; }
+.auto-builder-settings { gap: 12px 16px; padding-bottom: 16px; }
+.auto-builder .auto-check { padding: 2px 0; }
+.auto-builder-foot { margin: 0; font: var(--t-footnote); color: var(--label-3); }
