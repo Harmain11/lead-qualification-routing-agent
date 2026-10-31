@@ -165,7 +165,11 @@ def test_context_without_view_permissions_never_reads_database():
     context = build_workspace_assistant_context(
         object(), WorkspaceContext(workspace_id=uuid4(), actor_id="qa", permissions=frozenset({"agents.execute"})),
     )
-    assert context == {"permissions": ["agents.execute"], "available_areas": [], "context_warnings": []}
+    assert context["permissions"] == ["agents.execute"]
+    assert context["available_areas"] == []
+    assert context["context_warnings"] == []
+    assert context["knowledge_sources"]["status"] == "not_connected"
+    assert context["knowledge_sources"]["document_sources"] == []
 
 
 def test_context_exposes_dialer_only_when_call_permission_is_granted():

@@ -942,9 +942,6 @@ def _send_options(
     messages: list[dict[str, str]],
     source: dict[str, str],
     actor_id: str,
-    *,
-    allow_exact_booking: bool = True,
-    allow_booking_link_fallback: bool = True,
 ) -> str:
     thread_id = source.get("thread_id", "").strip()
     if not thread_id:
@@ -971,19 +968,11 @@ def _send_options(
     except OutreachBlocked:
         return "needs_attention"
 
-    if allow_exact_booking and _attempt_requested_time_booking(
-        session, lead, workspace_id, actor_id, source["message_id"],
-        source.get("gmail_connection_id"), source.get("excerpt", ""), sent_at,
-    ):
-        return "booked"
-
-    selected_calendar = _available_offer_slots(
-        session, workspace_id, lead, source, actor_id,
+    # Email-triggered meeting requests always produce a reviewed booking-link
+    # draft. Never book a time or send numbered slot options from this path.
+    selected_calendar = _calendar_options(
+        session, workspace_id, source, actor_id, lead=lead,
     )
-    if selected_calendar is None and allow_booking_link_fallback:
-        selected_calendar = _calendar_options(
-            session, workspace_id, source, actor_id, lead=lead,
-        )
     if selected_calendar is None:
         return "no_calendar_availability"
     calendar_connection, slots = selected_calendar
@@ -1723,7 +1712,6 @@ def create_preferred_meeting_offer_draft(
         raise HTTPException(409, "Reconnect the Gmail mailbox used for this conversation.")
     result = _send_options(
         session, lead, workspace_id, gmail_connection, [], source, actor_id,
-        allow_exact_booking=False, allow_booking_link_fallback=False,
     )
     if result == "no_calendar_availability":
         return create_booking_link_offer_draft(

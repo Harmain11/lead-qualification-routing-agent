@@ -513,6 +513,11 @@ def _truthful_workspace_assistant_reply(
         )
     if not completion_claim:
         return reply
+    if re.search(r"\bpending\b", latest_user, re.I):
+        return (
+            "Based on the status you described, it is still pending; I cannot confirm "
+            "the action completed until the app reports success."
+        )
     requested_change = re.search(
         r"\b(?:book|schedule|cancel|reschedule|send|delete|save|create|update|change|sync|"
         r"complete|mark|invite|disconnect|suspend|reactivate|add|record|call|open|enable|"

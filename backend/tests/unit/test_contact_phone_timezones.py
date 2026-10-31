@@ -201,8 +201,12 @@ def test_calendly_exact_request_uses_contact_timezone_not_owner_timezone(
         email="buyer@example.test",
         full_name="Buyer",
     )
-    reference = datetime(2026, 10, 28, 12, tzinfo=UTC)
-    requested_start = datetime(2026, 10, 29, 12, tzinfo=ZoneInfo("Asia/Karachi"))
+    reference = datetime.now(UTC)
+    requested_start = (
+        reference.astimezone(ZoneInfo("Asia/Karachi"))
+        .replace(hour=12, minute=0, second=0, microsecond=0)
+        + timedelta(days=1)
+    )
     captured: list[ConfirmMeetingRequest] = []
 
     class Calendly:
@@ -283,6 +287,8 @@ def test_meeting_options_are_saved_as_a_draft_and_notify_the_assigned_member(
             "end_at": (now + timedelta(days=1, minutes=30)).isoformat(),
             "time_zone": "UTC",
             "source_message_id": "source-1",
+            "booking_link_mode": True,
+            "booking_url": "https://calendar.app.google/team-booking",
         }
     ]
     notices: list[dict[str, object]] = []
@@ -307,6 +313,14 @@ def test_meeting_options_are_saved_as_a_draft_and_notify_the_assigned_member(
         meeting_email,
         "_calendar_options",
         lambda *_args, **_kwargs: (calendar_connection, slots),
+    )
+    monkeypatch.setattr(
+        meeting_email,
+        "_offer_email",
+        lambda _lead, source, _provider, _slots: (
+            f"Re: {source['subject']}",
+            "Thanks for your note. Book a time here: https://calendar.app.google/team-booking",
+        ),
     )
     monkeypatch.setattr(
         meeting_email, "assert_outreach_allowed", lambda *_args, **_kwargs: None
@@ -334,7 +348,7 @@ def test_meeting_options_are_saved_as_a_draft_and_notify_the_assigned_member(
             "message_id": "source-1",
             "rfc_message_id": "<source@example.test>",
             "subject": "Meeting request",
-            "excerpt": "Please share some meeting times.",
+            "excerpt": "How does tomorrow at 12 pm sound?",
             "sent_at": now.isoformat(),
         },
         "workspace-owner",
@@ -347,6 +361,9 @@ def test_meeting_options_are_saved_as_a_draft_and_notify_the_assigned_member(
     assert draft.status == "draft"
     assert draft.recipient == "buyer@example.test"
     assert draft.kind == f"meeting_options:{offer.id}"
+    assert "https://calendar.app.google/team-booking" in draft.body
+    assert "Reply with" not in draft.body
+    assert offer.details["booking_link_mode"] is True
     assert notices[0]["recipient_user_id"] == assigned_user_id
     assert notices[0]["kind"] == "meeting_reply_draft"
 
@@ -664,6 +681,7 @@ def test_sending_meeting_draft_replies_in_original_gmail_thread(
             "email_draft_id": str(draft_id),
             "gmail_connection_id": str(gmail_connection_id),
             "thread_id": "thread-1",
+            "source_subject": "Meeting request",
             "source_rfc_message_id": "<source@example.test>",
         },
     )
@@ -684,6 +702,10 @@ def test_sending_meeting_draft_replies_in_original_gmail_thread(
         updated_at=None,
         external_message_id=None,
         sent_at=None,
+        attachments=[],
+        cc="",
+        bcc="",
+        html_body=None,
     )
     connection = SimpleNamespace(
         id=gmail_connection_id,
