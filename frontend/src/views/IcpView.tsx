@@ -2,6 +2,7 @@ import { OperationsDialog } from "../components/OperationsDialog";
 import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 import {
+archiveIcpVersion,
 createIcpDraft,
 getCurrentIcp,
 getSystemDefaultIcp,
@@ -14,6 +15,8 @@ validateIcpDraft,
 import type { IcpConfiguration,IcpPreview,IcpValidation,IcpVersion } from "../types";
 import { parseCommaSeparatedList } from "../textEntry";
 import { Button, PageHeader, Segmented } from "../v3/ui/primitives";
+import { Icon } from "../v3/ui/Icon";
+import { confirmAction } from "../v3/ui/confirm";
 
 const SECTIONS = [
   "Company Profile",
@@ -159,6 +162,19 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
     finally { setBusy(false); }
   }
 
+  async function discardDraft() {
+    if (!selected?.id || selected.status !== "draft") return;
+    const ok = await confirmAction({ title: "Discard this draft?", message: `Draft v${selected.version_number} will be archived. Published scoring is not affected.`, confirmLabel: "Discard draft", cancelLabel: "Keep draft", tone: "danger" });
+    if (!ok) return;
+    setBusy(true); setError(null);
+    try {
+      await archiveIcpVersion(selected.id);
+      await load();
+      setNotice("Draft discarded. Published scoring remains unchanged.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to discard draft"); }
+    finally { setBusy(false); }
+  }
+
   async function runValidation() {
     if (!selected?.id) return;
     await saveDraft();
@@ -214,11 +230,13 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
         <p>{selected.source === "system_default" ? "A read-only example. It is not used to score leads." : "Publish a workspace ICP to turn on fit scoring and hard exclusions."}</p>
       </div>
       <div className="icp-overview-foot">
-        <span className={`icp-status status-${selected.status}`}>{selected.source === "not_configured" ? "Not configured" : `${selected.source === "system_default" ? "Built-in template" : `v${selected.version_number}`} · ${pretty(selected.status)}`}</span>
-        <span className={`weight-pill ${total === 40 ? "valid" : "invalid"}`} aria-label={`${total} of 40 ICP points configured`}><b>{total} / 40</b> points · {total === 40 ? "valid" : "needs attention"}</span>
+        <span className="icp-chip" data-status={selected.status}><i aria-hidden="true" />{selected.source === "not_configured" ? "Not configured" : selected.source === "system_default" ? "Built-in template" : `${pretty(selected.status)} · v${selected.version_number ?? "–"}`}</span>
+        <span className="icp-chip" data-valid={total === 40} aria-label={`${total} of 40 ICP points configured`}><Icon name={total === 40 ? "check" : "alert"} size={13} /><b>{total} / 40</b> points</span>
         <span className="icp-spacer" />
+        {editable && <Button kind="plain" disabled={busy} onClick={() => void discardDraft()}>Discard draft</Button>}
         {editable && <Button kind="gray" disabled={busy} onClick={() => void saveDraft()}>Save draft</Button>}
-        {canManage && !editable && <Button kind="filled" disabled={busy} onClick={() => void createDraft()}>Create new draft</Button>}
+        {canManage && !editable && versions.some((version) => version.status === "draft") && <Button kind="filled" disabled={busy} onClick={() => choose(versions.find((version) => version.status === "draft")!)}>Edit draft</Button>}
+        {canManage && !editable && !versions.some((version) => version.status === "draft") && <Button kind="filled" disabled={busy} onClick={() => void createDraft()}>Create new draft</Button>}
       </div>
     </section>
     {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message">×</button></div>}
@@ -226,7 +244,7 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
      <div className="icp-layout">
       <div className="icp-rail">
         <nav className="icp-sections" aria-label="ICP builder sections">{SECTIONS.map((label, index) => <button key={label} type="button" className={section === index ? "active" : ""} aria-current={section === index ? "step" : undefined} onClick={() => setSection(index)}><i>{index + 1}</i><span>{label}</span></button>)}</nav>
-<section className="icp-history" aria-label="Version history"><h2>Versions</h2>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>Built-in template</b><span>Not used for lead qualification</span><em>Template</em></button>}{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</section>
+<section className="icp-history" aria-label="Version history"><h2>Versions</h2>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>Built-in template</b><span>Not used for lead qualification</span><em>Template</em></button>}{versions.filter((version) => !(version.status === "archived" && !version.published_at)).map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</section>
       </div>
      <section className="panel icp-builder" data-tour="icp">
         <div className="icp-builder-head"><div><span className="eyebrow">Step {section + 1} of 7</span><h2>{SECTIONS[section]}</h2></div>{!editable && <span className="read-only-badge">Read only</span>}</div>

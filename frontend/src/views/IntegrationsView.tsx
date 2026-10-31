@@ -1367,7 +1367,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          {hasExpandableSettings && <IntegrationDisclosure
            title={openAI || section.id === "ai" ? "Usage and settings" : crmDirection || mailDirection ? "Sync and settings" : "More settings"}
            className="integration-settings-disclosure"
-           open
          >
          {openAI && <OpenAIUsagePanel />}
          {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}
@@ -1559,7 +1558,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </div>}
          </div>}
          </IntegrationDisclosure>}
-           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className="connection-briefing-disclosure">
+           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className="connection-briefing-disclosure" open={!connection || !["connected", "verified"].includes(connection.status)}>
            <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
           <span className="eyebrow">Connection briefing</span>
           <strong>{card.dashboard_path}</strong>

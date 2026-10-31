@@ -105,18 +105,33 @@ export function AutomationBuilder({
 
   const targets = (self: PlaybookNode) => spec.nodes.filter((node) => node.id !== self.id && node.type !== "start");
 
+  const [addingAfter, setAddingAfter] = useState<string | null>(null);
+  const lastStep = ordered.filter((node) => node.type !== "end").at(-1);
+
+  const addRow = (afterId: string) => (
+    <div className="ab-add-row" role="group" aria-label="Choose a step to add">
+      {ADDABLE.map((type) => (
+        <button key={type} type="button" onClick={() => { addAfter(afterId, type); setAddingAfter(null); }}>
+          <Icon name={STEP_META[type].icon} size={14} />{STEP_META[type].label}
+        </button>
+      ))}
+    </div>
+  );
+
   const renderStep = (node: PlaybookNode, detached = false) => {
     const meta = STEP_META[node.type];
     const editable = node.type !== "start" && node.type !== "end";
+    const canAdd = node.type !== "end" && node.type !== "condition" && spec.nodes.length < 50;
     const unit = unitFor(node.wait_hours);
+    const hasText = node.type === "draft" || node.type === "research" || node.type === "coach" || node.type === "note";
     return (
-      <li key={node.id} className="auto-step" data-type={node.type} data-detached={detached || undefined}>
-        <span className="auto-step-icon" aria-hidden="true"><Icon name={meta.icon} size={15} /></span>
-        <div className="auto-step-body">
-          <div className="auto-step-head">
-            <span className="auto-step-num">{node.type === "start" || node.type === "end" ? "" : `Step ${numbers.get(node.id)}`}</span>
+      <li key={node.id} className="ab-step" data-type={node.type} data-detached={detached || undefined}>
+        <span className="ab-index" aria-hidden="true">{editable ? numbers.get(node.id) : <Icon name={meta.icon} size={13} />}</span>
+        <div className="ab-body">
+          <div className="ab-top">
             {editable ? (
-              <label className="auto-step-type">
+              <label className="ab-type">
+                <Icon name={meta.icon} size={15} />
                 <span className="v-sr">Step type</span>
                 <select
                   value={node.type}
@@ -130,35 +145,38 @@ export function AutomationBuilder({
                 </select>
               </label>
             ) : (
-              <b>{meta.label}</b>
+              <b className="ab-fixed">{meta.label}</b>
             )}
-            {editable && (
-              <IconButton icon="trash" label={`Remove ${label(node).toLowerCase()}`} size={15} className="auto-step-remove" onClick={() => setSpec((current) => ({ ...current, nodes: removeStep(current.nodes, node.id) }))} />
+            {node.type === "wait" && (
+              <span className="ab-wait">
+                <label>
+                  <span className="v-sr">Wait for</span>
+                  <input
+                    type="number" inputMode="numeric" min={1} max={Math.floor(2160 / unit)}
+                    value={node.wait_hours / unit}
+                    onChange={(event) => patchNode(node.id, { wait_hours: Math.max(1, Math.min(2160, Math.round(Number(event.target.value) || 1) * unit)) })}
+                  />
+                </label>
+                <label>
+                  <span className="v-sr">Unit</span>
+                  <select value={unit} onChange={(event) => patchNode(node.id, { wait_hours: Math.max(1, Math.min(2160, Math.round(node.wait_hours / unit) * Number(event.target.value))) })}>
+                    {UNITS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  </select>
+                </label>
+              </span>
             )}
+            <span className="ab-actions">
+              {canAdd && (
+                <IconButton icon="plus" label="Add a step after this one" size={15} onClick={() => setAddingAfter(addingAfter === node.id ? null : node.id)} />
+              )}
+              {editable && (
+                <IconButton icon="trash" label={`Remove ${label(node).toLowerCase()}`} size={15} onClick={() => setSpec((current) => ({ ...current, nodes: removeStep(current.nodes, node.id) }))} />
+              )}
+            </span>
           </div>
 
-          {node.type === "wait" && (
-            <div className="auto-step-row">
-              <label className="v-field auto-inline">
-                <span className="v-sr">Wait for</span>
-                <input
-                  type="number" inputMode="numeric" min={1} max={Math.floor(2160 / unit)}
-                  value={node.wait_hours / unit}
-                  onChange={(event) => patchNode(node.id, { wait_hours: Math.max(1, Math.min(2160, Math.round(Number(event.target.value) || 1) * unit)) })}
-                />
-              </label>
-              <label className="v-field auto-inline">
-                <span className="v-sr">Unit</span>
-                <select value={unit} onChange={(event) => patchNode(node.id, { wait_hours: Math.max(1, Math.min(2160, Math.round(node.wait_hours / unit) * Number(event.target.value))) })}>
-                  {UNITS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </select>
-              </label>
-              <span className="auto-step-help">before the next step</span>
-            </div>
-          )}
-
-          {(node.type === "draft" || node.type === "research" || node.type === "coach" || node.type === "note") && (
-            <label className="v-field">
+          {hasText && (
+            <label className="ab-text">
               <span className="v-sr">{meta.hint}</span>
               <textarea
                 rows={2}
@@ -172,27 +190,27 @@ export function AutomationBuilder({
           )}
 
           {node.type === "condition" && (
-            <div className="auto-step-grid">
-              <label className="v-field">
+            <div className="ab-grid">
+              <label>
                 <span>Check whether</span>
                 <select value={node.condition} onChange={(event) => patchNode(node.id, { condition: event.target.value })}>
                   {SIGNALS.map((signal) => <option key={signal.value} value={signal.value}>{signal.label}</option>)}
                 </select>
               </label>
               {node.condition === "stalled" && (
-                <label className="v-field">
+                <label>
                   <span>Stalled after (days)</span>
                   <input type="number" min={1} max={90} value={Math.max(1, Math.round(node.wait_hours / 24))} onChange={(event) => patchNode(node.id, { wait_hours: Math.max(24, Math.min(2160, Math.round(Number(event.target.value) || 1) * 24)) })} />
                 </label>
               )}
-              <label className="v-field">
+              <label>
                 <span>If yes, go to</span>
                 <select value={node.next ?? ""} onChange={(event) => patchNode(node.id, { next: event.target.value || null })}>
                   <option value="">Choose a step</option>
                   {targets(node).map((item) => <option key={item.id} value={item.id}>{label(item)}</option>)}
                 </select>
               </label>
-              <label className="v-field">
+              <label>
                 <span>If no, go to</span>
                 <select value={node.otherwise ?? ""} onChange={(event) => patchNode(node.id, { otherwise: event.target.value || null })}>
                   <option value="">Choose a step</option>
@@ -203,7 +221,7 @@ export function AutomationBuilder({
           )}
 
           {node.type !== "end" && node.type !== "condition" && detached && (
-            <label className="v-field">
+            <label className="ab-goto">
               <span>Then go to</span>
               <select value={node.next ?? ""} onChange={(event) => patchNode(node.id, { next: event.target.value || null })}>
                 <option value="">Choose a step</option>
@@ -212,9 +230,7 @@ export function AutomationBuilder({
             </label>
           )}
 
-          {node.type !== "end" && node.type !== "condition" && (
-            <AddStep disabled={spec.nodes.length >= 50} onAdd={(type) => addAfter(node.id, type)} />
-          )}
+          {addingAfter === node.id && addRow(node.id)}
         </div>
       </li>
     );
@@ -233,42 +249,53 @@ export function AutomationBuilder({
         </>
       }
     >
-      <form id="auto-builder-form" className="auto-builder" onSubmit={(event) => { event.preventDefault(); void save(); }} noValidate>
-        <div className="auto-builder-settings">
-          <label className="v-field auto-name">
+      <form id="auto-builder-form" className="auto-builder ab" onSubmit={(event) => { event.preventDefault(); void save(); }} noValidate>
+        <section className="ab-settings" aria-label={`${kindLabel} settings`}>
+          <label className="ab-name">
             <span>Name</span>
             <input required maxLength={120} value={spec.name} onChange={(event) => setSpec({ ...spec, name: event.target.value })} />
           </label>
-          <label className="v-field">
+          <label>
             <span>Time zone</span>
             <input list="auto-builder-zones" required value={spec.timezone} onChange={(event) => setSpec({ ...spec, timezone: event.target.value })} placeholder="Europe/London" />
             <datalist id="auto-builder-zones">{TIMEZONES.map((zone) => <option key={zone} value={zone} />)}</datalist>
           </label>
-          <label className="v-field">
+          <label>
             <span>Send drafts around</span>
             <select value={spec.preferred_hour} onChange={(event) => setSpec({ ...spec, preferred_hour: Number(event.target.value) })}>
               {Array.from({ length: 24 }, (_, hour) => <option key={hour} value={hour}>{hourLabel(hour)}</option>)}
             </select>
-            <small>In the lead’s local time.</small>
           </label>
-          <label className="auto-check">
-            <input type="checkbox" checked={spec.optimize_time} onChange={(event) => setSpec({ ...spec, optimize_time: event.target.checked })} />
-            <span>Adjust timing once a lead has replied at least three times</span>
-          </label>
-          <label className="auto-check">
-            <input type="checkbox" checked={spec.active} onChange={(event) => setSpec({ ...spec, active: event.target.checked })} />
-            <span>Active, so leads can be enrolled</span>
-          </label>
-        </div>
+          <div className="ab-toggles">
+            <label className="ab-check">
+              <input type="checkbox" checked={spec.optimize_time} onChange={(event) => setSpec({ ...spec, optimize_time: event.target.checked })} />
+              <span><b>Smart timing</b>Adjust send time once a lead has replied at least three times.</span>
+            </label>
+            <label className="ab-check">
+              <input type="checkbox" checked={spec.active} onChange={(event) => setSpec({ ...spec, active: event.target.checked })} />
+              <span><b>Active</b>Leads can be enrolled in this {kindLabel}.</span>
+            </label>
+          </div>
+        </section>
 
-        <ol className="auto-steps-list" aria-label={`${kindLabel} steps`}>
-          {ordered.map((node) => renderStep(node))}
-        </ol>
+        <div className="ab-flow">
+          <h3 className="ab-heading">Steps</h3>
+          <ol className="ab-steps" aria-label={`${kindLabel} steps`}>
+            {ordered.map((node) => renderStep(node))}
+          </ol>
+          {lastStep && lastStep.type !== "condition" && spec.nodes.length < 50 && (
+            addingAfter === "__last" ? (
+              <div className="ab-add-wrap">{addRow(lastStep.id)}</div>
+            ) : (
+              <button type="button" className="ab-add" onClick={() => setAddingAfter("__last")}><Icon name="plus" size={14} />Add step</button>
+            )
+          )}
+        </div>
         {unreachable.length > 0 && (
-          <section className="auto-detached" aria-label="Steps not connected to the flow">
-            <h3>Not connected</h3>
+          <section className="ab-detached" aria-label="Steps not connected to the flow">
+            <h3 className="ab-heading">Not connected</h3>
             <p>These steps never run. Point another step at them, or remove them.</p>
-            <ol className="auto-steps-list">{unreachable.map((node) => renderStep(node, true))}</ol>
+            <ol className="ab-steps">{unreachable.map((node) => renderStep(node, true))}</ol>
           </section>
         )}
 
@@ -278,29 +305,8 @@ export function AutomationBuilder({
           </Banner>
         )}
         {error && <Banner tone="danger">{error}</Banner>}
-        <p className="auto-builder-foot">Leads already enrolled keep the version they started with. A new reply pauses the {kindLabel}; closed leads stop receiving outreach.</p>
+        <p className="ab-foot">Leads already enrolled keep the version they started with. A new reply pauses the {kindLabel}; closed leads stop receiving outreach.</p>
       </form>
     </Sheet>
-  );
-}
-
-function AddStep({ onAdd, disabled }: { onAdd: (type: NodeType) => void; disabled: boolean }) {
-  const [open, setOpen] = useState(false);
-  if (!open) {
-    return (
-      <button type="button" className="auto-add" disabled={disabled} onClick={() => setOpen(true)}>
-        <Icon name="plus" size={13} /> Add step
-      </button>
-    );
-  }
-  return (
-    <div className="auto-add-menu" role="group" aria-label="Choose a step to add">
-      {ADDABLE.map((type) => (
-        <button key={type} type="button" onClick={() => { onAdd(type); setOpen(false); }}>
-          <Icon name={STEP_META[type].icon} size={14} />{STEP_META[type].label}
-        </button>
-      ))}
-      <button type="button" className="auto-add-cancel" onClick={() => setOpen(false)}>Cancel</button>
-    </div>
   );
 }
