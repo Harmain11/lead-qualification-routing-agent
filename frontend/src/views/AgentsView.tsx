@@ -8,6 +8,26 @@ import { activityTitle, pretty, Unavailable } from "./productShared";
 type Entry = AgentActivity["activity"][number];
 type Tab = "activity" | "agents" | "how";
 type Status = "all" | "done" | "attention";
+type When = "all" | "today" | "yesterday" | "7d" | "30d" | "custom";
+
+const WHEN_LABELS: Array<{ value: When; label: string }> = [
+  { value: "all", label: "Any time" }, { value: "today", label: "Today" }, { value: "yesterday", label: "Yesterday" },
+  { value: "7d", label: "7 days" }, { value: "30d", label: "30 days" }, { value: "custom", label: "Custom" },
+];
+
+function withinWhen(iso: string, when: When, from: string, to: string) {
+  if (when === "all") return true;
+  const time = new Date(iso).getTime();
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const day = 86_400_000;
+  if (when === "today") return time >= startOfToday.getTime();
+  if (when === "yesterday") return time >= startOfToday.getTime() - day && time < startOfToday.getTime();
+  if (when === "7d") return time >= startOfToday.getTime() - 6 * day;
+  if (when === "30d") return time >= startOfToday.getTime() - 29 * day;
+  const start = from ? new Date(`${from}T00:00:00`).getTime() : -Infinity;
+  const end = to ? new Date(`${to}T23:59:59.999`).getTime() : Infinity;
+  return time >= start && time <= end;
+}
 
 const AGENT_ICON: Record<string, IconName> = {
   routing: "route", qualification: "target", context: "sparkle", enrichment: "layers", notification: "bell", normalization: "listBullets", analytics: "analytics", crm: "share",
@@ -46,6 +66,9 @@ export function AgentsView({
   const [tab, setTab] = useState<Tab>("activity");
   const [status, setStatus] = useState<Status>("all");
   const [agent, setAgent] = useState("all");
+  const [when, setWhen] = useState<When>("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [open, setOpen] = useState<string | null>(null);
 
   const entries = data?.activity ?? [];
@@ -63,8 +86,8 @@ export function AgentsView({
     };
   }, [entries]);
   const shown = useMemo(
-    () => entries.filter((entry) => (agent === "all" || entry.agent === agent) && (status === "all" || (status === "attention" ? failed(entry) : !failed(entry)))),
-    [entries, agent, status],
+    () => entries.filter((entry) => withinWhen(entry.created_at, when, from, to) && (agent === "all" || entry.agent === agent) && (status === "all" || (status === "attention" ? failed(entry) : !failed(entry)))),
+    [entries, agent, status, when, from, to],
   );
   const groups = useMemo(() => {
     const map = new Map<string, Entry[]>();
@@ -111,6 +134,16 @@ export function AgentsView({
         <section aria-label="Activity log">
           <div className="ai-filters">
             <Segmented<Status> label="Show" value={status} onChange={setStatus} options={[{ value: "all", label: "All" }, { value: "done", label: "Completed" }, { value: "attention", label: stats.issues.length ? `Needs a look · ${stats.issues.length}` : "Needs a look" }]} />
+            <div className="ai-when" role="group" aria-label="Date range">
+              <Segmented<When> label="Date range" value={when} onChange={setWhen} options={WHEN_LABELS} />
+              {when === "custom" && (
+                <span className="ai-custom">
+                  <label><span className="v-sr">From</span><input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label>
+                  <i aria-hidden="true">to</i>
+                  <label><span className="v-sr">To</span><input type="date" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} /></label>
+                </span>
+              )}
+            </div>
             {agents.length > 1 && (
               <label className="ai-agent-filter">
                 <span className="v-sr">Agent</span>

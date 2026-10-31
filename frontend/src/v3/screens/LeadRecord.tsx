@@ -746,7 +746,6 @@ export function LeadRecord({
             canEdit={canEdit}
             canViewEmail={canViewEmail}
             meetingRefresh={meetingRefresh}
-            boardViews={boardViews}
             onOpenBoard={onOpenPipeline}
             updates={<ProgressAndHistory part="update" lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />}
             onMove={(target) => setMove(target)}
@@ -998,7 +997,7 @@ function Momentum({ lead }: { lead: Lead }) {
             {momentum.delivery.map((item) => (
               <li key={item.destination} data-attention={item.needs_attention || undefined}>
                 <span className="v-meta">{item.destination}{item.attempted_at ? ` · ${new Date(item.attempted_at).toLocaleString()}` : ""}</span>
-                <p><b>{titleize(item.status)}</b> — {item.detail}</p>
+                <p><b>{titleize(item.status)}</b>. {item.detail}</p>
               </li>
             ))}
           </ul>
@@ -1287,8 +1286,8 @@ const STAGES: Array<{ value: string; label: string }> = [
   { value: "responded", label: "Responded" },
   { value: "meeting_scheduled", label: "Meeting scheduled" },
   { value: "proposal_sent", label: "Proposal sent" },
-  { value: "converted", label: "Won — Project or Sale" },
-  { value: "lost", label: "Closed — lost" },
+  { value: "converted", label: "Won" },
+  { value: "lost", label: "Lost" },
 ];
 
 function ProgressAndHistory({
@@ -1579,7 +1578,7 @@ function OutcomeReceipt({ outcome, canEdit, busy, onRetry }: { outcome: LeadOutc
     <section className="v-outcome" data-won={won || undefined} role="status">
       <span className="v-outcome-icon"><Icon name={won ? "check" : "close"} size={20} strokeWidth={2} /></span>
       <div>
-        <h2>{won ? `Won — nice work, ${outcome.credited_name ?? "team"}` : "Closed — lost"}</h2>
+        <h2>{won ? `Won. Nice work, ${outcome.credited_name ?? "team"}` : "Closed as lost"}</h2>
         <p>
           {won ? `${titleize(outcome.conversion_type ?? "closed_won")} recorded` : "Lost outcome recorded"}
           {outcome.closed_revenue !== null && won ? ` · ${outcome.currency} ${outcome.closed_revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : won ? " · Value not recorded" : ""}

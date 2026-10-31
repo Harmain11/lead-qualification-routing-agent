@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getLeadClosingOptions } from "../../api";
 import type { Lead } from "../../types";
 import { LeadMeetingPanel, type LeadMeetingIndicator } from "../../components/LeadMeetingPanel";
@@ -13,9 +13,8 @@ import {
   type DealStage,
   type DealView,
 } from "../deals/dealStore";
-import { leadAction } from "../shell/events";
 import { Icon } from "../ui/Icon";
-import { Button, formatShortDate, Monogram } from "../ui/primitives";
+import { Button, formatShortDate } from "../ui/primitives";
 
 type Member = { user_id: string; display_name: string };
 
@@ -47,7 +46,6 @@ export function LeadPipeline({
   canEdit,
   canViewEmail,
   meetingRefresh,
-  boardViews,
   updates,
   onOpenBoard,
   onMove,
@@ -59,7 +57,6 @@ export function LeadPipeline({
   canEdit: boolean;
   canViewEmail: boolean;
   meetingRefresh: number;
-  boardViews?: DealView[];
   updates?: ReactNode;
   onOpenBoard?: () => void;
   onMove: (target: DealStage) => void;
@@ -85,16 +82,6 @@ export function LeadPipeline({
     getLeadClosingOptions(controller.signal).then((rows) => { if (!controller.signal.aborted) setMembers(rows); }).catch(() => undefined);
     return () => controller.abort();
   }, [editable]);
-
-  const peers = useMemo(() => (boardViews ?? []).filter((item) => item.stage === view.stage && item.lead.id !== lead.id), [boardViews, view.stage, lead.id]);
-  const openDeals = useMemo(() => (boardViews ?? []).filter((item) => item.stage !== "won" && item.stage !== "lost"), [boardViews]);
-  const rank = useMemo(() => {
-    if (view.value == null || closed) return null;
-    const valued = openDeals.filter((item) => item.value != null).sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
-    const index = valued.findIndex((item) => item.lead.id === lead.id);
-    return index === -1 ? null : { place: index + 1, of: valued.length };
-  }, [openDeals, view.value, closed, lead.id]);
-  const stageTotal = peers.reduce((sum, item) => sum + (item.value ?? 0), 0) + (view.value ?? 0);
 
   const commitValue = () => {
     if (valueDraft === null) return;
@@ -243,30 +230,6 @@ export function LeadPipeline({
           />
         </div>
         <aside className="lp-side">
-          {boardViews && boardViews.length > 0 && !closed && (
-            <section className="v-card v-card-pad" aria-labelledby="lp-board-title">
-              <h2 id="lp-board-title" className="v-card-title">On the board</h2>
-              <dl className="lp-stats">
-                <div><dt>In {stageInfo(view.stage).label}</dt><dd className="num">{peers.length + 1} deal{peers.length ? "s" : ""}</dd></div>
-                <div><dt>Stage value</dt><dd className="num">{formatMoney(stageTotal)}</dd></div>
-                {rank && <div><dt>By value</dt><dd className="num">#{rank.place} of {rank.of}</dd></div>}
-              </dl>
-              {peers.length > 0 && (
-                <ul className="lp-peers">
-                  {peers.slice(0, 4).map((item) => (
-                    <li key={item.lead.id}>
-                      <button type="button" onClick={() => leadAction(item.lead.id, "open")}>
-                        <Monogram text={item.lead.company_name || item.lead.full_name} size={26} />
-                        <span><b>{item.lead.company_name || item.lead.full_name}</b><small>{item.owner ?? "Unassigned"}{item.daysInStage != null ? ` · ${item.daysInStage}d` : ""}</small></span>
-                        <span className="num">{item.value != null ? formatMoney(item.value) : "—"}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {onOpenBoard && <Button kind="plain" size="sm" trailingIcon="arrowRight" onClick={onOpenBoard}>See all deals</Button>}
-            </section>
-          )}
           <section className="v-card v-card-pad" aria-labelledby="lp-activity-title">
             <h2 id="lp-activity-title" className="v-card-title">Deal activity</h2>
             {deal.activity.length ? (

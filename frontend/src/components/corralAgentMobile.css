@@ -1069,4 +1069,4 @@
 #corral-agent-window .v-agent-context > .v-agent-scope { grid-column: 1 / -1; grid-row: 1; }
 #corral-agent-window .v-agent-context > .v-agent-subject { grid-column: 1; grid-row: 2; }
 #corral-agent-window .v-agent-context > .corral-agent-change-lead { grid-column: 2; grid-row: 2; align-self: center; min-height: 32px; }
-#corral-agent-window .la-composer textarea { height: auto; min-height: 72px; field-sizing: content; }
+#corral-agent-window .la-composer textarea { height: 72px; min-height: 72px; field-sizing: fixed; }

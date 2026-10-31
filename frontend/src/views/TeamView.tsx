@@ -1,4 +1,5 @@
 import { OperationsDialog } from "../components/OperationsDialog";
+import { Icon } from "../v3/ui/Icon";
 import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
@@ -304,7 +305,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           </section>
           {selected && <div className="team-member-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null); }}>
             <section className="team-member-drawer" role="dialog" aria-modal="true" aria-label={`Edit ${selected.display_name}`}>
-              <button className="team-back" type="button" onClick={() => setSelectedId(null)}>‹ Back to members</button>
+              <button className="team-back" type="button" onClick={() => setSelectedId(null)}><Icon name="chevronLeft" size={14} />Back to members</button>
               <MemberDetail
               member={selected}
               actor={actor}

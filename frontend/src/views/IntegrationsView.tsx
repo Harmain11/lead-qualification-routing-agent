@@ -3,6 +3,7 @@ import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../a
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { FeatureGuide } from "../components/FeatureGuide";
 import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
+import { BRAND_MARKS } from "../v3/ui/brandMarks";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { SlackSetupGuide } from "../components/SlackSetupGuide";
@@ -193,7 +194,22 @@ const BRAND_TINT: Record<string, string> = {
 };
 
 function ProviderMark({ provider, name }: { provider: string; name: string }) {
-  return <span className="int-mark" style={{ "--int-tint": BRAND_TINT[provider] ?? "var(--tint)" } as React.CSSProperties} aria-hidden="true">{name.trim().charAt(0).toUpperCase()}</span>;
+  const mark = BRAND_MARKS[provider];
+  const [hasFile, setHasFile] = useState(false);
+  if (mark) {
+    return (
+      <span className="int-mark int-mark-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill={mark.hex} focusable="false"><path d={mark.path} /></svg>
+      </span>
+    );
+  }
+  // Official artwork can be dropped in public/brand/logos/<provider>.svg; until then the lettered tile stands in.
+  return (
+    <span className={`int-mark${hasFile ? " int-mark-logo" : ""}`} style={{ "--int-tint": BRAND_TINT[provider] ?? "var(--tint)" } as React.CSSProperties} aria-hidden="true">
+      {!hasFile && name.trim().charAt(0).toUpperCase()}
+      <img src={`/brand/logos/${provider}.svg`} alt="" hidden={!hasFile} onLoad={() => setHasFile(true)} onError={() => setHasFile(false)} />
+    </span>
+  );
 }
 
 function oauthConnectFailureMessage(provider: string, message: string) {
