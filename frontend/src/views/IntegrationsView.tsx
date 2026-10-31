@@ -1320,7 +1320,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             onDisconnect={(gmailAccount) => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)}
             statusLabel={connectionStatusLabel}
           />}
-         <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application › Slack · outbound notifications only" : openAI ? "Workspace OpenAI project › structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
+         <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application › Slack · outbound notifications only" : openAI ? "Workspace OpenAI project › structured lead analysis" : "How this connection is used"}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
              <SlackSetupGuide open={slackGuideOpen} onOpenChange={setSlackGuideOpen} />

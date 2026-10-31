@@ -1149,3 +1149,107 @@ html[data-theme="light"] .v-sidebar, :root:not([data-theme="dark"]) .v-sidebar {
 .auto-builder-settings { gap: 12px 16px; padding-bottom: 16px; }
 .auto-builder .auto-check { padding: 2px 0; }
 .auto-builder-foot { margin: 0; font: var(--t-footnote); color: var(--label-3); }
+
+/* ===================================================== One checkbox everywhere (same as the lead list) */
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]) {
+  appearance: none; -webkit-appearance: none; display: inline-grid; place-items: center; flex: none; box-sizing: border-box;
+  width: 18px; height: 18px; min-width: 18px; margin: 0; padding: 0; border: 0 !important; border-radius: 5px;
+  background: var(--fill-press) !important; box-shadow: none; cursor: pointer; accent-color: initial;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):checked,
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):indeterminate { background: var(--tint) !important; }
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):checked::after { content: ""; width: 9px; height: 5px; margin-top: -2px; border: solid #fff; border-width: 0 0 2px 2px; transform: rotate(-45deg); }
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):indeterminate::after { content: ""; width: 8px; height: 2px; border-radius: 1px; background: #fff; }
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):focus-visible { outline: 2px solid var(--field-ring); outline-offset: 2px; }
+input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disabled { opacity: 0.4; cursor: default; }
+@media (hover: hover) { input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):not(:checked):not(:disabled):hover { background: var(--fill-hover) !important; } }
+
+/* Filter button keeps its size; the active count floats on its corner */
+.v-app .rec-pop > button { position: relative; }
+.v-app .rec-pop-badge { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; box-shadow: 0 0 0 2px var(--canvas) !important; background: var(--label) !important; color: var(--surface); }
+.v-app .b-search, .v-app .b-filter { height: 40px; min-height: 40px; border-radius: var(--r-pill); }
+.v-app .b-filter .v-popup { height: 40px; }
+
+/* ===================================================== ICP polish: calmer type, no dead space */
+.v-app .icp-builder { min-height: 0 !important; padding: 22px 24px; gap: 16px; }
+.v-app .icp-builder-head { padding-bottom: 12px; }
+.v-app .icp-builder-head h2 { font: 600 17px/1.3 var(--font); }
+.v-app .icp-builder-head .eyebrow { font: 500 12px/1.3 var(--font); }
+.v-app .icp-field, .v-app .icp-field > span:first-child { font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .icp-builder :is(input:not([type="checkbox"]), select, textarea) { height: 38px; font: 400 14px/1.3 var(--font); }
+.v-app .icp-field small { font: 400 12px/1.4 var(--font); }
+.v-app .icp-step-actions { padding-top: 14px; }
+.v-app .weight-total strong { font: 600 22px/1 var(--font); }
+.v-app .weight-total p { font: 400 13px/1.4 var(--font); }
+.v-app .weight-list > div { min-height: 46px; padding: 6px 14px; font: 400 13px/1.35 var(--font); }
+.v-app .weight-list b { font: 500 13px/1.3 var(--font); }
+.v-app .review-summary > div { padding: 12px 14px; }
+.v-app .review-summary b { font: 600 14px/1.3 var(--font); }
+.v-app .review-actions .secondary-button, .v-app .review-actions .primary-button { height: 36px; font-size: 13px; }
+.v-app .icp-overview { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px 24px; padding: 18px 22px; }
+.v-app .icp-live strong { font: 600 19px/1.25 var(--font); }
+.v-app .icp-live span { font: 400 13px/1.4 var(--font); }
+.v-app .icp-live small { font: 500 12px/1.3 var(--font); }
+.v-app .icp-mode { gap: 6px; }
+.v-app .icp-mode p { max-width: 280px; font: 400 12px/1.4 var(--font); }
+.v-app .icp-overview-foot { gap: 8px; padding-top: 14px; }
+.v-app .icp-overview-foot .icp-status, .v-app .icp-overview-foot .weight-pill { height: 26px; padding: 0 11px; font: 500 12px/1 var(--font); }
+.v-app .icp-overview-foot .v-btn { height: 34px; }
+.v-app .icp-mode .v-seg button:focus-visible, .v-app .icp-mode .v-seg [role="radio"]:focus-visible { outline: 1.5px solid var(--field-ring); outline-offset: -2px; box-shadow: none; }
+.v-app .icp-mode .v-seg input:focus-visible + * { outline: none; box-shadow: none; }
+.v-app .icp-sections button { min-height: 38px; font: 500 13px/1.3 var(--font); }
+.v-app .icp-history > button b { font: 600 12px/1.35 var(--font); }
+
+/* ===================================================== Integrations: equal cards, quiet rows */
+.v-app .integrations-page .integration-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); align-items: stretch; gap: 12px; }
+.v-app .integrations-page .int-card:not(.is-expanded) { display: flex; flex-direction: column; justify-content: center; min-height: 112px; }
+.v-app .integrations-page .int-card:not(.is-expanded) > .int-head { flex: 1; align-items: center; padding: 16px 18px; }
+.v-app .integrations-page .int-id { min-width: 0; }
+.v-app .integrations-page .int-id h2 { font: 600 15px/1.3 var(--font); }
+.v-app .integrations-page .int-id p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: 400 13px/1.4 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-toggle { flex: none; height: 34px; padding: 0 16px; border-radius: var(--r-pill); }
+.v-app .integrations-page .int-card.is-expanded { grid-column: 1 / -1; }
+/* inside an expanded card */
+.v-app .integrations-page .int-setup { font: var(--t-subhead); }
+.v-app .integrations-page .int-setup h3, .v-app .integrations-page .int-setup h4 { margin: 0 0 4px; font: 600 14px/1.35 var(--font); color: var(--label); }
+.v-app .integrations-page .int-setup p { margin: 0; color: var(--label-2); font: 400 13px/1.5 var(--font); }
+.v-app .integrations-page .int-setup :is(label) { display: grid; gap: 6px; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-setup label:has(> input[type="checkbox"]), .v-app .integrations-page .int-setup label.v-switch-row { display: flex; align-items: center; gap: 10px; font: 400 14px/1.4 var(--font); color: var(--label); }
+.v-app .integrations-page .int-setup :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { height: 38px; font: 400 14px/1.3 var(--font); }
+.v-app .integrations-page .int-setup textarea { height: 84px; padding: 9px 12px; }
+.v-app .integrations-page .int-setup :is(.primary-button, .secondary-button, .button-quiet, .danger-button, .card-actions button, button.v-btn) { height: 34px; padding: 0 16px; border-radius: var(--r-pill); font: 600 13px/1 var(--font); }
+.v-app .integrations-page .int-setup :is(.secondary-button, .button-quiet) { background: var(--fill) !important; }
+.v-app .integrations-page .int-setup :is(.primary-button) { background: var(--tint) !important; color: var(--on-tint) !important; }
+.v-app .integrations-page .int-setup :is(.danger-button) { background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--danger-text) !important; }
+.v-app .integrations-page .int-setup :is(pre, code) { padding: 10px 12px; border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--separator); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.v-app .integrations-page .int-setup ol, .v-app .integrations-page .int-setup ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--label-2); font: 400 13px/1.5 var(--font); }
+.v-app .integrations-page .int-setup .integration-section-disclosure-content { display: grid; gap: 14px; }
+.v-app .integrations-page .int-setup [class*="-row"], .v-app .integrations-page .int-setup [class*="setting-"] { min-width: 0; }
+.v-app .integrations-page .int-setup > .integration-section-disclosure > summary::after { content: ""; flex: none; width: 7px; height: 7px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.v-app .integrations-page .int-setup > .integration-section-disclosure[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
+.v-app .integrations-page .int-setup > .integration-section-disclosure > summary > svg, .v-app .integrations-page .int-setup > .integration-section-disclosure > summary > .v-icon { display: none; }
+.v-app .integrations-page .int-id p { white-space: normal !important; text-overflow: clip; }
+
+/* ===================================================== Plot settings, final form */
+.v-app .plot-settings > summary { height: 30px; padding: 0 12px 0 14px; font: 500 13px/1 var(--font); color: var(--label); background: var(--fill); }
+.v-app .plot-settings[open] > summary { background: var(--fill-press, var(--fill)); }
+.v-app .plot-settings-content { display: grid; gap: 16px; margin: 10px 0 6px; padding: 18px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--separator); background: transparent; }
+.v-app .plot-settings-controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px 16px; align-items: end; }
+.v-app .plot-settings-controls > label { display: grid; gap: 6px; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .plot-settings-controls :is(input:not([type="checkbox"]), select) { height: 38px; padding: 0 12px; border-radius: 10px; font: 400 14px/1.3 var(--font); }
+.v-app .plot-settings-controls input::placeholder { color: var(--label-3); }
+.v-app .plot-settings-controls > fieldset, .v-app .plot-settings-controls > .plot-item-toggles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 16px; margin: 0; padding: 14px 0 0; border: 0; border-radius: 0; background: transparent; box-shadow: inset 0 1px 0 var(--separator); min-width: 0; }
+.v-app .plot-settings-controls > fieldset > legend { grid-column: 1 / -1; float: none; width: 100%; margin: 0 0 2px; padding: 0; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .plot-settings-controls > fieldset > legend + * { margin-top: 0; }
+.v-app .plot-settings-controls > fieldset > label { display: flex; align-items: flex-start; gap: 10px; min-width: 0; font: 400 14px/1.35 var(--font); color: var(--label); }
+.v-app .plot-settings-controls > fieldset > label > input { margin-top: 1px; }
+.v-app .plot-settings-controls > fieldset > label > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.v-app .plot-settings-reset { justify-self: end; height: 30px; padding: 0 14px; background: transparent; box-shadow: inset 0 0 0 1px var(--separator-strong); color: var(--label-2); font: 500 13px/1 var(--font); }
+.v-app .plot-settings-reset:hover { background: var(--fill); color: var(--label); }
+.v-app .plot-settings + * { margin-top: 4px; }
+.v-app .ops-page > .ops-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.v-app .ops-page > .ops-toolbar > h2 { margin: 0 auto 0 0; font: 600 18px/1.3 var(--font); letter-spacing: -0.014em; }
+.v-app .ops-page > .ops-toolbar > label { font: 500 13px/1 var(--font); color: var(--label-2); }
+.v-app .ops-page > .ops-toolbar > label select { height: 36px; min-width: 130px; border-radius: var(--r-pill); padding: 0 32px 0 14px; }
+.v-app .ops-page > .ops-toolbar > .secondary-button { height: 36px; padding: 0 16px; border-radius: var(--r-pill); font: 600 13px/1 var(--font); }
