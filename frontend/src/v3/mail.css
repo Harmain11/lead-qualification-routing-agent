@@ -168,3 +168,71 @@
   .mail-field > span:first-child { width: 44px; }
 }
 .mail-field select:disabled { opacity: 1; color: var(--label-2); background: transparent; appearance: none; }
+
+/* ======================================== Lead email tab (conversation) */
+.lm { display: grid; gap: 14px; max-width: 920px; margin: 0 auto; width: 100%; }
+.lm-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.lm-head h2 { margin: 0; font: 600 20px/1.25 var(--font); letter-spacing: -0.015em; }
+.lm-head p { margin: 2px 0 0; font: var(--t-subhead); color: var(--label-2); }
+.lm-head-actions { display: flex; gap: 8px; }
+.lm-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-card); font: var(--t-callout); color: var(--label); }
+.lm-status > svg { flex: none; color: var(--label-3); }
+.lm-status[data-tone="tint"] > svg { color: var(--tint); }
+.lm-status[data-tone="attention"] > svg { color: var(--attention-text); }
+.lm-status small { margin-left: auto; font: var(--t-footnote); color: var(--label-3); }
+.lm-ai { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lm-ai-label { display: inline-flex; align-items: center; gap: 6px; margin-right: 4px; font: 600 13px/1 var(--font); color: var(--tint-text); }
+.lm-ai button { height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-pill); background: var(--tint-soft); color: var(--tint-text); font: 500 13px/1 var(--font); cursor: pointer; transition: background-color 120ms ease, transform 120ms ease; }
+.lm-ai button:hover:not(:disabled) { background: color-mix(in srgb, var(--tint) 18%, var(--surface)); }
+.lm-ai button:active:not(:disabled) { transform: scale(0.97); }
+.lm-ai button:disabled { opacity: .45; cursor: not-allowed; }
+.lm-composer { padding: 16px; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-card); }
+.lm-threads { display: grid; gap: 12px; }
+.lm-thread { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
+.lm-thread > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; list-style: none; cursor: pointer; }
+.lm-thread > summary::-webkit-details-marker { display: none; }
+.lm-thread-title { display: grid; gap: 2px; min-width: 0; }
+.lm-thread-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 16px/1.3 var(--font); }
+.lm-thread-title small { font: var(--t-footnote); color: var(--label-3); }
+.lm-chevron { flex: none; width: 8px; height: 8px; border-right: 1.75px solid var(--label-3); border-bottom: 1.75px solid var(--label-3); transform: rotate(45deg); transition: transform 180ms cubic-bezier(.23, 1, .32, 1); }
+.lm-thread[open] > summary .lm-chevron { transform: rotate(-135deg); }
+.lm-messages { display: grid; margin: 0; padding: 0 0 6px; list-style: none; border-top: 1px solid var(--separator); }
+.lm-message + .lm-message { border-top: 1px solid var(--separator); }
+.lm-message > details > summary { display: grid; grid-template-columns: auto minmax(120px, 190px) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 18px; list-style: none; cursor: pointer; transition: background-color 120ms ease; }
+.lm-message > details > summary::-webkit-details-marker { display: none; }
+.lm-message > details > summary:hover { background: var(--fill); }
+.lm-from { display: grid; min-width: 0; }
+.lm-from b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 14px/1.3 var(--font); }
+.lm-from small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-footnote); color: var(--label-3); }
+.lm-snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-subhead); color: var(--label-3); }
+.lm-message > details[open] > summary .lm-snippet { visibility: hidden; }
+.lm-message time { font: var(--t-footnote); color: var(--label-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lm-message[data-outbound] > details[open] > .lm-body { background: color-mix(in srgb, var(--tint-soft) 45%, transparent); }
+.lm-body { display: grid; gap: 12px; padding: 4px 18px 16px 62px; }
+.lm-addresses { display: flex; flex-wrap: wrap; gap: 4px 14px; font: var(--t-footnote); color: var(--label-3); }
+.lm-addresses b { color: var(--label-2); font-weight: 500; overflow-wrap: anywhere; }
+.lm-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
+@container record (max-width: 640px) {
+  .lm-message > details > summary { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .lm-snippet { display: none; }
+  .lm-body { padding-left: 18px; }
+}
+
+/* ===================================== Inbox: groups, filters, shortcuts */
+.mailbox-grid { border: 0; box-shadow: var(--shadow-card); }
+.mailbox-day { position: sticky; top: 0; z-index: 1; margin: 0; padding: 10px 18px 6px; background: color-mix(in srgb, var(--surface) 92%, transparent); font: 600 12px/1 var(--font); letter-spacing: .02em; color: var(--label-3); }
+.mailbox-filters { display: inline-flex; gap: 2px; margin: 0 var(--s3) var(--s2); padding: 3px; width: fit-content; border-radius: var(--r-md); background: var(--fill); }
+.mailbox-filters button { height: 28px; padding: 0 12px; border: 0; border-radius: calc(var(--r-md) - 3px); background: transparent; color: var(--label-2); font: 500 13px/1 var(--font); cursor: pointer; }
+.mailbox-filters button[aria-pressed="true"] { background: var(--surface); color: var(--label); box-shadow: 0 1px 2px rgba(15, 27, 45, 0.12); }
+.mailbox-row { border-bottom: 0; padding: 12px 18px; transition: background-color 120ms ease; }
+.mailbox-row + .mailbox-row::before { content: ""; position: absolute; top: 0; left: 62px; right: 0; height: 1px; background: var(--separator); }
+.mailbox-row[aria-current="true"] { box-shadow: inset 3px 0 0 var(--tint); }
+.mailbox-unread { left: 6px; }
+.mailbox-keys { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 12px 18px; border-top: 1px solid var(--separator); font: var(--t-footnote); color: var(--label-3); }
+.mailbox-keys kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-right: 4px; padding: 0 4px; border-radius: 5px; background: var(--fill); color: var(--label-2); font: 500 11px/1 var(--font); }
+.mailbox-lead { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: var(--r-pill); background: var(--tint-soft); color: var(--tint-text); font: 600 13px/1 var(--font); text-decoration: none; white-space: nowrap; }
+.mailbox-lead:hover { background: color-mix(in srgb, var(--tint) 18%, var(--surface)); }
+.mailbox-reader-head { gap: 12px; }
+.mailbox-reader-head h2 { font: 600 20px/1.3 var(--font); letter-spacing: -0.015em; }
+.mailbox-message { border-radius: var(--r-md); }
+@media (max-width: 900px) { .mailbox-keys { display: none; } }

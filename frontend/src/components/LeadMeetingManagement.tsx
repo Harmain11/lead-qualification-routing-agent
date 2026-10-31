@@ -101,14 +101,14 @@ export function LeadMeetingManagement({ leadId, canEdit, refreshToken, onChanged
     {meeting && <>
       <p className="meeting-management-time">{formatTime(meeting.start_at)}</p>
       <p className="meeting-management-meta">{meeting.provider === "calendly" ? "Calendly" : "Google Calendar"} · {meeting.title}</p>
-      {meeting.event_url?.startsWith("https://") && <a href={meeting.event_url} target="_blank" rel="noreferrer">Open calendar event ↗</a>}
+      {meeting.event_url?.startsWith("https://") && <a href={meeting.event_url} target="_blank" rel="noreferrer">Open calendar event ›</a>}
       {canEdit && <div className="meeting-management-actions">
         {meeting.provider === "calendly" ? (
-          meeting.reschedule_url && <a className="secondary-button" href={meeting.reschedule_url} target="_blank" rel="noreferrer">Reschedule in Calendly ↗</a>
+          meeting.reschedule_url && <a className="secondary-button" href={meeting.reschedule_url} target="_blank" rel="noreferrer">Reschedule in Calendly ›</a>
         ) : <button className="secondary-button" type="button" onClick={() => { setAction(action === "reschedule" ? null : "reschedule"); setError(null); }}>Reschedule</button>}
         {meeting.can_cancel_here
           ? <button className="secondary-button" type="button" onClick={() => { setAction(action === "cancel" ? null : "cancel"); setError(null); }}>Cancel meeting</button>
-          : meeting.cancel_url && <a className="secondary-button" href={meeting.cancel_url} target="_blank" rel="noreferrer">Cancel invitee in Calendly ↗</a>}
+          : meeting.cancel_url && <a className="secondary-button" href={meeting.cancel_url} target="_blank" rel="noreferrer">Cancel invitee in Calendly ›</a>}
       </div>}
       {meeting.provider === "calendly" && <small>After changing the meeting in Calendly, select Refresh status here to verify the result.</small>}
       {action === "cancel" && <form className="meeting-management-form" onSubmit={(event) => void cancel(event)}>

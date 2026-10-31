@@ -175,7 +175,7 @@ async function refresh() { setLoadedDetails({}); setData(await opsGet<Activity>(
     {error && <p className="notice calls-notice" role="alert">{error}</p>}
     {notice && <p className="notice calls-notice calls-notice-success" role="status">{notice}</p>}
     {!data && !error && <p className="calls-loading" role="status">Loading call activity…</p>}
-    {!historyOnly && data && data.connections.length === 0 && <div className="ops-empty calls-provider-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations →</a></div>}
+    {!historyOnly && data && data.connections.length === 0 && <div className="ops-empty calls-provider-empty"><strong>No verified calling provider</strong><p>Connect and verify Twilio, Aircall, RingCentral, Vapi, Retell AI or CloudTalk in Integrations to call from this lead.</p><a href="?view=integrations">Manage calling integrations ›</a></div>}
     {!historyOnly && data && data.connections.length > 0 && <>
       {!data.outreach_allowed && <p className="notice calls-notice calls-consent-notice" role="status">{data.outreach_reason}</p>}
       <form ref={callFormRef} onSubmit={(event) => void start(event)} className="calls-form">

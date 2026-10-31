@@ -18,7 +18,13 @@ NEW_DB=$([[ -f local-dev.db ]] && echo 0 || echo 1)
 from lead_agent.infrastructure.db import models, operations  # noqa: F401
 from lead_agent.infrastructure.db.session import build_engine
 from lead_agent.infrastructure.db.base import Base
-Base.metadata.create_all(build_engine())
+engine = build_engine()
+Base.metadata.create_all(engine)
+# create_all never alters existing tables; add columns introduced after the preview database was made.
+from sqlalchemy import inspect, text
+if "profile" not in {c["name"] for c in inspect(engine).get_columns("contacts")}:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE contacts ADD COLUMN profile JSON NOT NULL DEFAULT '{}'"))
 PYEOF
 if [[ "$NEW_DB" == 1 ]]; then
   "$PY" -m alembic -c backend/alembic.ini stamp head

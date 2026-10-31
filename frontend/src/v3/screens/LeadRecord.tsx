@@ -31,7 +31,7 @@ import { getLeadTalkingPoints } from "../../leadActionPlan";
 import { leadSectionHref, type LeadDetailSection } from "../../leadSections";
 import { buildLeadProfileUpdates, createLeadProfileDraft, type LeadProfileDraft } from "../../leadProfileEditor";
 import type { CrmSync, Lead, LeadAssignmentOption, LeadMomentum, LeadOutcome, ProviderConnection, Qualification } from "../../types";
-import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageFromBackend, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
+import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageFromBackend, stageInfo, useDeals, viewDeal, type DealStage, type DealView } from "../deals/dealStore";
 import { StageMoveSheet } from "../deals/StageMoveSheet";
 import { togglePhone, type LeadAction } from "../shell/events";
 import { Icon } from "../ui/Icon";
@@ -87,6 +87,8 @@ type Props = {
   embeddedPhone?: boolean;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
+  boardViews?: DealView[];
+  onOpenPipeline?: () => void;
   canEnrollAutomations?: boolean;
   onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
@@ -108,6 +110,8 @@ export function LeadRecord({
   canManageRouting = false,
   canManageManualReview = false,
   assignmentOptions = [],
+  boardViews,
+  onOpenPipeline,
   recordedStage = null,
   intent = null,
   embeddedPhone = false,
@@ -131,6 +135,7 @@ export function LeadRecord({
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [activityRefresh, setActivityRefresh] = useState(0);
   const [compose, setCompose] = useState<{ subject?: string; body?: string; quoteId?: string; nonce: number } | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState<{ text: string; nonce: number } | null>(null);
   const [newQuote, setNewQuote] = useState(false);
   const [move, setMove] = useState<DealStage | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -741,6 +746,9 @@ export function LeadRecord({
             canEdit={canEdit}
             canViewEmail={canViewEmail}
             meetingRefresh={meetingRefresh}
+            boardViews={boardViews}
+            onOpenBoard={onOpenPipeline}
+            updates={<ProgressAndHistory part="update" lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />}
             onMove={(target) => setMove(target)}
             onDraftCreated={() => onSectionChange("email")}
             onMeetingStatusChange={handleMeetingStatusChange}
@@ -748,20 +756,19 @@ export function LeadRecord({
         )}
       </section>
 
-      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
+      <ProgressAndHistory part="history" lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Email */}
       <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
         <div className="v-stack">
-          {visited.has("email") && canEdit && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
+          {visited.has("email") && canEdit && compose && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
           {visited.has("email") && <div className="v-legacy-block">
             <LeadEmailPanel
               lead={lead}
               active={shownSection === "email"}
               canView={canViewEmail}
               canSend={canEdit}
-              hideComposeButton
-              onAskAgent={() => onSectionChange("agent")}
+              onAskAgent={(prompt) => { if (prompt) setAgentPrompt({ text: prompt, nonce: Date.now() }); onSectionChange("agent"); }}
               onConversationSynced={synced}
             />
           </div>}
@@ -772,6 +779,7 @@ export function LeadRecord({
       {/* --------------------------------------------------------- Assistant */}
       <section id="lead-panel-agent" className="v-panel v-legacy-block" role="tabpanel" aria-labelledby="lead-tab-agent" tabIndex={0} hidden={shownSection !== "agent"}>
         {visited.has("agent") && <LeadAssistantPanel
+          seedPrompt={agentPrompt}
           lead={lead}
           canEdit={canEdit}
           canManageManualReview={canManageManualReview}
@@ -962,7 +970,7 @@ function Momentum({ lead }: { lead: Lead }) {
       <p className="v-card-sub">What changed, from the evidence Corral has seen.</p>
       <div className="v-stats">
         <div><span>Temperature</span><b>{titleize(momentum.state)}</b><small>{titleize(momentum.classification)} · {momentum.score}/100</small></div>
-        <div><span>Movement</span><b>{delta}</b><small>{momentum.previous_score === null ? "No earlier score" : `${momentum.previous_score} → ${momentum.score}`}</small></div>
+        <div><span>Movement</span><b>{delta}</b><small>{momentum.previous_score === null ? "No earlier score" : `${momentum.previous_score} › ${momentum.score}`}</small></div>
         <div><span>Freshness</span><b>{momentum.freshness_hours < 1 ? "Just updated" : `${momentum.freshness_hours}h ago`}</b><small>{momentum.observed_signals} verified signal{momentum.observed_signals === 1 ? "" : "s"}</small></div>
       </div>
       <div className="v-nextstep">
@@ -1284,12 +1292,14 @@ const STAGES: Array<{ value: string; label: string }> = [
 ];
 
 function ProgressAndHistory({
+  part,
   lead,
   canEdit,
   refreshToken,
   activeSection,
   onConversationSynced,
 }: {
+  part: "update" | "history";
   lead: Lead;
   canEdit: boolean;
   refreshToken: number;
@@ -1422,7 +1432,7 @@ function ProgressAndHistory({
       title: `${event.details.direction === "outbound" ? "You sent" : "Lead sent"}: ${String(event.details.subject || "(no subject)")}`,
       when: event.created_at,
       body: String(event.details.body || ""),
-      meta: `${String(event.details.sender || "")} → ${String(event.details.recipients || "")}`,
+      meta: `${String(event.details.sender || "")} › ${String(event.details.recipients || "")}`,
     })),
     ...meetingEvents.slice(0, 10).map((event) => ({
       id: event.id,
@@ -1437,7 +1447,7 @@ function ProgressAndHistory({
   const closing = stage === "converted" || stage === "lost";
   return (
     <>
-      <section id="lead-panel-closing" className="v-panel" role="region" aria-label="Pipeline activity updates" tabIndex={0} hidden={activeSection !== "pipeline"}>
+      {part === "update" && <div id="lead-panel-closing" className="lp-update" role="region" aria-label="Log a deal update">
         <div className="v-stack">
           {outcome && (
             <OutcomeReceipt
@@ -1457,11 +1467,11 @@ function ProgressAndHistory({
             <form className="v-card v-card-pad v-form" onSubmit={(event) => void save(event)}>
               <div className="v-card-headrow">
                 <div>
-                  <h2 className="v-card-title">Pipeline activity update</h2>
-                  <p className="v-card-sub">Record a verified update at the correct stage. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
+                  <h2 className="v-card-title">Log an update</h2>
+                  <p className="v-card-sub">Record what just happened. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
                 </div>
                 <Button size="sm" disabled={syncBusy || busy} onClick={() => void syncConversation()} icon="refresh">
-                  {syncBusy ? "Syncing Gmail…" : "Sync Gmail & Re-check"}
+                  {syncBusy ? "Syncing Gmail…" : "Sync Gmail"}
                 </Button>
               </div>
               <div className="v-stagepicker" role="radiogroup" aria-label="Manual progress or closing outcome">
@@ -1524,9 +1534,9 @@ function ProgressAndHistory({
           )}
           {notice && <Banner tone="tint" title={notice} />}
         </div>
-      </section>
+      </div>}
 
-      <section id="lead-panel-history" className="v-panel v-panel-follow" role="region" aria-label="Lead history" hidden={activeSection !== "history"}>
+      {part === "history" && <section id="lead-panel-history" className="v-panel v-panel-follow" role="region" aria-label="Lead history" hidden={activeSection !== "history"}>
         {eventsLoading && (
           <div className="v-card v-card-pad" aria-label="Loading lead history">
             <i className="v-skel" style={{ width: "50%" }} /><i className="v-skel" style={{ width: "70%", marginTop: 12 }} /><i className="v-skel" style={{ width: "40%", marginTop: 12 }} />
@@ -1556,7 +1566,7 @@ function ProgressAndHistory({
             ))}
           </ol>
         )}
-      </section>
+      </section>}
     </>
   );
 }

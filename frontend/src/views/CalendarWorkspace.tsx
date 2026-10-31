@@ -55,6 +55,9 @@ export function CalendarWorkspace({ leads, canEdit, onOpenLead, onOpenIntegratio
   const [notes, setNotes] = useState("");
   const [leadId, setLeadId] = useState("");
   const [filter, setFilter] = useState<"all" | WorkspaceCalendarEvent["kind"]>("all");
+  const [layout, setLayout] = useState<"month" | "week" | "agenda">(() => {
+    try { const saved = window.localStorage.getItem("corral-calendar-layout"); return saved === "week" || saved === "agenda" ? saved : "month"; } catch { return "month"; }
+  });
   const days = useMemo(() => calendarDays(month), [month]);
   const firstDay = dayKey(days[0]);
   const lastDay = dayKey(days[days.length - 1]);
@@ -86,6 +89,38 @@ export function CalendarWorkspace({ leads, canEdit, onOpenLead, onOpenIntegratio
     setMonth(next);
     setSelectedDay(dayKey(next));
   }
+
+  const selectedDate = new Date(`${selectedDay}T12:00:00`);
+  const weekStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() - ((selectedDate.getDay() + 6) % 7));
+  const weekDays = Array.from({ length: 7 }, (_, index) => new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + index));
+
+  function moveWeek(offset: number) {
+    const next = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + offset * 7);
+    setSelectedDay(dayKey(next));
+    if (next.getMonth() !== month.getMonth() || next.getFullYear() !== month.getFullYear()) {
+      const key = dayKey(next);
+      if (key < firstDay || key > lastDay) setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+    }
+  }
+
+  function step(offset: number) {
+    if (layout === "week") moveWeek(offset);
+    else moveMonth(offset);
+  }
+
+  function chooseLayout(value: "month" | "week" | "agenda") {
+    setLayout(value);
+    try { window.localStorage.setItem("corral-calendar-layout", value); } catch { /* optional */ }
+  }
+
+  const upcoming = useMemo(() => {
+    const now = Date.now();
+    return filtered.filter((event) => new Date(event.end_at).getTime() >= now).sort((a, b) => a.start_at.localeCompare(b.start_at));
+  }, [filtered]);
+
+  const heading = layout === "week"
+    ? `${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(weekDays[0])} – ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(weekDays[6])}`
+    : new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(month);
 
   function openNewEvent() {
     setStart(localInput(selectedDay, 10));
@@ -159,10 +194,15 @@ export function CalendarWorkspace({ leads, canEdit, onOpenLead, onOpenIntegratio
         <section className="cw-calendar" aria-label="Monthly calendar">
           <div className="cw-toolbar">
             <div className="cw-month-nav">
-              <button type="button" aria-label="Previous month" onClick={() => moveMonth(-1)}><Icon name="chevronLeft" /></button>
-              <h2>{new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(month)}</h2>
-              <button type="button" aria-label="Next month" onClick={() => moveMonth(1)}><Icon name="chevronRight" /></button>
+              <button type="button" aria-label={layout === "week" ? "Previous week" : "Previous month"} onClick={() => step(-1)}><Icon name="chevronLeft" /></button>
+              <h2>{heading}</h2>
+              <button type="button" aria-label={layout === "week" ? "Next week" : "Next month"} onClick={() => step(1)}><Icon name="chevronRight" /></button>
               <button className="cw-today" type="button" onClick={() => { const now = new Date(); setMonth(new Date(now.getFullYear(), now.getMonth(), 1)); setSelectedDay(dayKey(now)); }}>Today</button>
+            </div>
+            <div className="cw-layouts" role="group" aria-label="Calendar layout">
+              {(["month", "week", "agenda"] as const).map((value) => (
+                <button key={value} type="button" aria-pressed={layout === value} onClick={() => chooseLayout(value)}>{value === "month" ? "Month" : value === "week" ? "Week" : "Agenda"}</button>
+              ))}
             </div>
             <button className="cw-refresh" type="button" onClick={() => setRevision((current) => current + 1)} disabled={loading}><Icon name="refresh" /> {loading ? "Loading…" : "Refresh"}</button>
           </div>
@@ -171,8 +211,45 @@ export function CalendarWorkspace({ leads, canEdit, onOpenLead, onOpenIntegratio
               <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "All" : value === "meeting" ? "Meetings" : value === "call" ? "Calls" : "Events"}</button>
             ))}
           </div>
-          <div className="cw-weekdays" aria-hidden="true">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((name) => <span key={name}>{name}</span>)}</div>
-          <div className="cw-grid">
+          {layout === "week" && (
+            <div className="cw-week" role="list" aria-label="Week">
+              {weekDays.map((day) => {
+                const key = dayKey(day);
+                const dayEvents = byDay.get(key) ?? [];
+                return <div role="listitem" key={key} className="cw-week-day" data-today={today === key} data-selected={selectedDay === key}>
+                  <button type="button" className="cw-week-head" onClick={() => setSelectedDay(key)}>
+                    <span>{new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(day)}</span>
+                    <b>{day.getDate()}</b>
+                  </button>
+                  <div className="cw-week-events">
+                    {dayEvents.map((item) => <button type="button" className="cw-week-event" data-kind={item.kind} key={item.id} onClick={() => setSelectedDay(key)}><time>{eventTime(item)}</time><span>{item.title}</span></button>)}
+                    {!dayEvents.length && <span className="cw-week-none">Free</span>}
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+          {layout === "agenda" && (
+            <div className="cw-agenda-view">
+              {upcoming.length === 0 && <div className="cw-empty"><Icon name="calendar" /><strong>Nothing coming up</strong><p>Events and booked meetings in this window appear here.</p></div>}
+              {[...new Set(upcoming.map(eventDay))].map((key) => (
+                <section key={key}>
+                  <h3>{new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date(`${key}T12:00:00`))}</h3>
+                  <ul>
+                    {upcoming.filter((item) => eventDay(item) === key).map((item) => (
+                      <li key={item.id} data-kind={item.kind}>
+                        <time>{eventTime(item)}</time>
+                        <span><b>{item.title}</b><small>{[item.lead_name, item.company_name].filter(Boolean).join(" · ") || sourceName(item.source)}</small></span>
+                        {item.lead_id && <button type="button" onClick={() => onOpenLead(item.lead_id!)}>Open lead</button>}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
+          {layout === "month" && <div className="cw-weekdays" aria-hidden="true">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((name) => <span key={name}>{name}</span>)}</div>}
+          {layout === "month" && <div className="cw-grid">
             {days.map((day) => {
               const key = dayKey(day);
               const dayEvents = byDay.get(key) ?? [];
@@ -182,7 +259,7 @@ export function CalendarWorkspace({ leads, canEdit, onOpenLead, onOpenIntegratio
                 {dayEvents.length > 0 && <span className="cw-day-count" aria-hidden="true">{dayEvents.length}</span>}
               </button>;
             })}
-          </div>
+          </div>}
         </section>
 
         <aside className="cw-agenda" aria-label="Selected day agenda">

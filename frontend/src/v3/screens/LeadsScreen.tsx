@@ -14,7 +14,7 @@ import {
 import { AutomationEnrollmentDialog } from "../../components/AutomationEnrollmentDialog";
 import type { LeadDetailSection } from "../../leadSections";
 import type { Lead, LeadAssignmentOption, LeadPayload } from "../../types";
-import { formatMoney, stageInfo, useDeals, viewDeal } from "../deals/dealStore";
+import { formatMoney, stageInfo, useDeals, viewDeal, type DealView } from "../deals/dealStore";
 import { leadAction, NEW_LEAD_EVENT } from "../shell/events";
 import { Icon } from "../ui/Icon";
 import {
@@ -121,6 +121,8 @@ type Props = {
   canUseAgent?: boolean;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
+  boardViews?: DealView[];
+  onOpenPipeline?: () => void;
   canEnrollAutomations?: boolean;
   onOpenAutomations?: () => void;
   canCall?: boolean;
@@ -152,6 +154,8 @@ export function LeadsScreen({
   canUseAgent = false,
   dialerPhoneConnectionId = null,
   onNavigateToDialer,
+  boardViews,
+  onOpenPipeline,
   canEnrollAutomations = false,
   onOpenAutomations,
   canCall = false,
@@ -440,6 +444,8 @@ export function LeadsScreen({
             embeddedPhone={embeddedPhone}
             dialerPhoneConnectionId={dialerPhoneConnectionId}
             onNavigateToDialer={onNavigateToDialer}
+            boardViews={boardViews}
+            onOpenPipeline={onOpenPipeline}
             canEdit={canEdit}
             canEnrollAutomations={canEnrollAutomations}
             onEnrollAutomation={(kind) =>

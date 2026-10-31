@@ -582,7 +582,7 @@ export function CorralAgentDock({
                                   .join(" · ") || "No company or email"}
                               </small>
                             </span>
-                            <span aria-hidden="true">→</span>
+                            <span aria-hidden="true">›</span>
                           </button>
                         ))
                       ) : (

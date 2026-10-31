@@ -600,7 +600,7 @@ button.h-kpi:active { transform: scale(0.985); }
 .b-list .v-table td { vertical-align: middle; }
 .b-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; }
 .b-sort[aria-pressed="true"] { color: var(--label); }
-.b-sort[aria-pressed="true"]::after { content: " ↓"; }
+.b-sort[aria-pressed="true"]::after { content: " ▾"; }
 .b-stage-select { min-width: 150px; }
 .b-stage-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--stage) 12%, transparent); font: 500 12.5px/1 var(--font); }
 .num-col { text-align: right; }

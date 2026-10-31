@@ -21,7 +21,7 @@ from lead_agent.api.operations_schemas import (
 )
 from lead_agent.application.contacts import attach_contact, company_identity, duplicate_suggestions
 from lead_agent.application.governance import audit_operation
-from lead_agent.domain.operations import CompanyInput, ContactInput
+from lead_agent.domain.operations import CompanyInput, ContactInput, merge_record_profile
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import LeadORM
 from lead_agent.infrastructure.db.operations import CompanyORM, ContactORM, LeadContactORM
@@ -118,8 +118,9 @@ def save_contact(
     if row is None:
         row = ContactORM(id=contact_id, workspace_id=workspace.workspace_id)
         session.add(row)
-    for key, value in request.model_dump().items():
+    for key, value in request.model_dump(exclude={"profile"}).items():
         setattr(row, key, value)
+    row.profile = merge_record_profile(row.profile, request.profile)
     row.updated_at = datetime.now(UTC)
     audit_operation(
         session,
@@ -212,8 +213,9 @@ def save_company(
     if row is None:
         row = CompanyORM(id=company_id, workspace_id=workspace.workspace_id)
         session.add(row)
-    for key, value in request.model_dump().items():
+    for key, value in request.model_dump(exclude={"profile"}).items():
         setattr(row, key, value)
+    row.profile = merge_record_profile(row.profile, request.profile)
     row.identity_key = company_identity(request.name, request.domain)
     row.updated_at = datetime.now(UTC)
     audit_operation(

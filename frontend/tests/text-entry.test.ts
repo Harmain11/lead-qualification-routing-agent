@@ -24,7 +24,7 @@ test("representative free-form fields keep the exact typed value", async () => {
   const composer = await readSource("../src/components/EmailComposer.tsx");
   const assistantChat = await readSource("../src/components/WorkspaceAssistantChat.tsx");
 
-  assert.match(records, /value=\{form\.name\}[\s\S]*?onChange=\{\(event\) =>\s*setForm\(\{ \.\.\.form, name: event\.target\.value \}\)/);
+  assert.match(records, /value=\{form\.name\}[\s\S]*?onChange=\{\((?:event|e)\) =>\s*setForm\(\{ \.\.\.form, name: (?:event|e)\.target\.value \}\)/);
   assert.match(lead, /onChange=\{\(event\) => set\("message", event\.target\.value\)\}/);
   assert.match(detail, /<EmailComposer/);
   assert.match(composer, /contentEditable=\{!busy\}[\s\S]*?onInput=\{syncBody\}/);

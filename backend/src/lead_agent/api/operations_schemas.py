@@ -27,6 +27,7 @@ class ContactRecord(RecordResponse):
     phone: str | None
     job_title: str | None
     timezone: str
+    profile: dict[str, Any]
     updated_at: datetime
 
 

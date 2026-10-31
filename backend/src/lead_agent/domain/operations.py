@@ -164,6 +164,73 @@ class OperationsPolicy(StrictModel):
         return self
 
 
+CONTACT_PROFILE_FIELDS = frozenset(
+    {"linkedin_url", "department", "seniority", "mobile_phone", "preferred_channel", "location", "notes", "tags"}
+)
+COMPANY_PROFILE_FIELDS = frozenset(
+    {
+        "description",
+        "employees",
+        "annual_revenue",
+        "headquarters",
+        "linkedin_url",
+        "phone",
+        "founded_year",
+        "notes",
+        "tags",
+    }
+)
+_LONG_PROFILE_FIELDS = frozenset({"notes", "description"})
+_CHANNELS = frozenset({"email", "phone", "sms", "whatsapp"})
+
+
+def clean_record_profile(value: dict[str, Any], allowed: frozenset[str]) -> dict[str, Any]:
+    """Validate the optional extra fields on a contact or company.
+
+    An empty string or empty list means "clear this field"; the route removes it.
+    """
+    cleaned: dict[str, Any] = {}
+    for key, raw in value.items():
+        if key not in allowed:
+            raise ValueError(f"Unknown profile field: {key}")
+        if key == "tags":
+            if not isinstance(raw, list) or len(raw) > 20:
+                raise ValueError("Tags must be a list of up to 20 labels")
+            tags = []
+            for tag in raw:
+                if not isinstance(tag, str) or len(tag.strip()) > 40:
+                    raise ValueError("Each tag must be 40 characters or fewer")
+                if tag.strip() and tag.strip() not in tags:
+                    tags.append(tag.strip())
+            cleaned[key] = tags
+            continue
+        if raw is None:
+            raw = ""
+        if not isinstance(raw, str):
+            raise ValueError(f"{key} must be text")
+        text = raw.strip()
+        if len(text) > (2000 if key in _LONG_PROFILE_FIELDS else 300):
+            raise ValueError(f"{key} is too long")
+        if key.endswith("_url") and text and not text.startswith("https://"):
+            raise ValueError("Use a full https:// link")
+        if key == "preferred_channel" and text and text not in _CHANNELS:
+            raise ValueError("Preferred channel must be email, phone, sms or whatsapp")
+        if key == "founded_year" and text and not (text.isdigit() and 1600 <= int(text) <= 2100):
+            raise ValueError("Use a four-digit year")
+        cleaned[key] = text
+    return cleaned
+
+
+def merge_record_profile(existing: dict[str, Any] | None, update: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing or {})
+    for key, value in update.items():
+        if value in ("", []):
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
 class ContactInput(StrictModel):
     name: str = Field(min_length=1, max_length=255)
     email: str | None = None
@@ -171,6 +238,12 @@ class ContactInput(StrictModel):
     phone: str | None = Field(default=None, max_length=64)
     job_title: str | None = Field(default=None, max_length=255)
     timezone: str = "UTC"
+    profile: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("profile")
+    @classmethod
+    def valid_profile(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return clean_record_profile(value, CONTACT_PROFILE_FIELDS)
 
     @field_validator("email")
     @classmethod
@@ -193,6 +266,12 @@ class CompanyInput(StrictModel):
     website: str | None = Field(default=None, max_length=500)
     website_reviewed: bool = False
     industry: str | None = Field(default=None, max_length=255)
+    profile: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("profile")
+    @classmethod
+    def valid_profile(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return clean_record_profile(value, COMPANY_PROFILE_FIELDS)
 
     @model_validator(mode="after")
     def reviewed_website_matches(self) -> Self:

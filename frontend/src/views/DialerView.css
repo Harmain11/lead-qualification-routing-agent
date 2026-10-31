@@ -213,7 +213,7 @@
   box-shadow: 0 5px 14px color-mix(in srgb, var(--tint) 17%, transparent);
   transition: transform var(--d-fast), box-shadow var(--d-fast), background var(--d-fast);
 }
-.calls-panel .calls-submit::after { content: "→"; font-size: 16px; line-height: 1; }
+.calls-panel .calls-submit::after { content: "›"; font-size: 18px; line-height: 1; }
 .calls-panel .calls-submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px color-mix(in srgb, var(--tint) 23%, transparent); }
 .calls-panel .calls-submit:disabled { border-color: var(--separator-strong); background: var(--surface-sunken); color: var(--label-2); cursor: not-allowed; box-shadow: none; }
 .calls-permission-note { margin: 0; padding: 12px 14px; border-radius: 9px; background: var(--surface-sunken); color: var(--label-2); font-size: 12px; line-height: 1.5; }

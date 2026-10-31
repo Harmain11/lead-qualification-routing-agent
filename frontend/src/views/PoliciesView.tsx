@@ -12,7 +12,7 @@ const words = (value: string) =>
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-export function PoliciesView({ canManage }: { canManage: boolean }) {
+export function PoliciesView({ canManage, onBack }: { canManage: boolean; onBack?: () => void }) {
   const [data, setData] = useState<PolicyResponse | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -51,7 +51,7 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
   }
   if (!data)
     return (
-      <div className="page-view ops-page">
+      <div className="page-view ops-page settings-sub">
         {error ? (
           <p role="alert">{error}</p>
         ) : (
@@ -61,8 +61,9 @@ export function PoliciesView({ canManage }: { canManage: boolean }) {
     );
   const config = data.configuration;
   return (
-    <div className="page-view ops-page">
+    <div className="page-view ops-page settings-sub">
       <PageHeader
+        back={onBack ? { label: "Settings", onClick: onBack } : undefined}
         title="Routing & capacity"
         subtitle="Who owns which territory, how fast leads must be answered, how many each rep can hold, and what the agent may do without asking."
       />

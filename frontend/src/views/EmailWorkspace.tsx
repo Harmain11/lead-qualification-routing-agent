@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   deleteWorkspaceEmailDraft,
   getActiveWorkspace,
@@ -6,6 +6,7 @@ import {
   getGmailMailboxThread,
   listGmailMailboxMessages,
   listIntegrations,
+  listLeads,
   listWorkspaceEmailDrafts,
 } from "../api";
 import { EmailComposer, type GmailComposerSeed } from "../components/EmailComposer";
@@ -21,6 +22,7 @@ import { confirmAction } from "../v3/ui/confirm";
 import { Icon, type IconName } from "../v3/ui/Icon";
 import { Banner, Button, EmptyState, IconButton, Monogram, PageHeader, Sheet } from "../v3/ui/primitives";
 import { FeatureGuide } from "../components/FeatureGuide";
+import { leadAction } from "../v3/shell/events";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAILBOX_CACHE_FRESH_MS = 60_000;
@@ -57,6 +59,19 @@ function addressesOf(value: string): string[] {
     .filter((item) => item.includes("@"));
 }
 
+function dayGroup(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Earlier";
+  const now = new Date();
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return "This week";
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return "Earlier this month";
+  return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
 const FOLDERS: Array<{ id: "inbox" | "sent" | "drafts" | "spam" | "trash" | "archive"; label: string; icon: IconName }> = [
   { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "sent", label: "Sent", icon: "send" },
@@ -82,6 +97,8 @@ export function EmailWorkspace({
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(
     new Set(),
   );
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [leadMatch, setLeadMatch] = useState<{ id: string; name: string; company: string; stage: string | null } | null>(null);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [pageToken, setPageToken] = useState<string | null>(null);
@@ -334,6 +351,55 @@ export function EmailWorkspace({
   const folderLabel = FOLDERS.find((item) => item.id === folder)?.label ?? "Inbox";
   const unreadCount = folder === "inbox" ? messages.filter((message) => message.unread).length : 0;
 
+  const visibleMessages = onlyUnread ? messages.filter((message) => message.unread) : messages;
+
+  // The person on the other end, if they are already a lead in Corral.
+  const counterpart = (() => {
+    const last = latestReplyTarget();
+    const raw = last ? (last.direction === "inbound" ? last.sender : addressesOf(last.recipients)[0] ?? "") : "";
+    return (raw.match(/<([^>]+)>/)?.[1] ?? raw).trim().toLowerCase();
+  })();
+  useEffect(() => {
+    setLeadMatch(null);
+    if (!counterpart || !counterpart.includes("@")) return;
+    const controller = new AbortController();
+    listLeads({ search: counterpart, limit: 3 }, controller.signal).then((page) => {
+      if (controller.signal.aborted) return;
+      const hit = page.items.find((lead) => lead.email?.trim().toLowerCase() === counterpart);
+      if (hit) setLeadMatch({ id: hit.id, name: hit.full_name, company: hit.company_name, stage: hit.outcome?.pipeline_stage ?? hit.qualification?.classification ?? null });
+    }).catch(() => undefined);
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counterpart]);
+
+  // Keyboard: j/k to move, Enter to open, r / a / f to reply, reply all, forward, c to write, / to search.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (target && (target.closest("input, textarea, select, [contenteditable=true], dialog") )) return;
+      const index = selected ? visibleMessages.findIndex((message) => message.message_id === selected.message_id) : -1;
+      const open = (next: number) => {
+        const message = visibleMessages[Math.max(0, Math.min(visibleMessages.length - 1, next))];
+        if (message) { setSelected(message); setComposeSeed(null); document.querySelector(`[data-message-id="${CSS.escape(message.message_id)}"]`)?.scrollIntoView({ block: "nearest" }); }
+      };
+      if (event.key === "j" || event.key === "ArrowDown") { event.preventDefault(); open(index + 1); }
+      else if (event.key === "k" || event.key === "ArrowUp") { event.preventDefault(); open(index <= 0 ? 0 : index - 1); }
+      else if (event.key === "Escape" && selected && !composeSeed) setSelected(null);
+      else if (event.key === "/") { event.preventDefault(); document.getElementById("shared-email-search")?.focus(); }
+      else if (event.key === "c" && canSend && accounts.length) { event.preventDefault(); beginCompose(); }
+      else if (canSend && thread.length && (event.key === "r" || event.key === "a" || event.key === "f")) {
+        event.preventDefault();
+        const targetMessage = latestReplyTarget();
+        if (!targetMessage) return;
+        if (event.key === "f") beginForward(thread[thread.length - 1]);
+        else beginReplyTo(targetMessage, event.key === "a" ? "all" : "reply");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const composer = composeSeed && <EmailComposer
     key={composerRevision}
     accounts={accounts}
@@ -439,30 +505,41 @@ export function EmailWorkspace({
         </div>}
         {loadingMessages && messages.length === 0 && <div className="mailbox-skeleton" role="status" aria-label="Loading messages"><i /><i /><i /><i /></div>}
         {!loadingMessages && messages.length === 0 && <p className="mailbox-empty">{query ? `Nothing in ${folderLabel} matches “${query}”.` : `${folderLabel} is empty.`}</p>}
+        <div className="mailbox-filters" role="group" aria-label="Filter messages">
+          <button type="button" aria-pressed={!onlyUnread} onClick={() => setOnlyUnread(false)}>All</button>
+          <button type="button" aria-pressed={onlyUnread} onClick={() => setOnlyUnread(true)}>Unread{unreadCount > 0 ? ` · ${unreadCount}` : ""}</button>
+        </div>
         <div className="mailbox-rows">
-          {messages.map((message) => {
+          {onlyUnread && visibleMessages.length === 0 && messages.length > 0 && <p className="mailbox-empty">You’re all caught up.</p>}
+          {visibleMessages.map((message, rowIndex) => {
             const name = folder === "sent" ? (message.recipients || "No recipient") : (message.sender_name || message.sender || "Unknown sender");
-            return <button
-              type="button"
-              key={`${message.message_id}-${message.thread_id}`}
-              className="mailbox-row"
-              aria-current={selected?.message_id === message.message_id ? "true" : undefined}
-              data-unread={message.unread || undefined}
-              onClick={() => { setSelected(message); setComposeSeed(null); }}
-            >
-              <Monogram text={name} size={32} />
-              <span className="mailbox-row-text">
-                <span className="mailbox-row-top">
-                  <b>{name}</b>
-                  <time dateTime={message.sent_at} title={emailDate(message.sent_at)}>{listTime(message.sent_at)}</time>
+            const group = dayGroup(message.sent_at);
+            const showGroup = rowIndex === 0 || dayGroup(visibleMessages[rowIndex - 1].sent_at) !== group;
+            return <Fragment key={`${message.message_id}-${message.thread_id}`}>
+              {showGroup && <h3 className="mailbox-day">{group}</h3>}
+              <button
+                type="button"
+                data-message-id={message.message_id}
+                className="mailbox-row"
+                aria-current={selected?.message_id === message.message_id ? "true" : undefined}
+                data-unread={message.unread || undefined}
+                onClick={() => { setSelected(message); setComposeSeed(null); }}
+              >
+                <Monogram text={name} size={32} />
+                <span className="mailbox-row-text">
+                  <span className="mailbox-row-top">
+                    <b>{name}</b>
+                    <time dateTime={message.sent_at} title={emailDate(message.sent_at)}>{listTime(message.sent_at)}</time>
+                  </span>
+                  <span className="mailbox-row-subject">{message.subject || "(no subject)"}</span>
+                  <span className="mailbox-row-snippet">{message.snippet}</span>
                 </span>
-                <span className="mailbox-row-subject">{message.subject || "(no subject)"}</span>
-                <span className="mailbox-row-snippet">{message.snippet}</span>
-              </span>
-              {message.unread && <span className="mailbox-unread" aria-label="Unread" />}
-            </button>;
+                {message.unread && <span className="mailbox-unread" aria-label="Unread" />}
+              </button>
+            </Fragment>;
           })}
         </div>
+        <p className="mailbox-keys" aria-label="Keyboard shortcuts"><span><kbd>j</kbd><kbd>k</kbd> move</span><span><kbd>r</kbd> reply</span><span><kbd>a</kbd> reply all</span><span><kbd>f</kbd> forward</span><span><kbd>c</kbd> write</span><span><kbd>/</kbd> search</span></p>
         {nextPageToken && <Button className="mailbox-more" onClick={() => setPageToken(nextPageToken)} disabled={loadingMessages}>Load more</Button>}
       </section>
 
@@ -473,6 +550,7 @@ export function EmailWorkspace({
             <IconButton icon="chevronLeft" label="Back to messages" className="mailbox-back" onClick={() => setSelected(null)} />
             <h2>{selected.subject || "(no subject)"}</h2>
             <div className="mailbox-reader-actions">
+              {leadMatch && <a className="mailbox-lead" href={`/?view=leads&lead=${leadMatch.id}`} onClick={(event) => { event.preventDefault(); leadAction(leadMatch.id, "open"); }} title="Open this lead in Corral"><Icon name="person" size={14} />{leadMatch.name}{leadMatch.company ? ` · ${leadMatch.company}` : ""}</a>}
               {thread.length > 1 && <Button kind="plain" size="sm" onClick={() => setExpandedMessageIds(allThreadMessagesExpanded ? new Set() : new Set(thread.map((message) => message.message_id)))}>
                 {allThreadMessagesExpanded ? "Collapse all" : "Expand all"}
               </Button>}
@@ -496,7 +574,7 @@ export function EmailWorkspace({
                 </button>
                 {expanded && <div className="mailbox-message-body" id={bodyId}>
                   <ProviderEmailBody content={body} />
-                  {canSend && <div className="mailbox-message-actions">
+                  {canSend && index !== thread.length - 1 && <div className="mailbox-message-actions">
                     <Button size="sm" icon="reply" onClick={() => beginReplyTo(message, "reply")}>Reply</Button>
                     <Button size="sm" icon="replyAll" onClick={() => beginReplyTo(message, "all")}>Reply all</Button>
                     <Button size="sm" icon="forward" onClick={() => beginForward(message)}>Forward</Button>

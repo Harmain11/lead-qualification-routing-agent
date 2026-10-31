@@ -430,7 +430,7 @@ function EmailTemplatesPanel({
           from its integration card.
         </p>
         <button className="button-quiet" type="button" onClick={onIntegrations}>
-          Configure platform settings →
+          Configure platform settings ›
         </button>
       </div>
       <div className="email-automation-control google-booking-link-control">

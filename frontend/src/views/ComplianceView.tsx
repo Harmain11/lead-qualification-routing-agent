@@ -17,7 +17,7 @@ type Retention = {
   scope: string;
   more: boolean;
 };
-export function ComplianceView() {
+export function ComplianceView({ onBack }: { onBack?: () => void } = {}) {
   const [policy, setPolicy] = useState<PolicyResponse | null>(null);
   const [events, setEvents] = useState<Consent[]>([]);
   const [total, setTotal] = useState(0);
@@ -108,8 +108,9 @@ export function ComplianceView() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
-    <div className="page-view ops-page">
+    <div className="page-view ops-page settings-sub">
       <PageHeader
+        back={onBack ? { label: "Settings", onClick: onBack } : undefined}
         title="Consent & governance"
         subtitle="Record contact permissions, block outreach to people who opted out, export a lead’s decision history and review data retention."
       />

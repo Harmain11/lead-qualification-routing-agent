@@ -1037,31 +1037,31 @@
 }
 
 /* ── Ask Corral, lead scope (final word; replaces the stacked legacy rules) ── */
-#corral-agent-window .lead-agent { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: clip; }
-#corral-agent-window .lead-agent > * { flex: none; }
-#corral-agent-window .lead-agent > .lead-agent-transcript { flex: 1 1 0; }
-#corral-agent-window .la-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 16px 12px; border-bottom: 1px solid var(--separator); }
-#corral-agent-window .la-actions .v-btn { min-width: 0; }
-#corral-agent-window .la-notice { margin: 0; padding: 8px 16px; font: var(--t-footnote); color: var(--label-2); background: var(--fill); }
-#corral-agent-window .lead-agent-transcript { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; padding: 16px; }
-#corral-agent-window .la-welcome { display: grid; gap: 8px; }
-#corral-agent-window .la-welcome h3 { margin: 0; font: 600 17px/1.3 var(--font); letter-spacing: -0.01em; color: var(--label); text-wrap: balance; }
-#corral-agent-window .la-welcome > p { margin: 0 0 8px; font: var(--t-subhead); color: var(--label-2); text-wrap: pretty; }
-#corral-agent-window .la-suggestions { display: grid; overflow: hidden; border-radius: 12px; background: var(--surface-sunken, var(--fill)); }
-#corral-agent-window .la-suggestions button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin: 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; color: var(--label); font: var(--t-callout); text-align: left; white-space: normal; cursor: pointer; transition: background-color 120ms ease; }
-#corral-agent-window .la-suggestions button + button { box-shadow: inset 0 1px 0 var(--separator); }
-#corral-agent-window .la-suggestions button:hover { background: var(--fill); }
-#corral-agent-window .la-suggestions button:active { background: var(--fill-press, var(--fill)); }
-#corral-agent-window .la-suggestions button > svg:first-child { color: var(--tint); }
-#corral-agent-window .la-suggestions button > svg:last-child { color: var(--label-3); }
-#corral-agent-window .la-composer { display: grid; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid var(--separator); background: var(--surface); }
-#corral-agent-window .la-composer textarea { width: 100%; min-width: 0; min-height: 64px; max-height: 160px; margin: 0; padding: 10px 12px; border: 0; border-radius: 10px; background: var(--fill); color: var(--label); font: var(--t-callout); line-height: 1.45; resize: none; }
-#corral-agent-window .la-composer textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
-#corral-agent-window .la-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-#corral-agent-window .la-composer-foot small { font: var(--t-footnote); color: var(--label-3); }
+.v-app .lead-agent { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: clip; }
+.v-app .lead-agent > * { flex: none; }
+.v-app .lead-agent > .lead-agent-transcript { flex: 1 1 0; }
+.v-app .la-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 16px 12px; border-bottom: 1px solid var(--separator); }
+.v-app .la-actions .v-btn { min-width: 0; }
+.v-app .la-notice { margin: 0; padding: 8px 16px; font: var(--t-footnote); color: var(--label-2); background: var(--fill); }
+.v-app .lead-agent-transcript { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; padding: 16px; }
+.v-app .la-welcome { display: grid; gap: 8px; }
+.v-app .la-welcome h3 { margin: 0; font: 600 17px/1.3 var(--font); letter-spacing: -0.01em; color: var(--label); text-wrap: balance; }
+.v-app .la-welcome > p { margin: 0 0 8px; font: var(--t-subhead); color: var(--label-2); text-wrap: pretty; }
+.v-app .la-suggestions { display: grid; overflow: hidden; border-radius: 12px; background: var(--surface-sunken, var(--fill)); }
+.v-app .la-suggestions button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin: 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; color: var(--label); font: var(--t-callout); text-align: left; white-space: normal; cursor: pointer; transition: background-color 120ms ease; }
+.v-app .la-suggestions button + button { box-shadow: inset 0 1px 0 var(--separator); }
+.v-app .la-suggestions button:hover { background: var(--fill); }
+.v-app .la-suggestions button:active { background: var(--fill-press, var(--fill)); }
+.v-app .la-suggestions button > svg:first-child { color: var(--tint); }
+.v-app .la-suggestions button > svg:last-child { color: var(--label-3); }
+.v-app .la-composer { display: grid; gap: 8px; padding: 12px 16px 14px; border-top: 1px solid var(--separator); background: var(--surface); }
+.v-app .la-composer textarea { width: 100%; min-width: 0; min-height: 64px; max-height: 160px; margin: 0; padding: 10px 12px; border: 0; border-radius: 10px; background: var(--fill); color: var(--label); font: var(--t-callout); line-height: 1.45; resize: none; }
+.v-app .la-composer textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.v-app .la-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.v-app .la-composer-foot small { font: var(--t-footnote); color: var(--label-3); }
 @media (max-width: 767px) {
-  #corral-agent-window .la-composer textarea { font-size: 16px; }
-  #corral-agent-window .la-suggestions button { font-size: 16px; }
+  .v-app .la-composer textarea { font-size: 16px; }
+  .v-app .la-suggestions button { font-size: 16px; }
 }
 
 /* Context header: scope switch on its own row, lead + Change beneath it. */

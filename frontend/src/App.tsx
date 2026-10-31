@@ -1451,6 +1451,8 @@ function App() {
                       activeSection={leadSection}
                       onSectionChange={changeLeadSection}
                       onNavigateToDialer={() => navigate("dialer")}
+                      boardViews={dealViews}
+                      onOpenPipeline={() => navigate("pipeline")}
                       isSectionPinned={pinnedSections.pins.some((pin) => pin.leadId === selectedLead?.id && pin.section === leadSection)}
                       onTogglePin={() => {
                         if (selectedLead) pinnedSections.toggle({ leadId: selectedLead.id, company: selectedLead.company_name, section: leadSection });
@@ -1508,7 +1510,7 @@ function App() {
                     canEdit={can(workspacePermissions, "leads.edit")}
                     canCall={can(workspacePermissions, "dialer.call")}
                     canEmail={can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit")}
-                    onInspect={(id) => openLeadSection(id, "deal")}
+                    onInspect={(id) => openLeadSection(id, "pipeline")}
                     onMoved={(lead) => {
                       if (lead) workspaceLeads.replace(lead);
                       else workspaceLeads.reload();
@@ -1534,7 +1536,7 @@ function App() {
                 )}
                 {view === "agents" && (
                   <div className="v-page" data-width="wide">
-                    <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />
+                    <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} onInspect={(id) => openLeadSection(id, "history")} />
                   </div>
                 )}
                 {view === "analytics" && (
@@ -1554,9 +1556,9 @@ function App() {
                   </div>
                 )}
                 {view === "policies" && (
-                  <div className="v-page"><PoliciesView canManage={can(workspacePermissions, "workspace.manage")} /></div>
+                  <div className="v-page"><PoliciesView canManage={can(workspacePermissions, "workspace.manage")} onBack={() => setView("settings")} /></div>
                 )}
-                {view === "compliance" && <div className="v-page"><ComplianceView /></div>}
+                {view === "compliance" && <div className="v-page"><ComplianceView onBack={() => setView("settings")} /></div>}
                 {view === "intelligence" && (
                   <div className="v-page" data-width="wide">
                     <IntelligenceView

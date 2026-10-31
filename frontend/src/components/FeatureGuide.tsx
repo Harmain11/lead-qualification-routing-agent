@@ -27,7 +27,7 @@ const guides = {
       ["Let Corral do the busywork", "Ask Corral drafts emails, adds notes, summarises calls and updates details. Every change it proposes waits for you to approve it."],
     ],
     tip: "Pin a tab you use often from the sidebar; it opens straight to that lead and section.",
-    stuck: "If a lead won’t route or score, check that a workspace ICP is published (Settings → Ideal customer profile) and that the lead has an email or company. Review holds clear from the highlight or the Review page.",
+    stuck: "If a lead won’t route or score, check that a workspace ICP is published (Settings › Ideal customer profile) and that the lead has an email or company. Review holds clear from the highlight or the Review page.",
   },
   pipeline: {
     title: "The pipeline",
@@ -35,7 +35,7 @@ const guides = {
     icon: "pipeline",
     intro: "The Pipeline tab is where a lead becomes revenue: the stages it has passed, what the next one needs, and how it ends.",
     steps: [
-      ["Know the stages", "New → Contacted → Engaged → Quoted → Negotiation → Contract & SLA → Won. Each stage shows what it means; the current one shows how long the deal has been there."],
+      ["Know the stages", "New › Contacted › Engaged › Quoted › Negotiation › Contract & SLA › Won. Each stage shows what it means; the current one shows how long the deal has been there."],
       ["Advance with intent", "Use the button at the top to move to the next stage, or Move here on a later one. Moves are saved with the date, so the journey stays honest."],
       ["Keep the numbers real", "Set the deal value (a sent quote sets it for you) and an expected close date. The weighted value appears once you have five closed deals to learn from."],
       ["Follow the plan, book the meeting", "The plan lists the steps most likely to reach the next stage. Meetings shows proposed times and booking links you can send."],
@@ -81,7 +81,7 @@ const guides = {
       ["Place a call", "New call picks a lead or takes a number. You start the call yourself; Corral never dials on its own."],
       ["Keep the phone open", "The phone panel stays docked while a call is active, so you can take notes in the lead at the same time."],
     ],
-    stuck: "If the phone won’t load, reconnect your calling provider in Integrations → Calling and allow microphone access when your browser asks. Calls dialled from the provider’s own keypad can take a sync before they appear.",
+    stuck: "If the phone won’t load, reconnect your calling provider in Integrations › Calling and allow microphone access when your browser asks. Calls dialled from the provider’s own keypad can take a sync before they appear.",
   },
   sequence: {
     title: "Sequences",

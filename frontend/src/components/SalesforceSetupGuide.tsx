@@ -130,7 +130,7 @@ export function SalesforceSetupGuide({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Open Corral package installer <span aria-hidden="true">↗</span>
+                  Open Corral package installer <span aria-hidden="true">›</span>
                 </a>
                 <p className="salesforce-guide-note">
                   The installer opens in a new tab. If your browser blocks it, use the link above to open it manually.
@@ -142,7 +142,7 @@ export function SalesforceSetupGuide({
               <div className="salesforce-step-copy">
                 <h3>Wait for installation to finish</h3>
                 <p>
-                  Continue after Salesforce confirms success. If the package is already installed, verify it in <strong>Setup → Installed Packages</strong>; there is no need to reinstall it.
+                  Continue after Salesforce confirms success. If the package is already installed, verify it in <strong>Setup › Installed Packages</strong>; there is no need to reinstall it.
                 </p>
               </div>
             </li>

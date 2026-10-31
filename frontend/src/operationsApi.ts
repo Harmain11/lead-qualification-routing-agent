@@ -16,6 +16,7 @@ export type Contact = {
   phone: string | null;
   job_title: string | null;
   timezone: string;
+  profile: Record<string, unknown>;
   updated_at: string;
 };
 export type Territory = {

@@ -51,7 +51,9 @@ type ClosingSelection = { conversionType: "" | "project" | "sale"; creditedUserI
 const suggestions = [
   "Summarize this lead and suggest a next step",
   "What details are still missing?",
+  "What is blocking this deal?",
   "Write and send a follow-up email",
+  "Prepare me for a call with this lead",
   "I want to call this lead",
 ];
 const fieldLabels: Record<string, string> = {
@@ -92,6 +94,7 @@ export function LeadAssistantPanel({
   onUpdated,
   onDeleted,
   onSectionChange,
+  seedPrompt = null,
 }: {
   lead: Lead;
   canEdit: boolean;
@@ -105,6 +108,8 @@ export function LeadAssistantPanel({
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
   onSectionChange: (section: LeadDetailSection) => void;
+  /** A prompt another screen wants Corral to answer (for example "Summarize this email thread"). */
+  seedPrompt?: { text: string; nonce: number } | null;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -589,6 +594,14 @@ export function LeadAssistantPanel({
       </div>}
     </details>;
   }
+
+  const lastSeed = useRef(0);
+  useEffect(() => {
+    if (!seedPrompt || seedPrompt.nonce === lastSeed.current) return;
+    lastSeed.current = seedPrompt.nonce;
+    void submit(undefined, seedPrompt.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt]);
 
   return <section className="lead-agent" aria-label={`Assistant for ${lead.full_name}`}>
     <div className="la-actions" role="group" aria-label="Quick lead actions">

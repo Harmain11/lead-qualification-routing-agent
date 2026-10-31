@@ -47,7 +47,7 @@ export function SlackChannelDestination({
       </div>
       {privateHelp && <div className="notice" role="note">
         <strong>Private channels require an invitation in Slack</strong>
-        <p>Open the private channel in Slack, click its name, then choose Integrations → Add apps and add the connected app. Slack does not allow apps to discover or join private channels without an invitation.</p>
+        <p>Open the private channel in Slack, click its name, then choose Integrations › Add apps and add the connected app. Slack does not allow apps to discover or join private channels without an invitation.</p>
         {!canListPrivate && <p>First use Enable channel permissions and approve the private-channel listing permission. Existing notifications keep working until you reconnect.</p>}
         {teamId && <a className="button-quiet" href={`https://app.slack.com/client/${encodeURIComponent(teamId)}`} target="_blank" rel="noreferrer">Open workspace in Slack</a>}
         <p>After inviting the app, press Refresh channels. The private channel will appear here for selection.</p>

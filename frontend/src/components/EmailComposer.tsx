@@ -187,7 +187,7 @@ export function EmailComposer({
       );
       setSavedDraft(result);
       savedPayload.current = JSON.stringify(payload);
-      setNotice("Draft saved in Corral. Find it in Email → Drafts.");
+      setNotice("Draft saved in Corral. Find it in Email › Drafts.");
       onSaved?.(result);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Draft could not be saved.");
@@ -439,7 +439,7 @@ export function EmailComposer({
     try {
       const link = await getGoogleCalendarBookingLink();
       if (!link.url) {
-        setError("No booking link is set. Add your Google Calendar booking page in Settings → Email automation.");
+        setError("No booking link is set. Add your Google Calendar booking page in Settings › Email automation.");
         return;
       }
       insertText(`\nYou can choose a time that suits you here: ${link.url}\n`);

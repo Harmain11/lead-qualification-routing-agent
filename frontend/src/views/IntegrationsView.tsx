@@ -46,7 +46,6 @@ import { isOAuthPopupResult, OAUTH_RESULT_CHANNEL } from "../oauthPopup";
 import { pollInboundSync } from "../inboundSyncPolling";
 import { parseGmailReviewNotes } from "../gmailSyncPresentation";
 import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderConnection, SlackNotificationConfig, SlackNotificationRule } from "../types";
-import { Sheet } from "../v3/ui/primitives";
 
 function syncRunMessage(run: CrmInboundSyncRun) {
   const previous = run.mode === "review_previous";
@@ -97,10 +96,10 @@ function ProviderDetailsPanel({
       <div className="provider-details slack-provider-details">{children}</div>
     </OperationsDialog> : null;
   }
-  // Setup opens in a sheet so the card grid never reflows around an expanded card.
-  return open ? <Sheet title={title} subtitle={subtitle} onClose={onClose} width={680}>
-    <div className="provider-details int-setup" id={id}>{children}</div>
-  </Sheet> : null;
+  // Setup opens inside the card itself. The card takes the full row, so the grid
+  // makes room for it instead of anything floating over the page.
+  void title; void subtitle; void onClose;
+  return open ? <div className="provider-details int-setup" id={id}>{children}</div> : null;
 }
 
 function IntegrationDisclosure({
@@ -1271,7 +1270,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         (card.provider === "instagram" || card.provider === "messenger") &&
         connection &&
         ["connected", "verified"].includes(connection.status);
-         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card int-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : ""}`} key={card.provider}>
+         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card int-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : " is-expanded"}`} key={card.provider}>
            <div className="int-head">
              <ProviderMark provider={section.id === "ai" ? card.provider : card.provider} name={section.id === "ai" ? card.display_name : card.display_name} />
              <div className="int-id">
@@ -1304,7 +1303,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             onDisconnect={(gmailAccount) => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)}
             statusLabel={connectionStatusLabel}
           />}
-         <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
+         <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application › Slack · outbound notifications only" : openAI ? "Workspace OpenAI project › structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
              <SlackSetupGuide open={slackGuideOpen} onOpenChange={setSlackGuideOpen} />
@@ -1554,8 +1553,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              <p><strong>{card.display_name} API usage is billed directly to your provider account.</strong></p>
           </>}
           <div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div>
-          <a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation →</a>
-          {card.supported_auth.includes("oauth2") && canConnectProvider && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}
+          <a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation ›</a>
+          {card.supported_auth.includes("oauth2") && canConnectProvider && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} ›</button>}
           {card.manual_fields.length > 0 && canManage && !oauthConnected && <div className="manual-credential">
             <span>Secure credential setup</span>
             {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}

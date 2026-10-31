@@ -301,7 +301,7 @@ export function LeadRow({
           manualReview={lead.manual_review}
         />
       </span>
-      <i>→</i>
+      <i>›</i>
     </button>
   );
 }

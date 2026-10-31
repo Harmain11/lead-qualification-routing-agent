@@ -231,7 +231,7 @@ export function AutomationsView({
                 <h2>{item.name}</h2>
                 <p className="auto-steps">
                   {steps.length} step{steps.length === 1 ? "" : "s"}
-                  {steps.length > 0 && <> · {steps.slice(0, 4).map((node) => NODE_LABELS[node.type]).join(" → ")}{steps.length > 4 ? " → …" : ""}</>}
+                  {steps.length > 0 && <> · {steps.slice(0, 4).map((node) => NODE_LABELS[node.type]).join(" › ")}{steps.length > 4 ? " › …" : ""}</>}
                 </p>
                 <div className="auto-card-actions">
                   {canManage && (

@@ -221,6 +221,7 @@ function EmailMessage({
 }) {
   const { message } = prepared;
   const sender = senderDisplay(message.from);
+  if (!sender.name && !sender.email && leadEmail) sender.email = leadEmail;
   const initials = (sender.name || sender.email || "E")
     .split(/\s+/)
     .filter(Boolean)
@@ -235,21 +236,20 @@ function EmailMessage({
     <header className="gmail-inquiry-message-header">
       <span className="gmail-inquiry-avatar" aria-hidden="true">{initials}</span>
       <div className="gmail-inquiry-sender">
-        <strong>{sender.name || sender.email || "Email sender"}</strong>
+        <strong>{sender.name || sender.email || "Sender"}</strong>
         {sender.email && <small>{sender.email}</small>}
       </div>
       <div className="gmail-inquiry-message-meta">
         <div className="gmail-inquiry-badges">
-          <span className="gmail-inquiry-type-badge">{label || `Message ${index + 1}`}</span>
+          {label === "Earlier email" && <span className="gmail-inquiry-type-badge">{label}</span>}
           <span className="gmail-inquiry-direction-badge">{direction}</span>
         </div>
         {date && <time dateTime={dateTimeValue(date)}><span>{dateLabel}</span> {formatDate(date)}</time>}
       </div>
     </header>
-    <div className="gmail-inquiry-subject">
-      <span>{message.subject ? "Subject" : "Inquiry"}</span>
-      <h4>{message.subject || label || "Original inquiry"}</h4>
-    </div>
+    {message.subject && <div className="gmail-inquiry-subject">
+      <h4>{message.subject}</h4>
+    </div>}
     <EmailBody prepared={prepared} source={source} leadEmail={leadEmail} />
     <Recipients message={message} />
   </article>;

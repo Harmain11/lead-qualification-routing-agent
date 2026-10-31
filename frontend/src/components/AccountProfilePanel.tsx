@@ -196,18 +196,8 @@ export function AccountProfilePanel() {
 
 function AccountProfileDisclosure({ children }: { children: ReactNode }) {
   return (
-    <details className="panel account-profile-panel settings-collapsible">
-      <summary className="settings-collapsible-summary account-profile-collapsible-summary">
-        <div className="settings-collapsible-heading">
-          <span className="eyebrow">Personal profile</span>
-          <h2>My account</h2>
-        </div>
-        <small>Profile details and photo</small>
-        <span className="settings-collapsible-icon" aria-hidden="true" />
-      </summary>
-      <div className="settings-collapsible-content account-profile-collapsible-content">
-        {children}
-      </div>
-    </details>
+    <section className="st-card st-panel account-profile-panel">
+      <div className="account-profile-collapsible-content">{children}</div>
+    </section>
   );
 }

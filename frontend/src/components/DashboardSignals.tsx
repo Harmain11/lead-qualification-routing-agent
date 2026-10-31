@@ -96,7 +96,7 @@ export function DashboardSignals({
       )}
 
       {visible.has("qualified-to-booked") && (
-        <Panel title="Qualified → Booked Rate" eyebrow="Recorded qualified leads with a scheduled meeting">
+        <Panel title="Qualified to booked rate" eyebrow="Recorded qualified leads with a scheduled meeting">
           {extended?.qualified_to_booked.rate != null ? (
             <SignalMetric
               value={`${extended.qualified_to_booked.rate}%`}

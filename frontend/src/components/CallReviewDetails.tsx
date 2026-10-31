@@ -31,7 +31,7 @@ export function CallReviewDetails({
       {recordingUrl && (
         <a className="call-review-recording" href={recordingUrl} target="_blank" rel="noopener noreferrer">
           Open provider recording or call details
-          <span aria-hidden="true">↗</span>
+          <span aria-hidden="true">›</span>
         </a>
       )}
       {hasTranscript && (

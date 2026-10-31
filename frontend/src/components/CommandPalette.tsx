@@ -150,7 +150,7 @@ export function CommandPalette({
             />
           </label>
           <p className="ops-muted">
-            Use ↑ ↓ to move, Enter to open, or Escape to close.
+            Use the up and down keys to move, Enter to open, or Escape to close.
           </p>
           <div className="ops-result-list" ref={resultList} aria-label="Search results">
             {matchedPages.map((page) => (

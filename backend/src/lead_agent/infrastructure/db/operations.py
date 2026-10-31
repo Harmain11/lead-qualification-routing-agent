@@ -84,6 +84,7 @@ class ContactORM(Base):
     phone: Mapped[str | None] = mapped_column(String(64))
     job_title: Mapped[str | None] = mapped_column(String(255))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    profile: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     merged_into_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL")
     )

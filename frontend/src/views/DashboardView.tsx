@@ -45,7 +45,7 @@ const dashboardWidgetOptions = [
   { id: "speed-to-qualify", label: "Speed to qualify", group: "Response and service" },
   { id: "sla-compliance", label: "SLA compliance", group: "Response and service" },
   { id: "override-rate", label: "Override rate", group: "Response and service" },
-  { id: "qualified-to-booked", label: "Qualified → booked rate", group: "Pipeline" },
+  { id: "qualified-to-booked", label: "Qualified to booked rate", group: "Pipeline" },
   { id: "funnel-bottleneck", label: "Funnel bottleneck", group: "Pipeline" },
   { id: "rep-capacity", label: "Rep capacity and load", group: "Team and signals" },
   { id: "pipeline-coverage", label: "Pipeline coverage vs target", group: "Pipeline" },
@@ -182,7 +182,7 @@ export function DashboardView({
   const channelMetrics = [
     {
       id: "qualified-to-booked",
-      label: "Qualified → booked rate",
+      label: "Qualified to booked rate",
       rows: data.channels.channels.filter((row) => row.qualified_to_booked_rate != null).map((row) => ({
         label: pretty(row.channel),
         value: row.qualified_to_booked_rate ?? 0,
@@ -511,8 +511,8 @@ function MetricCard({
           {metric.change_percent == null
             ? "·"
             : metric.change_percent >= 0
-              ? "↗"
-              : "↘"}
+              ? "▲"
+              : "▼"}
         </i>
         {metric.change_percent == null
           ? "No valid prior comparison"

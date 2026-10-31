@@ -10,6 +10,7 @@ import { callOutcome, formatCallDuration, type CallOutcome } from "../callOutcom
 import { Icon, type IconName } from "../v3/ui/Icon";
 import { Badge, Banner, Button, EmptyState, IconButton, Menu, MenuItem, Monogram, PageHeader, Segmented, Sheet, type Tone } from "../v3/ui/primitives";
 import { FeatureGuide } from "../components/FeatureGuide";
+import { AnalysisTab, MessagesTab, TranscriptsTab } from "./CallsLibrary";
 
 type CallRecord = {
   id: string;
@@ -44,6 +45,7 @@ type CloudTalkActivity = {
 
 type HistoryPage = { records: Omit<CallRecord, "source">[]; has_more: boolean; next_before: string | null };
 type Filter = "all" | "inbound" | "outbound" | "missed";
+type CallsTab = "calls" | "messages" | "transcripts" | "analysis";
 
 const PROVIDER_LABEL: Record<string, string> = {
   twilio: "Twilio", aircall: "Aircall", ringcentral: "RingCentral", vapi: "Vapi", retell: "Retell AI", cloudtalk: "CloudTalk",
@@ -97,6 +99,7 @@ export function DialerView({
   const [stored, setStored] = useState<CallRecord[]>([]);
   const [storedMore, setStoredMore] = useState<string | null>(null);
   const [cloudTalk, setCloudTalk] = useState<CloudTalkActivity | null>(null);
+  const [tab, setTab] = useState<CallsTab>("calls");
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -136,6 +139,30 @@ export function DialerView({
     });
     return () => controller.abort();
   }, [revision]);
+
+  const baseRecords = useMemo(() => {
+    const seen = new Set(stored.map((record) => record.external_id).filter(Boolean));
+    const fromCloudTalk: CallRecord[] = (cloudTalk?.records ?? [])
+      .filter((record) => !seen.has(record.id))
+      .map((record) => ({ ...record, source: "cloudtalk" as const, outcome: callOutcome(record.status, record.direction, record.duration_seconds), linked: Boolean(record.lead_id) }));
+    return [...stored, ...fromCloudTalk].sort((a, b) =>
+      new Date(b.started_at || b.created_at).getTime() - new Date(a.started_at || a.created_at).getTime());
+  }, [stored, cloudTalk]);
+
+  async function loadCloudTalkDetails(record: CallRecord) {
+    setLoadingDetails(record.id);
+    try {
+      const details = await opsGet<CallRecord>(`/v1/calling/cloudtalk/recent/${encodeURIComponent(record.id)}/details?page=${record.history_page ?? 1}`);
+      setCloudTalk((current) => current ? {
+        ...current,
+        records: current.records.map((item) => item.id === record.id ? { ...item, transcript: details.transcript, recording_url: details.recording_url, insights: details.insights } : item),
+      } : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The call transcript couldn't be loaded.");
+    } finally {
+      setLoadingDetails(null);
+    }
+  }
 
   const records = useMemo(() => {
     const seen = new Set(stored.map((record) => record.external_id).filter(Boolean));
@@ -232,13 +259,31 @@ export function DialerView({
       {error && <Banner tone="danger" title={error} action={<Button kind="plain" size="sm" onClick={() => setError("")}>Dismiss</Button>} />}
       {notice && <Banner title={notice} action={<Button kind="plain" size="sm" onClick={() => setNotice("")}>Dismiss</Button>} />}
 
+      <div className="calls-tabs" role="tablist" aria-label="Calls sections">
+        {([
+          ["calls", "Calls", "phone"],
+          ["messages", "Messages", "mail"],
+          ["transcripts", "Transcripts", "note"],
+          ["analysis", "AI analysis", "sparkle"],
+        ] as const).map(([id, label, icon]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className="calls-tab" onClick={() => setTab(id)}>
+            <Icon name={icon} size={15} />{label}
+            {id === "transcripts" && baseRecords.filter((record) => record.transcript?.trim()).length > 0 && <span className="num">{baseRecords.filter((record) => record.transcript?.trim()).length}</span>}
+            {id === "analysis" && baseRecords.filter((record) => record.insights).length > 0 && <span className="num">{baseRecords.filter((record) => record.insights).length}</span>}
+          </button>
+        ))}
+      </div>
       {!loading && connected.length === 0 && (
         <EmptyState icon="phone" title="Connect a phone provider" action={canViewIntegrations ? <Button kind="filled" onClick={onOpenIntegrations}>Connect a provider</Button> : undefined}>
           {canViewIntegrations ? "Connect CloudTalk, Aircall, Twilio, RingCentral, Vapi or Retell to call leads and keep every call in one history." : "Ask an admin to connect a phone provider."}
         </EmptyState>
       )}
 
-      <section className="calls-history" aria-label="Call history">
+      {tab === "messages" && <MessagesTab onOpenIntegrations={onOpenIntegrations} canViewIntegrations={canViewIntegrations} />}
+      {tab === "transcripts" && <TranscriptsTab calls={baseRecords} loadingId={loadingDetails} onLoad={(call) => void loadCloudTalkDetails(call as CallRecord)} onOpenLead={onOpenLead} />}
+      {tab === "analysis" && <AnalysisTab calls={baseRecords} onOpenLead={onOpenLead} />}
+
+      {tab === "calls" && <section className="calls-history" aria-label="Call history">
         <div className="calls-toolbar">
           <Segmented<Filter>
             label="Show calls"
@@ -311,7 +356,7 @@ export function DialerView({
           })}
         </ul>
         {storedMore && <Button className="mailbox-more" onClick={() => void loadOlder()} disabled={refreshing}>Load older calls</Button>}
-      </section>
+      </section>}
 
       {dialing && (
         <Sheet title={callLead ? `Call ${callLead.full_name || callLead.company_name}` : "New call"} onClose={() => setDialing(false)} width={620}>

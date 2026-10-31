@@ -34,7 +34,7 @@ export function SlackSetupGuide({
       event.preventDefault();
       onOpenChange(!open);
     }}>
-      <span className="slack-guide-summary-title"><i aria-hidden="true">↗</i><span><strong>How to connect Slack</strong><small>Step-by-step setup, scopes, and safe token handling</small></span></span>
+      <span className="slack-guide-summary-title"><i aria-hidden="true">›</i><span><strong>How to connect Slack</strong><small>Step-by-step setup, scopes, and safe token handling</small></span></span>
     </summary>
     <div className="slack-guide-content">
       <p>Follow these steps to connect Corral to Slack.</p>

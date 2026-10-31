@@ -409,7 +409,7 @@ export function ProductTour({
                   Not now
                 </button>
                 <button className="ct-tour-button ct-tour-button-primary" type="button" onClick={startTour} data-tour-primary>
-                  Start tour <span aria-hidden="true">→</span>
+                  Start tour <span aria-hidden="true">›</span>
                 </button>
               </div>
             </>
@@ -466,7 +466,7 @@ export function ProductTour({
                       onClick={() => goToStep(stepIndex + 1)}
                       data-tour-primary
                     >
-                      Next <span aria-hidden="true">→</span>
+                      Next <span aria-hidden="true">›</span>
                     </button>
                   ) : (
                     <button
