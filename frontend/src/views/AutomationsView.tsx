@@ -116,6 +116,7 @@ const initial = (kind: "sequence" | "playbook"): AutomationSpec => ({
     },
   ],
 });
+const waitText = (hours: number) => hours % 168 === 0 ? `${hours / 168} week${hours === 168 ? "" : "s"}` : hours % 24 === 0 ? `${hours / 24} day${hours === 24 ? "" : "s"}` : `${hours} hours`;
 type Editor = { id: string; spec: AutomationSpec };
 export function AutomationsView({
   canManage,
@@ -135,6 +136,8 @@ export function AutomationsView({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState<Automation | null>(null);
+  const [templateIndex, setTemplateIndex] = useState(0);
+  const template = AUTOMATION_TEMPLATES[templateIndex] ?? AUTOMATION_TEMPLATES[0];
   const [trust, setTrust] = useState<{
     score: number | null;
     sample_size: number;
@@ -276,31 +279,32 @@ export function AutomationsView({
         </div>
       )}
       {!definitions.length && (
-        <section className="auto-templates" aria-labelledby="auto-templates-title">
-          <div>
+        <section className="auto-starter" aria-labelledby="auto-templates-title">
+          <div className="auto-starter-pick">
             <h2 id="auto-templates-title">Start from a template</h2>
             <p>Each one saves as a paused draft you can edit before anyone is enrolled.</p>
+            <label className="auto-starter-select">
+              <span>Template</span>
+              <select value={templateIndex} onChange={(event) => setTemplateIndex(Number(event.target.value))}>
+                {AUTOMATION_TEMPLATES.map((item, index) => <option key={item.name} value={index}>{item.name} · {item.kind === "sequence" ? "Sequence" : "Playbook"}</option>)}
+              </select>
+            </label>
+            <p className="auto-starter-summary">{template.summary}</p>
+            {canManage && (
+              <Button kind="filled" disabled={busy} onClick={() => {
+                setError("");
+                setEditor({ id: createClientId(), spec: automationDraftSpec(template) });
+              }}>Use template</Button>
+            )}
           </div>
-          <div className="auto-grid">
-            {AUTOMATION_TEMPLATES.map((template) => (
-              <article className="auto-card" key={template.name}>
-                <div className="auto-card-head"><span className="auto-kind">{template.kind === "sequence" ? "Sequence" : "Playbook"}</span></div>
-                <h2>{template.name}</h2>
-                <p className="auto-steps">{template.summary}</p>
-                <ol className="auto-chips" aria-label="Steps">
-                  {template.steps.map((step, index) => <li key={index}>{NODE_LABELS[step.type as NodeType]}</li>)}
-                </ol>
-                {canManage && (
-                  <div className="auto-card-actions">
-                    <Button size="sm" kind="tinted" disabled={busy} onClick={() => {
-                      setError("");
-                      setEditor({ id: createClientId(), spec: automationDraftSpec(template) });
-                    }}>Use template</Button>
-                  </div>
-                )}
-              </article>
+          <ol className="auto-starter-steps" aria-label={`${template.name} steps`}>
+            {template.steps.map((step, index) => (
+              <li key={index}>
+                <span className="auto-starter-kind">{NODE_LABELS[step.type as NodeType]}</span>
+                <span>{step.type === "wait" ? `Wait ${waitText((step as { wait_hours?: number }).wait_hours ?? 24)}` : (step as { text?: string }).text}</span>
+              </li>
             ))}
-          </div>
+          </ol>
         </section>
       )}
       <div className="auto-guides">

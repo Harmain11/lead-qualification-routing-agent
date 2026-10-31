@@ -70,21 +70,30 @@ html[data-theme="dark"] { --field-ring: rgba(238, 242, 240, 0.4); }
 }
 .v-app .data-panel .panel-action { flex: none; font: var(--t-footnote); color: var(--label-2); }
 .v-app .data-panel p, .v-app .ops-panel p { margin: 0; }
-.v-app .data-panel:has(.plot-settings) > .section-heading { padding-right: 128px; min-height: 32px; }
 
-/* Plot settings: a small gray control in the card's top-right corner; its
-   options open in the flow of the card, never over the chart. */
-.v-app .plot-settings { position: static; margin: 0; border: 0; background: transparent; }
+
+/* Plot settings: a small pill at the right of its own chart; the options open
+   in the flow of the card, never over the chart, and several charts in one card
+   never stack their controls. */
+.v-app .plot-settings { position: static; display: block; width: 100%; margin: 0; border: 0; background: transparent; }
 .v-app .plot-settings > summary {
-  position: absolute; top: 16px; right: 16px; display: inline-flex; align-items: center; gap: 6px; list-style: none;
+  display: flex; align-items: center; gap: 6px; width: fit-content; margin: 0 0 0 auto; list-style: none;
   height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: var(--fill); color: var(--label); font: 500 13px/1 var(--font); cursor: pointer;
   transition: background-color 120ms ease;
 }
 .v-app .plot-settings > summary::-webkit-details-marker { display: none; }
+.v-app .plot-settings > summary::after { content: ""; width: 7px; height: 7px; margin-left: 2px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.v-app .plot-settings[open] > summary::after { transform: translateY(1px) rotate(225deg); }
 .v-app .plot-settings > summary:hover { background: var(--fill-press, var(--fill)); }
-.v-app .plot-settings[open] > summary { background: var(--tint-soft, var(--fill)); color: var(--tint); }
-.v-app .plot-settings-content { display: grid; gap: 12px; margin: 0 0 4px; padding: 14px; border-radius: var(--r-md); background: var(--surface-sunken); }
-.v-app .plot-settings-controls { display: flex; flex-wrap: wrap; gap: 12px 18px; }
+.v-app .plot-settings-content { display: grid; gap: 14px; margin: 10px 0 4px; padding: 16px; border-radius: var(--r-md); background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
+.v-app .plot-settings-controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 16px; align-items: end; }
+.v-app .plot-settings-controls > label { display: grid; gap: 6px; min-width: 0; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .plot-settings-controls > label > span { color: var(--label-2); }
+.v-app .plot-settings-controls :is(input:not([type=checkbox]):not([type=radio]), select) { width: 100%; height: 38px; padding: 0 10px; border-radius: 10px; font: var(--t-callout); }
+.v-app .plot-settings-controls > fieldset { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.v-app .plot-settings-controls > fieldset > legend { float: left; margin-right: 6px; padding: 0; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .plot-settings-controls > fieldset > label { display: inline-flex; align-items: center; gap: 6px; font: var(--t-subhead); color: var(--label); }
+.v-app .plot-settings-reset { justify-self: start; height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-pill); background: var(--fill); color: var(--label); font: 600 13px/1 var(--font); cursor: pointer; }
 .v-app .configured-plot { display: grid; gap: 12px; min-width: 0; }
 
 /* Chart furniture */
@@ -850,10 +859,10 @@ html[data-theme="dark"] { --focus: rgba(238, 242, 240, 0.5); }
 .v-app .records-toolbar .records-search { flex: 1 1 260px; max-width: 420px; }
 
 /* Search palette */
-.v-app .command-palette .command-search-field { display: flex; align-items: center; gap: 10px; height: 48px; margin: 0 8px; padding: 0 14px; border-radius: var(--r-md); background: var(--fill); color: var(--label-3); }
-.v-app .command-palette .command-search-field:focus-within { background: var(--surface); box-shadow: inset 0 0 0 1px var(--field-ring); }
-.v-app .command-palette .command-search-field input { flex: 1; min-width: 0; height: 100%; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; font: var(--t-body) !important; color: var(--label); }
-.v-app .command-palette .command-search-field svg { flex: none; }
+.command-palette .command-search-field { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 48px; margin: 0 8px; padding: 0 14px; border-radius: var(--r-md); background: var(--fill); color: var(--label-3); }
+.command-palette .command-search-field:focus-within { background: var(--surface); box-shadow: inset 0 0 0 1px var(--field-ring); }
+.command-palette .command-search-field input { flex: 1; min-width: 0; height: 100%; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; outline: none !important; font: var(--t-body) !important; color: var(--label); }
+.command-palette .command-search-field svg { flex: none; }
 .v-app .command-palette .ops-dialog-head { padding: 16px 20px 12px; }
 .v-app .command-palette .ops-result-list > button .command-kind { font: 500 12px/1 var(--font); }
 .v-app .command-palette .ops-muted { padding-inline: 20px; }
@@ -1038,3 +1047,91 @@ html[data-theme="light"] .v-sidebar, :root:not([data-theme="dark"]) .v-sidebar {
 .v-app :is(.records-search, .calls-search, .p-search, .mailbox-search, .dialer-contact-search) input { flex: 1; min-width: 0; height: 100%; padding: 0; background: transparent !important; box-shadow: none !important; color: var(--label); }
 .v-app :is(.records-search, .calls-search, .p-search, .mailbox-search, .dialer-contact-search) > .sr-only, .v-app :is(.records-search, .calls-search) > .v-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .v-app .integrations-page .integration-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.command-palette .command-search-field > .v-sr, .command-palette .command-search-field > .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.v-app .response-heatmap-scroll { display: grid; gap: 12px; }
+
+/* ===== Continuous lists get hairline separators (drawn with a pseudo-element so no legacy reset can hide them) */
+.v-app .v-page .dashboard-signals .dashboard-signal-list { display: grid; gap: 0; }
+.v-app .v-page .dashboard-signal-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; padding: 8px 0; border: 0; }
+.v-app .v-page .dashboard-signal-row:first-child { padding-top: 0; }
+.v-app .v-page .dashboard-signal-row:last-child { padding-bottom: 0; }
+.v-app .v-page .dashboard-signal-row > small { margin: 0; font: var(--t-footnote); color: var(--attention-text, var(--label-2)); white-space: nowrap; }
+.v-app .v-page .dashboard-signal-row .compact-lead { min-width: 0; }
+.v-app .v-page :is(.dashboard-signal-row, .data-panel .bar-row, .ops-panel .bar-row, :is(.data-panel, .ops-panel) :is(ul, ol):not([class]) > li):not(:first-child)::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 1px; background: var(--separator); pointer-events: none; }
+.v-app .v-page :is(.data-panel, .ops-panel) .bar-row { position: relative; padding: 12px 0; }
+.v-app .v-page :is(.data-panel, .ops-panel) .bar-row:first-child { padding-top: 4px; }
+.v-app .v-page :is(.data-panel, .ops-panel) .bar-row:last-child { padding-bottom: 2px; }
+.v-app .v-page :is(.data-panel, .ops-panel) :is(ul, ol):not([class]) > li { position: relative; padding-block: 10px; }
+.v-app .v-page .dashboard-signals { align-items: start; }
+
+/* ===== Template starter: one card, one picker */
+.v-app .auto-starter { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 0; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
+.v-app .auto-starter-pick { display: grid; align-content: start; gap: 12px; padding: 24px; border-right: 1px solid var(--separator); }
+.v-app .auto-starter-pick h2 { margin: 0; font: 600 18px/1.3 var(--font); letter-spacing: -0.014em; }
+.v-app .auto-starter-pick p { margin: 0; font: var(--t-subhead); color: var(--label-2); }
+.v-app .auto-starter-pick .auto-starter-summary { color: var(--label); }
+.v-app .auto-starter-pick > .v-btn { justify-self: start; margin-top: 4px; }
+.v-app .auto-starter-select { display: grid; gap: 6px; margin-top: 4px; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .auto-starter-select select { appearance: none; width: 100%; height: 40px; padding: 0 34px 0 12px; border: 0; border-radius: 10px; background-color: var(--surface); box-shadow: inset 0 0 0 1px var(--separator-strong); color: var(--label); font: 500 14px/1 var(--font); cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a8e' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 13px center; }
+.v-app .auto-starter-steps { display: grid; align-content: start; margin: 0; padding: 12px 24px; list-style: none; counter-reset: step; }
+.v-app .auto-starter-steps li { counter-increment: step; display: grid; grid-template-columns: 28px 96px minmax(0, 1fr); gap: 12px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--separator); font: var(--t-subhead); color: var(--label-2); }
+.v-app .auto-starter-steps li:first-child { border-top: 0; }
+.v-app .auto-starter-steps li::before { content: counter(step); display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--separator-strong); font: 600 11px/1 var(--font); color: var(--label-2); align-self: start; }
+.v-app .auto-starter-kind { font: 600 13px/1.4 var(--font); color: var(--label); }
+@container page (max-width: 760px) { .v-app .auto-starter { grid-template-columns: minmax(0, 1fr); } .v-app .auto-starter-pick { border-right: 0; border-bottom: 1px solid var(--separator); } .v-app .auto-starter-steps li { grid-template-columns: 28px minmax(0, 1fr); } .v-app .auto-starter-steps li > span:last-child { grid-column: 2; } }
+
+/* ===== Sequence builder: calm, compact, outlined */
+.auto-builder { gap: 20px; }
+.auto-builder-settings { grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; gap: 14px 16px; padding-bottom: 20px; }
+.auto-builder .v-field { display: grid; gap: 6px; align-content: start; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.auto-builder .v-field small { font: var(--t-footnote); color: var(--label-3); }
+.auto-builder :is(input:not([type=checkbox]), select) { height: 40px; }
+.auto-builder .auto-step textarea { height: 76px; min-height: 76px; padding: 10px 12px; line-height: 1.45; }
+.auto-builder .auto-check { align-items: center; gap: 10px; }
+.auto-step { gap: 14px; padding-bottom: 6px; }
+.auto-step-icon, .auto-step[data-type="start"] .auto-step-icon, .auto-step[data-type="end"] .auto-step-icon, .auto-step[data-type="draft"] .auto-step-icon, .auto-step[data-type="condition"] .auto-step-icon { background: var(--surface); color: var(--label-2); box-shadow: inset 0 0 0 1px var(--separator-strong); }
+.auto-step[data-detached] .auto-step-icon { color: var(--danger-text); }
+.auto-step-body { gap: 10px; padding: 0 0 14px; }
+.auto-step-head { min-height: 28px; }
+.auto-step-type select { width: auto; height: 32px; padding: 0 30px 0 12px; border-radius: var(--r-pill); background-color: var(--fill); box-shadow: none; font-weight: 600; background-position: calc(100% - 15px) 14px, calc(100% - 11px) 14px; }
+.auto-step-row { gap: 8px; }
+.auto-inline input { width: 80px; }
+.auto-inline select { min-width: 110px; }
+.auto-add { height: 28px; margin: 0 0 8px; padding: 0 10px; border-radius: var(--r-pill); }
+.auto-add-menu { background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
+.auto-add-menu button { box-shadow: inset 0 0 0 1px var(--separator-strong); border-radius: var(--r-pill); }
+
+/* ===== Expanded integration: one calm column, grouped rows */
+.v-app .integrations-page .int-card.is-expanded { box-shadow: var(--shadow-card); }
+.v-app .integrations-page .int-card.is-expanded > .int-head { padding: 18px 24px; border-bottom: 1px solid var(--separator); }
+.v-app .integrations-page .int-setup { display: block; padding: 0; }
+.v-app .integrations-page .int-setup > * { grid-column: auto; margin: 0; }
+.v-app .integrations-page .int-setup > .integration-direction { padding: 18px 24px 0; border-radius: 0; background: transparent; box-shadow: none; max-width: 78ch; font: var(--t-subhead); color: var(--label-2); }
+.v-app .integrations-page .int-setup > .int-health { margin: 16px 24px 0; padding: 14px 16px; border-radius: var(--r-md); background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
+.v-app .integrations-page .int-setup > .integration-connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 24px 20px; }
+.v-app .integrations-page .int-setup .integration-connection-actions :is(button, a) { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 18px; border: 0; border-radius: var(--r-pill); font: 600 14px/1 var(--font); }
+.v-app .integrations-page .int-setup .integration-connection-actions :is(.primary-button, .v-btn[data-kind="filled"]) { background: var(--tint); color: var(--on-tint); }
+.v-app .integrations-page .int-setup .integration-connection-actions :is(.secondary-button, .button-quiet, .v-btn[data-kind="gray"], a) { background: var(--fill); color: var(--label); }
+.v-app .integrations-page .int-setup > .integration-section-disclosure { border: 0; border-top: 1px solid var(--separator); border-radius: 0; background: transparent; box-shadow: none; }
+.v-app .integrations-page .int-setup > .integration-section-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 0 24px; font: 600 14px/1.3 var(--font); cursor: pointer; list-style: none; transition: background-color 120ms ease; }
+.v-app .integrations-page .int-setup > .integration-section-disclosure > summary:hover { background: var(--fill); }
+.v-app .integrations-page .int-setup > .integration-section-disclosure > summary::-webkit-details-marker { display: none; }
+.v-app .integrations-page .int-setup > .integration-section-disclosure[open] > summary { border-bottom: 1px solid var(--separator); }
+.v-app .integrations-page .int-setup .integration-section-disclosure-content { padding: 18px 24px 22px; max-width: 880px; }
+.v-app .integrations-page .int-setup .connection-facts { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; }
+
+/* ===== ICP builder: dense, aligned, no dead space */
+.v-app .icp-builder { align-content: start; min-height: 0; }
+.v-app .icp-form-grid, .v-app .icp-profile-meta { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); align-content: start; gap: 16px; }
+.v-app .icp-form-grid .icp-range { display: contents; }
+.v-app .icp-field textarea, .v-app .icp-list textarea { height: 64px; padding: 10px 12px; line-height: 1.45; }
+.v-app .icp-profile-meta { margin-bottom: -2px; }
+.v-app .icp-step-actions { margin-top: 0; padding-top: 16px; }
+.v-app .icp-review { display: grid; gap: 16px; align-content: start; }
+.v-app .review-summary { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.v-app .review-actions { margin-top: 0; }
+.v-app .weight-total { margin: 0; }
+.v-app .exclusion-explainer + .disqualifier-list, .v-app .icp-builder > div > .exclusion-explainer { margin-bottom: 14px; }
+.v-app .icp-form-grid > .icp-list:last-child { grid-column-end: -1; }
+.v-app .icp-form-grid > .icp-list:last-child textarea { height: 64px; }
+.v-app .v-page .dashboard-signals > * { align-self: start; }

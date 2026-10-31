@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
-import { AgentFlow } from "../components/AgentFlow";
 import type { AgentActivity, PipelineAnalytics } from "../types";
 import { Icon, type IconName } from "../v3/ui/Icon";
 import { Badge, Button, EmptyState, PageHeader, Segmented, type Tone } from "../v3/ui/primitives";
 import { activityTitle, pretty, Unavailable } from "./productShared";
 
 type Entry = AgentActivity["activity"][number];
-type Tab = "activity" | "agents" | "how";
+type Tab = "activity" | "agents";
 type Status = "all" | "done" | "attention";
 type When = "all" | "today" | "yesterday" | "7d" | "30d" | "custom";
 
@@ -56,7 +55,6 @@ function resultFacts(result: Record<string, unknown>): Array<[string, string]> {
 
 export function AgentsView({
   data,
-  pipeline,
   onInspect,
 }: {
   data: AgentActivity | null;
@@ -106,7 +104,7 @@ export function AgentsView({
       <PageHeader
         title="AI activity"
         subtitle="What Corral did on your behalf, what it found, and anything that needs you."
-        actions={<Segmented<Tab> label="AI activity sections" value={tab} onChange={setTab} options={[{ value: "activity", label: "Activity" }, { value: "agents", label: "Agents" }, { value: "how", label: "How it works" }]} />}
+        actions={<Segmented<Tab> label="AI activity sections" value={tab} onChange={setTab} options={[{ value: "activity", label: "Activity" }, { value: "agents", label: "Agents" }]} />}
       />
 
       <section className="ai-stats" aria-label="Summary for this period">
@@ -210,20 +208,6 @@ export function AgentsView({
             </article>
           ))}
         </section>
-      )}
-
-      {tab === "how" && (
-        <div className="ai-how">
-          <AgentFlow pipeline={pipeline} activity={data} />
-          <section className="v-card v-card-pad">
-            <h2 className="v-card-title">What Corral will and will not do</h2>
-            <ul className="ai-rules">
-              <li><Icon name="check" size={14} />Scores, routes and drafts on its own, using only what was recorded.</li>
-              <li><Icon name="check" size={14} />Emails, CRM writes and deletions always wait for a person to approve them.</li>
-              <li><Icon name="check" size={14} />Every action here is logged with its result, so you can audit it later.</li>
-            </ul>
-          </section>
-        </div>
       )}
     </div>
   );
