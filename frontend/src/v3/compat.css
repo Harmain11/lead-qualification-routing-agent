@@ -131,8 +131,8 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .v-app :where(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not(.v-popup), select:not(.v-popup), textarea):not(:where(.mail-composer *, .mailbox *, .calls *, .auto-builder *, .integrations-page .manual-credential *)) {
   border: 0 !important;
   border-radius: var(--r-sm);
-  background-color: var(--fill) !important;
-  box-shadow: none;
+  background-color: var(--surface) !important;
+  box-shadow: inset 0 0 0 1px var(--separator-strong);
   color: var(--label);
   font-family: var(--font);
   font-size: 15px;
@@ -143,7 +143,7 @@ html[data-theme="dark"] { --green: #6fd0a6; }
 .v-app .v-searchfield input, .v-app .v-searchfield input:focus { background-color: transparent !important; box-shadow: none !important; }
 .v-app input[type=checkbox], .v-app input[type=radio] { accent-color: var(--c-green); }
 .v-app label { color: inherit; }
-.v-app fieldset { border: 0; border-radius: var(--r-md); background: var(--fill); }
+.v-app fieldset { border: 0; border-radius: var(--r-md); background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
 
 /* ----------------------------------------------------------------- Tables */
 .v-app .ops-table-wrap, .v-app .lead-table-wrap { border: 0 !important; border-radius: var(--r-lg); background: var(--surface); box-shadow: none; }

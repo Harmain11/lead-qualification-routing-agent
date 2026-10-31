@@ -229,10 +229,13 @@ export function AutomationsView({
                   <span className="auto-kind">{item.kind === "sequence" ? "Sequence" : "Playbook"}</span>
                 </div>
                 <h2>{item.name}</h2>
-                <p className="auto-steps">
-                  {steps.length} step{steps.length === 1 ? "" : "s"}
-                  {steps.length > 0 && <> · {steps.slice(0, 4).map((node) => NODE_LABELS[node.type]).join(" › ")}{steps.length > 4 ? " › …" : ""}</>}
-                </p>
+                <p className="auto-steps">{steps.length} step{steps.length === 1 ? "" : "s"}</p>
+                {steps.length > 0 && (
+                  <ol className="auto-chips" aria-label="Steps">
+                    {steps.slice(0, 6).map((node, index) => <li key={`${node.id}-${index}`}>{NODE_LABELS[node.type]}</li>)}
+                    {steps.length > 6 && <li>+{steps.length - 6}</li>}
+                  </ol>
+                )}
                 <div className="auto-card-actions">
                   {canManage && (
                     <Button
@@ -284,6 +287,9 @@ export function AutomationsView({
                 <div className="auto-card-head"><span className="auto-kind">{template.kind === "sequence" ? "Sequence" : "Playbook"}</span></div>
                 <h2>{template.name}</h2>
                 <p className="auto-steps">{template.summary}</p>
+                <ol className="auto-chips" aria-label="Steps">
+                  {template.steps.map((step, index) => <li key={index}>{NODE_LABELS[step.type as NodeType]}</li>)}
+                </ol>
                 {canManage && (
                   <div className="auto-card-actions">
                     <Button size="sm" kind="tinted" disabled={busy} onClick={() => {

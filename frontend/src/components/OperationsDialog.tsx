@@ -1,4 +1,5 @@
 import { trapFocus } from "./focusTrap";
+import { Icon } from "../v3/ui/Icon";
 import { useEffect, useRef, type ReactNode } from "react";
 
 export function OperationsDialog({
@@ -47,11 +48,12 @@ export function OperationsDialog({
       {showHeader && <div className="ops-dialog-head">
         <h2>{title}</h2>
         <button
-          className="button-quiet"
+          type="button"
+          className="ops-dialog-close"
           aria-label={"Close " + title}
           onClick={onClose}
         >
-          Close ×
+          <Icon name="close" size={16} />
         </button>
       </div>}
       {children}

@@ -11,8 +11,8 @@ type Status = "all" | "done" | "attention";
 type When = "all" | "today" | "yesterday" | "7d" | "30d" | "custom";
 
 const WHEN_LABELS: Array<{ value: When; label: string }> = [
-  { value: "all", label: "Any time" }, { value: "today", label: "Today" }, { value: "yesterday", label: "Yesterday" },
-  { value: "7d", label: "7 days" }, { value: "30d", label: "30 days" }, { value: "custom", label: "Custom" },
+  { value: "all", label: "All time" }, { value: "today", label: "Today" }, { value: "yesterday", label: "Yesterday" },
+  { value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "custom", label: "Custom range" },
 ];
 
 function withinWhen(iso: string, when: When, from: string, to: string) {
@@ -135,7 +135,11 @@ export function AgentsView({
           <div className="ai-filters">
             <Segmented<Status> label="Show" value={status} onChange={setStatus} options={[{ value: "all", label: "All" }, { value: "done", label: "Completed" }, { value: "attention", label: stats.issues.length ? `Needs a look · ${stats.issues.length}` : "Needs a look" }]} />
             <div className="ai-when" role="group" aria-label="Date range">
-              <Segmented<When> label="Date range" value={when} onChange={setWhen} options={WHEN_LABELS} />
+              <label className="ai-select"><span className="v-sr">Date range</span>
+                <select className="v-popup" value={when} onChange={(event) => setWhen(event.target.value as When)}>
+                  {WHEN_LABELS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
               {when === "custom" && (
                 <span className="ai-custom">
                   <label><span className="v-sr">From</span><input type="date" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} /></label>

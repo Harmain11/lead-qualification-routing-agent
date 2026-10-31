@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClientId } from "../clientIds";
 import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave, type Company, type Contact } from "../operationsApi";
 import { confirmAction } from "../v3/ui/confirm";
-import { Button, Sheet } from "../v3/ui/primitives";
+import { Button, Menu, MenuItem, Sheet } from "../v3/ui/primitives";
+import type { IconName } from "../v3/ui/Icon";
 import type { ReactNode } from "react";
 type Touch = {
   id: string;
@@ -114,13 +115,19 @@ export function RecordsView({
   const [viewMode, setViewMode] = useState<"board" | "table">(
     mode === "companies" ? "board" : "table",
   );
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<{ company: string; email: boolean; phone: boolean; reviewed: "" | "reviewed" | "pending" }>({ company: "", email: false, phone: false, reviewed: "" });
+  const [localSort, setLocalSort] = useState<"" | "name-desc" | "industry">("");
   const [savedView, setSavedView] = useState<"all" | "mine">("all");
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   useEffect(() => {
     setViewMode(mode === "companies" ? "board" : "table");
     setSavedView("all");
     setExpandedColumns({});
+  }, [mode]);
+  useEffect(() => {
+    setFilters({ company: "", email: false, phone: false, reviewed: "" });
+    setLocalSort("");
+    setSort("name");
   }, [mode]);
   useEffect(() => {
     const controller = new AbortController();
@@ -317,13 +324,25 @@ export function RecordsView({
       mode === "companies" ? "Company details saved." : "Contact details saved.",
     );
   }
+  const activeFilters = (filters.company ? 1 : 0) + (filters.email ? 1 : 0) + (filters.phone ? 1 : 0) + (filters.reviewed ? 1 : 0);
+  const rows = useMemo(() => {
+    let list = items;
+    if (mode === "contacts") {
+      list = (list as Contact[]).filter((item) => (!filters.company || item.company_id === filters.company) && (!filters.email || Boolean(item.email)) && (!filters.phone || Boolean(item.phone)));
+    } else {
+      list = (list as Company[]).filter((item) => !filters.reviewed || (filters.reviewed === "reviewed" ? item.website_reviewed : !item.website_reviewed));
+    }
+    if (localSort === "name-desc") list = [...list].sort((a, b) => b.name.localeCompare(a.name));
+    if (localSort === "industry" && mode === "companies") list = [...(list as Company[])].sort((a, b) => (a.industry ?? "~").localeCompare(b.industry ?? "~"));
+    return list;
+  }, [items, filters, localSort, mode]);
   const companyById = useMemo(
     () => new Map(companies.map((company) => [company.id, company])),
     [companies],
   );
   const boardColumns = useMemo(() => {
     if (mode === "companies") {
-      const companiesInView = items as Company[];
+      const companiesInView = rows as Company[];
       return [
         {
           key: "reviewed",
@@ -349,7 +368,7 @@ export function RecordsView({
         },
       ];
     }
-    const contactsInView = items as Contact[];
+    const contactsInView = rows as Contact[];
     return [
       {
         key: "linked",
@@ -481,7 +500,7 @@ export function RecordsView({
         <p role="status" className="records-notice">{notice}</p>
       )}
       <div className="records-toolbar">
-        <label className="records-search">
+        <label className="records-search"><Icon name="search" size={16} />
           <span className="sr-only">Search {recordLabelPlural}</span>
           <input
             value={search}
@@ -494,33 +513,76 @@ export function RecordsView({
             }
           />
         </label>
-        <button className={`records-filter-button ${filtersOpen ? "is-active" : ""}`} onClick={() => setFiltersOpen((value) => !value)}>
-          <Icon name="filter" size={16} /> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
-        </button>
-        <button className="records-filter-button" onClick={() => setFiltersOpen(true)}>
-          <Icon name="chevronUpDown" size={16} /> Sort by
-        </button>
+        <ToolbarPopover icon="filter" label="Filter" badge={activeFilters || undefined}>
+          {(close) => (
+            <div className="rec-pop-body">
+              {mode === "contacts" ? (
+                <>
+                  <label className="rec-pop-field"><span>Company</span>
+                    <select value={filters.company} onChange={(event) => setFilters({ ...filters, company: event.target.value })}>
+                      <option value="">Any company</option>
+                      {companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="rec-pop-check"><input type="checkbox" checked={filters.email} onChange={(event) => setFilters({ ...filters, email: event.target.checked })} />Has an email address</label>
+                  <label className="rec-pop-check"><input type="checkbox" checked={filters.phone} onChange={(event) => setFilters({ ...filters, phone: event.target.checked })} />Has a phone number</label>
+                </>
+              ) : (
+                <label className="rec-pop-field"><span>Research status</span>
+                  <select value={filters.reviewed} onChange={(event) => setFilters({ ...filters, reviewed: event.target.value as typeof filters.reviewed })}>
+                    <option value="">Any status</option>
+                    <option value="reviewed">Website reviewed</option>
+                    <option value="pending">Not reviewed yet</option>
+                  </select>
+                </label>
+              )}
+              <div className="rec-pop-foot">
+                <Button kind="plain" size="sm" disabled={!activeFilters} onClick={() => setFilters({ company: "", email: false, phone: false, reviewed: "" })}>Clear</Button>
+                <Button kind="filled" size="sm" onClick={close}>Done</Button>
+              </div>
+            </div>
+          )}
+        </ToolbarPopover>
+        <ToolbarPopover icon="chevronUpDown" label="Sort by">
+          {(close) => {
+            const options: Array<{ id: string; label: string; apply: () => void; active: boolean }> = mode === "contacts"
+              ? [
+                  { id: "name", label: "Name, A to Z", active: sort === "name" && !localSort, apply: () => { setLocalSort(""); setSort("name"); setOffset(0); } },
+                  { id: "name-desc", label: "Name, Z to A", active: localSort === "name-desc", apply: () => { setSort("name"); setLocalSort("name-desc"); } },
+                  { id: "recent", label: "Recently updated", active: sort === "recent", apply: () => { setLocalSort(""); setSort("recent"); setOffset(0); } },
+                  { id: "company", label: "Company", active: sort === "company", apply: () => { setLocalSort(""); setSort("company"); setOffset(0); } },
+                ]
+              : [
+                  { id: "name", label: "Name, A to Z", active: !localSort, apply: () => setLocalSort("") },
+                  { id: "name-desc", label: "Name, Z to A", active: localSort === "name-desc", apply: () => setLocalSort("name-desc") },
+                  { id: "industry", label: "Industry", active: localSort === "industry", apply: () => setLocalSort("industry") },
+                ];
+            return (
+              <ul className="rec-pop-list" role="listbox" aria-label="Sort order">
+                {options.map((option) => (
+                  <li key={option.id}><button type="button" role="option" aria-selected={option.active} onClick={() => { option.apply(); close(); }}><span>{option.label}</span>{option.active && <Icon name="check" size={14} />}</button></li>
+                ))}
+              </ul>
+            );
+          }}
+        </ToolbarPopover>
         <div className="records-toolbar-spacer" />
         <div className="records-view-switcher" role="group" aria-label="View mode">
           <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}><Icon name="layers" size={16} /> Board</button>
           <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}><Icon name="dashboard" size={16} /> Table</button>
         </div>
+        {(canEdit || mode === "contacts") && (
+          <Menu label="More record actions" iconOnly="more" trigger={null}>
+            {(close) => (
+              <>
+                {canEdit && <MenuItem icon="link" disabled={busy} onSelect={() => { close(); void act(() => opsSave("/v1/records/backfill", {})); }}>Link existing lead touches</MenuItem>}
+                {mode === "contacts" && <MenuItem icon="layers" onSelect={() => { close(); void act(async () => setDuplicates((await opsGet<{ items: typeof duplicates }>("/v1/records/duplicates")).items)); }}>Review duplicates</MenuItem>}
+              </>
+            )}
+          </Menu>
+        )}
         <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}><Icon name="refresh" size={18} /></button>
       </div>
-      {filtersOpen && (
-        <div className="records-filter-panel">
-          <label>
-            Sort records
-            <select value={sort} onChange={(event) => { setSort(event.target.value); setOffset(0); }}>
-              <option value="name">Name</option>
-              {mode === "contacts" && <><option value="recent">Recently updated</option><option value="company">Company</option></>}
-            </select>
-          </label>
-          {canEdit && <button className="button-quiet" disabled={busy} onClick={() => void act(() => opsSave("/v1/records/backfill", {}))}>Link existing lead touches</button>}
-          {mode === "contacts" && <button className="secondary-button" onClick={() => void act(async () => setDuplicates((await opsGet<{ items: typeof duplicates }>("/v1/records/duplicates")).items))}>Review duplicates</button>}
-          <button className="records-filter-close" onClick={() => setFiltersOpen(false)}>Done</button>
-        </div>
-      )}
       {loading ? (
         <p role="status">Loading records…</p>
       ) : !items.length ? (
@@ -530,6 +592,11 @@ export function RecordsView({
             New lead intake creates linked records. Add a record here or link
             your existing lead touches.
           </p>
+        </section>
+      ) : !rows.length ? (
+        <section className="ops-empty">
+          <h3>Nothing matches these filters</h3>
+          <p>Clear a filter to see more {recordLabelPlural}.</p>
         </section>
       ) : viewMode === "board" ? (
         <section className="records-board" aria-label={`${recordLabelPlural} board`}>
@@ -571,7 +638,7 @@ export function RecordsView({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {rows.map((item) => (
                 <tr key={item.id}>
                   <td>
                     <button
@@ -915,5 +982,26 @@ function RecField({ label, hint, required, wide, children }: { label: string; hi
       {children}
       {hint && <small>{hint}</small>}
     </label>
+  );
+}
+
+function ToolbarPopover({ icon, label, badge, children }: { icon: IconName; label: string; badge?: number; children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onPointer); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  return (
+    <div className="rec-pop" ref={root}>
+      <button type="button" className="records-filter-button" data-active={open || Boolean(badge) || undefined} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <Icon name={icon} size={16} />{label}{badge ? <span className="rec-pop-badge">{badge}</span> : null}
+      </button>
+      {open && <div className="rec-pop-panel" role="dialog" aria-label={label}>{children(() => setOpen(false))}</div>}
+    </div>
   );
 }

@@ -1,3 +1,4 @@
+import { Icon } from "../v3/ui/Icon";
 import { useEffect, useRef, useState } from "react";
 import { listLeads } from "../api";
 import { opsGet, type Company, type Contact } from "../operationsApi";
@@ -140,11 +141,12 @@ export function CommandPalette({
             }
           }}>
           <label className="command-search-field">
-            Search pages, leads, contacts and companies
+            <Icon name="search" size={18} />
+            <span className="v-sr">Search pages, leads, contacts and companies</span>
             <input
               autoFocus
               type="search"
-              placeholder="Search Corral…"
+              placeholder="Search pages, leads, contacts and companies"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />

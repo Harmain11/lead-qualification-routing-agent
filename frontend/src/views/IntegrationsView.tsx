@@ -196,6 +196,7 @@ const BRAND_TINT: Record<string, string> = {
 function ProviderMark({ provider, name }: { provider: string; name: string }) {
   const mark = BRAND_MARKS[provider];
   const [hasFile, setHasFile] = useState(false);
+  const [ext, setExt] = useState<"svg" | "png">("svg");
   if (mark) {
     return (
       <span className="int-mark int-mark-logo" aria-hidden="true">
@@ -207,7 +208,7 @@ function ProviderMark({ provider, name }: { provider: string; name: string }) {
   return (
     <span className={`int-mark${hasFile ? " int-mark-logo" : ""}`} style={{ "--int-tint": BRAND_TINT[provider] ?? "var(--tint)" } as React.CSSProperties} aria-hidden="true">
       {!hasFile && name.trim().charAt(0).toUpperCase()}
-      <img src={`/brand/logos/${provider}.svg`} alt="" hidden={!hasFile} onLoad={() => setHasFile(true)} onError={() => setHasFile(false)} />
+      <img src={`/brand/logos/${provider}.${ext}`} alt="" hidden={!hasFile} onLoad={() => setHasFile(true)} onError={() => { setHasFile(false); if (ext === "svg") setExt("png"); }} />
     </span>
   );
 }
