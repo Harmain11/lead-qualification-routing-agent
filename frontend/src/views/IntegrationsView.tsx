@@ -3,6 +3,7 @@ import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../a
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { FeatureGuide } from "../components/FeatureGuide";
 import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
+import { IntegrationSetupGuide } from "../components/IntegrationSetupGuide";
 import { BRAND_MARKS } from "../v3/ui/brandMarks";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
@@ -125,16 +126,19 @@ function ProviderDetailsPanel({
 
   return (
     <div className="int-detail" id={id}>
-      <div className="int-detail-summary">
-        <div className="int-detail-main">{summary}</div>
-        {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
-      </div>
+      {summary.length > 0 && (
+        <div className="int-detail-summary">
+          <div className="int-detail-main">{summary}</div>
+          {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
+        </div>
+      )}
       {panes.length > 0 && (
         <>
           <div className="int-tabs" role="tablist" aria-label="Integration sections">
             {panes.map((pane) => (
               <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
             ))}
+            {summary.length === 0 && actions.length > 0 && <div className="int-tabs-actions">{actions}</div>}
           </div>
           {active && <div className="int-pane" role="tabpanel" id={`${id}-pane-${active.id}`} aria-labelledby={`${id}-tab-${active.id}`}>{active.body}</div>}
         </>
@@ -1360,7 +1364,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             onDisconnect={(gmailAccount) => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)}
             statusLabel={connectionStatusLabel}
           />}
-         <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application › Slack · outbound notifications only" : openAI ? "Workspace OpenAI project › structured lead analysis" : "How this connection is used"}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
+         {(comingSoon || gmailDirection || crmDirection || card.provider === "slack" || openAI) && <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application › Slack · outbound notifications only" : "Workspace OpenAI project › structured lead analysis"}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>}
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
              <SlackSetupGuide open={slackGuideOpen} onOpenChange={setSlackGuideOpen} />
@@ -1647,7 +1651,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         {operationFeedback[card.provider] && <div className={`notice notice-${operationFeedback[card.provider].state} integration-operation-feedback operation-${operationFeedback[card.provider].state}`} role={operationFeedback[card.provider].state === "error" ? "alert" : "status"} aria-live="polite" aria-busy={operationFeedback[card.provider].state === "running"}>{operationFeedback[card.provider].message}</div>}
         {actionErrors[card.provider] && actionErrors[card.provider] !== operationFeedback[card.provider]?.message && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
            <IntegrationDisclosure title="Setup guide and permissions" className="int-guidance">
-             <p>{card.credential_help}</p>
+             <IntegrationSetupGuide card={card} />
              {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
                <span className="eyebrow">Meta inbound message setup</span>
                <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>

@@ -163,7 +163,7 @@ export function FeatureGuide({ topic, compact = false }: { topic: GuideTopic; co
         {compact ? "Guide" : guide.button}
       </Button>
       {open && (
-        <Sheet title={guide.title} subtitle={guide.intro} onClose={() => setOpen(false)} width={600}>
+        <Sheet title={guide.title} subtitle={guide.intro} onClose={() => setOpen(false)} width={620} footer={<Button kind="filled" onClick={() => setOpen(false)}>Got it</Button>}>
           <div className="guide">
             <ol className="guide-steps">
               {guide.steps.map(([title, text], index) => (

@@ -111,11 +111,58 @@ def _lead_confirmation_state(
         "yes thats the one",
         "use this lead",
         "use that lead",
+        "open it",
+        "open",
+        "open lead",
+        "open the lead",
+        "open that lead",
+        "open this lead",
+        "ok",
+        "okay",
+        "sure",
+        "right",
+        "exactly",
+        "go ahead",
+        "that is right",
+        "that is the one",
+        "this one",
+        "thats it",
+        "that lead",
+        "yes open it",
     }:
         return "confirmed", original_query
     if normalized in {"no", "nope", "no thanks", "not that one", "not this one"}:
         return "declined", original_query
     return "correction", latest_user_message
+
+
+_OPEN_FOLLOWUPS = re.compile(
+    r"^(?:yes )?(?:please )?(?:go ahead and )?open(?: (?:it|him|her|them|that|this|that lead|this lead|the lead|lead|the record|his record|her record))?(?: please)?$"
+)
+
+
+def _open_followup_lead(
+    latest_user_message: str,
+    confirmation_state: str | None,
+    creation_requested: bool,
+    records: Any,
+    similar_leads: list[Any],
+    confirmation_query: str | None,
+) -> dict[str, Any] | None:
+    """The one lead an "open it" reply refers to, or None when it is not clear."""
+    if creation_requested or not isinstance(records, dict):
+        return None
+    normalized = re.sub(r"[\W_]+", " ", latest_user_message.casefold()).strip()
+    if not _OPEN_FOLLOWUPS.match(normalized):
+        return None
+    matched = [lead for lead in records.get("matched_leads", []) if isinstance(lead, dict) and lead.get("id")]
+    if confirmation_state == "confirmed":
+        if records.get("lead_match_confirmed") is True and matched and not _is_explicit_lead_write_request(confirmation_query or ""):
+            return matched[0]
+        return None
+    if len(matched) == 1 and not similar_leads:
+        return matched[0]
+    return None
 
 
 def _is_explicit_lead_write_request(query: str) -> bool:
@@ -883,6 +930,10 @@ def chat_with_workspace_assistant(
         search_query = confirmation_query or record_query
     elif confirmation_state == "correction":
         search_query = latest_user_message
+    elif _OPEN_FOLLOWUPS.match(re.sub(r"[\W_]+", " ", latest_user_message.casefold()).strip()):
+        # "Open it" points at the lead asked about just before, not at the words "open it".
+        earlier_user = [m.content for m in request.messages if m.role == "user"][:-1]
+        search_query = earlier_user[-1] if earlier_user else record_query
     else:
         search_query = latest_user_message if read_only_lead_lookup else record_query
     if (
@@ -931,6 +982,26 @@ def chat_with_workspace_assistant(
             reply=(
                 "No problem. Tell me another name, company, or email and I’ll search "
                 "the leads saved in this workspace."
+            ),
+        )
+    elif _open_followup_lead(
+        latest_user_message, confirmation_state, creation_requested, records, similar_leads, confirmation_query,
+    ) is not None:
+        # An unambiguous lead plus "open it" needs no AI provider: take the person there.
+        confirmed = _open_followup_lead(
+            latest_user_message, confirmation_state, creation_requested, records, similar_leads, confirmation_query,
+        )
+        assert confirmed is not None
+        label = str(confirmed.get("name") or "the lead")
+        company = confirmed.get("company")
+        result = WorkspaceAssistantReply(
+            reply=f"Opening {label}" + (f" at {company}" if isinstance(company, str) and company.strip() else "") + ".",
+            action=WorkspaceAssistantAction(
+                kind="open_lead",
+                title=f"Open {label}",
+                summary="Read-only navigation to the lead record.",
+                target_id=str(confirmed["id"]),
+                target_label=label,
             ),
         )
     elif (not creation_requested) and (read_only_lead_lookup or (similar_leads and (
@@ -983,7 +1054,7 @@ def chat_with_workspace_assistant(
     if _is_conversation_only_message(request.messages) and result.action.kind != "none":
         result.action = WorkspaceAssistantAction()
         result.reply = "No new changes were made. If you meant to correct something, tell me what should change."
-    if result.action.kind == "open_lead" and not _wants_lead_links(request.messages):
+    if result.action.kind == "open_lead" and confirmation_state != "confirmed" and not _wants_lead_links(request.messages):
         result.action = WorkspaceAssistantAction()
     if result.action.kind == "open_deal_desk" and not any(
         term in record_query.casefold()
