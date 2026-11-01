@@ -1,410 +1,58 @@
-.salesforce-guide-backdrop {
-  position: fixed;
-  z-index: 2000;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  background: rgba(15, 27, 45, .58);
-  backdrop-filter: blur(5px);
-  animation: salesforce-backdrop-in 160ms ease-out both;
-}
-
-.salesforce-guide.team-modal {
-  width: 100%;
-  max-width: none;
-  height: 100dvh;
-  max-height: none;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: var(--surface-sunken);
-  color: var(--label);
-  box-shadow: 0 28px 90px rgba(15, 27, 45, .26);
-  animation: salesforce-dialog-in 220ms cubic-bezier(.2, .75, .25, 1) both;
-}
-
-.salesforce-guide-header {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 28px max(24px, calc((100vw - 960px) / 2)) 22px;
-  border-bottom: 1px solid rgba(30, 107, 82, .13);
-  background:
-    radial-gradient(ellipse at 94% 0%, rgba(30, 107, 82, .12), transparent 38%),
-    var(--surface-sunken);
-}
-
-.salesforce-guide-heading {
-  max-width: 540px;
-}
-
-.salesforce-guide-heading .eyebrow {
-  color: var(--tint-text);
-}
-
-.salesforce-guide-heading h2 {
-  margin: 9px 0 8px;
-  color: var(--label);
-  font-size: clamp(25px, 4vw, 34px);
-  font-weight: 550;
-  line-height: 1.08;
-  letter-spacing: -.04em;
-}
-
-.salesforce-guide-heading p {
-  max-width: 560px;
-  margin: 0;
-  color: var(--label-2);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.salesforce-guide-close {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(30, 107, 82, .17);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .68);
-  color: var(--label-2);
-  font-size: 25px;
-  line-height: 1;
-  transition: background 180ms ease, color 180ms ease, transform 180ms ease;
-}
-
-.salesforce-guide-close:hover:not(:disabled) {
-  transform: rotate(4deg);
-  background: var(--surface);
-  color: var(--label);
-}
-
-.salesforce-guide-content {
-  flex: 1 1 auto;
-  width: 100%;
-  max-width: 1020px;
-  box-sizing: border-box;
-  margin: 0 auto;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding: 22px 30px 25px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(30, 107, 82, .3) transparent;
-}
-
-.salesforce-guide-steps {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: steps;
-}
-
-.salesforce-guide-step {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 14px;
-  padding: 0 0 21px;
-}
-
-.salesforce-guide-step + .salesforce-guide-step {
-  padding-top: 19px;
-  border-top: 1px solid rgba(30, 107, 82, .12);
-}
-
-.salesforce-step-number {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(30, 107, 82, .22);
-  border-radius: 50%;
-  background: var(--surface-sunken);
-  color: var(--tint-text);
-  font-family: var(--font-mono, monospace);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.salesforce-step-copy h3 {
-  margin: 2px 0 7px;
-  color: var(--label);
-  font-size: 16px;
-  font-weight: 650;
-  letter-spacing: -.02em;
-}
-
-.salesforce-step-copy p {
-  margin: 0;
-  color: var(--label-2);
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.salesforce-step-copy strong {
-  color: var(--label);
-  font-weight: 650;
-}
-
-.salesforce-step-copy code {
-  padding: 2px 5px;
-  border: 1px solid rgba(30, 107, 82, .13);
-  border-radius: 4px;
-  background: rgba(30, 107, 82, .07);
-  color: var(--label);
-  font-size: .92em;
-}
-
-.salesforce-package-link {
-  min-height: 39px;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  margin: 12px 0 7px;
-  padding: 0 14px;
-  border: 1px solid var(--tint);
-  border-radius: 8px;
-  background: var(--tint);
-  color: #f7faf5;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
-}
-
-.salesforce-package-link:hover {
-  transform: translateY(-1px);
-  background: #18583f;
-  box-shadow: 0 7px 18px rgba(30, 107, 82, .17);
-}
-
-.salesforce-package-link span {
-  font-size: 14px;
-}
-
-.salesforce-step-copy .salesforce-guide-note {
-  color: var(--label-2);
-  font-size: 13px;
-}
-
-.salesforce-installed-check {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 11px;
-  align-items: start;
-  margin: 3px 0 15px;
-  padding: 14px 15px;
-  border: 1px solid rgba(30, 107, 82, .2);
-  border-radius: 11px;
-  background: var(--surface-sunken);
-  color: var(--label);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 650;
-  line-height: 1.5;
-}
-
-.salesforce-installed-check input {
-  width: 16px;
-  height: 16px;
-  margin: 1px 0 0;
-  accent-color: #1e6b52;
-}
-
-.salesforce-guide-error {
-  margin: 0 0 14px;
-  padding: 11px 13px;
-  border: 1px solid rgba(183, 77, 69, .25);
-  border-radius: 8px;
-  background: rgba(183, 77, 69, .07);
-  color: var(--label-2);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.salesforce-troubleshooting {
-  padding: 13px 14px;
-  border: 1px solid rgba(30, 107, 82, .13);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .58);
-}
-
-.salesforce-troubleshooting summary {
-  color: var(--label);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.salesforce-troubleshooting ul {
-  display: grid;
-  gap: 6px;
-  margin: 11px 0 8px;
-  padding-left: 18px;
-  color: var(--label-2);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.salesforce-troubleshooting li::marker {
-  color: var(--tint-text);
-}
-
-.salesforce-troubleshooting p {
-  margin: 0;
-  color: var(--label-2);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.salesforce-guide-footer {
-  flex: 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px max(24px, calc((100vw - 960px) / 2));
-  border-top: 1px solid rgba(30, 107, 82, .13);
-  background: var(--surface-sunken);
-}
-
-.salesforce-guide-content .integration-account-choice {
-  margin-top: 20px;
-}
-
-.salesforce-guide-content .account-choice-options {
-  display: grid;
-  gap: 12px;
-}
-
-.salesforce-guide-content .account-choice-options label,
-.salesforce-guide-content .account-switch-steps label {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  line-height: 1.5;
-  white-space: normal;
-}
-
-.salesforce-guide-content .account-choice-options input,
-.salesforce-guide-content .account-switch-steps input {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin-top: 3px;
-}
-
-.salesforce-guide-footer .primary-button {
-  min-height: 42px;
-  border-color: var(--tint);
-  background: var(--tint);
-  box-shadow: 0 7px 17px rgba(30, 107, 82, .14);
-  font-size: 13px;
-}
-
-.salesforce-guide-footer .primary-button:hover:not(:disabled) {
-  background: #18583f;
-}
-
-.salesforce-guide-footer button:disabled,
-.salesforce-guide-close:disabled {
-  cursor: not-allowed;
-  opacity: .55;
-  transform: none;
-}
-
-@keyframes salesforce-backdrop-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes salesforce-dialog-in {
-  from { opacity: 0; transform: translateY(8px) scale(.99); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@media (max-width: 600px) {
-  .salesforce-guide-backdrop {
-    align-items: end;
-    padding: 0;
-  }
-
-  .salesforce-guide.team-modal {
-    width: 100%;
-    height: 100dvh;
-    max-height: none;
-    border-radius: 0;
-  }
-
-  .salesforce-guide-header {
-    padding: 22px 20px 17px;
-  }
-
-  .salesforce-guide-content {
-    padding: 18px 20px 20px;
-  }
-
-  .salesforce-guide-step {
-    grid-template-columns: 31px minmax(0, 1fr);
-    gap: 10px;
-  }
-
-  .salesforce-step-number {
-    width: 28px;
-    height: 28px;
-    font-size: 13px;
-  }
-
-  .salesforce-guide-footer {
-    padding: 13px 20px max(13px, env(safe-area-inset-bottom));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .salesforce-guide-backdrop,
-  .salesforce-guide.team-modal {
-    animation: none;
-  }
-}
-
-html[data-theme="dark"] .salesforce-guide.team-modal {
-  background: var(--surface);
-  border-color: var(--separator-strong);
-}
-
-html[data-theme="dark"] .salesforce-guide-header,
-html[data-theme="dark"] .salesforce-guide-footer,
-html[data-theme="dark"] .salesforce-troubleshooting,
-html[data-theme="dark"] .salesforce-installed-check {
-  background: var(--surface-sunken);
-  border-color: var(--separator-strong);
-}
-
-html[data-theme="dark"] .salesforce-guide-close,
-html[data-theme="dark"] .salesforce-step-number,
-html[data-theme="dark"] .salesforce-step-copy code {
-  background: var(--tint-soft);
-  border-color: var(--separator-strong);
-  color: #a7dfc6;
-}
-
-html[data-theme="dark"] .salesforce-installed-check,
-html[data-theme="dark"] .salesforce-troubleshooting summary {
-  color: var(--label);
-}
-
-html[data-theme="dark"] .salesforce-guide-note,
-html[data-theme="dark"] .salesforce-troubleshooting p {
-  color: var(--label-2);
-}
-
-html[data-theme="dark"] .salesforce-guide-error {
-  color: #ffb6ad;
-}
+/* Salesforce setup dialog: a calm three-step guide in the shared overlay material. */
+.salesforce-guide-backdrop { position: fixed; inset: 0; z-index: 1400; display: grid; place-items: center; padding: 16px; background: rgba(12, 17, 22, 0.38); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: sf-fade 160ms ease-out; }
+.salesforce-guide.team-modal { display: flex; flex-direction: column; width: min(600px, 100%); max-height: min(86dvh, 820px); padding: 0; border: 0; border-radius: 20px; background: var(--surface); color: var(--label); box-shadow: var(--pop-shadow, 0 20px 60px rgba(15, 27, 45, 0.25)); overflow: hidden; animation: sf-in 220ms cubic-bezier(0.23, 1, 0.32, 1); }
+.salesforce-guide-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 28px 16px; }
+.salesforce-guide-heading h2 { margin: 0; font: 600 20px/1.25 var(--font); letter-spacing: -0.018em; }
+.salesforce-guide-heading p { margin: 6px 0 0; max-width: 52ch; font: 400 14px/1.5 var(--font); color: var(--label-2); text-wrap: pretty; }
+.salesforce-guide-close { display: grid; place-items: center; flex: none; width: 30px; height: 30px; margin: -2px -6px 0 0; border: 0; border-radius: 50%; background: var(--fill); color: var(--label-2); cursor: pointer; transition: background-color 140ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1); }
+.salesforce-guide-close:active:not(:disabled) { transform: scale(0.94); }
+@media (hover: hover) and (pointer: fine) { .salesforce-guide-close:hover:not(:disabled) { background: var(--fill-press); color: var(--label); } }
+.salesforce-guide-close:disabled { opacity: 0.4; cursor: default; }
+.salesforce-guide-content { display: grid; gap: 24px; padding: 4px 28px 24px; overflow-y: auto; overscroll-behavior: contain; }
+.salesforce-guide-steps { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.salesforce-guide-step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 14px; padding-bottom: 20px; }
+.salesforce-guide-step:last-child { padding-bottom: 0; }
+.salesforce-guide-step:not(:last-child)::before { content: ""; position: absolute; top: 34px; bottom: 6px; left: 13.5px; width: 1px; background: var(--separator-strong); }
+.salesforce-step-number { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--label); font: 600 12.5px/1 var(--font); font-variant-numeric: tabular-nums; }
+.salesforce-step-copy h3 { margin: 4px 0 4px; font: 600 15px/1.35 var(--font); letter-spacing: -0.01em; }
+.salesforce-step-copy p { margin: 0; font: 400 14px/1.55 var(--font); color: var(--label-2); text-wrap: pretty; }
+.salesforce-step-copy p + p, .salesforce-step-copy p + a, .salesforce-step-copy a + p { margin-top: 10px; }
+.salesforce-step-copy strong { color: var(--label); font-weight: 600; }
+.salesforce-step-copy code, .salesforce-troubleshooting code { padding: 1px 7px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--separator-strong); font: 500 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.salesforce-package-link { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 999px; background: var(--tint); color: var(--on-tint); font: 600 13.5px/1 var(--font); text-decoration: none; transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1), opacity 140ms ease; }
+.salesforce-package-link:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .salesforce-package-link:hover { opacity: 0.9; } }
+.salesforce-step-copy .salesforce-guide-note, .salesforce-guide-note { font: 400 12.5px/1.5 var(--font); color: var(--label-3); }
+.salesforce-installed-check { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator-strong); font: 500 14px/1.45 var(--font); color: var(--label); cursor: pointer; transition: box-shadow 140ms ease; }
+.salesforce-installed-check:has(input:checked) { box-shadow: inset 0 0 0 1.5px var(--label); }
+.salesforce-installed-check input { margin-top: 1px; }
+.salesforce-guide-error { margin: 0; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 45%, transparent); color: var(--danger-text); font: 500 13.5px/1.5 var(--font); }
+.salesforce-guide-content .integration-account-choice { display: grid; gap: 12px; padding: 20px 0 0; border: 0; border-radius: 0; background: transparent; box-shadow: inset 0 1px 0 var(--separator); }
+.salesforce-guide-content .integration-account-choice h3 { margin: 0; font: 600 15px/1.35 var(--font); letter-spacing: -0.01em; }
+.salesforce-guide-content .integration-account-choice p { margin: 0; font: 400 13.5px/1.5 var(--font); color: var(--label-2); }
+.salesforce-guide-content .account-choice-options { display: grid; gap: 8px; }
+.salesforce-guide-content .account-choice-options label, .salesforce-guide-content .account-switch-steps label { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator-strong); font: 450 14px/1.4 var(--font); color: var(--label); cursor: pointer; transition: box-shadow 140ms ease; }
+.salesforce-guide-content .account-choice-options label:has(input:checked) { box-shadow: inset 0 0 0 1.5px var(--label); }
+.salesforce-guide-content .account-switch-steps { display: grid; gap: 10px; }
+.salesforce-guide-content .account-switch-steps a { width: fit-content; color: var(--label); font: 500 13.5px/1.4 var(--font); }
+.salesforce-troubleshooting { border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator); }
+.salesforce-troubleshooting summary { display: flex; align-items: center; min-height: 46px; padding: 0 16px; font: 500 14px/1 var(--font); cursor: pointer; list-style: none; }
+.salesforce-troubleshooting summary::-webkit-details-marker { display: none; }
+.salesforce-troubleshooting summary::after { content: ""; margin-left: auto; width: 7px; height: 7px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.salesforce-troubleshooting[open] summary::after { transform: rotate(225deg) translateY(-1px); }
+.salesforce-troubleshooting ul { display: grid; gap: 8px; margin: 0; padding: 0 16px 0 34px; font: 400 13.5px/1.5 var(--font); color: var(--label-2); }
+.salesforce-troubleshooting p { margin: 12px 16px 16px; font: 400 13px/1.5 var(--font); color: var(--label-3); }
+.salesforce-guide-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 28px; box-shadow: inset 0 1px 0 var(--separator); background: var(--surface); }
+.salesforce-guide-footer button { height: 38px; padding: 0 20px; border: 0; border-radius: 999px; font: 600 14px/1 var(--font); cursor: pointer; transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1), opacity 140ms ease, background-color 140ms ease; }
+.salesforce-guide-footer button:active:not(:disabled) { transform: scale(0.97); }
+.salesforce-guide-footer .button-quiet { background: var(--fill); color: var(--label); }
+.salesforce-guide-footer .primary-button { background: var(--tint); color: var(--on-tint); }
+.salesforce-guide-footer button:disabled { opacity: 0.4; cursor: default; }
+@keyframes sf-fade { from { opacity: 0; } }
+@keyframes sf-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+@media (max-width: 600px) { .salesforce-guide-backdrop { align-items: end; padding: 0; } .salesforce-guide.team-modal { width: 100%; max-height: 92dvh; border-radius: 20px 20px 0 0; } .salesforce-guide-header, .salesforce-guide-content, .salesforce-guide-footer { padding-inline: 20px; } }
+@media (prefers-reduced-motion: reduce) { .salesforce-guide-backdrop, .salesforce-guide.team-modal { animation: none; } }
+.salesforce-guide .salesforce-step-copy a.salesforce-package-link { color: var(--on-tint); }
+.salesforce-guide-content .account-choice-options { grid-template-columns: minmax(0, 1fr); }
+.salesforce-guide-content .account-choice-options label { align-items: center; }
+.salesforce-guide .salesforce-step-copy a.salesforce-package-link { color: var(--on-tint, #fff) !important; }

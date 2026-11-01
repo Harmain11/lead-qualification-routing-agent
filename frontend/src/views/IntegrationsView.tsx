@@ -5,6 +5,7 @@ import { FeatureGuide } from "../components/FeatureGuide";
 import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
 import { IntegrationSetupGuide } from "../components/IntegrationSetupGuide";
 import { BRAND_MARKS } from "../v3/ui/brandMarks";
+import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { SlackSetupGuide } from "../components/SlackSetupGuide";
@@ -164,7 +165,6 @@ function IntegrationDisclosure({
   </details>;
 }
 
-const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
 const AI_PROVIDER_GROUP = "ai-analysis";
 const AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek", "xai"] as const;
 type ReasoningProviderId = typeof AI_PROVIDER_IDS[number];
@@ -203,15 +203,6 @@ function integrationCategory(card: IntegrationCard): IntegrationCategory {
 }
 
 const FAILED_STATUSES = new Set(["needs_attention", "connection_failed", "authorization_expired", "reconnect_required", "expired", "needs_reauthorization", "error"]);
-
-function connectionStage(status?: string) {
-  if (status === "verified") return 3;
-  // A failed or expired connection is not "almost done": it restarts at sign-in.
-  if (FAILED_STATUSES.has(status ?? "")) return 0;
-  if (["configured", "connected", "validating"].includes(status ?? "")) return 2;
-  if (["connecting", "awaiting_authorization"].includes(status ?? "")) return 1;
-  return 0;
-}
 
 type ConnectionTone = "ok" | "pending" | "error" | "idle";
 function connectionTone(status?: string): ConnectionTone {
@@ -388,7 +379,7 @@ function SlackRoutingEditor({
     setRules(config?.rules ?? []);
   }, [config?.default_connection_id, config?.rules, verifiedIds, editing]);
 
-  if (loading || loadError) return <section className="integration-guide slack-routing-guide"><div className="slack-routing-heading"><div><span className="eyebrow">Admin notification routing</span><h3>{loading ? "Loading saved routing" : "Routing could not be loaded"}</h3><p>{loading ? "Reading the current Slack rules before enabling edits." : loadError}</p></div></div></section>;
+  if (loading || loadError) return <section className="integration-guide slack-routing-guide"><div className="slack-routing-heading"><div><h3>{loading ? "Loading saved routing" : "Routing could not be loaded"}</h3><p>{loading ? "Reading the current Slack rules before enabling edits." : loadError}</p></div></div></section>;
   const save = async () => {
     if (rules.some((rule) => !rule.name.trim())) {
       setEditorError("Give each Slack routing rule a name before saving.");
@@ -441,11 +432,11 @@ function SlackRoutingEditor({
   return <section className="integration-guide slack-routing-guide">
     <div className="slack-routing-heading">
       <div>
-        <span className="eyebrow">Admin notification routing</span>
+        
         <h3>Decide where each lead goes</h3>
         <p>{verified.length <= 1 ? "Use the default destination for every lead, or add conditions for specific lead types." : "Route different lead types to different Slack workspaces and channels."}</p>
       </div>
-      <div className="slack-routing-health"><i /> <span>{verified.length} verified workspace{verified.length === 1 ? "" : "s"}</span></div>
+      <div className="slack-routing-health"><span>{verified.length} verified workspace{verified.length === 1 ? "" : "s"}</span></div>
     </div>
     {canManage ? <>
       {!verified.length && <div className="notice">Connect and verify Slack above to create routing rules. No verified Slack destination is available yet.</div>}
@@ -460,7 +451,7 @@ function SlackRoutingEditor({
         <p className="slack-rules-help">Open each dropdown to choose several values. Choices inside one field mean OR; classification, source and queue fields combine as AND. Leave a dropdown on “Any / all” to ignore that condition.</p>
         {rules.length === 0 && <div className="slack-empty-rules"><span>◎</span><div><strong>Default routing is active</strong><small>Add a rule when a lead classification needs a different Slack destination.</small></div></div>}
         {rules.map((rule, index) => <div className="slack-routing-rule" data-slack-rule-id={rule.id} key={rule.id}>
-          <div className="slack-rule-heading"><div><span className="slack-rule-index">Rule {String(index + 1).padStart(2, "0")}</span><input aria-label="Slack routing rule name" value={rule.name} onChange={(event) => updateRule(rule.id, { name: event.target.value })} /></div><button className="button-quiet danger" onClick={() => { setEditing(true); setRules((current) => current.filter((item) => item.id !== rule.id)); }}>Remove</button></div>
+          <div className="slack-rule-heading"><div><span className="slack-rule-index">Rule {index + 1}</span><input aria-label="Slack routing rule name" value={rule.name} onChange={(event) => updateRule(rule.id, { name: event.target.value })} /></div><button className="button-quiet danger" onClick={() => { setEditing(true); setRules((current) => current.filter((item) => item.id !== rule.id)); }}>Remove</button></div>
           <div className="slack-condition-grid">
             <SlackMultiSelect label="Lead classifications" values={rule.qualification_bands} options={slackBandOptions} onChange={(values) => updateRule(rule.id, { qualification_bands: values })} hint="Choose one or more; empty means all." />
             <SlackMultiSelect label="Lead sources" values={rule.sources} options={slackSourceOptions} onChange={(values) => updateRule(rule.id, { sources: values })} hint="Choose one or more; empty means all." />
@@ -1280,7 +1271,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};
        const open = expandedProviders.has(card.provider);
-      const activeConnectionStage = connectionStage(connection?.status);
       const syncState = connection ? syncStates[connection.id] : null;
       const crmDirection = card.category === "CRM";
       const gmailDirection = card.provider === "gmail";
@@ -1397,12 +1387,13 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              canManage={canManage} onSaved={setSlackRouting} onNotice={setNotice}
              loading={!slackRoutingReady} loadError={slackRoutingLoadError} />
          </>}
-        {!comingSoon && <section className="int-health" aria-label="Connection health">
-          <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>
-          {openAI && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your OpenAI account</b></span></div>}
-          <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
-            {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
-          </div>
+        {!comingSoon && connection && connection.status !== "disconnected" && <section className="int-health" aria-label="Connection health">
+          <dl className="int-facts">
+            <div><dt>Credential</dt><dd>{(connection.credential_state ?? "missing").replaceAll("_", " ")}</dd></div>
+            <div><dt>Verification</dt><dd>{(connection.verification_status ?? "not verified").replaceAll("_", " ")}</dd></div>
+            <div><dt>Last checked</dt><dd>{connection.last_validation_at ? new Date(connection.last_validation_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Never"}</dd></div>
+            {openAI && <div><dt>Model</dt><dd>{connection.selected_model ?? "Not configured"}</dd></div>}
+          </dl>
         </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
@@ -1604,7 +1595,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          </IntegrationDisclosure>}
            {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className="connection-briefing-disclosure" open={!connection || !["connected", "verified"].includes(connection.status)}>
            <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
-          <span className="eyebrow">Connection briefing</span>
           <strong>{card.dashboard_path}</strong>
           <p>{card.permission_reason}</p>
           {card.provider === "slack" && <p>New connections also request <code>channels:join</code> to join a public channel you select, and <code>groups:read</code> to list private channels after the app is invited. Corral does not read channel messages or join channels until you choose one.</p>}
@@ -1613,8 +1603,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              <p><strong>{card.display_name} API usage is billed directly to your provider account.</strong></p>
           </>}
           <div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div>
-          <a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation ›</a>
-          {card.supported_auth.includes("oauth2") && canConnectProvider && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} ›</button>}
+          <a href={card.documentation_url} target="_blank" rel="noopener noreferrer">Official documentation<Icon name="external" size={13} /></a>
           {card.manual_fields.length > 0 && canManage && !oauthConnected && <div className="manual-credential">
             <span>Secure credential setup</span>
             {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}

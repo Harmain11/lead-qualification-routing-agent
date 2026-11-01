@@ -1580,3 +1580,145 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .int-status[data-tone="ok"] { color: var(--tint-text); }
 .v-app .integrations-page .int-status[data-tone="error"] { color: var(--danger-text); }
 .v-app .integrations-page .int-status[data-tone="pending"] { color: var(--attention-text, var(--label-2)); }
+
+/* ===================================================================
+   Integrations, final form. Crisp, quiet, fast: one easing curve,
+   transitions only on opacity, transform, colour and shadow, press
+   feedback on everything pressable, hover only where hover exists.
+   =================================================================== */
+.v-app .integrations-page { --int-ease: cubic-bezier(0.23, 1, 0.32, 1); }
+
+/* The grid: equal cards, no empty-looking rows */
+.v-app .integrations-page .integration-grid { gap: 12px; }
+
+/* Card */
+.v-app .integrations-page .int-card { border: 0; border-radius: 16px; background: var(--surface); box-shadow: 0 0 0 1px var(--separator), 0 1px 2px rgba(15, 27, 45, 0.04) !important; transition: box-shadow 180ms var(--int-ease); }
+@media (hover: hover) and (pointer: fine) {
+  .v-app .integrations-page .int-card:not(.is-expanded):hover { box-shadow: 0 0 0 1px var(--separator-strong), 0 6px 18px rgba(15, 27, 45, 0.07) !important; }
+}
+.v-app .integrations-page .int-head { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: "mark id action" "mark status action"; align-items: center; column-gap: 14px; row-gap: 3px; padding: 16px 18px; }
+.v-app .integrations-page .int-head > .int-mark { grid-area: mark; align-self: center; }
+.v-app .integrations-page .int-head > .int-id { grid-area: id; }
+.v-app .integrations-page .int-head > .int-status { grid-area: status; }
+.v-app .integrations-page .int-head > .int-toggle { grid-area: action; }
+.v-app .integrations-page .int-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--surface) !important; box-shadow: inset 0 0 0 1px var(--separator) !important; }
+.v-app .integrations-page .int-mark-logo svg { width: 24px; height: 24px; }
+.v-app .integrations-page .int-mark-logo img { width: 26px; height: 26px; object-fit: contain; }
+.v-app .integrations-page .int-id h2 { margin: 0; font: 600 15px/1.3 var(--font); letter-spacing: -0.012em; }
+.v-app .integrations-page .int-id p { margin: 2px 0 0; font: 400 13px/1.4 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-status { display: inline-flex; width: fit-content; font: 500 12.5px/1.3 var(--font); }
+
+/* Card button: pill, tactile */
+.v-app .integrations-page .int-toggle { height: 34px; padding: 0 16px; border: 0; border-radius: 999px; font: 600 13.5px/1 var(--font); cursor: pointer; transition: transform 140ms var(--int-ease), background-color 140ms ease, color 140ms ease; }
+.v-app .integrations-page .int-toggle:active { transform: scale(0.97); }
+.v-app .integrations-page .int-card.is-expanded > .int-head { box-shadow: inset 0 -1px 0 var(--separator) !important; }
+
+/* Detail: summary, tabs, pane */
+.v-app .integrations-page .int-card.is-expanded { animation: int-open 220ms var(--int-ease); }
+@keyframes int-open { from { opacity: 0.6; transform: translateY(-4px); } }
+.v-app .integrations-page .int-detail-summary { padding: 18px 24px 0; }
+.v-app .integrations-page .int-tabs { gap: 2px; padding: 8px 20px 0; }
+.v-app .integrations-page .int-tabs::after { display: none; }
+.v-app .integrations-page .int-tabs button { height: 40px; padding: 0 12px; border-radius: 8px !important; font: 500 14px/1 var(--font); transition: color 120ms ease, background-color 120ms ease, transform 140ms var(--int-ease); }
+.v-app .integrations-page .int-tabs [role="tab"][aria-selected="true"]::after { inset: auto 12px 0 12px; height: 2px; border-radius: 2px; background: var(--label); animation: int-underline 200ms var(--int-ease); }
+@keyframes int-underline { from { transform: scaleX(0.4); opacity: 0; } }
+@media (hover: hover) and (pointer: fine) { .v-app .integrations-page .int-tabs [role="tab"][aria-selected="false"]:hover { background: var(--fill) !important; color: var(--label) !important; } }
+.v-app .integrations-page .int-tabs button:active { transform: scale(0.97); }
+.v-app .integrations-page .int-tabs { box-shadow: inset 0 -1px 0 var(--separator) !important; }
+.v-app .integrations-page .int-pane { padding: 22px 24px 28px; animation: int-pane-in 200ms var(--int-ease); }
+
+/* Connection facts: one quiet row, only when there is a connection */
+.v-app .integrations-page .int-health { margin: 0 24px; padding: 0 !important; border: 0 !important; box-shadow: none !important; background: transparent !important; }
+.v-app .integrations-page .int-detail-summary + .int-tabs, .v-app .integrations-page .int-health + * { margin-top: 0; }
+.v-app .integrations-page .int-facts { display: flex; flex-wrap: wrap; margin: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator) !important; overflow: hidden; }
+.v-app .integrations-page .int-facts > div { position: relative; flex: 1 1 140px; display: grid; gap: 3px; padding: 12px 16px; min-width: 0; }
+.v-app .integrations-page .int-facts > div + div::before { content: ""; position: absolute; inset: 12px auto 12px 0; width: 1px; background: var(--separator); }
+.v-app .integrations-page .int-facts dt { margin: 0; font: 500 12px/1.3 var(--font); color: var(--label-3); }
+.v-app .integrations-page .int-facts dd { margin: 0; font: 500 14px/1.35 var(--font); color: var(--label); text-transform: capitalize; }
+.v-app .integrations-page .int-detail-main .int-health { margin: 0; }
+.v-app .integrations-page .int-detail-main .int-health .int-facts { margin: 0; }
+
+/* Buttons inside the detail share the card button language */
+.v-app .integrations-page .int-detail :is(.primary-button, .secondary-button, .button-quiet, .danger-button, .card-actions button, button.v-btn) { transition: transform 140ms var(--int-ease), background-color 140ms ease, color 140ms ease; }
+.v-app .integrations-page .int-detail :is(.primary-button, .secondary-button, .button-quiet, .danger-button, .card-actions button, button.v-btn):active:not(:disabled) { transform: scale(0.97); }
+.v-app .integrations-page .int-detail :is(.card-actions button):disabled { opacity: 0.45; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .v-app .integrations-page .int-card.is-expanded, .v-app .integrations-page .int-pane, .v-app .integrations-page .int-tabs [role="tab"][aria-selected="true"]::after { animation: none; }
+}
+
+/* Summary: actions first and left-aligned, then everything the connection says about itself, full width */
+.v-app .integrations-page .int-detail-summary { display: flex; flex-direction: column; gap: 16px; padding: 18px 24px 4px; }
+.v-app .integrations-page .int-detail-actions { order: -1; justify-content: flex-start; }
+.v-app .integrations-page .int-detail-main { display: grid; gap: 16px; width: 100%; }
+.v-app .integrations-page .int-detail-main > * { width: 100%; max-width: none !important; }
+.v-app .integrations-page .int-detail-main > .integration-direction { max-width: 72ch !important; }
+.v-app .integrations-page .int-facts { width: 100%; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions { gap: 8px; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions button { height: 36px; padding: 0 18px; border: 0; border-radius: 999px; font: 600 13.5px/1 var(--font); cursor: pointer; background: var(--fill); color: var(--label); }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions button:first-child { background: var(--tint); color: var(--on-tint); }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions button:last-child:not(:first-child) { background: transparent; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--danger-text); }
+@media (hover: hover) and (pointer: fine) { .v-app .integrations-page .int-detail-actions .integration-connection-actions button:not(:first-child):not(:disabled):hover { background: var(--fill-press); } }
+.v-app .integrations-page .int-tabs-actions .integration-connection-actions button { height: 34px; padding: 0 16px; border: 0; border-radius: 999px; font: 600 13px/1 var(--font); cursor: pointer; background: var(--tint); color: var(--on-tint); }
+.v-app .integrations-page .int-detail-actions { width: 100%; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions { justify-content: flex-start !important; width: 100%; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions button:last-child:not(:first-child) { border: 0; }
+.v-app .integrations-page .int-detail .integration-guide > a { display: inline-flex; align-items: center; gap: 7px; width: fit-content; height: 34px; padding: 0 14px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--label); font: 500 13.5px/1 var(--font); text-decoration: none; transition: background-color 140ms ease, transform 140ms var(--int-ease); }
+.v-app .integrations-page .int-detail .integration-guide > a:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .v-app .integrations-page .int-detail .integration-guide > a:hover { background: var(--fill); } }
+.v-app .integrations-page .int-detail .integration-guide > strong { font: 600 16px/1.35 var(--font); letter-spacing: -0.012em; }
+
+/* ===================================================== Slack connection dialog */
+.slack-connection-dialog { width: min(680px, calc(100vw - 32px)) !important; border: 0 !important; border-radius: 20px !important; box-shadow: var(--pop-shadow) !important; background: var(--surface) !important; }
+.slack-connection-dialog::backdrop { background: rgba(12, 17, 22, 0.38); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.slack-connection-dialog *:not(code):not(pre):not(kbd) { font-family: var(--font) !important; letter-spacing: normal; text-transform: none; }
+.slack-connection-dialog .eyebrow { display: none; }
+.slack-connection-dialog .slack-provider-details { display: grid; gap: 20px; padding: 4px 4px 8px; }
+.slack-connection-dialog .integration-direction { margin: 0 !important; font: 400 13px/1.5 var(--font); color: var(--label-2); }
+.slack-connection-dialog .integration-guide { display: grid; gap: 14px; margin: 0; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.slack-connection-dialog .slack-setup-guide { gap: 0; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--separator) !important; overflow: hidden; }
+.slack-connection-dialog .slack-setup-guide > summary { display: flex; align-items: center; padding: 14px 16px; list-style: none; cursor: pointer; }
+.slack-connection-dialog .slack-setup-guide > summary::-webkit-details-marker { display: none; }
+.slack-connection-dialog .slack-guide-summary-title { display: flex; align-items: center; gap: 12px; width: 100%; }
+.slack-connection-dialog .slack-guide-summary-title > i { display: grid; place-items: center; width: 20px; height: 20px; font-style: normal; color: var(--label-3); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.slack-connection-dialog .slack-setup-guide[open] .slack-guide-summary-title > i { transform: rotate(90deg); }
+.slack-connection-dialog .slack-guide-summary-title strong { display: block; font: 600 14.5px/1.35 var(--font); }
+.slack-connection-dialog .slack-guide-summary-title small { display: block; font: 400 13px/1.4 var(--font); color: var(--label-2); }
+.slack-connection-dialog .slack-guide-summary-title + * , .slack-connection-dialog .slack-guide-summary-title ~ * { background: transparent; }
+.slack-connection-dialog .slack-guide-content { display: grid; gap: 16px; padding: 4px 16px 18px; }
+.slack-connection-dialog .slack-guide-content p { margin: 0; font: 400 13.5px/1.55 var(--font); color: var(--label-2); }
+.slack-connection-dialog .slack-setup-checklist { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.slack-connection-dialog .slack-setup-checklist li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 4px 12px; align-items: start; }
+.slack-connection-dialog .slack-step-number { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--label) !important; color: var(--label) !important; font: 600 12px/1 var(--font) !important; }
+.slack-connection-dialog .slack-step-text { grid-column: 2; margin: 3px 0 0 !important; color: var(--label) !important; }
+.slack-connection-dialog .slack-scope-copy { grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator) !important; }
+.slack-connection-dialog .slack-scope-copy b { display: block; font: 500 12.5px/1.3 var(--font); color: var(--label-2); }
+.slack-connection-dialog .slack-scope-copy code { font: 500 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: transparent; }
+.slack-connection-dialog .slack-token-warning, .slack-connection-dialog .slack-delivery-explainer { padding: 12px 14px; border-radius: 12px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator) !important; }
+.slack-connection-dialog .slack-delivery-explainer { display: grid; gap: 6px; }
+.slack-connection-dialog .slack-routing-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.slack-connection-dialog .slack-routing-heading h3 { margin: 0; font: 600 16px/1.3 var(--font); letter-spacing: -0.012em; }
+.slack-connection-dialog .slack-routing-heading p { margin: 4px 0 0; font: 400 13.5px/1.5 var(--font); color: var(--label-2); }
+.slack-connection-dialog .slack-routing-health { flex: none; display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 999px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; font: 500 12.5px/1 var(--font); color: var(--label-2); }
+.slack-connection-dialog .notice { margin: 0; padding: 12px 14px; border: 0; border-radius: 12px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; font: 400 13.5px/1.5 var(--font); color: var(--label); }
+.slack-connection-dialog .slack-default-destination, .slack-connection-dialog .slack-routing-rule, .slack-connection-dialog .slack-empty-rules { padding: 16px; border: 0; border-radius: 14px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator) !important; }
+.slack-connection-dialog .slack-default-destination { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: center; }
+.slack-connection-dialog .slack-destination-copy { display: grid; gap: 2px; }
+.slack-connection-dialog .slack-destination-copy strong { font: 600 14px/1.35 var(--font); }
+.slack-connection-dialog .slack-destination-copy small, .slack-connection-dialog .slack-empty-rules small { font: 400 13px/1.45 var(--font); color: var(--label-2); }
+.slack-connection-dialog .slack-section-label, .slack-connection-dialog .slack-rule-index { font: 500 12px/1.3 var(--font) !important; color: var(--label-3) !important; }
+.slack-connection-dialog .slack-routing-rules { display: grid; gap: 12px; }
+.slack-connection-dialog .slack-rules-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.slack-connection-dialog .slack-rules-toolbar strong { font: 600 14.5px/1.35 var(--font); }
+.slack-connection-dialog .slack-rules-help { margin: 0; font: 400 13px/1.5 var(--font); color: var(--label-2); }
+.slack-connection-dialog .slack-empty-rules { display: flex; align-items: center; gap: 12px; }
+.slack-connection-dialog .slack-empty-rules > span { display: none; }
+.slack-connection-dialog label { display: grid; gap: 6px; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.slack-connection-dialog :is(input:not([type="checkbox"]), select) { height: 38px; font: 400 14px/1.3 var(--font); }
+.slack-connection-dialog :is(.primary-button, .secondary-button, .button-quiet, .danger-button, button.v-btn) { height: 34px; padding: 0 16px; border: 0; border-radius: 999px; font: 600 13px/1 var(--font); transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 140ms ease; }
+.slack-connection-dialog :is(.primary-button, .secondary-button, .button-quiet, .danger-button):active:not(:disabled) { transform: scale(0.97); }
+.slack-connection-dialog .primary-button { background: var(--tint) !important; color: var(--on-tint) !important; }
+.slack-connection-dialog :is(.secondary-button, .button-quiet) { background: var(--fill) !important; color: var(--label) !important; }
+@media (max-width: 640px) { .slack-connection-dialog .slack-default-destination { grid-template-columns: minmax(0, 1fr); } }
+.slack-connection-dialog .slack-setup-guide > summary::after, .slack-connection-dialog .slack-setup-guide > summary::before { display: none !important; }
+.slack-connection-dialog .notice { color: var(--label) !important; }

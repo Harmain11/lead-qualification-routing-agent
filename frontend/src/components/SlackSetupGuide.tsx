@@ -40,10 +40,10 @@ export function SlackSetupGuide({
       <p>Follow these steps to connect Corral to Slack.</p>
       <ol className="slack-setup-checklist">
         {steps.map((step, index) => <li className={index === 5 ? "slack-private-channel-step" : undefined} key={step}>
-          <span className="slack-step-number" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+          <span className="slack-step-number" aria-hidden="true">{index + 1}</span>
           <p className="slack-step-text">{step}</p>
           {index === 2 && <div className="slack-scope-copy"><span><b>Minimum required bot scopes</b><code>chat:write, channels:read</code></span><button type="button" className="button-quiet" onClick={() => void copySafeValue("Required scopes", "chat:write, channels:read")}>Copy scopes</button></div>}
-          {index === 3 && <div className="slack-scope-copy optional"><span><b>Optional · direct messages only</b><code>im:write</code></span><button type="button" className="button-quiet" onClick={() => void copySafeValue("Optional scope", "im:write")}>Copy scope</button></div>}
+          {index === 3 && <div className="slack-scope-copy optional"><span><b>Optional, for direct messages only</b><code>im:write</code></span><button type="button" className="button-quiet" onClick={() => void copySafeValue("Optional scope", "im:write")}>Copy scope</button></div>}
         </li>)}
       </ol>
       {copied && <span className="slack-guide-copy-status" role="status" aria-live="polite">{copied}</span>}
