@@ -29,8 +29,7 @@ export function IntegrationSetupGuide({ card, extra }: { card: IntegrationCard; 
   return (
     <div className="sg">
       {steps.length > 0 && (
-        <section className="sg-block" aria-labelledby={`sg-steps-${card.provider}`}>
-          <h3 id={`sg-steps-${card.provider}`}>Set up {card.display_name}</h3>
+        <section className="sg-block" aria-label={`Set up ${card.display_name}`}>
           <ol className="sg-steps">
             {steps.map((step, index) => (
               <li key={index}>
@@ -41,14 +40,12 @@ export function IntegrationSetupGuide({ card, extra }: { card: IntegrationCard; 
           </ol>
         </section>
       )}
-      <section className="sg-block" aria-labelledby={`sg-needs-${card.provider}`}>
-        <h3 id={`sg-needs-${card.provider}`}>What Corral needs</h3>
+      <section className="sg-block" aria-label="What Corral needs">
         <dl className="sg-facts">
           {auth.length > 0 && <div><dt>Connects with</dt><dd>{auth.join(" or ")}</dd></div>}
           {card.dashboard_path && <div><dt>Where to find it</dt><dd>{card.dashboard_path}</dd></div>}
-          {card.permission_reason && <div><dt>Why it asks</dt><dd>{card.permission_reason}</dd></div>}
           {card.required_scopes.length > 0 && (
-            <div className="sg-wide"><dt>Permissions</dt><dd><ul className="sg-scopes">{card.required_scopes.map((scope) => <li key={scope}>{scope}</li>)}</ul></dd></div>
+            <div className="sg-wide"><dt>Permissions requested</dt><dd><ul className="sg-scopes">{card.required_scopes.map((scope) => <li key={scope}>{scope}</li>)}</ul></dd></div>
           )}
         </dl>
       </section>

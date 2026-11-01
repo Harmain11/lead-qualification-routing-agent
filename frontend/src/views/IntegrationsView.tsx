@@ -135,12 +135,12 @@ function ProviderDetailsPanel({
       )}
       {panes.length > 0 && (
         <>
-          <div className="int-tabs" role="tablist" aria-label="Integration sections">
-            {panes.map((pane) => (
+          {(panes.length > 1 || (summary.length === 0 && actions.length > 0)) && <div className="int-tabs" role="tablist" aria-label="Integration sections">
+            {panes.length > 1 && panes.map((pane) => (
               <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
             ))}
             {summary.length === 0 && actions.length > 0 && <div className="int-tabs-actions">{actions}</div>}
-          </div>
+          </div>}
           {active && <div className="int-pane" role="tabpanel" id={`${id}-pane-${active.id}`} aria-labelledby={`${id}-tab-${active.id}`}>{active.body}</div>}
         </>
       )}
@@ -1226,7 +1226,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     <header className="v-pagehead" data-tour="integrations">
       <div className="v-pagehead-text">
         <h1>{focusedLabel || "Integrations"}</h1>
-        <p>{focusedLabel ? "Connection, setup and settings" : `${connectedCount} connected${attentionCount ? ` · ${attentionCount} need${attentionCount === 1 ? "s" : ""} attention` : ""} · Connect the tools your team already uses.`}</p>
+        <p>{focusedLabel ? "Connection, setup and settings" : `${connectedCount} connected${attentionCount ? `, ${attentionCount} need${attentionCount === 1 ? "s" : ""} attention` : ""}`}</p>
       </div>
       <div className="v-pagehead-actions"><FeatureGuide topic="integrations" /></div>
     </header>
@@ -1248,7 +1248,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       return <div className={`notice${noticeState ? ` notice-${noticeState}` : ""}`} role="status">{notice}</div>;
     })()}
     {!canView ? <div className="team-denied panel"><h2>Integrations are managed by your admins</h2><p>Ask a workspace admin for access if you need to connect or change an integration.</p></div> : <div className="integration-sections">{displayedSections.filter((section) => section.id !== "coming-soon").map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
-      <div className="integration-section-heading"><h2 id={`integration-section-${section.id}`}>{section.title.replace(/ Integrations$/, "")}</h2><p>{section.description}</p></div>
+      <div className="integration-section-heading"><h2 id={`integration-section-${section.id}`}>{section.title.replace(/ Integrations$/, "")}</h2></div>
       <div className={`integration-grid${section.id === "ai" ? " integration-grid-ai" : ""}`}>{section.providers.map((provider) => cardByProvider.get(provider)).filter((card): card is IntegrationCard => Boolean(card)).map((card) => {
        const connection = card.connection;
        const status = connection?.status ?? "not_connected";
@@ -1325,7 +1325,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
            <div className="int-head">
              <ProviderMark provider={section.id === "ai" ? card.provider : card.provider} name={section.id === "ai" ? card.display_name : card.display_name} />
              <div className="int-id">
-               <h2>{section.id === "ai" ? `AI analysis · ${card.display_name}` : card.display_name}</h2>
+               <h2>{card.display_name}</h2>
                <p>{section.id === "ai" ? "Scores and summarises leads with your own provider key" : connection?.account_name && connection.status !== "disconnected" ? connection.account_name : card.directionality.description || card.category}</p>
              </div>
              <span className="int-status" data-tone={comingSoon ? "idle" : cloudTalk && connection?.status === "connected" && !connection.metadata.cloudtalk_agent_id ? "pending" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}</span>
