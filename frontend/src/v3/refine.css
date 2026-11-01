@@ -419,33 +419,33 @@ html[data-theme="dark"] { --field-ring: rgba(238, 242, 240, 0.4); }
 .v-app .integrations-page .int-mark { border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
 
 /* The setup area lives inside the card: two columns on wide screens. */
-.v-app .integrations-page .int-setup { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; padding: 20px; align-items: start; }
-.v-app .integrations-page .int-setup > * { grid-column: 1 / -1; min-width: 0; }
-.v-app .integrations-page .int-setup > .int-health,
-.v-app .integrations-page .int-setup > .integration-direction,
-.v-app .integrations-page .int-setup > .integration-connection-actions { grid-column: 1; }
-.v-app .integrations-page .int-setup > .integration-settings-disclosure { grid-column: 2; grid-row: 1 / span 4; }
-.v-app .integrations-page .int-setup > .int-guidance { grid-column: 1 / -1; }
-.v-app .integrations-page .int-setup .integration-direction { border: 0; border-radius: var(--r-md); background: var(--surface-sunken); padding: 12px 14px; }
-.v-app .integrations-page .int-setup .int-health { background: var(--surface-sunken); border-radius: var(--r-md); }
-.v-app .integrations-page .int-setup .connection-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.v-app .integrations-page .int-setup .card-actions { gap: 8px; padding: 0; }
+.v-app .integrations-page .int-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; padding: 20px; align-items: start; }
+.v-app .integrations-page .int-detail > * { grid-column: 1 / -1; min-width: 0; }
+.v-app .integrations-page .int-detail > .int-health,
+.v-app .integrations-page .int-detail > .integration-direction,
+.v-app .integrations-page .int-detail > .integration-connection-actions { grid-column: 1; }
+.v-app .integrations-page .int-detail > .integration-settings-disclosure { grid-column: 2; grid-row: 1 / span 4; }
+.v-app .integrations-page .int-detail > .int-guidance { grid-column: 1 / -1; }
+.v-app .integrations-page .int-detail .integration-direction { border: 0; border-radius: var(--r-md); background: var(--surface-sunken); padding: 12px 14px; }
+.v-app .integrations-page .int-detail .int-health { background: var(--surface-sunken); border-radius: var(--r-md); }
+.v-app .integrations-page .int-detail .connection-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.v-app .integrations-page .int-detail .card-actions { gap: 8px; padding: 0; }
 .v-app .integrations-page .card-actions button { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: var(--r-pill); font: 600 14px/1 var(--font); transition: background-color 120ms ease, transform 120ms ease; }
 .v-app .integrations-page .card-actions button:active:not(:disabled) { transform: scale(0.97); }
 .v-app .integrations-page .card-actions button:hover:not(:disabled) { filter: brightness(1.06); }
 .v-app .integrations-page .card-actions button.button-quiet { background: var(--fill); }
 .v-app .integrations-page .card-actions button.button-quiet:hover:not(:disabled) { background: var(--fill-press, var(--fill)); filter: none; }
-.v-app .integrations-page .int-setup .integration-settings-disclosure { border: 0; border-radius: var(--r-md); background: var(--surface-sunken); }
-.v-app .integrations-page .int-setup .integration-settings-disclosure > summary { padding: 14px 16px; }
-.v-app .integrations-page .int-setup .integration-section-disclosure-content { padding: 0 16px 16px; }
+.v-app .integrations-page .int-detail .integration-settings-disclosure { border: 0; border-radius: var(--r-md); background: var(--surface-sunken); }
+.v-app .integrations-page .int-detail .integration-settings-disclosure > summary { padding: 14px 16px; }
+.v-app .integrations-page .int-detail .integration-section-disclosure-content { padding: 0 16px 16px; }
 .v-app .integrations-page .manual-credential { background: var(--surface-sunken); border-radius: var(--r-md); }
 .v-app .integrations-page .manual-credential :is(input, select) { height: 40px; border: 0; background: var(--surface); box-shadow: inset 0 0 0 1px var(--separator-strong); border-radius: var(--r-sm); }
 .v-app .integrations-page .manual-credential :is(input, select):focus-visible { background: var(--surface); }
 @container page (max-width: 900px) {
-  .v-app .integrations-page .int-setup { grid-template-columns: minmax(0, 1fr); }
-  .v-app .integrations-page .int-setup > .int-health, .v-app .integrations-page .int-setup > .integration-direction, .v-app .integrations-page .int-setup > .integration-connection-actions, .v-app .integrations-page .int-setup > .integration-settings-disclosure { grid-column: 1; grid-row: auto; }
+  .v-app .integrations-page .int-detail { grid-template-columns: minmax(0, 1fr); }
+  .v-app .integrations-page .int-detail > .int-health, .v-app .integrations-page .int-detail > .integration-direction, .v-app .integrations-page .int-detail > .integration-connection-actions, .v-app .integrations-page .int-detail > .integration-settings-disclosure { grid-column: 1; grid-row: auto; }
 }
-@container page (max-width: 560px) { .v-app .integrations-page .int-setup .connection-facts { grid-template-columns: minmax(0, 1fr); } }
+@container page (max-width: 560px) { .v-app .integrations-page .int-detail .connection-facts { grid-template-columns: minmax(0, 1fr); } }
 
 /* =================================================== Settings detail pages
    Everything legacy that lands inside a settings card is restyled here so
@@ -711,30 +711,30 @@ html[data-theme="dark"] { --field-ring: rgba(238, 242, 240, 0.4); }
 .v-app .int-mark-logo svg { width: 22px; height: 22px; }
 .v-app .int-mark-logo img { width: 24px; height: 24px; object-fit: contain; }
 .v-app .integrations-page .int-card.is-expanded > .int-head { padding-block: 14px; }
-.v-app .integrations-page .int-setup { gap: 12px 20px; padding: 16px 20px 20px; }
+.v-app .integrations-page .int-detail { gap: 12px 20px; padding: 16px 20px 20px; }
 /* Not connected yet: the card only needs the way in, not an empty health report. */
 .v-app .integrations-page .int-card.state-not_connected .int-health,
 .v-app .integrations-page .int-card.state-disconnected .int-health { display: none; }
-.v-app .integrations-page .int-setup > .integration-direction { padding: 10px 14px; font: var(--t-subhead); }
-.v-app .integrations-page .int-setup .int-health { gap: 12px; padding: 14px 16px; }
-.v-app .integrations-page .int-setup .connection-state-path { margin-top: 2px; }
-.v-app .integrations-page .int-setup > .integration-settings-disclosure { grid-row: auto; }
-.v-app .integrations-page .int-setup > .integration-guide,
-.v-app .integrations-page .int-setup > .integration-section-disclosure:not(.integration-settings-disclosure) { grid-column: auto; }
-.v-app .integrations-page .int-setup > .integration-section-disclosure > summary { padding: 12px 14px; font: 600 14px/1.3 var(--font); }
-.v-app .integrations-page .int-setup > .integration-section-disclosure:not([open]) { align-self: start; }
+.v-app .integrations-page .int-detail > .integration-direction { padding: 10px 14px; font: var(--t-subhead); }
+.v-app .integrations-page .int-detail .int-health { gap: 12px; padding: 14px 16px; }
+.v-app .integrations-page .int-detail .connection-state-path { margin-top: 2px; }
+.v-app .integrations-page .int-detail > .integration-settings-disclosure { grid-row: auto; }
+.v-app .integrations-page .int-detail > .integration-guide,
+.v-app .integrations-page .int-detail > .integration-section-disclosure:not(.integration-settings-disclosure) { grid-column: auto; }
+.v-app .integrations-page .int-detail > .integration-section-disclosure > summary { padding: 12px 14px; font: 600 14px/1.3 var(--font); }
+.v-app .integrations-page .int-detail > .integration-section-disclosure:not([open]) { align-self: start; }
 .v-app .integrations-page .integration-section-disclosure { border: 0; background: var(--surface-sunken); border-radius: var(--r-md); }
-.v-app .integrations-page .int-setup .integration-settings-disclosure[open] > .integration-section-disclosure-content { padding-top: 0; }
-.v-app .integrations-page .int-setup .card-actions { padding: 0; }
-.v-app .integrations-page .int-setup > .integration-connection-actions { align-self: end; }
-.v-app .integrations-page .int-setup > .int-health,
-.v-app .integrations-page .int-setup > .integration-direction,
-.v-app .integrations-page .int-setup > .integration-connection-actions { grid-column: 1 / -1; }
-.v-app .integrations-page .int-setup > .integration-connection-actions { align-self: start; }
-.v-app .integrations-page .int-setup > .integration-settings-disclosure { grid-column: auto; grid-row: auto; }
-.v-app .integrations-page .int-setup .int-health { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 12px 24px; }
-.v-app .integrations-page .int-setup .int-health .connection-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@container page (max-width: 900px) { .v-app .integrations-page .int-setup .int-health { grid-template-columns: minmax(0, 1fr); } .v-app .integrations-page .int-setup > .integration-settings-disclosure { grid-column: 1 / -1; } }
+.v-app .integrations-page .int-detail .integration-settings-disclosure[open] > .integration-section-disclosure-content { padding-top: 0; }
+.v-app .integrations-page .int-detail .card-actions { padding: 0; }
+.v-app .integrations-page .int-detail > .integration-connection-actions { align-self: end; }
+.v-app .integrations-page .int-detail > .int-health,
+.v-app .integrations-page .int-detail > .integration-direction,
+.v-app .integrations-page .int-detail > .integration-connection-actions { grid-column: 1 / -1; }
+.v-app .integrations-page .int-detail > .integration-connection-actions { align-self: start; }
+.v-app .integrations-page .int-detail > .integration-settings-disclosure { grid-column: auto; grid-row: auto; }
+.v-app .integrations-page .int-detail .int-health { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 12px 24px; }
+.v-app .integrations-page .int-detail .int-health .connection-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@container page (max-width: 900px) { .v-app .integrations-page .int-detail .int-health { grid-template-columns: minmax(0, 1fr); } .v-app .integrations-page .int-detail > .integration-settings-disclosure { grid-column: 1 / -1; } }
 
 /* Keyboard focus is neutral too: a dark/light ring, never green. */
 :root { --focus: rgba(15, 27, 45, 0.4); }
@@ -1104,21 +1104,21 @@ html[data-theme="light"] .v-sidebar, :root:not([data-theme="dark"]) .v-sidebar {
 /* ===== Expanded integration: one calm column, grouped rows */
 .v-app .integrations-page .int-card.is-expanded { box-shadow: var(--shadow-card); }
 .v-app .integrations-page .int-card.is-expanded > .int-head { padding: 18px 24px; border-bottom: 1px solid var(--separator); }
-.v-app .integrations-page .int-setup { display: block; padding: 0; }
-.v-app .integrations-page .int-setup > * { grid-column: auto; margin: 0; }
-.v-app .integrations-page .int-setup > .integration-direction { padding: 18px 24px 0; border-radius: 0; background: transparent; box-shadow: none; max-width: 78ch; font: var(--t-subhead); color: var(--label-2); }
-.v-app .integrations-page .int-setup > .int-health { margin: 16px 24px 0; padding: 14px 16px; border-radius: var(--r-md); background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
-.v-app .integrations-page .int-setup > .integration-connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 24px 20px; }
-.v-app .integrations-page .int-setup .integration-connection-actions :is(button, a) { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 18px; border: 0; border-radius: var(--r-pill); font: 600 14px/1 var(--font); }
-.v-app .integrations-page .int-setup .integration-connection-actions :is(.primary-button, .v-btn[data-kind="filled"]) { background: var(--tint); color: var(--on-tint); }
-.v-app .integrations-page .int-setup .integration-connection-actions :is(.secondary-button, .button-quiet, .v-btn[data-kind="gray"], a) { background: var(--fill); color: var(--label); }
-.v-app .integrations-page .int-setup > .integration-section-disclosure { border: 0; border-top: 1px solid var(--separator); border-radius: 0; background: transparent; box-shadow: none; }
-.v-app .integrations-page .int-setup > .integration-section-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 0 24px; font: 600 14px/1.3 var(--font); cursor: pointer; list-style: none; transition: background-color 120ms ease; }
-.v-app .integrations-page .int-setup > .integration-section-disclosure > summary:hover { background: var(--fill); }
-.v-app .integrations-page .int-setup > .integration-section-disclosure > summary::-webkit-details-marker { display: none; }
-.v-app .integrations-page .int-setup > .integration-section-disclosure[open] > summary { border-bottom: 1px solid var(--separator); }
-.v-app .integrations-page .int-setup .integration-section-disclosure-content { padding: 18px 24px 22px; max-width: 880px; }
-.v-app .integrations-page .int-setup .connection-facts { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; }
+.v-app .integrations-page .int-detail { display: block; padding: 0; }
+.v-app .integrations-page .int-detail > * { grid-column: auto; margin: 0; }
+.v-app .integrations-page .int-detail > .integration-direction { padding: 18px 24px 0; border-radius: 0; background: transparent; box-shadow: none; max-width: 78ch; font: var(--t-subhead); color: var(--label-2); }
+.v-app .integrations-page .int-detail > .int-health { margin: 16px 24px 0; padding: 14px 16px; border-radius: var(--r-md); background: transparent; box-shadow: inset 0 0 0 1px var(--separator); }
+.v-app .integrations-page .int-detail > .integration-connection-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 24px 20px; }
+.v-app .integrations-page .int-detail .integration-connection-actions :is(button, a) { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 18px; border: 0; border-radius: var(--r-pill); font: 600 14px/1 var(--font); }
+.v-app .integrations-page .int-detail .integration-connection-actions :is(.primary-button, .v-btn[data-kind="filled"]) { background: var(--tint); color: var(--on-tint); }
+.v-app .integrations-page .int-detail .integration-connection-actions :is(.secondary-button, .button-quiet, .v-btn[data-kind="gray"], a) { background: var(--fill); color: var(--label); }
+.v-app .integrations-page .int-detail > .integration-section-disclosure { border: 0; border-top: 1px solid var(--separator); border-radius: 0; background: transparent; box-shadow: none; }
+.v-app .integrations-page .int-detail > .integration-section-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 0 24px; font: 600 14px/1.3 var(--font); cursor: pointer; list-style: none; transition: background-color 120ms ease; }
+.v-app .integrations-page .int-detail > .integration-section-disclosure > summary:hover { background: var(--fill); }
+.v-app .integrations-page .int-detail > .integration-section-disclosure > summary::-webkit-details-marker { display: none; }
+.v-app .integrations-page .int-detail > .integration-section-disclosure[open] > summary { border-bottom: 1px solid var(--separator); }
+.v-app .integrations-page .int-detail .integration-section-disclosure-content { padding: 18px 24px 22px; max-width: 880px; }
+.v-app .integrations-page .int-detail .connection-facts { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 24px; }
 
 /* ===== ICP steps: no dead space (layout of the page itself is unchanged) */
 .v-app .icp-builder { align-content: start; gap: 18px; }
@@ -1211,24 +1211,24 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 .v-app .integrations-page .int-toggle { flex: none; height: 34px; padding: 0 16px; border-radius: var(--r-pill); }
 .v-app .integrations-page .int-card.is-expanded { grid-column: 1 / -1; }
 /* inside an expanded card */
-.v-app .integrations-page .int-setup { font: var(--t-subhead); }
-.v-app .integrations-page .int-setup h3, .v-app .integrations-page .int-setup h4 { margin: 0 0 4px; font: 600 14px/1.35 var(--font); color: var(--label); }
-.v-app .integrations-page .int-setup p { margin: 0; color: var(--label-2); font: 400 13px/1.5 var(--font); }
-.v-app .integrations-page .int-setup :is(label) { display: grid; gap: 6px; font: 500 12px/1.3 var(--font); color: var(--label-2); }
-.v-app .integrations-page .int-setup label:has(> input[type="checkbox"]), .v-app .integrations-page .int-setup label.v-switch-row { display: flex; align-items: center; gap: 10px; font: 400 14px/1.4 var(--font); color: var(--label); }
-.v-app .integrations-page .int-setup :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { height: 38px; font: 400 14px/1.3 var(--font); }
-.v-app .integrations-page .int-setup textarea { height: 84px; padding: 9px 12px; }
-.v-app .integrations-page .int-setup :is(.primary-button, .secondary-button, .button-quiet, .danger-button, .card-actions button, button.v-btn) { height: 34px; padding: 0 16px; border-radius: var(--r-pill); font: 600 13px/1 var(--font); }
-.v-app .integrations-page .int-setup :is(.secondary-button, .button-quiet) { background: var(--fill) !important; }
-.v-app .integrations-page .int-setup :is(.primary-button) { background: var(--tint) !important; color: var(--on-tint) !important; }
-.v-app .integrations-page .int-setup :is(.danger-button) { background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--danger-text) !important; }
-.v-app .integrations-page .int-setup :is(pre, code) { padding: 10px 12px; border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--separator); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
-.v-app .integrations-page .int-setup ol, .v-app .integrations-page .int-setup ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--label-2); font: 400 13px/1.5 var(--font); }
-.v-app .integrations-page .int-setup .integration-section-disclosure-content { display: grid; gap: 14px; }
-.v-app .integrations-page .int-setup [class*="-row"], .v-app .integrations-page .int-setup [class*="setting-"] { min-width: 0; }
-.v-app .integrations-page .int-setup > .integration-section-disclosure > summary::after { content: ""; flex: none; width: 7px; height: 7px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
-.v-app .integrations-page .int-setup > .integration-section-disclosure[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
-.v-app .integrations-page .int-setup > .integration-section-disclosure > summary > svg, .v-app .integrations-page .int-setup > .integration-section-disclosure > summary > .v-icon { display: none; }
+.v-app .integrations-page .int-detail { font: var(--t-subhead); }
+.v-app .integrations-page .int-detail h3, .v-app .integrations-page .int-detail h4 { margin: 0 0 4px; font: 600 14px/1.35 var(--font); color: var(--label); }
+.v-app .integrations-page .int-detail p { margin: 0; color: var(--label-2); font: 400 13px/1.5 var(--font); }
+.v-app .integrations-page .int-detail :is(label) { display: grid; gap: 6px; font: 500 12px/1.3 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-detail label:has(> input[type="checkbox"]), .v-app .integrations-page .int-detail label.v-switch-row { display: flex; align-items: center; gap: 10px; font: 400 14px/1.4 var(--font); color: var(--label); }
+.v-app .integrations-page .int-detail :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { height: 38px; font: 400 14px/1.3 var(--font); }
+.v-app .integrations-page .int-detail textarea { height: 84px; padding: 9px 12px; }
+.v-app .integrations-page .int-detail :is(.primary-button, .secondary-button, .button-quiet, .danger-button, .card-actions button, button.v-btn) { height: 34px; padding: 0 16px; border-radius: var(--r-pill); font: 600 13px/1 var(--font); }
+.v-app .integrations-page .int-detail :is(.secondary-button, .button-quiet) { background: var(--fill) !important; }
+.v-app .integrations-page .int-detail :is(.primary-button) { background: var(--tint) !important; color: var(--on-tint) !important; }
+.v-app .integrations-page .int-detail :is(.danger-button) { background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--danger-text) !important; }
+.v-app .integrations-page .int-detail :is(pre, code) { padding: 10px 12px; border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px var(--separator); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.v-app .integrations-page .int-detail ol, .v-app .integrations-page .int-detail ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--label-2); font: 400 13px/1.5 var(--font); }
+.v-app .integrations-page .int-detail .integration-section-disclosure-content { display: grid; gap: 14px; }
+.v-app .integrations-page .int-detail [class*="-row"], .v-app .integrations-page .int-detail [class*="setting-"] { min-width: 0; }
+.v-app .integrations-page .int-detail > .integration-section-disclosure > summary::after { content: ""; flex: none; width: 7px; height: 7px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.v-app .integrations-page .int-detail > .integration-section-disclosure[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
+.v-app .integrations-page .int-detail > .integration-section-disclosure > summary > svg, .v-app .integrations-page .int-detail > .integration-section-disclosure > summary > .v-icon { display: none; }
 .v-app .integrations-page .int-id p { white-space: normal !important; text-overflow: clip; }
 
 /* ===================================================== Plot settings, final form */
@@ -1255,22 +1255,22 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 .v-app .ops-page > .ops-toolbar > .secondary-button { height: 36px; padding: 0 16px; border-radius: var(--r-pill); font: 600 13px/1 var(--font); }
 
 /* ===================================================== Expanded integration: inner content, one grid, one left edge */
-.v-app .integrations-page .int-setup > label.ai-provider-picker { max-width: 320px; margin: 18px 24px 0; }
-.v-app .integrations-page .int-setup .integration-section-disclosure-content { padding: 20px 24px 24px; max-width: none; display: grid; gap: 20px; }
-.v-app .integrations-page .int-setup .integration-guide { display: grid; gap: 10px; max-width: 760px; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
-.v-app .integrations-page .int-setup .integration-guide > * { margin: 0; }
-.v-app .integrations-page .int-setup .integration-guide .eyebrow { font: 500 12px/1.3 var(--font); color: var(--label-3); }
-.v-app .integrations-page .int-setup .integration-guide > strong { font: 600 16px/1.35 var(--font); letter-spacing: -0.01em; color: var(--label); }
-.v-app .integrations-page .int-setup .integration-guide p { font: 400 13px/1.55 var(--font); color: var(--label-2); }
-.v-app .integrations-page .int-setup .integration-guide p strong, .v-app .integrations-page .int-setup .integration-guide p b { color: var(--label); font-weight: 600; }
-.v-app .integrations-page .int-setup .integration-guide a { width: fit-content; font: 500 13px/1.4 var(--font); color: var(--tint-text); }
-.v-app .integrations-page .int-setup .scope-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.v-app .integrations-page .int-setup .scope-list > * { display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 999px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong); font: 500 12px/1 var(--font); color: var(--label-2); }
-.v-app .integrations-page .int-setup .manual-credential { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 16px; align-items: end; margin: 6px 0 0; padding: 20px 0 0 !important; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: inset 0 1px 0 var(--separator) !important; max-width: 760px; }
-.v-app .integrations-page .int-setup .manual-credential > span:first-child { grid-column: 1 / -1; font: 600 14px/1.35 var(--font); color: var(--label); }
-.v-app .integrations-page .int-setup .manual-credential > button { grid-column: 1 / -1; justify-self: start; height: 36px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--tint); color: var(--on-tint); font: 600 13px/1 var(--font); cursor: pointer; }
-.v-app .integrations-page .int-setup .manual-credential > button:disabled { opacity: 0.4; cursor: default; }
-.v-app .integrations-page .int-setup .manual-credential > small { grid-column: 1 / -1; font: 400 12px/1.5 var(--font); color: var(--label-3); }
+.v-app .integrations-page .int-detail > label.ai-provider-picker { max-width: 320px; margin: 18px 24px 0; }
+.v-app .integrations-page .int-detail .integration-section-disclosure-content { padding: 20px 24px 24px; max-width: none; display: grid; gap: 20px; }
+.v-app .integrations-page .int-detail .integration-guide { display: grid; gap: 10px; max-width: 760px; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
+.v-app .integrations-page .int-detail .integration-guide > * { margin: 0; }
+.v-app .integrations-page .int-detail .integration-guide .eyebrow { font: 500 12px/1.3 var(--font); color: var(--label-3); }
+.v-app .integrations-page .int-detail .integration-guide > strong { font: 600 16px/1.35 var(--font); letter-spacing: -0.01em; color: var(--label); }
+.v-app .integrations-page .int-detail .integration-guide p { font: 400 13px/1.55 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-detail .integration-guide p strong, .v-app .integrations-page .int-detail .integration-guide p b { color: var(--label); font-weight: 600; }
+.v-app .integrations-page .int-detail .integration-guide a { width: fit-content; font: 500 13px/1.4 var(--font); color: var(--tint-text); }
+.v-app .integrations-page .int-detail .scope-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.v-app .integrations-page .int-detail .scope-list > * { display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 999px; background: transparent !important; box-shadow: inset 0 0 0 1px var(--separator-strong); font: 500 12px/1 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-detail .manual-credential { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 16px; align-items: end; margin: 6px 0 0; padding: 20px 0 0 !important; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: inset 0 1px 0 var(--separator) !important; max-width: 760px; }
+.v-app .integrations-page .int-detail .manual-credential > span:first-child { grid-column: 1 / -1; font: 600 14px/1.35 var(--font); color: var(--label); }
+.v-app .integrations-page .int-detail .manual-credential > button { grid-column: 1 / -1; justify-self: start; height: 36px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--tint); color: var(--on-tint); font: 600 13px/1 var(--font); cursor: pointer; }
+.v-app .integrations-page .int-detail .manual-credential > button:disabled { opacity: 0.4; cursor: default; }
+.v-app .integrations-page .int-detail .manual-credential > small { grid-column: 1 / -1; font: 400 12px/1.5 var(--font); color: var(--label-3); }
 /* usage report */
 .v-app .integrations-page .reasoning-usage { display: grid; gap: 20px; padding: 0; border: 0; background: transparent; box-shadow: none; }
 .v-app .integrations-page .reasoning-usage-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
@@ -1297,8 +1297,8 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 .v-app .integrations-page .reasoning-provider-table .provider-empty-state { padding: 22px 16px; text-align: center; color: var(--label-3); }
 .v-app .integrations-page .reasoning-usage-note { font: 400 12px/1.5 var(--font) !important; color: var(--label-3) !important; }
 .v-app .integrations-page .int-card.is-expanded > .int-head .int-toggle { background: var(--fill); color: var(--label); }
-.v-app .integrations-page .int-card .int-setup > .integration-section-disclosure > .integration-section-disclosure-content { padding: 22px 24px 26px; }
-.v-app .integrations-page .int-setup :is(select, input):disabled { background-color: transparent !important; box-shadow: inset 0 0 0 1px var(--separator) !important; color: var(--label-3); }
+.v-app .integrations-page .int-card .int-detail > .integration-section-disclosure > .integration-section-disclosure-content { padding: 22px 24px 26px; }
+.v-app .integrations-page .int-detail :is(select, input):disabled { background-color: transparent !important; box-shadow: inset 0 0 0 1px var(--separator) !important; color: var(--label-3); }
 
 /* ===================================================== AI activity: no tonal boxes */
 .v-app .ai-page .v-seg { background: transparent; box-shadow: inset 0 0 0 1px var(--separator-strong); }
@@ -1384,23 +1384,23 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 @media (max-width: 640px) { .ab-settings { grid-template-columns: minmax(0, 1fr); } .ab-settings > label:nth-of-type(2), .ab-settings > label:nth-of-type(3) { grid-column: 1; } }
 
 /* ===================================================== Expanded integration, compact header row */
-.v-app .integrations-page .int-card .int-setup { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-.v-app .integrations-page .int-card .int-setup > * { grid-column: 1 / -1; }
-.v-app .integrations-page .int-card .int-setup > .integration-direction { grid-column: 1; padding: 16px 0 16px 24px; max-width: 70ch; }
-.v-app .integrations-page .int-card .int-setup > .integration-connection-actions { grid-column: 2; padding: 16px 24px 16px 0; }
-.v-app .integrations-page .int-card .int-setup > .integration-direction:not(:has(+ .integration-connection-actions)) { grid-column: 1 / -1; padding-bottom: 0; }
-.v-app .integrations-page .int-card .int-setup > .integration-section-disclosure:first-of-type { box-shadow: inset 0 1px 0 var(--separator) !important; border-top: 0; }
-.v-app .integrations-page .int-card .int-setup > .integration-section-disclosure + .integration-section-disclosure { box-shadow: inset 0 1px 0 var(--separator) !important; border-top: 0; }
-.v-app .integrations-page .int-card .int-setup > .integration-section-disclosure { border-top: 0; box-shadow: inset 0 1px 0 var(--separator) !important; }
+.v-app .integrations-page .int-card .int-detail { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.v-app .integrations-page .int-card .int-detail > * { grid-column: 1 / -1; }
+.v-app .integrations-page .int-card .int-detail > .integration-direction { grid-column: 1; padding: 16px 0 16px 24px; max-width: 70ch; }
+.v-app .integrations-page .int-card .int-detail > .integration-connection-actions { grid-column: 2; padding: 16px 24px 16px 0; }
+.v-app .integrations-page .int-card .int-detail > .integration-direction:not(:has(+ .integration-connection-actions)) { grid-column: 1 / -1; padding-bottom: 0; }
+.v-app .integrations-page .int-card .int-detail > .integration-section-disclosure:first-of-type { box-shadow: inset 0 1px 0 var(--separator) !important; border-top: 0; }
+.v-app .integrations-page .int-card .int-detail > .integration-section-disclosure + .integration-section-disclosure { box-shadow: inset 0 1px 0 var(--separator) !important; border-top: 0; }
+.v-app .integrations-page .int-card .int-detail > .integration-section-disclosure { border-top: 0; box-shadow: inset 0 1px 0 var(--separator) !important; }
 @container page (max-width: 640px) {
-  .v-app .integrations-page .int-card .int-setup > .integration-direction, .v-app .integrations-page .int-card .int-setup > .integration-connection-actions { grid-column: 1 / -1; padding: 14px 24px 0; }
-  .v-app .integrations-page .int-card .int-setup > .integration-connection-actions { padding-bottom: 16px; }
+  .v-app .integrations-page .int-card .int-detail > .integration-direction, .v-app .integrations-page .int-card .int-detail > .integration-connection-actions { grid-column: 1 / -1; padding: 14px 24px 0; }
+  .v-app .integrations-page .int-card .int-detail > .integration-connection-actions { padding-bottom: 16px; }
 }
-.v-app .integrations-page .int-card .int-setup > :is(details, .int-guidance, .integration-guide, section, .int-health, label.ai-provider-picker) { grid-column: 1 / -1 !important; grid-row: auto !important; }
-.v-app .integrations-page .int-card .int-setup > label.ai-provider-picker { margin: 16px 24px 0; }
-.v-app .integrations-page .int-card .int-setup > .integration-direction { padding-block: 14px; }
-.v-app .integrations-page .int-card .int-setup > .integration-connection-actions { padding-block: 14px; }
-.v-app .integrations-page .int-card .int-setup > :is(.integration-direction, .integration-connection-actions) { align-self: center !important; }
+.v-app .integrations-page .int-card .int-detail > :is(details, .int-guidance, .integration-guide, section, .int-health, label.ai-provider-picker) { grid-column: 1 / -1 !important; grid-row: auto !important; }
+.v-app .integrations-page .int-card .int-detail > label.ai-provider-picker { margin: 16px 24px 0; }
+.v-app .integrations-page .int-card .int-detail > .integration-direction { padding-block: 14px; }
+.v-app .integrations-page .int-card .int-detail > .integration-connection-actions { padding-block: 14px; }
+.v-app .integrations-page .int-card .int-detail > :is(.integration-direction, .integration-connection-actions) { align-self: center !important; }
 
 /* ===================================================== ICP overview, final */
 .v-app .icp-overview { gap: 16px 24px; padding: 20px 24px 16px; }
@@ -1415,3 +1415,68 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 .v-app .icp-chip[data-valid="false"] { color: var(--danger-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 45%, transparent) !important; }
 .v-app .icp-overview-foot .v-btn { height: 34px; }
 .v-app .icp-overview-foot .v-btn[data-kind="plain"] { color: var(--danger-text); }
+
+/* ===================================================== Ask Corral: your messages are white on green; result buttons */
+.corral-workspace-message.is-user, .v-app .corral-workspace-message.is-user { background: var(--tint) !important; border-color: transparent !important; color: #fff !important; }
+.corral-workspace-message.is-user p, .corral-workspace-message.is-user span { color: #fff !important; }
+.corral-workspace-message.is-user span:first-child { color: rgba(255, 255, 255, 0.78) !important; }
+.corral-result-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.corral-result-pair { display: inline-flex; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--separator-strong); overflow: hidden; }
+.corral-result-open, .corral-result-copy { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0; background: transparent; color: var(--label); font: 500 12.5px/1 var(--font); cursor: pointer; transition: background-color 120ms ease; }
+.corral-result-actions > .corral-result-open { border-radius: 999px; box-shadow: inset 0 0 0 1px var(--separator-strong); }
+.corral-result-copy { padding: 0 10px; border-left: 1px solid var(--separator); color: var(--label-2); }
+.corral-result-open:hover, .corral-result-copy:hover { background: var(--fill); }
+.corral-result-open:active, .corral-result-copy:active { transform: scale(0.97); }
+
+/* ===================================================== Inbox: always fits its space, Gmail-style threads */
+.v-app .mailbox { min-width: 0; max-width: 100%; }
+.v-app .mailbox-grid { height: calc(100dvh - var(--toolbar-h) - 150px); min-height: 480px; max-width: 100%; }
+.v-app .mailbox-grid > * { min-width: 0; }
+.v-app .mailbox-rows, .v-app .mailbox-reader { min-height: 0; overscroll-behavior: contain; }
+.v-app .mailbox-list { overflow: hidden; }
+.v-app .mailbox-rows { flex: 1; }
+.v-app .mailbox-reader { overflow-x: hidden; }
+.v-app .mailbox-row[aria-current="true"] { background: var(--fill); box-shadow: inset 2px 0 0 var(--label) !important; }
+.v-app .mailbox-folder[aria-current="page"] { background: var(--fill); color: var(--label); }
+.v-app .mailbox-message[data-outbound] { background: transparent; }
+.v-app .mailbox-message { border-radius: 12px; }
+.v-app .mailbox-message + .mailbox-message { margin-top: 0; }
+.v-app .mailbox-message-body { overflow-wrap: anywhere; word-break: break-word; line-height: 1.55; }
+.v-app .mailbox-message-body :is(img, video, iframe, table, pre) { max-width: 100%; height: auto; }
+.v-app .mailbox-message-body :is(table, pre) { display: block; overflow-x: auto; }
+.v-app .mailbox-message-body blockquote { margin: 10px 0; padding-left: 12px; border-left: 2px solid var(--separator-strong); color: var(--label-2); }
+.v-app .mailbox-reader-head h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container page (max-width: 1020px) { .v-app .mailbox-grid { grid-template-columns: 176px minmax(220px, 300px) minmax(0, 1fr); } }
+@container page (max-width: 820px) {
+  .v-app .mailbox-grid { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
+  .v-app .mailbox-rail { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--separator); }
+  .v-app .mailbox-rail ul { display: flex; flex-wrap: wrap; gap: 4px; }
+}
+@container page (max-width: 620px) { .v-app .mailbox-grid { grid-template-columns: minmax(0, 1fr); height: auto; } }
+.ai-row-lead { color: var(--label); font-weight: 500; }
+.v-app .auto-card-actions .v-btn[data-kind="plain"] { color: var(--danger-text); margin-left: auto; }
+
+/* ===================================================== Integration detail (new): summary, tabs, one pane */
+.v-app .integrations-page .int-card .int-detail { display: block; padding: 0; }
+.v-app .integrations-page .int-detail-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 24px; padding: 18px 24px; }
+.v-app .integrations-page .int-detail-main { display: grid; gap: 12px; min-width: 0; }
+.v-app .integrations-page .int-detail-main > * { margin: 0 !important; padding: 0 !important; max-width: 72ch; }
+.v-app .integrations-page .int-detail-main label.ai-provider-picker { max-width: 280px; }
+.v-app .integrations-page .int-detail-main .integration-direction, .v-app .integrations-page .int-detail-main .integration-direction strong { font: 400 13px/1.55 var(--font); color: var(--label-2); }
+.v-app .integrations-page .int-detail-main .integration-direction strong { color: var(--label); font-weight: 600; }
+.v-app .integrations-page .int-detail-main .int-health { padding: 12px 14px !important; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--separator) !important; }
+.v-app .integrations-page .int-detail-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 !important; margin: 0 !important; }
+.v-app .integrations-page .int-tabs { display: flex; gap: 4px; padding: 0 24px; position: relative; }
+.v-app .integrations-page .int-tabs::after { content: ""; position: absolute; inset: auto 0 0 0; height: 1px; background: var(--separator); }
+.v-app .integrations-page .int-tabs button { position: relative; z-index: 1; height: 42px; padding: 0 14px; border: 0; background: transparent; color: var(--label-2); font: 500 14px/1 var(--font); cursor: pointer; transition: color 120ms ease; }
+.v-app .integrations-page .int-tabs button:hover { color: var(--label); }
+.v-app .integrations-page .int-tabs button[aria-selected="true"] { color: var(--label); font-weight: 600; }
+.v-app .integrations-page .int-tabs button[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 14px 0 14px; height: 2px; border-radius: 2px 2px 0 0; background: var(--label); }
+.v-app .integrations-page .int-pane { display: grid; gap: 20px; padding: 22px 24px 26px; animation: int-pane-in 180ms cubic-bezier(0.23, 1, 0.32, 1); }
+@keyframes int-pane-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .v-app .integrations-page .int-pane { animation: none; } }
+@container page (max-width: 700px) { .v-app .integrations-page .int-detail-summary { grid-template-columns: minmax(0, 1fr); } .v-app .integrations-page .int-detail-actions { justify-content: flex-start; } }
+.v-app .integrations-page .int-tabs [role="tab"], .v-app .integrations-page .int-tabs [role="tab"][aria-selected="true"], .v-app .integrations-page .int-tabs [role="tab"][aria-selected="false"] { background: transparent !important; box-shadow: none !important; border-radius: 0 !important; height: 42px; padding: 0 14px; }
+.v-app .integrations-page .int-tabs [role="tab"][aria-selected="true"] { color: var(--label) !important; }
+.v-app .integrations-page .int-tabs [role="tab"][aria-selected="false"] { color: var(--label-2) !important; }

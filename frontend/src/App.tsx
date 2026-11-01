@@ -984,7 +984,6 @@ function App() {
       );
       setView("leads");
       setLeadSection(section);
-      setSelectedLead((current) => (current?.id === id ? current : null));
       void inspectLead(id);
       if (window.matchMedia("(max-width: 767px)").matches) setNavOpen(false);
     },
@@ -1063,7 +1062,6 @@ function App() {
         can(workspacePermissions, "leads.view")
       ) {
         setView("leads");
-        setSelectedLead((current) => (current?.id === id ? current : null));
         void inspectLead(id);
       } else {
         leadController.current?.abort();
@@ -1097,6 +1095,8 @@ function App() {
   }, [view, pageSection]);
 
   function navigate(next: AppView, section = "") {
+    // The Settings menu offers Company and User; they open the workspace profile and the account page.
+    if (next === "settings") section = ({ company: "workspace", user: "users" } as Record<string, string>)[section] ?? section;
     if (next === "leads" && section && selectedLead) {
       changeLeadSection(parseLeadSection(section));
       return;
@@ -1536,7 +1536,7 @@ function App() {
                 )}
                 {view === "agents" && (
                   <div className="v-page" data-width="wide">
-                    <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} onInspect={(id) => openLeadSection(id, "history")} />
+                    <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} onInspect={(id) => openLeadSection(id, "history")} leadName={(id) => { const lead = workspaceLeads.leads.find((item) => item.id === id); return lead ? (lead.company_name ? `${lead.full_name} · ${lead.company_name}` : lead.full_name) : undefined; }} />
                   </div>
                 )}
                 {view === "analytics" && (

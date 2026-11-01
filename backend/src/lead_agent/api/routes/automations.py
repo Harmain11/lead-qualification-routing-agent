@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field, field_validator
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -104,6 +104,37 @@ def save_definition(
     session.commit()
     session.refresh(row)
     return row
+
+
+@router.delete("/{definition_id}", status_code=204)
+def delete_definition(
+    definition_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("workspace.manage")),
+) -> None:
+    row = session.get(AutomationDefinitionORM, definition_id)
+    if row is None or row.workspace_id != workspace.workspace_id:
+        raise HTTPException(404, "Playbook not found")
+    live = session.scalar(
+        select(AutomationRunORM.id)
+        .where(
+            AutomationRunORM.definition_id == definition_id,
+            AutomationRunORM.status.notin_(["completed", "cancelled"]),
+        )
+        .limit(1)
+    )
+    if live is not None:
+        raise HTTPException(409, "Cancel or finish the runs in progress before deleting this.")
+    session.execute(delete(AutomationRunORM).where(AutomationRunORM.definition_id == definition_id))
+    session.delete(row)
+    audit_operation(
+        session,
+        workspace.workspace_id,
+        workspace.actor_id,
+        "automation.deleted",
+        {"definition_id": str(definition_id), "name": row.name},
+    )
+    session.commit()
 
 
 class Enrollment(StrictModel):

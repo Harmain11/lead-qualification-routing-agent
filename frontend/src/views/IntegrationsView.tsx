@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Children, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { FeatureGuide } from "../components/FeatureGuide";
@@ -92,15 +92,55 @@ function ProviderDetailsPanel({
   subtitle?: ReactNode;
   children: ReactNode;
 }) {
+  const [tab, setTab] = useState<string | null>(null);
   if (provider === "slack") {
     return open ? <OperationsDialog id={id} title="Slack connection" onClose={onClose} className="slack-connection-dialog">
       <div className="provider-details slack-provider-details">{children}</div>
     </OperationsDialog> : null;
   }
-  // Setup opens inside the card itself. The card takes the full row, so the grid
-  // makes room for it instead of anything floating over the page.
   void title; void subtitle; void onClose;
-  return open ? <div className="provider-details int-setup" id={id}>{children}</div> : null;
+  if (!open) return null;
+
+  // The setup is organised in three places: a summary (what this connection does and
+  // its main actions), then one tab per area, each holding what used to be a disclosure.
+  const summary: ReactNode[] = [];
+  const actions: ReactNode[] = [];
+  const panes: Array<{ id: string; label: string; open: boolean; body: ReactNode }> = [];
+  Children.toArray(children).forEach((child) => {
+    if (isValidElement(child) && child.type === IntegrationDisclosure) {
+      const el = child as ReactElement<{ title: string; className?: string; open?: boolean; children: ReactNode }>;
+      const cls = el.props.className ?? "";
+      const paneId = cls.includes("settings") ? "settings" : cls.includes("briefing") ? "connection" : "guide";
+      const label = paneId === "settings" ? (el.props.title.startsWith("Usage") ? "Usage" : "Settings") : paneId === "connection" ? "Connection" : "Setup guide";
+      panes.push({ id: paneId, label, open: Boolean(el.props.open), body: el.props.children });
+    } else if (isValidElement(child) && String((child.props as { className?: string }).className ?? "").includes("integration-connection-actions")) {
+      actions.push(child);
+    } else {
+      summary.push(child);
+    }
+  });
+  const order = ["connection", "settings", "guide"];
+  panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
+  const active = panes.find((pane) => pane.id === tab) ?? panes.find((pane) => pane.open) ?? panes[0];
+
+  return (
+    <div className="int-detail" id={id}>
+      <div className="int-detail-summary">
+        <div className="int-detail-main">{summary}</div>
+        {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
+      </div>
+      {panes.length > 0 && (
+        <>
+          <div className="int-tabs" role="tablist" aria-label="Integration sections">
+            {panes.map((pane) => (
+              <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
+            ))}
+          </div>
+          {active && <div className="int-pane" role="tabpanel" id={`${id}-pane-${active.id}`} aria-labelledby={`${id}-tab-${active.id}`}>{active.body}</div>}
+        </>
+      )}
+    </div>
+  );
 }
 
 function IntegrationDisclosure({

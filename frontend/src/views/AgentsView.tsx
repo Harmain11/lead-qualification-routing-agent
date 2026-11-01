@@ -56,10 +56,12 @@ function resultFacts(result: Record<string, unknown>): Array<[string, string]> {
 export function AgentsView({
   data,
   onInspect,
+  leadName,
 }: {
   data: AgentActivity | null;
   pipeline: PipelineAnalytics | null;
   onInspect?: (leadId: string) => void;
+  leadName?: (leadId: string) => string | undefined;
 }) {
   const [tab, setTab] = useState<Tab>("activity");
   const [status, setStatus] = useState<Status>("all");
@@ -120,7 +122,7 @@ export function AgentsView({
           <ul>
             {stats.issues.slice(0, 3).map((entry) => (
               <li key={entry.id}>
-                <span><b>{activityTitle(entry.stage, entry.tool_name)}</b><small>{entry.error || pretty(entry.status)}</small></span>
+                <span><b>{activityTitle(entry.stage, entry.tool_name)}</b><small>{entry.lead_id ? `${leadName?.(entry.lead_id) ?? "A lead"} · ` : ""}{entry.error || pretty(entry.status)}</small></span>
                 {entry.lead_id && onInspect && <Button kind="gray" size="sm" onClick={() => onInspect(entry.lead_id!)}>Open lead</Button>}
               </li>
             ))}
@@ -172,7 +174,7 @@ export function AgentsView({
                         <span className="ai-row-icon"><Icon name={iconFor(entry)} size={16} /></span>
                         <span className="ai-row-text">
                           <b>{activityTitle(entry.stage, entry.tool_name)}</b>
-                          <small>{entry.agent}{entry.provider ? ` · ${pretty(entry.provider)}` : ""}</small>
+                          <small>{entry.lead_id ? <span className="ai-row-lead">For {leadName?.(entry.lead_id) ?? "a lead"}</span> : null}{entry.lead_id ? " · " : ""}{entry.agent}{entry.provider ? ` · ${pretty(entry.provider)}` : ""}</small>
                         </span>
                         <Badge tone={tone}>{failed(entry) ? "Needs a look" : pretty(entry.status)}</Badge>
                         <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</time>

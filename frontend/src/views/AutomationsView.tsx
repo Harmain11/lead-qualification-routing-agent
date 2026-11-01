@@ -196,6 +196,20 @@ export function AutomationsView({
     setError("");
     setEditor({ id: createClientId(), spec: initial(kind) });
   }
+  async function removeDefinition(item: Automation) {
+    const confirmed = await confirmAction({ title: `Delete “${item.name}”?`, message: `This ${item.kind} and its finished run history are removed. Leads already enrolled must finish or be cancelled first.`, confirmLabel: "Delete", cancelLabel: "Keep", tone: "danger" });
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    try {
+      await opsSave(`/v1/automations/${item.id}`, undefined, "DELETE");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "It could not be deleted.");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function toggleActive(item: Automation) {
     setBusy(true);
     setError("");
@@ -260,6 +274,9 @@ export function AutomationsView({
                     >
                       Edit
                     </Button>
+                  )}
+                  {canManage && (
+                    <Button size="sm" kind="plain" disabled={busy} onClick={() => void removeDefinition(item)}>Delete</Button>
                   )}
                   {canEdit && (
                     <Button

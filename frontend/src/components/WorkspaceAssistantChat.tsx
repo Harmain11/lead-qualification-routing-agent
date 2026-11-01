@@ -21,6 +21,7 @@ import { assistantConversation } from "../assistantConversation";
 import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AssistantLeadDraft } from "./AssistantLeadDraft";
 import { AgentLeadChoices } from "./AgentLeadChoices";
+import { AssistantResultActions } from "./AssistantResultActions";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
 import { parseAssistantCommand } from "./assistantCommands";
 import { TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
@@ -908,6 +909,9 @@ export function WorkspaceAssistantChat({
                   leads={message.leadLinks!}
                   onSelect={onInspectLead}
                 />
+              )}
+              {message.role === "assistant" && !message.leadLinks?.length && (!message.action || message.action.kind === "none") && (
+                <AssistantResultActions content={message.content} permissions={permissions} onNavigate={onNavigate} />
               )}
               {Boolean(message.contextWarnings?.length) && (
                 <p role="status">Some workspace information could not be loaded or was limited: {message.contextWarnings!.join(" ")}</p>
