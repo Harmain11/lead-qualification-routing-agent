@@ -1881,15 +1881,7 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 @media (hover: hover) and (pointer: fine) { .gm-remove:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger-text); } }
 .gm-empty { margin: 0; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator) !important; font: 400 13.5px/1.45 var(--font); color: var(--label-2); }
 
-/* When an open card has nothing but its primary action, that action joins the header line */
-.v-app .integrations-page .int-card.is-expanded { position: relative; }
-.v-app .integrations-page .int-tabs:not(:has([role="tab"])) { height: 0; min-height: 0; padding: 0; overflow: visible; box-shadow: none !important; }
-.v-app .integrations-page .int-tabs:not(:has([role="tab"])) > .int-tabs-actions { position: absolute; top: 12px; right: 56px; z-index: 2; padding: 0; margin: 0; }
-.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-main > *)) { display: block; height: 0; padding: 0; overflow: visible; }
-.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-main > *)) > .int-detail-actions { position: absolute; top: 12px; right: 56px; z-index: 2; width: auto; order: 0; }
-.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-main > *)) .integration-connection-actions { width: auto; }
-.v-app .integrations-page .int-card.is-expanded > .int-head { box-shadow: none !important; }
-.v-app .integrations-page .int-card.is-expanded > .int-detail { box-shadow: inset 0 1px 0 var(--separator); }
+
 .v-app .integrations-page .int-detail .manual-credential { grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); }
 .v-app .integrations-page .int-detail .manual-credential > label { white-space: nowrap; }
 .v-app .integrations-page .int-detail .manual-credential > label > input, .v-app .integrations-page .int-detail .manual-credential > label > select { white-space: normal; }
@@ -1910,3 +1902,98 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .int-detail-main .int-health { padding: 0 !important; border-radius: 0; box-shadow: none !important; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker { display: flex !important; align-items: center; gap: 10px; width: auto; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker select { width: 220px; }
+
+/* ===================================================================
+   OPEN INTEGRATION CARD: the definitive layout.
+   Header line, action toolbar, working area, guide row. Normal flow only.
+   =================================================================== */
+.v-app .integrations-page .int-card.is-expanded { position: static; overflow: hidden; }
+.v-app .integrations-page .int-card.is-expanded > .int-head { display: grid; grid-template-columns: 32px auto minmax(0, 1fr) 30px; grid-template-areas: "mark id status action"; align-items: center; column-gap: 12px; row-gap: 0; padding: 12px 16px; box-shadow: none !important; }
+.v-app .integrations-page .int-card.is-expanded > .int-head > .int-status { justify-self: start; min-width: 0; }
+.v-app .integrations-page .int-card.is-expanded > .int-head > .int-toggle { justify-self: end; }
+.v-app .integrations-page .int-card.is-expanded > .int-detail { display: block; padding: 0; border-top: 1px solid var(--separator); }
+
+/* Toolbar */
+.v-app .integrations-page .int-detail-summary { position: static; display: flex; flex-direction: column; gap: 12px; height: auto; padding: 14px 16px 0; overflow: visible; }
+.v-app .integrations-page .int-detail-actions { position: static; order: 0; display: block; width: 100%; margin: 0; padding: 0; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions { position: static; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start !important; gap: 8px; width: 100%; margin: 0 !important; padding: 0 !important; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 0 16px; border: 0; border-radius: 999px; font: 600 13px/1 var(--font); cursor: pointer; background: transparent; color: var(--label); box-shadow: inset 0 0 0 1px var(--separator-strong) !important; transition: transform 140ms var(--int-ease), background-color 140ms ease, color 140ms ease; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button:first-child { background: var(--tint); color: var(--on-tint); box-shadow: none !important; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button.button-quiet { box-shadow: none !important; color: var(--label-2); padding: 0 10px; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button:last-child:not(:first-child):not(.button-quiet) { margin-left: auto; color: var(--danger-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 40%, transparent) !important; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button:active:not(:disabled) { transform: scale(0.97); }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button:disabled { opacity: 0.45; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .v-app .integrations-page .int-detail-actions .integration-connection-actions > button:first-child:hover:not(:disabled) { opacity: 0.9; }
+  .v-app .integrations-page .int-detail-actions .integration-connection-actions > button:not(:first-child):hover:not(:disabled) { background: var(--fill); }
+}
+.v-app .integrations-page .int-detail-main { display: grid; gap: 12px; width: 100%; margin: 0; }
+.v-app .integrations-page .int-detail-main > * { max-width: none !important; margin: 0 !important; }
+
+/* Working area */
+.v-app .integrations-page .int-tabs { position: static; display: flex; gap: 2px; height: auto; margin: 0; padding: 10px 12px 0; border-bottom: 1px solid var(--separator); box-shadow: none !important; overflow: visible; }
+.v-app .integrations-page .int-detail-summary + .int-tabs { margin-top: 12px; }
+.v-app .integrations-page .int-pane { padding: 16px; }
+.v-app .integrations-page .int-detail-summary + .int-pane { padding-top: 14px; }
+
+/* Guide row */
+.v-app .integrations-page .int-guide-row { position: static; border-top: 1px solid var(--separator); margin-top: 0; }
+.v-app .integrations-page .int-guide-row::before { display: none; }
+.v-app .integrations-page .int-detail-summary:last-child { padding-bottom: 14px; }
+
+/* Mailboxes and facts: flat and light */
+.v-app .integrations-page .int-facts { margin: 0; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button.button-quiet { padding: 0 16px; color: var(--label); box-shadow: inset 0 0 0 1px var(--separator-strong) !important; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button.int-tertiary { box-shadow: none !important; color: var(--label-2); padding: 0 10px; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button:last-child:not(:first-child):not(.danger) { margin-left: 0; color: var(--label); box-shadow: inset 0 0 0 1px var(--separator-strong) !important; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button.danger, .v-app .integrations-page .int-detail-actions .integration-connection-actions > button.danger-button { margin-left: auto; color: var(--danger-text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 40%, transparent) !important; }
+@media (hover: hover) and (pointer: fine) { .v-app .integrations-page .int-detail-actions .integration-connection-actions > button.danger:hover:not(:disabled) { background: var(--danger-soft); } }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions > button.danger { color: var(--danger-text) !important; }
+.v-app .integrations-page .int-detail .manual-credential { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.v-app .integrations-page .int-detail .manual-credential > button { grid-column: 1 / -1; justify-self: start; align-self: auto; white-space: nowrap; height: 36px; padding: 0 18px; margin-top: 2px; }
+.v-app .integrations-page .int-detail .manual-credential > button:disabled { background: transparent; color: var(--label-3); box-shadow: inset 0 0 0 1px var(--separator-strong) !important; }
+.v-app .integrations-page .int-detail-actions:has(> .integration-connection-actions:empty) { display: none; }
+.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-actions:not(:has(> .integration-connection-actions:empty)))):not(:has(.int-detail-main)) { display: none; }
+.v-app .integrations-page .int-detail-summary { padding-top: 14px; }
+
+/* Nothing inside an open card may be wider than the card */
+.v-app .integrations-page .int-detail, .v-app .integrations-page .int-pane, .v-app .integrations-page .int-detail-main, .v-app .integrations-page .int-guide-body, .v-app .integrations-page .int-detail .integration-guide { min-width: 0; max-width: 100%; }
+.v-app .integrations-page .int-pane, .v-app .integrations-page .int-detail-main, .v-app .integrations-page .int-guide-body { grid-template-columns: minmax(0, 1fr); }
+.v-app .integrations-page .int-detail .integration-guide { grid-template-columns: minmax(0, 1fr); }
+.v-app .integrations-page .int-card.is-expanded > .int-head { min-width: 0; }
+
+/* Slack dialog: one left edge, no meta line, left-aligned headings */
+.slack-connection-dialog .integration-direction { display: none; }
+.slack-connection-dialog .slack-provider-details { padding: 0 !important; gap: 16px; }
+.slack-connection-dialog .slack-routing-rules, .slack-connection-dialog .slack-rules-toolbar, .slack-connection-dialog .slack-rules-toolbar > div { text-align: left; justify-items: start; }
+.slack-connection-dialog .slack-rules-toolbar { align-items: center; }
+.slack-connection-dialog .slack-rules-toolbar > div { display: grid; gap: 2px; }
+.slack-connection-dialog .slack-guide-summary-title > i { width: 18px; height: 18px; background: transparent !important; box-shadow: none !important; }
+.slack-connection-dialog .slack-guide-summary-title > span { display: grid; gap: 1px; }
+.slack-connection-dialog .integration-guide { margin: 0 !important; }
+.slack-connection-dialog .slack-provider-details { display: grid; grid-template-columns: minmax(0, 1fr); }
+.slack-connection-dialog .slack-provider-details > .integration-connection-actions { order: -3; display: flex; flex-wrap: wrap; gap: 8px; padding: 0 !important; margin: 0 !important; }
+.slack-connection-dialog .slack-provider-details > .integration-connection-actions > button { height: 34px; padding: 0 16px; border: 0; border-radius: 999px; font: 600 13px/1 var(--font); cursor: pointer; background: var(--tint) !important; color: var(--on-tint) !important; }
+.slack-connection-dialog .slack-provider-details > .integration-connection-actions > button.button-quiet { background: transparent !important; color: var(--label) !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; }
+.slack-connection-dialog .slack-provider-details > .connection-briefing-disclosure { order: -2; }
+.slack-connection-dialog .slack-provider-details > .int-guidance, .slack-connection-dialog .slack-provider-details > .integration-settings-disclosure { order: 6; }
+.slack-connection-dialog .integration-section-disclosure { border-radius: 14px; box-shadow: inset 0 0 0 1px var(--separator) !important; background: transparent; overflow: hidden; }
+.slack-connection-dialog .integration-section-disclosure > summary { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 0 16px; font: 600 14px/1.3 var(--font); cursor: pointer; list-style: none; }
+.slack-connection-dialog .integration-section-disclosure > summary::-webkit-details-marker { display: none; }
+.slack-connection-dialog .integration-section-disclosure > summary::before { display: none !important; }
+.slack-connection-dialog .integration-section-disclosure > summary::after { content: ""; width: 7px; height: 7px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.slack-connection-dialog .integration-section-disclosure[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
+.slack-connection-dialog .integration-section-disclosure-content { padding: 4px 16px 16px; display: grid; gap: 12px; }
+.slack-connection-dialog .manual-credential { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; padding: 0; border: 0; background: transparent !important; box-shadow: none !important; }
+.slack-connection-dialog .manual-credential > span:first-child, .slack-connection-dialog .manual-credential > small { grid-column: 1 / -1; }
+.slack-connection-dialog .manual-credential > span:first-child { font: 600 14px/1.3 var(--font); }
+.slack-connection-dialog .manual-credential > small { font: 400 12.5px/1.45 var(--font); color: var(--label-3); }
+.slack-connection-dialog .manual-credential > button { grid-column: 1 / -1; justify-self: start; height: 36px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--tint); color: var(--on-tint); font: 600 13px/1 var(--font); cursor: pointer; }
+.slack-connection-dialog .manual-credential > button:disabled { background: transparent; color: var(--label-3); box-shadow: inset 0 0 0 1px var(--separator-strong) !important; }
+.slack-connection-dialog .integration-guide > .eyebrow, .slack-connection-dialog .integration-guide > strong + p { }
+.slack-connection-dialog .integration-guide a { display: inline-flex; align-items: center; gap: 7px; width: fit-content; height: 32px; padding: 0 14px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--label); font: 500 13px/1 var(--font); text-decoration: none; white-space: nowrap; }
+.slack-connection-dialog .scope-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.slack-connection-dialog .scope-list code { padding: 3px 10px; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; font: 500 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* When a card offers sign-in and a pasted token, say so */
+.v-app .integrations-page .int-detail:has(.integration-connection-actions > button) .manual-credential::before { content: "Or connect with an access token"; grid-column: 1 / -1; font: 500 12.5px/1.3 var(--font); color: var(--label-3); }
+.v-app .integrations-page .int-detail:has(.integration-connection-actions > button) .int-pane { border-top: 1px solid var(--separator); margin-top: 14px; }

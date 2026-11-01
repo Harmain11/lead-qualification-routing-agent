@@ -133,22 +133,20 @@ function ProviderDetailsPanel({
   const guide = panes.find((pane) => pane.id === "guide");
   const active = working.find((pane) => pane.id === tab) ?? working.find((pane) => pane.open) ?? working[0];
   const showTabs = working.length > 1;
-  const inlineActions = summary.length === 0 && actions.length > 0;
 
   return (
     <div className="int-detail" id={id}>
-      {summary.length > 0 && (
+      {(summary.length > 0 || actions.length > 0) && (
         <div className="int-detail-summary">
-          <div className="int-detail-main">{summary}</div>
           {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
+          {summary.length > 0 && <div className="int-detail-main">{summary}</div>}
         </div>
       )}
-      {(showTabs || inlineActions) && (
-        <div className="int-tabs" role={showTabs ? "tablist" : undefined} aria-label="Integration sections">
-          {showTabs && working.map((pane) => (
+      {showTabs && (
+        <div className="int-tabs" role="tablist" aria-label="Integration sections">
+          {working.map((pane) => (
             <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
           ))}
-          {inlineActions && <div className="int-tabs-actions">{actions}</div>}
         </div>
       )}
       {active && <div className="int-pane" role={showTabs ? "tabpanel" : undefined} id={`${id}-pane-${active.id}`} aria-labelledby={showTabs ? `${id}-tab-${active.id}` : undefined}>{active.body}</div>}
@@ -1411,7 +1409,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && (card.supported_auth.includes("oauth2") || card.manual_fields.length === 0 || !canManage) && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
-            {card.provider === "salesforce" && <button className="button-quiet" onClick={() => setSalesforceSetupOpen(true)}>Setup guide</button>}
+            {card.provider === "salesforce" && <button className="int-tertiary" onClick={() => setSalesforceSetupOpen(true)}>Prepare org</button>}
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure
            title={openAI || section.id === "ai" ? "Usage and settings" : crmDirection || mailDirection ? "Sync and settings" : "More settings"}
@@ -1620,7 +1618,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           <a href={card.documentation_url} target="_blank" rel="noopener noreferrer">Official documentation<Icon name="external" size={13} /></a>
           {card.manual_fields.length > 0 && canManage && !oauthConnected && <div className="manual-credential">
             <span>Secure credential setup</span>
-            {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}
+            {!openAI && <label>Account label<input placeholder="Account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}
             {openAI && !connection && <label>Model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label>}
             {card.manual_fields.filter((field) => !cloudTalk || field !== "agent_id").map((field) => {
               const secret = /token|secret|jwt|api_key/.test(field);
