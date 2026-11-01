@@ -1776,3 +1776,41 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .sg-facts > div + div::before { content: ""; position: absolute; inset: 12px auto 12px 0; width: 1px; height: auto; background: var(--separator); }
 .sg-facts .sg-wide { grid-column: 1 / -1; }
 .sg-facts .sg-wide::before { inset: 0 16px auto 16px !important; width: auto !important; height: 1px !important; }
+
+/* ===================================================================
+   Open and closed, one language.
+   Closed: logo, name, status, one quiet button.
+   Open: the thing you came to do, nothing else.
+   =================================================================== */
+
+/* Card buttons: neutral pills that stay out of the way until pointed at */
+.v-app .integrations-page .int-toggle[data-kind="tinted"], .v-app .integrations-page .int-toggle[data-kind="gray"] { background: transparent !important; color: var(--label) !important; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; }
+.v-app .integrations-page .int-toggle[data-kind="destructive"] { background: transparent !important; color: var(--danger-text) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-text) 45%, transparent) !important; }
+@media (hover: hover) and (pointer: fine) {
+  .v-app .integrations-page .int-toggle[data-kind="tinted"]:hover, .v-app .integrations-page .int-toggle[data-kind="gray"]:hover { background: var(--label) !important; color: var(--surface) !important; box-shadow: none !important; }
+  .v-app .integrations-page .int-toggle[data-kind="destructive"]:hover { background: var(--danger-soft) !important; }
+}
+.v-app .integrations-page .int-toggle:focus-visible { outline: 2px solid var(--field-ring); outline-offset: 2px; }
+
+/* Open card: close is a quiet circle, not a word */
+.v-app .integrations-page .int-card.is-expanded > .int-head .int-toggle { display: grid; place-items: center; width: 30px; height: 30px; padding: 0 !important; border-radius: 50% !important; background: var(--fill) !important; color: var(--label-2) !important; box-shadow: none !important; }
+@media (hover: hover) and (pointer: fine) { .v-app .integrations-page .int-card.is-expanded > .int-head .int-toggle:hover { background: var(--fill-press) !important; color: var(--label) !important; } }
+.v-app .integrations-page .int-card.is-expanded > .int-head .v-btn-label { display: grid; place-items: center; }
+
+/* A credential connection shows the form and only the form */
+.v-app .integrations-page .int-detail .integration-guide:has(> .manual-credential) > :not(.manual-credential) { display: none; }
+.v-app .integrations-page .int-detail .integration-guide:has(> .manual-credential) { gap: 0; max-width: 720px; }
+.v-app .integrations-page .int-detail .manual-credential { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: end; margin: 0; padding: 0 !important; box-shadow: none !important; }
+.v-app .integrations-page .int-detail .manual-credential > span:first-child { display: none; }
+.v-app .integrations-page .int-detail .manual-credential > button { grid-column: 1 / -1; justify-self: start; height: 38px; padding: 0 20px; font-size: 14px; }
+.v-app .integrations-page .int-detail .manual-credential > button:not(:disabled) { background: var(--tint); color: var(--on-tint); }
+.v-app .integrations-page .int-detail .manual-credential > button:disabled { background: var(--fill); color: var(--label-3); opacity: 1; }
+.v-app .integrations-page .int-detail .manual-credential > button:active:not(:disabled) { transform: scale(0.97); }
+.v-app .integrations-page .int-detail .manual-credential > small { display: block; grid-column: 1 / -1; font: 400 12.5px/1.45 var(--font); color: var(--label-3); }
+.v-app .integrations-page .int-detail .manual-credential > label { font-size: 12.5px; }
+.v-app .integrations-page .int-pane { padding-top: 20px; }
+
+/* Primary action inside an open card */
+.v-app .integrations-page .int-detail-actions .integration-connection-actions:empty, .v-app .integrations-page .int-tabs-actions:has(.integration-connection-actions:empty) { display: none; }
+.v-app .integrations-page .int-detail-summary:has(.int-detail-actions .integration-connection-actions:empty):not(:has(.int-detail-main > *)) { display: none; }
+.v-app .integrations-page .int-detail-main > label.ai-provider-picker { width: 280px; max-width: 100% !important; }

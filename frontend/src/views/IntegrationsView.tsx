@@ -95,6 +95,7 @@ function ProviderDetailsPanel({
   children: ReactNode;
 }) {
   const [tab, setTab] = useState<string | null>(null);
+  useEffect(() => { if (!open) setTab(null); }, [open]);
   if (provider === "slack") {
     return open ? <OperationsDialog id={id} title="Slack connection" onClose={onClose} className="slack-connection-dialog">
       <div className="provider-details slack-provider-details">{children}</div>
@@ -113,6 +114,7 @@ function ProviderDetailsPanel({
       const el = child as ReactElement<{ title: string; className?: string; open?: boolean; children: ReactNode }>;
       const cls = el.props.className ?? "";
       const paneId = cls.includes("settings") ? "settings" : cls.includes("briefing") ? "connection" : "guide";
+      if (paneId === "connection" && !cls.includes("has-form")) return;
       const label = paneId === "settings" ? (el.props.title.startsWith("Usage") ? "Usage" : "Settings") : paneId === "connection" ? "Connection" : "Setup guide";
       panes.push({ id: paneId, label, open: Boolean(el.props.open), body: el.props.children });
     } else if (isValidElement(child) && String((child.props as { className?: string }).className ?? "").includes("integration-connection-actions")) {
@@ -1330,7 +1332,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              </div>
              <span className="int-status" data-tone={comingSoon ? "idle" : cloudTalk && connection?.status === "connected" && !connection.metadata.cloudtalk_agent_id ? "pending" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}</span>
              <button type="button" className="v-btn int-toggle" data-kind={connectionTone(connection?.status) === "ok" ? "gray" : connectionTone(connection?.status) === "error" ? "destructive" : "tinted"} data-size="md" aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}>
-               <span className="v-btn-label">{detailsOpen ? "Close" : connectionTone(connection?.status) === "ok" ? "Manage" : connectionTone(connection?.status) === "error" ? "Fix" : connection && connection.status !== "disconnected" ? "Continue setup" : "Connect"}</span>
+               <span className="v-btn-label">{detailsOpen ? <><Icon name="close" size={14} /><span className="v-sr">Close</span></> : connectionTone(connection?.status) === "ok" ? "Manage" : connectionTone(connection?.status) === "error" ? "Fix" : connection && connection.status !== "disconnected" ? "Continue setup" : "Connect"}</span>
              </button>
            </div>
           <ProviderDetailsPanel
@@ -1396,7 +1398,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </dl>
         </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
-            {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
+            {!connection || connection.status === "disconnected" ? canConnectProvider && (card.supported_auth.includes("oauth2") || card.manual_fields.length === 0 || !canManage) && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
             {card.provider === "salesforce" && <button className="button-quiet" onClick={() => setSalesforceSetupOpen(true)}>Setup guide</button>}
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure
@@ -1593,7 +1595,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </div>}
          </div>}
          </IntegrationDisclosure>}
-           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className="connection-briefing-disclosure" open={!connection || !["connected", "verified"].includes(connection.status)}>
+           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className={`connection-briefing-disclosure${card.manual_fields.length > 0 && canManage && !oauthConnected ? " has-form" : ""}`} open={!connection || !["connected", "verified"].includes(connection.status)}>
            <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
           <strong>{card.dashboard_path}</strong>
           <p>{card.permission_reason}</p>
@@ -1632,7 +1634,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
               } else {
                 await addIntegrationCredential(card.provider, accountNames[card.provider] || (openAI ? "OpenAI project" : `${card.display_name} account`), card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials, openAI ? { selected_model: selectedOpenAIModel } : {});
               }
-            }, `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace Key" : connection ? "Replace credentials" : "Store credentials"}</button>
+            }, `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace key" : connection ? "Replace credentials" : `Connect ${card.display_name}`}</button>
             <small>The key is sent only to the backend, encrypted by the configured secret service, cleared from this form after success, and never returned.</small>
             </div>}
             </div>
