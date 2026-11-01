@@ -115,8 +115,11 @@ function ProviderDetailsPanel({
       const cls = el.props.className ?? "";
       const paneId = cls.includes("settings") ? "settings" : cls.includes("briefing") ? "connection" : "guide";
       if (paneId === "connection" && !cls.includes("has-form")) return;
+      if (paneId === "settings" && !cls.includes("is-live") && !el.props.title.startsWith("Usage")) return;
       const label = paneId === "settings" ? (el.props.title.startsWith("Usage") ? "Usage" : "Settings") : paneId === "connection" ? "Connection" : "Setup guide";
       panes.push({ id: paneId, label, open: Boolean(el.props.open), body: el.props.children });
+    } else if (isValidElement(child) && String((child.props as { className?: string }).className ?? "").includes("integration-direction")) {
+      // The card header already says what this connection does.
     } else if (isValidElement(child) && String((child.props as { className?: string }).className ?? "").includes("integration-connection-actions")) {
       actions.push(child);
     } else {
@@ -125,7 +128,12 @@ function ProviderDetailsPanel({
   });
   const order = ["connection", "settings", "guide"];
   panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
-  const active = panes.find((pane) => pane.id === tab) ?? panes.find((pane) => pane.open) ?? panes[0];
+  // Working panes (connect, settings, usage) get tabs; the setup guide is one quiet row beneath them.
+  const working = panes.filter((pane) => pane.id !== "guide");
+  const guide = panes.find((pane) => pane.id === "guide");
+  const active = working.find((pane) => pane.id === tab) ?? working.find((pane) => pane.open) ?? working[0];
+  const showTabs = working.length > 1;
+  const inlineActions = summary.length === 0 && actions.length > 0;
 
   return (
     <div className="int-detail" id={id}>
@@ -135,16 +143,20 @@ function ProviderDetailsPanel({
           {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
         </div>
       )}
-      {panes.length > 0 && (
-        <>
-          {(panes.length > 1 || (summary.length === 0 && actions.length > 0)) && <div className="int-tabs" role="tablist" aria-label="Integration sections">
-            {panes.length > 1 && panes.map((pane) => (
-              <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
-            ))}
-            {summary.length === 0 && actions.length > 0 && <div className="int-tabs-actions">{actions}</div>}
-          </div>}
-          {active && <div className="int-pane" role="tabpanel" id={`${id}-pane-${active.id}`} aria-labelledby={`${id}-tab-${active.id}`}>{active.body}</div>}
-        </>
+      {(showTabs || inlineActions) && (
+        <div className="int-tabs" role={showTabs ? "tablist" : undefined} aria-label="Integration sections">
+          {showTabs && working.map((pane) => (
+            <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
+          ))}
+          {inlineActions && <div className="int-tabs-actions">{actions}</div>}
+        </div>
+      )}
+      {active && <div className="int-pane" role={showTabs ? "tabpanel" : undefined} id={`${id}-pane-${active.id}`} aria-labelledby={showTabs ? `${id}-tab-${active.id}` : undefined}>{active.body}</div>}
+      {guide && (
+        <details className="int-guide-row" open={!active && actions.length === 0}>
+          <summary>Setup guide</summary>
+          <div className="int-guide-body">{guide.body}</div>
+        </details>
       )}
     </div>
   );
@@ -1403,7 +1415,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure
            title={openAI || section.id === "ai" ? "Usage and settings" : crmDirection || mailDirection ? "Sync and settings" : "More settings"}
-           className="integration-settings-disclosure"
+           className={`integration-settings-disclosure${connection && connection.status !== "disconnected" ? " is-live" : ""}`}
          >
          {openAI && <OpenAIUsagePanel />}
          {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}

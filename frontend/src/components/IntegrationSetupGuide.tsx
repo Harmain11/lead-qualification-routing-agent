@@ -45,7 +45,7 @@ export function IntegrationSetupGuide({ card, extra }: { card: IntegrationCard; 
           {auth.length > 0 && <div><dt>Connects with</dt><dd>{auth.join(" or ")}</dd></div>}
           {card.dashboard_path && <div><dt>Where to find it</dt><dd>{card.dashboard_path}</dd></div>}
           {card.required_scopes.length > 0 && (
-            <div className="sg-wide"><dt>Permissions requested</dt><dd><ul className="sg-scopes">{card.required_scopes.map((scope) => <li key={scope}>{scope}</li>)}</ul></dd></div>
+            <div className="sg-wide"><dt>Permissions requested</dt><dd><ul className="sg-scopes">{card.required_scopes.map((scope) => <li key={scope} title={scope}>{scope.replace(/^https?:\/\/[^/]+\/(?:auth\/)?/, "")}</li>)}</ul></dd></div>
           )}
         </dl>
       </section>

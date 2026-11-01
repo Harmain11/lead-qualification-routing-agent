@@ -1814,3 +1814,99 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .int-detail-actions .integration-connection-actions:empty, .v-app .integrations-page .int-tabs-actions:has(.integration-connection-actions:empty) { display: none; }
 .v-app .integrations-page .int-detail-summary:has(.int-detail-actions .integration-connection-actions:empty):not(:has(.int-detail-main > *)) { display: none; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker { width: 280px; max-width: 100% !important; }
+
+/* ===================================================================
+   Open card, smallest honest size.
+   One header line, one working area, one guide row. Nothing floats.
+   =================================================================== */
+.v-app .integrations-page .int-card.is-expanded > .int-head { grid-template-columns: 32px auto minmax(0, 1fr) auto; grid-template-areas: "mark id status action"; column-gap: 12px; padding: 10px 14px; align-items: center; }
+.v-app .integrations-page .int-card.is-expanded > .int-head > .int-status { justify-self: start; }
+.v-app .integrations-page .int-card.is-expanded .int-mark { width: 32px; height: 32px; border-radius: 9px; }
+.v-app .integrations-page .int-card.is-expanded .int-mark-logo svg { width: 18px; height: 18px; }
+.v-app .integrations-page .int-card.is-expanded .int-mark-logo img { width: 20px; height: 20px; }
+.v-app .integrations-page .int-card.is-expanded .int-id p { display: none; }
+
+.v-app .integrations-page .int-detail-summary { gap: 10px; padding: 12px 16px 0; }
+.v-app .integrations-page .int-detail-main { gap: 10px; }
+.v-app .integrations-page .int-tabs { padding: 6px 12px 0; min-height: 0; }
+.v-app .integrations-page .int-tabs button { height: 32px; padding: 0 10px; font-size: 13px; }
+.v-app .integrations-page .int-tabs [role="tab"][aria-selected="true"]::after { inset: auto 10px 0 10px; }
+.v-app .integrations-page .int-tabs-actions { padding: 8px 0 0; }
+.v-app .integrations-page .int-pane { gap: 12px; padding: 14px 16px 16px; }
+.v-app .integrations-page .int-detail-actions .integration-connection-actions button, .v-app .integrations-page .int-tabs-actions .integration-connection-actions button { height: 32px; padding: 0 16px; font-size: 13px; }
+
+/* Credential form: fields in a row, the button at the end of the row */
+.v-app .integrations-page .int-detail .manual-credential { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; }
+.v-app .integrations-page .int-detail .manual-credential > button { grid-column: auto; justify-self: start; align-self: end; height: 36px; }
+.v-app .integrations-page .int-detail .manual-credential > small { display: none; }
+.v-app .integrations-page .int-detail .manual-credential > label { gap: 4px; }
+.v-app .integrations-page .int-detail .integration-guide:has(> .manual-credential) { max-width: none; }
+.v-app .integrations-page .int-detail :is(input:not([type="checkbox"]):not([type="radio"]), select) { height: 36px; }
+
+/* Setup guide: one quiet row that opens in place */
+.v-app .integrations-page .int-guide-row { position: relative; border: 0; background: transparent; box-shadow: none !important; }
+.v-app .integrations-page .int-guide-row::before { content: ""; position: absolute; inset: 0 16px auto 16px; height: 1px; background: var(--separator); }
+.v-app .integrations-page .int-guide-row > summary { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 16px; font: 500 13px/1 var(--font); color: var(--label-2); cursor: pointer; list-style: none; transition: color 120ms ease; }
+.v-app .integrations-page .int-guide-row > summary::-webkit-details-marker { display: none; }
+.v-app .integrations-page .int-guide-row > summary::after { content: ""; width: 6px; height: 6px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: rotate(45deg) translateY(-2px); transition: transform 160ms var(--int-ease); }
+.v-app .integrations-page .int-guide-row[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
+@media (hover: hover) and (pointer: fine) { .v-app .integrations-page .int-guide-row > summary:hover { color: var(--label); } }
+.v-app .integrations-page .int-guide-body { padding: 4px 16px 16px; }
+.v-app .integrations-page .int-guide-body .sg { gap: 14px; max-width: none; }
+.v-app .integrations-page .int-guide-body .sg-steps li { padding-bottom: 12px; }
+.v-app .integrations-page .int-guide-body .sg-steps p { margin: 3px 0 0 !important; font-size: 13.5px !important; }
+.v-app .integrations-page .int-guide-body .sg-facts { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.v-app .integrations-page .int-guide-body .sg-facts > div { padding: 9px 14px; }
+.v-app .integrations-page .int-guide-body .sg-doc { height: 32px; font-size: 13px; }
+.v-app .integrations-page .int-guide-body > .integration-guide, .v-app .integrations-page .int-guide-body > p { display: none; }
+
+/* Mailboxes: one list, no nested disclosures */
+.gm { display: grid; gap: 10px; }
+.gm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.gm-head h3 { margin: 0; font: 600 14px/1.3 var(--font); }
+.gm-add { height: 30px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; color: var(--label); font: 600 13px/1 var(--font); cursor: pointer; transition: transform 140ms var(--ease-pop), background-color 140ms ease; }
+.gm-add:active:not(:disabled) { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) { .gm-add:hover:not(:disabled) { background: var(--label); color: var(--surface); box-shadow: none !important; } }
+.gm-add:disabled { opacity: 0.45; cursor: default; }
+.gm-rows { display: grid; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator) !important; overflow: hidden; }
+.gm-row { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 14px; }
+.gm-row + .gm-row::before { content: ""; position: absolute; inset: 0 14px auto 54px; height: 1px; background: var(--separator); }
+.gm-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--separator-strong) !important; font: 600 12px/1 var(--font); color: var(--label-2); }
+.gm-copy { display: grid; min-width: 0; }
+.gm-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px/1.35 var(--font); }
+.gm-copy small { font: 400 12.5px/1.35 var(--font); color: var(--label-3); }
+.gm-status { font: 500 12.5px/1 var(--font); color: var(--tint-text); }
+.gm-row[data-attention] .gm-status { color: var(--danger-text); }
+.gm-remove { height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--label-2); font: 500 13px/1 var(--font); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+@media (hover: hover) and (pointer: fine) { .gm-remove:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger-text); } }
+.gm-empty { margin: 0; padding: 12px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--separator) !important; font: 400 13.5px/1.45 var(--font); color: var(--label-2); }
+
+/* When an open card has nothing but its primary action, that action joins the header line */
+.v-app .integrations-page .int-card.is-expanded { position: relative; }
+.v-app .integrations-page .int-tabs:not(:has([role="tab"])) { height: 0; min-height: 0; padding: 0; overflow: visible; box-shadow: none !important; }
+.v-app .integrations-page .int-tabs:not(:has([role="tab"])) > .int-tabs-actions { position: absolute; top: 12px; right: 56px; z-index: 2; padding: 0; margin: 0; }
+.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-main > *)) { display: block; height: 0; padding: 0; overflow: visible; }
+.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-main > *)) > .int-detail-actions { position: absolute; top: 12px; right: 56px; z-index: 2; width: auto; order: 0; }
+.v-app .integrations-page .int-detail-summary:not(:has(.int-detail-main > *)) .integration-connection-actions { width: auto; }
+.v-app .integrations-page .int-card.is-expanded > .int-head { box-shadow: none !important; }
+.v-app .integrations-page .int-card.is-expanded > .int-detail { box-shadow: inset 0 1px 0 var(--separator); }
+.v-app .integrations-page .int-detail .manual-credential { grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); }
+.v-app .integrations-page .int-detail .manual-credential > label { white-space: nowrap; }
+.v-app .integrations-page .int-detail .manual-credential > label > input, .v-app .integrations-page .int-detail .manual-credential > label > select { white-space: normal; }
+
+/* Open-card details: facts as one line, settings as one row */
+.v-app .integrations-page .int-health { margin: 0; }
+.v-app .integrations-page .int-detail-main .int-health .int-facts, .v-app .integrations-page .int-facts { display: flex; flex-wrap: wrap; gap: 4px 20px; border-radius: 0; box-shadow: none !important; overflow: visible; }
+.v-app .integrations-page .int-facts > div { flex: none; display: inline-flex; align-items: baseline; gap: 6px; padding: 0; }
+.v-app .integrations-page .int-facts > div + div::before { display: none; }
+.v-app .integrations-page .int-facts dt { font: 400 12.5px/1.4 var(--font); color: var(--label-3); }
+.v-app .integrations-page .int-facts dd { font: 500 12.5px/1.4 var(--font); color: var(--label-2); text-transform: capitalize; }
+.v-app .integrations-page .lead-confirmation-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 !important; }
+.v-app .integrations-page .lead-confirmation-setting .eyebrow, .v-app .integrations-page .lead-confirmation-setting small { display: none; }
+.v-app .integrations-page .lead-confirmation-setting-copy { display: grid; gap: 2px; }
+.v-app .integrations-page .lead-confirmation-setting-copy strong { font: 600 14px/1.35 var(--font); }
+.v-app .integrations-page .lead-confirmation-setting-copy p { margin: 0; font: 400 13px/1.45 var(--font); color: var(--label-2); max-width: 60ch; }
+.v-app .integrations-page .gm { gap: 8px; }
+.v-app .integrations-page .int-detail-main .int-health { padding: 0 !important; border-radius: 0; box-shadow: none !important; }
+.v-app .integrations-page .int-detail-main > label.ai-provider-picker { display: flex !important; align-items: center; gap: 10px; width: auto; }
+.v-app .integrations-page .int-detail-main > label.ai-provider-picker select { width: 220px; }
