@@ -695,19 +695,20 @@ export function LeadsScreen({
       {leadListMode === "trash" && (
         <section className="v-queue v-lead-trash-view" aria-label="Deleted leads">
           {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
-            <div className="v-stack trash-list" role="list">
-              {trashItems.map((item) => (
-                <article key={item.id} className="v-card trash-item" role="listitem">
-                  <div className="v-card-head trash-item-head">
-                    <div className="trash-item-copy">
-                      <strong>{item.lead_email || "Deleted lead"}</strong>
-                      <p className="v-muted"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></p>
-                    </div>
-                    <div className="v-inline-actions trash-item-actions"><span className="v-muted">{formatShortDate(item.created_at)}</span><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></div>
-                  </div>
-                  <p className="v-muted trash-item-reason">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
-                </article>
-              ))}
+            <div className="v-tablewrap">
+              <table className="v-table v-trash-table">
+                <thead><tr><th scope="col">Lead</th><th scope="col">Source</th><th scope="col">Removed</th><th scope="col" className="c-actions">Action</th></tr></thead>
+                <tbody>
+                  {trashItems.map((item) => (
+                    <tr key={item.id}>
+                      <td className="c-lead"><div className="v-lead-name"><strong>{item.lead_email || "Deleted lead"}</strong><span className="v-muted">Source suppressed after {item.reason.replaceAll("_", " ")}.</span></div></td>
+                      <td className="trash-source"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></td>
+                      <td className="c-date">{formatShortDate(item.created_at)}</td>
+                      <td className="c-actions"><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
