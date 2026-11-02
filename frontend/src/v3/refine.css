@@ -1906,8 +1906,9 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .v-lead-list-tabs > button { min-height: 34px; padding: 0 14px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--label-2); font: 600 13px/1 var(--font); cursor: pointer; }
 .v-app .v-lead-list-tabs > button[aria-current="page"] { background: var(--surface); color: var(--label); box-shadow: var(--shadow-card); }
 .v-app .v-lead-list-tabs > button:focus-visible { outline: 2px solid var(--field-ring); outline-offset: 2px; }
-.v-app .v-lead-trash-view { min-block-size: 260px; padding: 18px; }
-.v-app .trash-item { padding: 14px; }
+.v-app .v-lead-trash-view { min-block-size: 0; padding: 0; align-content: start; }
+.v-app .v-lead-trash-view .trash-list { align-content: start; align-items: start; }
+.v-app .trash-item { align-self: start; inline-size: 100%; padding: 14px; }
 .v-app .trash-item-head { align-items: flex-start; gap: 14px; }
 .v-app .trash-item-copy { min-width: 0; }
 .v-app .trash-item-copy > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
