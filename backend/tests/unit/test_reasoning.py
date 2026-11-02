@@ -132,6 +132,42 @@ def test_medium_and_low_intent_are_distinguished(icp, message: str, expected: st
     assert output.intent_level == expected
 
 
+@pytest.mark.parametrize(
+    ("message", "intent_level", "expected_points"),
+    [
+        (
+            "We have shortlisted your platform and intend to select a vendor this quarter.",
+            "high",
+            10,
+        ),
+        ("We are evaluating several approaches before deciding.", "medium", 5),
+        ("Please share general information about your service.", "low", 0),
+    ],
+)
+def test_grounded_ai_intent_changes_deterministic_buying_stage_points(
+    icp, routing, message: str, intent_level: str, expected_points: int
+) -> None:
+    lead = make_lead(
+        message=message,
+        product_or_service="",
+        budget=None,
+    )
+    analysis = _context_analysis(lead, icp, routing, DeterministicReasoningProvider())
+    assert analysis is not None
+    analysis = analysis.model_copy(
+        update={
+            "intent_level": intent_level,
+            "overall_confidence": 0.95,
+            "requires_manual_review": False,
+        }
+    )
+
+    result = qualify_lead(lead, icp, routing, analysis)
+
+    buying_stage = next(line for line in result.score_breakdown if line.key == "buying_stage")
+    assert buying_stage.points == expected_points
+
+
 def test_unknown_budget_and_vague_timeline_are_not_fabricated(icp) -> None:
     output = DeterministicReasoningProvider().analyze(
         make_lead(message="Please send a general overview.", budget=None), icp

@@ -538,11 +538,24 @@ def qualify_lead(
         )
     )
     analyzed_stage = _analysis_field(analysis, "buying_stage")
-    buying_stage = _contains_any(
-        text, icp.scoring.signals.get("ready_to_buy", [])
-    ) or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"]) or meeting_request
+    analyzed_intent_level = (
+        analysis.intent_level
+        if analysis is not None
+        and analysis.status == "completed"
+        and not analysis.requires_manual_review
+        and analysis.overall_confidence >= 0.65
+        else None
+    )
+    buying_stage = (
+        _contains_any(text, icp.scoring.signals.get("ready_to_buy", []))
+        or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"])
+        or meeting_request
+    )
+    buying_stage_max = intent_points.get("buying_stage", 0)
+    buying_stage_points = buying_stage_max if buying_stage else 0
     if negative_interest:
         buying_stage = None
+        buying_stage_points = 0
     elif interest_direction == "positive" and interest_evidence is not None:
         source = interest_evidence.source.casefold()
         stage = source.partition(":")[2]
@@ -551,14 +564,23 @@ def qualify_lead(
             "meeting_scheduled",
         }:
             buying_stage = f"recorded {stage.replace('_', ' ')}"
+            buying_stage_points = buying_stage_max
         elif _contains_any(_norm(interest_evidence.text), _POSITIVE_INTENT_SIGNALS):
             buying_stage = buying_stage or "recent positive buying update"
+            buying_stage_points = buying_stage_max
+    if not negative_interest and not buying_stage:
+        if analyzed_intent_level == "high":
+            buying_stage = "AI-assessed high intent"
+            buying_stage_points = buying_stage_max
+        elif analyzed_intent_level == "medium":
+            buying_stage = "AI-assessed medium intent"
+            buying_stage_points = max(1, buying_stage_max // 2) if buying_stage_max else 0
     lines.append(
         _line(
             "intent_urgency",
             "buying_stage",
-            intent_points.get("buying_stage", 0) if buying_stage else 0,
-            intent_points.get("buying_stage", 0),
+            buying_stage_points,
+            buying_stage_max,
             (
                 "Recent sales evidence lowered current buying interest, so older buying-stage "
                 "signals are not counted."
@@ -567,6 +589,11 @@ def qualify_lead(
             ),
             buying_stage or (interest_excerpt if negative_interest else "no ready-to-buy signal"),
             *_field_evidence(analyzed_stage),
+            *(
+                (f"AI intent level: {analyzed_intent_level}",)
+                if analyzed_intent_level is not None
+                else ()
+            ),
         )
     )
     analyzed_budget = _analysis_field(analysis, "budget_information")
