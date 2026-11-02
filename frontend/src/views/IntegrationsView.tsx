@@ -126,22 +126,22 @@ function ProviderDetailsPanel({
       summary.push(child);
     }
   });
-  const order = ["overview", "connection", "settings", "guide"];
+  const order = ["connection", "settings", "guide"];
   panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
-  // A compact provider header is enough until the user chooses Manage. Everything
-  // else—including mailbox rows and automatic-sync controls—belongs in a tab.
-  const overview = summary.length > 0
-    ? { id: "overview", label: "Overview", open: true, body: <div className="int-overview">{summary}</div> }
-    : null;
-  // Working panes (overview, connection, settings, usage) get tabs; the setup guide is one quiet row beneath them.
-  const working = [...(overview ? [overview] : []), ...panes.filter((pane) => pane.id !== "guide")];
+  // Working panes (connect, settings, usage) get tabs; the setup guide is one quiet row beneath them.
+  const working = panes.filter((pane) => pane.id !== "guide");
   const guide = panes.find((pane) => pane.id === "guide");
   const active = working.find((pane) => pane.id === tab) ?? working.find((pane) => pane.open) ?? working[0];
   const showTabs = working.length > 1;
 
   return (
     <div className="int-detail" id={id}>
-      {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
+      {(summary.length > 0 || actions.length > 0) && (
+        <div className="int-detail-summary">
+          {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
+          {summary.length > 0 && <div className="int-detail-main">{summary}</div>}
+        </div>
+      )}
       {showTabs && (
         <div className="int-tabs" role="tablist" aria-label="Integration sections">
           {working.map((pane) => (
@@ -1035,6 +1035,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     if (!canConnect || (adminOnlyProviders.has(provider) && !canManage) || (provider === "slack" && !canManage) || busy) return;
     const connection = cards.find((card) => card.provider === provider)?.connection;
     oauthIntent.current = intent ?? (connection && connection.status !== "disconnected" ? "reconnect" : "connect");
+    if (provider === "calendly") {
+      setExpanded(provider);
+      setAccountChoiceProvider(provider);
+      return;
+    }
     if (provider === "salesforce") {
       setSalesforceSetupOpen(true);
       setActionErrors((current) => {
@@ -1179,7 +1184,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     ...categorySections.map((section) => ({
       ...section,
       providers: cards
-        .filter((card) => card.availability === "available" && integrationCategory(card) === section.id)
+        .filter((card) => card.availability !== "future" && integrationCategory(card) === section.id)
         .map((card) => card.provider),
     })),
     {
@@ -1191,7 +1196,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
-  const categoryCounts = cards.filter((card) => card.availability === "available").reduce<Record<string, number>>((counts, card) => {
+  const categoryCounts = cards.filter((card) => card.availability !== "future").reduce<Record<string, number>>((counts, card) => {
     const category = integrationCategory(card);
     counts[category] = (counts[category] ?? 0) + 1;
     return counts;
@@ -1225,7 +1230,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       || state?.status === "cancel_requested"
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
-  const providerCards = cards.filter((card) => card.availability === "available");
+  const providerCards = cards.filter((card) => card.availability !== "future");
   const connectedCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "ok").length;
   const attentionCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "error").length;
   const comingSoonCards = cards.filter((card) => card.availability === "future");

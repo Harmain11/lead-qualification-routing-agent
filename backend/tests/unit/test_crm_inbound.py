@@ -226,15 +226,15 @@ def _session(tmp_path, name: str = "inbound.db") -> Session:
 
 
 @pytest.mark.parametrize("provider,enabled,interval,active,expected", [
-    ("gmail", True, 300, True, 60),
+    ("gmail", True, 60, True, 300),
     ("gmail", False, 60, True, 60),
-    ("gmail", True, 60, True, 60),
+    ("gmail", True, 300, True, 300),
     ("gmail", True, 600, True, 600),
     ("gmail", True, 60, False, 60),
     ("outlook", True, 60, True, 60),
     ("salesforce", True, 60, True, 60),
 ])
-def test_gmail_one_minute_default_preserves_pause_custom_interval_and_checkpoint(
+def test_gmail_five_minute_default_preserves_pause_custom_interval_and_checkpoint(
     tmp_path, provider, enabled, interval, active, expected,
 ):
     with _session(tmp_path) as session:
@@ -256,7 +256,7 @@ def test_gmail_one_minute_default_preserves_pause_custom_interval_and_checkpoint
         assert state.initial_import_completed and state.records_processed == 7
 
 
-def test_new_gmail_auto_sync_defaults_to_one_minute(tmp_path):
+def test_new_gmail_auto_sync_defaults_to_five_minutes(tmp_path):
     with _session(tmp_path) as session:
         connection = _connection(session, uuid4(), provider_type="gmail")
         state = configure_inbound_sync(
@@ -266,7 +266,7 @@ def test_new_gmail_auto_sync_defaults_to_one_minute(tmp_path):
             object_type="message",
             actor_id="test-user",
         )
-        assert state.sync_interval_seconds == 60
+        assert state.sync_interval_seconds == 300
 
 
 def test_manual_gmail_review_skips_reviewed_messages_and_deduplicates_threads(

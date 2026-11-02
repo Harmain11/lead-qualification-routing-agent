@@ -4,7 +4,6 @@ import {
   getActiveWorkspace,
   getWorkspaceEmailDraft,
   getGmailMailboxThread,
-  getGmailMailboxAttachmentUrl,
   listGmailMailboxMessages,
   listIntegrations,
   listLeads,
@@ -14,7 +13,6 @@ import { EmailComposer, type GmailComposerSeed } from "../components/EmailCompos
 import { getProviderEmailPreview, ProviderEmailBody } from "../components/ProviderEmailBody";
 import type {
   GmailMailboxMessage,
-  GmailMailboxAttachment,
   GmailThreadMessage,
   ProviderConnection,
   WorkspaceEmailDraft,
@@ -74,16 +72,6 @@ function dayGroup(value: string) {
   return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
-function attachmentSize(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function isImageAttachment(attachment: GmailMailboxAttachment) {
-  return attachment.mime_type.startsWith("image/");
-}
-
 const FOLDERS: Array<{ id: "inbox" | "sent" | "drafts" | "spam" | "trash" | "archive"; label: string; icon: IconName }> = [
   { id: "inbox", label: "Inbox", icon: "inbox" },
   { id: "sent", label: "Sent", icon: "send" },
@@ -129,7 +117,6 @@ export function EmailWorkspace({
   const [draftRevision, setDraftRevision] = useState(0);
   const lastMailboxKey = useRef("");
   const backgroundRefresh = useRef(false);
-  const forceMailboxRefresh = useRef(false);
   const lastThreadRefresh = useRef(0);
 
   useEffect(() => {
@@ -175,46 +162,41 @@ export function EmailWorkspace({
     const changedMailbox = lastMailboxKey.current !== mailboxKey;
     lastMailboxKey.current = mailboxKey;
     const cached = mailboxCache.get(mailboxKey);
-    const cacheIsFresh = Boolean(cached && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS);
-    const forceRefreshRequested = forceMailboxRefresh.current;
-    forceMailboxRefresh.current = false;
-    // Keep the current folder useful while we revalidate it. Moving between folders
-    // should never briefly show a blank list or the previous folder's contents.
-    const quiet = Boolean(cached) || backgroundRefresh.current;
+    const quiet = (backgroundRefresh.current && !changedMailbox) || Boolean(changedMailbox && cached);
     backgroundRefresh.current = false;
     if (!quiet) setLoadingMessages(true);
     if (!quiet) setError(null);
-    if (cached) {
+    if (changedMailbox && cached) {
       setMessages(cached.messages);
+      setSelected(cached.messages[0] ?? null);
+      setThread([]);
+      setExpandedMessageIds(new Set());
       setNextPageToken(cached.nextPageToken);
-      setSelected((current) => changedMailbox
-        ? cached.messages[0] ?? null
-        : cached.messages.find((message) => message.message_id === current?.message_id) ?? cached.messages[0] ?? null);
-      if (changedMailbox) {
-        setThread([]);
-        setExpandedMessageIds(new Set());
-      }
-      setLoadingMessages(false);
     } else if (changedMailbox) {
-      // Never show the prior folder's messages while the requested folder loads.
-      setMessages([]);
       setSelected(null);
       setThread([]);
       setExpandedMessageIds(new Set());
-      setNextPageToken(null);
     }
-    if (cacheIsFresh && !forceRefreshRequested) return () => controller.abort();
+    // Navigating back to a recently opened mailbox should show its saved rows
+    // immediately. The visible 60-second poll and manual refresh still check Gmail.
+    if (changedMailbox && cached && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS) {
+      setLoadingMessages(false);
+      return () => controller.abort();
+    }
     listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
       if (controller.signal.aborted) return;
       remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
-      setMessages((current) => JSON.stringify(current) === JSON.stringify(page.messages) ? current : page.messages);
-      setSelected((current) => changedMailbox
-        ? page.messages[0] ?? null
-        : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
-      if (quiet && !changedMailbox && selected?.thread_id) {
-        const selectedThreadKey = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
-        threadCache.delete(selectedThreadKey);
-        setThreadRevision((current) => current + 1);
+      const changedRows = JSON.stringify(page.messages) !== JSON.stringify(changedMailbox && cached ? cached.messages : messages);
+      if (changedRows) {
+        setMessages(page.messages);
+        setSelected((current) => changedMailbox && !cached
+          ? page.messages[0] ?? null
+          : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
+        if (quiet && !changedMailbox && selected?.thread_id) {
+          const selectedThreadKey = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
+          threadCache.delete(selectedThreadKey);
+          setThreadRevision((current) => current + 1);
+        }
       }
       setNextPageToken(page.next_page_token);
       setLoadingMessages(false);
@@ -488,7 +470,7 @@ export function EmailWorkspace({
             </li>
           ))}
         </ul>
-        <Button kind="plain" size="sm" icon="refresh" onClick={() => { forceMailboxRefresh.current = true; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>
+        <Button kind="plain" size="sm" icon="refresh" onClick={() => { backgroundRefresh.current = false; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>
           {loadingMessages ? "Refreshing…" : "Refresh"}
         </Button>
       </nav>
@@ -579,7 +561,6 @@ export function EmailWorkspace({
             {thread.map((message, index) => {
               const expanded = expandedMessageIds.has(message.message_id);
               const body = message.body || "";
-              const attachments = message.attachments ?? [];
               const bodyId = `mail-message-${index}`;
               const who = message.sender_name || message.sender || "Unknown sender";
               return <article className="mailbox-message" data-expanded={expanded || undefined} data-outbound={message.direction !== "inbound" || undefined} key={message.message_id}>
@@ -593,23 +574,6 @@ export function EmailWorkspace({
                 </button>
                 {expanded && <div className="mailbox-message-body" id={bodyId}>
                   <ProviderEmailBody content={body} />
-                  {attachments.length > 0 && <section className="mailbox-attachments" aria-label={`Attachments from ${who}`}>
-                    <h3><Icon name="paperclip" size={14} />{attachments.length} attachment{attachments.length === 1 ? "" : "s"}</h3>
-                    <div className="mailbox-attachment-list">
-                      {attachments.map((attachment) => {
-                        const url = getGmailMailboxAttachmentUrl(connectionId, message.message_id, attachment.attachment_id);
-                        return isImageAttachment(attachment)
-                          ? <a className="mailbox-attachment mailbox-attachment-image" href={url} target="_blank" rel="noreferrer" key={attachment.attachment_id} title={`Open ${attachment.filename}`}>
-                            <img src={url} alt={attachment.filename} loading="lazy" />
-                            <span><b>{attachment.filename}</b><small>{attachmentSize(attachment.size)}</small></span>
-                          </a>
-                          : <a className="mailbox-attachment" href={url} target="_blank" rel="noreferrer" key={attachment.attachment_id} title={`Download ${attachment.filename}`}>
-                            <Icon name="paperclip" size={18} />
-                            <span><b>{attachment.filename}</b><small>{attachment.mime_type} · {attachmentSize(attachment.size)}</small></span>
-                          </a>;
-                      })}
-                    </div>
-                  </section>}
                   {canSend && index !== thread.length - 1 && <div className="mailbox-message-actions">
                     <Button size="sm" icon="reply" onClick={() => beginReplyTo(message, "reply")}>Reply</Button>
                     <Button size="sm" icon="replyAll" onClick={() => beginReplyTo(message, "all")}>Reply all</Button>

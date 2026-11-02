@@ -188,38 +188,21 @@ def test_hubspot_connection_validation_checks_active_token_scopes_and_read_probe
     assert transport.requests[2]["url"].endswith("/crm/properties/2026-09/contacts")
 
 
-def test_hubspot_connection_validation_allows_optional_schema_scopes() -> None:
+def test_hubspot_connection_validation_fails_closed_on_missing_write_scope() -> None:
     validator = HubSpotConnectionValidator(
         client_id="app-id",
         client_secret="app-secret",
         transport=Transport(
-            [
-                Response(
-                    200,
-                    {
-                        "active": True,
-                        "scopes": [
-                            "oauth",
-                            "crm.objects.contacts.read",
-                            "crm.objects.contacts.write",
-                        ],
-                    },
-                ),
-                Response(200, {"results": []}),
-                Response(403, {"message": "schema scope not granted"}),
-            ]
+            [Response(200, {"active": True, "scopes": ["crm.objects.contacts.read"]})]
         ),
     )
-    result = validator.validate(
+    with pytest.raises(ProviderOperationError) as caught:
+        validator.validate(
         "hubspot",
         {"access_token": "test-access"},
-        [
-            "oauth",
-            "crm.objects.contacts.read",
-            "crm.objects.contacts.write",
-        ],
+        ["crm.objects.contacts.read", "crm.schemas.contacts.read"],
         )
-    assert result.verified
+    assert caught.value.category == "insufficient_permissions"
 
 
 def test_hubspot_revoker_uses_refresh_token_without_exposing_it_in_url() -> None:

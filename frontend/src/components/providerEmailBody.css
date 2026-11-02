@@ -15,24 +15,6 @@
   overflow-wrap: anywhere;
   word-break: normal;
 }
-.provider-email-link {
-  display: inline-flex;
-  max-width: min(100%, 42ch);
-  align-items: center;
-  margin: 0 2px;
-  padding: 1px 5px;
-  overflow: hidden;
-  border-radius: 5px;
-  background: var(--tint-soft);
-  color: var(--tint-text);
-  font-weight: 500;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: baseline;
-}
-.provider-email-link:hover { background: color-mix(in srgb, var(--tint) 18%, var(--surface)); text-decoration: underline; }
-.provider-email-link:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
 .provider-email-body-empty {
   margin: 0;
   color: var(--label-2);

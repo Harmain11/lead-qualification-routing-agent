@@ -1257,9 +1257,6 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 /* ===================================================== Expanded integration: inner content, one grid, one left edge */
 .v-app .integrations-page .int-detail > label.ai-provider-picker { max-width: 320px; margin: 18px 24px 0; }
 .v-app .integrations-page .int-detail .integration-section-disclosure-content { padding: 20px 24px 24px; max-width: none; display: grid; gap: 20px; }
-.v-app .integrations-page .int-detail .int-overview { display: grid; gap: 16px; max-width: 880px; }
-.v-app .integrations-page .int-detail .int-overview > .gmail-mailbox-panel { max-height: 360px; overflow: auto; padding-right: 4px; }
-.v-app .integrations-page .int-detail .int-overview > .integration-direction { margin: 0; padding: 0; border: 0; background: transparent; }
 .v-app .integrations-page .int-detail .integration-guide { display: grid; gap: 10px; max-width: 760px; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
 .v-app .integrations-page .int-detail .integration-guide > * { margin: 0; }
 .v-app .integrations-page .int-detail .integration-guide .eyebrow { font: 500 12px/1.3 var(--font); color: var(--label-3); }
@@ -1902,47 +1899,6 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .lead-confirmation-setting-copy strong { font: 600 14px/1.35 var(--font); }
 .v-app .integrations-page .lead-confirmation-setting-copy p { margin: 0; font: 400 13px/1.45 var(--font); color: var(--label-2); max-width: 60ch; }
 .v-app .integrations-page .gm { gap: 8px; }
-
-/* Deleted-source identifiers are useful evidence, not the primary record label. */
-.v-app .trash-list { gap: 10px; }
-.v-app .v-lead-list-tabs { display: inline-flex; align-items: center; gap: 4px; margin: -4px 0 14px; padding: 4px; border-radius: var(--r-pill); background: var(--fill); }
-.v-app .v-lead-list-tabs > button { min-height: 34px; padding: 0 14px; border: 0; border-radius: var(--r-pill); background: transparent; color: var(--label-2); font: 600 13px/1 var(--font); cursor: pointer; }
-.v-app .v-lead-list-tabs > button[aria-current="page"] { background: var(--surface); color: var(--label); box-shadow: var(--shadow-card); }
-.v-app .v-lead-list-tabs > button:focus-visible { outline: 2px solid var(--field-ring); outline-offset: 2px; }
-.v-app .v-lead-trash-view { min-block-size: 0; padding: 0; align-content: start; }
-.v-app .v-trash-table .c-lead { min-width: 280px; }
-.v-app .v-trash-table .trash-source { display: grid; gap: 3px; min-width: 220px; color: var(--label-2); text-transform: uppercase; }
-.v-app .v-trash-table .trash-source code { overflow: hidden; color: var(--label-3); font: var(--t-footnote); text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
-.v-app .v-trash-table .c-actions { width: 110px; text-align: right; }
-@media (max-width: 560px) {
-  .v-app .v-trash-table thead { display: none; }
-  .v-app .v-trash-table, .v-app .v-trash-table tbody { display: block; }
-  .v-app .v-trash-table tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 14px; }
-  .v-app .v-trash-table tbody td { display: block; height: auto; padding: 0; box-shadow: none !important; }
-  .v-app .v-trash-table .c-lead { grid-column: 1 / -1; min-width: 0; }
-  .v-app .v-trash-table .trash-source { min-width: 0; }
-  .v-app .v-trash-table .c-date { display: none; }
-  .v-app .v-trash-table .c-actions { width: auto; text-align: right; }
-}
-
-/* Expanded integrations stay compact on desktop; long account histories scroll inside the detail area. */
-@media (min-width: 768px) {
-  .v-app .integrations-page .integration-card.is-expanded {
-    grid-template-rows: auto auto;
-    max-inline-size: 760px;
-    justify-self: start;
-  }
-  .v-app .integrations-page .integration-card.is-expanded .provider-details {
-    min-block-size: auto;
-    overflow: visible;
-  }
-  .v-app .integrations-page .gm-rows {
-    max-block-size: min(38dvh, 260px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
-  }
-}
 .v-app .integrations-page .int-detail-main .int-health { padding: 0 !important; border-radius: 0; box-shadow: none !important; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker { display: flex !important; align-items: center; gap: 10px; width: auto; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker select { width: 220px; }
@@ -2006,24 +1962,6 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .int-detail .integration-guide { grid-template-columns: minmax(0, 1fr); }
 .v-app .integrations-page .int-card.is-expanded > .int-head { min-width: 0; }
 
-/* Expanded cards must constrain their own contents, never crop controls at the page edge. */
-.v-app .integrations-page .integration-card.int-card.is-expanded {
-  inline-size: min(100%, 760px);
-  min-inline-size: 0;
-  max-inline-size: 100%;
-  overflow: visible;
-}
-.v-app .integrations-page .int-card.is-expanded :is(.int-detail-summary, .int-detail-actions, .int-detail-main, .int-tabs, .int-pane, .reasoning-usage, .reasoning-usage-toolbar) { min-inline-size: 0; }
-.v-app .integrations-page .int-tabs { flex-wrap: wrap; }
-.v-app .integrations-page .int-detail :is(select, input:not([type="checkbox"]):not([type="radio"])) { max-inline-size: 100%; min-inline-size: 0; }
-.v-app .integrations-page .reasoning-usage-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 220px); align-items: end; }
-.v-app .integrations-page .reasoning-usage-range { grid-column: 1 / -1; justify-self: start; margin-inline: 0 !important; }
-@media (max-width: 640px) {
-  .v-app .integrations-page .reasoning-usage-toolbar { grid-template-columns: minmax(0, 1fr); }
-  .v-app .integrations-page .reasoning-usage-model-filter { min-inline-size: 0; width: 100%; }
-  .v-app .integrations-page .reasoning-usage-model-filter select { width: 100%; }
-}
-
 /* Slack dialog: one left edge, no meta line, left-aligned headings */
 .slack-connection-dialog .integration-direction { display: none; }
 .slack-connection-dialog .slack-provider-details { padding: 0 !important; gap: 16px; }
@@ -2059,23 +1997,3 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 /* When a card offers sign-in and a pasted token, say so */
 .v-app .integrations-page .int-detail:has(.integration-connection-actions > button) .manual-credential::before { content: "Or connect with an access token"; grid-column: 1 / -1; font: 500 12.5px/1.3 var(--font); color: var(--label-3); }
 .v-app .integrations-page .int-detail:has(.integration-connection-actions > button) .int-pane { border-top: 1px solid var(--separator); margin-top: 14px; }
-
-/* Integration alignment: the open-card toolbar, tabs and content use one gutter. */
-.v-app .integrations-page .int-detail-actions { padding: 14px 24px 0; }
-.v-app .integrations-page .int-detail-actions .integration-connection-actions { min-height: 36px; align-items: center; }
-.v-app .integrations-page .int-tabs { padding-inline: 24px; }
-.v-app .integrations-page .int-pane { padding: 18px 24px 24px; }
-.v-app .integrations-page .int-overview { gap: 18px; }
-.v-app .integrations-page .int-overview > .gmail-mailbox-panel { margin: 0 !important; padding: 0 !important; }
-.v-app .integrations-page .gm-head { min-height: 34px; }
-.v-app .integrations-page .gm-row { grid-template-columns: 28px minmax(0, 1fr) minmax(108px, auto) minmax(86px, auto); }
-.v-app .integrations-page .gm-status { justify-self: end; text-align: right; }
-.v-app .integrations-page .gm-remove { justify-self: end; min-width: 86px; }
-@container page (max-width: 700px) {
-  .v-app .integrations-page .int-detail-actions { padding: 12px 16px 0; }
-  .v-app .integrations-page .int-tabs { padding-inline: 16px; }
-  .v-app .integrations-page .int-pane { padding: 16px; }
-  .v-app .integrations-page .gm-row { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; }
-  .v-app .integrations-page .gm-row .gm-status { grid-column: 2; justify-self: start; }
-  .v-app .integrations-page .gm-remove { grid-column: 3; grid-row: 1 / span 2; min-width: 0; }
-}

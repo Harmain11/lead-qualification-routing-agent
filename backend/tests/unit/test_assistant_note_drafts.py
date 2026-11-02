@@ -198,11 +198,8 @@ def test_capabilities_cover_all_typed_actions_and_respect_permissions():
     )
     assert set(get_args(WorkspaceAssistantAction.model_fields["kind"].annotation)) - {"none"} == set(WORKSPACE_ACTION_PERMISSIONS)
     assert workspace_action_capabilities(set()) == []
-    view_capabilities = workspace_action_capabilities({"leads.view"})
-    kinds = {item["kind"] for item in view_capabilities}
-    assert kinds == {"open_lead", "open_deal_desk", "open_module"}
-    open_module = next(item for item in view_capabilities if item["kind"] == "open_module")
-    assert open_module["allowed_areas"] == ["leads", "calendar", "contacts", "accounts"]
+    kinds = {item["kind"] for item in workspace_action_capabilities({"leads.view"})}
+    assert kinds == {"open_lead"}
     kinds = {item["kind"] for item in workspace_action_capabilities({"leads.edit"})}
     assert kinds == {"create_lead", "send_email"}
 

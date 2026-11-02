@@ -64,10 +64,10 @@ def make_lead(**overrides: object) -> NormalizedLead:
     return NormalizedLead(**values)  # type: ignore[arg-type]
 
 
-def test_shared_assistant_prompts_stay_bounded_and_keep_safety_rules() -> None:
-    # The detailed workflows fit within the configured request budget.
-    assert len(LEAD_ASSISTANT_SYSTEM_PROMPT) < 4500
-    assert len(WORKSPACE_ASSISTANT_SYSTEM_PROMPT) < 12000
+def test_shared_assistant_prompts_are_compact_and_keep_safety_rules() -> None:
+    # Current context-correction, note and approval rules must not be truncated.
+    assert len(LEAD_ASSISTANT_SYSTEM_PROMPT) < 3500
+    assert len(WORKSPACE_ASSISTANT_SYSTEM_PROMPT) < 8000
     assert "latest user message directly asks" in LEAD_ASSISTANT_SYSTEM_PROMPT
     assert "never starts a call" in LEAD_ASSISTANT_SYSTEM_PROMPT
     assert "bounded matches, not complete history" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
@@ -75,11 +75,6 @@ def test_shared_assistant_prompts_stay_bounded_and_keep_safety_rules() -> None:
         WORKSPACE_ASSISTANT_SYSTEM_PROMPT
     )
     assert "Never send automatically or claim sent" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
-
-
-def test_openai_reasoning_prompt_defines_timed_meeting_urgency() -> None:
-    assert "concrete request to meet, talk, schedule, or decide" in openai_provider.SYSTEM_PROMPT
-    assert "exact phrase in explicit_timeline" in openai_provider.SYSTEM_PROMPT
 
 
 def test_openai_workspace_assistant_uses_compact_prompt_and_output_cap() -> None:

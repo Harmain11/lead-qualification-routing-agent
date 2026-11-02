@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     queue_name: str = "lead-processing"
     job_max_retries: int = 3
     crm_inbound_scheduler_interval_seconds: int = 15
-    crm_inbound_default_interval_seconds: int = 60
+    crm_inbound_default_interval_seconds: int = 300
     crm_inbound_batch_limit: int = 500
     crm_inbound_page_size: int = 100
     outlook_initial_sync_days: int = 30
@@ -94,11 +94,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = ""
     openai_org_id: str = ""
-    openai_supported_models: str = "gpt-6-astra,gpt-6.1-sol,gpt-6.1-terra,gpt-6-luna,gpt-5.3-codex,gpt-4.1,gpt-4.1-mini"
-    openai_default_model: str = "gpt-6.1-terra"
-    gemini_supported_models: str = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.1-pro-preview,gemini-2.5-pro,gemini-2.5-flash,gemini-2.5-flash-lite"
+    openai_supported_models: str = "gpt-4.1-mini,gpt-4.1"
+    openai_default_model: str = "gpt-4.1-mini"
+    gemini_supported_models: str = "gemini-3.8-flash,gemini-2.5-flash"
     gemini_default_model: str = "gemini-3.8-flash"
-    claude_supported_models: str = "claude-fable-5,claude-opus-5,claude-opus-4-8,claude-opus-4-7,claude-opus-4-6,claude-sonnet-5,claude-sonnet-4-6,claude-haiku-4-5-20251001"
+    claude_supported_models: str = "claude-sonnet-4-6,claude-haiku-4-5"
     claude_default_model: str = "claude-sonnet-4-6"
     deepseek_supported_models: str = "deepseek-flash,deepseek-v4-pro"
     deepseek_default_model: str = "deepseek-flash"

@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import type { ProviderConnection } from "../types";
 
 type GmailAccountsPanelProps = {
@@ -51,7 +50,7 @@ export function GmailAccountsPanel({
     const status = account.status === "verified" && !account.is_active
       ? "Inactive"
       : statusLabel(account.status);
-    const canRemove = canDisconnect;
+    const canRemove = canDisconnect && account.is_active;
 
     return (
       <div className="gm-row" data-attention={attention || undefined} key={account.id}>
@@ -65,11 +64,11 @@ export function GmailAccountsPanel({
           <button
             type="button"
             className="gm-remove"
-            aria-label={`${account.is_active ? "Disconnect" : "Remove"} ${name}`}
+            aria-label={`Disconnect ${name}`}
             onClick={() => onDisconnect(account)}
             disabled={busy}
           >
-            {busyAccountId === account.id ? "Removing…" : account.is_active ? "Disconnect" : "Remove"}
+            {busyAccountId === account.id ? "Disconnecting…" : "Disconnect"}
           </button>
         )}
       </div>
@@ -77,8 +76,6 @@ export function GmailAccountsPanel({
   }
 
   const ordered = [...readyAccounts.map((account) => ({ account, attention: false })), ...attentionAccounts.map((account) => ({ account, attention: true }))];
-  const rowsRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { rowsRef.current?.scrollTo({ top: 0 }); }, [accounts]);
 
   return (
     <section className="gmail-mailbox-panel gm" aria-labelledby="gmail-mailbox-heading">
@@ -91,7 +88,7 @@ export function GmailAccountsPanel({
         )}
       </header>
       {ordered.length > 0 ? (
-        <div className="gm-rows" ref={rowsRef}>{ordered.map(({ account, attention }) => renderAccount(account, attention))}</div>
+        <div className="gm-rows">{ordered.map(({ account, attention }) => renderAccount(account, attention))}</div>
       ) : (
         <p className="gm-empty">No mailbox yet. Add an account to start receiving leads.</p>
       )}

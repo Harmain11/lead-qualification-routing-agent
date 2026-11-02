@@ -422,6 +422,23 @@ export function DialerPhoneDock({
             {warm && <>
             {provider === "cloudtalk" && (
               <>
+                <div
+                  className={`dialer-phone-cloudtalk-alert-note${browserAlertMessage ? " is-feedback" : ""}`}
+                  role={browserAlertMessage ? "status" : "note"}
+                >
+                  <span className="dialer-phone-alert-note-icon" aria-hidden="true">
+                    {browserAlertMessage ? "!" : "i"}
+                  </span>
+                  <span>
+                    {browserAlertMessage ||
+                      "Corral browser alerts are managed here—not in CloudTalk."}
+                  </span>
+                </div>
+                <p className="dialer-phone-cloudtalk-safety-note" role="note">
+                  CloudTalk keypad calls bypass Corral’s consent, do-not-call,
+                  and residency checks; they may not appear in Corral’s
+                  direct-call history.
+                </p>
                 <CloudTalkPhoneFrame
                   onCallActiveChange={onCallActiveChange}
                   onIncomingCall={showIncomingNotification}

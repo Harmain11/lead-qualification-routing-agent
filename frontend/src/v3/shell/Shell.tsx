@@ -159,41 +159,6 @@ export function Sidebar({
         </button>
       </div>
       <nav className="v-sidebar-nav" aria-label="Primary">
-        {(pins.length > 0 || pinNotice) && (
-          <div className="v-navsection">
-            <h2 className="v-navsection-title">Pinned</h2>
-            <ul>
-              {pins.map((pin) => {
-                const label = leadDetailSections.find((section) => section.id === pin.section)?.label ?? "";
-                const active = activePin?.leadId === pin.leadId && activePin.section === pin.section;
-                return (
-                  <li key={`${pin.leadId}:${pin.section}`} className="v-pin">
-                    <a
-                      href={leadSectionHref(pin.leadId, pin.section)}
-                      className="v-navitem"
-                      aria-current={active ? "page" : undefined}
-                      onClick={(event) => {
-                        if (!isPlainClick(event)) return;
-                        event.preventDefault();
-                        onOpenPin(pin);
-                      }}
-                    >
-                      <Icon name="pin" size={16} />
-                      <span className="v-navitem-label">
-                        {pin.company}
-                        <small>{label}</small>
-                      </span>
-                    </a>
-                    <button type="button" className="v-pin-remove" onClick={() => onRemovePin(pin)} aria-label={`Unpin ${[pin.company, label].filter(Boolean).join(" · ")}`}>
-                      <Icon name="close" size={12} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {pinNotice && <p className="v-pin-notice" role="status">{pinNotice}</p>}
-          </div>
-        )}
         {sections.map((section) => (
           <div className="v-navsection" key={section.id}>
             {section.label && <h2 className="v-navsection-title">{section.label}</h2>}
@@ -235,6 +200,41 @@ export function Sidebar({
             </ul>
           </div>
         ))}
+        {(pins.length > 0 || pinNotice) && (
+          <div className="v-navsection">
+            <h2 className="v-navsection-title">Pinned</h2>
+            <ul>
+              {pins.map((pin) => {
+                const label = leadDetailSections.find((section) => section.id === pin.section)?.label ?? "";
+                const active = activePin?.leadId === pin.leadId && activePin.section === pin.section;
+                return (
+                  <li key={`${pin.leadId}:${pin.section}`} className="v-pin">
+                    <a
+                      href={leadSectionHref(pin.leadId, pin.section)}
+                      className="v-navitem"
+                      aria-current={active ? "page" : undefined}
+                      onClick={(event) => {
+                        if (!isPlainClick(event)) return;
+                        event.preventDefault();
+                        onOpenPin(pin);
+                      }}
+                    >
+                      <Icon name="pin" size={16} />
+                      <span className="v-navitem-label">
+                        {pin.company}
+                        <small>{label}</small>
+                      </span>
+                    </a>
+                    <button type="button" className="v-pin-remove" onClick={() => onRemovePin(pin)} aria-label={`Unpin ${[pin.company, label].filter(Boolean).join(" · ")}`}>
+                      <Icon name="close" size={12} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {pinNotice && <p className="v-pin-notice" role="status">{pinNotice}</p>}
+          </div>
+        )}
       </nav>
       {flyoutItem?.children?.length ? (
         <div

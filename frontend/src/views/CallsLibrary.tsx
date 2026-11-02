@@ -55,18 +55,19 @@ export function TranscriptsTab({
 }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const withText = useMemo(() => calls.filter((call) => call.transcript?.trim()), [calls]);
   const needsLoad = useMemo(() => calls.filter((call) => call.source === "cloudtalk" && !call.transcript && !call.insights), [calls]);
   const shown = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return calls.filter((call) => !term || nameOf(call).toLowerCase().includes(term) || (call.transcript ?? "").toLowerCase().includes(term));
-  }, [calls, query]);
+    return withText.filter((call) => !term || nameOf(call).toLowerCase().includes(term) || (call.transcript ?? "").toLowerCase().includes(term));
+  }, [withText, query]);
   const selected = shown.find((call) => call.id === selectedId) ?? shown[0] ?? null;
 
-  if (!calls.length) {
+  if (!withText.length) {
     return (
       <div className="v-card">
-        <EmptyState icon="note" title="No calls to review yet">
-          Refresh calls or connect a phone provider to load transcripts and analysis.
+        <EmptyState icon="note" title="No transcripts yet" action={needsLoad[0] ? <Button kind="filled" onClick={() => onLoad(needsLoad[0])}>Load the latest call</Button> : undefined}>
+          Transcripts appear here when your phone provider records and transcribes a call. {needsLoad.length ? `${needsLoad.length} recent call${needsLoad.length === 1 ? "" : "s"} can be checked on demand.` : ""}
         </EmptyState>
       </div>
     );
@@ -90,7 +91,7 @@ export function TranscriptsTab({
           ))}
           {!shown.length && <li className="cl-none">Nothing matches “{query}”.</li>}
         </ul>
-          {needsLoad.length > 0 && <p className="v-card-sub">Select any CloudTalk call to load its transcript and analysis.</p>}
+        {needsLoad.length > 0 && <Button kind="gray" size="sm" onClick={() => onLoad(needsLoad[0])} disabled={loadingId !== null}>{loadingId ? "Loading…" : `Check ${needsLoad.length} more call${needsLoad.length === 1 ? "" : "s"}`}</Button>}
       </aside>
       {selected && (
         <article className="cl-reader" aria-label={`Transcript with ${nameOf(selected)}`}>
@@ -104,16 +105,14 @@ export function TranscriptsTab({
               {selected.lead_id && <Button kind="gray" size="sm" onClick={() => onOpenLead(selected.lead_id!)}>Open lead</Button>}
             </div>
           </header>
-          {selected.transcript?.trim() ? <ol className="cl-turns">
-            {turns(selected.transcript).map((turn, index) => (
+          <ol className="cl-turns">
+            {turns(selected.transcript ?? "").map((turn, index) => (
               <li key={index} data-side={turn.speaker && /agent|you|rep|corral/i.test(turn.speaker) ? "us" : "them"}>
                 {turn.speaker && <b>{turn.speaker}</b>}
                 <p>{turn.text}</p>
               </li>
             ))}
-          </ol> : <EmptyState icon="note" title="Transcript not loaded yet" action={selected.source === "cloudtalk" ? <Button kind="filled" onClick={() => onLoad(selected)} disabled={loadingId === selected.id}>{loadingId === selected.id ? "Loading transcript…" : "Load transcript and analysis"}</Button> : undefined}>
-            {selected.source === "cloudtalk" ? "Load this call to retrieve the provider transcript and available AI analysis." : "This provider did not supply a transcript for this call."}
-          </EmptyState>}
+          </ol>
         </article>
       )}
     </div>
@@ -122,7 +121,7 @@ export function TranscriptsTab({
 
 /* ------------------------------------------------------------ AI analysis */
 
-export function AnalysisTab({ calls, loadingId, onLoad, onOpenLead }: { calls: LibraryCall[]; loadingId: string | null; onLoad: (call: LibraryCall) => void; onOpenLead: (leadId: string) => void }) {
+export function AnalysisTab({ calls, onOpenLead }: { calls: LibraryCall[]; onOpenLead: (leadId: string) => void }) {
   const analysed = useMemo(() => calls.filter((call) => hasCallInsightData(call.insights) || call.transcript?.trim()), [calls]);
   const stats = useMemo(() => {
     const sentiments = new Map<string, number>();
@@ -141,11 +140,11 @@ export function AnalysisTab({ calls, loadingId, onLoad, onOpenLead }: { calls: L
     };
   }, [analysed]);
 
-  if (!calls.length) {
+  if (!analysed.length) {
     return (
       <div className="v-card">
-        <EmptyState icon="sparkle" title="No calls to analyse yet">
-          Refresh calls or connect a phone provider to load transcripts and provider analysis.
+        <EmptyState icon="sparkle" title="No call analysis yet">
+          Once a call has a transcript or provider insights, Corral summarises it here: sentiment, topics, commitments and what to do next.
         </EmptyState>
       </div>
     );
@@ -178,7 +177,7 @@ export function AnalysisTab({ calls, loadingId, onLoad, onOpenLead }: { calls: L
         </div>
       </section>
       <ul className="cl-cards">
-        {calls.map((call) => {
+        {analysed.map((call) => {
           const assessment = assessCallLeadPotential({ summary: call.insights?.summary, transcript: call.transcript });
           return (
             <li key={call.id} className="v-card v-card-pad cl-card">
@@ -192,7 +191,7 @@ export function AnalysisTab({ calls, loadingId, onLoad, onOpenLead }: { calls: L
                 {call.lead_id && <Button kind="plain" size="sm" onClick={() => onOpenLead(call.lead_id!)}>Open lead</Button>}
               </header>
               <p className="cl-assess">{assessment.detail}</p>
-              {hasCallInsightData(call.insights) ? <CallInsights insights={call.insights} /> : call.source === "cloudtalk" ? <Button kind="gray" size="sm" onClick={() => onLoad(call)} disabled={loadingId === call.id}>{loadingId === call.id ? "Loading analysis…" : "Load transcript and analysis"}</Button> : <p className="v-card-sub">The provider did not supply structured insights for this call.</p>}
+              {hasCallInsightData(call.insights) ? <CallInsights insights={call.insights} /> : <p className="v-card-sub">The provider sent a transcript but no structured insights for this call.</p>}
             </li>
           );
         })}

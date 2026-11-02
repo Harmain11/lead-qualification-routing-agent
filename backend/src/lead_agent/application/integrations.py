@@ -1072,7 +1072,7 @@ def _persist_validation(
                 row,
                 enabled=True,
                 object_type=object_type,
-                interval_seconds=60,
+                interval_seconds=300 if row.provider_type == "gmail" else 60,
                 actor_id=actor_id,
                 initial_cursor=(
                     {"history_id": str(history_id)}

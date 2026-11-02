@@ -7,12 +7,9 @@ import {
   LEAD_EXPORT_COLUMNS,
   listIntegrations,
   listLeadAssignmentOptions,
-  listLeadTrash,
   listLeads,
-  restoreLeadFromTrash,
   updateLeadAssignment,
   type LeadExportColumn,
-  type LeadTrashItem,
 } from "../../api";
 import { AutomationEnrollmentDialog } from "../../components/AutomationEnrollmentDialog";
 import type { LeadDetailSection } from "../../leadSections";
@@ -180,9 +177,6 @@ export function LeadsScreen({
   const loadedOnce = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
-  const [leadListMode, setLeadListMode] = useState<"all" | "trash">("all");
-  const [trashItems, setTrashItems] = useState<LeadTrashItem[]>([]);
-  const [trashLoading, setTrashLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -348,37 +342,15 @@ export function LeadsScreen({
   const deleteSelected = async () => {
     if (!selectedIds.size) return;
     const count = selectedIds.size;
-    if (!(await confirmAction({ title: `Delete ${count} lead${count === 1 ? "" : "s"}?`, message: "They will move to Trash and matching source records will stay suppressed during future syncs.", confirmLabel: `Move to Trash`, tone: "danger" }))) return;
+    if (!(await confirmAction({ title: `Delete ${count} lead${count === 1 ? "" : "s"}?`, message: "They are removed from the workspace. Later matching inquiries can be imported again.", confirmLabel: `Delete ${count === 1 ? "lead" : "leads"}`, tone: "danger" }))) return;
     try {
       const result = await bulkDeleteLeads([...selectedIds]);
       setSelectedIds(new Set());
-      setNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} moved to Trash. Future syncs will keep matching source records suppressed.`);
+      setNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} deleted. Later matching inquiries can be imported again.`);
       setRefreshKey((value) => value + 1);
       void onDeleted("bulk");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to delete selected leads");
-    }
-  };
-  const openTrash = async () => {
-    setLeadListMode("trash");
-    setTrashLoading(true);
-    try {
-      setTrashItems(await listLeadTrash());
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to load Trash");
-    } finally {
-      setTrashLoading(false);
-    }
-  };
-  const restoreTrash = async (item: LeadTrashItem) => {
-    try {
-      await restoreLeadFromTrash(item.id);
-      setTrashItems((current) => current.filter((candidate) => candidate.id !== item.id));
-      setLeadListMode("all");
-      setNotice(`${item.lead_email || "Lead"} restored. ${providerLabel(item.provider)} will check for it automatically on the next sync.`);
-      setRefreshKey((value) => value + 1);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Unable to restore Trash item");
     }
   };
   const transferSelected = async () => {
@@ -516,12 +488,7 @@ export function LeadsScreen({
         }
       />
 
-      <nav className="v-lead-list-tabs" aria-label="Lead list">
-        <button type="button" aria-current={leadListMode === "all" ? "page" : undefined} onClick={() => setLeadListMode("all")}>All leads</button>
-        <button type="button" aria-current={leadListMode === "trash" ? "page" : undefined} onClick={() => void openTrash()}>Trash</button>
-      </nav>
-
-      <section className="v-queue" data-tour="leads" aria-label="Lead queue" hidden={leadListMode !== "all"}>
+      <section className="v-queue" data-tour="leads" aria-label="Lead queue">
         <div className="v-queue-bar" role="search">
           <label className="v-searchfield">
             <Icon name="search" size={16} />
@@ -693,29 +660,7 @@ export function LeadsScreen({
         )}
       </section>
 
-      {leadListMode === "trash" && (
-        <section className="v-queue v-lead-trash-view" aria-label="Deleted leads">
-          {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
-            <div className="v-tablewrap">
-              <table className="v-table v-trash-table">
-                <thead><tr><th scope="col">Lead</th><th scope="col">Source</th><th scope="col">Removed</th><th scope="col" className="c-actions">Action</th></tr></thead>
-                <tbody>
-                  {trashItems.map((item) => (
-                    <tr key={item.id}>
-                      <td className="c-lead"><div className="v-lead-name"><strong>{item.lead_email || "Deleted lead"}</strong><span className="v-muted">Source suppressed after {item.reason.replaceAll("_", " ")}.</span></div></td>
-                      <td className="trash-source"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></td>
-                      <td className="c-date">{formatShortDate(item.created_at)}</td>
-                      <td className="c-actions"><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      {leadListMode === "all" && selectedIds.size > 0 && (
+      {selectedIds.size > 0 && (
         <div className="v-selectionbar" role="group" aria-label="Bulk actions">
           <b className="num">{selectedIds.size} selected</b>
           {canCrmSync && (

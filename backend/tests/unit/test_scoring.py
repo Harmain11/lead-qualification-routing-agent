@@ -1,8 +1,6 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-import pytest
-
 from lead_agent.domain.models import NormalizedLead, RecordedLeadEvidence
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.scoring import qualify_lead
@@ -146,20 +144,6 @@ def test_concrete_meeting_request_counts_as_interest_without_inventing_a_sale(ic
         routing,
     )
     assert next(line for line in date_only.score_breakdown if line.key == "buying_stage").points == 0
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Can we meet this Friday at 2 pm?",
-        "How does next Tuesday at 10:30 am sound for a call?",
-        "Would November 6 at 11 am work to discuss the proposal?",
-    ],
-)
-def test_concrete_timed_meeting_requests_are_urgent_beyond_tomorrow(icp, routing, message: str) -> None:
-    result = qualify_lead(make_lead(message=message, budget=None), icp, routing)
-
-    assert next(line for line in result.score_breakdown if line.key == "urgency").points > 0
 
 
 def test_team_note_length_does_not_inflate_message_detail_score(icp, routing) -> None:
