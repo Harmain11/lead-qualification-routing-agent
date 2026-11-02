@@ -1900,6 +1900,22 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .lead-confirmation-setting-copy p { margin: 0; font: 400 13px/1.45 var(--font); color: var(--label-2); max-width: 60ch; }
 .v-app .integrations-page .gm { gap: 8px; }
 
+/* Deleted-source identifiers are useful evidence, not the primary record label. */
+.v-app .trash-list { gap: 10px; }
+.v-app .trash-item { padding: 14px; }
+.v-app .trash-item-head { align-items: flex-start; gap: 14px; }
+.v-app .trash-item-copy { min-width: 0; }
+.v-app .trash-item-copy > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-app .trash-item-copy > p { display: flex; gap: 7px; min-width: 0; margin: 4px 0 0; }
+.v-app .trash-item-copy > p > span { flex: 0 0 auto; text-transform: uppercase; }
+.v-app .trash-item-copy code { min-width: 0; overflow: hidden; color: var(--label-3); font: var(--t-footnote); text-overflow: ellipsis; white-space: nowrap; }
+.v-app .trash-item-actions { flex: 0 0 auto; }
+.v-app .trash-item-reason { margin: 10px 0 0; font: var(--t-subhead); }
+@media (max-width: 560px) {
+  .v-app .trash-item-head { align-items: stretch; flex-direction: column; }
+  .v-app .trash-item-actions { justify-content: space-between; }
+}
+
 /* Expanded integrations stay compact on desktop; long account histories scroll inside the detail area. */
 @media (min-width: 768px) {
   .v-app .integrations-page .integration-card.is-expanded {

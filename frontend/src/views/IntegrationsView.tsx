@@ -1179,7 +1179,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     ...categorySections.map((section) => ({
       ...section,
       providers: cards
-        .filter((card) => card.availability !== "future" && integrationCategory(card) === section.id)
+        .filter((card) => card.availability === "available" && integrationCategory(card) === section.id)
         .map((card) => card.provider),
     })),
     {
@@ -1191,7 +1191,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
-  const categoryCounts = cards.filter((card) => card.availability !== "future").reduce<Record<string, number>>((counts, card) => {
+  const categoryCounts = cards.filter((card) => card.availability === "available").reduce<Record<string, number>>((counts, card) => {
     const category = integrationCategory(card);
     counts[category] = (counts[category] ?? 0) + 1;
     return counts;
@@ -1225,7 +1225,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       || state?.status === "cancel_requested"
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
-  const providerCards = cards.filter((card) => card.availability !== "future");
+  const providerCards = cards.filter((card) => card.availability === "available");
   const connectedCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "ok").length;
   const attentionCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "error").length;
   const comingSoonCards = cards.filter((card) => card.availability === "future");

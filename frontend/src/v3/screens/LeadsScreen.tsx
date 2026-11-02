@@ -723,11 +723,17 @@ export function LeadsScreen({
       {showTrash && (
         <Sheet title="Trash" subtitle="Recently removed leads stay here and are excluded from future source syncs." onClose={() => setShowTrash(false)} width={680}>
           {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
-            <div className="v-stack" role="list" aria-label="Deleted leads">
+            <div className="v-stack trash-list" role="list" aria-label="Deleted leads">
               {trashItems.map((item) => (
-                <article key={item.id} className="v-card" role="listitem">
-                  <div className="v-card-head"><div><strong>{item.lead_email || "Deleted lead"}</strong><p className="v-muted">{item.provider} · {item.external_id}</p></div><div className="v-inline-actions"><span className="v-muted">{formatShortDate(item.created_at)}</span><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></div></div>
-                  <p className="v-muted">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
+                <article key={item.id} className="v-card trash-item" role="listitem">
+                  <div className="v-card-head trash-item-head">
+                    <div className="trash-item-copy">
+                      <strong>{item.lead_email || "Deleted lead"}</strong>
+                      <p className="v-muted"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></p>
+                    </div>
+                    <div className="v-inline-actions trash-item-actions"><span className="v-muted">{formatShortDate(item.created_at)}</span><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></div>
+                  </div>
+                  <p className="v-muted trash-item-reason">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
                 </article>
               ))}
             </div>

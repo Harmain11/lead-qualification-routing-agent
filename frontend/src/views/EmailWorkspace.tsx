@@ -161,35 +161,25 @@ export function EmailWorkspace({
     const mailboxKey = JSON.stringify([getActiveWorkspace(), connectionId, folder, query, pageToken]);
     const changedMailbox = lastMailboxKey.current !== mailboxKey;
     lastMailboxKey.current = mailboxKey;
-    const cached = mailboxCache.get(mailboxKey);
-    const quiet = (backgroundRefresh.current && !changedMailbox) || Boolean(changedMailbox && cached);
+    const quiet = backgroundRefresh.current && !changedMailbox;
     backgroundRefresh.current = false;
     if (!quiet) setLoadingMessages(true);
     if (!quiet) setError(null);
-    if (changedMailbox && cached) {
-      setMessages(cached.messages);
-      setSelected(cached.messages[0] ?? null);
-      setThread([]);
-      setExpandedMessageIds(new Set());
-      setNextPageToken(cached.nextPageToken);
-    } else if (changedMailbox) {
+    if (changedMailbox) {
+      // Never show the prior folder's messages while the requested folder loads.
+      setMessages([]);
       setSelected(null);
       setThread([]);
       setExpandedMessageIds(new Set());
-    }
-    // Navigating back to a recently opened mailbox should show its saved rows
-    // immediately. The visible 60-second poll and manual refresh still check Gmail.
-    if (changedMailbox && cached && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS) {
-      setLoadingMessages(false);
-      return () => controller.abort();
+      setNextPageToken(null);
     }
     listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
       if (controller.signal.aborted) return;
       remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
-      const changedRows = JSON.stringify(page.messages) !== JSON.stringify(changedMailbox && cached ? cached.messages : messages);
+      const changedRows = JSON.stringify(page.messages) !== JSON.stringify(changedMailbox ? [] : messages);
       if (changedRows) {
         setMessages(page.messages);
-        setSelected((current) => changedMailbox && !cached
+        setSelected((current) => changedMailbox
           ? page.messages[0] ?? null
           : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
         if (quiet && !changedMailbox && selected?.thread_id) {

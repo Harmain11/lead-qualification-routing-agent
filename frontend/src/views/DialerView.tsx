@@ -61,7 +61,11 @@ const OUTCOME: Record<CallOutcome, { label: string; tone: Tone }> = {
 function directionIcon(record: CallRecord): IconName {
   const outcome = record.outcome ?? callOutcome(record.status, record.direction, record.duration_seconds);
   if (outcome === "missed") return "callMissed";
-  return record.direction.toLowerCase() === "inbound" ? "callIn" : "callOut";
+  return callDirection(record.direction) === "inbound" ? "callIn" : "callOut";
+}
+
+function callDirection(direction: string) {
+  return /^(?:in|inbound|incoming)$/i.test(direction.trim()) ? "inbound" : "outbound";
 }
 
 function callTime(record: CallRecord) {
@@ -99,6 +103,7 @@ export function DialerView({
   const [stored, setStored] = useState<CallRecord[]>([]);
   const [storedMore, setStoredMore] = useState<string | null>(null);
   const [cloudTalk, setCloudTalk] = useState<CloudTalkActivity | null>(null);
+  const [loadingMoreCloudTalk, setLoadingMoreCloudTalk] = useState(false);
   const [tab, setTab] = useState<CallsTab>("calls");
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
@@ -176,7 +181,7 @@ export function DialerView({
     return all.filter((record) => {
       const outcome = record.outcome ?? callOutcome(record.status, record.direction, record.duration_seconds);
       if (filter === "missed" && outcome !== "missed") return false;
-      if ((filter === "inbound" || filter === "outbound") && record.direction.toLowerCase() !== filter) return false;
+      if ((filter === "inbound" || filter === "outbound") && callDirection(record.direction) !== filter) return false;
       if (!term) return true;
       return [record.lead_name, record.company_name].some((value) => value?.toLowerCase().includes(term))
         || (digits.length >= 3 && record.customer_phone.replace(/\D/g, "").includes(digits));
@@ -201,6 +206,27 @@ export function DialerView({
       setError(reason instanceof Error ? reason.message : "Older calls couldn't be loaded.");
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  async function loadMoreCloudTalk() {
+    if (!cloudTalk?.has_more || loadingMoreCloudTalk) return;
+    const page = cloudTalk.page + 1;
+    setLoadingMoreCloudTalk(true);
+    try {
+      const next = await opsGet<CloudTalkActivity>(`/v1/calling/cloudtalk/recent?page=${page}`);
+      setCloudTalk((current) => {
+        if (!current) return current;
+        const seen = new Set(current.records.map((record) => record.id));
+        return {
+          ...next,
+          records: [...current.records, ...next.records.filter((record) => !seen.has(record.id)).map((record) => ({ ...record, history_page: page }))],
+        };
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "More CloudTalk calls couldn't be loaded.");
+    } finally {
+      setLoadingMoreCloudTalk(false);
     }
   }
 
@@ -281,7 +307,7 @@ export function DialerView({
 
       {tab === "messages" && <MessagesTab onOpenIntegrations={onOpenIntegrations} canViewIntegrations={canViewIntegrations} />}
       {tab === "transcripts" && <TranscriptsTab calls={baseRecords} loadingId={loadingDetails} onLoad={(call) => void loadCloudTalkDetails(call as CallRecord)} onOpenLead={onOpenLead} />}
-      {tab === "analysis" && <AnalysisTab calls={baseRecords} onOpenLead={onOpenLead} />}
+      {tab === "analysis" && <AnalysisTab calls={baseRecords} loadingId={loadingDetails} onLoad={(call) => void loadCloudTalkDetails(call as CallRecord)} onOpenLead={onOpenLead} />}
 
       {tab === "calls" && <section className="calls-history" aria-label="Call history">
         <div className="calls-toolbar">
@@ -328,7 +354,7 @@ export function DialerView({
                 </div>
                 <div className="calls-meta">
                   <Badge tone={OUTCOME[outcome].tone}>{OUTCOME[outcome].label}</Badge>
-                  <small className="num">{record.direction.toLowerCase() === "inbound" ? "Inbound" : "Outbound"} · {formatCallDuration(record.duration_seconds)} · {PROVIDER_LABEL[record.provider] ?? record.provider}</small>
+                  <small className="num">{callDirection(record.direction) === "inbound" ? "Inbound" : "Outbound"} · {formatCallDuration(record.duration_seconds)} · {PROVIDER_LABEL[record.provider] ?? record.provider}</small>
                 </div>
                 <time className="calls-time" dateTime={record.started_at || record.created_at}>{callTime(record)}</time>
                 <div className="calls-actions">
@@ -356,6 +382,7 @@ export function DialerView({
           })}
         </ul>
         {storedMore && <Button className="mailbox-more" onClick={() => void loadOlder()} disabled={refreshing}>Load older calls</Button>}
+        {cloudTalk?.has_more && <Button className="mailbox-more" onClick={() => void loadMoreCloudTalk()} disabled={loadingMoreCloudTalk}>{loadingMoreCloudTalk ? "Loading CloudTalk calls…" : "Load 100 more CloudTalk calls"}</Button>}
       </section>}
 
       {dialing && (
