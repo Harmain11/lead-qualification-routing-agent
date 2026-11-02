@@ -583,6 +583,20 @@ export async function listLeads(query: LeadListQuery = {}, signal?: AbortSignal)
   return request<LeadListResponse>(`/v1/leads${suffix}`, { signal });
 }
 
+export type LeadTrashItem = {
+  id: string;
+  provider: string;
+  external_id: string;
+  lead_email: string | null;
+  reason: string;
+  created_by: string;
+  created_at: string;
+};
+
+export function listLeadTrash(signal?: AbortSignal): Promise<LeadTrashItem[]> {
+  return request<LeadTrashItem[]>("/v1/leads/trash", { signal });
+}
+
 export const LEAD_EXPORT_COLUMNS = [
   { key: "lead_name", label: "Lead / Contact Name", defaultSelected: true },
   { key: "company", label: "Company", defaultSelected: true },

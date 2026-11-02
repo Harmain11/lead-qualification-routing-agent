@@ -67,6 +67,7 @@ from lead_agent.infrastructure.db.models import (
     CrmSyncORM,
     LeadFollowUpEmailORM,
     LeadORM,
+    LeadSuppressionORM,
     NotificationORM,
     PipelineEventORM,
     ProviderConnectionORM,
@@ -258,13 +259,44 @@ def _delete_lead(
     *,
     actor_id: str,
 ) -> None:
-    """Delete only the local copy; future matching source records may re-enter."""
+    """Move a lead to trash and suppress its source record on future syncs."""
     now = datetime.now(UTC)
+    source_links = list(
+        session.scalars(
+            select(CrmProviderRecordLinkORM).where(
+                CrmProviderRecordLinkORM.workspace_id == row.workspace_id,
+                CrmProviderRecordLinkORM.lead_id == row.id,
+            )
+        )
+    )
+    suppression_sources = {(link.provider, link.provider_record_id) for link in source_links}
+    if not suppression_sources and row.external_id:
+        suppression_sources.add((row.source, row.external_id))
+    for provider, external_id in suppression_sources:
+        existing = session.scalar(
+            select(LeadSuppressionORM).where(
+                LeadSuppressionORM.workspace_id == row.workspace_id,
+                LeadSuppressionORM.provider == provider,
+                LeadSuppressionORM.external_id == external_id,
+            )
+        )
+        if existing is None:
+            session.add(
+                LeadSuppressionORM(
+                    workspace_id=row.workspace_id,
+                    provider=provider,
+                    external_id=external_id,
+                    lead_email=row.email,
+                    reason="user_deleted",
+                    created_by=actor_id,
+                    created_at=now,
+                )
+            )
     if row.source_event_id:
         event = session.get(SourceEventORM, row.source_event_id)
         if event is not None:
             event.status = "deleted"
-            event.error_message = "Lead deleted by workspace user; source may be imported again."
+            event.error_message = "Lead moved to trash by workspace user; matching source is suppressed."
             event.updated_at = now
     # CRM sync rows and notifications reference routing decisions with
     # restrictive foreign keys. Remove those dependants explicitly before the
@@ -279,6 +311,41 @@ def _delete_lead(
             LeadORM.workspace_id == row.workspace_id,
         )
     )
+
+
+class LeadTrashItemResponse(BaseModel):
+    id: UUID
+    provider: str
+    external_id: str
+    lead_email: str | None = None
+    reason: str
+    created_by: str
+    created_at: datetime
+
+
+@router.get("/trash", response_model=list[LeadTrashItemResponse])
+def list_lead_trash(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> list[LeadTrashItemResponse]:
+    rows = session.scalars(
+        select(LeadSuppressionORM)
+        .where(LeadSuppressionORM.workspace_id == workspace.workspace_id)
+        .order_by(LeadSuppressionORM.created_at.desc())
+        .limit(200)
+    ).all()
+    return [
+        LeadTrashItemResponse(
+            id=row.id,
+            provider=row.provider,
+            external_id=row.external_id,
+            lead_email=row.lead_email,
+            reason=row.reason,
+            created_by=row.created_by,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:

@@ -1035,11 +1035,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     if (!canConnect || (adminOnlyProviders.has(provider) && !canManage) || (provider === "slack" && !canManage) || busy) return;
     const connection = cards.find((card) => card.provider === provider)?.connection;
     oauthIntent.current = intent ?? (connection && connection.status !== "disconnected" ? "reconnect" : "connect");
-    if (provider === "calendly") {
-      setExpanded(provider);
-      setAccountChoiceProvider(provider);
-      return;
-    }
     if (provider === "salesforce") {
       setSalesforceSetupOpen(true);
       setActionErrors((current) => {

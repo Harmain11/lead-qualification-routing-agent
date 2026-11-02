@@ -634,8 +634,7 @@ def test_hubspot_sync_continues_when_schema_write_is_not_granted(crm_config) -> 
     )
     transport = FakeTransport(
         [
-            FakeResponse(200, {"results": []}),
-            FakeResponse(403, {"message": "insufficient scopes"}),
+            FakeResponse(403, {"message": "schema scope not granted"}),
             FakeResponse(200, {"results": [{"id": "contact-1"}]}),
         ]
     )
@@ -649,7 +648,7 @@ def test_hubspot_sync_continues_when_schema_write_is_not_granted(crm_config) -> 
     result = provider.sync(canonical_payload())
 
     assert result.entities.contact_id == "contact-1"
-    contact_body = transport.requests[2]["json"]["inputs"][0]["properties"]
+    contact_body = transport.requests[1]["json"]["inputs"][0]["properties"]
     assert "qualification_score" not in contact_body
 
 

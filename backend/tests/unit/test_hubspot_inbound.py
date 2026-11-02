@@ -188,7 +188,7 @@ def test_hubspot_connection_validation_checks_active_token_scopes_and_read_probe
     assert transport.requests[2]["url"].endswith("/crm/properties/2026-09/contacts")
 
 
-def test_hubspot_connection_validation_allows_optional_schema_write_scope() -> None:
+def test_hubspot_connection_validation_allows_optional_schema_scopes() -> None:
     validator = HubSpotConnectionValidator(
         client_id="app-id",
         client_secret="app-secret",
@@ -202,12 +202,11 @@ def test_hubspot_connection_validation_allows_optional_schema_write_scope() -> N
                             "oauth",
                             "crm.objects.contacts.read",
                             "crm.objects.contacts.write",
-                            "crm.schemas.contacts.read",
                         ],
                     },
                 ),
                 Response(200, {"results": []}),
-                Response(200, {"results": []}),
+                Response(403, {"message": "schema scope not granted"}),
             ]
         ),
     )
@@ -218,7 +217,6 @@ def test_hubspot_connection_validation_allows_optional_schema_write_scope() -> N
             "oauth",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
-            "crm.schemas.contacts.read",
         ],
         )
     assert result.verified

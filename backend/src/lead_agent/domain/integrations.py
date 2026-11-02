@@ -126,7 +126,6 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
             "oauth",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
-            "crm.schemas.contacts.read",
         ],
         permission_reason=(
             "Import and update HubSpot Contacts. Existing custom Corral properties are used when available; creating new properties is optional."

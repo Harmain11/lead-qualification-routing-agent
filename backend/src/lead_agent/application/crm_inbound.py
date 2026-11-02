@@ -39,6 +39,7 @@ from lead_agent.infrastructure.db.models import (
     CrmProviderRecordLinkORM,
     CrmSyncORM,
     LeadORM,
+    LeadSuppressionORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
 )
@@ -947,6 +948,15 @@ def _process_record(
     manual_review_reason = _gmail_manual_review_reason(canonical)
     effective_review_reason = manual_review_reason
     link = _record_link(session, connection, canonical)
+    suppressed = session.scalar(
+        select(LeadSuppressionORM).where(
+            LeadSuppressionORM.workspace_id == connection.workspace_id,
+            LeadSuppressionORM.provider == canonical.provider,
+            LeadSuppressionORM.external_id == canonical.provider_record_id,
+        )
+    )
+    if suppressed is not None:
+        return "suppressed"
     now = datetime.now(UTC)
     if canonical.provider == "gohighlevel":
         email = str(normalized_payload.get("email") or "").strip().lower()

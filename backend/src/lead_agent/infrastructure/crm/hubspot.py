@@ -154,7 +154,14 @@ class HubSpotCrmProvider:
                 )
             definitions[target] = definition
 
-        existing = self._list_contact_properties()
+        try:
+            existing = self._list_contact_properties()
+        except CrmProviderError as error:
+            if error.category == "authentication":
+                self._schema_write_available = False
+                self._available_contact_properties = set()
+                return
+            raise
         self._available_contact_properties = set(existing)
         for name, definition in definitions.items():
             current = existing.get(name)
@@ -661,7 +668,6 @@ class HubSpotConnectionValidator(ProviderConnectionValidator):
     required_scopes = {
         "crm.objects.contacts.read",
         "crm.objects.contacts.write",
-        "crm.schemas.contacts.read",
     }
 
     def __init__(
@@ -772,16 +778,19 @@ class HubSpotConnectionValidator(ProviderConnectionValidator):
             ) from None
         if probe.status_code != 200:
             raise provider_http_error(provider, probe.status_code)
+        # Schema access is optional. Accounts may grant Contacts access while
+        # withholding the sensitive schema permissions; those accounts can
+        # still sync standard Contact fields and existing custom properties.
         properties_probe = self.transport.request(
             "GET",
             (
                 f"https://api.hubapi.com/crm/properties/"
-                    f"{self.oauth_api_version}/contacts"
+                f"{self.oauth_api_version}/contacts"
             ),
             headers={"Authorization": f"Bearer {token}"},
             timeout=self.timeout_seconds,
         )
-        if properties_probe.status_code != 200:
+        if properties_probe.status_code not in {200, 401, 403}:
             raise provider_http_error(provider, properties_probe.status_code)
         return ConnectionValidation(
             valid=True,

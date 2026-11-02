@@ -7,9 +7,11 @@ import {
   LEAD_EXPORT_COLUMNS,
   listIntegrations,
   listLeadAssignmentOptions,
+  listLeadTrash,
   listLeads,
   updateLeadAssignment,
   type LeadExportColumn,
+  type LeadTrashItem,
 } from "../../api";
 import { AutomationEnrollmentDialog } from "../../components/AutomationEnrollmentDialog";
 import type { LeadDetailSection } from "../../leadSections";
@@ -177,6 +179,9 @@ export function LeadsScreen({
   const loadedOnce = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashItems, setTrashItems] = useState<LeadTrashItem[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -342,15 +347,26 @@ export function LeadsScreen({
   const deleteSelected = async () => {
     if (!selectedIds.size) return;
     const count = selectedIds.size;
-    if (!(await confirmAction({ title: `Delete ${count} lead${count === 1 ? "" : "s"}?`, message: "They are removed from the workspace. Later matching inquiries can be imported again.", confirmLabel: `Delete ${count === 1 ? "lead" : "leads"}`, tone: "danger" }))) return;
+    if (!(await confirmAction({ title: `Delete ${count} lead${count === 1 ? "" : "s"}?`, message: "They will move to Trash and matching source records will stay suppressed during future syncs.", confirmLabel: `Move to Trash`, tone: "danger" }))) return;
     try {
       const result = await bulkDeleteLeads([...selectedIds]);
       setSelectedIds(new Set());
-      setNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} deleted. Later matching inquiries can be imported again.`);
+      setNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} moved to Trash. Future syncs will keep matching source records suppressed.`);
       setRefreshKey((value) => value + 1);
       void onDeleted("bulk");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to delete selected leads");
+    }
+  };
+  const openTrash = async () => {
+    setShowTrash(true);
+    setTrashLoading(true);
+    try {
+      setTrashItems(await listLeadTrash());
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to load Trash");
+    } finally {
+      setTrashLoading(false);
     }
   };
   const transferSelected = async () => {
@@ -482,6 +498,7 @@ export function LeadsScreen({
         actions={
           <>
             <FeatureGuide topic="lead" compact />
+            <Button onClick={() => void openTrash()}>Trash</Button>
             {canExport && <Button icon="share" onClick={() => setShowExport(true)}>Export</Button>}
             {canEdit && <Button kind="filled" icon="plus" onClick={() => setShowForm(true)}>New Lead</Button>}
           </>
@@ -691,6 +708,20 @@ export function LeadsScreen({
       )}
       {showExport && (
         <ExportSheet count={total} selectedIds={[...selectedIds]} filters={applied} onClose={() => setShowExport(false)} />
+      )}
+      {showTrash && (
+        <Sheet title="Trash" subtitle="Recently removed leads stay here and are excluded from future source syncs." onClose={() => setShowTrash(false)} width={680}>
+          {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
+            <div className="v-stack" role="list" aria-label="Deleted leads">
+              {trashItems.map((item) => (
+                <article key={item.id} className="v-card" role="listitem">
+                  <div className="v-card-head"><div><strong>{item.lead_email || "Deleted lead"}</strong><p className="v-muted">{item.provider} · {item.external_id}</p></div><span className="v-muted">{formatShortDate(item.created_at)}</span></div>
+                  <p className="v-muted">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </Sheet>
       )}
       {enrollmentDialog}
     </div>

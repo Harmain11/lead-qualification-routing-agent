@@ -84,11 +84,11 @@ Request the HubSpot OAuth group, Contacts permissions, and contact-property perm
 - `oauth` — required by the deployed HubSpot Projects OAuth configuration as its OAuth scope group.
 - `crm.objects.contacts.read` — initial and incremental inbound Contacts plus the read-only probe.
 - `crm.objects.contacts.write` — explicit manual Contact create/update.
-- `crm.schemas.contacts.read` — inspect Contact properties before a CRM send.
+- `crm.schemas.contacts.read` — optional; inspect Contact properties before a CRM send.
 - `crm.schemas.contacts.write` — optional; create missing Corral-managed Contact properties when the HubSpot app has this sensitive scope.
 
 The `oauth` scope is a platform authorization requirement, not an additional CRM object permission.
-The connection validator requires the three non-schema-write CRM scopes. Corral only creates missing
+The connection validator requires only the two Contacts CRM scopes. Corral only creates missing
 mapped Contact properties when the optional schema-write permission is available; it does not overwrite or delete existing property definitions. Existing properties with
 incompatible types stop the send with a validation error. After the OAuth app is configured for the
 new scopes, each existing HubSpot connection may reconnect to refresh its permissions.
@@ -115,7 +115,7 @@ and [legacy public app support/creation status](https://developers.hubspot.com/d
 4. Create a current Developer Platform app configured for OAuth; allowlist the test account.
 5. Register `{INTEGRATION_PUBLIC_BASE_URL}/v1/integrations/hubspot/oauth/callback` exactly.
 6. Configure `oauth`, `crm.objects.contacts.read`, `crm.objects.contacts.write`,
-   `crm.schemas.contacts.read`, with no Company/Deal scopes. `crm.schemas.contacts.write` is optional; without it, Corral syncs standard and existing custom Contact properties.
+   with no Company/Deal scopes. The schema read/write scopes are optional; without them, Corral syncs standard Contact properties.
 7. Put the app Client ID in `HUBSPOT_CLIENT_ID` and Client Secret in `HUBSPOT_CLIENT_SECRET` in the
    deployment secret manager; never paste either into chat, source, or browser-visible config.
 8. Set `HUBSPOT_OAUTH_API_VERSION=2026-09` and `HUBSPOT_API_BASE_URL=https://api.hubapi.com`.
