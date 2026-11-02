@@ -1919,19 +1919,16 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 /* Expanded integrations stay compact on desktop; long account histories scroll inside the detail area. */
 @media (min-width: 768px) {
   .v-app .integrations-page .integration-card.is-expanded {
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
     max-inline-size: 760px;
-    max-block-size: min(72dvh, 640px);
     justify-self: start;
   }
   .v-app .integrations-page .integration-card.is-expanded .provider-details {
-    min-block-size: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
+    min-block-size: auto;
+    overflow: visible;
   }
   .v-app .integrations-page .gm-rows {
-    max-block-size: 300px;
+    max-block-size: min(38dvh, 260px);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
