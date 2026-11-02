@@ -77,6 +77,11 @@ def test_shared_assistant_prompts_are_compact_and_keep_safety_rules() -> None:
     assert "Never send automatically or claim sent" in WORKSPACE_ASSISTANT_SYSTEM_PROMPT
 
 
+def test_openai_reasoning_prompt_defines_timed_meeting_urgency() -> None:
+    assert "concrete request to meet, talk, schedule, or decide" in openai_provider.SYSTEM_PROMPT
+    assert "exact phrase in explicit_timeline" in openai_provider.SYSTEM_PROMPT
+
+
 def test_openai_workspace_assistant_uses_compact_prompt_and_output_cap() -> None:
     request: dict[str, object] = {}
 

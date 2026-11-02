@@ -14,6 +14,7 @@ import { createSlackRule } from "../slackRouting";
 import {
 addIntegrationCredential,
 apiUrl,
+backfillReasoning,
 beginIntegration,
   cancelInboundSync,
 configureInboundSync,
@@ -1409,6 +1410,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && (card.supported_auth.includes("oauth2") || card.manual_fields.length === 0 || !canManage) && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
+            {section.id === "ai" && connection?.status === "verified" && connection.is_active && canManage && <button className="button-quiet" onClick={() => void act(card.provider, () => backfillReasoning(connection.id), "AI re-analysis queued for leads with outdated qualification.")} disabled={Boolean(busy)}>Re-analyze leads</button>}
             {card.provider === "salesforce" && <button className="int-tertiary" onClick={() => setSalesforceSetupOpen(true)}>Prepare org</button>}
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure

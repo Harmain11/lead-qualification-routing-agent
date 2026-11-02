@@ -95,12 +95,16 @@ def _meeting_request_signal(text: str) -> str | None:
     """Recognize a concrete meeting request without treating a date alone as intent."""
     request = re.search(
         r"\b(?:can|could|shall|should) we (?:do (?:it|this)|meet|talk|call|schedule)\b"
-        r"|\b(?:please|let'?s|want to|would like to) (?:meet|talk|call|schedule)\b",
+        r"|\b(?:please|let'?s|want to|would like to) (?:meet|talk|call|schedule)\b"
+        r"|\b(?:how does|would)\b.{0,48}\b(?:work|sound)\b",
         text,
     )
     time = re.search(
-        r"\b(?:tomorrow|next (?:monday|tuesday|wednesday|thursday|friday|week)"
-        r"|(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:am|pm))\b",
+        r"\b(?:today|tomorrow|(?:this|next) (?:monday|tuesday|wednesday|thursday|friday|"
+        r"saturday|sunday|week)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+        r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|"
+        r"aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}|"
+        r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:am|pm))\b",
         text,
     )
     return request.group(0) if request and time else None
@@ -506,11 +510,14 @@ def qualify_lead(
     interest_excerpt = _evidence_excerpt(interest_evidence)
     negative_interest = interest_direction == "negative"
     analyzed_urgency = _analysis_field(analysis, "urgency")
+    analyzed_timeline = _analysis_field(analysis, "explicit_timeline")
     urgent = _contains_any(text, icp.scoring.signals.get("urgent", [])) or _field_signal(
         analyzed_urgency, ["high", "urgent", "immediate"]
     )
     meeting_request = _meeting_request_signal(text)
-    urgent = urgent or (meeting_request if "tomorrow" in text else None)
+    # AI analysis is primary; retain the conservative parser as a fallback for explicit
+    # time-bound requests that the provider did not classify.
+    urgent = urgent or meeting_request
     if negative_interest:
         urgent = None
     lines.append(
@@ -527,6 +534,7 @@ def qualify_lead(
             ),
             urgent or (interest_excerpt if negative_interest else "no urgency signal"),
             *_field_evidence(analyzed_urgency),
+            *_field_evidence(analyzed_timeline),
         )
     )
     analyzed_stage = _analysis_field(analysis, "buying_stage")
