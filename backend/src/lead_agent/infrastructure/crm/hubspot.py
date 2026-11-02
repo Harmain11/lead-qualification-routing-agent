@@ -70,6 +70,8 @@ class HubSpotCrmProvider:
         self.properties_api_version = properties_api_version
         self.timeout_seconds = timeout_seconds
         self.transport = transport or HttpxTransport()
+        self._schema_write_available = True
+        self._available_contact_properties: set[str] = set()
 
     def _validate_configuration(self) -> None:
         if not self.access_token or self.access_token.startswith("replace_"):
@@ -153,6 +155,7 @@ class HubSpotCrmProvider:
             definitions[target] = definition
 
         existing = self._list_contact_properties()
+        self._available_contact_properties = set(existing)
         for name, definition in definitions.items():
             current = existing.get(name)
             if current is not None:
@@ -195,6 +198,12 @@ class HubSpotCrmProvider:
                         category="validation",
                         retryable=False,
                     )
+            if response.status_code in {401, 403}:
+                # Contact read/write can be granted without the sensitive
+                # schema-write scope. Continue with standard fields and
+                # custom properties that already exist in the portal.
+                self._schema_write_available = False
+                continue
             raise provider_error(self.provider_name, response.status_code)
 
     @property
@@ -291,6 +300,13 @@ class HubSpotCrmProvider:
             "phone": payload.phone,
         }
         properties.update(mapped_properties(payload, self.config.contact_fields))
+        if not self._schema_write_available:
+            standard = {"email", "firstname", "lastname", "company", "jobtitle", "phone"}
+            properties = {
+                key: value
+                for key, value in properties.items()
+                if key in standard or key in self._available_contact_properties
+            }
         if payload.assigned_rep_id in self.config.owner_mapping:
             properties["hubspot_owner_id"] = self.config.owner_mapping[payload.assigned_rep_id]
         return {key: value for key, value in properties.items() if value is not None}
@@ -646,7 +662,6 @@ class HubSpotConnectionValidator(ProviderConnectionValidator):
         "crm.objects.contacts.read",
         "crm.objects.contacts.write",
         "crm.schemas.contacts.read",
-        "crm.schemas.contacts.write",
     }
 
     def __init__(
