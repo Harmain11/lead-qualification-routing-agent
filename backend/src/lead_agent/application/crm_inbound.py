@@ -943,6 +943,7 @@ def _process_record(
     actor_id: str,
     correlation_id: str,
     send_confirmation_email: bool,
+    allow_suppressed: bool = False,
 ) -> str:
     normalized_payload = _json_safe_payload(canonical.normalized_payload)
     manual_review_reason = _gmail_manual_review_reason(canonical)
@@ -956,7 +957,11 @@ def _process_record(
         )
     )
     if suppressed is not None:
-        return "suppressed"
+        if not allow_suppressed:
+            return "suppressed"
+        # An explicit manual sync is an intentional restore request.
+        session.delete(suppressed)
+        session.flush()
     now = datetime.now(UTC)
     if canonical.provider == "gohighlevel":
         email = str(normalized_payload.get("email") or "").strip().lower()
@@ -1760,6 +1765,7 @@ def run_inbound_sync(
                                 actor_id=actor_id,
                                 correlation_id=run.correlation_id,
                                 send_confirmation_email=send_confirmation_email,
+                                allow_suppressed=mode == "manual",
                             )
                             candidate_outcomes.append((candidate_canonical, candidate_outcome))
                         except ValueError as candidate_error:

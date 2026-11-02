@@ -296,7 +296,9 @@ def _delete_lead(
         event = session.get(SourceEventORM, row.source_event_id)
         if event is not None:
             event.status = "deleted"
-            event.error_message = "Lead moved to trash by workspace user; matching source is suppressed."
+            event.error_message = (
+                "Lead moved to trash by workspace user; matching source is suppressed."
+            )
             event.updated_at = now
     # CRM sync rows and notifications reference routing decisions with
     # restrictive foreign keys. Remove those dependants explicitly before the
@@ -346,6 +348,27 @@ def list_lead_trash(
         )
         for row in rows
     ]
+
+
+@router.post("/trash/{suppression_id}/restore")
+def restore_lead_from_trash(
+    suppression_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+) -> dict[str, str]:
+    row = session.scalar(
+        select(LeadSuppressionORM).where(
+            LeadSuppressionORM.id == suppression_id,
+            LeadSuppressionORM.workspace_id == workspace.workspace_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Trash item not found")
+    provider = row.provider
+    external_id = row.external_id
+    session.delete(row)
+    session.commit()
+    return {"status": "restored", "provider": provider, "external_id": external_id}
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:

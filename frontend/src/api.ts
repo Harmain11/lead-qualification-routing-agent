@@ -597,6 +597,10 @@ export function listLeadTrash(signal?: AbortSignal): Promise<LeadTrashItem[]> {
   return request<LeadTrashItem[]>("/v1/leads/trash", { signal });
 }
 
+export function restoreLeadFromTrash(suppressionId: string): Promise<{ status: string; provider: string; external_id: string }> {
+  return jsonRequest(`/v1/leads/trash/${suppressionId}/restore`, { method: "POST" });
+}
+
 export const LEAD_EXPORT_COLUMNS = [
   { key: "lead_name", label: "Lead / Contact Name", defaultSelected: true },
   { key: "company", label: "Company", defaultSelected: true },

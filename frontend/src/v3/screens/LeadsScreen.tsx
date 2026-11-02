@@ -9,6 +9,7 @@ import {
   listLeadAssignmentOptions,
   listLeadTrash,
   listLeads,
+  restoreLeadFromTrash,
   updateLeadAssignment,
   type LeadExportColumn,
   type LeadTrashItem,
@@ -369,6 +370,16 @@ export function LeadsScreen({
       setTrashLoading(false);
     }
   };
+  const restoreTrash = async (item: LeadTrashItem) => {
+    try {
+      await restoreLeadFromTrash(item.id);
+      setTrashItems((current) => current.filter((candidate) => candidate.id !== item.id));
+      setNotice(`${item.lead_email || "Lead"} restored. Use Sync now to import it again from ${item.provider}.`);
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to restore Trash item");
+    }
+  };
   const transferSelected = async () => {
     if (!(await confirmAction({ title: `Sync ${selectedIds.size} lead${selectedIds.size === 1 ? "" : "s"} to ${providerLabel(bulkProvider)}?`, message: "Records are created or updated in the CRM with each lead's current details.", confirmLabel: "Sync" }))) return;
     try {
@@ -715,7 +726,7 @@ export function LeadsScreen({
             <div className="v-stack" role="list" aria-label="Deleted leads">
               {trashItems.map((item) => (
                 <article key={item.id} className="v-card" role="listitem">
-                  <div className="v-card-head"><div><strong>{item.lead_email || "Deleted lead"}</strong><p className="v-muted">{item.provider} · {item.external_id}</p></div><span className="v-muted">{formatShortDate(item.created_at)}</span></div>
+                  <div className="v-card-head"><div><strong>{item.lead_email || "Deleted lead"}</strong><p className="v-muted">{item.provider} · {item.external_id}</p></div><div className="v-inline-actions"><span className="v-muted">{formatShortDate(item.created_at)}</span><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></div></div>
                   <p className="v-muted">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
                 </article>
               ))}
