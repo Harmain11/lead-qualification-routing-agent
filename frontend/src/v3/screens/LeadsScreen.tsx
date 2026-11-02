@@ -374,7 +374,8 @@ export function LeadsScreen({
     try {
       await restoreLeadFromTrash(item.id);
       setTrashItems((current) => current.filter((candidate) => candidate.id !== item.id));
-      setNotice(`${item.lead_email || "Lead"} restored. Use Sync now to import it again from ${item.provider}.`);
+      setLeadListMode("all");
+      setNotice(`${item.lead_email || "Lead"} restored. ${providerLabel(item.provider)} will check for it automatically on the next sync.`);
       setRefreshKey((value) => value + 1);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to restore Trash item");
