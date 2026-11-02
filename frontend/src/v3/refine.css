@@ -1997,6 +1997,24 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .int-detail .integration-guide { grid-template-columns: minmax(0, 1fr); }
 .v-app .integrations-page .int-card.is-expanded > .int-head { min-width: 0; }
 
+/* Expanded cards must constrain their own contents, never crop controls at the page edge. */
+.v-app .integrations-page .integration-card.int-card.is-expanded {
+  inline-size: min(100%, 760px);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow: visible;
+}
+.v-app .integrations-page .int-card.is-expanded :is(.int-detail-summary, .int-detail-actions, .int-detail-main, .int-tabs, .int-pane, .reasoning-usage, .reasoning-usage-toolbar) { min-inline-size: 0; }
+.v-app .integrations-page .int-tabs { flex-wrap: wrap; }
+.v-app .integrations-page .int-detail :is(select, input:not([type="checkbox"]):not([type="radio"])) { max-inline-size: 100%; min-inline-size: 0; }
+.v-app .integrations-page .reasoning-usage-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 220px); align-items: end; }
+.v-app .integrations-page .reasoning-usage-range { grid-column: 1 / -1; justify-self: start; margin-inline: 0 !important; }
+@media (max-width: 640px) {
+  .v-app .integrations-page .reasoning-usage-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .v-app .integrations-page .reasoning-usage-model-filter { min-inline-size: 0; width: 100%; }
+  .v-app .integrations-page .reasoning-usage-model-filter select { width: 100%; }
+}
+
 /* Slack dialog: one left edge, no meta line, left-aligned headings */
 .slack-connection-dialog .integration-direction { display: none; }
 .slack-connection-dialog .slack-provider-details { padding: 0 !important; gap: 16px; }
