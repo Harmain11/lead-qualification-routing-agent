@@ -239,6 +239,18 @@ def _field_signal(field: AnalyzedField | None, accepted: Iterable[str] | None = 
     return field.value if any(_norm(value) in normalized for value in accepted) else None
 
 
+def _trusted_ai_analysis(analysis: LeadContextAnalysis | None) -> LeadContextAnalysis | None:
+    if (
+        analysis is None
+        or analysis.provider in {"deterministic", "deterministic-safeguard"}
+        or analysis.status != "completed"
+        or analysis.requires_manual_review
+        or analysis.overall_confidence < 0.65
+    ):
+        return None
+    return analysis
+
+
 def _field_evidence(field: AnalyzedField | None) -> tuple[str, ...]:
     if field is None:
         return ()
@@ -509,15 +521,15 @@ def qualify_lead(
     interest_direction, interest_evidence = _latest_directional_evidence(lead)
     interest_excerpt = _evidence_excerpt(interest_evidence)
     negative_interest = interest_direction == "negative"
-    analyzed_urgency = _analysis_field(analysis, "urgency")
-    analyzed_timeline = _analysis_field(analysis, "explicit_timeline")
-    urgent = _contains_any(text, icp.scoring.signals.get("urgent", [])) or _field_signal(
-        analyzed_urgency, ["high", "urgent", "immediate"]
-    )
-    meeting_request = _meeting_request_signal(text)
-    # A validated AI timeline is the primary signal. The concrete-request parser protects
-    # qualification when the provider is unavailable or when it omitted a clearly stated time.
-    urgent = urgent or meeting_request
+    ai_analysis = _trusted_ai_analysis(analysis)
+    analyzed_urgency = _analysis_field(ai_analysis, "urgency")
+    analyzed_timeline = _analysis_field(ai_analysis, "explicit_timeline")
+    legacy_scoring = analysis is None
+    urgent = _field_signal(analyzed_urgency, ["high", "urgent", "immediate"])
+    meeting_request = _meeting_request_signal(text) if legacy_scoring else None
+    if legacy_scoring:
+        urgent = urgent or _contains_any(text, icp.scoring.signals.get("urgent", []))
+        urgent = urgent or meeting_request
     if negative_interest:
         urgent = None
     lines.append(
@@ -532,25 +544,24 @@ def qualify_lead(
                 if negative_interest
                 else f"Urgency signal {'found' if urgent else 'not found'}."
             ),
-            urgent or (interest_excerpt if negative_interest else "no urgency signal"),
+            urgent
+            or (
+                (interest_excerpt or "recent negative interest evidence")
+                if negative_interest
+                else "no urgency signal"
+            ),
             *_field_evidence(analyzed_urgency),
             *_field_evidence(analyzed_timeline),
         )
     )
-    analyzed_stage = _analysis_field(analysis, "buying_stage")
-    analyzed_intent_level = (
-        analysis.intent_level
-        if analysis is not None
-        and analysis.status == "completed"
-        and not analysis.requires_manual_review
-        and analysis.overall_confidence >= 0.65
-        else None
-    )
-    buying_stage = (
-        _contains_any(text, icp.scoring.signals.get("ready_to_buy", []))
-        or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"])
-        or meeting_request
-    )
+    analyzed_stage = _analysis_field(ai_analysis, "buying_stage")
+    analyzed_intent_level = ai_analysis.intent_level if ai_analysis is not None else None
+    buying_stage = None
+    if legacy_scoring:
+        buying_stage = (
+            _contains_any(text, icp.scoring.signals.get("ready_to_buy", []))
+            or meeting_request
+        )
     buying_stage_max = intent_points.get("buying_stage", 0)
     buying_stage_points = buying_stage_max if buying_stage else 0
     if negative_interest:
@@ -587,7 +598,12 @@ def qualify_lead(
                 if negative_interest
                 else f"Buying interest signal {'found' if buying_stage else 'not found'}."
             ),
-            buying_stage or (interest_excerpt if negative_interest else "no ready-to-buy signal"),
+            buying_stage
+            or (
+                (interest_excerpt or "recent negative interest evidence")
+                if negative_interest
+                else "no ready-to-buy signal"
+            ),
             *_field_evidence(analyzed_stage),
             *(
                 (f"AI intent level: {analyzed_intent_level}",)
@@ -596,12 +612,10 @@ def qualify_lead(
             ),
         )
     )
-    analyzed_budget = _analysis_field(analysis, "budget_information")
-    budget_signal = (
-        lead.budget is not None
-        or _contains_any(text, icp.scoring.signals.get("budget", []))
-        or _field_signal(analyzed_budget)
-    )
+    analyzed_budget = _analysis_field(ai_analysis, "budget_information")
+    budget_signal = lead.budget is not None or _field_signal(analyzed_budget)
+    if legacy_scoring:
+        budget_signal = budget_signal or _contains_any(text, icp.scoring.signals.get("budget", []))
     if budget_state == "negative":
         budget_signal = None
     lines.append(
@@ -624,10 +638,12 @@ def qualify_lead(
             *([budget_excerpt] if budget_excerpt else []),
         )
     )
-    analyzed_technical = _analysis_field(analysis, "technical_requirements")
-    specific = _contains_any(
-        text, icp.scoring.signals.get("specific_request", [])
-    ) or _field_signal(analyzed_technical)
+    analyzed_specific = _analysis_field(ai_analysis, "specific_request")
+    specific = _field_signal(analyzed_specific)
+    if legacy_scoring:
+        specific = meeting_request or _contains_any(
+            text, icp.scoring.signals.get("specific_request", [])
+        )
     if negative_interest:
         specific = None
     lines.append(
@@ -642,8 +658,13 @@ def qualify_lead(
                 if negative_interest
                 else f"Specific request signal {'found' if specific else 'not found'}."
             ),
-            specific or (interest_excerpt if negative_interest else "no specific request signal"),
-            *_field_evidence(analyzed_technical),
+            specific
+            or (
+                (interest_excerpt or "recent negative interest evidence")
+                if negative_interest
+                else "no specific request signal"
+            ),
+            *_field_evidence(analyzed_specific),
         )
     )
 

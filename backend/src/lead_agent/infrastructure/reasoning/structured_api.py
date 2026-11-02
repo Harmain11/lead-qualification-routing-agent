@@ -150,7 +150,7 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
 class StructuredAPIReasoningProvider:
     """Reasoning provider using each vendor's native structured-output API."""
 
-    prompt_version = "phase3-context-v3"
+    prompt_version = "phase3-context-v7"
 
     _CONFIG: dict[str, tuple[str, str]] = {
         "gemini": ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/models"),
@@ -261,9 +261,9 @@ class StructuredAPIReasoningProvider:
                 "proposes; use current_datetime_utc only to resolve relative dates when the "
                 "timezone is clear. Do not invent calendar availability or claim a meeting is "
                 "booked. Only guide toward a meeting when the sender's message makes it a "
-                "relevant next step. When it fits, end with one friendly, direct invitation to book "
-                "or confirm the proposed time. Use a booking link only if it is already in the "
-                "thread or draft, and do not pressure the customer. Preserve the original "
+                "relevant next step. When it fits, end with one friendly, direct invitation to "
+                "book or confirm the proposed time. Use a booking link only if it is already in "
+                "the thread or draft, and do not pressure the customer. Preserve the original "
                 "subject for replies. "
                 "If the existing draft lists numbered meeting options, preserve every option "
                 "exactly and tell the recipient to reply with the option number. Do not claim "

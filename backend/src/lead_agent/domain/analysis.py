@@ -47,6 +47,7 @@ class ContextFields(BaseModel):
     person_role: AnalyzedField
     decision_maker_status: AnalyzedField
     buying_stage: AnalyzedField
+    specific_request: AnalyzedField = Field(default_factory=AnalyzedField)
     competitor_or_current_tools: AnalyzedField
     technical_requirements: AnalyzedField
     previous_engagement: AnalyzedField

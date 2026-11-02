@@ -13,6 +13,7 @@ from openai import OpenAI
 
 from lead_agent.application.services import _context_analysis
 from lead_agent.domain.analysis import (
+    AnalyzedField,
     InvalidReasoningOutput,
     ReasoningOutput,
     ReasoningProviderTimeout,
@@ -144,7 +145,7 @@ def test_medium_and_low_intent_are_distinguished(icp, message: str, expected: st
         ("Please share general information about your service.", "low", 0),
     ],
 )
-def test_grounded_ai_intent_changes_deterministic_buying_stage_points(
+def test_grounded_ai_intent_changes_buying_stage_points(
     icp, routing, message: str, intent_level: str, expected_points: int
 ) -> None:
     lead = make_lead(
@@ -156,6 +157,7 @@ def test_grounded_ai_intent_changes_deterministic_buying_stage_points(
     assert analysis is not None
     analysis = analysis.model_copy(
         update={
+            "provider": "openai",
             "intent_level": intent_level,
             "overall_confidence": 0.95,
             "requires_manual_review": False,
@@ -166,6 +168,83 @@ def test_grounded_ai_intent_changes_deterministic_buying_stage_points(
 
     buying_stage = next(line for line in result.score_breakdown if line.key == "buying_stage")
     assert buying_stage.points == expected_points
+
+
+def test_validated_ai_context_drives_all_intent_scoring(icp, routing) -> None:
+    lead = make_lead(
+        message="Looking forward to hopping on a 10-minute Zoom call sometime next week.",
+        product_or_service="",
+        budget=None,
+    )
+    analysis = _context_analysis(lead, icp, routing, DeterministicReasoningProvider())
+    analysis = analysis.model_copy(
+        update={
+            "provider": "openai",
+            "status": "completed",
+            "requires_manual_review": False,
+            "overall_confidence": 0.95,
+            "intent_level": "medium",
+            "context": analysis.context.model_copy(
+                update={
+                    "urgency": AnalyzedField(
+                        value="high", information_kind="inferred", confidence=0.94
+                    ),
+                    "explicit_timeline": AnalyzedField(
+                        value="next week", information_kind="explicit", confidence=1
+                    ),
+                    "buying_stage": AnalyzedField(
+                        value="meeting requested", information_kind="inferred", confidence=0.93
+                    ),
+                    "specific_request": AnalyzedField(
+                        value="10-minute Zoom call next week",
+                        information_kind="explicit",
+                        confidence=1,
+                    ),
+                }
+            ),
+        }
+    )
+
+    result = qualify_lead(lead, icp, routing, analysis)
+    intent_lines = {
+        line.key: line for line in result.score_breakdown if line.component == "intent_urgency"
+    }
+
+    assert intent_lines["urgency"].points == intent_lines["urgency"].max_points
+    assert 0 < intent_lines["buying_stage"].points < intent_lines["buying_stage"].max_points
+    assert intent_lines["specific_request"].points == intent_lines["specific_request"].max_points
+
+
+def test_validated_ai_unknowns_are_not_overridden_by_keyword_rules(icp, routing) -> None:
+    lead = make_lead(
+        message="Can we meet tomorrow at 2 pm?",
+        product_or_service="",
+        budget=None,
+    )
+    analysis = _context_analysis(lead, icp, routing, DeterministicReasoningProvider()).model_copy(
+        update={
+            "provider": "openai",
+            "status": "completed",
+            "requires_manual_review": False,
+            "overall_confidence": 0.95,
+            "intent_level": "unknown",
+            "context": _context_analysis(
+                make_lead(message="No sales context.", product_or_service="", budget=None),
+                icp,
+                routing,
+                DeterministicReasoningProvider(),
+            ).context,
+        }
+    )
+
+    result = qualify_lead(lead, icp, routing, analysis)
+    intent_lines = {
+        line.key: line for line in result.score_breakdown if line.component == "intent_urgency"
+    }
+
+    assert intent_lines["urgency"].points == 0
+    assert intent_lines["buying_stage"].points == 0
+    assert intent_lines["specific_request"].points == 0
 
 
 def test_unknown_budget_and_vague_timeline_are_not_fabricated(icp) -> None:

@@ -55,6 +55,9 @@ current buying intent. Newer explicit evidence can supersede older readiness sig
 the length of a note or a seller-only action as customer commitment. For urgency, classify a
 prospect's concrete request to meet, talk, schedule, or decide at a stated near-term day, date, or
 time as high urgency; preserve the exact phrase in explicit_timeline and cite the message excerpt.
+This includes affirmative meeting intent such as looking forward to a call or Zoom meeting next
+week, even when it is phrased as a statement instead of a question. Put the concrete requested
+action in specific_request; leave that field unknown when the lead makes no actionable request.
 Classify a stated but non-immediate project timeline conservatively as medium or low as supported
 by the text. A seller-proposed time or an unrelated internal meeting is not prospect urgency. For
 buying_stage, distinguish a prospect request to discuss or schedule from a confirmed meeting or
@@ -79,7 +82,7 @@ The ICP is the only definition of fit. Do not invent criteria, scores, or routin
 
 class OpenAIReasoningProvider:
     provider_name = "openai"
-    prompt_version = "phase3-context-v6"
+    prompt_version = "phase3-context-v7"
 
     def __init__(
         self,
