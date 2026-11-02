@@ -1899,6 +1899,28 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .integrations-page .lead-confirmation-setting-copy strong { font: 600 14px/1.35 var(--font); }
 .v-app .integrations-page .lead-confirmation-setting-copy p { margin: 0; font: 400 13px/1.45 var(--font); color: var(--label-2); max-width: 60ch; }
 .v-app .integrations-page .gm { gap: 8px; }
+
+/* Expanded integrations stay compact on desktop; long account histories scroll inside the detail area. */
+@media (min-width: 768px) {
+  .v-app .integrations-page .integration-card.is-expanded {
+    grid-template-rows: auto minmax(0, 1fr);
+    max-inline-size: 760px;
+    max-block-size: min(72dvh, 640px);
+    justify-self: start;
+  }
+  .v-app .integrations-page .integration-card.is-expanded .provider-details {
+    min-block-size: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .v-app .integrations-page .gm-rows {
+    max-block-size: 300px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
 .v-app .integrations-page .int-detail-main .int-health { padding: 0 !important; border-radius: 0; box-shadow: none !important; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker { display: flex !important; align-items: center; gap: 10px; width: auto; }
 .v-app .integrations-page .int-detail-main > label.ai-provider-picker select { width: 220px; }
