@@ -1056,6 +1056,7 @@ export type ReasoningBackfillStatus = {
   completed: number;
   failed: number;
   skipped: number;
+  failure_categories?: Record<string, number>;
   provider: string;
   model: string;
 };

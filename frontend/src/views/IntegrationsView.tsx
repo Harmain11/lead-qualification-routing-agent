@@ -19,6 +19,7 @@ beginIntegration,
   cancelInboundSync,
 configureInboundSync,
 disconnectIntegration,
+  getReasoningBackfillStatus,
   getLeadConfirmationSources,
 getInboundSyncState,
 getInboundSyncRuns,
@@ -818,13 +819,20 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   }, []);
 
-  async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation, targetConnectionId?: string) {
+  async function act(
+    provider: string,
+    operation: () => Promise<unknown>,
+    success: string | ((result: unknown) => string),
+    kind?: ConnectionOperation,
+    targetConnectionId?: string,
+  ) {
     if (runningProvider.current) return;
     runningProvider.current = provider;
     setBusy(provider); setBusyAction(kind ?? null); setBusyTargetConnectionId(targetConnectionId ?? null); setNotice(null);
     if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "running", message: operationProgress[kind] } }));
     try {
-      await operation();
+      const result = await operation();
+      const successMessage = typeof success === "function" ? success(result) : success;
       if (kind === "disconnect") setCards((current) => current.map((card) => {
         if (card.provider !== provider) return card;
         const id = targetConnectionId ?? card.connection?.id;
@@ -838,8 +846,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           connections: card.connections.map((item) => item.id === id ? disconnected : item),
         };
       }));
-      setNotice(success);
-      if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "success", message: success } }));
+      setNotice(successMessage);
+      if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "success", message: successMessage } }));
       setCredentials((current) => ({ ...current, [provider]: {} }));
       await refresh();
     } catch (actionError) {
@@ -847,6 +855,36 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setNotice(message);
       if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
     } finally { setBusy(null); setBusyAction(null); setBusyTargetConnectionId(null); runningProvider.current = null; }
+  }
+
+  async function runReasoningBackfill(connectionId: string): Promise<{ message: string }> {
+    const queued = await backfillReasoning(connectionId);
+    if (queued.status === "no_eligible_leads") return { message: queued.message };
+    const terminalStatuses = new Set(["completed", "partial_failure", "failed", "no_eligible_leads"]);
+    let latestStatus: Awaited<ReturnType<typeof getReasoningBackfillStatus>> | null = null;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      latestStatus = await getReasoningBackfillStatus(connectionId, queued.job_id);
+      if (terminalStatuses.has(latestStatus.status)) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+    if (!latestStatus || !terminalStatuses.has(latestStatus.status)) {
+      return { message: "AI re-analysis is still running. Check the AI connection again shortly." };
+    }
+    if (latestStatus.status === "no_eligible_leads") {
+      return { message: "There are no existing leads that need this provider configuration." };
+    }
+    if (latestStatus.status === "failed" || latestStatus.status === "partial_failure") {
+      const categories = Object.entries(latestStatus.failure_categories ?? {})
+        .map(([category, count]) => `${category}: ${count}`)
+        .join(", ");
+      const reason = categories ? ` (${categories})` : "";
+      throw new Error(
+        `AI re-analysis finished with ${latestStatus.failed} failed of ${latestStatus.total} leads${reason}.`,
+      );
+    }
+    return {
+      message: `AI re-analysis complete: ${latestStatus.completed} updated, ${latestStatus.skipped} already current.`,
+    };
   }
 
   async function syncInbound(
@@ -1405,7 +1443,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
             {!connection || connection.status === "disconnected" ? canConnectProvider && (card.supported_auth.includes("oauth2") || card.manual_fields.length === 0 || !canManage) && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
-            {section.id === "ai" && connection?.status === "verified" && connection.is_active && canManage && <button className="button-quiet" onClick={() => void act(card.provider, () => backfillReasoning(connection.id), "AI re-analysis queued for leads with outdated qualification.")} disabled={Boolean(busy)}>Re-analyze leads</button>}
+            {section.id === "ai" && connection?.status === "verified" && connection.is_active && canManage && <button className="button-quiet" onClick={() => void act(card.provider, () => runReasoningBackfill(connection.id), (result) => result && typeof result === "object" && "message" in result ? String(result.message) : "AI re-analysis finished.")} disabled={Boolean(busy)}>Re-analyze leads</button>}
             {card.provider === "salesforce" && <button className="int-tertiary" onClick={() => setSalesforceSetupOpen(true)}>Prepare org</button>}
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure

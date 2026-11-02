@@ -306,6 +306,7 @@ def test_reasoning_backfill_persists_no_eligible_state_and_exposes_status(
             "completed": 0,
             "failed": 0,
             "skipped": 0,
+                "failure_categories": {},
             "provider": "openai",
             "model": "test-model",
         }
@@ -392,6 +393,56 @@ def test_reasoning_backfill_deduplicates_an_active_configuration(
         assert second["status"] == "already_queued"
         assert first["job_id"] == second["job_id"]
         assert len(queued) == 1
+
+
+def test_preview_reasoning_backfill_uses_local_worker_without_redis(
+    tmp_path, icp, routing, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    workspace_id = uuid4()
+    reserved: dict[str, str] = {}
+    queued: list[tuple[str, ...]] = []
+
+    def reserve(lock_key: str, job_id: str) -> str | None:
+        current = reserved.get(lock_key)
+        if current:
+            return current
+        reserved[lock_key] = job_id
+        return None
+
+    monkeypatch.setattr(
+        "lead_agent.api.routes.integrations._reasoning_backfill_snapshot",
+        lambda *_args: ("openai", "test-model", "openai|test-model|prompt-v1"),
+    )
+    monkeypatch.setattr(
+        "lead_agent.worker.preview_sync.reserve_reasoning_backfill", reserve
+    )
+    monkeypatch.setattr(
+        "lead_agent.worker.preview_sync.enqueue_reserved_reasoning_backfill",
+        lambda *args: queued.append(args),
+    )
+    monkeypatch.setattr(
+        "lead_agent.api.routes.integrations.Redis.from_url",
+        lambda *_args, **_kwargs: pytest.fail("Preview backfills must not require Redis"),
+    )
+
+    with _session(tmp_path) as session:
+        connection = _connection(session, workspace_id, "openai")
+        process_lead(session, _payload(), icp, routing, workspace_id=workspace_id)
+        result = _enqueue_reasoning_backfill(
+            session,
+            connection,
+            SimpleNamespace(
+                app_env="development",
+                redis_required=False,
+                redis_url="redis://unused",
+            ),
+        )
+
+    assert result["status"] == "queued"
+    assert result["queued_count"] == 1
+    assert len(queued) == 1
 
 
 def test_background_analysis_retries_provider_failure_and_remembers_completion(

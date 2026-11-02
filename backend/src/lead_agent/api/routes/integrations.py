@@ -403,7 +403,13 @@ def _reasoning_backfill_snapshot(
     model_name = str(getattr(provider, "model_name", ""))
     prompt_version = str(getattr(provider, "prompt_version", ""))
     if provider_name != connection.provider_type or not model_name or not prompt_version:
-        raise HTTPException(status_code=409, detail="The verified AI provider is not active")
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This AI connection is not resolving to its configured provider. "
+                "Reconnect or verify it in Integrations before re-analyzing leads."
+            ),
+        )
     return provider_name, model_name, f"{provider_name}|{model_name}|{prompt_version}"
 
 
@@ -421,44 +427,79 @@ def _enqueue_reasoning_backfill(
     provider_name, model_name, config_key = _reasoning_backfill_snapshot(session, connection)
     lock_hash = hashlib.sha256(config_key.encode()).hexdigest()[:24]
     lock_key = f"reasoning-backfill:{connection.workspace_id}:{connection.id}:{lock_hash}"
-    redis_client = Redis.from_url(
-        settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+    use_preview_worker = (
+        settings.app_env != "production" and not settings.redis_required
     )
-    try:
-        redis_client.ping()
-        existing_job = redis_client.get(lock_key)
-        if existing_job:
-            existing_job_id = (
-                existing_job.decode()
-                if isinstance(existing_job, bytes)
-                else str(existing_job)
-            )
+    job_id = str(uuid4())
+    if use_preview_worker:
+        from lead_agent.worker.preview_sync import reserve_reasoning_backfill
+
+        existing_job_id = reserve_reasoning_backfill(lock_key, job_id)
+        if existing_job_id:
             return {
                 "status": "already_queued",
                 "job_id": existing_job_id,
                 "queued_count": 0,
                 "message": "A backfill for this provider configuration is already running.",
             }
-        job_id = str(uuid4())
-        if not redis_client.set(lock_key, job_id, nx=True, ex=21600):
-            active_job = redis_client.get(lock_key)
-            active_job_id = (
-                active_job.decode()
-                if isinstance(active_job, bytes)
-                else str(active_job or "")
+    else:
+        redis_client = Redis.from_url(
+            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+        )
+        try:
+            redis_client.ping()
+            existing_job = redis_client.get(lock_key)
+            if existing_job:
+                existing_job_id = (
+                    existing_job.decode()
+                    if isinstance(existing_job, bytes)
+                    else str(existing_job)
+                )
+                return {
+                    "status": "already_queued",
+                    "job_id": existing_job_id,
+                    "queued_count": 0,
+                    "message": "A backfill for this provider configuration is already running.",
+                }
+            if not redis_client.set(lock_key, job_id, nx=True, ex=21600):
+                active_job = redis_client.get(lock_key)
+                active_job_id = (
+                    active_job.decode()
+                    if isinstance(active_job, bytes)
+                    else str(active_job or "")
+                )
+                return {
+                    "status": "already_queued",
+                    "job_id": active_job_id,
+                    "queued_count": 0,
+                    "message": "A backfill for this provider configuration is already running.",
+                }
+        except (RedisError, OSError, ValueError) as error:
+            raise HTTPException(
+                status_code=503, detail="The lead analysis worker is unavailable"
+            ) from error
+        finally:
+            redis_client.close()
+
+    def clear_backfill_lock() -> None:
+        if use_preview_worker:
+            from lead_agent.worker.preview_sync import release_reasoning_backfill
+
+            release_reasoning_backfill(lock_key, job_id)
+            return
+        cleanup = Redis.from_url(
+            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+        )
+        try:
+            cleanup.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                "return redis.call('del', KEYS[1]) else return 0 end",
+                1, lock_key, job_id,
             )
-            return {
-                "status": "already_queued",
-                "job_id": active_job_id,
-                "queued_count": 0,
-                "message": "A backfill for this provider configuration is already running.",
-            }
-    except (RedisError, OSError, ValueError) as error:
-        raise HTTPException(
-            status_code=503, detail="The lead analysis worker is unavailable"
-        ) from error
-    finally:
-        redis_client.close()
+        except (RedisError, OSError, ValueError):
+            pass
+        finally:
+            cleanup.close()
 
     total_leads = int(session.scalar(
         select(func.count(LeadORM.id)).where(LeadORM.workspace_id == connection.workspace_id)
@@ -492,45 +533,32 @@ def _enqueue_reasoning_backfill(
     session.add(queued_event)
     session.commit()
     if not queued_count:
-        cleanup = Redis.from_url(
-            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
-        )
-        try:
-            cleanup.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                "return redis.call('del', KEYS[1]) else return 0 end",
-                1, lock_key, job_id,
-            )
-        except (RedisError, OSError, ValueError):
-            pass
-        finally:
-            cleanup.close()
+        clear_backfill_lock()
         return {
             "status": "no_eligible_leads",
             "job_id": job_id,
             "queued_count": 0,
             "message": "There are no existing leads that need this provider configuration.",
         }
-    from lead_agent.worker.celery_app import reanalyze_workspace_leads
-
     try:
-        reanalyze_workspace_leads.delay(
-            str(connection.workspace_id), str(connection.id), job_id, config_key
-        )
-    except Exception as error:
-        cleanup = Redis.from_url(
-            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
-        )
-        try:
-            cleanup.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                "return redis.call('del', KEYS[1]) else return 0 end",
-                1, lock_key, job_id,
+        if use_preview_worker:
+            from lead_agent.worker.preview_sync import enqueue_reserved_reasoning_backfill
+
+            enqueue_reserved_reasoning_backfill(
+                lock_key,
+                job_id,
+                str(connection.workspace_id),
+                str(connection.id),
+                config_key,
             )
-        except (RedisError, OSError, ValueError):
-            pass
-        finally:
-            cleanup.close()
+        else:
+            from lead_agent.worker.celery_app import reanalyze_workspace_leads
+
+            reanalyze_workspace_leads.delay(
+                str(connection.workspace_id), str(connection.id), job_id, config_key
+            )
+    except Exception as error:
+        clear_backfill_lock()
         session.add(ProviderLifecycleAuditORM(
             id=uuid4(), workspace_id=connection.workspace_id,
             connection_id=connection.id, provider=provider_name, actor_id="system",
@@ -540,6 +568,7 @@ def _enqueue_reasoning_backfill(
                 "config_key": config_key, "total": queued_count,
                 "completed": 0, "failed": queued_count, "skipped": 0,
                 "status": "failed", "message": "The analysis worker could not accept the job.",
+                "failure_categories": {"worker_unavailable": 1},
             },
             created_at=datetime.now(UTC),
         ))
@@ -1148,6 +1177,7 @@ def reasoning_backfill_status(
         "completed": int(row.details.get("completed", 0)),
         "failed": int(row.details.get("failed", 0)),
         "skipped": int(row.details.get("skipped", 0)),
+        "failure_categories": row.details.get("failure_categories", {}),
         "provider": row.details.get("provider", row.provider),
         "model": row.details.get("model", ""),
     }

@@ -385,6 +385,8 @@ def reanalyze_workspace_leads(
             session.commit()
 
         def release_lock() -> None:
+            if settings.app_env != "production":
+                return
             client = Redis.from_url(
                 settings.redis_url, socket_connect_timeout=1, socket_timeout=1
             )
@@ -426,10 +428,12 @@ def reanalyze_workspace_leads(
         failed = 0
         skipped = 0
         from lead_agent.domain.analysis import (
+            ReasoningProviderError,
             ReasoningProviderTimeout,
             ReasoningProviderUnavailable,
         )
         retryable_provider_errors = (ReasoningProviderTimeout, ReasoningProviderUnavailable)
+        failure_categories: dict[str, int] = {}
 
         for lead_id in lead_ids:
             lead = session.get(LeadORM, lead_id)
@@ -527,6 +531,21 @@ def reanalyze_workspace_leads(
             except Exception as error:
                 session.rollback()
                 failed += 1
+                failure_code = getattr(error, "code", None)
+                if (
+                    not isinstance(failure_code, str)
+                    or not failure_code
+                    or not failure_code.replace("_", "").isalnum()
+                ):
+                    failure_code = (
+                        "provider_error"
+                        if isinstance(error, ReasoningProviderError)
+                        else type(error).__name__
+                    )
+                failure_code = failure_code[:64]
+                failure_categories[failure_code] = (
+                    failure_categories.get(failure_code, 0) + 1
+                )
                 _LOGGER.warning(
                     "reasoning.backfill_lead_failed",
                     extra={
@@ -534,6 +553,7 @@ def reanalyze_workspace_leads(
                             "workspace_id": workspace_id,
                             "lead_id": str(lead_id),
                             "error_type": type(error).__name__,
+                            "failure_code": failure_code,
                         }
                     },
                 )
@@ -541,6 +561,7 @@ def reanalyze_workspace_leads(
                 "total": len(lead_ids), "completed": completed,
                 "failed": failed, "skipped": skipped,
                 "current_lead_id": str(lead_id),
+                "failure_categories": failure_categories,
             })
         terminal = (
             "partial_failure" if failed and completed else "failed" if failed else "completed"
@@ -550,6 +571,7 @@ def reanalyze_workspace_leads(
             "completed": completed,
             "failed": failed,
             "skipped": skipped,
+            "failure_categories": failure_categories,
             "status": terminal,
             "current_lead_id": None,
         })

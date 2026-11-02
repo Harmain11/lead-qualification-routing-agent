@@ -11,10 +11,11 @@ from typing import Any
 from uuid import UUID
 
 from lead_agent.application.crm_inbound import claim_due_inbound_sync_states
-from lead_agent.infrastructure.db.session import get_session_factory
 from lead_agent.infrastructure.db.models import CrmInboundSyncStateORM
+from lead_agent.infrastructure.db.session import get_session_factory
 from lead_agent.worker.celery_app import (
     process_pending_meeting_email_confirmations,
+    reanalyze_workspace_leads,
     run_scheduled_crm_inbound_sync,
     settings,
 )
@@ -23,6 +24,58 @@ logger = logging.getLogger(__name__)
 _MANUAL_SYNC_EXECUTOR = ThreadPoolExecutor(
     max_workers=2, thread_name_prefix="preview-gmail-sync"
 )
+_REASONING_BACKFILL_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="preview-reasoning-backfill"
+)
+_REASONING_BACKFILL_LOCK = threading.Lock()
+_REASONING_BACKFILL_JOBS: dict[str, str] = {}
+
+
+def reserve_reasoning_backfill(lock_key: str, job_id: str) -> str | None:
+    """Deduplicate preview backfills in-process when Redis/Celery are not running."""
+    with _REASONING_BACKFILL_LOCK:
+        existing_job_id = _REASONING_BACKFILL_JOBS.get(lock_key)
+        if existing_job_id is not None:
+            return existing_job_id
+        _REASONING_BACKFILL_JOBS[lock_key] = job_id
+    return None
+
+
+def release_reasoning_backfill(lock_key: str, job_id: str) -> None:
+    with _REASONING_BACKFILL_LOCK:
+        if _REASONING_BACKFILL_JOBS.get(lock_key) == job_id:
+            del _REASONING_BACKFILL_JOBS[lock_key]
+
+
+def enqueue_reserved_reasoning_backfill(
+    lock_key: str,
+    job_id: str,
+    workspace_id: str,
+    connection_id: str,
+    config_key: str,
+) -> None:
+    """Run the same backfill task in a preview thread instead of a Celery broker."""
+    with _REASONING_BACKFILL_LOCK:
+        if _REASONING_BACKFILL_JOBS.get(lock_key) != job_id:
+            raise RuntimeError("Preview reasoning backfill reservation was lost")
+    future = _REASONING_BACKFILL_EXECUTOR.submit(
+        _run_reasoning_backfill, workspace_id, connection_id, job_id, config_key
+    )
+    future.add_done_callback(
+        lambda _future: release_reasoning_backfill(lock_key, job_id)
+    )
+
+
+def _run_reasoning_backfill(
+    workspace_id: str, connection_id: str, job_id: str, config_key: str
+) -> Any:
+    try:
+        return reanalyze_workspace_leads.run(
+            workspace_id, connection_id, job_id, config_key
+        )
+    except Exception:
+        logger.exception("preview.reasoning_backfill_failed")
+        raise
 
 
 def enqueue_manual_sync(state_id: str, **task_kwargs: Any) -> None:
