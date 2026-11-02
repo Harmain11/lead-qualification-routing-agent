@@ -126,22 +126,22 @@ function ProviderDetailsPanel({
       summary.push(child);
     }
   });
-  const order = ["connection", "settings", "guide"];
+  const order = ["overview", "connection", "settings", "guide"];
   panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
-  // Working panes (connect, settings, usage) get tabs; the setup guide is one quiet row beneath them.
-  const working = panes.filter((pane) => pane.id !== "guide");
+  // A compact provider header is enough until the user chooses Manage. Everything
+  // else—including mailbox rows and automatic-sync controls—belongs in a tab.
+  const overview = summary.length > 0
+    ? { id: "overview", label: "Overview", open: true, body: <div className="int-overview">{summary}</div> }
+    : null;
+  // Working panes (overview, connection, settings, usage) get tabs; the setup guide is one quiet row beneath them.
+  const working = [...(overview ? [overview] : []), ...panes.filter((pane) => pane.id !== "guide")];
   const guide = panes.find((pane) => pane.id === "guide");
   const active = working.find((pane) => pane.id === tab) ?? working.find((pane) => pane.open) ?? working[0];
   const showTabs = working.length > 1;
 
   return (
     <div className="int-detail" id={id}>
-      {(summary.length > 0 || actions.length > 0) && (
-        <div className="int-detail-summary">
-          {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
-          {summary.length > 0 && <div className="int-detail-main">{summary}</div>}
-        </div>
-      )}
+      {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
       {showTabs && (
         <div className="int-tabs" role="tablist" aria-label="Integration sections">
           {working.map((pane) => (
