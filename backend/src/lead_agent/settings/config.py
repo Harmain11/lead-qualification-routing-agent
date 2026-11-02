@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     queue_name: str = "lead-processing"
     job_max_retries: int = 3
     crm_inbound_scheduler_interval_seconds: int = 15
-    crm_inbound_default_interval_seconds: int = 300
+    crm_inbound_default_interval_seconds: int = 60
     crm_inbound_batch_limit: int = 500
     crm_inbound_page_size: int = 100
     outlook_initial_sync_days: int = 30

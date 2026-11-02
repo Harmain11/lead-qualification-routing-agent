@@ -180,7 +180,7 @@ export function LeadsScreen({
   const loadedOnce = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
-  const [showTrash, setShowTrash] = useState(false);
+  const [leadListMode, setLeadListMode] = useState<"all" | "trash">("all");
   const [trashItems, setTrashItems] = useState<LeadTrashItem[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -360,7 +360,7 @@ export function LeadsScreen({
     }
   };
   const openTrash = async () => {
-    setShowTrash(true);
+    setLeadListMode("trash");
     setTrashLoading(true);
     try {
       setTrashItems(await listLeadTrash());
@@ -509,14 +509,18 @@ export function LeadsScreen({
         actions={
           <>
             <FeatureGuide topic="lead" compact />
-            <Button onClick={() => void openTrash()}>Trash</Button>
             {canExport && <Button icon="share" onClick={() => setShowExport(true)}>Export</Button>}
             {canEdit && <Button kind="filled" icon="plus" onClick={() => setShowForm(true)}>New Lead</Button>}
           </>
         }
       />
 
-      <section className="v-queue" data-tour="leads" aria-label="Lead queue">
+      <nav className="v-lead-list-tabs" aria-label="Lead list">
+        <button type="button" aria-current={leadListMode === "all" ? "page" : undefined} onClick={() => setLeadListMode("all")}>All leads</button>
+        <button type="button" aria-current={leadListMode === "trash" ? "page" : undefined} onClick={() => void openTrash()}>Trash</button>
+      </nav>
+
+      <section className="v-queue" data-tour="leads" aria-label="Lead queue" hidden={leadListMode !== "all"}>
         <div className="v-queue-bar" role="search">
           <label className="v-searchfield">
             <Icon name="search" size={16} />
@@ -688,7 +692,28 @@ export function LeadsScreen({
         )}
       </section>
 
-      {selectedIds.size > 0 && (
+      {leadListMode === "trash" && (
+        <section className="v-queue v-lead-trash-view" aria-label="Deleted leads">
+          {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
+            <div className="v-stack trash-list" role="list">
+              {trashItems.map((item) => (
+                <article key={item.id} className="v-card trash-item" role="listitem">
+                  <div className="v-card-head trash-item-head">
+                    <div className="trash-item-copy">
+                      <strong>{item.lead_email || "Deleted lead"}</strong>
+                      <p className="v-muted"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></p>
+                    </div>
+                    <div className="v-inline-actions trash-item-actions"><span className="v-muted">{formatShortDate(item.created_at)}</span><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></div>
+                  </div>
+                  <p className="v-muted trash-item-reason">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {leadListMode === "all" && selectedIds.size > 0 && (
         <div className="v-selectionbar" role="group" aria-label="Bulk actions">
           <b className="num">{selectedIds.size} selected</b>
           {canCrmSync && (
@@ -719,26 +744,6 @@ export function LeadsScreen({
       )}
       {showExport && (
         <ExportSheet count={total} selectedIds={[...selectedIds]} filters={applied} onClose={() => setShowExport(false)} />
-      )}
-      {showTrash && (
-        <Sheet title="Trash" subtitle="Recently removed leads stay here and are excluded from future source syncs." onClose={() => setShowTrash(false)} width={680}>
-          {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
-            <div className="v-stack trash-list" role="list" aria-label="Deleted leads">
-              {trashItems.map((item) => (
-                <article key={item.id} className="v-card trash-item" role="listitem">
-                  <div className="v-card-head trash-item-head">
-                    <div className="trash-item-copy">
-                      <strong>{item.lead_email || "Deleted lead"}</strong>
-                      <p className="v-muted"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></p>
-                    </div>
-                    <div className="v-inline-actions trash-item-actions"><span className="v-muted">{formatShortDate(item.created_at)}</span><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></div>
-                  </div>
-                  <p className="v-muted trash-item-reason">Source suppressed after {item.reason.replaceAll("_", " ")}.</p>
-                </article>
-              ))}
-            </div>
-          )}
-        </Sheet>
       )}
       {enrollmentDialog}
     </div>

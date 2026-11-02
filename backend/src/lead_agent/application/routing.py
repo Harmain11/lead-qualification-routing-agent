@@ -767,17 +767,7 @@ def route_and_notify(
             assignment_reason = "Manual representative assignment preserved."
         else:
             assignment_reason = "Manual unassignment preserved."
-    elif (
-        not manual_review
-        and not qualification.hard_disqualified
-        and band not in {"nurture", "disqualify"}
-        and queue
-        not in {
-            routing.manual_review_queue,
-            "nurture",
-            "archive",
-        }
-    ):
+    elif not qualification.hard_disqualified and queue != "archive":
         assigned_rep, assignment_reason = _choose_workspace_rep(session, routing, queue, lead)
     action_plan = _build_action_plan(routing, qualification, lead, analysis, action_key)
     sla_hours = (
