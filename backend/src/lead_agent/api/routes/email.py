@@ -11,7 +11,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -152,8 +152,29 @@ class MailboxMessagePageResponse(BaseModel):
     next_page_token: str | None
 
 
+class MailboxAttachmentResponse(BaseModel):
+    attachment_id: str
+    filename: str
+    mime_type: str
+    size: int = 0
+
+
+class MailboxThreadMessageResponse(BaseModel):
+    message_id: str
+    thread_id: str
+    sender: str
+    sender_name: str
+    recipients: str
+    subject: str
+    sent_at: str
+    rfc_message_id: str = ""
+    direction: str
+    body: str = ""
+    attachments: list[MailboxAttachmentResponse] = Field(default_factory=list)
+
+
 class MailboxThreadResponse(BaseModel):
-    messages: list[dict[str, str]]
+    messages: list[MailboxThreadMessageResponse]
 
 
 class ComposeWithAIRequest(BaseModel):
@@ -463,6 +484,42 @@ def get_mailbox_thread(
             detail=str(error),
         ) from error
     return MailboxThreadResponse(messages=messages)
+
+
+@router.get("/attachment")
+def get_mailbox_attachment(
+    connection_id: UUID,
+    message_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
+    attachment_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+) -> Response:
+    connection, access_token = _gmail_connection(
+        session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
+    )
+    mailbox = str(
+        connection.connection_metadata.get("gmail_email") or connection.account_name
+    ).strip().lower()
+    try:
+        content, filename, mime_type = GmailInboundProvider(
+            connection.id, access_token, mailbox
+        ).fetch_mailbox_attachment(message_id, attachment_id)
+    except ProviderOperationError as error:
+        raise HTTPException(
+            status_code=503 if error.retryable else 502,
+            detail=str(error),
+        ) from error
+    safe_type = mime_type.lower() if re.fullmatch(r"[a-z0-9.+-]+/[a-z0-9.+-]+", mime_type.lower()) else "application/octet-stream"
+    safe_name = re.sub(r"[\\\r\n\"]+", "", filename) or "attachment"
+    disposition = "inline" if safe_type.startswith("image/") else "attachment"
+    return Response(
+        content=content,
+        media_type=safe_type,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
 
 
 @router.post("/compose-ai", response_model=ComposeWithAIResponse)

@@ -80,6 +80,17 @@
 .mailbox-message-who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-subhead); color: var(--label-3); }
 .mailbox-message-head time { flex: none; font: var(--t-footnote); color: var(--label-3); }
 .mailbox-message-body { padding: 0 var(--s4) var(--s4) calc(var(--s4) + 36px + var(--s3)); font: var(--t-body); color: var(--label); }
+.mailbox-attachments { display: grid; gap: var(--s2); margin-top: var(--s4); }
+.mailbox-attachments h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font: var(--t-subhead); color: var(--label-2); font-weight: 600; }
+.mailbox-attachment-list { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.mailbox-attachment { display: flex; align-items: center; gap: var(--s2); min-width: min(100%, 210px); max-width: min(100%, 310px); padding: var(--s2); border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--label); text-decoration: none; }
+.mailbox-attachment:hover { background: var(--fill); border-color: var(--tint); }
+.mailbox-attachment > span { display: grid; min-width: 0; gap: 1px; }
+.mailbox-attachment b { overflow: hidden; font: var(--t-subhead); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mailbox-attachment small { overflow: hidden; color: var(--label-3); font: var(--t-footnote); text-overflow: ellipsis; white-space: nowrap; }
+.mailbox-attachment-image { display: grid; grid-template-columns: 72px minmax(0, 1fr); padding: 0; overflow: hidden; }
+.mailbox-attachment-image img { display: block; width: 72px; height: 56px; object-fit: cover; background: var(--surface-sunken); }
+.mailbox-attachment-image > span { padding: var(--s2) var(--s2) var(--s2) 0; }
 .mailbox-message-actions, .mailbox-quick-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
 .mailbox-quick-actions { margin: 0 var(--s5) var(--s5); }
 .mailbox-reply { margin: 0 var(--s5) var(--s5); }

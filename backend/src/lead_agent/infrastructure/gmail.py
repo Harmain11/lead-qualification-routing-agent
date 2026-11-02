@@ -41,6 +41,7 @@ GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _API = "https://gmail.googleapis.com/gmail/v1/users/me"
 _MAX_BODY_CHARS = 32_000
 _MAX_MESSAGE_BYTES = 1_000_000
+_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 _AUTO_LOCAL = re.compile(
     r"(?:^|[+._-])(no.?reply|do.?not.?reply|mailer-daemon|postmaster)(?:$|[+._-])", re.I
 )
@@ -272,7 +273,7 @@ class GmailTransport:
         self.client = client or httpx.Client(timeout=timeout_seconds)
         self.access_token = access_token
 
-    def get(self, path: str, **params: object) -> dict[str, Any]:
+    def get(self, path: str, *, max_response_bytes: int = _MAX_MESSAGE_BYTES, **params: object) -> dict[str, Any]:
         response: httpx.Response | None = None
         for attempt in range(3):
             try:
@@ -316,7 +317,7 @@ class GmailTransport:
                 category="temporarily_unavailable",
                 retryable=True,
             )
-        if len(response.content) > _MAX_MESSAGE_BYTES:
+        if len(response.content) > max_response_bytes:
             raise ProviderOperationError(
                 "Gmail message exceeds the permitted size.",
                 provider="gmail",
@@ -1170,6 +1171,33 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
     return content[:_MAX_BODY_CHARS]
 
 
+def parse_mime_attachments(payload: dict[str, Any]) -> list[dict[str, str | int]]:
+    """Return display-safe Gmail attachment metadata without downloading file bytes."""
+    attachments: list[dict[str, str | int]] = []
+
+    def visit(part: dict[str, Any]) -> None:
+        body = part.get("body", {})
+        if isinstance(body, dict):
+            attachment_id = str(body.get("attachmentId") or "")
+            filename = str(part.get("filename") or "").strip()
+            mime_type = str(part.get("mimeType") or "application/octet-stream").lower()
+            if attachment_id and filename:
+                attachments.append({
+                    "attachment_id": attachment_id[:255],
+                    "filename": filename[:255],
+                    "mime_type": mime_type[:127],
+                    "size": min(max(int(body.get("size") or 0), 0), _MAX_ATTACHMENT_BYTES),
+                })
+        children = part.get("parts", [])
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict):
+                    visit(child)
+
+    visit(payload)
+    return attachments[:20]
+
+
 class GmailInboundProvider:
     provider_name = "gmail"
 
@@ -1435,12 +1463,12 @@ class GmailInboundProvider:
             else None,
         }
 
-    def fetch_mailbox_thread(self, thread_id: str) -> list[dict[str, str]]:
+    def fetch_mailbox_thread(self, thread_id: str) -> list[dict[str, Any]]:
         """Read a full thread from this mailbox, including messages to non-lead recipients."""
         result = self.api.get(
             f"threads/{thread_id}",
             format="full",
-            fields="id,messages(id,threadId,internalDate,snippet,payload(mimeType,headers,body(data),parts(mimeType,filename,body(data),parts)))",
+            fields="id,messages(id,threadId,internalDate,snippet,payload(mimeType,headers,body(data,attachmentId,size),parts(mimeType,filename,body(data,attachmentId,size),parts(mimeType,filename,body(data,attachmentId,size)))))",
         )
         rows: list[dict[str, str]] = []
         messages = result.get("messages", [])
@@ -1483,9 +1511,72 @@ class GmailInboundProvider:
                     "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
                 ),
                 "body": (body or html.unescape(str(message.get("snippet") or "")))[:8000],
+                "attachments": parse_mime_attachments(payload),
             })
         rows.sort(key=lambda item: item["sent_at"])
         return rows
+
+    def fetch_mailbox_attachment(self, message_id: str, attachment_id: str) -> tuple[bytes, str, str]:
+        """Fetch one attachment only after it was listed in its message's metadata."""
+        result = self.api.get(
+            f"messages/{message_id}",
+            format="full",
+            fields="id,payload(mimeType,filename,body(attachmentId,size),parts(mimeType,filename,body(attachmentId,size),parts(mimeType,filename,body(attachmentId,size))))",
+        )
+        payload = result.get("payload", {})
+        found: tuple[str, str, int] | None = None
+
+        def visit(part: dict[str, Any]) -> None:
+            nonlocal found
+            if found is not None:
+                return
+            body = part.get("body", {})
+            if isinstance(body, dict) and str(body.get("attachmentId") or "") == attachment_id:
+                size = int(body.get("size") or 0)
+                if size > _MAX_ATTACHMENT_BYTES:
+                    raise ProviderOperationError(
+                        "This attachment is larger than 10 MB.", provider="gmail",
+                        code="gmail_attachment_too_large", category="invalid_request", retryable=False,
+                    )
+                found = (str(part.get("filename") or "attachment"), str(part.get("mimeType") or "application/octet-stream"), size)
+                return
+            children = part.get("parts", [])
+            if isinstance(children, list):
+                for child in children:
+                    if isinstance(child, dict):
+                        visit(child)
+
+        if isinstance(payload, dict):
+            visit(payload)
+        if found is None:
+            raise ProviderOperationError(
+                "Gmail attachment was not found in this message.", provider="gmail",
+                code="gmail_attachment_missing", category="not_found", retryable=False,
+            )
+        attachment = self.api.get(
+            f"messages/{message_id}/attachments/{attachment_id}",
+            max_response_bytes=14 * 1024 * 1024,
+        )
+        encoded = attachment.get("data")
+        if not isinstance(encoded, str):
+            raise ProviderOperationError(
+                "Gmail returned an unreadable attachment.", provider="gmail",
+                code="gmail_attachment_malformed", category="malformed_response", retryable=False,
+            )
+        try:
+            content = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        except (ValueError, binascii.Error):
+            raise ProviderOperationError(
+                "Gmail returned an unreadable attachment.", provider="gmail",
+                code="gmail_attachment_malformed", category="malformed_response", retryable=False,
+            ) from None
+        if len(content) > _MAX_ATTACHMENT_BYTES:
+            raise ProviderOperationError(
+                "This attachment is larger than 10 MB.", provider="gmail",
+                code="gmail_attachment_too_large", category="invalid_request", retryable=False,
+            )
+        filename, mime_type, _size = found
+        return content, filename, mime_type
 
     def fetch_thread(self, thread_id: str, *, lead_email: str) -> list[dict[str, str]]:
         """Read messages between this mailbox and a lead from a known Gmail thread."""

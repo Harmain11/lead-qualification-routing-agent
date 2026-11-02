@@ -4,6 +4,7 @@ import {
   getActiveWorkspace,
   getWorkspaceEmailDraft,
   getGmailMailboxThread,
+  getGmailMailboxAttachmentUrl,
   listGmailMailboxMessages,
   listIntegrations,
   listLeads,
@@ -13,6 +14,7 @@ import { EmailComposer, type GmailComposerSeed } from "../components/EmailCompos
 import { getProviderEmailPreview, ProviderEmailBody } from "../components/ProviderEmailBody";
 import type {
   GmailMailboxMessage,
+  GmailMailboxAttachment,
   GmailThreadMessage,
   ProviderConnection,
   WorkspaceEmailDraft,
@@ -70,6 +72,16 @@ function dayGroup(value: string) {
   if (days < 7) return "This week";
   if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) return "Earlier this month";
   return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function attachmentSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageAttachment(attachment: GmailMailboxAttachment) {
+  return attachment.mime_type.startsWith("image/");
 }
 
 const FOLDERS: Array<{ id: "inbox" | "sent" | "drafts" | "spam" | "trash" | "archive"; label: string; icon: IconName }> = [
@@ -567,6 +579,7 @@ export function EmailWorkspace({
             {thread.map((message, index) => {
               const expanded = expandedMessageIds.has(message.message_id);
               const body = message.body || "";
+              const attachments = message.attachments ?? [];
               const bodyId = `mail-message-${index}`;
               const who = message.sender_name || message.sender || "Unknown sender";
               return <article className="mailbox-message" data-expanded={expanded || undefined} data-outbound={message.direction !== "inbound" || undefined} key={message.message_id}>
@@ -580,6 +593,23 @@ export function EmailWorkspace({
                 </button>
                 {expanded && <div className="mailbox-message-body" id={bodyId}>
                   <ProviderEmailBody content={body} />
+                  {attachments.length > 0 && <section className="mailbox-attachments" aria-label={`Attachments from ${who}`}>
+                    <h3><Icon name="paperclip" size={14} />{attachments.length} attachment{attachments.length === 1 ? "" : "s"}</h3>
+                    <div className="mailbox-attachment-list">
+                      {attachments.map((attachment) => {
+                        const url = getGmailMailboxAttachmentUrl(connectionId, message.message_id, attachment.attachment_id);
+                        return isImageAttachment(attachment)
+                          ? <a className="mailbox-attachment mailbox-attachment-image" href={url} target="_blank" rel="noreferrer" key={attachment.attachment_id} title={`Open ${attachment.filename}`}>
+                            <img src={url} alt={attachment.filename} loading="lazy" />
+                            <span><b>{attachment.filename}</b><small>{attachmentSize(attachment.size)}</small></span>
+                          </a>
+                          : <a className="mailbox-attachment" href={url} target="_blank" rel="noreferrer" key={attachment.attachment_id} title={`Download ${attachment.filename}`}>
+                            <Icon name="paperclip" size={18} />
+                            <span><b>{attachment.filename}</b><small>{attachment.mime_type} · {attachmentSize(attachment.size)}</small></span>
+                          </a>;
+                      })}
+                    </div>
+                  </section>}
                   {canSend && index !== thread.length - 1 && <div className="mailbox-message-actions">
                     <Button size="sm" icon="reply" onClick={() => beginReplyTo(message, "reply")}>Reply</Button>
                     <Button size="sm" icon="replyAll" onClick={() => beginReplyTo(message, "all")}>Reply all</Button>

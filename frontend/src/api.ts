@@ -724,6 +724,19 @@ export function getGmailMailboxThread(
   return request(`/v1/email/thread?${params.toString()}`, { signal });
 }
 
+export function getGmailMailboxAttachmentUrl(
+  connectionId: string,
+  messageId: string,
+  attachmentId: string,
+) {
+  const params = new URLSearchParams({
+    connection_id: connectionId,
+    message_id: messageId,
+    attachment_id: attachmentId,
+  });
+  return `${API_BASE_URL}/v1/email/attachment?${params.toString()}`;
+}
+
 export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResult> {
   return request("/v1/email/send", {
     method: "POST",

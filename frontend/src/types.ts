@@ -1130,6 +1130,14 @@ export type GmailThreadMessage = {
   rfc_message_id: string;
   direction: "inbound" | "outbound" | string;
   body: string;
+  attachments?: GmailMailboxAttachment[];
+};
+
+export type GmailMailboxAttachment = {
+  attachment_id: string;
+  filename: string;
+  mime_type: string;
+  size: number;
 };
 
 export type GmailMailboxMessagePage = {
