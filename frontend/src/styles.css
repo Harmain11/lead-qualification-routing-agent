@@ -385,7 +385,7 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .integration-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .integration-section-heading h2 { margin: 5px 0 0; font: 22px var(--font-display); }
 .integration-section-heading > p { max-width: 470px; margin: 0; color: var(--label-2); font-size: 13px; line-height: 1.6; text-align: right; }
-.integration-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.integration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: max-content; align-items: start; gap: 16px; }
 .integration-card { position: relative; overflow: hidden; padding: 22px; border: 1px solid var(--separator-strong); border-radius: var(--r-md); background: linear-gradient(145deg, rgba(28,31,30,.9), rgba(13,15,15,.96)); scroll-margin-top: 82px; transition: border-color var(--d-fast), transform var(--d-fast); }
 .integration-card:hover { transform: translateY(-3px); border-color: var(--separator-strong); }
 .integration-card.state-connected { border-color: rgba(112,199,156,.2); }
@@ -1492,7 +1492,8 @@ body { font-size: 15px; line-height: 1.5; }
 
 .integration-grid { align-items: start; }
 .integration-grid-ai { grid-template-columns: minmax(0, 1fr); }
-.integration-card { width: 100%; align-self: start; }
+.integration-card { width: 100%; min-width: 0; align-self: start; height: fit-content; }
+.integration-card.is-collapsed { height: 106px; }
 .provider-head { grid-template-columns: 42px minmax(0, 1fr) auto 38px; }
 .ai-connection-card .provider-head { grid-template-columns: 42px minmax(0, 1fr) auto 38px; }
 .ai-provider-picker { display: grid; gap: 4px; min-width: 0; color: var(--label-2); font-size: 12px; }
