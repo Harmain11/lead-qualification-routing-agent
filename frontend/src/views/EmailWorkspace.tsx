@@ -117,6 +117,7 @@ export function EmailWorkspace({
   const [draftRevision, setDraftRevision] = useState(0);
   const lastMailboxKey = useRef("");
   const backgroundRefresh = useRef(false);
+  const forceMailboxRefresh = useRef(false);
   const lastThreadRefresh = useRef(0);
 
   useEffect(() => {
@@ -161,11 +162,28 @@ export function EmailWorkspace({
     const mailboxKey = JSON.stringify([getActiveWorkspace(), connectionId, folder, query, pageToken]);
     const changedMailbox = lastMailboxKey.current !== mailboxKey;
     lastMailboxKey.current = mailboxKey;
-    const quiet = backgroundRefresh.current && !changedMailbox;
+    const cached = mailboxCache.get(mailboxKey);
+    const cacheIsFresh = Boolean(cached && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS);
+    const forceRefreshRequested = forceMailboxRefresh.current;
+    forceMailboxRefresh.current = false;
+    // Keep the current folder useful while we revalidate it. Moving between folders
+    // should never briefly show a blank list or the previous folder's contents.
+    const quiet = Boolean(cached) || backgroundRefresh.current;
     backgroundRefresh.current = false;
     if (!quiet) setLoadingMessages(true);
     if (!quiet) setError(null);
-    if (changedMailbox) {
+    if (cached) {
+      setMessages(cached.messages);
+      setNextPageToken(cached.nextPageToken);
+      setSelected((current) => changedMailbox
+        ? cached.messages[0] ?? null
+        : cached.messages.find((message) => message.message_id === current?.message_id) ?? cached.messages[0] ?? null);
+      if (changedMailbox) {
+        setThread([]);
+        setExpandedMessageIds(new Set());
+      }
+      setLoadingMessages(false);
+    } else if (changedMailbox) {
       // Never show the prior folder's messages while the requested folder loads.
       setMessages([]);
       setSelected(null);
@@ -173,20 +191,18 @@ export function EmailWorkspace({
       setExpandedMessageIds(new Set());
       setNextPageToken(null);
     }
+    if (cacheIsFresh && !forceRefreshRequested) return () => controller.abort();
     listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
       if (controller.signal.aborted) return;
       remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
-      const changedRows = JSON.stringify(page.messages) !== JSON.stringify(changedMailbox ? [] : messages);
-      if (changedRows) {
-        setMessages(page.messages);
-        setSelected((current) => changedMailbox
-          ? page.messages[0] ?? null
-          : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
-        if (quiet && !changedMailbox && selected?.thread_id) {
-          const selectedThreadKey = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
-          threadCache.delete(selectedThreadKey);
-          setThreadRevision((current) => current + 1);
-        }
+      setMessages((current) => JSON.stringify(current) === JSON.stringify(page.messages) ? current : page.messages);
+      setSelected((current) => changedMailbox
+        ? page.messages[0] ?? null
+        : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
+      if (quiet && !changedMailbox && selected?.thread_id) {
+        const selectedThreadKey = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
+        threadCache.delete(selectedThreadKey);
+        setThreadRevision((current) => current + 1);
       }
       setNextPageToken(page.next_page_token);
       setLoadingMessages(false);
@@ -460,7 +476,7 @@ export function EmailWorkspace({
             </li>
           ))}
         </ul>
-        <Button kind="plain" size="sm" icon="refresh" onClick={() => { backgroundRefresh.current = false; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>
+        <Button kind="plain" size="sm" icon="refresh" onClick={() => { forceMailboxRefresh.current = true; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>
           {loadingMessages ? "Refreshing…" : "Refresh"}
         </Button>
       </nav>
