@@ -453,6 +453,7 @@ export function EmailWorkspace({
     key={composerRevision}
     accounts={accounts}
     canSend={canSend}
+    leadId={leadMatch?.id}
     seed={composeSeed}
     draft={activeDraft ?? undefined}
     onClose={() => { setComposeSeed(null); setActiveDraft(null); }}

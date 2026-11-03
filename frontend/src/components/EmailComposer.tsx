@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { composeEmailWithAI, deleteWorkspaceEmailDraft, getGoogleCalendarBookingLink, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
+import { composeEmailWithAI, createLeadMeetingPreferredOfferDraft, deleteWorkspaceEmailDraft, getGoogleCalendarBookingLink, getLeadMeetingRecommendations, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
 import { createClientId } from "../clientIds";
-import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
+import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, MeetingRecommendations, MeetingSuggestion, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
 import { confirmAction } from "../v3/ui/confirm";
 import { sanitizeHtml } from "../sanitizeHtml";
 import { Icon } from "../v3/ui/Icon";
@@ -105,6 +105,9 @@ export function EmailComposer({
   const [beforeAi, setBeforeAi] = useState<{ subject: string; body: string; html: string } | null>(null);
   const [proposeOpen, setProposeOpen] = useState(false);
   const [proposals, setProposals] = useState<string[]>(["", "", ""]);
+  const [meetingRecommendations, setMeetingRecommendations] = useState<MeetingRecommendations | null>(null);
+  const [meetingLoading, setMeetingLoading] = useState(false);
+  const [meetingDraftBusy, setMeetingDraftBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [savedDraft, setSavedDraft] = useState(draft ?? null);
   const replyingInThread = Boolean(seed?.threadId || draft?.data.thread_id);
@@ -136,6 +139,26 @@ export function EmailComposer({
       setConnectionId(sendableAccounts[0]?.id ?? "");
     }
   }, [accounts, connectionId, replyingInThread]);
+
+  useEffect(() => {
+    if (!leadId || !replyingInThread) {
+      setMeetingRecommendations(null);
+      return;
+    }
+    const controller = new AbortController();
+    setMeetingLoading(true);
+    void getLeadMeetingRecommendations(leadId, controller.signal)
+      .then((recommendations) => {
+        if (!controller.signal.aborted) setMeetingRecommendations(recommendations);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setMeetingRecommendations(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMeetingLoading(false);
+      });
+    return () => controller.abort();
+  }, [leadId, replyingInThread]);
 
   useEffect(() => {
     if (!draft) setRecipient(seed?.recipient ?? "");
@@ -464,6 +487,29 @@ export function EmailComposer({
     setError(null);
   }
 
+  function meetingTime(slot: MeetingSuggestion) {
+    const date = new Date(slot.start_at);
+    return Number.isNaN(date.getTime())
+      ? slot.start_at
+      : date.toLocaleString(undefined, {
+        weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+      });
+  }
+
+  async function prepareAppointmentDraft() {
+    if (!leadId || meetingDraftBusy) return;
+    setMeetingDraftBusy(true);
+    setError(null);
+    try {
+      await createLeadMeetingPreferredOfferDraft(leadId);
+      setNotice("AI appointment draft prepared from this lead’s thread and current calendar availability. Open Drafts to review it before sending.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The appointment draft could not be prepared.");
+    } finally {
+      setMeetingDraftBusy(false);
+    }
+  }
+
   const canSubmit = !busy && !sendBlockedReason && !replyUnavailable && !encodingAttachments && Boolean(connectionId)
     && Boolean(recipient.trim()) && Boolean(subject.trim()) && Boolean(body.trim());
 
@@ -528,6 +574,7 @@ export function EmailComposer({
       <Menu label="Scheduling" iconOnly="calendar" trigger={null}>
         {(close) => (
           <>
+            {leadId && <MenuItem icon="calendar" onSelect={() => { close(); saveSelection(); void prepareAppointmentDraft(); }}>Create AI appointment draft</MenuItem>}
             <MenuItem icon="link" onSelect={() => { close(); saveSelection(); void insertBookingLink(); }}>Insert booking link</MenuItem>
             <MenuItem icon="clock" onSelect={() => { close(); saveSelection(); setProposeOpen(true); }}>Propose times…</MenuItem>
           </>
@@ -571,6 +618,15 @@ export function EmailComposer({
       ))}
       <Button size="sm" onClick={() => setProposeOpen(false)}>Cancel</Button>
       <Button kind="filled" size="sm" onClick={insertProposedTimes}>Insert times</Button>
+    </div>}
+    {leadId && replyingInThread && (meetingLoading || meetingRecommendations?.detected) && <div className="mail-inline-panel mail-propose" role="status" aria-label="Meeting availability">
+      {meetingLoading ? <span>Checking the lead’s connected calendar…</span> : <>
+        <span className="mail-propose-label">Meeting request detected · {meetingRecommendations!.suggestions.length > 0 ? `${meetingRecommendations!.suggestions.length} verified time option${meetingRecommendations!.suggestions.length === 1 ? "" : "s"} available` : "the appointment draft will use the connected booking link"}</span>
+        {meetingRecommendations!.suggestions.slice(0, 5).map((slot) => <span key={`${slot.provider}:${slot.start_at}`} className="mail-propose-label">{slot.provider === "calendly" ? "Calendly" : "Google Calendar"} · {meetingTime(slot)}</span>)}
+        <Button kind="filled" size="sm" icon="calendar" onClick={() => void prepareAppointmentDraft()} disabled={meetingDraftBusy}>
+          {meetingDraftBusy ? "Preparing…" : "Create AI appointment draft"}
+        </Button>
+      </>}
     </div>}
     <div
       ref={editorRef}

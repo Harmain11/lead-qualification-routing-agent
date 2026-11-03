@@ -501,13 +501,33 @@ export function WorkspaceAssistantChat({
             ),
           }
         : result.action;
+      // Opening a page or lead is a reversible, local UI movement. Complete it
+      // immediately when Corral has resolved an explicit navigation request;
+      // do not make the user approve a second “Open” button.
+      const navigationAction = action && ["open_module", "open_lead", "open_deal_desk"].includes(action.kind)
+        && canApplyWorkspaceAssistantAction(action, permissions)
+        ? action
+        : undefined;
+      if (navigationAction?.kind === "open_module" && navigationAction.area) {
+        onNavigate(navigationAction.area);
+      } else if (navigationAction?.kind === "open_lead" && navigationAction.target_id) {
+        onInspectLead(navigationAction.target_id);
+      } else if (navigationAction?.kind === "open_deal_desk" && navigationAction.target_id) {
+        onInspectLead(navigationAction.target_id, "deal");
+      }
       setMessages((current) => [
         ...current,
         {
           id: createClientId(),
           role: "assistant",
-          content: directCallRequested ? callInstruction : result.reply,
-          action: action?.kind !== "none" ? action : undefined,
+          content: directCallRequested
+            ? callInstruction
+            : navigationAction
+              ? navigationAction.kind === "open_module"
+                ? `Opened ${ASSISTANT_AREAS[navigationAction.area!].label}. ${result.reply}`
+                : `Opened ${navigationAction.target_label || "the selected lead"}. ${result.reply}`
+              : result.reply,
+          action: navigationAction ? undefined : action?.kind !== "none" ? action : undefined,
           leadLinks: result.lead_links,
           contextWarnings: result.context_warnings,
         },
