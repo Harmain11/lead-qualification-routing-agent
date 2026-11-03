@@ -3,9 +3,16 @@ from uuid import uuid4
 
 import pytest
 
+from lead_agent.domain.analysis import (
+    EvidenceReference,
+    IntentScoreAssessment,
+    IntentScoring,
+    LeadContextAnalysis,
+)
 from lead_agent.domain.models import NormalizedLead, RecordedLeadEvidence
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.scoring import qualify_lead
+from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
 
 
 def make_lead(**overrides: object) -> NormalizedLead:
@@ -38,8 +45,50 @@ def make_lead(**overrides: object) -> NormalizedLead:
     return NormalizedLead(**values)  # type: ignore[arg-type]
 
 
+def ai_analysis(
+    lead: NormalizedLead,
+    icp,
+    *,
+    urgency: int = 0,
+    buying_stage: int = 0,
+    budget_signal: int = 0,
+    specific_request: int = 0,
+) -> LeadContextAnalysis:
+    def assessment(points: int, label: str) -> IntentScoreAssessment:
+        return IntentScoreAssessment(
+            points=points,
+            rationale=f"AI assessment for {label}.",
+            evidence=(
+                [EvidenceReference(source_field="message", excerpt="Prospect's supplied message.")]
+                if points
+                else []
+            ),
+        )
+
+    output = DeterministicReasoningProvider().analyze(lead, icp)
+    values = output.model_dump()
+    values.update(
+        provider="openai",
+        model="test-model",
+        prompt_version="test-v1",
+        intent_scoring=IntentScoring(
+            urgency=assessment(urgency, "urgency"),
+            buying_stage=assessment(buying_stage, "buying stage"),
+            budget_signal=assessment(budget_signal, "budget signal"),
+            specific_request=assessment(specific_request, "specific request"),
+        ),
+    )
+    return LeadContextAnalysis(**values)
+
+
 def test_full_fit_lead_is_hot(icp, routing) -> None:
-    result = qualify_lead(make_lead(), icp, routing)
+    lead = make_lead()
+    result = qualify_lead(
+        lead,
+        icp,
+        routing,
+        ai_analysis(lead, icp, urgency=15, buying_stage=10, budget_signal=5, specific_request=5),
+    )
 
     assert result.total_score == 100
     assert result.classification == "hot"
@@ -91,13 +140,27 @@ def test_score_bands_cover_realistic_cases(icp, routing) -> None:
         ),
     ]
 
-    for lead, expected in cases:
-        assert qualify_lead(lead, icp, routing).classification == expected
+    for index, (lead, expected) in enumerate(cases):
+        scores = (
+            {"urgency": 15, "buying_stage": 10, "budget_signal": 5, "specific_request": 5}
+            if index == 0
+            else {"buying_stage": 5, "specific_request": 5}
+            if index == 1
+            else {"buying_stage": 5, "specific_request": 5}
+            if index == 2
+            else {}
+        )
+        assert qualify_lead(
+            lead, icp, routing, ai_analysis(lead, icp, **scores)
+        ).classification == expected
 
 
-def test_recent_status_or_comment_can_raise_or_lower_qualification(icp, routing) -> None:
+def test_ai_intent_assessment_can_raise_or_lower_qualification(icp, routing) -> None:
     weak_message = "I am gathering information about your service."
-    baseline = qualify_lead(make_lead(message=weak_message, budget=None), icp, routing)
+    baseline_lead = make_lead(message=weak_message, budget=None)
+    baseline = qualify_lead(
+        baseline_lead, icp, routing, ai_analysis(baseline_lead, icp)
+    )
     meeting_update = make_lead(
         message=weak_message,
         budget=None,
@@ -109,7 +172,12 @@ def test_recent_status_or_comment_can_raise_or_lower_qualification(icp, routing)
             ),
         ),
     )
-    raised = qualify_lead(meeting_update, icp, routing)
+    raised = qualify_lead(
+        meeting_update,
+        icp,
+        routing,
+        ai_analysis(meeting_update, icp, urgency=15, buying_stage=10, specific_request=5),
+    )
     assert raised.total_score > baseline.total_score
 
     cooled = make_lead(
@@ -122,28 +190,32 @@ def test_recent_status_or_comment_can_raise_or_lower_qualification(icp, routing)
         ),
         original_message=make_lead().message,
     )
-    lowered = qualify_lead(cooled, icp, routing)
-    assert lowered.total_score < qualify_lead(make_lead(), icp, routing).total_score
-    assert any(
-        "lowered current buying interest" in line.reason
-        for line in lowered.score_breakdown
-        if line.key in {"urgency", "buying_stage"}
+    lowered = qualify_lead(cooled, icp, routing, ai_analysis(cooled, icp))
+    assert lowered.total_score < raised.total_score
+
+
+def test_ai_meeting_assessment_counts_interest_without_inventing_a_sale(icp, routing) -> None:
+    baseline_lead = make_lead(message="Tell me more.", budget=None)
+    baseline = qualify_lead(
+        baseline_lead, icp, routing, ai_analysis(baseline_lead, icp)
     )
-
-
-def test_concrete_meeting_request_counts_as_interest_without_inventing_a_sale(icp, routing) -> None:
-    baseline = qualify_lead(make_lead(message="Tell me more.", budget=None), icp, routing)
+    request_lead = make_lead(message="Can we do it at 2 pm tomorrow?", budget=None)
     requested = qualify_lead(
-        make_lead(message="Can we do it at 2 pm tomorrow?", budget=None), icp, routing
+        request_lead,
+        icp,
+        routing,
+        ai_analysis(request_lead, icp, urgency=15, buying_stage=5, specific_request=5),
     )
     assert requested.total_score > baseline.total_score
     assert next(line for line in requested.score_breakdown if line.key == "buying_stage").points > 0
     assert next(line for line in requested.score_breakdown if line.key == "urgency").points > 0
 
+    date_only_lead = make_lead(message="Tomorrow at 2 pm is our internal meeting.", budget=None)
     date_only = qualify_lead(
-        make_lead(message="Tomorrow at 2 pm is our internal meeting.", budget=None),
+        date_only_lead,
         icp,
         routing,
+        ai_analysis(date_only_lead, icp),
     )
     assert next(line for line in date_only.score_breakdown if line.key == "buying_stage").points == 0
 
@@ -157,9 +229,22 @@ def test_concrete_meeting_request_counts_as_interest_without_inventing_a_sale(ic
     ],
 )
 def test_concrete_timed_meeting_requests_are_urgent_beyond_tomorrow(icp, routing, message: str) -> None:
-    result = qualify_lead(make_lead(message=message, budget=None), icp, routing)
+    lead = make_lead(message=message, budget=None)
+    result = qualify_lead(
+        lead,
+        icp,
+        routing,
+        ai_analysis(lead, icp, urgency=15, buying_stage=5, specific_request=5),
+    )
 
-    assert next(line for line in result.score_breakdown if line.key == "urgency").points > 0
+    assert next(line for line in result.score_breakdown if line.key == "urgency").points == 15
+
+
+def test_intent_points_are_not_inferred_without_ai_analysis(icp, routing) -> None:
+    result = qualify_lead(
+        make_lead(message="Can we meet tomorrow at 2 pm?", budget=30000), icp, routing
+    )
+    assert result.component_scores["intent_urgency"] == 0
 
 
 def test_team_note_length_does_not_inflate_message_detail_score(icp, routing) -> None:

@@ -475,7 +475,14 @@ def _context_analysis(
             if business_profile and business_profile.has_context
             else active_provider.analyze(lead, analysis_icp)
         )
-        output = clear_unconfigured_icp(ReasoningOutput.model_validate(provider_output))
+        output = ReasoningOutput.model_validate(provider_output)
+        intent_max_points = analysis_icp.scoring.component_points.get("intent_urgency", {})
+        for criterion, assessment in output.intent_scoring.model_dump().items():
+            if assessment["points"] > intent_max_points.get(criterion, 0):
+                raise ValueError(
+                    f"AI intent score for {criterion} exceeds its configured maximum"
+                )
+        output = clear_unconfigured_icp(output)
     except Exception as error:
         output = clear_unconfigured_icp(fallback.analyze(lead, analysis_icp))
         code = (

@@ -473,6 +473,14 @@ export type ManagedMeeting = {
   can_cancel_here: boolean;
 };
 
+export type SavedMeetingStatus = {
+  status: "scheduled" | "cancelled";
+  start_at: string | null;
+  title: string;
+  provider: MeetingProvider | null;
+  cancellation_reason: string | null;
+};
+
 export type MeetingOfferDraftResult = {
   draft_id: string;
   status: "draft";

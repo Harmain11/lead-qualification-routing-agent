@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lead_agent.domain.configuration import IcpConfig, ManualReviewConfig
 from lead_agent.domain.email import is_personal_email_address
@@ -77,6 +77,33 @@ class IcpEvaluation(BaseModel):
     explicit_disqualifiers: list[str] = Field(default_factory=list)
 
 
+class IntentScoreAssessment(BaseModel):
+    """AI-assigned points and evidence for one intent/urgency criterion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    points: int = Field(ge=0, le=35)
+    rationale: str = Field(min_length=1, max_length=500)
+    evidence: list[EvidenceReference] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def awarded_points_need_evidence(self) -> IntentScoreAssessment:
+        if self.points > 0 and not self.evidence:
+            raise ValueError("AI intent points require supporting evidence.")
+        return self
+
+
+class IntentScoring(BaseModel):
+    """Provider-owned intent scores; the application only validates and sums them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    urgency: IntentScoreAssessment
+    buying_stage: IntentScoreAssessment
+    budget_signal: IntentScoreAssessment
+    specific_request: IntentScoreAssessment
+
+
 class SalesSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,12 +118,13 @@ class SalesSummary(BaseModel):
 
 
 class ReasoningOutput(BaseModel):
-    """Strict provider output. It deliberately contains no arbitrary numeric score."""
+    """Strict provider output, including its evidence-based intent score."""
 
     model_config = ConfigDict(extra="forbid")
 
     context: ContextFields
     intent_level: IntentLevel
+    intent_scoring: IntentScoring
     overall_confidence: float = Field(ge=0, le=1)
     unknown_fields: list[str] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
@@ -129,7 +157,7 @@ class ReasoningProvider(Protocol):
         icp: IcpConfig,
         business_profile: WorkspaceBusinessProfile | None = None,
     ) -> ReasoningOutput:
-        """Extract grounded context and ICP signals without selecting a final score."""
+        """Assess lead context, ICP signals, and evidence-based intent points."""
 
 
 class ReasoningProviderError(RuntimeError):

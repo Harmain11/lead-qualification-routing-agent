@@ -22,6 +22,8 @@ from lead_agent.domain.analysis import (
     ContextFields,
     IcpCriterionEvaluation,
     IcpEvaluation,
+    IntentScoreAssessment,
+    IntentScoring,
     ReasoningOutput,
     SalesSummary,
 )
@@ -68,6 +70,20 @@ def _reasoning_output() -> dict[str, object]:
     return ReasoningOutput(
         context=context,
         intent_level="unknown",
+        intent_scoring=IntentScoring(
+            urgency=IntentScoreAssessment(
+                points=0, rationale="No urgency was assessed from the supplied evidence."
+            ),
+            buying_stage=IntentScoreAssessment(
+                points=0, rationale="No buying-stage points were assessed."
+            ),
+            budget_signal=IntentScoreAssessment(
+                points=0, rationale="No budget-signal points were assessed."
+            ),
+            specific_request=IntentScoreAssessment(
+                points=0, rationale="No specific request was assessed."
+            ),
+        ),
         overall_confidence=0,
         icp_evaluation=IcpEvaluation(
             profile_name="Default",
@@ -179,7 +195,8 @@ def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
         timeout_seconds=3,
         post=post,
     )
-    result = client.analyze(_lead(), IcpConfig(profile_name="Default", profile_version="1"))
+    icp = IcpConfig(profile_name="Default", profile_version="1")
+    result = client.analyze(_lead(), icp)
 
     assert result.intent_level == "unknown"
     assert len(requests) == 1
@@ -200,6 +217,17 @@ def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
     )
     body = request["json"]
     assert isinstance(body, dict)
+    if provider == "gemini":
+        prompt = body["contents"][0]["parts"][0]["text"]
+    elif provider == "claude":
+        prompt = body["messages"][0]["content"]
+    elif provider == "deepseek":
+        prompt = body["messages"][1]["content"]
+    else:
+        prompt = body["input"][1]["content"]
+    assert json.loads(prompt)["intent_scoring_max_points"] == icp.scoring.component_points.get(
+        "intent_urgency", {}
+    )
     if provider == "gemini":
         assert str(request["url"]).endswith(f"{_MODELS[provider]}:generateContent")
         schema = body["generationConfig"]["responseSchema"]

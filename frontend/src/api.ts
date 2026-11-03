@@ -20,6 +20,7 @@ import type {
   GmailConversationSyncResult,
   MeetingRecommendations,
   ManagedMeeting,
+  SavedMeetingStatus,
   MeetingSuggestion,
   WorkspaceCalendarEvent,
   ConfirmMeetingResult,
@@ -1247,6 +1248,10 @@ export function getLeadMeetingRecommendations(leadId: string, signal?: AbortSign
 
 export function getLeadManagedMeeting(leadId: string, signal?: AbortSignal): Promise<ManagedMeeting | null> {
   return jsonRequest<ManagedMeeting | null>(`/v1/leads/${leadId}/meeting-management`, { signal });
+}
+
+export function getLeadMeetingStatus(leadId: string, signal?: AbortSignal): Promise<SavedMeetingStatus | null> {
+  return jsonRequest<SavedMeetingStatus | null>(`/v1/leads/${leadId}/meeting-status`, { signal });
 }
 
 export function cancelLeadMeeting(leadId: string, bookingId: string, reason: string): Promise<{ status: string; message: string }> {

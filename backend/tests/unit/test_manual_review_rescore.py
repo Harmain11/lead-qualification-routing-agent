@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.routes.leads import complete_lead_manual_review
 from lead_agent.application.services import process_lead
-from lead_agent.domain.analysis import AnalyzedField, LeadContextAnalysis
+from lead_agent.domain.analysis import (
+    AnalyzedField,
+    EvidenceReference,
+    IntentScoreAssessment,
+    IntentScoring,
+    LeadContextAnalysis,
+)
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models  # noqa: F401
 from lead_agent.infrastructure.db.base import Base
@@ -70,6 +76,48 @@ def test_completing_manual_review_rescores_saved_ai_intent(tmp_path, icp, routin
                         confidence=1,
                     ),
                 }
+            ),
+            "intent_scoring": IntentScoring(
+                urgency=IntentScoreAssessment(
+                    points=15,
+                    rationale="The prospect proposed an imminent meeting.",
+                    evidence=[
+                        EvidenceReference(
+                            source_field="message",
+                            excerpt="Looking forward to hopping on a 10-minute Zoom call sometime next week.",
+                        )
+                    ],
+                ),
+                buying_stage=IntentScoreAssessment(
+                    points=10,
+                    rationale="The prospect is actively scheduling the next conversation.",
+                    evidence=[
+                        EvidenceReference(
+                            source_field="message",
+                            excerpt="Looking forward to hopping on a 10-minute Zoom call sometime next week.",
+                        )
+                    ],
+                ),
+                budget_signal=IntentScoreAssessment(
+                    points=5,
+                    rationale="The saved analysis includes a qualified budget signal.",
+                    evidence=[
+                        EvidenceReference(
+                            source_field="message",
+                            excerpt="The saved AI analysis assessed budget intent.",
+                        )
+                    ],
+                ),
+                specific_request=IntentScoreAssessment(
+                    points=5,
+                    rationale="A specific call is requested.",
+                    evidence=[
+                        EvidenceReference(
+                            source_field="message",
+                            excerpt="10-minute Zoom call next week.",
+                        )
+                    ],
+                ),
             ),
         }
     )

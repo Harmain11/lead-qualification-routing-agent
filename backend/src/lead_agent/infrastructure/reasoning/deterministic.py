@@ -10,6 +10,8 @@ from lead_agent.domain.analysis import (
     FitStatus,
     IcpCriterionEvaluation,
     IcpEvaluation,
+    IntentScoreAssessment,
+    IntentScoring,
     ReasoningOutput,
     SalesSummary,
 )
@@ -388,6 +390,24 @@ class DeterministicReasoningProvider:
         return ReasoningOutput(
             context=context,
             intent_level=intent_level,  # type: ignore[arg-type]
+            intent_scoring=IntentScoring(
+                urgency=IntentScoreAssessment(
+                    points=0,
+                    rationale="No AI assessment was available; urgency points were not awarded.",
+                ),
+                buying_stage=IntentScoreAssessment(
+                    points=0,
+                    rationale="No AI assessment was available; buying-stage points were not awarded.",
+                ),
+                budget_signal=IntentScoreAssessment(
+                    points=0,
+                    rationale="No AI assessment was available; budget-signal points were not awarded.",
+                ),
+                specific_request=IntentScoreAssessment(
+                    points=0,
+                    rationale="No AI assessment was available; request points were not awarded.",
+                ),
+            ),
             overall_confidence=round(confidence, 3),
             unknown_fields=unknown_fields,
             contradictions=[],

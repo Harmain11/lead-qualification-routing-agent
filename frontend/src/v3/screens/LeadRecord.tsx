@@ -5,6 +5,7 @@ import {
   completeLeadManualReview,
   getLead,
   getLeadClosingOptions,
+  getLeadMeetingStatus,
   getLeadMomentum,
   getLeadPipelineHistory,
   listIntegrations,
@@ -204,6 +205,30 @@ export function LeadRecord({
       return { leadId: lead.id, status };
     });
   }, [lead.id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    getLeadMeetingStatus(lead.id, controller.signal)
+      .then((saved) => {
+        if (controller.signal.aborted) return;
+        setMeetingIndicator((current) => {
+          if (!saved) return current?.leadId === lead.id ? null : current;
+          const status: LeadMeetingIndicator = saved.status === "scheduled"
+            ? { kind: "booked", bookedAt: saved.start_at }
+            : {
+              kind: "cancelled",
+              bookedAt: null,
+              cancelledMeetingAt: saved.start_at,
+              cancellationReason: saved.cancellation_reason,
+            };
+          return { leadId: lead.id, status };
+        });
+      })
+      .catch(() => {
+        // The follow-up meeting panel reports provider verification errors.
+        // Keep the lead page usable if the lightweight saved-status read fails.
+      });
+    return () => controller.abort();
+  }, [lead.id, meetingRefresh]);
   const synced = () => {
     setActivityRefresh((value) => value + 1);
     setMeetingRefresh((value) => value + 1);

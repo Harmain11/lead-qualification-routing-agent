@@ -150,7 +150,7 @@ def _provider_schema(model: type[BaseModel], provider: str) -> dict[str, Any]:
 class StructuredAPIReasoningProvider:
     """Reasoning provider using each vendor's native structured-output API."""
 
-    prompt_version = "phase3-context-v7"
+    prompt_version = "phase3-context-v8"
 
     _CONFIG: dict[str, tuple[str, str]] = {
         "gemini": ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/models"),
@@ -202,6 +202,9 @@ class StructuredAPIReasoningProvider:
                 "message": lead.message,
             },
             "icp": icp.model_dump(mode="json"),
+            "intent_scoring_max_points": icp.scoring.component_points.get(
+                "intent_urgency", {}
+            ),
             "workspace_business_profile": (
                 business_profile.model_dump(mode="json") if business_profile else None
             ),
