@@ -63,7 +63,9 @@ import { LeadHighlights } from "./LeadHighlights";
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "ai", label: "Qualification" },
-  { id: "pipeline", label: "Pipeline" },
+  // This section carries the meeting / appointment workflow as well as stage
+  // progress.  "Follow-up" tells a rep where to act on an agreed meeting.
+  { id: "pipeline", label: "Follow-up" },
   { id: "email", label: "Emails" },
   { id: "calls", label: "Calls" },
   { id: "deal", label: "Deal" },

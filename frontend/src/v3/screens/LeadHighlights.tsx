@@ -93,13 +93,13 @@ export function buildLeadHighlights(props: Props): LeadHighlight[] {
     const followUp = <Button kind="plain" size="sm" onClick={() => props.onOpenSection("pipeline")}>Open meetings</Button>;
     const meetingItem: Record<LeadMeetingIndicator["kind"], Omit<LeadHighlight, "id" | "icon">> = {
       appointment_needed: {
-        tone: "attention", priority: 2, title: "Meeting requested, not booked yet",
-        detail: "They asked to meet. Send them a booking link from Emails.",
-        action: openEmail ?? followUp,
+        tone: "attention", priority: 2, title: "Appointment required",
+        detail: "They proposed a time. Review the booking draft, or check alternative available slots in Follow-up.",
+        action: followUp,
       },
       draft_ready: {
-        tone: "tint", priority: 2, title: "Booking email ready to send",
-        detail: props.canViewEmail ? "Review the draft, then send it so they can choose a time." : "A teammate with email access needs to review and send it.",
+        tone: "tint", priority: 2, title: "Appointment draft ready",
+        detail: props.canViewEmail ? "Review the Calendly booking draft, then send it so they can confirm the proposed time or choose an available alternative." : "A teammate with email access needs to review and send the appointment draft.",
         action: openEmail,
       },
       sending: { tone: "neutral", priority: 5, title: "Booking email is sending", detail: "Its delivery status appears here when Gmail confirms it." },
