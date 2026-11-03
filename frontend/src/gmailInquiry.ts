@@ -90,6 +90,28 @@ function normalizeHeaderBoundaries(source: string) {
     .replace(new RegExp(`[\\t ]+(?=(?:${GMAIL_HEADER_NAMES}):\\s)`, "gi"), "\n");
 }
 
+/**
+ * Some Gmail payloads flatten an attached RFC-822 message into the parent
+ * text. Normalize its boundary before parsing so the attachment cannot become
+ * the visible lead reply.
+ */
+function normalizeRawGmailThreadMarkers(source: string) {
+  const header = `(?:${GMAIL_HEADER_NAMES})`;
+  return source
+    .replace(/\r\n?/g, "\n")
+    .replace(
+      new RegExp(`(^|\\n)\\s*---\\s*(?=${header}:\\s)`, "gim"),
+      "$1--- Gmail message imported ---\n",
+    )
+    // Gmail's normal marker ends in "Gmail message <id> ---". The negative
+    // lookbehind preserves that marker while repairing only a flattened raw
+    // RFC-822 boundary such as "1a19... --- From:".
+    .replace(
+      new RegExp(`(?<!Gmail message )\\b[a-z0-9_-]{8,}\\s+---\\s*(?=${header}:\\s)`, "gim"),
+      "--- Gmail message imported ---\n",
+    );
+}
+
 function recoverBodyAppendedToDateHeader(value: string) {
   const greeting = /\s+(?=(?:hi|hello|hey|dear|good\s+(?:morning|afternoon|evening)|greetings|to whom it may concern)\b)/i.exec(value);
   if (!greeting || greeting.index === undefined) return null;
@@ -194,7 +216,7 @@ function parseForwardedMessage(body: string): ForwardedMessageParseResult {
 }
 
 export function parseGmailInquiry(message: string): ParsedGmailInquiry | null {
-  const source = message
+  const source = normalizeRawGmailThreadMarkers(message)
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]*--- Gmail message ([^ ]+) ---[ \t]*/g, "\n--- Gmail message $1 ---\n");
   const markers = Array.from(source.matchAll(/^--- Gmail message ([^ ]+) ---$/gm));
@@ -418,6 +440,16 @@ function uniqueBlocks(blocks: string[]): string[] {
   });
 }
 
+function formatThreadMessage(message: GmailInquiryMessage): string {
+  const headers = [
+    message.from && `From: ${message.from}`,
+    message.to && `To: ${message.to}`,
+    message.subject && `Subject: ${message.subject}`,
+    message.date && `Date: ${message.date}`,
+  ].filter(Boolean);
+  return [...headers, message.body].filter(Boolean).join("\n").trim();
+}
+
 function formatFlatEmailBody(source: string): string {
   return normalizeReadableEmailText(source)
     .replace(
@@ -526,10 +558,19 @@ function splitInlineFooterNotices(source: string): { primary: string; footers: s
 
 export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySections {
   const readable = normalizeReadableEmailText(htmlEmailToReadableText(source));
-  const inline = splitInlineFooterNotices(readable);
+  const parsed = parseGmailInquiry(readable);
+  const latest = parsed?.messages.at(-1);
+  // A parsed Gmail thread is rendered as the newest message plus collapsed
+  // earlier messages. This keeps the prospect's current reply readable and
+  // preserves the rest of the conversation without exposing RFC headers.
+  const threadQuotes = parsed && parsed.messages.length > 1
+    ? parsed.messages.slice(0, -1).map(formatThreadMessage).filter(Boolean)
+    : [];
+  const displayBody = latest?.body || readable;
+  const inline = splitInlineFooterNotices(displayBody);
   const blocks = inline.primary.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
   const primary: string[] = [];
-  const quoted: string[] = [];
+  const quoted: string[] = [...threadQuotes];
   const footers: string[] = [...inline.footers];
 
   for (const block of blocks) {

@@ -394,10 +394,10 @@ export function ProductTour({
 
           {mode === "welcome" ? (
             <>
-              <span className="ct-tour-kicker">A quick orientation</span>
-              <h2 id={titleId} className="ct-tour-title">Make every signal count.</h2>
+              <span className="ct-tour-kicker">Product guide</span>
+              <h2 id={titleId} className="ct-tour-title">A quick tour when you need it.</h2>
               <p id={descriptionId} className="ct-tour-description">
-                Take a short tour of Corral: from the first inbound signal to qualification, human review, routing, and the systems that keep it all connected.
+                See where leads arrive, how they are qualified, and where you can take action. This guide only opens from the Guide menu.
               </p>
               <div className="ct-tour-flow" aria-label="Corral lead workflow: signal, decision, delivery">
                 <span><i>01</i>Signal</span>
@@ -406,7 +406,7 @@ export function ProductTour({
               </div>
               <div className="ct-tour-actions">
                 <button ref={initialFocusRef} className="ct-tour-button ct-tour-button-quiet" type="button" onClick={onDismiss}>
-                  Not now
+                  Close
                 </button>
                 <button className="ct-tour-button ct-tour-button-primary" type="button" onClick={startTour} data-tour-primary>
                   Start tour <span aria-hidden="true">›</span>

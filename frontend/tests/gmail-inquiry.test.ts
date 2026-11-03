@@ -70,6 +70,26 @@ Please send pricing for the project.`);
   assert.equal(readable, "Please send pricing for the project.");
 });
 
+test("keeps a flattened Gmail thread focused on the newest lead reply", () => {
+  const sections = splitGmailBodyForDisplay(`1a19da5c1f1ce9d1 --- From: Junaid <sales@example.test>
+To: Harmain <harmain@example.test>
+Subject: Re: Quick call
+
+Here are three times that work for me.
+
+1a19da5c1f1ce9d1 --- From: Harmain <harmain@example.test>
+In-Reply-To: <old-message@example.test>
+References: <old-message@example.test>
+Subject: Re: Quick call
+
+Wednesday works for me. Can we meet at 2 PM?`);
+
+  assert.equal(sections.primary, "Wednesday works for me. Can we meet at 2 PM?");
+  assert.equal(sections.quoted.length, 1);
+  assert.match(sections.quoted[0], /Here are three times that work for me/);
+  assert.doesNotMatch(sections.primary, /In-Reply-To|References|From:/);
+});
+
 test("parses a normal email's sender, recipients, date, subject, and body", () => {
   const inquiry = parseGmailInquiry(`From: Riley Chen <riley@example.test>
 To: sales@example.test

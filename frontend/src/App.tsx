@@ -579,15 +579,9 @@ function App() {
 
 
   useEffect(() => {
-    if (!tourSeenKey) {
-      setTourOpen(false);
-      return;
-    }
-    try {
-      setTourOpen(window.localStorage.getItem(tourSeenKey) !== "seen");
-    } catch {
-      setTourOpen(true);
-    }
+    // The product guide is available from the Guide menu. Never interrupt a
+    // workspace just because local storage was cleared or unavailable.
+    setTourOpen(false);
   }, [tourSeenKey]);
 
   const closeTour = useCallback(() => {

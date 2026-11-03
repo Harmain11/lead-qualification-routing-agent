@@ -1142,10 +1142,15 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
         body = part.get("body", {})
         if not isinstance(body, dict):
             return
-        if filename and mime not in {"text/plain", "message/rfc822"}:
+        if filename and mime != "text/plain":
             return
         data = _decode_body(body.get("data"))
-        if mime in {"text/plain", "message/rfc822"} and data:
+        # message/rfc822 parts are attached or forwarded emails. Adding their
+        # raw RFC headers to the parent message makes the inbox unreadable and
+        # can cause a quoted message to be treated as the newest lead reply.
+        # Gmail exposes the parent message body separately, so only ingest
+        # displayable plain-text parts here.
+        if mime == "text/plain" and data:
             plain.append(data)
         elif mime == "text/html" and data:
             html.append(data)
