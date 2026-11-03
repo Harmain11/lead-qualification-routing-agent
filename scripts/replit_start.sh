@@ -155,11 +155,20 @@ engine = build_engine(settings)
 try:
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
+except Exception:
+    raise SystemExit(
+        "[startup] PostgreSQL connection check failed. Production requires the published PostgreSQL "
+        "database over SSL; verify the deployment database binding and SSL configuration."
+    )
+finally:
+    engine.dispose()
+try:
+    with engine.connect() as connection:
         require_current_schema(connection)
 except Exception:
     raise SystemExit(
-        "[startup] PostgreSQL connection or required schema check failed. Production requires SSL; "
-        "the workspace development database is not the published production database."
+        "[startup] Production database schema is out of date. Apply the pending Replit Publish schema "
+        "changes before serving this release."
     )
 finally:
     engine.dispose()
