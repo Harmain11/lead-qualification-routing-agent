@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.analysis import LeadContextAnalysis, load_persisted_analysis
 from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDERS
 
 
@@ -516,7 +516,7 @@ def qualification_response(row: Any) -> QualificationResponse | None:
 def analysis_response(row: Any) -> AnalysisResponse | None:
     if row is None:
         return None
-    analysis = LeadContextAnalysis.model_validate(row.structured_output)
+    analysis = load_persisted_analysis(row.structured_output)
     return AnalysisResponse(
         **analysis.model_dump(),
         id=row.id,

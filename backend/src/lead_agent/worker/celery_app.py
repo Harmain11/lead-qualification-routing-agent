@@ -470,6 +470,7 @@ def reanalyze_workspace_leads(
             qualification_is_current = False
             if same_successful_analysis:
                 try:
+                    # Keep this strict: legacy output without AI intent scores must be re-analyzed.
                     validated_analysis = LeadContextAnalysis.model_validate(
                         existing.structured_output
                     )

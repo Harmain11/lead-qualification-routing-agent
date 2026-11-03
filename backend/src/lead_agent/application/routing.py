@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.analysis import LeadContextAnalysis, load_persisted_analysis
 from lead_agent.domain.configuration import (
     ActionConfig,
     RepConfig,
@@ -62,7 +62,7 @@ def _matches(value: str | None, options: list[str]) -> bool:
 def _analysis(lead: LeadORM) -> LeadContextAnalysis | None:
     if lead.analysis is None:
         return None
-    return LeadContextAnalysis.model_validate(lead.analysis.structured_output)
+    return load_persisted_analysis(lead.analysis.structured_output)
 
 
 def _qualification(lead: LeadORM) -> QualificationResult:

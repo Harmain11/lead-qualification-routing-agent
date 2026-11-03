@@ -40,6 +40,7 @@
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
 - [ICP scoring activation](icp-scoring-activation.md) — Until a custom workspace ICP is published, score urgency and engagement only; built-in ICP fit and exclusions stay inactive.
 - [AI-owned intent scoring](ai-intent-scoring.md) — Intent and urgency points come from validated AI output only; never recalculate them with keyword or stage rules.
+- [Legacy analysis compatibility](legacy-analysis-compatibility.md) — Keep provider validation strict, but adapt older saved analysis JSON when new required fields are added.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
 - [Corral Agent scope and approvals](corral-agent-scope.md) — Main workspace for agentic, in-chat work; generalize workflows, preserve approval gates, and show lead buttons only on request.
 - [Corral Agent mobile layout](corral-agent-mobile-layout.md) — Keep the full-screen phone Agent keyboard-aware, background-locked, and limited to one content scroller.

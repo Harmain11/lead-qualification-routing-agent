@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from lead_agent.api.schemas import provider_connection_response
+from lead_agent.api.schemas import analysis_response, provider_connection_response
 from lead_agent.application.integrations import (
     activate_reasoning_provider,
     create_manual_connection,
@@ -24,6 +24,7 @@ from lead_agent.domain.analysis import (
     IcpEvaluation,
     IntentScoreAssessment,
     IntentScoring,
+    LeadContextAnalysis,
     ReasoningOutput,
     SalesSummary,
 )
@@ -106,6 +107,31 @@ def _reasoning_output() -> dict[str, object]:
         ),
         recommended_action="Review the available lead details.",
     ).model_dump(mode="json")
+
+
+def test_analysis_response_loads_legacy_saved_output_without_intent_scoring() -> None:
+    stored = LeadContextAnalysis(
+        **_reasoning_output(),
+        provider="openai",
+        model="legacy-model",
+        prompt_version="phase3-context-v7",
+    ).model_dump(mode="json")
+    stored.pop("intent_scoring")
+    row = SimpleNamespace(
+        structured_output=stored,
+        id=uuid4(),
+        created_at=datetime.now(UTC),
+    )
+
+    response = analysis_response(row)
+
+    assert response is not None
+    assert response.intent_scoring.urgency.points == 0
+    assert response.intent_scoring.buying_stage.points == 0
+    assert response.intent_scoring.budget_signal.points == 0
+    assert response.intent_scoring.specific_request.points == 0
+    assert not response.intent_scoring.urgency.evidence
+    assert response.provider == "openai"
 
 
 def _provider_payload(provider: str) -> dict[str, object]:

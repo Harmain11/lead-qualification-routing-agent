@@ -50,9 +50,9 @@ from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
 from lead_agent.domain.analysis import (
-    LeadContextAnalysis,
     ReasoningProvider,
     ReasoningProviderError,
+    load_persisted_analysis,
 )
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.lead_assistant import LeadProfileChanges
@@ -1013,7 +1013,7 @@ def complete_lead_manual_review(
             original_message=row.message,
             recorded_evidence=recorded_evidence,
         )
-        stored_analysis = LeadContextAnalysis.model_validate(structured_output)
+        stored_analysis = load_persisted_analysis(structured_output)
         resolved_icp = resolve_workspace_icp(session, workspace.workspace_id, policies[0])
         rescored = qualify_lead(
             normalized,

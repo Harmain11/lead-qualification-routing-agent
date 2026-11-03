@@ -146,6 +146,26 @@ class LeadContextAnalysis(ReasoningOutput):
     analysis_request_fingerprint: str | None = Field(default=None, exclude=True, repr=False)
 
 
+def load_persisted_analysis(value: object) -> LeadContextAnalysis:
+    """Read saved analyses across schema versions without inventing AI scores."""
+    if isinstance(value, dict) and "intent_scoring" not in value:
+        legacy_value = dict(value)
+        no_score = {
+            "points": 0,
+            "rationale": (
+                "This saved analysis predates AI intent scoring; re-analyze it "
+                "to receive AI-assigned intent points."
+            ),
+            "evidence": [],
+        }
+        legacy_value["intent_scoring"] = {
+            key: dict(no_score)
+            for key in ("urgency", "buying_stage", "budget_signal", "specific_request")
+        }
+        value = legacy_value
+    return LeadContextAnalysis.model_validate(value)
+
+
 class ReasoningProvider(Protocol):
     provider_name: str
     model_name: str

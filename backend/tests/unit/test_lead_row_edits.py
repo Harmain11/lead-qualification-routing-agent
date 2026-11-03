@@ -197,3 +197,63 @@ def test_generated_marker_and_manual_assignment_persist(tmp_path, icp, routing) 
         app.dependency_overrides.clear()
         session.close()
         engine.dispose()
+
+
+def test_lead_list_accepts_legacy_analysis_without_intent_scoring(
+    tmp_path, icp, routing
+) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'legacy-analysis-list.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    workspace_id = uuid4()
+    ensure_workspace(session, workspace_id, name="Legacy Analysis Workspace")
+    _, _, lead = process_lead(
+        session,
+        {
+            "external_id": "legacy-analysis-list",
+            "source": "website",
+            "full_name": "Legacy Analysis Lead",
+            "email": "legacy-analysis@example.test",
+            "company_name": "Legacy Analysis Co",
+            "product_or_service": "Lead workflow",
+            "message": "Please share information about your service.",
+        },
+        icp,
+        routing,
+        workspace_id=workspace_id,
+    )
+    legacy_output = dict(lead.analysis.structured_output)
+    legacy_output.pop("intent_scoring")
+    lead.analysis.structured_output = legacy_output
+    session.commit()
+
+    workspace_context = WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id="legacy-analysis-reader",
+        user_id=uuid4(),
+        permissions=frozenset({"leads.view"}),
+    )
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_workspace_context] = lambda: workspace_context
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/leads", params={"limit": 50})
+
+        assert response.status_code == 200, response.text
+        intent_scoring = response.json()["items"][0]["analysis"]["intent_scoring"]
+        assert intent_scoring["urgency"]["points"] == 0
+        assert intent_scoring["buying_stage"]["points"] == 0
+        assert intent_scoring["budget_signal"]["points"] == 0
+        assert intent_scoring["specific_request"]["points"] == 0
+        assert "intent_scoring" not in lead.analysis.structured_output
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+        engine.dispose()
