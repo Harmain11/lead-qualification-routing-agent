@@ -59,7 +59,6 @@ from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.communications import CommunicationsClient
 from lead_agent.infrastructure.db.models import (
-    AnalysisRunORM,
     LeadORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
@@ -420,7 +419,6 @@ def _enqueue_reasoning_backfill(
     ):
         raise HTTPException(status_code=409, detail="Verify and activate the AI provider first")
     provider_name, model_name, config_key = _reasoning_backfill_snapshot(session, connection)
-    prompt_version = config_key.rsplit("|", 1)[-1]
     lock_hash = hashlib.sha256(config_key.encode()).hexdigest()[:24]
     lock_key = f"reasoning-backfill:{connection.workspace_id}:{connection.id}:{lock_hash}"
     redis_client = Redis.from_url(
@@ -462,22 +460,14 @@ def _enqueue_reasoning_backfill(
     finally:
         redis_client.close()
 
-    completed_for_config = select(AnalysisRunORM.id).where(
-        AnalysisRunORM.lead_id == LeadORM.id,
-        AnalysisRunORM.provider == provider_name,
-        AnalysisRunORM.model == model_name,
-        AnalysisRunORM.prompt_version == prompt_version,
-        AnalysisRunORM.status.in_(["completed", "manual_review"]),
-    ).exists()
-    queued_count = int(session.scalar(
-        select(func.count(LeadORM.id)).where(
-            LeadORM.workspace_id == connection.workspace_id,
-            ~completed_for_config,
-        )
-    ) or 0)
     total_leads = int(session.scalar(
         select(func.count(LeadORM.id)).where(LeadORM.workspace_id == connection.workspace_id)
     ) or 0)
+    # Queue every lead so stale qualifications created by an older scoring policy can
+    # be corrected from their durable AI analysis. The worker skips records whose
+    # analysis and persisted score already agree, so this does not invoke the model
+    # again for unchanged leads.
+    queued_count = total_leads
     queued_event = ProviderLifecycleAuditORM(
         id=uuid4(),
         workspace_id=connection.workspace_id,
@@ -562,7 +552,8 @@ def _enqueue_reasoning_backfill(
         "job_id": job_id,
         "queued_count": queued_count,
         "message": (
-            f"Existing leads will be analyzed with {provider_name.title()} in the background."
+            f"Existing leads will be checked with {provider_name.title()} and "
+            "outdated scores recalculated in the background."
         ),
     }
 

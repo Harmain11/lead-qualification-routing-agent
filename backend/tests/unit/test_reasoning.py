@@ -215,6 +215,84 @@ def test_validated_ai_context_drives_all_intent_scoring(icp, routing) -> None:
     assert intent_lines["specific_request"].points == intent_lines["specific_request"].max_points
 
 
+def test_validated_ai_context_still_scores_while_manual_review_is_required(
+    icp, routing
+) -> None:
+    lead = make_lead(
+        message="Looking forward to hopping on a 10-minute Zoom call sometime next week.",
+        product_or_service="",
+        budget=None,
+    )
+    analysis = _context_analysis(lead, icp, routing, DeterministicReasoningProvider())
+    analysis = analysis.model_copy(
+        update={
+            "provider": "openai",
+            "status": "manual_review",
+            "requires_manual_review": True,
+            "overall_confidence": 0.55,
+            "intent_level": "medium",
+            "context": analysis.context.model_copy(
+                update={
+                    "urgency": AnalyzedField(
+                        value="high", information_kind="inferred", confidence=0.94
+                    ),
+                    "explicit_timeline": AnalyzedField(
+                        value="next week", information_kind="explicit", confidence=1
+                    ),
+                    "buying_stage": AnalyzedField(
+                        value="meeting requested", information_kind="inferred", confidence=0.93
+                    ),
+                    "specific_request": AnalyzedField(
+                        value="10-minute Zoom call next week",
+                        information_kind="explicit",
+                        confidence=1,
+                    ),
+                }
+            ),
+        }
+    )
+
+    result = qualify_lead(lead, icp, routing, analysis)
+    intent_lines = {
+        line.key: line for line in result.score_breakdown if line.component == "intent_urgency"
+    }
+
+    assert intent_lines["urgency"].points == intent_lines["urgency"].max_points
+    assert 0 < intent_lines["buying_stage"].points < intent_lines["buying_stage"].max_points
+    assert intent_lines["specific_request"].points == intent_lines["specific_request"].max_points
+
+
+def test_backfill_detects_a_stale_score_from_validated_ai_analysis(icp, routing) -> None:
+    """Older manual-review results must be recalculated instead of being skipped."""
+    from lead_agent.worker.celery_app import _qualification_matches
+
+    lead = make_lead(message="Can we schedule a 10-minute Zoom call next week?")
+    analysis = _context_analysis(lead, icp, routing, DeterministicReasoningProvider()).model_copy(
+        update={
+            "provider": "openai",
+            "status": "manual_review",
+            "requires_manual_review": True,
+        }
+    )
+    expected = qualify_lead(lead, icp, routing, analysis)
+    stale = SimpleNamespace(
+        qualification=SimpleNamespace(
+            total_score=0,
+            classification=expected.classification,
+            routing_queue=expected.routing_queue,
+            routing_action=expected.routing_action,
+            hard_disqualified=expected.hard_disqualified,
+            component_scores={"intent_urgency": 0, "engagement_quality": 0},
+        )
+    )
+
+    assert not _qualification_matches(stale, expected)
+
+    stale.qualification.total_score = expected.total_score
+    stale.qualification.component_scores = expected.component_scores
+    assert _qualification_matches(stale, expected)
+
+
 def test_validated_ai_unknowns_are_not_overridden_by_keyword_rules(icp, routing) -> None:
     lead = make_lead(
         message="Can we meet tomorrow at 2 pm?",

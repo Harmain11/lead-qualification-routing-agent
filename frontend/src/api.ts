@@ -597,7 +597,12 @@ export function listLeadTrash(signal?: AbortSignal): Promise<LeadTrashItem[]> {
   return request<LeadTrashItem[]>("/v1/leads/trash", { signal });
 }
 
-export function restoreLeadFromTrash(suppressionId: string): Promise<{ status: string; provider: string; external_id: string }> {
+export function restoreLeadFromTrash(suppressionId: string): Promise<{
+  status: "restored" | "restore_pending";
+  provider: string;
+  external_id: string;
+  lead_id: string;
+}> {
   return jsonRequest(`/v1/leads/trash/${suppressionId}/restore`, { method: "POST" });
 }
 

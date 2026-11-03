@@ -243,9 +243,7 @@ def _trusted_ai_analysis(analysis: LeadContextAnalysis | None) -> LeadContextAna
     if (
         analysis is None
         or analysis.provider in {"deterministic", "deterministic-safeguard"}
-        or analysis.status != "completed"
-        or analysis.requires_manual_review
-        or analysis.overall_confidence < 0.65
+        or analysis.status not in {"completed", "manual_review"}
     ):
         return None
     return analysis

@@ -22,7 +22,10 @@ from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.manual_review import workspace_manual_review_config
 from lead_agent.application.reasoning_cache import reasoning_request_fingerprint
 from lead_agent.application.services import reprocess_lead
+from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.models import QualificationResult
 from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.scoring import qualify_lead
 from lead_agent.infrastructure.crm.inbound_factory import get_workspace_inbound_crm_resolver
 from lead_agent.infrastructure.db.models import (
     CrmInboundSyncStateORM,
@@ -107,6 +110,21 @@ def _persisted_lead_payload(lead: LeadORM) -> dict[str, object]:
         "raw_payload": lead.raw_payload,
         "normalization_version": lead.normalization_version,
     }
+
+
+def _qualification_matches(lead: LeadORM, expected: QualificationResult) -> bool:
+    """Return whether the durable score already reflects the validated analysis."""
+    current = lead.qualification
+    if current is None:
+        return False
+    return (
+        current.total_score == expected.total_score
+        and current.classification == expected.classification
+        and current.routing_queue == expected.routing_queue
+        and current.routing_action == expected.routing_action
+        and current.hard_disqualified == expected.hard_disqualified
+        and current.component_scores == expected.component_scores
+    )
 
 
 def _on_task_failure(
@@ -445,30 +463,25 @@ def reanalyze_workspace_leads(
                 and existing.status == "skipped_hard_disqualifier"
                 and existing.analysis_request_fingerprint == request_fingerprint
             )
-            if same_successful_analysis or same_hard_disqualifier:
-                skipped += 1
-                record("running", {
-                    "total": len(lead_ids), "completed": completed,
-                    "failed": failed, "skipped": skipped,
-                    "current_lead_id": str(lead_id),
-                })
-                continue
-            prior_completion = session.scalar(
-                select(ProviderLifecycleAuditORM.id)
-                .where(
-                    ProviderLifecycleAuditORM.workspace_id == workspace_uuid,
-                    ProviderLifecycleAuditORM.connection_id == connection.id,
-                    ProviderLifecycleAuditORM.action == "reasoning_backfill",
-                    ProviderLifecycleAuditORM.outcome == "lead_completed",
-                    ProviderLifecycleAuditORM.details["lead_id"].as_string() == str(lead_id),
-                    ProviderLifecycleAuditORM.details["config_key"].as_string() == config_key,
-                    ProviderLifecycleAuditORM.details[
-                        "analysis_request_fingerprint"
-                    ].as_string() == request_fingerprint,
-                )
-                .limit(1)
-            )
-            if prior_completion:
+            qualification_is_current = False
+            if same_successful_analysis:
+                try:
+                    validated_analysis = LeadContextAnalysis.model_validate(
+                        existing.structured_output
+                    )
+                    expected = resolved_icp.trace_result(
+                        qualify_lead(
+                            normalized,
+                            resolved_icp.configuration,
+                            routing,
+                            validated_analysis,
+                            include_icp=resolved_icp.source == "workspace",
+                        )
+                    )
+                    qualification_is_current = _qualification_matches(lead, expected)
+                except (TypeError, ValueError):
+                    qualification_is_current = False
+            if (same_successful_analysis and qualification_is_current) or same_hard_disqualifier:
                 skipped += 1
                 record("running", {
                     "total": len(lead_ids), "completed": completed,

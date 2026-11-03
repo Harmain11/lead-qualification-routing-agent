@@ -49,7 +49,11 @@ from lead_agent.application.lead_outcomes import record_outcome, send_win_notifi
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
-from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
+from lead_agent.domain.analysis import (
+    LeadContextAnalysis,
+    ReasoningProvider,
+    ReasoningProviderError,
+)
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
@@ -57,6 +61,7 @@ from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
 from lead_agent.domain.routing import NotificationProvider
+from lead_agent.domain.scoring import qualify_lead
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.crm.inbound_factory import (
     WorkspaceInboundCrmProviderResolver,
@@ -68,7 +73,6 @@ from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
     LeadORM,
     LeadSuppressionORM,
-    NotificationORM,
     PipelineEventORM,
     ProviderConnectionORM,
     QualificationResultORM,
@@ -284,6 +288,7 @@ def _delete_lead(
             session.add(
                 LeadSuppressionORM(
                     workspace_id=row.workspace_id,
+                    lead_id=row.id,
                     provider=provider,
                     external_id=external_id,
                     lead_email=row.email,
@@ -292,6 +297,8 @@ def _delete_lead(
                     created_at=now,
                 )
             )
+        elif existing.lead_id is None:
+            existing.lead_id = row.id
     if row.source_event_id:
         event = session.get(SourceEventORM, row.source_event_id)
         if event is not None:
@@ -300,19 +307,9 @@ def _delete_lead(
                 "Lead moved to trash by workspace user; matching source is suppressed."
             )
             event.updated_at = now
-    # CRM sync rows and notifications reference routing decisions with
-    # restrictive foreign keys. Remove those dependants explicitly before the
-    # database cascades the rest of the lead graph.
-    routing_ids = select(RoutingDecisionORM.id).where(RoutingDecisionORM.lead_id == row.id)
-    session.execute(delete(CrmSyncORM).where(CrmSyncORM.lead_id == row.id))
-    session.execute(delete(NotificationORM).where(NotificationORM.routing_decision_id.in_(routing_ids)))
-    session.execute(delete(RoutingDecisionORM).where(RoutingDecisionORM.lead_id == row.id))
-    session.execute(
-        delete(LeadORM).where(
-            LeadORM.id == row.id,
-            LeadORM.workspace_id == row.workspace_id,
-        )
-    )
+    row.deleted_at = now
+    row.deleted_by = actor_id
+    row.updated_at = now
 
 
 class LeadTrashItemResponse(BaseModel):
@@ -366,9 +363,49 @@ def restore_lead_from_trash(
         raise HTTPException(status_code=404, detail="Trash item not found")
     provider = row.provider
     external_id = row.external_id
-    session.delete(row)
+    lead = None
+    if row.lead_id is not None:
+        lead = session.scalar(
+            select(LeadORM)
+            .execution_options(include_deleted_leads=True)
+            .where(
+                LeadORM.id == row.lead_id,
+                LeadORM.workspace_id == workspace.workspace_id,
+            )
+        )
+    if lead is not None:
+        restored_at = datetime.now(UTC)
+        lead.deleted_at = None
+        lead.deleted_by = None
+        lead.updated_at = restored_at
+        if lead.source_event is not None and lead.source_event.status == "deleted":
+            lead.source_event.status = "processed"
+            lead.source_event.error_message = None
+            lead.source_event.updated_at = restored_at
+        session.execute(
+            delete(LeadSuppressionORM).where(
+                LeadSuppressionORM.workspace_id == workspace.workspace_id,
+                LeadSuppressionORM.lead_id == lead.id,
+            )
+        )
+        record_pipeline_event(
+            session,
+            lead.id,
+            "trash",
+            "restored",
+            {"actor_id": workspace.actor_id},
+        )
+    else:
+        # Legacy trash rows predate lossless soft deletion. Their source can
+        # be imported again, but already-deleted related history is unavailable.
+        session.delete(row)
     session.commit()
-    return {"status": "restored", "provider": provider, "external_id": external_id}
+    return {
+        "status": "restored" if lead is not None else "restore_pending",
+        "provider": provider,
+        "external_id": external_id,
+        "lead_id": str(lead.id) if lead is not None else "",
+    }
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:
@@ -941,6 +978,58 @@ def complete_lead_manual_review(
         if structured_output.get("status") == "manual_review":
             structured_output["status"] = "completed"
         analysis.structured_output = structured_output
+        progress_context, recorded_evidence = lead_history_context(
+            session,
+            workspace_id=workspace.workspace_id,
+            lead_id=row.id,
+        )
+        normalized = replace(
+            normalize_lead(
+                {
+                    "source": row.source,
+                    "source_detail": row.source_detail,
+                    "external_id": row.external_id,
+                    "full_name": row.full_name,
+                    "email": row.email,
+                    "phone": row.phone,
+                    "job_title": row.job_title,
+                    "company_name": row.company_name,
+                    "industry": row.industry,
+                    "employee_count": row.employee_count,
+                    "annual_revenue": row.annual_revenue,
+                    "geography": row.geography,
+                    "budget": row.budget,
+                    "product_or_service": row.product_or_service,
+                    "message": (
+                        f"{row.message}\n\nVerified lead history (oldest first):\n"
+                        f"{progress_context}"
+                    ),
+                    "received_at": row.received_at,
+                    "raw_payload": row.raw_payload,
+                    "normalization_version": row.normalization_version,
+                },
+                row.id,
+            ),
+            original_message=row.message,
+            recorded_evidence=recorded_evidence,
+        )
+        stored_analysis = LeadContextAnalysis.model_validate(structured_output)
+        resolved_icp = resolve_workspace_icp(session, workspace.workspace_id, policies[0])
+        rescored = qualify_lead(
+            normalized,
+            resolved_icp.configuration,
+            policies[1],
+            stored_analysis,
+            include_icp=resolved_icp.source == "workspace",
+        )
+        update_lead_with_result(
+            session,
+            row,
+            normalized,
+            resolved_icp.trace_result(rescored),
+            stored_analysis,
+            preserve_inquiry=True,
+        )
     row.manual_review_completed_at = datetime.now(UTC)
     row.updated_at = row.manual_review_completed_at
     if row.source_event is not None and row.source_event.status == "manual_review":

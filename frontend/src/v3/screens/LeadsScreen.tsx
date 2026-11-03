@@ -372,10 +372,14 @@ export function LeadsScreen({
   };
   const restoreTrash = async (item: LeadTrashItem) => {
     try {
-      await restoreLeadFromTrash(item.id);
+      const restored = await restoreLeadFromTrash(item.id);
       setTrashItems((current) => current.filter((candidate) => candidate.id !== item.id));
       setLeadListMode("all");
-      setNotice(`${item.lead_email || "Lead"} restored. ${providerLabel(item.provider)} will check for it automatically on the next sync.`);
+      setNotice(
+        restored.status === "restored"
+          ? `${item.lead_email || "Lead"} restored with all saved details.`
+          : `${item.lead_email || "Lead"} was deleted before lossless Trash was available. ${providerLabel(item.provider)} will recreate it on the next sync.`,
+      );
       setRefreshKey((value) => value + 1);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to restore Trash item");

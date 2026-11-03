@@ -14,12 +14,14 @@ import { EmailComposer, type GmailComposerSeed } from "../components/EmailCompos
 import { getProviderEmailPreview, ProviderEmailBody } from "../components/ProviderEmailBody";
 import type {
   GmailMailboxMessage,
+  GmailMailboxMessagePage,
   GmailMailboxAttachment,
   GmailThreadMessage,
   ProviderConnection,
   WorkspaceEmailDraft,
   WorkspaceEmailDraftSummary,
 } from "../types";
+import { shareRequest } from "./emailRequestCache";
 import { confirmAction } from "../v3/ui/confirm";
 import { Icon, type IconName } from "../v3/ui/Icon";
 import { Banner, Button, EmptyState, IconButton, Monogram, PageHeader, Sheet } from "../v3/ui/primitives";
@@ -31,6 +33,9 @@ const MAILBOX_CACHE_FRESH_MS = 60_000;
 const accountCache = new Map<string, ProviderConnection[]>();
 const mailboxCache = new Map<string, { messages: GmailMailboxMessage[]; nextPageToken: string | null; fetchedAt: number }>();
 const threadCache = new Map<string, { messages: GmailThreadMessage[]; fetchedAt: number }>();
+const accountRequests = new Map<string, ReturnType<typeof listIntegrations>>();
+const mailboxRequests = new Map<string, Promise<{ page: GmailMailboxMessagePage; changed: boolean }>>();
+const threadRequests = new Map<string, Promise<{ messages: GmailThreadMessage[] }>>();
 
 function remember<T>(cache: Map<string, T>, key: string, value: T) {
   cache.delete(key);
@@ -93,6 +98,20 @@ const FOLDERS: Array<{ id: "inbox" | "sent" | "drafts" | "spam" | "trash" | "arc
   { id: "trash", label: "Trash", icon: "trash" },
 ];
 
+type MailboxFolder = (typeof FOLDERS)[number]["id"];
+
+function mailboxKey(connectionId: string, folder: MailboxFolder, query = "", pageToken: string | null = null) {
+  return JSON.stringify([getActiveWorkspace(), connectionId, folder, query, pageToken]);
+}
+
+function initialMailboxState() {
+  const accounts = accountCache.get(getActiveWorkspace()) ?? [];
+  const connectionId = accounts[0]?.id ?? "";
+  const key = connectionId ? mailboxKey(connectionId, "inbox") : "";
+  const cached = key ? mailboxCache.get(key) : undefined;
+  return { accounts, connectionId, key, cached };
+}
+
 export function EmailWorkspace({
   canSend,
   onOpenIntegrations,
@@ -100,11 +119,12 @@ export function EmailWorkspace({
   canSend: boolean;
   onOpenIntegrations: () => void;
 }) {
-  const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
-  const [connectionId, setConnectionId] = useState("");
-  const [folder, setFolder] = useState<"inbox" | "sent" | "drafts" | "spam" | "trash" | "archive">("inbox");
-  const [messages, setMessages] = useState<GmailMailboxMessage[]>([]);
-  const [selected, setSelected] = useState<GmailMailboxMessage | null>(null);
+  const [initialMailbox] = useState(initialMailboxState);
+  const [accounts, setAccounts] = useState<ProviderConnection[]>(initialMailbox.accounts);
+  const [connectionId, setConnectionId] = useState(initialMailbox.connectionId);
+  const [folder, setFolder] = useState<MailboxFolder>("inbox");
+  const [messages, setMessages] = useState<GmailMailboxMessage[]>(initialMailbox.cached?.messages ?? []);
+  const [selected, setSelected] = useState<GmailMailboxMessage | null>(initialMailbox.cached?.messages[0] ?? null);
   const [thread, setThread] = useState<GmailThreadMessage[]>([]);
   const [expandedMessageIds, setExpandedMessageIds] = useState<Set<string>>(
     new Set(),
@@ -114,9 +134,9 @@ export function EmailWorkspace({
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [pageToken, setPageToken] = useState<string | null>(null);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [nextPageToken, setNextPageToken] = useState<string | null>(initialMailbox.cached?.nextPageToken ?? null);
+  const [loadingAccounts, setLoadingAccounts] = useState(initialMailbox.accounts.length === 0);
+  const [loadingMessages, setLoadingMessages] = useState(Boolean(initialMailbox.connectionId && !initialMailbox.cached));
   const [loadingThread, setLoadingThread] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -127,7 +147,7 @@ export function EmailWorkspace({
   const [drafts, setDrafts] = useState<WorkspaceEmailDraftSummary[]>([]);
   const [activeDraft, setActiveDraft] = useState<WorkspaceEmailDraft | null>(null);
   const [draftRevision, setDraftRevision] = useState(0);
-  const lastMailboxKey = useRef("");
+  const lastMailboxKey = useRef(initialMailbox.key);
   const backgroundRefresh = useRef(false);
   const forceMailboxRefresh = useRef(false);
   const lastThreadRefresh = useRef(0);
@@ -141,14 +161,14 @@ export function EmailWorkspace({
       setConnectionId((current) => cachedAccounts.some((account) => account.id === current) ? current : cachedAccounts[0]?.id ?? "");
       setLoadingAccounts(false);
     }
-    listIntegrations().then((cards) => {
-      if (!alive) return;
+    shareRequest(accountRequests, workspaceId, listIntegrations).then((cards) => {
       const gmail = cards.find((card) => card.provider === "gmail");
       const rows = gmail?.connections.length ? gmail.connections : gmail?.connection ? [gmail.connection] : [];
       const available = rows.filter((account) =>
         account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_READONLY_SCOPE),
       );
       accountCache.set(workspaceId, available);
+      if (!alive) return;
       setAccounts(available);
       setConnectionId((current) => available.some((account) => account.id === current) ? current : available[0]?.id ?? "");
       setLoadingAccounts(false);
@@ -170,11 +190,11 @@ export function EmailWorkspace({
       setNextPageToken(null);
       return;
     }
-    const controller = new AbortController();
-    const mailboxKey = JSON.stringify([getActiveWorkspace(), connectionId, folder, query, pageToken]);
-    const changedMailbox = lastMailboxKey.current !== mailboxKey;
-    lastMailboxKey.current = mailboxKey;
-    const cached = mailboxCache.get(mailboxKey);
+    let alive = true;
+    const key = mailboxKey(connectionId, folder, query, pageToken);
+    const changedMailbox = lastMailboxKey.current !== key;
+    lastMailboxKey.current = key;
+    const cached = mailboxCache.get(key);
     const cacheIsFresh = Boolean(cached && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS);
     const forceRefreshRequested = forceMailboxRefresh.current;
     forceMailboxRefresh.current = false;
@@ -203,15 +223,22 @@ export function EmailWorkspace({
       setExpandedMessageIds(new Set());
       setNextPageToken(null);
     }
-    if (cacheIsFresh && !forceRefreshRequested) return () => controller.abort();
-    listGmailMailboxMessages(connectionId, folder, query, pageToken, controller.signal).then((page) => {
-      if (controller.signal.aborted) return;
-      remember(mailboxCache, mailboxKey, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
+    if (cacheIsFresh && !forceRefreshRequested) return () => { alive = false; };
+    shareRequest(mailboxRequests, key, async () => {
+      const page = await listGmailMailboxMessages(connectionId, folder, query, pageToken);
+      const previous = mailboxCache.get(key);
+      const changed = !previous
+        || previous.nextPageToken !== page.next_page_token
+        || JSON.stringify(previous.messages) !== JSON.stringify(page.messages);
+      remember(mailboxCache, key, { messages: page.messages, nextPageToken: page.next_page_token, fetchedAt: Date.now() });
+      return { page, changed };
+    }).then(({ page, changed }) => {
+      if (!alive) return;
       setMessages((current) => JSON.stringify(current) === JSON.stringify(page.messages) ? current : page.messages);
       setSelected((current) => changedMailbox
         ? page.messages[0] ?? null
         : page.messages.find((message) => message.message_id === current?.message_id) ?? page.messages[0] ?? null);
-      if (quiet && !changedMailbox && selected?.thread_id) {
+      if (changed && quiet && !changedMailbox && selected?.thread_id) {
         const selectedThreadKey = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
         threadCache.delete(selectedThreadKey);
         setThreadRevision((current) => current + 1);
@@ -219,18 +246,19 @@ export function EmailWorkspace({
       setNextPageToken(page.next_page_token);
       setLoadingMessages(false);
     }).catch((reason) => {
-      if (!controller.signal.aborted) {
+      if (alive) {
         if (!quiet) setError(reason instanceof Error ? reason.message : "Mailbox messages could not be loaded.");
         setLoadingMessages(false);
       }
     });
-    return () => controller.abort();
+    return () => { alive = false; };
   }, [connectionId, folder, query, pageToken, revision]);
 
   useEffect(() => {
     if (!connectionId) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") {
+        forceMailboxRefresh.current = true;
         backgroundRefresh.current = true;
         setRevision((current) => current + 1);
       }
@@ -255,7 +283,7 @@ export function EmailWorkspace({
       setExpandedMessageIds(new Set());
       return;
     }
-    const controller = new AbortController();
+    let alive = true;
     const key = JSON.stringify([getActiveWorkspace(), connectionId, selected.thread_id]);
     const cached = threadCache.get(key);
     const refreshRequested = threadRevision !== lastThreadRefresh.current;
@@ -271,22 +299,25 @@ export function EmailWorkspace({
       setExpandedMessageIds(new Set());
     }
     if (cached && !refreshRequested && Date.now() - cached.fetchedAt < MAILBOX_CACHE_FRESH_MS) {
-      return () => controller.abort();
+      return () => { alive = false; };
     }
-    getGmailMailboxThread(connectionId, selected.thread_id, controller.signal).then((result) => {
-      if (!controller.signal.aborted) {
-        remember(threadCache, key, { messages: result.messages, fetchedAt: Date.now() });
+    shareRequest(threadRequests, key, async () => {
+      const result = await getGmailMailboxThread(connectionId, selected.thread_id);
+      remember(threadCache, key, { messages: result.messages, fetchedAt: Date.now() });
+      return result;
+    }).then((result) => {
+      if (alive) {
         setThread((current) => JSON.stringify(current) === JSON.stringify(result.messages) ? current : result.messages);
         setExpandedMessageIds((current) => current.size ? current : new Set(result.messages.slice(-1).map((message) => message.message_id)));
         setLoadingThread(false);
       }
     }).catch((reason) => {
-      if (!controller.signal.aborted) {
+      if (alive) {
         if (!cached) setError(reason instanceof Error ? reason.message : "Email thread could not be loaded.");
         setLoadingThread(false);
       }
     });
-    return () => controller.abort();
+    return () => { alive = false; };
   }, [connectionId, selected?.thread_id, threadRevision]);
 
   function submitSearch(event: FormEvent) {
@@ -434,6 +465,7 @@ export function EmailWorkspace({
     onSent={() => {
       setComposeSeed(null);
       setActiveDraft(null);
+      forceMailboxRefresh.current = true;
       setRevision((current) => current + 1);
       setThreadRevision((current) => current + 1);
       setDraftRevision((current) => current + 1);

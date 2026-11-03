@@ -46,7 +46,12 @@ class WorkspaceEmailDraftORM(Base):
 
     __tablename__ = "workspace_email_drafts"
     __table_args__ = (
-        Index("ix_workspace_email_drafts_owner_updated", "workspace_id", "created_by", "updated_at"),
+        Index(
+            "ix_workspace_email_drafts_owner_updated",
+            "workspace_id",
+            "created_by",
+            "updated_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -795,6 +800,7 @@ class LeadORM(Base):
         Index("ix_leads_email", "email"),
         Index("ix_leads_workspace_created", "workspace_id", "created_at"),
         Index("ix_leads_workspace_received", "workspace_id", "received_at"),
+        Index("ix_leads_workspace_deleted", "workspace_id", "deleted_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -831,6 +837,8 @@ class LeadORM(Base):
     manual_review_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -870,6 +878,9 @@ class LeadSuppressionORM(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
     )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)

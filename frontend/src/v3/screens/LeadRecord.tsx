@@ -10,6 +10,7 @@ import {
   listIntegrations,
   retryLeadCongratulations,
   retryLeadNotification,
+  reevaluateLead,
   sendLeadToCrm,
   syncLeadGmailConversation,
   updateLeadAssignment,
@@ -139,6 +140,7 @@ export function LeadRecord({
   const [newQuote, setNewQuote] = useState(false);
   const [move, setMove] = useState<DealStage | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [completingManualReview, setCompletingManualReview] = useState(false);
   const [manualReviewError, setManualReviewError] = useState<string | null>(null);
   const [meetingIndicator, setMeetingIndicator] = useState<{ leadId: string; status: LeadMeetingIndicator } | null>(null);
@@ -227,6 +229,22 @@ export function LeadRecord({
     }
   };
 
+  const reanalyze = async () => {
+    if (reanalyzing) return;
+    setReanalyzing(true);
+    setNotice(null);
+    try {
+      const updated = await reevaluateLead(lead.id);
+      onUpdated?.(updated);
+      setActivityRefresh((value) => value + 1);
+      setNotice("AI qualification and routing were refreshed from the latest lead details and activity.");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "This lead could not be re-analyzed.");
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
   const deleteThisLead = async () => {
     if (!(await confirmAction({ title: "Delete this lead?", message: "It is removed from the workspace. A later matching inquiry can be imported again.", confirmLabel: "Delete lead", tone: "danger" }))) return;
     try {
@@ -300,6 +318,11 @@ export function LeadRecord({
             <Button kind="tinted" icon="mail" onClick={() => startEmail()} disabled={!lead.email} title={lead.email ? `Email ${lead.email}` : "No email address on record"}>Email</Button>
           )}
           {canEdit && <Button icon="quote" onClick={() => { onSectionChange("deal"); setNewQuote(true); }}>Quote</Button>}
+          {canEdit && (
+            <Button kind="gray" icon="refresh" onClick={() => void reanalyze()} disabled={reanalyzing}>
+              {reanalyzing ? "Analyzing…" : "Re-analyze"}
+            </Button>
+          )}
           {canUseAgent && (
             <Button kind="gray" icon="sparkle" onClick={() => window.dispatchEvent(new CustomEvent(TOGGLE_AGENT_EVENT, { detail: { open: true } }))}>
               Ask Corral
