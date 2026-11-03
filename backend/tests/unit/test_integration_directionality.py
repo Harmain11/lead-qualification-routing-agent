@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from lead_agent.api.routes import integrations as integrations_api
 from lead_agent.api.routes.integrations import (
@@ -306,10 +306,132 @@ def test_reasoning_backfill_persists_no_eligible_state_and_exposes_status(
             "completed": 0,
             "failed": 0,
             "skipped": 0,
-                "failure_categories": {},
+            "failure_categories": {},
+            "failures": [],
             "provider": "openai",
             "model": "test-model",
         }
+
+
+def test_reasoning_backfill_status_reports_failed_leads_in_workspace(
+    tmp_path,
+) -> None:
+    from datetime import UTC, datetime
+
+    workspace_id = uuid4()
+    other_workspace_id = uuid4()
+    with _session(tmp_path) as session:
+        connection = _connection(session, workspace_id, "openai")
+        other_connection = _connection(session, other_workspace_id, "openai")
+        job_id = str(uuid4())
+        now = datetime.now(UTC)
+        session.add_all([
+            ProviderLifecycleAuditORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                connection_id=connection.id,
+                provider="openai",
+                actor_id="system",
+                action="reasoning_backfill",
+                outcome="partial_failure",
+                correlation_id=job_id,
+                details={
+                    "status": "partial_failure",
+                    "total": 2,
+                    "completed": 1,
+                    "failed": 1,
+                    "skipped": 0,
+                    "provider": "openai",
+                    "model": "test-model",
+                },
+                created_at=now,
+            ),
+            ProviderLifecycleAuditORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                connection_id=connection.id,
+                provider="openai",
+                actor_id="worker",
+                action="reasoning_backfill",
+                outcome="lead_failed",
+                correlation_id=job_id,
+                details={"lead_id": "failed-lead", "failure_code": "provider_timeout"},
+                created_at=now,
+            ),
+            ProviderLifecycleAuditORM(
+                id=uuid4(),
+                workspace_id=other_workspace_id,
+                connection_id=other_connection.id,
+                provider="openai",
+                actor_id="worker",
+                action="reasoning_backfill",
+                outcome="lead_failed",
+                correlation_id=job_id,
+                details={"lead_id": "other-workspace-lead", "failure_code": "provider_error"},
+                created_at=now,
+            ),
+        ])
+        session.commit()
+        result = reasoning_backfill_status(
+            connection.id,
+            job_id,
+            session=session,
+            workspace=WorkspaceContext(workspace_id),
+        )
+        assert result["failures"] == [
+            {"lead_id": "failed-lead", "code": "provider_timeout"}
+        ]
+
+
+def test_reasoning_backfill_records_provider_change_as_terminal_failure(
+    tmp_path, icp, routing, monkeypatch
+) -> None:
+    from types import SimpleNamespace
+
+    from lead_agent.worker.celery_app import reanalyze_workspace_leads
+
+    workspace_id = uuid4()
+    job_id = str(uuid4())
+    with _session(tmp_path) as session:
+        connection = _connection(session, workspace_id, "openai")
+        session_factory = sessionmaker(bind=session.get_bind())
+        monkeypatch.setattr(
+            "lead_agent.worker.celery_app.get_session_factory",
+            lambda: session_factory,
+        )
+        monkeypatch.setattr(
+            "lead_agent.worker.celery_app.settings",
+            SimpleNamespace(
+                app_env="test",
+                load_policies=lambda: (icp, routing),
+            ),
+        )
+        monkeypatch.setattr(
+            "lead_agent.worker.celery_app.resolve_workspace_reasoning_provider",
+            lambda *_args: SimpleNamespace(
+                provider_name="openai",
+                model_name="new-model",
+                prompt_version="prompt-v2",
+            ),
+        )
+
+        result = reanalyze_workspace_leads.run(
+            str(workspace_id),
+            str(connection.id),
+            job_id,
+            "openai|old-model|prompt-v1",
+        )
+        assert result.startswith("failed:")
+        status = reasoning_backfill_status(
+            connection.id,
+            job_id,
+            session=session,
+            workspace=WorkspaceContext(workspace_id),
+        )
+        assert status["status"] == "failed"
+        assert status["message"].startswith(
+            "The verified workspace AI configuration changed"
+        )
 
 
 def test_verified_reasoning_connection_automatically_enqueues_backfill(

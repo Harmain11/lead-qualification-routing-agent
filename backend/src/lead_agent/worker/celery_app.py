@@ -9,7 +9,7 @@ from celery import Celery  # type: ignore[import-untyped]
 from celery.signals import task_failure, task_retry  # type: ignore[import-untyped]
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
@@ -334,6 +334,7 @@ def reanalyze_workspace_leads(
     del self
     workspace_uuid = UUID(workspace_id)
     with get_session_factory()() as session:
+        connection = session.get(ProviderConnectionORM, UUID(connection_id))
         icp, routing = settings.load_policies()
         resolved_icp = resolve_workspace_icp(session, workspace_uuid, icp)
         business_profile = operations_policy(session, workspace_uuid).business_profile
@@ -343,24 +344,82 @@ def reanalyze_workspace_leads(
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         provider_name = getattr(provider, "provider_name", "")
         model_name = getattr(provider, "model_name", "")
-        if provider_name not in REASONING_PROVIDERS:
-            return "skipped: verified workspace reasoning provider is unavailable"
-        connection = session.get(ProviderConnectionORM, UUID(connection_id))
-        if (
-            connection is None
-            or connection.workspace_id != workspace_uuid
-            or connection.provider_type != provider_name
-            or not connection.is_active
-            or connection.status != "verified"
-            or (
-                f"{provider_name}|{model_name}|{getattr(provider, 'prompt_version', '')}"
-                != config_key
-            )
-        ):
-            return "skipped: verified workspace reasoning connection is unavailable"
         correlation_id = job_id
         lock_hash = hashlib.sha256(config_key.encode()).hexdigest()[:24]
         lock_key = f"reasoning-backfill:{workspace_id}:{connection_id}:{lock_hash}"
+
+        def release_lock() -> None:
+            if settings.app_env != "production":
+                return
+            client = Redis.from_url(
+                settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+            )
+            try:
+                client.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    "return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    lock_key,
+                    job_id,
+                )
+            except (RedisError, OSError, ValueError):
+                _LOGGER.warning("reasoning.backfill_lock_release_failed")
+            finally:
+                client.close()
+
+        provider_configuration_is_current = (
+            provider_name in REASONING_PROVIDERS
+            and connection is not None
+            and connection.workspace_id == workspace_uuid
+            and connection.provider_type == provider_name
+            and connection.is_active
+            and connection.status == "verified"
+            and (
+                f"{provider_name}|{model_name}|{getattr(provider, 'prompt_version', '')}"
+                == config_key
+            )
+        )
+        if not provider_configuration_is_current:
+            failure_message = (
+                "The verified workspace AI configuration changed before this refresh "
+                "started. Verify the intended provider and retry."
+            )
+            if connection is not None and connection.workspace_id == workspace_uuid:
+                total = int(session.scalar(
+                    select(func.count(LeadORM.id)).where(
+                        LeadORM.workspace_id == workspace_uuid
+                    )
+                ) or 0)
+                session.add(
+                    ProviderLifecycleAuditORM(
+                        id=uuid4(),
+                        workspace_id=workspace_uuid,
+                        connection_id=connection.id,
+                        provider=connection.provider_type,
+                        actor_id="reasoning-backfill-worker",
+                        action="reasoning_backfill",
+                        outcome="failed",
+                        correlation_id=correlation_id,
+                        details={
+                            "provider": connection.provider_type,
+                            "model": model_name,
+                            "config_key": config_key,
+                            "total": total,
+                            "completed": 0,
+                            "failed": total,
+                            "skipped": 0,
+                            "status": "failed",
+                            "message": failure_message,
+                            "failure_categories": {
+                                "provider_configuration_changed": 1
+                            },
+                        },
+                        created_at=datetime.now(UTC),
+                    )
+                )
+                session.commit()
+            release_lock()
+            return f"failed: {failure_message}"
 
         def record(outcome: str, details: dict[str, object]) -> None:
             session.add(
@@ -383,25 +442,6 @@ def reanalyze_workspace_leads(
                 )
             )
             session.commit()
-
-        def release_lock() -> None:
-            if settings.app_env != "production":
-                return
-            client = Redis.from_url(
-                settings.redis_url, socket_connect_timeout=1, socket_timeout=1
-            )
-            try:
-                client.eval(
-                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                    "return redis.call('del', KEYS[1]) else return 0 end",
-                    1,
-                    lock_key,
-                    job_id,
-                )
-            except (RedisError, OSError, ValueError):
-                _LOGGER.warning("reasoning.backfill_lock_release_failed")
-            finally:
-                client.close()
 
         lead_ids = list(
             session.scalars(
@@ -556,6 +596,14 @@ def reanalyze_workspace_leads(
                             "error_type": type(error).__name__,
                             "failure_code": failure_code,
                         }
+                    },
+                )
+                record(
+                    "lead_failed",
+                    {
+                        "lead_id": str(lead_id),
+                        "failure_code": failure_code,
+                        "status": "running",
                     },
                 )
             record("running", {

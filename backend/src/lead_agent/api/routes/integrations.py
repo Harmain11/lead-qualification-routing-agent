@@ -1170,7 +1170,34 @@ def reasoning_backfill_status(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Backfill job not found")
-    return {
+    lead_events = list(session.scalars(
+        select(ProviderLifecycleAuditORM)
+        .where(
+            ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
+            ProviderLifecycleAuditORM.connection_id == connection.id,
+            ProviderLifecycleAuditORM.action == "reasoning_backfill",
+            ProviderLifecycleAuditORM.correlation_id == job_id,
+            ProviderLifecycleAuditORM.outcome.in_(("lead_failed", "lead_completed")),
+        )
+        .order_by(ProviderLifecycleAuditORM.created_at.asc())
+    ))
+    completed_lead_ids = {
+        str(event.details.get("lead_id"))
+        for event in lead_events
+        if event.outcome == "lead_completed" and event.details.get("lead_id")
+    }
+    failures_by_lead: dict[str, str] = {}
+    for event in lead_events:
+        lead_id = event.details.get("lead_id")
+        if (
+            event.outcome == "lead_failed"
+            and lead_id
+            and str(lead_id) not in completed_lead_ids
+        ):
+            failures_by_lead[str(lead_id)] = str(
+                event.details.get("failure_code") or "provider_error"
+            )
+    response = {
         "job_id": job_id,
         "status": str(row.details.get("status", row.outcome)),
         "total": int(row.details.get("total", 0)),
@@ -1178,9 +1205,16 @@ def reasoning_backfill_status(
         "failed": int(row.details.get("failed", 0)),
         "skipped": int(row.details.get("skipped", 0)),
         "failure_categories": row.details.get("failure_categories", {}),
+        "failures": [
+            {"lead_id": lead_id, "code": code}
+            for lead_id, code in sorted(failures_by_lead.items())
+        ],
         "provider": row.details.get("provider", row.provider),
         "model": row.details.get("model", ""),
     }
+    if message := row.details.get("message"):
+        response["message"] = str(message)
+    return response
 
 
 @router.get(

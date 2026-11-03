@@ -1058,6 +1058,8 @@ export type ReasoningBackfillStatus = {
   failed: number;
   skipped: number;
   failure_categories?: Record<string, number>;
+  failures?: Array<{ lead_id: string; code: string }>;
+  message?: string | null;
   provider: string;
   model: string;
 };
