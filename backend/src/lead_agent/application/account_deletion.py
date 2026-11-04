@@ -14,7 +14,7 @@ from lead_agent.infrastructure.db.models import (
     SocialMessageORM,
     SourceEventORM,
     UserORM,
-    WorkspaceAdminAuditEventORM,
+    WorkspaceAgentConversationORM,
     WorkspaceEmailDraftORM,
     WorkspaceInvitationORM,
     WorkspaceMembershipORM,
@@ -136,6 +136,34 @@ def delete_account(session: Session, user_id: UUID, confirmation_email: str) -> 
     if confirmation_email.strip().casefold() != user.email.casefold():
         raise ValueError("confirmation email does not match")
 
+    owned_ids = list(
+        session.scalars(
+            select(WorkspaceMembershipORM.workspace_id).where(
+                WorkspaceMembershipORM.user_id == user_id,
+                WorkspaceMembershipORM.role == "owner",
+            )
+        )
+    )
+    # Serialize deletion with membership inserts and changes before deciding
+    # whether the owner is the only remaining member.
+    if owned_ids:
+        list(
+            session.scalars(
+                select(WorkspaceORM)
+                .where(WorkspaceORM.id.in_(owned_ids))
+                .order_by(WorkspaceORM.id)
+                .with_for_update()
+            )
+        )
+        list(
+            session.scalars(
+                select(WorkspaceMembershipORM)
+                .where(WorkspaceMembershipORM.workspace_id.in_(owned_ids))
+                .order_by(WorkspaceMembershipORM.id)
+                .with_for_update()
+            )
+        )
+
     preview = preview_account_deletion(session, user_id)
     if preview.blockers:
         raise AccountDeletionBlocked(" ".join(preview.blockers))
@@ -156,6 +184,11 @@ def delete_account(session: Session, user_id: UUID, confirmation_email: str) -> 
     # user; the Settings preview reports their count before confirmation.
     session.execute(
         delete(WorkspaceInvitationORM).where(WorkspaceInvitationORM.invited_by == user_id)
+    )
+    session.execute(
+        delete(WorkspaceAgentConversationORM).where(
+            WorkspaceAgentConversationORM.actor_id == str(user_id)
+        )
     )
     session.flush()
 

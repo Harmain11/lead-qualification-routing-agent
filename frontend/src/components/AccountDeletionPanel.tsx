@@ -95,8 +95,9 @@ export function AccountDeletionPanel() {
           <div className="account-deletion-warning" role="note">
             <strong>This cannot be undone.</strong>
             <span>
-              Any workspace you own is permanently deleted with all its data and connected accounts.
-              In workspaces you do not own, only your membership is removed.
+              Any workspace you own is permanently deleted with all its data and saved integration connections.
+              External provider accounts are not deleted. Shared workspace data stays, but your membership
+              and private Corral Agent conversations are removed.
             </span>
           </div>
 
@@ -121,7 +122,7 @@ export function AccountDeletionPanel() {
           )}
           {preview.invitations_to_cancel > 0 && (
             <p className="account-deletion-muted">
-              {preview.invitations_to_cancel} invitation{preview.invitations_to_cancel === 1 ? "" : "s"} sent from your account will be canceled.
+              {preview.invitations_to_cancel} invitation record{preview.invitations_to_cancel === 1 ? "" : "s"} sent from your account will be removed. Existing members keep their access.
             </p>
           )}
 
