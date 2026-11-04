@@ -702,7 +702,6 @@ def test_account_deletion_preview_and_self_delete_remove_owned_workspace_safely(
             preview_body = preview.json()
             assert preview_body["email"] == "owner@example.test"
             assert preview_body["can_delete"] is True
-            assert preview_body["recent_sign_in_required"] is False
             assert preview_body["owned_workspaces"][0]["id"] == str(workspace_id)
             assert preview_body["owned_workspaces"][0]["leads"] == 1
             assert preview_body["owned_workspaces"][0]["integrations"] == 1
@@ -942,7 +941,7 @@ def test_account_deletion_is_blocked_when_owned_workspace_has_other_members(tmp_
         session.close()
 
 
-def test_account_deletion_requires_a_recent_sign_in(tmp_path) -> None:
+def test_account_deletion_does_not_require_signing_in_again(tmp_path) -> None:
     application = FastAPI()
     application.include_router(auth_router)
     session = auth_harness(tmp_path, foreign_keys=True, application=application)
@@ -960,16 +959,15 @@ def test_account_deletion_requires_a_recent_sign_in(tmp_path) -> None:
             session.commit()
 
             preview = client.get("/v1/auth/account-deletion-preview").json()
-            assert preview["recent_sign_in_required"] is True
-            assert preview["can_delete"] is False
+            assert preview["can_delete"] is True
             deleted = client.request(
                 "DELETE",
                 "/v1/auth/account",
                 headers=csrf(client),
                 json={"confirmation_email": "owner@example.test"},
             )
-            assert deleted.status_code == 403
-            assert session.get(UserORM, user_id) is not None
+            assert deleted.status_code == 204
+            assert session.get(UserORM, user_id) is None
     finally:
         application.dependency_overrides.clear()
         session.close()

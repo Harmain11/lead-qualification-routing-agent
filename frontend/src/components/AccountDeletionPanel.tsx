@@ -6,7 +6,6 @@ import {
   type AccountDeletionPreview,
 } from "../api";
 import { Button } from "../v3/ui/primitives";
-import { confirmAction } from "../v3/ui/confirm";
 
 function workspaceDataSummary(workspace: AccountDeletionPreview["owned_workspaces"][number]) {
   return [
@@ -53,17 +52,6 @@ export function AccountDeletionPanel() {
 
   const removeAccount = async () => {
     if (!preview || !emailMatches || !preview.can_delete || deleting) return;
-    const hasOwnedWorkspaces = preview.owned_workspaces.length > 0;
-    const confirmed = await confirmAction({
-      title: "Permanently delete your Corral account?",
-      message: hasOwnedWorkspaces
-        ? "This also permanently deletes the workspace and its data listed below. Your shared workspaces will remain, but your access will be removed."
-        : "Your account and sign-in records will be permanently removed. Your shared workspaces will remain, but your access will be removed.",
-      confirmLabel: "Delete account",
-      tone: "danger",
-    });
-    if (!confirmed) return;
-
     setDeleting(true);
     setError(null);
     try {
@@ -130,12 +118,6 @@ export function AccountDeletionPanel() {
             <div className="account-deletion-error" role="alert">
               {preview.blockers.map((blocker) => <p key={blocker}>{blocker}</p>)}
             </div>
-          )}
-
-          {preview.recent_sign_in_required && (
-            <p className="account-deletion-muted" role="status">
-              For your security, sign out and sign back in, then return here before deleting your account.
-            </p>
           )}
 
           {preview.blockers.length === 0 && (

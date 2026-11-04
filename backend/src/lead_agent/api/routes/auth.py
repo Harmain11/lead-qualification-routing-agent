@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
@@ -176,7 +176,6 @@ class AccountDeletionPreviewResponse(BaseModel):
     invitations_to_cancel: int
     blockers: list[str]
     can_delete: bool
-    recent_sign_in_required: bool
 
 
 def _account_profile_response(user: UserORM) -> AccountProfileResponse:
@@ -189,17 +188,6 @@ def _account_profile_response(user: UserORM) -> AccountProfileResponse:
         bio=user.bio,
         avatar_data_url=user.avatar_data_url,
     )
-
-
-def _session_is_recent(session_row: AuthSessionORM | None) -> bool:
-    if session_row is None:
-        return False
-    created_at = session_row.created_at
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-    else:
-        created_at = created_at.astimezone(UTC)
-    return datetime.now(UTC) - created_at <= timedelta(minutes=15)
 
 
 def _validated_avatar_data_url(value: str | None) -> str | None:
@@ -772,8 +760,6 @@ def account_deletion_preview(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found.")
     preview = preview_account_deletion(session, identity.user_id)
-    auth_session = session.get(AuthSessionORM, identity.session_id)
-    recent_sign_in_required = not _session_is_recent(auth_session)
     return AccountDeletionPreviewResponse(
         email=user.email,
         owned_workspaces=[
@@ -783,8 +769,7 @@ def account_deletion_preview(
         shared_workspaces=preview.shared_workspaces,
         invitations_to_cancel=preview.invitations_to_cancel,
         blockers=preview.blockers,
-        can_delete=preview.can_delete and not recent_sign_in_required,
-        recent_sign_in_required=recent_sign_in_required,
+        can_delete=preview.can_delete,
     )
 
 
@@ -796,12 +781,6 @@ def delete_my_account(
     session: Session = Depends(get_db),
     settings: Settings = Depends(get_runtime_settings),
 ) -> Response:
-    auth_session = session.get(AuthSessionORM, identity.session_id)
-    if not _session_is_recent(auth_session):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="For your security, sign out and sign in again before deleting your account.",
-        )
     try:
         delete_account(session, identity.user_id, request.confirmation_email)
     except LookupError as error:

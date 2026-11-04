@@ -433,7 +433,6 @@ export type AccountDeletionPreview = {
   invitations_to_cancel: number;
   blockers: string[];
   can_delete: boolean;
-  recent_sign_in_required: boolean;
 };
 
 export const getAccountDeletionPreview = () =>
