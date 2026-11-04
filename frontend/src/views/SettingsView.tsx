@@ -19,6 +19,7 @@ import {
   type PolicyResponse,
 } from "../operationsApi";
 import { AccountProfilePanel } from "../components/AccountProfilePanel";
+import { AccountDeletionPanel } from "../components/AccountDeletionPanel";
 import { WorkspaceBusinessProfilePanel } from "../components/WorkspaceBusinessProfilePanel";
 import type {
   AnalyticsMetadata,
@@ -153,6 +154,7 @@ export function SettingsView({
         {section === "users" && (
           <>
             <AccountProfilePanel />
+            <AccountDeletionPanel />
             <section className="st-card st-inline" aria-labelledby="st-team">
               <div>
                 <h2 id="st-team">Team</h2>

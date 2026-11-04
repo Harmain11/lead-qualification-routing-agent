@@ -413,6 +413,38 @@ export const updateAccountProfile = (profile: AccountProfileUpdate) =>
     body: JSON.stringify(profile),
   });
 
+export type AccountOwnedWorkspacePreview = {
+  id: string;
+  name: string;
+  other_active_members: number;
+  leads: number;
+  integrations: number;
+  stored_secrets: number;
+  source_events: number;
+  drafts: number;
+  conversations: number;
+  messages: number;
+};
+
+export type AccountDeletionPreview = {
+  email: string;
+  owned_workspaces: AccountOwnedWorkspacePreview[];
+  shared_workspaces: number;
+  invitations_to_cancel: number;
+  blockers: string[];
+  can_delete: boolean;
+  recent_sign_in_required: boolean;
+};
+
+export const getAccountDeletionPreview = () =>
+  request<AccountDeletionPreview>("/v1/auth/account-deletion-preview");
+export const deleteCorralAccount = (confirmationEmail: string) =>
+  request<void>("/v1/auth/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation_email: confirmationEmail }),
+  });
+
 export const getEmailTemplates = () => request<WorkspaceEmailTemplate[]>("/v1/settings/email-templates");
 export const saveEmailTemplate = (kind: WorkspaceEmailTemplate["kind"], template: Omit<WorkspaceEmailTemplate, "kind">) =>
   request<WorkspaceEmailTemplate>(`/v1/settings/email-templates/${kind}`, {

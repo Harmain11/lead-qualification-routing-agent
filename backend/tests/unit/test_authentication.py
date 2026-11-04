@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_runtime_settings
@@ -22,6 +22,7 @@ from lead_agent.infrastructure.db.models import (
     EmailVerificationTokenORM,
     ProviderConnectionORM,
     UserORM,
+    WorkspaceInvitationORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
@@ -37,11 +38,18 @@ from lead_agent.infrastructure.secrets import DevelopmentSecretStore, get_secret
 from lead_agent.settings.config import Settings
 
 
-def auth_harness(tmp_path):
+def auth_harness(tmp_path, *, foreign_keys: bool = False):
     engine = create_engine(
         f"sqlite:///{tmp_path / 'auth.db'}",
         connect_args={"check_same_thread": False},
     )
+    if foreign_keys:
+        @event.listens_for(engine, "connect")
+        def enable_sqlite_foreign_keys(connection, _record) -> None:
+            cursor = connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     Base.metadata.create_all(engine)
     session = Session(engine)
     settings = Settings(
@@ -637,6 +645,207 @@ def test_user_can_update_account_profile_and_invalid_photo_is_rejected(tmp_path)
             assert user is not None
             assert user.display_name == "Alex Morgan"
             assert user.avatar_data_url == "data:image/jpeg;base64,/9j/2Q=="
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_account_deletion_preview_and_self_delete_remove_owned_workspace_safely(tmp_path) -> None:
+    session = auth_harness(tmp_path, foreign_keys=True)
+    try:
+        with TestClient(app) as client:
+            signed_in = signup(client)
+            user_id = UUID(signed_in.json()["user"]["id"])
+            membership = session.scalar(
+                select(WorkspaceMembershipORM).where(WorkspaceMembershipORM.user_id == user_id)
+            )
+            assert membership is not None
+            workspace_id = membership.workspace_id
+
+            preview = client.get("/v1/auth/account-deletion-preview")
+            assert preview.status_code == 200
+            preview_body = preview.json()
+            assert preview_body["email"] == "owner@example.test"
+            assert preview_body["can_delete"] is True
+            assert preview_body["recent_sign_in_required"] is False
+            assert preview_body["owned_workspaces"][0]["id"] == str(workspace_id)
+
+            wrong_confirmation = client.delete(
+                "/v1/auth/account",
+                headers=csrf(client),
+                json={"confirmation_email": "someone-else@example.test"},
+            )
+            assert wrong_confirmation.status_code == 422
+            assert session.get(UserORM, user_id) is not None
+            assert session.get(WorkspaceORM, workspace_id) is not None
+
+            deleted = client.delete(
+                "/v1/auth/account",
+                headers=csrf(client),
+                json={"confirmation_email": " OWNER@example.test "},
+            )
+            assert deleted.status_code == 204
+            assert session.get(UserORM, user_id) is None
+            assert session.get(WorkspaceORM, workspace_id) is None
+            assert session.scalar(
+                select(AuthSessionORM).where(AuthSessionORM.user_id == user_id)
+            ) is None
+            assert client.get("/v1/auth/status").json() is None
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_account_deletion_cancels_sent_invites_and_preserves_shared_workspace(tmp_path) -> None:
+    session = auth_harness(tmp_path, foreign_keys=True)
+    try:
+        with TestClient(app) as client:
+            signed_in = signup(client)
+            deleting_user_id = UUID(signed_in.json()["user"]["id"])
+            owned_membership = session.scalar(
+                select(WorkspaceMembershipORM).where(
+                    WorkspaceMembershipORM.user_id == deleting_user_id
+                )
+            )
+            assert owned_membership is not None
+            owned_workspace_id = owned_membership.workspace_id
+            now = datetime.now(UTC)
+
+            shared_owner = UserORM(
+                id=uuid4(),
+                email="other-owner@example.test",
+                display_name="Other Owner",
+                password_hash="not-a-login-secret",
+                email_verified=True,
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            shared_workspace = WorkspaceORM(
+                id=uuid4(),
+                name="Shared workspace",
+                slug=f"shared-{uuid4().hex}",
+                status="active",
+                is_demo=False,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add_all([shared_owner, shared_workspace])
+            session.flush()
+            session.add_all(
+                [
+                    WorkspaceMembershipORM(
+                        id=uuid4(),
+                        workspace_id=shared_workspace.id,
+                        user_id=shared_owner.id,
+                        role="owner",
+                        status="active",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    WorkspaceMembershipORM(
+                        id=uuid4(),
+                        workspace_id=shared_workspace.id,
+                        user_id=deleting_user_id,
+                        role="member",
+                        status="active",
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                    WorkspaceInvitationORM(
+                        id=uuid4(),
+                        workspace_id=shared_workspace.id,
+                        email="invitee@example.test",
+                        role="member",
+                        permission_overrides={},
+                        token_hash=uuid4().hex * 2,
+                        status="pending",
+                        invited_by=deleting_user_id,
+                        expires_at=now + timedelta(days=7),
+                        created_at=now,
+                        updated_at=now,
+                    ),
+                ]
+            )
+            session.commit()
+
+            preview = client.get("/v1/auth/account-deletion-preview").json()
+            assert preview["shared_workspaces"] == 1
+            assert preview["invitations_to_cancel"] == 1
+
+            deleted = client.delete(
+                "/v1/auth/account",
+                headers=csrf(client),
+                json={"confirmation_email": "owner@example.test"},
+            )
+            assert deleted.status_code == 204
+            assert session.get(UserORM, deleting_user_id) is None
+            assert session.get(WorkspaceORM, owned_workspace_id) is None
+            assert session.get(WorkspaceORM, shared_workspace.id) is not None
+            assert session.get(UserORM, shared_owner.id) is not None
+            assert session.scalar(
+                select(WorkspaceMembershipORM).where(
+                    WorkspaceMembershipORM.workspace_id == shared_workspace.id,
+                    WorkspaceMembershipORM.user_id == shared_owner.id,
+                )
+            ) is not None
+            assert session.scalar(
+                select(WorkspaceInvitationORM).where(
+                    WorkspaceInvitationORM.invited_by == deleting_user_id
+                )
+            ) is None
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_account_deletion_is_blocked_when_owned_workspace_has_other_members(tmp_path) -> None:
+    session = auth_harness(tmp_path, foreign_keys=True)
+    try:
+        with TestClient(app) as client:
+            signed_in = signup(client)
+            user_id = UUID(signed_in.json()["user"]["id"])
+            membership = session.scalar(
+                select(WorkspaceMembershipORM).where(WorkspaceMembershipORM.user_id == user_id)
+            )
+            assert membership is not None
+            now = datetime.now(UTC)
+            other_member = UserORM(
+                id=uuid4(),
+                email="member@example.test",
+                display_name="Member",
+                password_hash="not-a-login-secret",
+                email_verified=True,
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(other_member)
+            session.flush()
+            session.add(
+                WorkspaceMembershipORM(
+                    id=uuid4(),
+                    workspace_id=membership.workspace_id,
+                    user_id=other_member.id,
+                    role="member",
+                    status="active",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.commit()
+
+            preview = client.get("/v1/auth/account-deletion-preview").json()
+            assert preview["can_delete"] is False
+            assert "remove the other members" in preview["blockers"][0]
+            deleted = client.delete(
+                "/v1/auth/account",
+                headers=csrf(client),
+                json={"confirmation_email": "owner@example.test"},
+            )
+            assert deleted.status_code == 409
+            assert session.get(UserORM, user_id) is not None
+            assert session.get(WorkspaceORM, membership.workspace_id) is not None
     finally:
         app.dependency_overrides.clear()
         session.close()
