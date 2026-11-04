@@ -237,3 +237,24 @@ test("keeps display names and multiple recipients in address headers", () => {
   assert.equal(inquiry.messages[0].to, '"Sales Team" <sales@example.test>, ops@example.test');
   assert.equal(inquiry.messages[0].body, "Can you share pricing?");
 });
+
+test("recovers a flattened subject and removes repeated mail content and signature noise", () => {
+  const body = "Hello Pei, I'm looking forward to hopping on a 10-minute Zoom call to discuss a potential tech collaboration. Let me know a suitable time to connect.";
+  const inquiry = parseGmailInquiry(`--- Gmail message compact-email ---
+From: Reese Maddox <reese@example.test>
+To: Pei Yao <pei@example.test>
+Date: Tue, 13 Oct 2026 09:31:16 +0000
+Subject: Pei Can I call you on Wednesday? ${body}
+
+${body} Best Regards, Reese Maddox, Manager Customer Success, Ingenuity Systems. P.S. If you want to opt out of our email list, reply with STOP.
+Links: ----- [1] https://example.test/about Links: ----- [1] https://example.test/about`);
+
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].subject, "Pei Can I call you on Wednesday?");
+  const sections = splitGmailBodyForDisplay(inquiry.messages[0].body);
+  assert.equal(sections.primary.split("I'm looking forward").length - 1, 1);
+  assert.equal(sections.primary.split("Let me know a suitable time").length - 1, 1);
+  assert.doesNotMatch(sections.primary, /Manager Customer Success|opt out|Links:/i);
+  assert.match(sections.footers.join(" "), /Manager Customer Success/);
+  assert.match(sections.footers.join(" "), /opt out/);
+});
