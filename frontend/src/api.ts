@@ -66,7 +66,11 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, ""
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId?: string,
+  ) {
     super(message);
     this.name = "ApiError";
   }
@@ -361,7 +365,11 @@ async function performRequest<T>(
         : response.status === 403
           ? "You do not have permission to perform this action."
           : `Request failed (${response.status}). Please try again.`);
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      message,
+      response.status,
+      response.headers.get("x-request-id") || undefined,
+    );
   }
   const result = response.status === 204 ? undefined : await response.json();
   const method = options?.method?.toUpperCase() ?? "GET";

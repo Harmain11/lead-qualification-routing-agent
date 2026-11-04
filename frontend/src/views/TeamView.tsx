@@ -3,6 +3,7 @@ import { Icon } from "../v3/ui/Icon";
 import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
+ApiError,
 inviteMember,
 listInvitations,
 listMemberAuditEvents,
@@ -51,12 +52,19 @@ const emptyOverrides = (): PermissionOverrides => ({ grants: [], denies: [] });
 
 function friendlyError(error: unknown) {
   const message = error instanceof Error ? error.message : "The request could not be completed.";
-  if (message.includes("permission required")) return "You do not have permission to do that in this workspace.";
-  if (message.includes("already a workspace member")) return "That person already belongs to this workspace.";
-  if (message.includes("already been used")) return "This invitation has already been accepted or revoked.";
-  if (message.includes("expired")) return "This invitation has expired. Resend it to create a fresh invitation.";
-  if (message.includes("ownership") || message.includes("protected")) return "Workspace ownership is protected and cannot be changed here.";
-  return message;
+  const friendlyMessage = message.includes("permission required")
+    ? "You do not have permission to do that in this workspace."
+    : message.includes("already a workspace member")
+      ? "That person already belongs to this workspace."
+      : message.includes("already been used")
+        ? "This invitation has already been accepted or revoked."
+        : message.includes("expired")
+          ? "This invitation has expired. Resend it to create a fresh invitation."
+          : message.includes("ownership") || message.includes("protected")
+            ? "Workspace ownership is protected and cannot be changed here."
+            : message;
+  const requestId = error instanceof ApiError ? error.requestId : undefined;
+  return requestId ? `${friendlyMessage} (Reference ID: ${requestId})` : friendlyMessage;
 }
 
 function formatDate(value: string | null | undefined) {
