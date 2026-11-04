@@ -7,9 +7,9 @@ import {
 import type { GmailComposerSeed } from "./EmailComposer";
 import { EmailComposer } from "./EmailComposer";
 import { MeetingOfferDrafts } from "./MeetingOfferDrafts";
-import { ProviderEmailBody } from "./ProviderEmailBody";
+import { getProviderEmailPreview, ProviderEmailBody } from "./ProviderEmailBody";
 import type { Lead, LeadPipelineEvent, ProviderConnection } from "../types";
-import { dedupeGmailEvents, latestGmailReplyTarget } from "../utils/gmailEvents";
+import { dedupeGmailEvents, latestGmailReplyTarget, newestFirstGmailEvents } from "../utils/gmailEvents";
 import { Button, Monogram } from "../v3/ui/primitives";
 import { Icon } from "../v3/ui/Icon";
 
@@ -126,13 +126,11 @@ export function LeadEmailPanel({
   const orderedThreads = [...groups.entries()]
     .map(([threadId, messages]) => ({
       threadId,
-      messages: messages.sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      ),
+      messages: newestFirstGmailEvents(messages),
     }))
     .sort((a, b) =>
-      new Date(b.messages[b.messages.length - 1]?.created_at ?? 0).getTime()
-      - new Date(a.messages[a.messages.length - 1]?.created_at ?? 0).getTime(),
+      new Date(b.messages[0]?.created_at ?? 0).getTime()
+      - new Date(a.messages[0]?.created_at ?? 0).getTime(),
     );
   const activeAccounts = accounts.filter((account) =>
     account.is_active && account.status === "verified" && account.scopes.includes(GMAIL_READONLY_SCOPE),
@@ -199,7 +197,7 @@ export function LeadEmailPanel({
     setComposerRevision((current) => current + 1);
   }
 
-  const lastEvent = orderedThreads[0]?.messages[orderedThreads[0].messages.length - 1];
+  const lastEvent = orderedThreads[0]?.messages[0];
   const lastDirection = lastEvent ? stringDetail(lastEvent.details, "direction") : "";
   const lastTime = lastEvent ? new Date(lastEvent.created_at) : null;
   const status = !lastEvent
@@ -314,8 +312,8 @@ export function LeadEmailPanel({
     />}
     <div className="lm-threads">
       {!loading && orderedThreads.map(({ threadId, messages }, threadIndex) => {
-        const subject = stringDetail(messages[messages.length - 1]?.details ?? {}, "subject") || "(no subject)";
-        const latest = messages[messages.length - 1];
+        const subject = stringDetail(messages[0]?.details ?? {}, "subject") || "(no subject)";
+        const latest = messages[0];
         const canReply = canSend && messages.some((message) => stringDetail(message.details, "rfc_message_id"));
         return <details className="lm-thread" key={threadId} open={threadIndex === 0 || undefined}>
           <summary>
@@ -329,19 +327,19 @@ export function LeadEmailPanel({
             const body = stringDetail(details, "body");
             const sender = stringDetail(details, "sender");
             const recipients = stringDetail(details, "recipients");
+            const replyToAddress = stringDetail(details, "reply_to");
             const mailboxName = accounts.find((account) => account.id === stringDetail(details, "gmail_connection_id"))?.account_name;
-            const isLast = index === messages.length - 1;
+            const isLatest = index === 0;
             const who = outbound ? "You" : (sender.replace(/<.*>/, "").trim() || sender || "Lead");
             return <li key={event.id} className="lm-message" data-outbound={outbound || undefined}>
-              <details open={isLast || undefined}>
+              <details open={isLatest || undefined}>
                 <summary>
                   <Monogram text={outbound ? (mailboxName || "You") : who} size={32} />
-                  <span className="lm-from"><b>{who}</b><small>{outbound ? `to ${recipients || lead.email || "lead"}` : sender.match(/<(.+)>/)?.[1] ?? sender}</small></span>
-                  <span className="lm-snippet">{plainText(body).replace(/\s+/g, " ").slice(0, 110)}</span>
+                  <span className="lm-from"><b>{who}</b></span>
+                  <span className="lm-snippet">{getProviderEmailPreview(body, 110)}</span>
                   <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
                 </summary>
                 <div className="lm-body">
-                  <div className="lm-addresses"><span>From <b>{sender || "Unknown"}</b></span>{recipients && <span>To <b>{recipients}</b></span>}{mailboxName && <span>Mailbox <b>{mailboxName}</b></span>}</div>
                   <ProviderEmailBody content={body} />
                   {canSend && <div className="lm-actions">
                     {canReply && stringDetail(details, "gmail_connection_id") && <Button kind="gray" size="sm" icon="reply" onClick={() => replyTo(event)}>Reply</Button>}
@@ -349,6 +347,15 @@ export function LeadEmailPanel({
                     <Button kind="gray" size="sm" icon="forward" onClick={() => forward(event)}>Forward</Button>
                     {onAskAgent && <Button kind="plain" size="sm" icon="sparkle" onClick={() => askCorral(`Draft a reply to this email from ${who} (subject "${stringDetail(details, "subject")}"). Use the whole thread for context.`)}>Draft with Corral</Button>}
                   </div>}
+                  <details className="lm-message-details">
+                    <summary>Message details</summary>
+                    <div className="lm-addresses">
+                      <span>From <b>{sender || "Unknown"}</b></span>
+                      {recipients && <span>To <b>{recipients}</b></span>}
+                      {replyToAddress && <span>Reply-to <b>{replyToAddress}</b></span>}
+                      {mailboxName && <span>Mailbox <b>{mailboxName}</b></span>}
+                    </div>
+                  </details>
                 </div>
               </details>
             </li>;

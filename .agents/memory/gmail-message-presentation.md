@@ -26,3 +26,9 @@ Some imported Gmail messages repeat the authored body after flattening it onto t
 **Why:** A lead email card showed the same prospect message twice alongside flattened subject text, making the actual request difficult to read.
 
 **How to apply:** Use the shared Gmail display formatter for lead email cards and inbox previews. Deduplicate on sentence boundaries only when punctuation is followed by whitespace and a sentence-like capital, so periods in domains and addresses remain untouched.
+
+In lead email threads, show the newest message first and open it by default; keep earlier messages collapsed. Hide From, To, Reply-to, and mailbox metadata behind a compact “Message details” disclosure. Move a standard standalone `--` signature tail into the collapsed footer area, preserving the full source for review.
+
+**Why:** The user wants the latest reply at the top and only the readable message visible, with delivery details and signatures available when needed rather than taking over the reading pane.
+
+**How to apply:** Sort per-thread events descending by message date, use the first event as the latest for status and subject, and keep reply controls on the message. Put headers in a closed disclosure and preserve complete source text in raw email.

@@ -1119,6 +1119,7 @@ export type GmailMailboxMessage = {
   thread_id: string;
   sender: string;
   sender_name: string;
+  reply_to?: string;
   recipients: string;
   subject: string;
   sent_at: string;
@@ -1132,6 +1133,7 @@ export type GmailThreadMessage = {
   thread_id: string;
   sender: string;
   sender_name: string;
+  reply_to?: string;
   recipients: string;
   subject: string;
   sent_at: string;

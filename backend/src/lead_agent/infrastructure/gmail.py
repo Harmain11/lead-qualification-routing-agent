@@ -1441,6 +1441,11 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            reply_to = ", ".join(
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("reply-to", "")])
+                if address
+            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")])
@@ -1496,6 +1501,11 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            reply_to = ", ".join(
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("reply-to", "")])
+                if address
+            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses(
@@ -1515,6 +1525,7 @@ class GmailInboundProvider:
                 "thread_id": str(message.get("threadId") or thread_id),
                 "sender": sender.strip().lower(),
                 "sender_name": sender_name[:255],
+                "reply_to": reply_to[:1000],
                 "recipients": ", ".join(recipients)[:1000],
                 "subject": headers.get("subject", "(no subject)")[:500],
                 "sent_at": sent_at,

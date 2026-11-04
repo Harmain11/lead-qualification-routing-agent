@@ -605,10 +605,17 @@ export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySectio
     : [];
   const displayBody = latest?.body || readable;
   const inline = splitInlineFooterNotices(displayBody);
-  const blocks = inline.primary.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
+  const signatureSeparator = /(?:^|\n)\s*--\s*(?:\n|$)/m.exec(inline.primary);
+  const mainBody = signatureSeparator
+    ? inline.primary.slice(0, signatureSeparator.index).trim()
+    : inline.primary;
+  const signature = signatureSeparator
+    ? inline.primary.slice(signatureSeparator.index).replace(/^\s*--\s*/, "").trim()
+    : "";
+  const blocks = mainBody.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
   const primary: string[] = [];
   const quoted: string[] = [...threadQuotes];
-  const footers: string[] = [...inline.footers];
+  const footers: string[] = [...inline.footers, ...(signature ? [signature] : [])];
 
   for (const block of blocks) {
     if (FOOTER_NOTICE_PATTERNS.some((pattern) => pattern.test(block)) || isLongSignature(block)) {
