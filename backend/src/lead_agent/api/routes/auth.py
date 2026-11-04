@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.responses import RedirectResponse
 
@@ -792,6 +793,12 @@ def delete_my_account(
     except ValueError as error:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Deletion was rolled back because related records are still linked. No account data was deleted.",
+        ) from error
     _clear_session_cookies(response, settings)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

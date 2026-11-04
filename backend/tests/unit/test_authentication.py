@@ -32,6 +32,7 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
+from lead_agent.infrastructure.db.operations import ContactORM, LeadContactORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.email import (
     CaptureEmailProvider,
@@ -692,9 +693,17 @@ def test_account_deletion_preview_and_self_delete_remove_owned_workspace_safely(
                 raw_payload={}, normalization_version="test", created_at=now, updated_at=now,
             )
             session.add(lead)
+            contact = ContactORM(
+                id=uuid4(), workspace_id=workspace_id,
+                name="Test Contact", email="prospect@example.test",
+            )
+            session.add(contact)
+            session.flush()
+            lead_contact = LeadContactORM(lead_id=lead.id, contact_id=contact.id)
+            session.add(lead_contact)
             session.commit()
-            lead_id, connection_id, secret_id, source_event_id = (
-                lead.id, connection.id, secret.id, source_event.id
+            lead_id, contact_id, connection_id, secret_id, source_event_id = (
+                lead.id, contact.id, connection.id, secret.id, source_event.id
             )
 
             preview = client.get("/v1/auth/account-deletion-preview")
@@ -746,8 +755,12 @@ def test_account_deletion_preview_and_self_delete_remove_owned_workspace_safely(
             for model, record_id in [
                 (LeadORM, lead_id), (ProviderConnectionORM, connection_id),
                 (EncryptedProviderSecretORM, secret_id), (SourceEventORM, source_event_id),
+                (ContactORM, contact_id),
             ]:
                 assert session.scalar(select(model.id).where(model.id == record_id)) is None
+            assert session.scalar(
+                select(LeadContactORM.lead_id).where(LeadContactORM.contact_id == contact_id)
+            ) is None
             assert session.scalar(
                 select(AuthSessionORM).where(AuthSessionORM.user_id == user_id)
             ) is None

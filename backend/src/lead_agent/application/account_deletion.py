@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from lead_agent.infrastructure.db.operations import ContactORM, LeadContactORM
 from lead_agent.infrastructure.db.models import (
     EncryptedProviderSecretORM,
     LeadORM,
@@ -167,6 +168,19 @@ def delete_account(session: Session, user_id: UUID, confirmation_email: str) -> 
     preview = preview_account_deletion(session, user_id)
     if preview.blockers:
         raise AccountDeletionBlocked(" ".join(preview.blockers))
+
+    # Contact rows are workspace-cascaded, but lead_contacts.contact_id is
+    # RESTRICT. Remove workspace-owned links first so contact deletion can
+    # proceed; lead rows are still removed by the workspace cascade below.
+    if owned_ids:
+        session.execute(
+            delete(LeadContactORM).where(
+                LeadContactORM.contact_id.in_(
+                    select(ContactORM.id).where(ContactORM.workspace_id.in_(owned_ids))
+                )
+            )
+        )
+        session.flush()
 
     # Workspaces with this user as owner are deleted as a unit. Workspaces where
     # the user is only a member remain intact; their membership is removed by
