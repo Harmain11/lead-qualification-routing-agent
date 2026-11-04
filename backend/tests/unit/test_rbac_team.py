@@ -86,8 +86,10 @@ def test_role_catalog_and_deterministic_overrides() -> None:
     assert normalize_role("Sales Manager") == "sales_manager"
     assert role_permissions("owner") == PERMISSION_CATALOG
     assert "leads.export" in role_permissions("sales manager")
-    assert "dialer.call" not in role_permissions("sales manager")
-    assert "dialer.call" not in role_permissions("sales rep")
+    assert "dialer.call" in role_permissions("sales manager")
+    assert "dialer.call" in role_permissions("sales rep")
+    assert "routing.manage" not in role_permissions("sales manager")
+    assert {"comments.view", "comments.add", "activity.view"} <= role_permissions("sales rep")
     assert "integrations.manage" not in role_permissions("sales rep")
     assert "workspace.manage" not in role_permissions("viewer")
     assert "leads.export" not in role_permissions("viewer")

@@ -10,6 +10,15 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { id: "leads.view", label: "View leads" },
       { id: "leads.edit", label: "Edit leads" },
       { id: "leads.export", label: "Export leads" },
+      { id: "leads.reassign", label: "Reassign leads" },
+    ],
+  },
+  {
+    label: "Collaboration",
+    permissions: [
+      { id: "comments.view", label: "View team notes and comments" },
+      { id: "comments.add", label: "Add notes and comments" },
+      { id: "activity.view", label: "View lead activity history" },
     ],
   },
   {
@@ -84,17 +93,17 @@ export const ROLE_OPTIONS = [
   {
     id: "sales_manager",
     label: "Manager",
-    description: "Manage leads, routing, manual review, analytics and exports.",
+    description: "Oversee team leads, manual review, reassignment, analytics and exports; routing stays read-only.",
   },
   {
     id: "sales_rep",
     label: "Sales Rep",
-    description: "Work permitted leads and normal sales actions.",
+    description: "Collaborate on team leads, add notes, use coaching and place permitted calls.",
   },
   {
     id: "viewer",
     label: "Analyst / Viewer",
-    description: "Read-only operational visibility for the workspace.",
+    description: "Read-only visibility into permitted leads, activity, analytics and team members.",
   },
 ] as const;
 
@@ -112,11 +121,11 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
   admin: ALL_PERMISSIONS,
   sales_manager: [
     "leads.view", "leads.edit", "leads.export", "analytics.view", "manual_review.view",
-    "manual_review.manage", "routing.view", "routing.manage", "members.view", "agents.view",
-    "agents.execute", "crm.sync",
+    "manual_review.manage", "routing.view", "members.view", "agents.view", "agents.execute",
+    "dialer.call", "crm.sync", "leads.reassign", "comments.view", "comments.add", "activity.view",
   ],
-  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "crm.sync"],
-  viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view"],
+  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "dialer.call", "crm.sync", "comments.view", "comments.add", "activity.view"],
+  viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view", "members.view", "comments.view", "activity.view"],
 };
 
 export function roleLabel(role: string) {

@@ -7,6 +7,10 @@ PERMISSION_CATALOG: frozenset[str] = frozenset(
         "leads.view",
         "leads.edit",
         "leads.export",
+        "leads.reassign",
+        "comments.view",
+        "comments.add",
+        "activity.view",
         "analytics.view",
         "manual_review.view",
         "manual_review.manage",
@@ -61,15 +65,19 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "leads.view",
             "leads.edit",
             "leads.export",
+            "leads.reassign",
             "analytics.view",
             "manual_review.view",
             "manual_review.manage",
             "routing.view",
-            "routing.manage",
             "members.view",
             "agents.view",
             "agents.execute",
+            "dialer.call",
             "crm.sync",
+            "comments.view",
+            "comments.add",
+            "activity.view",
         }
     ),
     "sales_rep": frozenset(
@@ -81,7 +89,11 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "routing.view",
             "agents.view",
             "agents.execute",
+            "dialer.call",
             "crm.sync",
+            "comments.view",
+            "comments.add",
+            "activity.view",
         }
     ),
     "viewer": frozenset(
@@ -93,6 +105,9 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "integrations.view",
             "icp.view",
             "agents.view",
+            "members.view",
+            "comments.view",
+            "activity.view",
         }
     ),
 }
