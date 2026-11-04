@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     log_format: Literal["text", "json"] = "text"
     observability_enabled: bool = True
     secret_key: str = "local-development-only"
+    corral_site_access_password: str = Field(default="", repr=False, exclude=True)
     auth_development_fallback: bool = True
     auth_session_cookie_name: str = "lead_agent_session"
     auth_csrf_cookie_name: str = "lead_agent_csrf"
@@ -163,6 +164,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_environment_security(self) -> Settings:
+        if (
+            self.corral_site_access_password
+            and len(self.corral_site_access_password) < 16
+        ):
+            raise ValueError("CORRAL_SITE_ACCESS_PASSWORD must be at least 16 characters")
         if self.auth_session_hours < 1 or self.auth_session_hours > 24 * 31:
             raise ValueError("AUTH_SESSION_HOURS must be between 1 and 744")
         if self.auth_session_cookie_name == self.auth_csrf_cookie_name:
@@ -238,6 +244,10 @@ class Settings(BaseSettings):
         require(
             self.auth_require_email_verification,
             "AUTH_REQUIRE_EMAIL_VERIFICATION must be true",
+        )
+        require(
+            len(self.corral_site_access_password) >= 16,
+            "CORRAL_SITE_ACCESS_PASSWORD must be configured with at least 16 characters",
         )
         require(self.log_format == "json", "LOG_FORMAT must be json in production")
         require(

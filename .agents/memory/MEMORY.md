@@ -43,6 +43,7 @@
 - [Legacy analysis compatibility](legacy-analysis-compatibility.md) — Keep provider validation strict, but adapt older saved analysis JSON when new required fields are added.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
 - [Corral Agent scope and approvals](corral-agent-scope.md) — Main workspace for agentic, in-chat work; generalize workflows, preserve approval gates, and show lead buttons only on request.
+- [Corral site access gate](site-access-gate.md) — Use Corral's own password screen and server check backed by Replit Secrets; do not use Replit's built-in gate.
 - [Corral Agent mobile layout](corral-agent-mobile-layout.md) — Keep the full-screen phone Agent keyboard-aware, background-locked, and limited to one content scroller.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.

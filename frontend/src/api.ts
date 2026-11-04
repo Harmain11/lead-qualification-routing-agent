@@ -76,6 +76,8 @@ export class ApiError extends Error {
   }
 }
 
+export const SITE_ACCESS_REQUIRED_EVENT = "corral:site-access-required";
+
 export type LeadAssistantAction = {
   kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "complete_manual_review" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
   profile_updates: Partial<Pick<Lead, "full_name" | "email" | "phone" | "job_title" | "company_name" | "industry" | "employee_count" | "annual_revenue" | "geography" | "budget" | "product_or_service">>;
@@ -348,6 +350,15 @@ async function performRequest<T>(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
+    if (
+      typeof window !== "undefined"
+      && body
+      && typeof body === "object"
+      && "code" in body
+      && body.code === "site_access_required"
+    ) {
+      window.dispatchEvent(new Event(SITE_ACCESS_REQUIRED_EVENT));
+    }
     const detail = typeof body.detail === "string"
       ? body.detail
       : Array.isArray(body.detail)
@@ -485,6 +496,20 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   });
   setActiveWorkspace(session.current_workspace_id);
   return session;
+}
+
+export type SiteAccessStatus = { enabled: boolean; unlocked: boolean };
+
+export function getSiteAccessStatus(): Promise<SiteAccessStatus> {
+  return request<SiteAccessStatus>("/v1/site-access/status");
+}
+
+export function unlockSiteAccess(password: string): Promise<{ unlocked: boolean }> {
+  return request<{ unlocked: boolean }>("/v1/site-access/unlock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
 }
 
 export async function signInWithWorkspaceCode(input: {

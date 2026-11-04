@@ -28,13 +28,16 @@ import {
   listLeads,
   listIntegrations,
   getSession,
+  getSiteAccessStatus,
   setActiveWorkspace,
   signOut,
   ApiError,
+  SITE_ACCESS_REQUIRED_EVENT,
 } from "./api";
 import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
 import { can } from "./permissions";
 import { AuthView } from "./views/AuthView";
+import { SiteAccessGate } from "./components/SiteAccessGate";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { DialerPhoneDock } from "./components/DialerPhoneDock";
 import { useTheme } from "./theme";
@@ -287,6 +290,8 @@ function App() {
   }>({ name: null, logo_url: null, accent: "#1e6b52" });
   const [auth, setAuth] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [siteAccess, setSiteAccess] = useState({ enabled: false, unlocked: true });
+  const [siteAccessLoading, setSiteAccessLoading] = useState(true);
   const [view, setView] = useState<AppView>(() =>
     pageFromSearch(window.location.search),
   );
@@ -748,18 +753,71 @@ function App() {
   );
 
   useEffect(() => {
-    getSession()
-      .then((session) => {
+    let active = true;
+    async function initializeAccess() {
+      try {
+        const gate = await getSiteAccessStatus();
+        if (!active) return;
+        setSiteAccess(gate);
+        if (gate.enabled && !gate.unlocked) {
+          setAuth(null);
+          setAuthLoading(false);
+          return;
+        }
+        const session = await getSession();
+        if (!active) return;
         if (session) {
           setActiveWorkspace(session.current_workspace_id);
           setAuth(session);
         } else {
           setAuth(null);
         }
-      })
-      .catch(() => setAuth(null))
-      .finally(() => setAuthLoading(false));
+      } catch {
+        if (active) {
+          setSiteAccess({ enabled: true, unlocked: false });
+          setAuth(null);
+          setAuthLoading(false);
+        }
+      } finally {
+        if (active) setSiteAccessLoading(false);
+        if (active) setAuthLoading(false);
+      }
+    }
+    void initializeAccess();
+    return () => {
+      active = false;
+    };
   }, []);
+
+  useEffect(() => {
+    const requireSiteAccess = () => {
+      setSiteAccess({ enabled: true, unlocked: false });
+      setAuth(null);
+      setData(null);
+      setSelectedLead(null);
+      setAuthLoading(false);
+    };
+    window.addEventListener(SITE_ACCESS_REQUIRED_EVENT, requireSiteAccess);
+    return () => window.removeEventListener(SITE_ACCESS_REQUIRED_EVENT, requireSiteAccess);
+  }, []);
+
+  async function finishSiteAccessUnlock() {
+    setSiteAccess({ enabled: true, unlocked: true });
+    setAuthLoading(true);
+    try {
+      const session = await getSession();
+      if (session) {
+        setActiveWorkspace(session.current_workspace_id);
+        setAuth(session);
+      } else {
+        setAuth(null);
+      }
+    } catch {
+      setAuth(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!auth) return;
@@ -1213,7 +1271,16 @@ function App() {
     0.179
       ? "#000000"
       : "#ffffff";
-  if (authLoading) return <LoadingState />;
+  if (siteAccessLoading || authLoading) return <LoadingState />;
+  if (siteAccess.enabled && !siteAccess.unlocked) {
+    return (
+      <SiteAccessGate
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onUnlocked={() => void finishSiteAccessUnlock()}
+      />
+    );
+  }
   if (!auth) {
     return (
       <AuthView
