@@ -144,7 +144,10 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
                         "path": safe_path,
                         "error_type": type(error).__name__,
                         "error_message": str(error)[:500],
+                        "status": 500,
                         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                        "workspace_id": getattr(request.state, "workspace_id", None),
+                        "actor_id": getattr(request.state, "actor_id", None),
                     }
                 },
             )

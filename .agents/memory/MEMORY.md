@@ -46,6 +46,7 @@
 - [Corral site access gate](site-access-gate.md) — Use Corral's own password screen and server check backed by Replit Secrets; do not use Replit's built-in gate.
 - [Corral Agent mobile layout](corral-agent-mobile-layout.md) — Keep the full-screen phone Agent keyboard-aware, background-locked, and limited to one content scroller.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
+- [Invitation success resilience](invitation-success-resilience.md) — Show a created invitation and its one-time code independently from later roster refreshes; correlate server errors by request and workspace without logging invitee data.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
 - [Completed source bundles](source-bundle-integration.md) — Integrate supplied complete workflows, not reduced substitutes; preserve newer behavior from the current app.
 - [Gmail message presentation](gmail-message-presentation.md) — Group by Gmail thread ID, repair legacy IDs, and keep message text readable with warnings collapsed.

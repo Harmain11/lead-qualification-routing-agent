@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -8,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -106,6 +107,32 @@ def test_security_headers_and_correlation_id_are_centralized() -> None:
         'camera=(), microphone=(self "https://phone.cloudtalk.io"), geolocation=()'
     )
     assert response.headers["Strict-Transport-Security"].startswith("max-age=")
+
+
+def test_unhandled_errors_log_request_and_workspace_context(caplog: pytest.LogCaptureFixture) -> None:
+    app = FastAPI()
+    install_request_middleware(app, cast(Any, SimpleNamespace(app_env="production")))
+
+    @app.get("/broken")
+    def broken(request: Request) -> dict[str, bool]:
+        request.state.workspace_id = "workspace-123"
+        request.state.actor_id = "actor-456"
+        raise RuntimeError("database operation failed")
+
+    with caplog.at_level(logging.ERROR, logger="lead_agent.http"):
+        with TestClient(app) as client:
+            response = client.get("/broken", headers={"X-Request-ID": "invite-ref-123"})
+
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"] == "invite-ref-123"
+    event = next(record for record in caplog.records if record.getMessage() == "http.request.failed")
+    assert event.fields["request_id"] == "invite-ref-123"
+    assert event.fields["method"] == "GET"
+    assert event.fields["path"] == "/broken"
+    assert event.fields["status"] == 500
+    assert event.fields["workspace_id"] == "workspace-123"
+    assert event.fields["actor_id"] == "actor-456"
+    assert event.fields["error_type"] in {"RuntimeError", "ExceptionGroup"}
 
 
 def test_log_redaction_covers_structured_nested_and_header_values() -> None:

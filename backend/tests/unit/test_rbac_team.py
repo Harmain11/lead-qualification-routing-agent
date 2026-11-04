@@ -30,6 +30,7 @@ from lead_agent.domain.rbac import (
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     UserORM,
+    WorkspaceInvitationORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
@@ -143,6 +144,33 @@ def test_invitation_acceptance_is_scoped_single_use_and_audited(session: Session
     operations = [event.operation for event in list_admin_audit_events(session, workspace.id)]
     assert "member_invited" in operations
     assert "member_joined" in operations
+
+
+def test_new_invite_commits_without_a_post_commit_refresh(session: Session, monkeypatch) -> None:
+    workspace, owner, _ = _workspace_with_owner(session)
+
+    def unexpected_refresh(*_args, **_kwargs) -> None:
+        raise AssertionError("invitation response must not require a second database read")
+
+    monkeypatch.setattr(session, "refresh", unexpected_refresh)
+    invitation, token = invite_member(
+        session,
+        workspace.id,
+        owner.id,
+        "new-staff@example.test",
+        "sales_rep",
+    )
+
+    stored = session.scalar(
+        select(WorkspaceInvitationORM).where(
+            WorkspaceInvitationORM.workspace_id == workspace.id,
+            WorkspaceInvitationORM.email == "new-staff@example.test",
+        )
+    )
+    assert stored is not None
+    assert stored.id == invitation.id
+    assert stored.status == "pending"
+    assert stored.token_hash != token
 
 
 def test_invitation_expiry_and_revoke_are_enforced(session: Session) -> None:

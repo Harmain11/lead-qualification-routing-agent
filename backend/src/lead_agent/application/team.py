@@ -239,7 +239,6 @@ def invite_member(
         },
     )
     session.commit()
-    session.refresh(invitation)
     return invitation, token
 
 
@@ -269,7 +268,6 @@ def resend_invitation(
         after={"email": invitation.email, "role": invitation.role},
     )
     session.commit()
-    session.refresh(invitation)
     return invitation, token
 
 

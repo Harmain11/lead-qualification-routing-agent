@@ -52,7 +52,9 @@ const emptyOverrides = (): PermissionOverrides => ({ grants: [], denies: [] });
 
 function friendlyError(error: unknown) {
   const message = error instanceof Error ? error.message : "The request could not be completed.";
-  const friendlyMessage = message.includes("permission required")
+  const friendlyMessage = error instanceof ApiError && error.status >= 500
+    ? "Corral could not confirm this action. Refresh the page to check whether it completed before trying again."
+    : message.includes("permission required")
     ? "You do not have permission to do that in this workspace."
     : message.includes("already a workspace member")
       ? "That person already belongs to this workspace."
@@ -64,7 +66,7 @@ function friendlyError(error: unknown) {
             ? "Workspace ownership is protected and cannot be changed here."
             : message;
   const requestId = error instanceof ApiError ? error.requestId : undefined;
-  return requestId ? `${friendlyMessage} (Reference ID: ${requestId})` : friendlyMessage;
+  return requestId ? `${friendlyMessage} Reference ID: ${requestId}` : friendlyMessage;
 }
 
 function formatDate(value: string | null | undefined) {
@@ -182,22 +184,28 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
 
-  const load = useCallback(async (signal?: AbortSignal, preserve = false) => {
+  const load = useCallback(async (
+    signal?: AbortSignal,
+    preserve = false,
+    suppressErrors = false,
+  ): Promise<boolean> => {
     if (preserve) setRefreshing(true); else setLoading(true);
-    setError(null);
+    if (!suppressErrors) setError(null);
     try {
       const [nextMembers, nextInvitations, nextAudit] = await Promise.all([
         listMembers(signal),
         listInvitations(signal),
         listMemberAuditEvents(signal),
       ]);
-      if (signal?.aborted) return;
+      if (signal?.aborted) return false;
       setMembers(nextMembers);
       setInvitations(nextInvitations);
       setAudit(nextAudit);
       setSelectedId((current) => current && nextMembers.some((member) => member.id === current) ? current : null);
+      return true;
     } catch (requestError) {
-      if (!signal?.aborted) setError(friendlyError(requestError));
+      if (!signal?.aborted && !suppressErrors) setError(friendlyError(requestError));
+      return false;
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -245,12 +253,20 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     setError(null);
     try {
       const invitation = await inviteMember({ email: inviteEmail, role: inviteRole, permission_overrides: inviteOverrides });
-      await load(undefined, true);
       setInviteOpen(false);
       setInviteEmail("");
       setInviteOverrides(emptyOverrides());
+      setInvitations((current) => [
+        invitation,
+        ...current.filter((item) => item.id !== invitation.id),
+      ]);
       setGeneratedInvite(invitation);
       showToast("Access code created. Share it privately with the invited staff member.");
+      void load(undefined, true, true).then((refreshed) => {
+        if (!refreshed) {
+          setError("Invitation created, but the team list could not refresh. The access code is available to copy.");
+        }
+      });
     } catch (requestError) {
       setError(friendlyError(requestError));
     } finally {
