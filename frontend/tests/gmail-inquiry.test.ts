@@ -254,7 +254,7 @@ Links: ----- [1] https://example.test/about Links: ----- [1] https://example.tes
   const sections = splitGmailBodyForDisplay(inquiry.messages[0].body);
   assert.equal(sections.primary.split("I'm looking forward").length - 1, 1);
   assert.equal(sections.primary.split("Let me know a suitable time").length - 1, 1);
-  assert.doesNotMatch(sections.primary, /Manager Customer Success|opt out|Links:/i);
-  assert.match(sections.footers.join(" "), /Manager Customer Success/);
+  assert.match(sections.primary, /Manager Customer Success/);
+  assert.doesNotMatch(sections.primary, /opt out|Links:/i);
   assert.match(sections.footers.join(" "), /opt out/);
 });

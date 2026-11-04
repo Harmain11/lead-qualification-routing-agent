@@ -20,3 +20,9 @@ After Gmail reconnects, the same message may be present under different connecti
 **Why:** Reauthorization can create a new provider-connection record while imported history retains the old ID, making one mailbox conversation appear twice.
 
 **How to apply:** Resolve mailbox identity from verified connection metadata where possible, deduplicate display/imports by mailbox and message ID, and keep the original raw events for history and auditability.
+
+Some imported Gmail messages repeat the authored body after flattening it onto the Subject header, and may repeat long sentences inside the body. Recover body text at a greeting after a short subject and remove only repeated substantial sentences from the readable view; preserve the original subject/body evidence in the raw-email disclosure. Keep punctuation, URL domains, signatures, and paragraph breaks intact.
+
+**Why:** A lead email card showed the same prospect message twice alongside flattened subject text, making the actual request difficult to read.
+
+**How to apply:** Use the shared Gmail display formatter for lead email cards and inbox previews. Deduplicate on sentence boundaries only when punctuation is followed by whitespace and a sentence-like capital, so periods in domains and addresses remain untouched.

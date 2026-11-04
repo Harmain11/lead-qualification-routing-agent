@@ -449,7 +449,7 @@ function deduplicateReadableBlocks(blocks: string[]): string[] {
     if (!blockKey || seenBlocks.has(blockKey)) return [];
     seenBlocks.add(blockKey);
 
-    const sentences = block.split(/(?<=[.!?])\s+(?=[A-Z"'(])/);
+    const sentences = block.split(/(?<=[.!?])(?=\s+[A-Z"'(])/);
     const kept = sentences.filter((sentence) => {
       const text = sentence.trim();
       const key = normalizedBlockKey(text)
@@ -462,7 +462,7 @@ function deduplicateReadableBlocks(blocks: string[]): string[] {
       seenSentences.add(key);
       return true;
     });
-    const cleaned = kept.join(" ").replace(/\s+/g, " ").trim();
+    const cleaned = kept.join("").replace(/\n{3,}/g, "\n\n").trim();
     return cleaned ? [cleaned] : [];
   });
 }
