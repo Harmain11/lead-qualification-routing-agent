@@ -38,6 +38,7 @@ from lead_agent.api.routes import (
     meta_webhooks,
     notifications,
     routing,
+    site_access,
     team,
     teams,
 )
@@ -79,6 +80,7 @@ app.include_router(health.router)
 app.include_router(lead_assistant.router)
 app.include_router(lead_assistant.workspace_router)
 app.include_router(auth.router)
+app.include_router(site_access.router)
 app.include_router(routing.config_router)
 app.include_router(routing.router)
 app.include_router(leads.router)

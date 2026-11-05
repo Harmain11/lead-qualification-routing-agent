@@ -45,6 +45,27 @@ test("leaves non-Gmail inquiry text available to the plain-message presentation"
   assert.equal(parseGmailInquiry("Interested in learning more about your services."), null);
 });
 
+test("moves standard signature separators and everything after them into collapsed footer content", () => {
+  const body = `Hi Harmain,
+
+I would like to discuss a possible collaboration.
+
+--
+Junaid Paracha
+Chief Executive Officer | Ingenuity Systems
+PK: +92 300 6666336
+
+I would be happy to discuss this further.
+--
+Junaid Paracha`;
+  const sections = splitGmailBodyForDisplay(body);
+
+  assert.match(sections.primary, /possible collaboration/);
+  assert.doesNotMatch(sections.primary, /Junaid Paracha|happy to discuss this further/);
+  assert.match(sections.footers.join("\n"), /Junaid Paracha/);
+  assert.match(sections.footers.join("\n"), /happy to discuss this further/);
+});
+
 test("parses inline Gmail thread markers and compact header text", () => {
   const inquiry = parseGmailInquiry(`Thread role: direct prospect. Original thread: --- Gmail message abc123 ---
 From: Pat Example <pat@example.test> To: team@example.test Subject: Pricing request Date: Tue, 20 Oct 2026 09:00:00 +0000
@@ -236,4 +257,25 @@ test("keeps display names and multiple recipients in address headers", () => {
   assert.ok(inquiry);
   assert.equal(inquiry.messages[0].to, '"Sales Team" <sales@example.test>, ops@example.test');
   assert.equal(inquiry.messages[0].body, "Can you share pricing?");
+});
+
+test("recovers a flattened subject and removes repeated mail content and signature noise", () => {
+  const body = "Hello Pei, I'm looking forward to hopping on a 10-minute Zoom call to discuss a potential tech collaboration. Let me know a suitable time to connect.";
+  const inquiry = parseGmailInquiry(`--- Gmail message compact-email ---
+From: Reese Maddox <reese@example.test>
+To: Pei Yao <pei@example.test>
+Date: Tue, 13 Oct 2026 09:31:16 +0000
+Subject: Pei Can I call you on Wednesday? ${body}
+
+${body} Best Regards, Reese Maddox, Manager Customer Success, Ingenuity Systems. P.S. If you want to opt out of our email list, reply with STOP.
+Links: ----- [1] https://example.test/about Links: ----- [1] https://example.test/about`);
+
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].subject, "Pei Can I call you on Wednesday?");
+  const sections = splitGmailBodyForDisplay(inquiry.messages[0].body);
+  assert.equal(sections.primary.split("I'm looking forward").length - 1, 1);
+  assert.equal(sections.primary.split("Let me know a suitable time").length - 1, 1);
+  assert.match(sections.primary, /Manager Customer Success/);
+  assert.doesNotMatch(sections.primary, /opt out|Links:/i);
+  assert.match(sections.footers.join(" "), /opt out/);
 });

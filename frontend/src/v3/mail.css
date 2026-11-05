@@ -80,6 +80,10 @@
 .mailbox-message-who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-subhead); color: var(--label-3); }
 .mailbox-message-head time { flex: none; font: var(--t-footnote); color: var(--label-3); }
 .mailbox-message-body { padding: 0 var(--s4) var(--s4) calc(var(--s4) + 36px + var(--s3)); font: var(--t-body); color: var(--label); }
+.mailbox-message-details { margin-top: var(--s3); }
+.mailbox-message-details > summary { width: fit-content; color: var(--label-3); cursor: pointer; font: var(--t-footnote); }
+.mailbox-message-details[open] > summary { margin-bottom: var(--s2); }
+.mailbox-message-details > summary:focus-visible { outline: 2px solid var(--tint); outline-offset: 3px; border-radius: 3px; }
 .mailbox-attachments { display: grid; gap: var(--s2); margin-top: var(--s4); }
 .mailbox-attachments h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font: var(--t-subhead); color: var(--label-2); font-weight: 600; }
 .mailbox-attachment-list { display: flex; flex-wrap: wrap; gap: var(--s2); }
@@ -222,6 +226,10 @@
 .lm-body { display: grid; gap: 12px; padding: 4px 18px 16px 62px; }
 .lm-addresses { display: flex; flex-wrap: wrap; gap: 4px 14px; font: var(--t-footnote); color: var(--label-3); }
 .lm-addresses b { color: var(--label-2); font-weight: 500; overflow-wrap: anywhere; }
+.lm-message-details { margin-top: 12px; }
+.lm-message-details > summary { width: fit-content; color: var(--label-3); cursor: pointer; font: var(--t-footnote); }
+.lm-message-details[open] > summary { margin-bottom: 8px; }
+.lm-message-details > summary:focus-visible { outline: 2px solid var(--tint); outline-offset: 3px; border-radius: 3px; }
 .lm-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px; }
 @container record (max-width: 640px) {
   .lm-message > details > summary { grid-template-columns: auto minmax(0, 1fr) auto; }

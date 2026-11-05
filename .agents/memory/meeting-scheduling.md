@@ -50,3 +50,9 @@ If Gmail is reconnected, a historical meeting request may still reference the pr
 **Why:** Requiring an exact old connection ID can block an editable appointment draft even when that same mailbox has been reauthorized.
 
 **How to apply:** Verify the source event in its original thread, resolve only to an active verified same-mailbox connection for sending, and keep the reconnect error when mailbox identity cannot be proven.
+
+Before preparing an appointment draft, refresh the lead’s Gmail conversation and re-check AI meeting intent plus live calendar availability. Show missing or uncertain information as a warning with a clear question, never as a generic blocking error; do not invent dates, times, or availability.
+
+**Why:** The user wants the app to use the information it already has, ask for missing meeting details before drafting, and check real availability so the resulting draft is complete and reviewable.
+
+**How to apply:** Sync the relevant Gmail conversation, rerun meeting-intent and availability checks, explain what is missing, and only save an editable draft when the request and booking details can be supported by the current thread and connected calendar.

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
 from lead_agent.application.auth import membership_permissions, require_membership
@@ -30,6 +30,7 @@ from lead_agent.domain.rbac import (
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     UserORM,
+    WorkspaceInvitationORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
@@ -56,6 +57,20 @@ def session() -> Session:
         yield value
 
 
+@pytest.fixture
+def foreign_key_session() -> Session:
+    engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(connection, _record) -> None:
+        connection.execute("PRAGMA foreign_keys=ON")
+
+    Base.metadata.create_all(engine)
+    with Session(engine, autoflush=False, expire_on_commit=False) as value:
+        yield value
+    engine.dispose()
+
+
 def _workspace_with_owner(session: Session) -> tuple[WorkspaceORM, UserORM, WorkspaceMembershipORM]:
     now = datetime.now(UTC)
     owner = _user("owner@example.test")
@@ -77,7 +92,9 @@ def _workspace_with_owner(session: Session) -> tuple[WorkspaceORM, UserORM, Work
         created_at=now,
         updated_at=now,
     )
-    session.add_all([owner, workspace, membership])
+    session.add_all([owner, workspace])
+    session.flush()
+    session.add(membership)
     session.commit()
     return workspace, owner, membership
 
@@ -145,6 +162,106 @@ def test_invitation_acceptance_is_scoped_single_use_and_audited(session: Session
     operations = [event.operation for event in list_admin_audit_events(session, workspace.id)]
     assert "member_invited" in operations
     assert "member_joined" in operations
+
+
+def test_new_invite_commits_without_a_post_commit_refresh(session: Session, monkeypatch) -> None:
+    workspace, owner, _ = _workspace_with_owner(session)
+
+    def unexpected_refresh(*_args, **_kwargs) -> None:
+        raise AssertionError("invitation response must not require a second database read")
+
+    monkeypatch.setattr(session, "refresh", unexpected_refresh)
+    invitation, token = invite_member(
+        session,
+        workspace.id,
+        owner.id,
+        "new-staff@example.test",
+        "sales_rep",
+    )
+
+    stored = session.scalar(
+        select(WorkspaceInvitationORM).where(
+            WorkspaceInvitationORM.workspace_id == workspace.id,
+            WorkspaceInvitationORM.email == "new-staff@example.test",
+        )
+    )
+    assert stored is not None
+    assert stored.id == invitation.id
+    assert stored.status == "pending"
+    assert stored.token_hash != token
+
+
+@pytest.mark.parametrize("existing_account", [True, False])
+def test_invite_and_accept_with_foreign_keys_enforced(
+    foreign_key_session: Session, existing_account: bool
+) -> None:
+    session = foreign_key_session
+    workspace, owner, _ = _workspace_with_owner(session)
+    invitee = _user("staff@example.test")
+    if existing_account:
+        session.add(invitee)
+        session.commit()
+
+    invitation, original_token = invite_member(
+        session, workspace.id, owner.id, invitee.email, "sales_rep"
+    )
+    membership = get_membership_for_user(session, workspace.id, invitee.id)
+    audit = next(
+        row for row in list_admin_audit_events(session, workspace.id)
+        if row.operation == "member_invited"
+    )
+    if existing_account:
+        assert membership is not None
+        assert membership.status == "invited"
+        assert audit.target_membership_id == membership.id
+    else:
+        assert membership is None
+        assert audit.target_membership_id is None
+
+    repeated, repeated_token = invite_member(
+        session, workspace.id, owner.id, invitee.email, "sales_rep"
+    )
+    assert repeated.id == invitation.id
+    assert repeated_token != original_token
+    resent, fresh_token = resend_invitation(session, workspace.id, invitation.id, owner.id)
+    assert resent.id == invitation.id
+    assert fresh_token != repeated_token
+    assert len(list(session.scalars(select(WorkspaceInvitationORM)))) == 1
+
+    if not existing_account:
+        session.add(invitee)
+        session.commit()
+    accepted = accept_invitation(
+        session, fresh_token, invitee.id, invitee.email, workspace.id
+    )
+    assert accepted.status == "active"
+    assert accepted.user_id == invitee.id
+    assert invitation.status == "accepted"
+    assert any(
+        row.operation == "member_joined" and row.target_membership_id == accepted.id
+        for row in list_admin_audit_events(session, workspace.id)
+    )
+
+
+def test_invite_parent_flush_does_not_commit_partial_membership(
+    foreign_key_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = foreign_key_session
+    workspace, owner, _ = _workspace_with_owner(session)
+    invitee = _user("staff@example.test")
+    session.add(invitee)
+    session.commit()
+
+    def fail_audit(*_args, **_kwargs) -> None:
+        raise RuntimeError("simulated audit failure")
+
+    monkeypatch.setattr("lead_agent.application.team._audit", fail_audit)
+    with pytest.raises(RuntimeError, match="simulated audit failure"):
+        invite_member(session, workspace.id, owner.id, invitee.email, "sales_rep")
+    session.rollback()
+
+    assert get_membership_for_user(session, workspace.id, invitee.id) is None
+    assert list(session.scalars(select(WorkspaceInvitationORM))) == []
 
 
 def test_invitation_expiry_and_revoke_are_enforced(session: Session) -> None:

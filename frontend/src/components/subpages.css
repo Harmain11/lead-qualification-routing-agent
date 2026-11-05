@@ -9,6 +9,23 @@
 .focused-page .page-hero h1 { font-size: clamp(26px, 3vw, 38px); line-height: 1.2; }
 .focused-page .page-hero p { max-width: 720px; line-height: 1.6; }
 
+.account-deletion-panel { display: grid; gap: 16px; border-color: color-mix(in srgb, var(--danger) 28%, var(--separator-strong)); }
+.account-deletion-heading h2, .account-deletion-owned h3 { margin: 0; color: var(--label); font-size: 16px; }
+.account-deletion-heading .st-card-sub { max-width: 720px; margin: 6px 0 0; }
+.account-deletion-warning { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: var(--danger-soft); color: var(--danger-text); font-size: 13px; line-height: 1.5; }
+.account-deletion-owned { display: grid; gap: 10px; }
+.account-deletion-owned ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.account-deletion-owned li { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--separator-strong); border-radius: 10px; }
+.account-deletion-owned li strong { color: var(--label); }
+.account-deletion-owned li span, .account-deletion-muted { color: var(--label-2); font-size: 13px; line-height: 1.5; }
+.account-deletion-muted { margin: 0; }
+.account-deletion-confirm { display: grid; justify-items: start; gap: 10px; }
+.account-deletion-confirm label { display: grid; gap: 7px; width: min(100%, 420px); color: var(--label-2); font-size: 13px; }
+.account-deletion-confirm label strong { color: var(--label); overflow-wrap: anywhere; }
+.account-deletion-confirm input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--surface); color: var(--label); }
+.account-deletion-confirm input:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+.account-deletion-error { margin: 0; color: var(--danger-text); font-size: 13px; line-height: 1.5; }
+
 /* Settings category navigation */
 
 /* Settings category navigation */

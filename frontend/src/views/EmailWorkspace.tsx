@@ -27,6 +27,7 @@ import { Icon, type IconName } from "../v3/ui/Icon";
 import { Banner, Button, EmptyState, IconButton, Monogram, PageHeader, Sheet } from "../v3/ui/primitives";
 import { FeatureGuide } from "../components/FeatureGuide";
 import { leadAction } from "../v3/shell/events";
+import { newestFirstGmailThread } from "../utils/gmailEvents";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAILBOX_CACHE_FRESH_MS = 60_000;
@@ -289,8 +290,9 @@ export function EmailWorkspace({
     const refreshRequested = threadRevision !== lastThreadRefresh.current;
     lastThreadRefresh.current = threadRevision;
     if (cached) {
-      setThread(cached.messages);
-      setExpandedMessageIds((current) => current.size ? current : new Set(cached.messages.slice(-1).map((message) => message.message_id)));
+      const ordered = newestFirstGmailThread(cached.messages);
+      setThread(ordered);
+      setExpandedMessageIds(new Set(ordered.slice(0, 1).map((message) => message.message_id)));
       setLoadingThread(false);
     }
     if (!cached) {
@@ -303,12 +305,13 @@ export function EmailWorkspace({
     }
     shareRequest(threadRequests, key, async () => {
       const result = await getGmailMailboxThread(connectionId, selected.thread_id);
-      remember(threadCache, key, { messages: result.messages, fetchedAt: Date.now() });
-      return result;
+      const ordered = newestFirstGmailThread(result.messages);
+      remember(threadCache, key, { messages: ordered, fetchedAt: Date.now() });
+      return { ...result, messages: ordered };
     }).then((result) => {
       if (alive) {
         setThread((current) => JSON.stringify(current) === JSON.stringify(result.messages) ? current : result.messages);
-        setExpandedMessageIds((current) => current.size ? current : new Set(result.messages.slice(-1).map((message) => message.message_id)));
+        setExpandedMessageIds(new Set(result.messages.slice(0, 1).map((message) => message.message_id)));
         setLoadingThread(false);
       }
     }).catch((reason) => {
@@ -615,12 +618,13 @@ export function EmailWorkspace({
               const attachments = message.attachments ?? [];
               const bodyId = `mail-message-${index}`;
               const who = message.sender_name || message.sender || "Unknown sender";
+              const mailboxName = accounts.find((account) => account.id === connectionId)?.account_name;
               return <article className="mailbox-message" data-expanded={expanded || undefined} data-outbound={message.direction !== "inbound" || undefined} key={message.message_id}>
                 <button type="button" className="mailbox-message-head" aria-expanded={expanded} aria-controls={bodyId} onClick={() => toggleThreadMessage(message.message_id)}>
                   <Monogram text={who} size={36} />
                   <span className="mailbox-message-who">
                     <b>{who}</b>
-                    {expanded ? <small>to {message.recipients || "undisclosed recipients"}</small> : <small className="mailbox-message-preview">{getProviderEmailPreview(body)}</small>}
+                    {!expanded && <small className="mailbox-message-preview">{getProviderEmailPreview(body)}</small>}
                   </span>
                   <time dateTime={message.sent_at}>{emailDate(message.sent_at)}</time>
                 </button>
@@ -643,11 +647,20 @@ export function EmailWorkspace({
                       })}
                     </div>
                   </section>}
-                  {canSend && index !== thread.length - 1 && <div className="mailbox-message-actions">
+                  {canSend && index !== 0 && <div className="mailbox-message-actions">
                     <Button size="sm" icon="reply" onClick={() => beginReplyTo(message, "reply")}>Reply</Button>
                     <Button size="sm" icon="replyAll" onClick={() => beginReplyTo(message, "all")}>Reply all</Button>
                     <Button size="sm" icon="forward" onClick={() => beginForward(message)}>Forward</Button>
                   </div>}
+                  <details className="mailbox-message-details">
+                    <summary>Message details</summary>
+                    <div className="lm-addresses">
+                      <span>From <b>{message.sender || "Unknown"}</b></span>
+                      {message.reply_to && <span>Reply-to <b>{message.reply_to}</b></span>}
+                      {message.recipients && <span>To <b>{message.recipients}</b></span>}
+                      {mailboxName && <span>Mailbox <b>{mailboxName}</b></span>}
+                    </div>
+                  </details>
                 </div>}
               </article>;
             })}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { composeEmailWithAI, createLeadMeetingPreferredOfferDraft, deleteWorkspaceEmailDraft, getGoogleCalendarBookingLink, getLeadMeetingRecommendations, saveWorkspaceEmailDraft, sendGmailEmail } from "../api";
+import { composeEmailWithAI, createLeadMeetingPreferredOfferDraft, deleteWorkspaceEmailDraft, getGoogleCalendarBookingLink, getLeadMeetingRecommendations, saveWorkspaceEmailDraft, sendGmailEmail, syncLeadGmailConversation } from "../api";
 import { createClientId } from "../clientIds";
 import type { GmailAttachmentRequest, GmailSendRequest, GmailSendResult, MeetingRecommendations, MeetingSuggestion, ProviderConnection, WorkspaceEmailDraft, WorkspaceEmailDraftInput } from "../types";
 import { confirmAction } from "../v3/ui/confirm";
@@ -108,6 +108,7 @@ export function EmailComposer({
   const [meetingRecommendations, setMeetingRecommendations] = useState<MeetingRecommendations | null>(null);
   const [meetingLoading, setMeetingLoading] = useState(false);
   const [meetingDraftBusy, setMeetingDraftBusy] = useState(false);
+  const [appointmentWarning, setAppointmentWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [savedDraft, setSavedDraft] = useState(draft ?? null);
   const replyingInThread = Boolean(seed?.threadId || draft?.data.thread_id);
@@ -500,11 +501,34 @@ export function EmailComposer({
     if (!leadId || meetingDraftBusy) return;
     setMeetingDraftBusy(true);
     setError(null);
+    setNotice(null);
+    setAppointmentWarning(null);
     try {
+      await syncLeadGmailConversation(leadId);
+      const recommendations = await getLeadMeetingRecommendations(leadId);
+      setMeetingRecommendations(recommendations);
+      if (!recommendations.detected) {
+        setAppointmentWarning(
+          `${recommendations.message} I refreshed Gmail, but still need a clear meeting request. Confirm this is the right conversation and include the requested date, time, or time window, then check again.`,
+        );
+        return;
+      }
+      if (recommendations.offer_status === "booked") {
+        setAppointmentWarning("A meeting is already booked for this request. Check the lead’s meeting activity before preparing another draft.");
+        return;
+      }
       await createLeadMeetingPreferredOfferDraft(leadId);
-      setNotice("AI appointment draft prepared from this lead’s thread and current calendar availability. Open Drafts to review it before sending.");
+      const availableCount = recommendations.suggestions.length;
+      setNotice(
+        `Appointment draft saved in this lead’s Emails. Calendar availability was checked${availableCount ? `; ${availableCount} verified time${availableCount === 1 ? "" : "s"} found` : "; no exact open times were returned, so review the booking link for current availability"}. Review and edit it before sending.`,
+      );
+      if (!availableCount && recommendations.provider_errors.length) {
+        setAppointmentWarning(
+          recommendations.provider_errors.map((item) => `${item.provider === "calendly" ? "Calendly" : "Google Calendar"}: ${item.message}`).join(" "),
+        );
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The appointment draft could not be prepared.");
+      setAppointmentWarning(reason instanceof Error ? reason.message : "I couldn’t prepare the appointment draft. Check the lead’s email and calendar details, then try again.");
     } finally {
       setMeetingDraftBusy(false);
     }
@@ -652,6 +676,11 @@ export function EmailComposer({
     </ul>}
     {attachmentError && <Banner tone="danger" title={attachmentError} />}
     {error && <Banner tone="danger" title={error} />}
+    {appointmentWarning && <Banner
+      tone="attention"
+      title="Appointment draft needs attention"
+      action={<Button kind="plain" size="sm" onClick={() => void prepareAppointmentDraft()} disabled={meetingDraftBusy}>{meetingDraftBusy ? "Checking…" : "Check again"}</Button>}
+    >{appointmentWarning}</Banner>}
     {notice && <Banner title={notice} action={beforeAi ? <Button kind="plain" size="sm" onClick={undoAi}>Undo AI draft</Button> : undefined} />}
     {sendBlockedReason && <Banner tone="attention" title="Sending is on hold">{sendBlockedReason}</Banner>}
     <footer className="mail-composer-foot">

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.responses import RedirectResponse
 
@@ -41,6 +42,11 @@ from lead_agent.application.auth import (
     send_password_reset_email,
     sign_in,
     verify_email_token,
+)
+from lead_agent.application.account_deletion import (
+    AccountDeletionBlocked,
+    delete_account,
+    preview_account_deletion,
 )
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthenticationError, AuthorizationError
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID, DEMO_WORKSPACE_ID
@@ -143,6 +149,34 @@ class AccountProfileUpdateRequest(BaseModel):
     phone: str | None = Field(default=None, max_length=64)
     bio: str | None = Field(default=None, max_length=1000)
     avatar_data_url: str | None = Field(default=None, max_length=1_500_000)
+
+
+class DeleteAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation_email: str = Field(min_length=3, max_length=320)
+
+
+class OwnedWorkspaceDeletionPreviewResponse(BaseModel):
+    id: UUID
+    name: str
+    other_active_members: int
+    leads: int
+    integrations: int
+    stored_secrets: int
+    source_events: int
+    drafts: int
+    conversations: int
+    messages: int
+
+
+class AccountDeletionPreviewResponse(BaseModel):
+    email: str
+    owned_workspaces: list[OwnedWorkspaceDeletionPreviewResponse]
+    shared_workspaces: int
+    invitations_to_cancel: int
+    blockers: list[str]
+    can_delete: bool
 
 
 def _account_profile_response(user: UserORM) -> AccountProfileResponse:
@@ -716,6 +750,58 @@ def update_account_profile(
         session.commit()
         session.refresh(user)
     return _account_profile_response(user)
+
+
+@router.get("/account-deletion-preview", response_model=AccountDeletionPreviewResponse)
+def account_deletion_preview(
+    identity: AuthenticatedIdentity = Depends(get_authenticated_identity),
+    session: Session = Depends(get_db),
+) -> AccountDeletionPreviewResponse:
+    user = session.get(UserORM, identity.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account not found.")
+    preview = preview_account_deletion(session, identity.user_id)
+    return AccountDeletionPreviewResponse(
+        email=user.email,
+        owned_workspaces=[
+            OwnedWorkspaceDeletionPreviewResponse(**workspace.__dict__)
+            for workspace in preview.owned_workspaces
+        ],
+        shared_workspaces=preview.shared_workspaces,
+        invitations_to_cancel=preview.invitations_to_cancel,
+        blockers=preview.blockers,
+        can_delete=preview.can_delete,
+    )
+
+
+@router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_account(
+    request: DeleteAccountRequest,
+    response: Response,
+    identity: AuthenticatedIdentity = Depends(get_csrf_authenticated_identity),
+    session: Session = Depends(get_db),
+    settings: Settings = Depends(get_runtime_settings),
+) -> Response:
+    try:
+        delete_account(session, identity.user_id, request.confirmation_email)
+    except LookupError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(error)) from error
+    except AccountDeletionBlocked as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Deletion was rolled back because related records are still linked. No account data was deleted.",
+        ) from error
+    _clear_session_cookies(response, settings)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/status", response_model=SessionResponse | None)

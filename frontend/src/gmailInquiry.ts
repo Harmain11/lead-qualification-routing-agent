@@ -172,6 +172,17 @@ function parseHeadersAndBody(source: string) {
       headers.subject = headers.subject.slice(0, inlineBodyStart.index).trim();
       body = [inlineBody, body].filter(Boolean).join("\n");
     }
+    // Gmail imports can flatten the authored message onto Subject after a
+    // short title. Recover it at the greeting so the title stays compact.
+    const inlineGreeting = /\b(?:hi|hello|dear)\s+[^,\n]{1,80}[,!:]\s+/i.exec(headers.subject);
+    if (inlineGreeting && inlineGreeting.index > 0) {
+      const inlineBody = headers.subject.slice(inlineGreeting.index).trim();
+      const subject = headers.subject.slice(0, inlineGreeting.index).trim();
+      if (subject && inlineBody.length >= 24) {
+        headers.subject = subject;
+        body = [inlineBody, body].filter(Boolean).join("\n");
+      }
+    }
   }
   for (const name of ["to", "cc", "bcc", "from", "reply-to"]) {
     if (!headers[name]) continue;
@@ -430,6 +441,32 @@ function normalizedBlockKey(block: string): string {
   return block.toLocaleLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function deduplicateReadableBlocks(blocks: string[]): string[] {
+  const seenBlocks = new Set<string>();
+  const seenSentences = new Set<string>();
+  return blocks.flatMap((block) => {
+    const blockKey = normalizedBlockKey(block);
+    if (!blockKey || seenBlocks.has(blockKey)) return [];
+    seenBlocks.add(blockKey);
+
+    const sentences = block.split(/(?<=[.!?])(?=\s+[A-Z"'(])/);
+    const kept = sentences.filter((sentence) => {
+      const text = sentence.trim();
+      const key = normalizedBlockKey(text)
+        .replace(/^(?:hi|hello|dear)\s+[^,]{1,80}[,!:]\s*/i, "")
+        .replace(/[^\p{L}\p{N}]+/gu, "");
+      // Keep short repeated phrases (such as "Thanks") but collapse repeated
+      // full sentences that Gmail sometimes duplicates during import.
+      if (key.length < 24) return true;
+      if (seenSentences.has(key)) return false;
+      seenSentences.add(key);
+      return true;
+    });
+    const cleaned = kept.join("").replace(/\n{3,}/g, "\n\n").trim();
+    return cleaned ? [cleaned] : [];
+  });
+}
+
 function uniqueBlocks(blocks: string[]): string[] {
   const seen = new Set<string>();
   return blocks.filter((block) => {
@@ -568,10 +605,17 @@ export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySectio
     : [];
   const displayBody = latest?.body || readable;
   const inline = splitInlineFooterNotices(displayBody);
-  const blocks = inline.primary.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
+  const signatureSeparator = /(?:^|\n)\s*--\s*(?:\n|$)/m.exec(inline.primary);
+  const mainBody = signatureSeparator
+    ? inline.primary.slice(0, signatureSeparator.index).trim()
+    : inline.primary;
+  const signature = signatureSeparator
+    ? inline.primary.slice(signatureSeparator.index).replace(/^\s*--\s*/, "").trim()
+    : "";
+  const blocks = mainBody.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
   const primary: string[] = [];
   const quoted: string[] = [...threadQuotes];
-  const footers: string[] = [...inline.footers];
+  const footers: string[] = [...inline.footers, ...(signature ? [signature] : [])];
 
   for (const block of blocks) {
     if (FOOTER_NOTICE_PATTERNS.some((pattern) => pattern.test(block)) || isLongSignature(block)) {
@@ -584,7 +628,7 @@ export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySectio
   }
 
   return {
-    primary: primary.join("\n\n"),
+    primary: deduplicateReadableBlocks(primary).join("\n\n"),
     quoted: uniqueBlocks(quoted),
     footers: uniqueBlocks(footers),
   };

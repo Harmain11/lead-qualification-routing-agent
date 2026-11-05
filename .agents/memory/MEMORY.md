@@ -43,8 +43,13 @@
 - [Legacy analysis compatibility](legacy-analysis-compatibility.md) — Keep provider validation strict, but adapt older saved analysis JSON when new required fields are added.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
 - [Corral Agent scope and approvals](corral-agent-scope.md) — Main workspace for agentic, in-chat work; generalize workflows, preserve approval gates, and show lead buttons only on request.
+- [Corral site access gate](site-access-gate.md) — Use Corral's own password screen and server check backed by Replit Secrets; do not use Replit's built-in gate.
+- [Account deletion policy](account-deletion-policy.md) — Only the signed-in person can delete their account; preserve shared workspaces and protect other members.
+- [Authentication test isolation](auth-test-isolation.md) — Startup-captured site-gate settings can obscure auth-route tests even when dependencies use test settings.
+- [Workspace deletion dependencies](workspace-deletion-dependencies.md) — Check indirect RESTRICT foreign keys; direct workspace cascades alone may not clear dependent link rows.
 - [Corral Agent mobile layout](corral-agent-mobile-layout.md) — Keep the full-screen phone Agent keyboard-aware, background-locked, and limited to one content scroller.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
+- [Invitation success resilience](invitation-success-resilience.md) — Show a created invitation and its one-time code independently from later roster refreshes; correlate server errors by request and workspace without logging invitee data.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
 - [Completed source bundles](source-bundle-integration.md) — Integrate supplied complete workflows, not reduced substitutes; preserve newer behavior from the current app.
 - [Gmail message presentation](gmail-message-presentation.md) — Group by Gmail thread ID, repair legacy IDs, and keep message text readable with warnings collapsed.

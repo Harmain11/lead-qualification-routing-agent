@@ -43,7 +43,7 @@ Import later messages into the matching lead's Gmail history rather than making 
 
 ## Personal email review and optional contact fields
 
-Route Gmail candidates using common consumer mailbox domains to manual review before standard sales routing. Keep existing uncertainty-based review for work-email identities. Extract name, phone, and company when exact evidence is available; none is required when absent.
+Route Gmail candidates using common consumer mailbox domains to manual review before standard sales routing. Keep existing uncertainty-based review for work-email identities. Extract Lead Details fields—name, email, phone, company, job title, product/service, industry, geography, employee count, annual revenue, and budget—when exact source evidence supports them; otherwise leave them unknown. Distinguish organization names from personal names in sender display names and signatures, and never infer industry from company name or domain.
 
 **Why:** The user confirmed personal email deserves human verification, while available contact details should be captured without blocking an otherwise valid candidate.
 

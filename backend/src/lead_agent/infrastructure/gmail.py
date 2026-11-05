@@ -154,22 +154,29 @@ def _phone_evidence_is_from_source(source: str, excerpt: str) -> bool:
 
 
 def _field_evidence_matches(
-    field: str, source: str, excerpt: str, value: str | None = None,
+    field: str, source: str, excerpt: str, value: Any | None = None,
 ) -> bool:
+    value_text = str(value) if value is not None else None
     if field == "phone":
         return (
             _phone_evidence_is_from_source(source, excerpt)
-            and (value is None or _phone_evidence_is_from_source(excerpt, value))
+            and (
+                value_text is None
+                or _phone_evidence_is_from_source(excerpt, value_text)
+            )
         )
     return (
         _evidence_is_from_source(source, excerpt)
-        and (value is None or _evidence_is_from_source(excerpt, value))
+        and (value_text is None or _evidence_is_from_source(excerpt, value_text))
     )
 
 
 def _verified_optional_fields(candidate: Any, sources: dict[str, str]) -> tuple[Any, list[str]]:
     """Unknown enrichment must not veto a separately verified prospect identity."""
-    optional = {"company_name", "job_title", "requested_service", "referral_context"}
+    optional = {
+        "company_name", "industry", "job_title", "geography", "employee_count",
+        "annual_revenue", "budget", "requested_service", "referral_context",
+    }
     if candidate.email:
         optional.add("phone")
     dropped = []
@@ -1434,6 +1441,11 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            reply_to = ", ".join(
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("reply-to", "")])
+                if address
+            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")])
@@ -1489,6 +1501,11 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            reply_to = ", ".join(
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("reply-to", "")])
+                if address
+            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses(
@@ -1508,6 +1525,7 @@ class GmailInboundProvider:
                 "thread_id": str(message.get("threadId") or thread_id),
                 "sender": sender.strip().lower(),
                 "sender_name": sender_name[:255],
+                "reply_to": reply_to[:1000],
                 "recipients": ", ".join(recipients)[:1000],
                 "subject": headers.get("subject", "(no subject)")[:500],
                 "sent_at": sent_at,
@@ -2027,7 +2045,9 @@ class GmailInboundProvider:
                     # fields must not veto independently valid candidates.
                     candidate = candidate.model_copy(update={
                         "full_name": None, "email": None, "company_name": None,
-                        "job_title": None, "requested_service": None, "phone": None,
+                        "industry": None, "job_title": None, "geography": None,
+                        "employee_count": None, "annual_revenue": None, "budget": None,
+                        "requested_service": None, "phone": None,
                         "evidence": [],
                     })
                 else:
@@ -2055,7 +2075,12 @@ class GmailInboundProvider:
                     "full_name": candidate.full_name,
                     "email": candidate.email,
                     "company_name": candidate.company_name,
+                    "industry": candidate.industry,
                     "job_title": candidate.job_title,
+                    "geography": candidate.geography,
+                    "employee_count": candidate.employee_count,
+                    "annual_revenue": candidate.annual_revenue,
+                    "budget": candidate.budget,
                     "requested_service": candidate.requested_service,
                     "phone": candidate.phone,
                 }.items():
@@ -2064,7 +2089,7 @@ class GmailInboundProvider:
                             item for item in candidate.evidence if item.field == field_name
                         ]
                         if not field_evidence or not any(
-                            _evidence_is_from_source(item.excerpt, field_value)
+                            _evidence_is_from_source(item.excerpt, str(field_value))
                             for item in field_evidence
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
@@ -2263,14 +2288,24 @@ class GmailInboundProvider:
                 if contact_phone
                 else extracted.phone if extracted else None
             ),
-            "geography": contact_phone.get("country") if contact_phone else None,
-            "gmail_phone_country_inferred": bool(
-                contact_phone and contact_phone.get("country")
-            ),
             "company_name": (
                 (extracted.company_name if extracted else None) or explicit_company or company or "Unknown company"
             ),
-            "industry": explicit_industry,
+            "industry": (
+                (extracted.industry if extracted else None) or explicit_industry
+            ),
+            "geography": (
+                (extracted.geography if extracted else None)
+                or (contact_phone.get("country") if contact_phone else None)
+            ),
+            "gmail_phone_country_inferred": bool(
+                contact_phone
+                and contact_phone.get("country")
+                and not (extracted and extracted.geography)
+            ),
+            "employee_count": extracted.employee_count if extracted else None,
+            "annual_revenue": extracted.annual_revenue if extracted else None,
+            "budget": extracted.budget if extracted else None,
             "product_or_service": (
                 (extracted.requested_service if extracted else None) or "Inbound inquiry"
             ),
@@ -2539,7 +2574,12 @@ class GmailInboundProvider:
                 "full_name": candidate.full_name,
                 "email": candidate.email,
                 "company_name": candidate.company_name,
+                "industry": candidate.industry,
                 "job_title": candidate.job_title,
+                "geography": candidate.geography,
+                "employee_count": candidate.employee_count,
+                "annual_revenue": candidate.annual_revenue,
+                "budget": candidate.budget,
                 "phone": candidate.phone,
                 "requested_service": candidate.requested_service,
                 "referred_by": candidate.referred_by,
@@ -2636,10 +2676,14 @@ class GmailInboundProvider:
                     if contact_phone
                     else candidate.phone or ""
                 ),
-                "geography": phone_country,
-                "gmail_phone_country_inferred": bool(phone_country),
+                "geography": candidate.geography or phone_country,
+                "gmail_phone_country_inferred": bool(phone_country and not candidate.geography),
                 "company_name": candidate.company_name or "Unknown",
+                "industry": candidate.industry,
                 "job_title": candidate.job_title,
+                "employee_count": candidate.employee_count,
+                "annual_revenue": candidate.annual_revenue,
+                "budget": candidate.budget,
                 "product_or_service": candidate.requested_service or "Unknown",
                 "message": f"{summary}\n\nOriginal thread:\n{thread_text}",
                 "gmail_candidate_role": candidate.role,

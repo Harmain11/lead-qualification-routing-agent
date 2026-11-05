@@ -4,6 +4,7 @@ import { Icon } from "../v3/ui/Icon";
 import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
+ApiError,
 inviteMember,
 listInvitations,
 listMemberAuditEvents,
@@ -52,12 +53,21 @@ const emptyOverrides = (): PermissionOverrides => ({ grants: [], denies: [] });
 
 function friendlyError(error: unknown) {
   const message = error instanceof Error ? error.message : "The request could not be completed.";
-  if (message.includes("permission required")) return "You do not have permission to do that in this workspace.";
-  if (message.includes("already a workspace member")) return "That person already belongs to this workspace.";
-  if (message.includes("already been used")) return "This invitation has already been accepted or revoked.";
-  if (message.includes("expired")) return "This invitation has expired. Resend it to create a fresh invitation.";
-  if (message.includes("ownership") || message.includes("protected")) return "Workspace ownership is protected and cannot be changed here.";
-  return message;
+  const friendlyMessage = error instanceof ApiError && error.status >= 500
+    ? "Corral could not confirm this action. Refresh the page to check whether it completed before trying again."
+    : message.includes("permission required")
+    ? "You do not have permission to do that in this workspace."
+    : message.includes("already a workspace member")
+      ? "That person already belongs to this workspace."
+      : message.includes("already been used")
+        ? "This invitation has already been accepted or revoked."
+        : message.includes("expired")
+          ? "This invitation has expired. Resend it to create a fresh invitation."
+          : message.includes("ownership") || message.includes("protected")
+            ? "Workspace ownership is protected and cannot be changed here."
+            : message;
+  const requestId = error instanceof ApiError ? error.requestId : undefined;
+  return requestId ? `${friendlyMessage} Reference ID: ${requestId}` : friendlyMessage;
 }
 
 function formatDate(value: string | null | undefined) {
@@ -179,22 +189,28 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const canReadAdminHistory = sessionPermissions.includes("members.manage");
   const canReadInvitations = canReadAdminHistory || sessionPermissions.includes("members.invite");
 
-  const load = useCallback(async (signal?: AbortSignal, preserve = false) => {
+  const load = useCallback(async (
+    signal?: AbortSignal,
+    preserve = false,
+    suppressErrors = false,
+  ): Promise<boolean> => {
     if (preserve) setRefreshing(true); else setLoading(true);
-    setError(null);
+    if (!suppressErrors) setError(null);
     try {
       const [nextMembers, nextInvitations, nextAudit] = await Promise.all([
         listMembers(signal),
         canReadInvitations ? listInvitations(signal) : Promise.resolve([]),
         canReadAdminHistory ? listMemberAuditEvents(signal) : Promise.resolve([]),
       ]);
-      if (signal?.aborted) return;
+      if (signal?.aborted) return false;
       setMembers(nextMembers);
       setInvitations(nextInvitations);
       setAudit(nextAudit);
       setSelectedId((current) => current && nextMembers.some((member) => member.id === current) ? current : null);
+      return true;
     } catch (requestError) {
-      if (!signal?.aborted) setError(friendlyError(requestError));
+      if (!signal?.aborted && !suppressErrors) setError(friendlyError(requestError));
+      return false;
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -242,12 +258,20 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     setError(null);
     try {
       const invitation = await inviteMember({ email: inviteEmail, role: inviteRole, permission_overrides: inviteOverrides });
-      await load(undefined, true);
       setInviteOpen(false);
       setInviteEmail("");
       setInviteOverrides(emptyOverrides());
+      setInvitations((current) => [
+        invitation,
+        ...current.filter((item) => item.id !== invitation.id),
+      ]);
       setGeneratedInvite(invitation);
       showToast("Access code created. Share it privately with the invited staff member.");
+      void load(undefined, true, true).then((refreshed) => {
+        if (!refreshed) {
+          setError("Invitation created, but the team list could not refresh. The access code is available to copy.");
+        }
+      });
     } catch (requestError) {
       setError(friendlyError(requestError));
     } finally {

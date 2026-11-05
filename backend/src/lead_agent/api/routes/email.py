@@ -165,6 +165,7 @@ class MailboxThreadMessageResponse(BaseModel):
     thread_id: str
     sender: str
     sender_name: str
+    reply_to: str = ""
     recipients: str
     subject: str
     sent_at: str

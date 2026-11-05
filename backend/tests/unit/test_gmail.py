@@ -454,6 +454,7 @@ def test_gmail_shared_inbox_lists_messages_and_reads_full_thread() -> None:
                             "headers": [
                                 {"name": "From", "value": "Pat Example <pat@example.test>"},
                                 {"name": "To", "value": "team@example.test"},
+                                {"name": "Reply-To", "value": "Billing <billing@pat.example>"},
                                 {"name": "Subject", "value": "Pricing request"},
                                 {"name": "Message-ID", "value": "<message-1@example.test>"},
                             ],
@@ -483,6 +484,7 @@ def test_gmail_shared_inbox_lists_messages_and_reads_full_thread() -> None:
     assert thread[0]["direction"] == "inbound"
     assert thread[0]["body"] == "Could you send pricing?"
     assert thread[0]["rfc_message_id"] == "<message-1@example.test>"
+    assert thread[0]["reply_to"] == "billing@pat.example"
 
 
 def test_gmail_mailbox_thread_lists_image_attachment_metadata() -> None:

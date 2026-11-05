@@ -9,6 +9,10 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from starlette.responses import JSONResponse, Response
 
+from lead_agent.api.site_access_security import (
+    SITE_ACCESS_COOKIE_NAME,
+    site_access_cookie_is_valid,
+)
 from lead_agent.infrastructure.observability import (
     reset_request_id,
     set_request_id,
@@ -17,6 +21,14 @@ from lead_agent.settings.config import Settings
 
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 _LOGGER = logging.getLogger("lead_agent.http")
+_SITE_ACCESS_PUBLIC_EXACT_PATHS = {
+    "/v1/site-access/status",
+    "/v1/site-access/unlock",
+}
+_SITE_ACCESS_PUBLIC_PREFIXES = (
+    "/v1/webhooks/meta",
+    "/v1/intake/public/",
+)
 
 
 def redact_intake_path(path: str) -> str:
@@ -76,7 +88,31 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
         started = time.perf_counter()
         safe_path = redact_intake_path(request.url.path)
         try:
-            response = await call_next(request)
+            site_access_required = (
+                settings.app_env == "production"
+                or bool(getattr(settings, "corral_site_access_password", ""))
+            )
+            needs_site_access = (
+                request.url.path.startswith("/v1/")
+                and request.url.path not in _SITE_ACCESS_PUBLIC_EXACT_PATHS
+                and not request.url.path.startswith(_SITE_ACCESS_PUBLIC_PREFIXES)
+                and request.method != "OPTIONS"
+                and site_access_required
+                and not site_access_cookie_is_valid(
+                    request.cookies.get(SITE_ACCESS_COOKIE_NAME),
+                    settings,
+                )
+            )
+            if needs_site_access:
+                response = JSONResponse(
+                    {
+                        "detail": "Enter the Corral site password to continue.",
+                        "code": "site_access_required",
+                    },
+                    status_code=423,
+                )
+            else:
+                response = await call_next(request)
             apply_security_headers(
                 response,
                 production=settings.app_env == "production",
@@ -108,7 +144,10 @@ def install_request_middleware(app: FastAPI, settings: Settings) -> None:
                         "path": safe_path,
                         "error_type": type(error).__name__,
                         "error_message": str(error)[:500],
+                        "status": 500,
                         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                        "workspace_id": getattr(request.state, "workspace_id", None),
+                        "actor_id": getattr(request.state, "actor_id", None),
                     }
                 },
             )

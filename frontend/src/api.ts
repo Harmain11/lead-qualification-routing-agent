@@ -66,11 +66,17 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, ""
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId?: string,
+  ) {
     super(message);
     this.name = "ApiError";
   }
 }
+
+export const SITE_ACCESS_REQUIRED_EVENT = "corral:site-access-required";
 
 export type LeadAssistantAction = {
   kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "complete_manual_review" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
@@ -344,6 +350,15 @@ async function performRequest<T>(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
+    if (
+      typeof window !== "undefined"
+      && body
+      && typeof body === "object"
+      && "code" in body
+      && body.code === "site_access_required"
+    ) {
+      window.dispatchEvent(new Event(SITE_ACCESS_REQUIRED_EVENT));
+    }
     const detail = typeof body.detail === "string"
       ? body.detail
       : Array.isArray(body.detail)
@@ -361,7 +376,11 @@ async function performRequest<T>(
         : response.status === 403
           ? "You do not have permission to perform this action."
           : `Request failed (${response.status}). Please try again.`);
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      message,
+      response.status,
+      response.headers.get("x-request-id") || undefined,
+    );
   }
   const result = response.status === 204 ? undefined : await response.json();
   const method = options?.method?.toUpperCase() ?? "GET";
@@ -392,6 +411,37 @@ export const updateAccountProfile = (profile: AccountProfileUpdate) =>
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(profile),
+  });
+
+export type AccountOwnedWorkspacePreview = {
+  id: string;
+  name: string;
+  other_active_members: number;
+  leads: number;
+  integrations: number;
+  stored_secrets: number;
+  source_events: number;
+  drafts: number;
+  conversations: number;
+  messages: number;
+};
+
+export type AccountDeletionPreview = {
+  email: string;
+  owned_workspaces: AccountOwnedWorkspacePreview[];
+  shared_workspaces: number;
+  invitations_to_cancel: number;
+  blockers: string[];
+  can_delete: boolean;
+};
+
+export const getAccountDeletionPreview = () =>
+  request<AccountDeletionPreview>("/v1/auth/account-deletion-preview");
+export const deleteCorralAccount = (confirmationEmail: string) =>
+  request<void>("/v1/auth/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation_email: confirmationEmail }),
   });
 
 export const getEmailTemplates = () => request<WorkspaceEmailTemplate[]>("/v1/settings/email-templates");
@@ -477,6 +527,20 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   });
   setActiveWorkspace(session.current_workspace_id);
   return session;
+}
+
+export type SiteAccessStatus = { enabled: boolean; unlocked: boolean };
+
+export function getSiteAccessStatus(): Promise<SiteAccessStatus> {
+  return request<SiteAccessStatus>("/v1/site-access/status");
+}
+
+export function unlockSiteAccess(password: string): Promise<{ unlocked: boolean }> {
+  return request<{ unlocked: boolean }>("/v1/site-access/unlock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
 }
 
 export async function signInWithWorkspaceCode(input: {

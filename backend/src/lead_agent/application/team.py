@@ -301,6 +301,10 @@ def invite_member(
         invitation.revoked_at = None
         invitation.updated_at = now
         operation = "invitation_resent"
+    # Audit rows reference the membership by ID, without an ORM relationship
+    # that orders their inserts. Persist pending rows inside this transaction
+    # before adding the audit entry so its foreign key can be satisfied.
+    session.flush()
     _audit(
         session,
         workspace_id,
@@ -314,7 +318,6 @@ def invite_member(
         },
     )
     session.commit()
-    session.refresh(invitation)
     return invitation, token
 
 
@@ -346,7 +349,6 @@ def resend_invitation(
         after={"email": invitation.email, "role": invitation.role},
     )
     session.commit()
-    session.refresh(invitation)
     return invitation, token
 
 
