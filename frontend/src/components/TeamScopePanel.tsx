@@ -43,7 +43,7 @@ export function TeamScopePanel({ members, canManage }: { members: WorkspaceMembe
       {members.filter((member) => member.status === "active").map((member) => <label key={member.id} style={{ display: "flex", gap: 8, padding: 8 }}>
         <input type="checkbox" checked={team.member_ids.includes(member.id)} disabled={!canManage || busy}
           onChange={(event) => void save(`/v1/teams/${team.id}/members/${member.id}`, {}, event.target.checked ? "PUT" : "DELETE")} />
-        {member.display_name}
+        <span>{member.display_name}<small style={{ display: "block", color: "var(--text-muted, #667085)" }}>{member.slack_member_id ? `Slack ${member.slack_member_id}` : "Slack not linked"}</small></span>
       </label>)}
       {canManage && <>
         <button className="secondary-button" disabled={busy} onClick={() => { setChosen(null); setPicker(picker === team.id ? null : team.id); }}>{picker === team.id ? "Close lead picker" : "Manage lead access"}</button>

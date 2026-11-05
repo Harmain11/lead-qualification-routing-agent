@@ -318,7 +318,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
                     <span className="member-identity">
                       <b>{member.display_name}{member.user_id === auth.user.id && <em>You</em>}</b>
                       <small>{member.email}</small>
-                      <small className="member-permission-count">{member.effective_permissions.length} permissions</small>
+                      <small className="member-permission-count">{member.effective_permissions.length} permissions · {member.slack_member_id ? `Slack ${member.slack_member_id}` : "Slack not linked"}</small>
                     </span>
                   </div>
                   <div className="member-row-side">
@@ -477,7 +477,7 @@ function MemberDetail({
         </div>
         <div className="detail-editor-section">
           <div className="section-heading"><div><span className="eyebrow">Personal win notifications</span><h3>Slack member link</h3></div></div>
-          <p className="role-edit-help">Copy this person's member ID from their Slack profile (More › Copy member ID). Link it after Slack is verified in Integrations. A win will notify the team channel and send this person a direct congratulations.</p>
+          <p className="role-edit-help">Copy this person's member ID from their Slack profile (More › Copy member ID). Link it after Slack is verified in Integrations. New lead assignments will be sent to this person as a direct Slack message; wins can also notify the team channel.</p>
           <label className="follow-up-field">Slack member ID<input value={slackId} disabled={!canManage || saving} placeholder="U0123456789" maxLength={64} onChange={(event) => setSlackId(event.target.value)} onBlur={(event) => setSlackId(event.target.value.trim().toUpperCase())} /></label>
           {member.slack_team_id && <small className="role-edit-help">Linked Slack workspace: {member.slack_team_id}</small>}
           {canManage && slackId !== (member.slack_member_id ?? "") && <button className="secondary-button" disabled={saving || (!!slackId && !/^[UW][A-Z0-9]{8,63}$/.test(slackId))} onClick={async () => { setSaving(true); try { await onSaveSlack(slackId); } finally { setSaving(false); } }}>{saving ? "Saving…" : slackId ? "Save Slack link" : "Remove Slack link"}</button>}

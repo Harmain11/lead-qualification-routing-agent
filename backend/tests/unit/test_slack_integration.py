@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from unittest.mock import MagicMock
 
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
@@ -18,6 +19,7 @@ from lead_agent.application.integrations import (
     complete_oauth_connection,
     disconnect_connection,
 )
+from lead_agent.application.assignment_notifications import _notify_slack_assignee
 from lead_agent.application.services import process_lead
 from lead_agent.domain.integrations import PROVIDER_SETUP
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -78,6 +80,41 @@ def test_slack_direct_message_opens_dm_before_posting():
         "/api/conversations.open", "/api/chat.postMessage",
     ]
     assert "channel=D123" in calls[1][1]
+
+
+def test_assignment_notification_sends_a_direct_message_to_linked_member(monkeypatch):
+    sent = []
+    provider = MagicMock()
+    provider.send_direct.side_effect = lambda member_id, message: (
+        sent.append((member_id, message)) or NotificationDelivery(state="sent")
+    )
+    resolver = MagicMock()
+    resolver.resolve_for_direct_message.return_value = provider
+    monkeypatch.setattr(
+        "lead_agent.infrastructure.slack.get_workspace_slack_notification_resolver",
+        lambda: resolver,
+    )
+    membership = SimpleNamespace(slack_member_id="U012345678", slack_team_id="T123")
+    connection = SimpleNamespace(connection_metadata={"slack_team_id": "T123"})
+    lead = SimpleNamespace(company_name="Acme Builders", full_name="Harmain Mughal", email="lead@example.test")
+    assigned_by = SimpleNamespace(display_name="A team manager")
+    session = MagicMock()
+    session.scalar.side_effect = [membership, connection]
+    session.get.side_effect = [lead, assigned_by]
+
+    _notify_slack_assignee(
+        session,
+        workspace_id=uuid4(),
+        lead_id=uuid4(),
+        recipient_user_id=uuid4(),
+        assigned_by_user_id=uuid4(),
+        assignment_notification_id=uuid4(),
+    )
+
+    assert len(sent) == 1
+    assert sent[0][0] == "U012345678"
+    assert "Acme Builders" in sent[0][1].text
+    assert "A team manager" in sent[0][1].text
 
 
 @pytest.mark.parametrize("fallback_enabled,expected_calls", [(False, 1), (True, 2)])
@@ -155,7 +192,7 @@ def make_connection(session: Session, store: DevelopmentSecretStore, workspace_i
 
 
 def test_slack_setup_scopes_are_minimal() -> None:
-    assert PROVIDER_SETUP["slack"].required_scopes == ["chat:write", "channels:read"]
+    assert PROVIDER_SETUP["slack"].required_scopes == ["chat:write", "channels:read", "im:write"]
     assert "channels:history" not in PROVIDER_SETUP["slack"].required_scopes
     assert "users:read" not in PROVIDER_SETUP["slack"].required_scopes
 
@@ -178,8 +215,8 @@ def test_slack_oauth_uses_exact_scopes_and_derived_callback_path(tmp_path) -> No
             "operator",
         )
         params = parse_qs(urlparse(started.authorization_url).query)
-        assert row.scopes == ["chat:write", "channels:read", "channels:join", "groups:read"]
-        assert params["scope"] == ["chat:write,channels:read,channels:join,groups:read"]
+        assert row.scopes == ["chat:write", "channels:read", "im:write", "channels:join", "groups:read"]
+        assert params["scope"] == ["chat:write,channels:read,im:write,channels:join,groups:read"]
         assert "team" not in params  # Slack must allow workspace selection.
         assert row.connection_metadata["oauth_redirect_uri"] == (
             "https://api.example.test/v1/integrations/slack/oauth/callback"
@@ -196,7 +233,7 @@ def test_non_expiring_slack_oauth_token_does_not_get_a_fake_refresh_deadline(tmp
             assert code_verifier and redirect_uri.endswith("/v1/integrations/slack/oauth/callback")
             return {
                 "access_token": "workspace-token",
-                "scope": "chat:write,channels:read",
+                "scope": "chat:write,channels:read,im:write",
                 "external_account_id": "T-expected",
                 "account_name": "Test Slack workspace",
                 "bot_user_id": "U-bot",
@@ -239,7 +276,7 @@ def test_non_expiring_slack_oauth_token_does_not_get_a_fake_refresh_deadline(tmp
         )
         assert audit is not None
         assert audit.actor_id == "operator"
-        assert audit.details == {"scopes": ["chat:write", "channels:read", "channels:join", "groups:read"]}
+        assert audit.details == {"scopes": ["chat:write", "channels:read", "im:write", "channels:join", "groups:read"]}
         assert "workspace-token" not in str(audit.details)
 
 
@@ -248,7 +285,7 @@ def test_validator_checks_token_team_and_required_scopes() -> None:
         assert request.url.path.endswith("auth.test")
         return httpx.Response(
             200,
-            headers={"x-oauth-scopes": "chat:write,channels:read"},
+            headers={"x-oauth-scopes": "chat:write,channels:read,im:write"},
             json={
                 "ok": True,
                 "team_id": "T-A",
@@ -263,7 +300,7 @@ def test_validator_checks_token_team_and_required_scopes() -> None:
     )
     assert result.verified is True
     assert result.metadata["slack_team_id"] == "T-A"
-    assert result.metadata["granted_scopes"] == ["channels:read", "chat:write"]
+    assert result.metadata["granted_scopes"] == ["channels:read", "chat:write", "im:write"]
 
 
 @pytest.mark.parametrize(
@@ -301,7 +338,7 @@ def test_validator_rejects_a_valid_token_from_the_wrong_workspace() -> None:
     client = slack_client(
         lambda _: httpx.Response(
             200,
-            headers={"x-oauth-scopes": "chat:write,channels:read"},
+            headers={"x-oauth-scopes": "chat:write,channels:read,im:write"},
             json={"ok": True, "team_id": "T-OTHER"},
         )
     )

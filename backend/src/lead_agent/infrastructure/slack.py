@@ -30,7 +30,9 @@ from lead_agent.infrastructure.provider_lifecycle import (
     record_provider_lifecycle_audit,
 )
 
-SLACK_REQUIRED_SCOPES = ("chat:write", "channels:read")
+# ``im:write`` is required for conversations.open, which is how Slack opens
+# a private DM before chat.postMessage can deliver the assignment alert.
+SLACK_REQUIRED_SCOPES = ("chat:write", "channels:read", "im:write")
 _API = "https://slack.com/api/"
 
 
@@ -457,6 +459,63 @@ class WorkspaceSlackNotificationResolver:
                 connection = preferred
         return self.provider_for_connection(session, workspace_id, connection.id, actor_id)
 
+    def resolve_for_direct_message(
+        self,
+        session: Session,
+        workspace_id: UUID,
+        actor_id: str = "system",
+        slack_team_id: str | None = None,
+    ) -> SlackNotificationProvider | None:
+        """Resolve the verified Slack connection used for member DMs.
+
+        A direct message must not depend on a configured team channel. This is
+        intentionally separate from ``resolve_for_workspace`` because channel
+        routing is optional for assignment notifications.
+        """
+        connections = list(
+            session.scalars(
+                select(ProviderConnectionORM)
+                .where(
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "slack",
+                    ProviderConnectionORM.is_active.is_(True),
+                    ProviderConnectionORM.status == "verified",
+                )
+                .order_by(ProviderConnectionORM.updated_at.desc())
+            )
+        )
+        connection = next(
+            (
+                row
+                for row in connections
+                if slack_team_id
+                and row.connection_metadata.get("slack_team_id") == slack_team_id
+            ),
+            connections[0] if connections else None,
+        )
+        if connection is None:
+            return None
+        config = session.get(WorkspaceNotificationConfigORM, workspace_id)
+        if config and config.default_slack_connection_id and not slack_team_id:
+            preferred = session.scalar(
+                select(ProviderConnectionORM).where(
+                    ProviderConnectionORM.id == config.default_slack_connection_id,
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "slack",
+                    ProviderConnectionORM.is_active.is_(True),
+                    ProviderConnectionORM.status == "verified",
+                )
+            )
+            if preferred is not None:
+                connection = preferred
+        return self.provider_for_connection(
+            session,
+            workspace_id,
+            connection.id,
+            actor_id,
+            destination_type="direct_message",
+        )
+
     def resolve_for_lead(
         self,
         session: Session,
@@ -607,11 +666,14 @@ class WorkspaceSlackNotificationResolver:
     ) -> SlackNotificationProvider | None:
         row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
         selected_channel_id = channel_id or row.connection_metadata.get("slack_channel_id")
-        if not isinstance(selected_channel_id, str) or not selected_channel_id:
+        if (
+            destination_type != "direct_message"
+            and (not isinstance(selected_channel_id, str) or not selected_channel_id)
+        ):
             return None
         return SlackNotificationProvider(
             connection=resolved,
-            channel_id=selected_channel_id,
+            channel_id=selected_channel_id or "",
             destination_type=destination_type,
             fallback_to_channel=fallback_to_channel,
             fallback_channel_id=(

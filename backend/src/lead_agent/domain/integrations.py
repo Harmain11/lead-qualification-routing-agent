@@ -146,7 +146,7 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
             "can only connect to the workspace where it was created; the app owner must "
             "enable App Distribution to support other workspaces."
         ),
-        required_scopes=["chat:write", "channels:read"],
+        required_scopes=["chat:write", "channels:read", "im:write"],
         permission_reason=(
             "Send routed lead alerts and list public channels for workspace channel selection."
         ),
