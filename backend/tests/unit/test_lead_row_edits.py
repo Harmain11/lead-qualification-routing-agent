@@ -95,17 +95,23 @@ def test_generated_marker_and_manual_assignment_persist(tmp_path, icp, routing) 
     _, _, lead = process_lead(
         session, payload, icp, routing, workspace_id=workspace_id
     )
+    # Assignment behavior must not depend on the selected reasoning provider's score.
+    assert lead.qualification is not None
+    lead.qualification.classification = "warm"
+    lead.qualification.total_score = 65
+    route_and_notify(session, lead, routing, force=True, send_notification=False)
+    session.commit()
     initial_routing = get_current_routing(session, lead.id, workspace_id)
     assert initial_routing is not None
     assert initial_routing.assigned_rep_id in {
         str(user.id) for user in representatives
-    }
+    }, initial_routing.routing_reason
     auto_assignee_id = UUID(initial_routing.assigned_rep_id)
     viewer_context = WorkspaceContext(
         workspace_id=workspace_id,
         actor_id="lead-row-editor",
         user_id=viewer.id,
-        permissions=frozenset({"leads.view", "leads.edit", "routing.manage"}),
+        permissions=frozenset({"leads.view", "leads.edit", "leads.reassign"}),
     )
     workspace_context = viewer_context
 

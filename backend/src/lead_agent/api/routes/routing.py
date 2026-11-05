@@ -18,8 +18,9 @@ from lead_agent.api.schemas import (
     notification_response,
     routing_response,
 )
-from lead_agent.application.routing import retry_current_notification, route_and_notify
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
 from lead_agent.application.manual_review import workspace_manual_review_settings
+from lead_agent.application.routing import retry_current_notification, route_and_notify
 from lead_agent.domain.configuration import ManualReviewSettings, RoutingConfig
 from lead_agent.domain.rbac import effective_permissions, normalize_role
 from lead_agent.domain.routing import NotificationProvider
@@ -266,7 +267,7 @@ def retrieve_notifications(
 def retrieve_pipeline_history(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("routing.view")),
+    workspace: WorkspaceContext = Depends(require_permission("activity.view")),
 ) -> list[PipelineEventResponse]:
     _lead_or_404(lead_id, session, workspace.workspace_id)
     return [
@@ -278,6 +279,7 @@ def retrieve_pipeline_history(
             created_at=row.created_at,
         )
         for row in list_pipeline_events(session, lead_id, workspace.workspace_id)
+        if row.stage not in PRIVATE_INSIGHT_KINDS
     ]
 
 
@@ -311,7 +313,7 @@ def reroute_lead(
     session: Session = Depends(get_db),
     policies: tuple[object, RoutingConfig] = Depends(get_policies),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
-    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> RoutingDecisionResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
     _, routing = policies

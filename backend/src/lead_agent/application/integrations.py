@@ -365,6 +365,8 @@ def create_manual_connection(
         provider, request.auth_type, request.credentials
     )
     metadata = _safe_metadata(request.metadata)
+    if actor_id != "system":
+        metadata["owner_user_id"] = actor_id
     if provider in REASONING_PROVIDERS:
         metadata = {
             "selected_model": validate_reasoning_model(
@@ -488,6 +490,7 @@ def begin_oauth_connection(
             "oauth_redirect_uri": redirect_uri,
             "oauth_callback_provider": provider,
             "oauth_actor_id": actor_id,
+            "owner_user_id": actor_id,
         },
         is_active=False,
         disconnected_at=None,

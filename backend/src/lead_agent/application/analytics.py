@@ -12,9 +12,15 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from lead_agent.application.manual_review import lead_manual_review_reasons
+from lead_agent.application.coaching_privacy import (
+    PRIVATE_INSIGHT_KINDS,
+    personal_data_user_ids,
+)
 from lead_agent.application.commercial import pipeline_value_usd
+from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.domain.lead_sources import lead_source_category
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.deals import DealORM
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
@@ -28,7 +34,6 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
-from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 
 RangeKey = Literal["weekly", "monthly", "annual"]
 SQL_BANDS = {"hot", "warm"}
@@ -155,15 +160,34 @@ class AnalyticsService:
     display-ready metrics and never aggregate cross-tenant records themselves.
     """
 
-    def __init__(self, session: Session, workspace_id: UUID) -> None:
+    def __init__(
+        self, session: Session, workspace_id: UUID, *, workspace: WorkspaceContext | None = None
+    ) -> None:
+        if workspace is not None and workspace.workspace_id != workspace_id:
+            raise ValueError("Analytics context belongs to another workspace")
         self.session = session
         self.workspace_id = workspace_id
+        self.personal_user_ids = (
+            personal_data_user_ids(session, workspace) if workspace is not None else None
+        )
         self.deals = {row.lead_id: row.data for row in session.scalars(
             select(DealORM).where(DealORM.workspace_id == workspace_id)
         )}
 
     def _pipeline_amount(self, lead: LeadORM) -> float:
         return pipeline_value_usd(lead, self.deals.get(lead.id))
+
+    def _personal_leads(self, leads: list[LeadORM]) -> list[LeadORM]:
+        if self.personal_user_ids is None:
+            return leads
+        return [lead for lead in leads if self._performance_owner(lead) in self.personal_user_ids]
+
+    @staticmethod
+    def _performance_owner(lead: LeadORM) -> str | None:
+        if lead.outcome and lead.outcome.credited_user_id:
+            return str(lead.outcome.credited_user_id)
+        route = _latest_route(lead)
+        return route.assigned_rep_id if route else None
 
     def metadata(self, window: AnalyticsWindow) -> dict[str, Any]:
         workspace = self._workspace()
@@ -460,21 +484,23 @@ class AnalyticsService:
             "by_channel": self._revenue_group(
                 facts, lambda lead: lead_source_category(lead.source, lead.source_detail)
             ),
-            "by_rep": self._revenue_group(facts, _rep_name),
+            "by_rep": self._revenue_group(self._personal_leads(facts), _rep_name),
             "by_service": self._revenue_group(facts, lambda lead: lead.product_or_service),
             "over_time": self._revenue_time_series(facts, window),
         }
 
     def reps(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
         window = AnalyticsWindow.build(range_key)
-        leads = self._leads(window.start, window.end)
-        grouped: dict[str, list[LeadORM]] = defaultdict(list)
+        leads = self._personal_leads(self._leads(window.start, window.end))
+        grouped: dict[tuple[str, str], list[LeadORM]] = defaultdict(list)
         for lead in leads:
             route = _latest_route(lead)
-            if route is not None and route.assigned_rep_name:
-                grouped[route.assigned_rep_name].append(lead)
+            if (lead.outcome and lead.outcome.credited_user_id) or (
+                route is not None and route.assigned_rep_name
+            ):
+                grouped[(self._performance_owner(lead) or "", _rep_name(lead))].append(lead)
         rows = []
-        for name, items in sorted(grouped.items()):
+        for (_, name), items in sorted(grouped.items()):
             qualified = len(
                 [lead for lead in items if _qualification(lead).classification in QUALIFIED_BANDS]
             )
@@ -509,7 +535,12 @@ class AnalyticsService:
         roster = self.session.execute(
             select(WorkspaceMembershipORM, UserORM)
             .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
-            .where(WorkspaceMembershipORM.workspace_id == self.workspace_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == self.workspace_id,
+                *([] if self.personal_user_ids is None else [
+                    UserORM.id.in_([UUID(value) for value in self.personal_user_ids])
+                ]),
+            )
             .order_by(UserORM.display_name, UserORM.id)
         ).all()
         identities = {str(user.id): (member, user) for member, user in roster}
@@ -622,6 +653,7 @@ class AnalyticsService:
                 select(PipelineEventORM)
                 .where(
                     PipelineEventORM.workspace_id == self.workspace_id,
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
                     PipelineEventORM.created_at >= window.start,
                     PipelineEventORM.created_at <= window.end,
                 )
@@ -1251,7 +1283,10 @@ class AnalyticsService:
         assignment_counts: Counter[tuple[str, str]] = Counter()
         for lead in leads:
             for route in lead.routing_decisions:
-                if route.assigned_rep_name:
+                if route.assigned_rep_name and (
+                    self.personal_user_ids is None
+                    or route.assigned_rep_id in self.personal_user_ids
+                ):
                     assignment_counts[
                         (route.created_at.strftime("%Y-%m"), route.assigned_rep_name)
                     ] += 1

@@ -13,6 +13,12 @@ from lead_agent.api.dependencies import get_policies, require_permission
 from lead_agent.api.operations_schemas import InsightPage, InsightRecord
 from lead_agent.api.routes.contact_records import owned_company
 from lead_agent.application.advanced_analytics import advanced_analytics
+from lead_agent.application.coaching_privacy import (
+    PRIVATE_INSIGHT_KINDS,
+    can_coach_lead,
+    insight_visibility,
+    personal_data_user_ids,
+)
 from lead_agent.application.governance import audit_operation
 from lead_agent.application.intelligence import (
     approve_learning,
@@ -23,6 +29,7 @@ from lead_agent.application.intelligence import (
 )
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.operations import StrictModel
+from lead_agent.domain.rbac import normalize_role
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
     LeadORM,
@@ -42,7 +49,7 @@ def insights(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.view")),
 ) -> Any:
-    conditions = [AgentInsightORM.workspace_id == workspace.workspace_id]
+    conditions = [insight_visibility(session, workspace)]
     if kind != "all":
         conditions.append(AgentInsightORM.kind == kind)
     rows = list(
@@ -54,16 +61,6 @@ def insights(
             .limit(limit)
         )
     )
-    if "manual_review.manage" not in workspace.permissions:
-        rows = [
-            row
-            for row in rows
-            if row.kind != "digest"
-            or (
-                row.status == "approved"
-                and row.content.get("recipient_id") == str(workspace.user_id)
-            )
-        ]
     return {"items": rows}
 
 
@@ -95,7 +92,7 @@ def coach(
     lead = session.scalar(
         select(LeadORM).where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace.workspace_id)
     )
-    if lead is None:
+    if lead is None or not can_coach_lead(session, workspace, lead):
         raise HTTPException(404, "Lead not found")
     return coach_lead(session, lead, workspace.actor_id)
 
@@ -124,12 +121,16 @@ def review(
     row = session.scalar(
         select(AgentInsightORM)
         .where(
-            AgentInsightORM.id == insight_id, AgentInsightORM.workspace_id == workspace.workspace_id
+            AgentInsightORM.id == insight_id, insight_visibility(session, workspace)
         )
         .with_for_update()
     )
     if row is None:
         raise HTTPException(404, "Insight not found")
+    if row.kind in PRIVATE_INSIGHT_KINDS and normalize_role(workspace.role) not in {
+        "owner", "admin", "sales_manager",
+    }:
+        raise HTTPException(403, "Manager review is required for personal coaching")
     if row.status != "pending_review":
         raise HTTPException(409, "This insight has already been reviewed")
     if request.approve and row.kind == "learning":
@@ -192,7 +193,7 @@ def objection_library(
         session.scalars(
             select(AgentInsightORM)
             .where(
-                AgentInsightORM.workspace_id == workspace.workspace_id,
+                insight_visibility(session, workspace),
                 AgentInsightORM.kind == "coach",
             )
             .order_by(AgentInsightORM.created_at.desc())
@@ -246,6 +247,11 @@ def digest(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("manual_review.manage")),
 ) -> Any:
+    users = personal_data_user_ids(session, workspace)
+    if normalize_role(workspace.role) == "viewer" or (
+        users is not None and str(request.user_id) not in users
+    ):
+        raise HTTPException(404, "Member not found in your coaching scope")
     if not session.scalar(
         select(WorkspaceMembershipORM.id).where(
             WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
@@ -263,17 +269,21 @@ def analytics(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> Any:
-    return advanced_analytics(session, workspace.workspace_id, months)
+    return advanced_analytics(session, workspace.workspace_id, months, workspace=workspace)
 
 
 @router.post("/analytics/narrate")
 def narrate(
     months: int = Query(6, ge=1, le=24),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
+    workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
 ) -> Any:
+    if "analytics.view" not in workspace.permissions or normalize_role(workspace.role) == "viewer":
+        raise HTTPException(403, "Analytics narration requires execution permission")
     try:
-        return advanced_analytics(session, workspace.workspace_id, months, narrate=True)
+        return advanced_analytics(
+            session, workspace.workspace_id, months, narrate=True, workspace=workspace
+        )
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
     except Exception:

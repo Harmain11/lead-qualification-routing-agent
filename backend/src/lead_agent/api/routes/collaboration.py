@@ -34,7 +34,7 @@ def owned_lead(session: Session, workspace_id: UUID, lead_id: UUID) -> LeadORM:
 def collaboration(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    workspace: WorkspaceContext = Depends(require_permission("comments.view")),
 ) -> Any:
     owned_lead(session, workspace.workspace_id, lead_id)
     notes = list(
@@ -103,7 +103,7 @@ def save_note(
     note_id: UUID,
     request: NoteInput,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permission("comments.add")),
 ) -> Any:
     owned_lead(session, workspace.workspace_id, lead_id)
     row = session.get(LeadNoteORM, note_id)

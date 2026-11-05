@@ -28,6 +28,7 @@ from lead_agent.infrastructure.crm.factory import (
     get_workspace_crm_resolver,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.db.team_scope import bind_team_scope
 from lead_agent.settings.config import Settings, get_settings
 
 
@@ -132,7 +133,7 @@ def get_workspace_context(
         _check_residency(request, session, workspace_id)
         request.state.workspace_id = str(workspace_id)
         request.state.actor_id = str(identity.user_id)
-        return WorkspaceContext(
+        context = WorkspaceContext(
             workspace_id=workspace_id,
             actor_id=str(identity.user_id),
             user_id=identity.user_id,
@@ -140,6 +141,8 @@ def get_workspace_context(
             role=membership.role,
             permissions=membership_permissions(membership),
         )
+        bind_team_scope(session, context)
+        return context
 
     development_allowed = settings.auth_development_fallback and settings.app_env.lower() in {
         "development",
@@ -158,12 +161,14 @@ def get_workspace_context(
     _check_residency(request, session, workspace_id)
     request.state.workspace_id = str(workspace_id)
     request.state.actor_id = (x_actor_id or "development-user")[:255]
-    return WorkspaceContext(
+    context = WorkspaceContext(
         workspace_id=workspace_id,
         actor_id=(x_actor_id or "development-user")[:255],
         role="owner",
         permissions=role_permissions("owner"),
     )
+    bind_team_scope(session, context)
+    return context
 
 
 def get_active_crm_provider(

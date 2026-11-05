@@ -1,4 +1,5 @@
 import { OperationsDialog } from "../components/OperationsDialog";
+import { TeamScopePanel } from "../components/TeamScopePanel";
 import { Icon } from "../v3/ui/Icon";
 import { useCallback,useEffect,useMemo,useState } from "react";
 
@@ -156,6 +157,7 @@ function AuditLine({ event, members }: { event: WorkspaceAuditEvent; members: Wo
 }
 
 export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
+  const [matrixRole, setMatrixRole] = useState("sales_rep");
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [audit, setAudit] = useState<WorkspaceAuditEvent[]>([]);
@@ -173,6 +175,9 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [generatedInvite, setGeneratedInvite] = useState<WorkspaceInvitation | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const sessionPermissions = auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.effective_permissions ?? [];
+  const canReadAdminHistory = sessionPermissions.includes("members.manage");
+  const canReadInvitations = canReadAdminHistory || sessionPermissions.includes("members.invite");
 
   const load = useCallback(async (signal?: AbortSignal, preserve = false) => {
     if (preserve) setRefreshing(true); else setLoading(true);
@@ -180,8 +185,8 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     try {
       const [nextMembers, nextInvitations, nextAudit] = await Promise.all([
         listMembers(signal),
-        listInvitations(signal),
-        listMemberAuditEvents(signal),
+        canReadInvitations ? listInvitations(signal) : Promise.resolve([]),
+        canReadAdminHistory ? listMemberAuditEvents(signal) : Promise.resolve([]),
       ]);
       if (signal?.aborted) return;
       setMembers(nextMembers);
@@ -196,7 +201,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [canReadAdminHistory, canReadInvitations]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -271,7 +276,15 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-summary panel"><span className="eyebrow">Invitations</span><strong>{invitations.filter((invitation) => invitation.status === "pending").length}</strong><small>Waiting to be accepted</small></div>
             <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} permissions</small></div>
           </section>
+          <section className="panel" style={{ padding: 20 }} aria-label="Role access defaults">
+            <h2>Role access defaults</h2>
+            <p>Lead visibility follows team membership. Owners and Admins have workspace access; personal coaching is limited to its recipient and authorized managers.</p>
+            <label className="team-field"><span>Inspect a role</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{Object.entries(ROLE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+            <PermissionEditor overrides={emptyOverrides()} effective={defaultPermissionsForRole(matrixRole)} readOnly />
+            <p className="permission-edit-hint">These are role defaults. Select a member to inspect their effective permissions and explicit exceptions.</p>
+          </section>
           <section className="team-layout team-roster-layout">
+            <TeamScopePanel members={members} canManage={canManage} />
             <div className="team-main-column">
               <div className="panel team-members-panel">
                 <div className="section-heading"><div><span className="eyebrow">People with access</span><h2>Workspace users</h2></div><div className="team-heading-actions">{refreshing && <span className="inline-loading">Refreshing</span>}{canInvite && <button className="primary-button" onClick={() => setInviteOpen(true)}>+ Invite user</button>}</div></div>
@@ -290,7 +303,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
                       <MemberStatus status={member.status} />
                     </div>
                     <span className="member-row-actions">
-                      <button type="button" className="button-quiet" onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}>Edit</button>
+                      <button type="button" className="button-quiet" onClick={() => { setSelectedId(member.id); setDetailsCollapsed(false); }}>{canManage ? "Edit" : "View access"}</button>
                       {canManage && member.role !== "owner" && member.user_id !== auth.user.id && <button type="button" className="button-quiet danger-text" onClick={() => requestConfirmation({ title: "Remove from workspace?", detail: `${member.display_name} will lose access to this workspace. Their account and other workspace memberships will remain.`, confirmLabel: "Remove from workspace", danger: true, action: async () => { await removeMember(member.id); } })}>Delete</button>}
                     </span>
                   </div>

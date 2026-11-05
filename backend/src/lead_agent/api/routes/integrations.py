@@ -43,6 +43,7 @@ from lead_agent.application.lead_approval import (
     provider_has_verified_connection,
     update_lead_approval_policy,
 )
+from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
 from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import (
@@ -57,7 +58,7 @@ from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.communications import CommunicationsClient
+from lead_agent.infrastructure.communications import DIALERS, CommunicationsClient
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     ProviderConnectionORM,
@@ -598,6 +599,27 @@ def list_integrations(
     ensure_workspace(session, workspace.workspace_id)
     session.commit()
     connections = list_provider_connections(session, workspace.workspace_id)
+    dialer_only = "integrations.view" not in workspace.permissions
+    if dialer_only:
+        connections = [
+            row for row in connections if row.provider_type in DIALERS
+        ]
+    elif "integrations.view" in workspace.permissions:
+        connections = [
+            row for row in connections
+            if row.provider_type not in {"gmail", "outlook"}
+            or can_use_mailbox(workspace, row)
+        ]
+
+    def visible_connection(row: Any) -> ProviderConnectionResponse:
+        response = provider_connection_response(row)
+        if dialer_only:
+            response.external_account_id = None
+            response.metadata = {}
+            response.last_validation_result = {}
+            response.scopes = []
+        return response
+
     latest: dict[str, Any] = {}
     for row in connections:
         current = latest.get(row.provider_type)
@@ -621,15 +643,16 @@ def list_integrations(
                 if provider in REASONING_PROVIDERS else None
             ),
             connection=(
-                provider_connection_response(latest[provider]) if provider in latest else None
+                visible_connection(latest[provider]) if provider in latest else None
             ),
             connections=[
-                provider_connection_response(row)
+                visible_connection(row)
                 for row in connections
                 if row.provider_type == provider
             ],
         )
         for provider, setup in PROVIDER_SETUP.items()
+        if not dialer_only or provider in DIALERS
     ]
 
 

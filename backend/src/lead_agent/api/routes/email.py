@@ -22,6 +22,7 @@ from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.gmail_threading import matches_lead_thread
+from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.application.governance import operations_policy
 from lead_agent.domain.follow_up import FollowUpEmailContent
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -376,6 +377,7 @@ def list_gmail_send_accounts(
             sender_email=sender_email,
         )
         for connection in connections
+        if can_use_mailbox(workspace, connection)
         if GMAIL_SEND_SCOPE in set(connection.scopes or [])
         and _EMAIL_ADDRESS.fullmatch(
             sender_email := str(
@@ -393,6 +395,8 @@ def _gmail_connection(
     *,
     required_scope: str,
 ) -> tuple[ProviderConnectionORM, str]:
+    if required_scope == GMAIL_READONLY_SCOPE and "integrations.view" not in workspace.permissions:
+        raise HTTPException(403, "permission required: integrations.view")
     connection = session.scalar(
         select(ProviderConnectionORM).where(
             ProviderConnectionORM.id == connection_id,
@@ -404,6 +408,8 @@ def _gmail_connection(
     )
     if connection is None:
         raise HTTPException(status_code=404, detail="Verified Gmail account not found")
+    if not can_use_mailbox(workspace, connection):
+        raise HTTPException(403, "This mailbox belongs to another workspace member")
     if required_scope not in connection.scopes:
         raise HTTPException(
             status_code=409,

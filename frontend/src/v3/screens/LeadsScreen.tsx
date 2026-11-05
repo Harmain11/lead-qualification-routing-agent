@@ -117,6 +117,8 @@ type Props = {
   newLeadIds: ReadonlySet<string>;
   canEdit?: boolean;
   canManageRouting?: boolean;
+  canViewComments?: boolean;
+  canAddComments?: boolean;
   canManageManualReview?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
@@ -150,6 +152,8 @@ export function LeadsScreen({
   newLeadIds,
   canEdit = true,
   canManageRouting = false,
+  canViewComments = false,
+  canAddComments = false,
   canManageManualReview = false,
   canExport = false,
   canCrmSync = false,
@@ -469,6 +473,8 @@ export function LeadsScreen({
             canUseAgent={canUseAgent}
             canCall={canCall}
             canManageRouting={canManageRouting}
+            canViewComments={canViewComments}
+            canAddComments={canAddComments}
             canManageManualReview={canManageManualReview}
             assignmentOptions={assignmentOptions}
             recordedStage={recordedStages?.get(selected.id) ?? null}

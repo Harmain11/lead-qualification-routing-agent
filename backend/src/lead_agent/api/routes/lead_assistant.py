@@ -13,18 +13,29 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission, require_permissions
-from lead_agent.application.claims import guard_outgoing_email
+from lead_agent.application.assistant_access import (
+    ACCESS_KEY,
+    conversation_access_key,
+    conversation_is_accessible,
+)
 from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
+from lead_agent.application.claims import guard_outgoing_email
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
-from lead_agent.domain.assistant_capabilities import workspace_action_capabilities
+from lead_agent.domain.assistant_capabilities import (
+    WORKSPACE_ACTION_PERMISSIONS,
+    WORKSPACE_AREA_PERMISSIONS,
+    workspace_action_capabilities,
+)
 from lead_agent.domain.lead_assistant import (
     LeadAssistantAction,
     WorkspaceAssistantAction,
     WorkspaceAssistantReply,
 )
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
     LeadORM,
@@ -35,7 +46,6 @@ from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import get_current_routing, get_lead
-from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 
 router = APIRouter(prefix="/v1/leads", tags=["lead assistant"])
 workspace_router = APIRouter(prefix="/v1/agent", tags=["workspace assistant"])
@@ -723,6 +733,8 @@ def _owned_conversation(
     session: Session,
     workspace: WorkspaceContext,
     conversation_id: UUID,
+    *,
+    check_access: bool = True,
 ) -> WorkspaceAgentConversationORM:
     row = session.scalar(
         select(WorkspaceAgentConversationORM).where(
@@ -733,6 +745,10 @@ def _owned_conversation(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    if check_access and not conversation_is_accessible(
+        row.messages, workspace, conversation_access_key(session, workspace)
+    ):
+        raise HTTPException(403, "Conversation access has changed; start a new conversation.")
     return row
 
 
@@ -741,6 +757,7 @@ def list_agent_conversations(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
 ) -> dict[str, object]:
+    access_key = conversation_access_key(session, workspace)
     rows = list(session.scalars(
         select(WorkspaceAgentConversationORM)
         .where(
@@ -763,6 +780,7 @@ def list_agent_conversations(
             )[:180],
         }
         for row in rows
+        if conversation_is_accessible(row.messages, workspace, access_key)
     ]}
 
 
@@ -796,7 +814,10 @@ def get_agent_conversation(
     return {
         "id": str(row.id),
         "title": row.title,
-        "messages": row.messages,
+        "messages": [
+            {key: value for key, value in message.items() if key != ACCESS_KEY}
+            for message in row.messages
+        ],
         "updated_at": row.updated_at.isoformat(),
     }
 
@@ -810,6 +831,9 @@ def save_agent_conversation(
 ) -> dict[str, object]:
     row = _owned_conversation(session, workspace, conversation_id)
     transcript = [message.model_dump(mode="json", exclude_none=True) for message in request.messages]
+    access_key = conversation_access_key(session, workspace)
+    for message in transcript:
+        message[ACCESS_KEY] = access_key
     first_user_text = next((item["content"] for item in transcript if item["role"] == "user"), "")
     row.messages = transcript
     if first_user_text:
@@ -825,7 +849,7 @@ def delete_agent_conversation(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
 ) -> Response:
-    row = _owned_conversation(session, workspace, conversation_id)
+    row = _owned_conversation(session, workspace, conversation_id, check_access=False)
     session.delete(row)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -870,6 +894,7 @@ def _history_before_latest_request(
     }
     related: list[tuple[int, list[dict[str, str]]]] = []
     if query_terms:
+        access_key = conversation_access_key(session, workspace)
         rows = session.scalars(
             select(WorkspaceAgentConversationORM).where(
                 WorkspaceAgentConversationORM.workspace_id == workspace.workspace_id,
@@ -878,6 +903,10 @@ def _history_before_latest_request(
             ).order_by(WorkspaceAgentConversationORM.updated_at.desc()).limit(20)
         )
         for past in rows:
+            if not conversation_is_accessible(
+                past.messages, workspace, access_key
+            ):
+                continue
             turns = [
                 {"role": item["role"], "content": contextual_text(item)}
                 for item in past.messages[-12:]
@@ -965,6 +994,17 @@ def chat_with_workspace_assistant(
                 "Workspace record search is unavailable; do not infer lead details "
                 "or propose lead changes."
             )
+    record_context = workspace_context.get("workspace_records")
+    if isinstance(record_context, dict):
+        if "comments.view" not in workspace.permissions:
+            record_context["lead_notes"] = []
+        if "activity.view" not in workspace.permissions:
+            for key in ("recent_emails_and_meetings", "calls", "saved_follow_up_emails"):
+                record_context[key] = []
+            counts = record_context.get("record_counts")
+            if isinstance(counts, dict):
+                for key in ("calls", "emails", "meetings"):
+                    counts.pop(key, None)
     payload = {
         "messages": assistant_messages,
         "workspace_context": workspace_context,
@@ -1159,7 +1199,10 @@ def chat_with_workspace_assistant(
         )
         if (
             not target_is_available
-            or (result.action.kind in lead_mutations and "leads.edit" not in workspace.permissions)
+            or (
+                result.action.kind in lead_mutations
+                and not set(WORKSPACE_ACTION_PERMISSIONS[result.action.kind]) <= workspace.permissions
+            )
             or (
                 result.action.kind in manual_review_mutations
                 and "manual_review.manage" not in workspace.permissions
@@ -1217,6 +1260,14 @@ def chat_with_workspace_assistant(
                         f"Clear {result.action.target_label}'s review hold and apply "
                         "current routing rules. The resulting assignee may be notified."
                     )
+    required = WORKSPACE_ACTION_PERMISSIONS.get(result.action.kind, ())
+    permitted = set(required) <= workspace.permissions
+    if result.action.kind == "open_module":
+        area_required = WORKSPACE_AREA_PERMISSIONS.get(result.action.area or "", ())
+        permitted = any(permission in workspace.permissions for permission in area_required)
+    if not permitted:
+        result.action = WorkspaceAssistantAction()
+        result.reply = "You do not have the required workspace permission for that action."
     result.reply = _truthful_workspace_assistant_reply(
         result.reply,
         result.action,
@@ -1278,11 +1329,12 @@ def chat_with_lead_assistant(
             .where(
                 PipelineEventORM.lead_id == lead_id,
                 PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
             )
             .order_by(PipelineEventORM.created_at.desc())
             .limit(20)
         )
-    )
+    ) if "activity.view" in workspace.permissions else []
     notes = list(
         session.scalars(
             select(LeadNoteORM)
@@ -1293,7 +1345,7 @@ def chat_with_lead_assistant(
             .order_by(LeadNoteORM.updated_at.desc(), LeadNoteORM.id.desc())
             .limit(30)
         )
-    )
+    ) if "comments.view" in workspace.permissions else []
     payload = {
         "permissions": sorted(workspace.permissions),
         "lead": {
@@ -1338,7 +1390,10 @@ def chat_with_lead_assistant(
                         if lead.outcome.closed_revenue is not None
                         else None
                     ),
-                    "credited_name": lead.outcome.credited_name,
+                    "credited_name": (
+                        lead.outcome.credited_user.display_name
+                        if lead.outcome.credited_user else None
+                    ),
                 }
                 if lead.outcome
                 else None
@@ -1408,11 +1463,14 @@ def chat_with_lead_assistant(
                 "permission to open the phone from this workspace. Ask an admin for Dialer access."
             )
     lead_edit_actions = {
-        "update_profile", "add_note", "record_progress", "draft_email",
+        "update_profile", "record_progress", "draft_email",
         "send_follow_up", "refresh_email", "delete_lead", "reevaluate_lead",
     }
     email_actions = {"draft_email", "send_follow_up", "refresh_email", "open_email"}
-    if result.action.kind in lead_edit_actions and "leads.edit" not in workspace.permissions:
+    if result.action.kind == "add_note" and "comments.add" not in workspace.permissions:
+        result.action = LeadAssistantAction()
+        result.reply = "You need comment-write access to save a note."
+    elif result.action.kind in lead_edit_actions and "leads.edit" not in workspace.permissions:
         result.action = LeadAssistantAction()
         result.reply = (
             "I can't make that change with your current access. "

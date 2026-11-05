@@ -43,6 +43,7 @@ from lead_agent.application.gmail_history import (
     lead_history_context,
 )
 from lead_agent.application.gmail_profile import extract_stated_gmail_profile
+from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
@@ -617,7 +618,7 @@ def closing_options(
 )
 def lead_assignment_options(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> list[LeadAssignmentOptionResponse]:
     members = session.execute(
         select(WorkspaceMembershipORM, UserORM)
@@ -820,7 +821,7 @@ def update_lead_assignment(
     lead_id: UUID,
     request: LeadAssignmentUpdateRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> LeadResponse:
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
@@ -1537,6 +1538,9 @@ def sync_lead_gmail_conversation(
             status_code=409,
             detail="Connect and verify Gmail before syncing conversations.",
         )
+    connections = [connection for connection in connections if can_use_mailbox(workspace, connection)]
+    if not connections:
+        raise HTTPException(403, "No connected Gmail mailbox is available to this workspace member.")
 
     existing_events = list(
         session.scalars(

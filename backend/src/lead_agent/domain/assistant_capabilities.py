@@ -9,7 +9,7 @@ WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "open_deal_desk": ("leads.view",),
     "create_lead": ("leads.edit",),
     "update_lead_profile": ("leads.view", "leads.edit"),
-    "add_lead_note": ("leads.view", "leads.edit"),
+    "add_lead_note": ("leads.view", "comments.add"),
     "record_lead_progress": ("leads.view", "leads.edit"),
     "reevaluate_lead": ("leads.view", "leads.edit"),
     "complete_lead_manual_review": ("leads.view", "manual_review.manage"),

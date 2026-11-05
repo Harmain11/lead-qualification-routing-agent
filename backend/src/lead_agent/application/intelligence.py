@@ -14,6 +14,10 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from lead_agent.application.coaching_privacy import (
+    PRIVATE_INSIGHT_KINDS,
+    coaching_owner_id,
+)
 from lead_agent.application.governance import assert_residency, operations_policy
 from lead_agent.application.icp import create_draft, resolve_workspace_icp
 from lead_agent.application.routing import record_pipeline_event
@@ -100,7 +104,7 @@ def store_insight(
         if previous is None:
             raise RuntimeError("Insight conflict could not be resolved")
         return previous
-    if lead_id:
+    if lead_id and kind not in PRIVATE_INSIGHT_KINDS:
         record_pipeline_event(
             session,
             lead_id,
@@ -347,6 +351,7 @@ def coach_lead(session: Session, lead: LeadORM, actor_id: str) -> AgentInsightOR
         )
     ]
     content = {
+        "owner_id": coaching_owner_id(session, lead),
         "summary": f"{len(items)} recorded touches; {len(objections)} objection mentions.",
         "scorecard": {
             "recorded_outbound_emails": len(outbound),

@@ -80,6 +80,8 @@ type Props = {
   lead: Lead;
   canCrmSync?: boolean;
   canEdit?: boolean;
+  canViewComments?: boolean;
+  canAddComments?: boolean;
   canViewEmail?: boolean;
   canUseAgent?: boolean;
   canCall?: boolean;
@@ -108,6 +110,8 @@ export function LeadRecord({
   lead,
   canCrmSync = false,
   canEdit = false,
+  canViewComments = false,
+  canAddComments = false,
   canViewEmail = false,
   canUseAgent = false,
   canCall = false,
@@ -675,7 +679,7 @@ export function LeadRecord({
               </section>
             )}
             <div className="v-collab">
-              <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
+              {canViewComments && <CollaborationPanel leadId={lead.id} canEdit={canAddComments} />}
             </div>
           </div>
           <aside className="v-overview-side">

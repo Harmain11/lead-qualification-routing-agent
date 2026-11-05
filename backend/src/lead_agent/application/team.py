@@ -10,16 +10,67 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from lead_agent.domain.rbac import effective_override_metadata, normalize_role
+from lead_agent.domain.auth import AuthorizationError
+from lead_agent.domain.rbac import (
+    effective_override_metadata,
+    effective_permissions,
+    normalize_role,
+)
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
     UserORM,
     WorkspaceAdminAuditEventORM,
     WorkspaceInvitationORM,
     WorkspaceMembershipORM,
 )
+from lead_agent.infrastructure.db.teams import WorkspaceTeamMemberORM, WorkspaceTeamORM
 
 _EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 INVITATION_TTL = timedelta(days=7)
+
+
+def personal_data_user_ids(
+    session: Session, workspace: WorkspaceContext,
+) -> frozenset[str] | None:
+    """Privacy audience: admins all, reps self, managers active teammates, viewers none."""
+    role = normalize_role(workspace.role)
+    if role in {"owner", "admin"}:
+        return None
+    if workspace.user_id is None or role == "viewer":
+        return frozenset()
+    if role != "sales_manager":
+        return frozenset({str(workspace.user_id)})
+    links = WorkspaceTeamMemberORM.__table__
+    own_team_rows = session.execute(
+        select(WorkspaceTeamMemberORM.team_id, WorkspaceTeamORM.is_default)
+        .join(WorkspaceTeamORM, WorkspaceTeamORM.id == WorkspaceTeamMemberORM.team_id)
+        .where(
+            WorkspaceTeamMemberORM.workspace_id == workspace.workspace_id,
+            WorkspaceTeamMemberORM.membership_id == workspace.membership_id,
+        )
+    ).all()
+    explicit_team_ids = [team_id for team_id, is_default in own_team_rows if not is_default]
+    own_teams = select(links.c.team_id).where(
+        links.c.workspace_id == workspace.workspace_id,
+        links.c.membership_id == workspace.membership_id,
+        *(
+            (links.c.team_id.in_(explicit_team_ids),)
+            if explicit_team_ids
+            else ()
+        ),
+    )
+    user_ids = session.scalars(
+        select(WorkspaceMembershipORM.user_id).join(
+            WorkspaceTeamMemberORM,
+            WorkspaceTeamMemberORM.membership_id == WorkspaceMembershipORM.id,
+        ).where(
+            WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+            WorkspaceMembershipORM.status == "active",
+            WorkspaceTeamMemberORM.workspace_id == workspace.workspace_id,
+            WorkspaceTeamMemberORM.team_id.in_(own_teams),
+        )
+    )
+    return frozenset({str(workspace.user_id), *(str(user_id) for user_id in user_ids)})
 
 
 def _normalize_email(email: str) -> str:
@@ -115,6 +166,28 @@ def list_workspace_invitations(
     )
 
 
+def _actor_permissions(
+    session: Session, workspace_id: UUID, actor_id: UUID, permission: str
+) -> frozenset[str]:
+    actor = get_membership_for_user(session, workspace_id, actor_id)
+    user = session.get(UserORM, actor_id)
+    if actor is None or actor.status != "active" or user is None or user.status != "active":
+        raise AuthorizationError("an active workspace membership is required")
+    permissions = effective_permissions(actor.role, actor.permission_overrides)
+    if permission not in permissions:
+        raise AuthorizationError(f"permission required: {permission}")
+    return permissions
+
+
+def _assert_delegable(
+    permissions: frozenset[str], role: str, overrides: dict[str, Any] | None
+) -> None:
+    if normalize_role(role) == "owner":
+        raise ValueError("workspace ownership is protected; ownership transfer is not implemented")
+    if not effective_permissions(role, overrides) <= permissions:
+        raise AuthorizationError("members cannot delegate or manage permissions they do not hold")
+
+
 def get_invitation_for_token(
     session: Session, token: str, workspace_id: UUID
 ) -> WorkspaceInvitationORM | None:
@@ -151,6 +224,8 @@ def invite_member(
     if canonical_role == "owner":
         raise ValueError("ownership transfer is not implemented")
     overrides = effective_override_metadata(permission_overrides)
+    permissions = _actor_permissions(session, workspace_id, actor_id, "members.invite")
+    _assert_delegable(permissions, canonical_role, overrides)
     membership = session.scalar(
         select(WorkspaceMembershipORM)
         .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
@@ -256,6 +331,8 @@ def resend_invitation(
         raise LookupError("invitation not found")
     if invitation.status != "pending":
         raise ValueError(f"invitation is {invitation.status} and cannot be resent")
+    permissions = _actor_permissions(session, workspace_id, actor_id, "members.invite")
+    _assert_delegable(permissions, invitation.role, invitation.permission_overrides)
     token = secrets.token_urlsafe(48)
     invitation.token_hash = _token_hash(token)
     invitation.expires_at = datetime.now(UTC) + INVITATION_TTL
@@ -286,6 +363,8 @@ def revoke_invitation(
         raise LookupError("invitation not found")
     if invitation.status != "pending":
         raise ValueError("only pending invitations can be revoked")
+    permissions = _actor_permissions(session, workspace_id, actor_id, "members.invite")
+    _assert_delegable(permissions, invitation.role, invitation.permission_overrides)
     invitation.status = "revoked"
     invitation.revoked_at = datetime.now(UTC)
     invitation.updated_at = invitation.revoked_at
@@ -401,6 +480,8 @@ def _target_for_change(
         raise ValueError("members cannot change their own membership")
     if normalize_role(target.role) == "owner":
         raise ValueError("workspace ownership is protected; ownership transfer is not implemented")
+    permissions = _actor_permissions(session, workspace_id, actor_id, "members.manage")
+    _assert_delegable(permissions, target.role, target.permission_overrides)
     return target
 
 
@@ -415,6 +496,8 @@ def change_member_role(
     canonical_role = normalize_role(role)
     if canonical_role == "owner":
         raise ValueError("ownership transfer is not implemented")
+    permissions = _actor_permissions(session, workspace_id, actor_id, "members.manage")
+    _assert_delegable(permissions, canonical_role, target.permission_overrides)
     before = _membership_snapshot(target)
     target.role = canonical_role
     target.updated_at = datetime.now(UTC)
@@ -442,6 +525,8 @@ def change_member_permissions(
 ) -> WorkspaceMembershipORM:
     target = _target_for_change(session, workspace_id, membership_id, actor_id)
     overrides = effective_override_metadata(permission_overrides)
+    permissions = _actor_permissions(session, workspace_id, actor_id, "members.manage")
+    _assert_delegable(permissions, target.role, overrides)
     before = _membership_snapshot(target)
     target.permission_overrides = overrides
     target.updated_at = datetime.now(UTC)

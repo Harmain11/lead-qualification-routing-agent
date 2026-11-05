@@ -83,6 +83,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "sales_rep": frozenset(
         {
             "leads.view",
+            "members.view",
             "leads.edit",
             "analytics.view",
             "manual_review.view",

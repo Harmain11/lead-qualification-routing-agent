@@ -108,7 +108,9 @@ def build_workspace_assistant_context(
     if "members.view" in permissions:
         load("team", lambda: {
             "members": list_members(session, workspace)[:40],
-            "invitations": invitations(session, workspace)[:40],
+            "invitations": (
+                invitations(session, workspace)[:40] if "members.invite" in permissions else []
+            ),
         })
     if {"leads.edit", "leads.view"} <= permissions:
         from lead_agent.api.routes.leads import closing_options

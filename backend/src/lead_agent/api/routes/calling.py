@@ -15,6 +15,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from lead_agent.api.data_access import require_workspace_wide_access
 from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.api.routes.collaboration import owned_lead
 from lead_agent.application.governance import (
@@ -236,6 +237,7 @@ def recent_cloudtalk_calls(
     workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
+    require_workspace_wide_access(workspace)
     connections = list(
         session.scalars(
             select(ProviderConnectionORM)
@@ -350,6 +352,7 @@ def cloudtalk_call_details(
     workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
+    require_workspace_wide_access(workspace)
     connection = session.scalar(
         select(ProviderConnectionORM)
         .where(
@@ -389,6 +392,7 @@ def assign_cloudtalk_call_to_lead(
     ),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> AssignCloudTalkCallResponse:
+    require_workspace_wide_access(workspace)
     lead = owned_lead(session, workspace.workspace_id, request.lead_id)
     connection = _connection(session, workspace.workspace_id, request.connection_id)
     if connection.provider_type != "cloudtalk":
@@ -1050,7 +1054,9 @@ def sync_calls(
     lead_id: UUID,
     request: SyncCalls,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permissions("leads.view", "leads.edit")),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.view", "leads.edit", "dialer.call")
+    ),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
     lead = owned_lead(session, workspace.workspace_id, lead_id)

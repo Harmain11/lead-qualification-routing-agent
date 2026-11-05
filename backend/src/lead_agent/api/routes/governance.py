@@ -23,6 +23,7 @@ from lead_agent.api.operations_schemas import (
     ContactRecord,
 )
 from lead_agent.api.schemas import lead_response
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS, insight_visibility
 from lead_agent.application.governance import audit_operation, hosting_region, operations_policy
 from lead_agent.application.intelligence import suggest_workspace_business_profile
 from lead_agent.domain.auth import AuthenticatedIdentity
@@ -380,12 +381,17 @@ def audit_export(
     if company and company.workspace_id != workspace.workspace_id:
         company = None
     queries: dict[str, Select[Any]] = {
-        "events": select(PipelineEventORM).where(PipelineEventORM.lead_id == lead_id),
+        "events": select(PipelineEventORM).where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+        ),
         "follow_ups": select(LeadFollowUpEmailORM).where(LeadFollowUpEmailORM.lead_id == lead_id),
         "consent": select(ConsentEventORM).where(ConsentEventORM.email == lead.email.lower()),
         "notes": select(LeadNoteORM).where(LeadNoteORM.lead_id == lead_id),
         "calls": select(CallRecordORM).where(CallRecordORM.lead_id == lead_id),
-        "insights": select(AgentInsightORM).where(AgentInsightORM.lead_id == lead_id),
+        "insights": select(AgentInsightORM).where(
+            AgentInsightORM.lead_id == lead_id, insight_visibility(session, workspace)
+        ),
         "automations": select(AutomationRunORM).where(AutomationRunORM.lead_id == lead_id),
     }
     payload: dict[str, Any] = {

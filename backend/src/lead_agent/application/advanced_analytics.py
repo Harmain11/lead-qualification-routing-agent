@@ -11,11 +11,13 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from lead_agent.application.governance import assert_residency, operations_policy
+from lead_agent.application.coaching_privacy import personal_data_user_ids
 from lead_agent.application.commercial import pipeline_value_usd
-from lead_agent.domain.lead_sources import lead_source_category
-from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM
+from lead_agent.application.governance import assert_residency, operations_policy
 from lead_agent.application.territories import matches_territory
+from lead_agent.domain.lead_sources import lead_source_category
+from lead_agent.domain.workspaces import WorkspaceContext
+from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     LeadOutcomeORM,
@@ -27,8 +29,12 @@ from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reason
 
 
 def advanced_analytics(
-    session: Session, workspace_id: UUID, months: int = 6, narrate: bool = False
+    session: Session, workspace_id: UUID, months: int = 6, narrate: bool = False,
+    *, workspace: WorkspaceContext | None = None,
 ) -> dict[str, Any]:
+    if workspace is not None and workspace.workspace_id != workspace_id:
+        raise ValueError("Analytics context belongs to another workspace")
+    personal_users = personal_data_user_ids(session, workspace) if workspace is not None else None
     assert_residency(session, workspace_id)
     now = datetime.now(UTC)
     since = now - timedelta(days=months * 31)
@@ -180,6 +186,9 @@ def advanced_analytics(
         .where(
             WorkspaceMembershipORM.workspace_id == workspace_id,
             WorkspaceMembershipORM.status == "active",
+            *([] if personal_users is None else [
+                UserORM.id.in_([UUID(value) for value in personal_users])
+            ]),
         )
     ).all()
     reps = []

@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
 from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
@@ -533,6 +534,7 @@ def build_workspace_record_context(
                 .where(
                     PipelineEventORM.workspace_id == workspace_id,
                     PipelineEventORM.lead_id.in_(lead_ids),
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(60)
@@ -545,6 +547,7 @@ def build_workspace_record_context(
                 .where(
                     PipelineEventORM.workspace_id == workspace_id,
                     _text_filter((cast(PipelineEventORM.details, Text),), terms),
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(30)
@@ -556,7 +559,10 @@ def build_workspace_record_context(
         event_rows = list(
             session.scalars(
                 select(PipelineEventORM)
-                .where(PipelineEventORM.workspace_id == workspace_id)
+                .where(
+                    PipelineEventORM.workspace_id == workspace_id,
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(30)
             )

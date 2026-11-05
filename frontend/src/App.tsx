@@ -1456,7 +1456,9 @@ function App() {
                       onInspect={handleInspectLead}
                       onClose={closeLead}
                       canEdit={can(workspacePermissions, "leads.edit")}
-                      canManageRouting={can(workspacePermissions, "routing.manage")}
+                      canManageRouting={can(workspacePermissions, "leads.reassign")}
+                      canViewComments={can(workspacePermissions, "comments.view")}
+                      canAddComments={can(workspacePermissions, "comments.add")}
                       canManageManualReview={can(workspacePermissions, "manual_review.manage")}
                       canExport={can(workspacePermissions, "leads.export")}
                       canCrmSync={can(workspacePermissions, "crm.sync")}

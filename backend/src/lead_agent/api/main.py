@@ -39,6 +39,7 @@ from lead_agent.api.routes import (
     notifications,
     routing,
     team,
+    teams,
 )
 from lead_agent.infrastructure.observability import configure_logging
 from lead_agent.infrastructure.secrets import get_secret_store
@@ -97,6 +98,7 @@ app.include_router(integrations.router)
 app.include_router(meta_webhooks.router)
 app.include_router(analytics.router)
 app.include_router(team.router)
+app.include_router(teams.router)
 app.include_router(icp.router)
 app.include_router(contact_records.router)
 

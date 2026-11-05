@@ -124,7 +124,7 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
     "manual_review.manage", "routing.view", "members.view", "agents.view", "agents.execute",
     "dialer.call", "crm.sync", "leads.reassign", "comments.view", "comments.add", "activity.view",
   ],
-  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "dialer.call", "crm.sync", "comments.view", "comments.add", "activity.view"],
+  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "dialer.call", "crm.sync", "members.view", "comments.view", "comments.add", "activity.view"],
   viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view", "members.view", "comments.view", "activity.view"],
 };
 
