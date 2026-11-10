@@ -16,7 +16,7 @@ def test_vercel_services_route_api_before_spa_fallback() -> None:
     assert config["services"]["api"] == {
         "root": "backend/",
         "framework": "fastapi",
-        "entrypoint": "lead_agent.api.main:app",
+        "entrypoint": "main:app",
     }
     assert config["rewrites"][0] == {
         "source": "/v1/(.*)",
@@ -39,10 +39,13 @@ def test_vercel_python_entrypoint_and_celery_subscriber_are_declared() -> None:
         (REPOSITORY_ROOT / "backend" / "pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert pyproject["tool"]["vercel"]["entrypoint"] == "lead_agent.api.main:app"
+    assert pyproject["tool"]["vercel"]["entrypoint"] == "main:app"
     assert pyproject["tool"]["vercel"]["subscribers"] == [
-        {"entrypoint": "lead_agent.worker.celery_app:celery_app"}
+        {"entrypoint": "worker:app"}
     ]
+
+    assert (REPOSITORY_ROOT / "backend" / "main.py").is_file()
+    assert (REPOSITORY_ROOT / "backend" / "worker.py").is_file()
 
 
 def test_vercel_runtime_uses_managed_celery_transport() -> None:
