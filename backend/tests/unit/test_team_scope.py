@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from sqlalchemy.pool import StaticPool
 
 from lead_agent.api.routes.contact_records import list_contacts
+from lead_agent.api.routes.leads import LeadShareRequest, list_all_leads, put_lead_share
 from lead_agent.application.lead_access import assert_lead_action, assign_lead
 from lead_agent.application.team import personal_data_user_ids
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
@@ -228,6 +229,66 @@ def test_explicit_share_grants_rep_access_without_changing_owner(store):
     session.commit()
     bind_team_scope(session, context)
     assert set(session.scalars(select(m.LeadORM.id))) == {visible.id, hidden.id}
+
+
+def test_lead_search_does_not_infer_restricted_email(store):
+    session, context, visible, *_ = store
+    visible.email = "restricted-search@example.test"
+    session.commit()
+    restricted_context = WorkspaceContext(
+        workspace_id=context.workspace_id,
+        user_id=context.user_id,
+        actor_id=context.actor_id,
+        membership_id=context.membership_id,
+        role=context.role,
+        permissions=frozenset(
+            permission
+            for permission in context.permissions
+            if permission != "fields.contact.view"
+        ),
+    )
+    page = list_all_leads(
+        limit=50,
+        offset=0,
+        search="restricted-search@example.test",
+        source=None,
+        qualification_band=None,
+        date_from=None,
+        date_to=None,
+        session=session,
+        workspace=restricted_context,
+    )
+    assert page.total == 0
+
+
+def test_read_only_share_cannot_be_escalated_to_edit(store):
+    session, context, _visible, hidden, _foreign, _team, teammate = store
+    session.add(LeadAccessGrantORM(
+        workspace_id=context.workspace_id,
+        lead_id=hidden.id,
+        membership_id=context.membership_id,
+        can_edit=False,
+        granted_by=teammate.user_id,
+        reason="review only",
+    ))
+    session.commit()
+    sharing_context = WorkspaceContext(
+        workspace_id=context.workspace_id,
+        user_id=context.user_id,
+        actor_id=context.actor_id,
+        membership_id=context.membership_id,
+        role=context.role,
+        permissions=frozenset({*context.permissions, "leads.share"}),
+    )
+    with pytest.raises(HTTPException) as error:
+        put_lead_share(
+            hidden.id,
+            teammate.id,
+            LeadShareRequest(membership_id=teammate.id, can_edit=True),
+            session=session,
+            workspace=sharing_context,
+        )
+    assert error.value.status_code == 403
     assert hidden.current_owner_id != context.user_id
     assert_lead_action(session, context, hidden, "view")
     with pytest.raises(HTTPException, match="outside your authorized scope"):

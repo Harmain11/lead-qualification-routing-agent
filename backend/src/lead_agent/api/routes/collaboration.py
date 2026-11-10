@@ -4,20 +4,21 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import Field
 from sqlalchemy import or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import require_permission
+from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.api.operations_schemas import CollaborationData, NoteRecord
+from lead_agent.application.auth import membership_permissions
 from lead_agent.application.governance import audit_operation
 from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.operations import StrictModel
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.db.models import LeadORM, UserORM
+from lead_agent.infrastructure.db.models import LeadORM, UserORM, WorkspaceMembershipORM
 from lead_agent.infrastructure.db.operations import LeadNoteORM, LeadPresenceORM
 from lead_agent.infrastructure.db.session import get_db
 
@@ -29,6 +30,35 @@ def owned_lead(session: Session, workspace_id: UUID, lead_id: UUID) -> LeadORM:
     if lead is None or lead.workspace_id != workspace_id:
         raise HTTPException(404, "Lead not found")
     return lead
+
+
+def _presence_member_can_view(session: Session, lead: LeadORM, user_id: UUID) -> bool:
+    membership = session.scalar(
+        select(WorkspaceMembershipORM)
+        .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+        .where(
+            WorkspaceMembershipORM.workspace_id == lead.workspace_id,
+            WorkspaceMembershipORM.user_id == user_id,
+            WorkspaceMembershipORM.status == "active",
+            UserORM.status == "active",
+        )
+    )
+    if membership is None:
+        return False
+    context = WorkspaceContext(
+        workspace_id=lead.workspace_id,
+        actor_id=str(user_id),
+        user_id=user_id,
+        membership_id=membership.id,
+        role=membership.role,
+        permissions=membership_permissions(membership),
+        access_policy=membership.access_policy,
+    )
+    try:
+        assert_lead_action(session, context, lead, "view")
+    except HTTPException:
+        return False
+    return True
 
 
 @router.get("/leads/{lead_id}", response_model=CollaborationData)
@@ -56,7 +86,7 @@ def collaboration(
             .limit(200)
         )
     )
-    presence = session.execute(
+    presence_rows = session.execute(
         select(UserORM.id, UserORM.display_name)
         .join(LeadPresenceORM, LeadPresenceORM.user_id == UserORM.id)
         .where(
@@ -65,6 +95,11 @@ def collaboration(
             LeadPresenceORM.expires_at > datetime.now(UTC),
         )
     ).all()
+    presence = [
+        (user_id, name)
+        for user_id, name in presence_rows
+        if _presence_member_can_view(session, lead, user_id)
+    ]
     return {
         "notes": notes,
         "presence": [{"user_id": user_id, "name": name} for user_id, name in presence],
@@ -176,3 +211,33 @@ def save_note(
     session.commit()
     session.refresh(row)
     return row
+
+
+@router.delete("/leads/{lead_id}/notes/{note_id}", status_code=204)
+def delete_note(
+    lead_id: UUID,
+    note_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("comments.view", "comments.delete")
+    ),
+) -> Response:
+    lead = owned_lead(session, workspace.workspace_id, lead_id)
+    assert_lead_action(session, workspace, lead, "view")
+    row = session.get(LeadNoteORM, note_id)
+    if row is None or row.workspace_id != workspace.workspace_id or row.lead_id != lead_id:
+        raise HTTPException(404, "Note not found")
+    if row.is_private and row.author_id != workspace.actor_id and (
+        "comments.view_private" not in workspace.permissions
+    ):
+        raise HTTPException(404, "Note not found")
+    session.delete(row)
+    audit_operation(
+        session,
+        workspace.workspace_id,
+        workspace.actor_id,
+        "lead.note.deleted",
+        {"lead_id": str(lead_id), "note_id": str(note_id)},
+    )
+    session.commit()
+    return Response(status_code=204)

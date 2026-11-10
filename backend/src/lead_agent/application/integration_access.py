@@ -24,9 +24,18 @@ from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDER
 
 MAILBOX_PROVIDERS = frozenset({"gmail", "outlook"})
 PERSONAL_PROVIDERS = frozenset({"gmail", "outlook", "google_calendar", "calendly"})
-CONNECTION_ACTIONS = frozenset({
-    "view", "view_status", "use", "sync", "send", "disconnect", "manage", "configure",
-})
+CONNECTION_ACTIONS = frozenset(
+    {
+        "view",
+        "view_status",
+        "use",
+        "sync",
+        "send",
+        "disconnect",
+        "manage",
+        "configure",
+    }
+)
 DELEGATABLE_CONNECTION_ACTIONS = frozenset({"view", "view_status", "use", "sync", "send"})
 
 
@@ -68,26 +77,31 @@ def provider_card_actions(workspace: WorkspaceContext, provider: str) -> frozens
 
 
 def _owner_role(
-    session: Session, connection: ProviderConnectionORM,
+    session: Session,
+    connection: ProviderConnectionORM,
 ) -> str | None:
     owner = connection_owner_id(connection)
     if owner is None:
         return None
     try:
         from uuid import UUID
+
         owner_id = UUID(owner)
     except ValueError:
         return None
-    role = session.scalar(select(WorkspaceMembershipORM.role).where(
-        WorkspaceMembershipORM.workspace_id == connection.workspace_id,
-        WorkspaceMembershipORM.user_id == owner_id,
-        WorkspaceMembershipORM.status == "active",
-    ))
+    role = session.scalar(
+        select(WorkspaceMembershipORM.role).where(
+            WorkspaceMembershipORM.workspace_id == connection.workspace_id,
+            WorkspaceMembershipORM.user_id == owner_id,
+            WorkspaceMembershipORM.status == "active",
+        )
+    )
     return normalize_role(role) if role else None
 
 
 def is_protected_owner_mailbox(
-    session: Session, connection: ProviderConnectionORM,
+    session: Session,
+    connection: ProviderConnectionORM,
 ) -> bool:
     return (
         connection.provider_type in MAILBOX_PROVIDERS
@@ -96,30 +110,33 @@ def is_protected_owner_mailbox(
 
 
 def _delegated_actions(
-    session: Session, workspace: WorkspaceContext, connection: ProviderConnectionORM,
+    session: Session,
+    workspace: WorkspaceContext,
+    connection: ProviderConnectionORM,
 ) -> frozenset[str]:
     if workspace.membership_id is None:
         return frozenset()
     now = datetime.now(UTC)
-    rows = session.scalars(select(ConnectionAccessGrantORM).where(
-        ConnectionAccessGrantORM.workspace_id == workspace.workspace_id,
-        ConnectionAccessGrantORM.connection_id == connection.id,
-        ConnectionAccessGrantORM.membership_id == workspace.membership_id,
-        or_(
-            ConnectionAccessGrantORM.expires_at.is_(None),
-            ConnectionAccessGrantORM.expires_at > now,
-        ),
-    )).all()
+    rows = session.scalars(
+        select(ConnectionAccessGrantORM).where(
+            ConnectionAccessGrantORM.workspace_id == workspace.workspace_id,
+            ConnectionAccessGrantORM.connection_id == connection.id,
+            ConnectionAccessGrantORM.membership_id == workspace.membership_id,
+            or_(
+                ConnectionAccessGrantORM.expires_at.is_(None),
+                ConnectionAccessGrantORM.expires_at > now,
+            ),
+        )
+    ).all()
     return frozenset(
-        str(action)
-        for row in rows
-        for action in row.actions
-        if str(action) in CONNECTION_ACTIONS
+        str(action) for row in rows for action in row.actions if str(action) in CONNECTION_ACTIONS
     )
 
 
 def allowed_connection_actions(
-    session: Session, workspace: WorkspaceContext, connection: ProviderConnectionORM,
+    session: Session,
+    workspace: WorkspaceContext,
+    connection: ProviderConnectionORM,
 ) -> frozenset[str]:
     if connection.workspace_id != workspace.workspace_id:
         return frozenset()
@@ -140,14 +157,19 @@ def allowed_connection_actions(
     allowed: set[str] = set()
     provider = connection.provider_type
     if own:
-        allowed.update({"view", "view_status", "manage", "disconnect"})
         if provider in MAILBOX_PROVIDERS:
+            if "mailbox.view_own" in workspace.permissions:
+                allowed.update({"view", "view_status"})
+            if "mailbox.connect_own" in workspace.permissions:
+                allowed.add("manage")
+            if "mailbox.disconnect_own" in workspace.permissions:
+                allowed.add("disconnect")
             if "mailbox.sync_own" in workspace.permissions:
                 allowed.update({"use", "sync"})
             if "mailbox.send_own" in workspace.permissions:
                 allowed.add("send")
         else:
-            allowed.add("use")
+            allowed.update({"view", "view_status", "manage", "disconnect", "use"})
     elif not personal and role in {"owner", "admin"}:
         allowed.update(CONNECTION_ACTIONS)
     elif not personal:
@@ -158,20 +180,15 @@ def allowed_connection_actions(
     for action in tuple(allowed):
         permission = provider_permission(provider, action)
         legacy_ok = (
-            provider in DIALERS and action == "use" and "dialer.call" in workspace.permissions
-        ) or (
-            provider in REASONING_PROVIDERS and action in {"view", "view_status", "use"}
-            and "agents.view" in workspace.permissions
-        ) or (
-            provider in MAILBOX_PROVIDERS and own and action in {
-                "view", "view_status", "manage", "disconnect", "use", "sync", "send",
-            }
+            (provider in DIALERS and action == "use" and "dialer.call" in workspace.permissions)
+            or (
+                provider in REASONING_PROVIDERS
+                and action in {"view", "view_status", "use"}
+                and "agents.view" in workspace.permissions
+            )
+            or (provider in MAILBOX_PROVIDERS and own)
         )
-        if (
-            permission not in workspace.permissions
-            and not legacy_ok
-            and role not in {"owner", "admin"}
-        ):
+        if permission not in workspace.permissions and not legacy_ok and role != "owner":
             allowed.discard(action)
     return frozenset(allowed)
 
@@ -197,14 +214,16 @@ def visible_connections(
     connections: Iterable[ProviderConnectionORM],
 ) -> list[ProviderConnectionORM]:
     return [
-        connection for connection in connections
+        connection
+        for connection in connections
         if "view" in allowed_connection_actions(session, workspace, connection)
         or "view_status" in allowed_connection_actions(session, workspace, connection)
     ]
 
 
 def assert_manage_connection_grants(
-    workspace: WorkspaceContext, connection: ProviderConnectionORM,
+    workspace: WorkspaceContext,
+    connection: ProviderConnectionORM,
 ) -> None:
     if connection.workspace_id != workspace.workspace_id:
         raise HTTPException(404, "connection not found")
@@ -246,16 +265,18 @@ def grant_connection_access(
     grant.actions = normalized_actions
     grant.granted_by = workspace.user_id
     grant.expires_at = None
-    session.add(WorkspaceAdminAuditEventORM(
-        id=uuid4(),
-        workspace_id=workspace.workspace_id,
-        actor_id=workspace.user_id,
-        target_membership_id=membership.id,
-        operation="connection_access_granted",
-        before={"connection_id": str(connection.id), **before},
-        after={"connection_id": str(connection.id), "actions": normalized_actions},
-        created_at=datetime.now(UTC),
-    ))
+    session.add(
+        WorkspaceAdminAuditEventORM(
+            id=uuid4(),
+            workspace_id=workspace.workspace_id,
+            actor_id=workspace.user_id,
+            target_membership_id=membership.id,
+            operation="connection_access_granted",
+            before={"connection_id": str(connection.id), **before},
+            after={"connection_id": str(connection.id), "actions": normalized_actions},
+            created_at=datetime.now(UTC),
+        )
+    )
     return grant
 
 
@@ -271,13 +292,15 @@ def revoke_connection_access(
         raise HTTPException(404, "connection access grant not found")
     before = list(grant.actions)
     session.delete(grant)
-    session.add(WorkspaceAdminAuditEventORM(
-        id=uuid4(),
-        workspace_id=workspace.workspace_id,
-        actor_id=workspace.user_id,
-        target_membership_id=membership_id,
-        operation="connection_access_revoked",
-        before={"connection_id": str(connection.id), "actions": before},
-        after={"connection_id": str(connection.id)},
-        created_at=datetime.now(UTC),
-    ))
+    session.add(
+        WorkspaceAdminAuditEventORM(
+            id=uuid4(),
+            workspace_id=workspace.workspace_id,
+            actor_id=workspace.user_id,
+            target_membership_id=membership_id,
+            operation="connection_access_revoked",
+            before={"connection_id": str(connection.id), "actions": before},
+            after={"connection_id": str(connection.id)},
+            created_at=datetime.now(UTC),
+        )
+    )

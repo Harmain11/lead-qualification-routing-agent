@@ -729,6 +729,8 @@ export type IntegrationCard = {
   };
   connection: ProviderConnection | null;
   connections: ProviderConnection[];
+  /** Actions the current member may perform for this provider. */
+  allowed_actions: string[];
 };
 
 export type LeadApprovalPolicy = {

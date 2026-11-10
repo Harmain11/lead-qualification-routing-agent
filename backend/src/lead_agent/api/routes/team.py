@@ -32,8 +32,8 @@ from lead_agent.domain.rbac import (
     ROLE_LABELS,
     effective_override_metadata,
     effective_permissions,
-    normalize_role,
     normalize_access_policy,
+    normalize_role,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
@@ -270,7 +270,7 @@ def link_member_slack(
 )
 def audit_events(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("members.view")),
+    workspace: WorkspaceContext = Depends(require_permission("audit.view")),
 ) -> list[AuditEventResponse]:
     return [
         _audit_response(row)

@@ -8,7 +8,7 @@ from math import fsum
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from lead_agent.application.coaching_privacy import personal_data_user_ids
@@ -25,6 +25,7 @@ from lead_agent.infrastructure.db.models import (
     UserORM,
     WorkspaceMembershipORM,
 )
+from lead_agent.infrastructure.db.teams import LeadAccessGrantORM
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 
 
@@ -35,13 +36,39 @@ def advanced_analytics(
     if workspace is not None and workspace.workspace_id != workspace_id:
         raise ValueError("Analytics context belongs to another workspace")
     personal_users = personal_data_user_ids(session, workspace) if workspace is not None else None
+    can_compare = workspace is None or "analytics.compare" in workspace.permissions
+    can_sensitive = workspace is None or "analytics.sensitive" in workspace.permissions
     assert_residency(session, workspace_id)
     now = datetime.now(UTC)
     since = now - timedelta(days=months * 31)
+    visibility = []
+    if personal_users is not None:
+        permitted_user_ids = [UUID(value) for value in personal_users]
+        if permitted_user_ids:
+            visibility.append(LeadORM.current_owner_id.in_(permitted_user_ids))
+        if workspace is not None and workspace.membership_id is not None:
+            visibility.append(
+                LeadORM.id.in_(
+                    select(LeadAccessGrantORM.lead_id).where(
+                        LeadAccessGrantORM.workspace_id == workspace_id,
+                        LeadAccessGrantORM.membership_id == workspace.membership_id,
+                        or_(
+                            LeadAccessGrantORM.expires_at.is_(None),
+                            LeadAccessGrantORM.expires_at > now,
+                        ),
+                    )
+                )
+            )
+    scope_filter = () if personal_users is None else (or_(*visibility) if visibility else False,)
     leads = list(
         session.scalars(
             select(LeadORM)
-            .where(LeadORM.workspace_id == workspace_id, LeadORM.received_at >= since)
+            .where(
+                LeadORM.workspace_id == workspace_id,
+                LeadORM.received_at >= since,
+                *scope_filter,
+            )
+            .options(selectinload(LeadORM.outcome))
             .order_by(LeadORM.received_at.desc())
             .limit(5000)
         )
@@ -55,23 +82,40 @@ def advanced_analytics(
     won = [lead for lead in closed if recorded_outcome(lead).pipeline_stage == "closed_won"]
     probability = len(won) / len(closed) if len(closed) >= 20 else None
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    usd_won = float(
-        session.scalar(
-            select(func.sum(LeadOutcomeORM.closed_revenue))
-            .join(LeadORM, LeadORM.id == LeadOutcomeORM.lead_id)
-            .where(
-                LeadORM.workspace_id == workspace_id,
-                LeadOutcomeORM.pipeline_stage == "closed_won",
-                LeadOutcomeORM.currency == "USD",
-                LeadOutcomeORM.closed_at >= month_start,
-                LeadOutcomeORM.closed_at <= now,
+
+    def utc_value(value: datetime) -> datetime:
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+    usd_won = sum(
+        float(recorded_outcome(lead).closed_revenue or 0)
+        for lead in won
+        if recorded_outcome(lead).currency == "USD"
+        and recorded_outcome(lead).closed_at is not None
+        and month_start <= utc_value(recorded_outcome(lead).closed_at) <= now
+    )
+    current_leads = list(
+        session.scalars(
+            select(LeadORM)
+            .where(LeadORM.workspace_id == workspace_id, *scope_filter)
+            .options(selectinload(LeadORM.outcome))
+        )
+    )
+    current_lead_ids = [lead.id for lead in current_leads]
+    deals = {
+        row.lead_id: row.data
+        for row in session.scalars(
+            select(DealORM).where(
+                DealORM.workspace_id == workspace_id,
+                DealORM.lead_id.in_(current_lead_ids) if current_lead_ids else False,
             )
         )
-        or 0
-    )
-    deals = {row.lead_id: row.data for row in session.scalars(select(DealORM).where(DealORM.workspace_id == workspace_id))}
-    current_leads = session.scalars(select(LeadORM).where(LeadORM.workspace_id == workspace_id).options(selectinload(LeadORM.outcome)))
-    values = [pipeline_value_usd(lead, deals.get(lead.id)) for lead in current_leads if not lead.outcome or lead.outcome.pipeline_stage not in {"closed_won", "closed_lost"}]
+    }
+    values = [
+        pipeline_value_usd(lead, deals.get(lead.id))
+        for lead in current_leads
+        if not lead.outcome
+        or lead.outcome.pipeline_stage not in {"closed_won", "closed_lost"}
+    ]
     pipeline = fsum(values)
     unvalued = sum(value <= 0 for value in values)
     expected = pipeline * probability if probability is not None else None
@@ -79,18 +123,20 @@ def advanced_analytics(
     shared_goal = commercial_settings.data.get("monthlyGoal") if commercial_settings else None
     quota = shared_goal if shared_goal is not None else config.monthly_quota_usd
     forecast = {
-        "closed_usd_this_month": round(usd_won, 2),
-        "open_pipeline_usd": round(pipeline, 2),
+        "closed_usd_this_month": round(usd_won, 2) if can_sensitive else None,
+        "open_pipeline_usd": round(pipeline, 2) if can_sensitive else None,
         "historical_close_rate": round(100 * probability, 1) if probability is not None else None,
-        "expected_open_pipeline_usd": round(expected, 2) if expected is not None else None,
-        "quota_usd": quota,
-        "coverage": round(pipeline / quota, 2) if quota else None,
+        "expected_open_pipeline_usd": (
+            round(expected, 2) if can_sensitive and expected is not None else None
+        ),
+        "quota_usd": quota if can_sensitive else None,
+        "coverage": round(pipeline / quota, 2) if can_sensitive and quota else None,
         "closed_sample_size": len(closed),
         "method": (
             "Observed close rate applied to recorded USD opportunity "
             "values; not a prediction of closing dates."
         ),
-        "unvalued_open_leads": unvalued,
+        "unvalued_open_leads": unvalued if can_sensitive else None,
         "scope": (
             "Current workspace pipeline and this month's closed revenue; "
             "close rate uses the selected intake cohort."
@@ -100,7 +146,11 @@ def advanced_analytics(
     channel_rows = defaultdict(list)
     cohorts = defaultdict(list)
     for lead in leads:
-        channel_rows[(lead_source_category(lead.source, lead.source_detail), lead.received_at.strftime("%Y-%m"))].append(lead)
+        channel_key = (
+            lead_source_category(lead.source, lead.source_detail),
+            lead.received_at.strftime("%Y-%m"),
+        )
+        channel_rows[channel_key].append(lead)
         week = lead.received_at.date() - timedelta(days=lead.received_at.weekday())
         campaign = str(
             lead.raw_payload.get("campaign")
@@ -148,12 +198,16 @@ def advanced_analytics(
                 "source": source,
                 "month": month,
                 **metrics,
-                "cost_usd": cost,
-                "closed_usd": round(revenue, 2),
+                "cost_usd": cost if can_sensitive else None,
+                "closed_usd": round(revenue, 2) if can_sensitive else None,
                 "cost_per_qualified": round(cost / metrics["qualified"], 2)
-                if cost is not None and metrics["qualified"]
+                if can_sensitive and cost is not None and metrics["qualified"]
                 else None,
-                "roi_percent": round(100 * (revenue - cost) / cost, 1) if cost else None,
+                "roi_percent": (
+                    round(100 * (revenue - cost) / cost, 1)
+                    if can_sensitive and cost
+                    else None
+                ),
                 "method": (
                     "Revenue attributed to intake source and intake-month "
                     "cohort, not payment month."
@@ -171,11 +225,13 @@ def advanced_analytics(
 
     for lead in closed:
         bucket_outcomes[bucket(lead)].append(recorded_outcome(lead).pipeline_stage == "closed_won")
+    lead_ids = [lead.id for lead in leads]
     routes = list(
         session.scalars(
             select(RoutingDecisionORM).where(
                 RoutingDecisionORM.workspace_id == workspace_id,
                 RoutingDecisionORM.is_current.is_(True),
+                RoutingDecisionORM.lead_id.in_(lead_ids) if lead_ids else False,
             )
         )
     )
@@ -186,13 +242,24 @@ def advanced_analytics(
         .where(
             WorkspaceMembershipORM.workspace_id == workspace_id,
             WorkspaceMembershipORM.status == "active",
-            *([] if personal_users is None else [
-                UserORM.id.in_([UUID(value) for value in personal_users])
-            ]),
+            *(
+                []
+                if personal_users is None
+                else [UserORM.id.in_([UUID(value) for value in personal_users])]
+            ),
         )
     ).all()
+    visible_member_rows = (
+        member_rows
+        if can_compare
+        else [
+            row
+            for row in member_rows
+            if workspace is not None and row[0] == workspace.user_id
+        ]
+    )
     reps = []
-    for user_id, name in member_rows:
+    for user_id, name in visible_member_rows:
         rows = [
             lead
             for lead in closed
@@ -217,8 +284,13 @@ def advanced_analytics(
                 else None,
             }
         )
-    summary = f"Recorded USD pipeline is {pipeline:,.2f}; {usd_won:,.2f} USD closed this month."
-    if quota:
+    summary = f"Scoped recorded activity includes {len(leads)} leads."
+    if can_sensitive:
+        summary = (
+            f"Recorded USD pipeline is {pipeline:,.2f}; "
+            f"{usd_won:,.2f} USD closed this month."
+        )
+    if can_sensitive and quota:
         summary += f" Pipeline coverage is {pipeline / quota:.2f}x the configured monthly quota."
     if probability is None:
         summary += " Fewer than 20 closed outcomes; an expected-value forecast is withheld."

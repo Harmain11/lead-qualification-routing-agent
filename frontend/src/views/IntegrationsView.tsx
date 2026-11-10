@@ -539,13 +539,21 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [slackRouting, setSlackRouting] = useState<SlackNotificationConfig | null>(null);
   const [slackRoutingReady, setSlackRoutingReady] = useState(false);
   const [slackRoutingLoadError, setSlackRoutingLoadError] = useState<string | null>(null);
-  const canView = can(permissions, "integrations.view");
+  const canView = [
+    "integrations.view",
+    "mailbox.view_own",
+    "mailbox.connect_own",
+    "dialer.call",
+    "agents.view",
+  ].some((permission) => can(permissions, permission));
   const canManage = can(permissions, "integrations.manage");
-  const canConnect = can(permissions, "integrations.connect");
-  const canDisconnect = can(permissions, "integrations.disconnect");
+  const canConnect = can(permissions, "integrations.connect")
+    || can(permissions, "mailbox.connect_own");
+  const canDisconnect = can(permissions, "integrations.disconnect")
+    || can(permissions, "mailbox.disconnect_own");
   const canSync = can(permissions, "crm.sync");
   const canCallDialer = can(permissions, "dialer.call");
-  const canInboundSync = canSync;
+  const canInboundSync = canSync || can(permissions, "mailbox.sync_own");
   useEffect(() => {
     if (isReasoningProvider(selectedSection)) {
       setSelectedAIProvider(selectedSection);
@@ -1375,9 +1383,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
               (source) => source.source === card.provider,
             )
           : undefined;
-       const canConnectProvider = reasoningProvider
+       const cardAllowsConnect = card.allowed_actions.includes("connect")
+        || card.allowed_actions.includes("connect_own");
+       const canConnectProvider = cardAllowsConnect && (reasoningProvider
         ? canManage
-        : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage);
+        : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage));
        const slackConnections = card.provider === "slack"
          ? (card.connections.length ? card.connections : connection ? [connection] : [])
            .filter((item) => item.is_active && item.status === "verified" && item.credential_state === "configured")

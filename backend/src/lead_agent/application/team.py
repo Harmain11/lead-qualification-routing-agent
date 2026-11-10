@@ -7,11 +7,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.auth import AuthorizationError
 from lead_agent.domain.rbac import (
+    AccessScope,
+    effective_access_scope,
     effective_override_metadata,
     effective_permissions,
     normalize_access_policy,
@@ -20,6 +22,7 @@ from lead_agent.domain.rbac import (
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
     AuthSessionORM,
+    LeadORM,
     UserORM,
     WorkspaceAdminAuditEventORM,
     WorkspaceInvitationORM,
@@ -49,22 +52,29 @@ def personal_data_user_ids(
         return frozenset({str(workspace.user_id)})
     links = WorkspaceTeamMemberORM.__table__
     own_team_rows = session.execute(
-        select(WorkspaceTeamMemberORM.team_id, WorkspaceTeamORM.is_default)
+        select(
+            WorkspaceTeamMemberORM.team_id,
+            WorkspaceTeamORM.is_default,
+            WorkspaceTeamMemberORM.is_manager,
+        )
         .join(WorkspaceTeamORM, WorkspaceTeamORM.id == WorkspaceTeamMemberORM.team_id)
         .where(
             WorkspaceTeamMemberORM.workspace_id == workspace.workspace_id,
             WorkspaceTeamMemberORM.membership_id == workspace.membership_id,
         )
     ).all()
-    explicit_team_ids = [team_id for team_id, is_default in own_team_rows if not is_default]
+    explicit_team_ids = [
+        team_id
+        for team_id, is_default, is_manager in own_team_rows
+        if not is_default and is_manager
+    ]
+    if not explicit_team_ids:
+        return frozenset({str(workspace.user_id)})
     own_teams = select(links.c.team_id).where(
         links.c.workspace_id == workspace.workspace_id,
         links.c.membership_id == workspace.membership_id,
-        *(
-            (links.c.team_id.in_(explicit_team_ids),)
-            if explicit_team_ids
-            else ()
-        ),
+        links.c.is_manager.is_(True),
+        links.c.team_id.in_(explicit_team_ids),
     )
     user_ids = session.scalars(
         select(WorkspaceMembershipORM.user_id).join(
@@ -573,6 +583,40 @@ def change_member_access_policy(
 ) -> WorkspaceMembershipORM:
     target = _target_for_change(session, workspace_id, membership_id, actor_id)
     policy = normalize_access_policy(access_policy)
+    actor = get_membership_for_user(session, workspace_id, actor_id)
+    if actor is None:
+        raise AuthorizationError("an active workspace membership is required")
+    actor_permissions = effective_permissions(actor.role, actor.permission_overrides)
+    scope_rank = {
+        AccessScope.NONE: 0,
+        AccessScope.OWN: 1,
+        AccessScope.TEAM: 2,
+        AccessScope.ALL: 3,
+    }
+    for permission, raw_scope in policy["scopes"].items():
+        requested_scope = AccessScope(raw_scope)
+        actor_scope = effective_access_scope(actor.role, permission, actor.access_policy)
+        if requested_scope == AccessScope.NONE:
+            continue
+        if permission not in actor_permissions:
+            raise AuthorizationError(
+                f"cannot delegate {permission} without holding that permission"
+            )
+        if actor_scope == AccessScope.ALL:
+            continue
+        if requested_scope == AccessScope.CUSTOM:
+            if actor_scope != AccessScope.CUSTOM:
+                raise AuthorizationError(
+                    f"cannot delegate a broader {permission} scope than the actor holds"
+                )
+            continue
+        if (
+            actor_scope == AccessScope.CUSTOM
+            or scope_rank[requested_scope] > scope_rank[actor_scope]
+        ):
+            raise AuthorizationError(
+                f"cannot delegate a broader {permission} scope than the actor holds"
+            )
     before = _membership_snapshot(target)
     target.access_policy = policy
     target.updated_at = datetime.now(UTC)
@@ -603,6 +647,65 @@ def set_member_status(
     if status == "revoked" and target.status == "revoked":
         raise ValueError("member is already revoked")
     before = _membership_snapshot(target)
+    if status in {"suspended", "revoked"}:
+        # Remove a departed member from the live ownership path immediately.
+        # Prefer the least-loaded active teammate; otherwise retain the team and
+        # leave the record deliberately unassigned for an authorized manager.
+        from lead_agent.application.lead_access import assign_lead
+
+        owned_leads = list(
+            session.scalars(
+                select(LeadORM)
+                .where(
+                    LeadORM.workspace_id == workspace_id,
+                    LeadORM.current_owner_id == target.user_id,
+                )
+                .order_by(LeadORM.received_at.asc())
+            )
+        )
+        for lead in owned_leads:
+            replacement = None
+            if lead.primary_team_id is not None:
+                candidates = list(
+                    session.scalars(
+                        select(WorkspaceMembershipORM)
+                        .join(
+                            WorkspaceTeamMemberORM,
+                            WorkspaceTeamMemberORM.membership_id
+                            == WorkspaceMembershipORM.id,
+                        )
+                        .where(
+                            WorkspaceMembershipORM.workspace_id == workspace_id,
+                            WorkspaceMembershipORM.status == "active",
+                            WorkspaceMembershipORM.id != target.id,
+                            WorkspaceTeamMemberORM.workspace_id == workspace_id,
+                            WorkspaceTeamMemberORM.team_id == lead.primary_team_id,
+                        )
+                    )
+                )
+                if candidates:
+                    replacement = min(
+                        candidates,
+                        key=lambda member: session.scalar(
+                            select(func.count())
+                            .select_from(LeadORM)
+                            .where(
+                                LeadORM.workspace_id == workspace_id,
+                                LeadORM.current_owner_id == member.user_id,
+                            )
+                        )
+                        or 0,
+                    )
+            assign_lead(
+                session,
+                lead,
+                replacement.user_id if replacement is not None else None,
+                reason=(
+                    f"automatic reassignment after member {status}"
+                    if replacement is not None
+                    else f"owner cleared after member {status}"
+                ),
+            )
     target.status = status
     target.updated_at = datetime.now(UTC)
     if status in {"suspended", "revoked"}:

@@ -442,7 +442,7 @@ def audit_export(
         for notice in route.notifications
     ]
     payload["agent_tool_audit"] = [
-        orm_columns(row)
+        filter_sensitive_mapping(orm_columns(row), workspace.permissions)
         for row in session.scalars(
             select(AgentToolAuditORM).where(
                 AgentToolAuditORM.workspace_id == workspace.workspace_id,

@@ -27,6 +27,16 @@ from lead_agent.api.schemas import (
     provider_connection_response,
 )
 from lead_agent.application.auth import membership_permissions, require_membership
+from lead_agent.application.integration_access import (
+    allowed_connection_actions,
+    assert_connection_action,
+    assert_manage_connection_grants,
+    can_view_provider,
+    grant_connection_access,
+    provider_card_actions,
+    revoke_connection_access,
+    visible_connections,
+)
 from lead_agent.application.integrations import (
     activate_reasoning_provider,
     begin_oauth_connection,
@@ -37,16 +47,6 @@ from lead_agent.application.integrations import (
     reject_oauth_connection,
     update_openai_model,
     validate_connection,
-)
-from lead_agent.application.integration_access import (
-    allowed_connection_actions,
-    assert_connection_action,
-    assert_manage_connection_grants,
-    can_view_provider,
-    grant_connection_access,
-    provider_card_actions,
-    revoke_connection_access,
-    visible_connections,
 )
 from lead_agent.application.lead_approval import (
     LEAD_APPROVAL_PROVIDER_LABELS,
@@ -76,8 +76,8 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceMembershipORM,
     WorkspaceNotificationConfigORM,
 )
-from lead_agent.infrastructure.db.teams import ConnectionAccessGrantORM
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.db.teams import ConnectionAccessGrantORM
 from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import (
     get_provider_connection_validator,
@@ -216,12 +216,15 @@ def get_openai_usage(
         details = event.details if isinstance(event.details, dict) else {}
         model = details.get("model")
         model_name = model[:128] if isinstance(model, str) and model else "Unknown model"
-        model_totals = models.setdefault(model_name, {
-            "requests": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_tokens": 0,
-        })
+        model_totals = models.setdefault(
+            model_name,
+            {
+                "requests": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            },
+        )
         model_totals["requests"] += 1
         for field in ("input_tokens", "output_tokens", "total_tokens"):
             value = details.get(field)
@@ -244,6 +247,7 @@ def get_openai_usage(
             )
         ],
     }
+
 
 @router.get("/reasoning/usage")
 def get_reasoning_usage(
@@ -295,9 +299,12 @@ def get_reasoning_usage(
         model_name = model[:128].strip() if isinstance(model, str) else ""
         model_name = model_name or "Unknown model"
         models = provider_usage["models"]
-        model_usage = models.setdefault(model_name, {
-            **{field: 0 for field in _USAGE_TOTAL_FIELDS},
-        })
+        model_usage = models.setdefault(
+            model_name,
+            {
+                **{field: 0 for field in _USAGE_TOTAL_FIELDS},
+            },
+        )
         model_usage["requests"] += 1
         model_usage[outcome_field] += 1
         for field in ("input_tokens", "output_tokens", "total_tokens"):
@@ -317,11 +324,7 @@ def get_reasoning_usage(
         "timezone": "UTC",
         "providers": [
             {
-                **{
-                    field: value
-                    for field, value in provider_usage.items()
-                    if field != "models"
-                },
+                **{field: value for field, value in provider_usage.items() if field != "models"},
                 "models": [
                     {"model": model, **usage}
                     for model, usage in sorted(
@@ -333,6 +336,8 @@ def get_reasoning_usage(
             for provider_usage in providers.values()
         ],
     }
+
+
 class SlackChannelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel_id: str = Field(min_length=3, max_length=255)
@@ -453,9 +458,7 @@ def _enqueue_reasoning_backfill(
     provider_name, model_name, config_key = _reasoning_backfill_snapshot(session, connection)
     lock_hash = hashlib.sha256(config_key.encode()).hexdigest()[:24]
     lock_key = f"reasoning-backfill:{connection.workspace_id}:{connection.id}:{lock_hash}"
-    use_preview_worker = (
-        settings.app_env != "production" and not settings.redis_required
-    )
+    use_preview_worker = settings.app_env != "production" and not settings.redis_required
     job_id = str(uuid4())
     if use_preview_worker:
         from lead_agent.worker.preview_sync import reserve_reasoning_backfill
@@ -477,9 +480,7 @@ def _enqueue_reasoning_backfill(
             existing_job = redis_client.get(lock_key)
             if existing_job:
                 existing_job_id = (
-                    existing_job.decode()
-                    if isinstance(existing_job, bytes)
-                    else str(existing_job)
+                    existing_job.decode() if isinstance(existing_job, bytes) else str(existing_job)
                 )
                 return {
                     "status": "already_queued",
@@ -490,9 +491,7 @@ def _enqueue_reasoning_backfill(
             if not redis_client.set(lock_key, job_id, nx=True, ex=21600):
                 active_job = redis_client.get(lock_key)
                 active_job_id = (
-                    active_job.decode()
-                    if isinstance(active_job, bytes)
-                    else str(active_job or "")
+                    active_job.decode() if isinstance(active_job, bytes) else str(active_job or "")
                 )
                 return {
                     "status": "already_queued",
@@ -513,23 +512,26 @@ def _enqueue_reasoning_backfill(
 
             release_reasoning_backfill(lock_key, job_id)
             return
-        cleanup = Redis.from_url(
-            settings.redis_url, socket_connect_timeout=1, socket_timeout=1
-        )
+        cleanup = Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
         try:
             cleanup.eval(
                 "if redis.call('get', KEYS[1]) == ARGV[1] then "
                 "return redis.call('del', KEYS[1]) else return 0 end",
-                1, lock_key, job_id,
+                1,
+                lock_key,
+                job_id,
             )
         except (RedisError, OSError, ValueError):
             pass
         finally:
             cleanup.close()
 
-    total_leads = int(session.scalar(
-        select(func.count(LeadORM.id)).where(LeadORM.workspace_id == connection.workspace_id)
-    ) or 0)
+    total_leads = int(
+        session.scalar(
+            select(func.count(LeadORM.id)).where(LeadORM.workspace_id == connection.workspace_id)
+        )
+        or 0
+    )
     # Queue every lead so stale qualifications created by an older scoring policy can
     # be corrected from their durable AI analysis. The worker skips records whose
     # analysis and persisted score already agree, so this does not invoke the model
@@ -585,19 +587,31 @@ def _enqueue_reasoning_backfill(
             )
     except Exception as error:
         clear_backfill_lock()
-        session.add(ProviderLifecycleAuditORM(
-            id=uuid4(), workspace_id=connection.workspace_id,
-            connection_id=connection.id, provider=provider_name, actor_id="system",
-            action="reasoning_backfill", outcome="failed", correlation_id=job_id,
-            details={
-                "provider": provider_name, "model": model_name,
-                "config_key": config_key, "total": queued_count,
-                "completed": 0, "failed": queued_count, "skipped": 0,
-                "status": "failed", "message": "The analysis worker could not accept the job.",
-                "failure_categories": {"worker_unavailable": 1},
-            },
-            created_at=datetime.now(UTC),
-        ))
+        session.add(
+            ProviderLifecycleAuditORM(
+                id=uuid4(),
+                workspace_id=connection.workspace_id,
+                connection_id=connection.id,
+                provider=provider_name,
+                actor_id="system",
+                action="reasoning_backfill",
+                outcome="failed",
+                correlation_id=job_id,
+                details={
+                    "provider": provider_name,
+                    "model": model_name,
+                    "config_key": config_key,
+                    "total": queued_count,
+                    "completed": 0,
+                    "failed": queued_count,
+                    "skipped": 0,
+                    "status": "failed",
+                    "message": "The analysis worker could not accept the job.",
+                    "failure_categories": {"worker_unavailable": 1},
+                },
+                created_at=datetime.now(UTC),
+            )
+        )
         session.commit()
         raise HTTPException(
             status_code=503, detail="The lead analysis worker is unavailable"
@@ -617,7 +631,13 @@ def _enqueue_reasoning_backfill(
 def list_integrations(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(
-        require_any_permission("integrations.view", "dialer.call")
+        require_any_permission(
+            "integrations.view",
+            "dialer.call",
+            "mailbox.view_own",
+            "mailbox.connect_own",
+            "agents.view",
+        )
     ),
     settings: Settings = Depends(get_settings),
 ) -> list[IntegrationCardResponse]:
@@ -630,9 +650,7 @@ def list_integrations(
         and "agents.view" not in workspace.permissions
     )
     if dialer_only:
-        connections = [
-            row for row in connections if row.provider_type in DIALERS
-        ]
+        connections = [row for row in connections if row.provider_type in DIALERS]
     connections = visible_connections(session, workspace, connections)
 
     def visible_connection(row: Any) -> ProviderConnectionResponse:
@@ -650,11 +668,14 @@ def list_integrations(
     latest: dict[str, Any] = {}
     for row in connections:
         current = latest.get(row.provider_type)
-        if current is None or (
-            row.is_active and row.status == "verified"
-            and not (current.is_active and current.status == "verified")
-        ) or (
-            row.is_active and not current.is_active
+        if (
+            current is None
+            or (
+                row.is_active
+                and row.status == "verified"
+                and not (current.is_active and current.status == "verified")
+            )
+            or (row.is_active and not current.is_active)
         ):
             latest[row.provider_type] = row
     return [
@@ -663,19 +684,17 @@ def list_integrations(
             directionality=directionality_for(provider).model_dump(),
             supported_models=(
                 list(supported_reasoning_models(provider, settings))
-                if provider in REASONING_PROVIDERS else []
+                if provider in REASONING_PROVIDERS
+                else []
             ),
             default_model=(
                 default_reasoning_model(provider, settings)
-                if provider in REASONING_PROVIDERS else None
+                if provider in REASONING_PROVIDERS
+                else None
             ),
-            connection=(
-                visible_connection(latest[provider]) if provider in latest else None
-            ),
+            connection=(visible_connection(latest[provider]) if provider in latest else None),
             connections=[
-                visible_connection(row)
-                for row in connections
-                if row.provider_type == provider
+                visible_connection(row) for row in connections if row.provider_type == provider
             ],
             allowed_actions=sorted(provider_card_actions(workspace, provider)),
         )
@@ -708,9 +727,7 @@ def _lead_approval_policy_response(
         display_name=LEAD_APPROVAL_PROVIDER_LABELS[provider],
         auto_approve_leads=enabled,
         policy_source=source,
-        verified_connection=provider_has_verified_connection(
-            session, workspace_id, provider
-        ),
+        verified_connection=provider_has_verified_connection(session, workspace_id, provider),
         updated_at=updated_at,
     )
 
@@ -776,7 +793,7 @@ def _slack_notification_config_response(
 ) -> SlackNotificationConfigResponse:
     config = session.get(WorkspaceNotificationConfigORM, workspace_id)
     rules: list[SlackNotificationRuleResponse] = []
-    for raw in (config.slack_rules if config is not None else []):
+    for raw in config.slack_rules if config is not None else []:
         if not isinstance(raw, dict):
             continue
         try:
@@ -785,9 +802,7 @@ def _slack_notification_config_response(
             continue
     return SlackNotificationConfigResponse(
         workspace_id=workspace_id,
-        default_connection_id=(
-            config.default_slack_connection_id if config is not None else None
-        ),
+        default_connection_id=(config.default_slack_connection_id if config is not None else None),
         rules=rules,
         updated_at=config.updated_at if config is not None else None,
     )
@@ -907,10 +922,12 @@ def list_connection_grants(
 ) -> list[ConnectionGrantResponse]:
     connection = _connection_or_404(session, workspace.workspace_id, connection_id)
     assert_manage_connection_grants(workspace, connection)
-    rows = session.scalars(select(ConnectionAccessGrantORM).where(
-        ConnectionAccessGrantORM.workspace_id == workspace.workspace_id,
-        ConnectionAccessGrantORM.connection_id == connection.id,
-    )).all()
+    rows = session.scalars(
+        select(ConnectionAccessGrantORM).where(
+            ConnectionAccessGrantORM.workspace_id == workspace.workspace_id,
+            ConnectionAccessGrantORM.connection_id == connection.id,
+        )
+    ).all()
     return [
         ConnectionGrantResponse(
             connection_id=row.connection_id,
@@ -938,7 +955,11 @@ def set_connection_grant(
     if membership is None:
         raise HTTPException(404, "workspace member not found")
     grant = grant_connection_access(
-        session, workspace, connection, membership, request.actions,
+        session,
+        workspace,
+        connection,
+        membership,
+        request.actions,
     )
     session.commit()
     return ConnectionGrantResponse(
@@ -1009,9 +1030,7 @@ def begin_connection(
     if not ({"connect", "connect_own"} & set(card_actions)):
         raise HTTPException(status_code=403, detail=f"connection permission required: {provider}")
     if provider == "slack" and "integrations.manage" not in workspace.permissions:
-        raise HTTPException(
-            status_code=403, detail="permission required: integrations.manage"
-        )
+        raise HTTPException(status_code=403, detail="permission required: integrations.manage")
     if provider in _ADMIN_ONLY_PROVIDERS and "integrations.manage" not in workspace.permissions:
         raise HTTPException(
             status_code=403,
@@ -1087,7 +1106,9 @@ def browser_connection_callback(
             permissions=membership_permissions(membership),
             access_policy=membership.access_policy,
         )
-        if not ({"connect", "connect_own"} & set(provider_card_actions(callback_workspace, provider))):
+        if not (
+            {"connect", "connect_own"} & set(provider_card_actions(callback_workspace, provider))
+        ):
             raise AuthorizationError(f"connection permission required: {provider}")
         assert_connection_action(session, callback_workspace, connection, "manage")
         if (
@@ -1104,8 +1125,13 @@ def browser_connection_callback(
                 provider, provider_error or "missing_authorization_code"
             )
             reject_oauth_connection(
-                session, connection.workspace_id, connection_id, state_value,
-                secret_store, str(identity.user_id), safe_error,
+                session,
+                connection.workspace_id,
+                connection_id,
+                state_value,
+                secret_store,
+                str(identity.user_id),
+                safe_error,
             )
             raise safe_error
         complete_oauth_connection(
@@ -1155,17 +1181,23 @@ def browser_connection_callback(
             "Provider connection not found",
         }
         safe_message = (
-            str(error) if isinstance(error, OAuthProviderError)
-            else detail if detail in known_messages
+            str(error)
+            if isinstance(error, OAuthProviderError)
+            else detail
+            if detail in known_messages
             else "The provider connection could not be verified. Reconnect and try again."
         )
         reason = (
-            error.error_code if isinstance(error, OAuthProviderError)
-            else detail if detail in known_messages else "callback_validation_failed"
+            error.error_code
+            if isinstance(error, OAuthProviderError)
+            else detail
+            if detail in known_messages
+            else "callback_validation_failed"
         )
         _LOGGER.warning(
             "OAuth callback failed for provider=%s reason=%s",
-            provider if provider in PROVIDER_SETUP else "unknown", reason,
+            provider if provider in PROVIDER_SETUP else "unknown",
+            reason,
         )
         query = urlencode(
             {
@@ -1309,17 +1341,19 @@ def reasoning_backfill_status(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Backfill job not found")
-    lead_events = list(session.scalars(
-        select(ProviderLifecycleAuditORM)
-        .where(
-            ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
-            ProviderLifecycleAuditORM.connection_id == connection.id,
-            ProviderLifecycleAuditORM.action == "reasoning_backfill",
-            ProviderLifecycleAuditORM.correlation_id == job_id,
-            ProviderLifecycleAuditORM.outcome.in_(("lead_failed", "lead_completed")),
+    lead_events = list(
+        session.scalars(
+            select(ProviderLifecycleAuditORM)
+            .where(
+                ProviderLifecycleAuditORM.workspace_id == workspace.workspace_id,
+                ProviderLifecycleAuditORM.connection_id == connection.id,
+                ProviderLifecycleAuditORM.action == "reasoning_backfill",
+                ProviderLifecycleAuditORM.correlation_id == job_id,
+                ProviderLifecycleAuditORM.outcome.in_(("lead_failed", "lead_completed")),
+            )
+            .order_by(ProviderLifecycleAuditORM.created_at.asc())
         )
-        .order_by(ProviderLifecycleAuditORM.created_at.asc())
-    ))
+    )
     completed_lead_ids = {
         str(event.details.get("lead_id"))
         for event in lead_events
@@ -1328,11 +1362,7 @@ def reasoning_backfill_status(
     failures_by_lead: dict[str, str] = {}
     for event in lead_events:
         lead_id = event.details.get("lead_id")
-        if (
-            event.outcome == "lead_failed"
-            and lead_id
-            and str(lead_id) not in completed_lead_ids
-        ):
+        if event.outcome == "lead_failed" and lead_id and str(lead_id) not in completed_lead_ids:
             failures_by_lead[str(lead_id)] = str(
                 event.details.get("failure_code") or "provider_error"
             )
@@ -1345,8 +1375,7 @@ def reasoning_backfill_status(
         "skipped": int(row.details.get("skipped", 0)),
         "failure_categories": row.details.get("failure_categories", {}),
         "failures": [
-            {"lead_id": lead_id, "code": code}
-            for lead_id, code in sorted(failures_by_lead.items())
+            {"lead_id": lead_id, "code": code} for lead_id, code in sorted(failures_by_lead.items())
         ],
         "provider": row.details.get("provider", row.provider),
         "model": row.details.get("model", ""),
@@ -1600,8 +1629,7 @@ def select_cloudtalk_agent(
         raise HTTPException(
             status_code=502,
             detail=(
-                "CloudTalk agents could not be verified. "
-                "Check the stored Access Key credentials."
+                "CloudTalk agents could not be verified. Check the stored Access Key credentials."
             ),
         ) from None
     selected = next((agent for agent in agents if agent["id"] == request.agent_id), None)

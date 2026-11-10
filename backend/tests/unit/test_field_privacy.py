@@ -106,3 +106,35 @@ def test_sensitive_mapping_filters_contact_financial_and_call_content():
         "budget": 25000,
         "transcript": "private call",
     }
+
+
+def test_sensitive_mapping_recursively_filters_nested_export_content():
+    payload = {
+        "id": "safe",
+        "details": {
+            "status": "completed",
+            "email": "private@example.test",
+            "nested": [
+                {
+                    "body": "private message",
+                    "budget": 25000,
+                    "result": "safe result",
+                }
+            ],
+        },
+        "output": {
+            "transcript": "private call",
+            "recording_url": "https://recording.invalid/private",
+            "status": "safe",
+        },
+        "error_message": "private provider response",
+    }
+
+    assert filter_sensitive_mapping(payload, frozenset()) == {
+        "id": "safe",
+        "details": {
+            "status": "completed",
+            "nested": [{"result": "safe result"}],
+        },
+        "output": {"status": "safe"},
+    }

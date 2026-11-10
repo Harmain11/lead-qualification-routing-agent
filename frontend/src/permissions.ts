@@ -146,8 +146,11 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { id: "fields.financial.view", label: "View financial fields" },
       { id: "fields.financial.edit", label: "Edit financial fields" },
       { id: "fields.communications.view", label: "View communication content" },
+      { id: "fields.communications.edit", label: "Edit communication content" },
       { id: "fields.internal.view", label: "View internal fields" },
+      { id: "fields.internal.edit", label: "Edit internal fields" },
       { id: "fields.restricted.view", label: "View restricted fields" },
+      { id: "fields.restricted.edit", label: "Edit restricted fields" },
     ],
   },
   ...PROVIDERS.map((provider) => ({

@@ -261,6 +261,23 @@ const VIEW_PERMISSIONS: Partial<Record<View, string>> = {
 };
 
 function hasViewPermission(view: AppView, permissions: ReadonlySet<string>) {
+  if (view === "email") {
+    return ["integrations.view", "mailbox.view_own", "integrations.gmail.view"]
+      .some((permission) => can(permissions, permission));
+  }
+  if (view === "integrations") {
+    return [
+      "integrations.view",
+      "dialer.call",
+      "mailbox.view_own",
+      "mailbox.connect_own",
+      "agents.view",
+    ].some((permission) => can(permissions, permission));
+  }
+  if (view === "dialer") {
+    return ["dialer.call", "calls.metadata.view"]
+      .some((permission) => can(permissions, permission));
+  }
   const permission =
     view === "team"
       ? "members.view"
@@ -1408,7 +1425,7 @@ function App() {
                         ]
                       : []),
                     ...(can(workspacePermissions, "dialer.call") ? [{ id: "call", label: "Call", icon: "phone" as IconName, onSelect: () => setPhone(true) }] : []),
-                    ...(can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit") ? [{ id: "email", label: "Email", icon: "mail" as IconName, onSelect: () => navigate("email") }] : []),
+                    ...((can(workspacePermissions, "mailbox.send_own") || can(workspacePermissions, "integrations.gmail.send")) && can(workspacePermissions, "leads.edit") ? [{ id: "email", label: "Email", icon: "mail" as IconName, onSelect: () => navigate("email") }] : []),
                   ]}
                 />
               )}
@@ -1496,7 +1513,7 @@ function App() {
                     onModeChange={(mode) => navigate("dashboard", mode === "dashboard" ? "dashboard" : "")}
                     onInspect={(id, section) => openLeadSection(id, section ?? "overview")}
                     canCall={can(workspacePermissions, "dialer.call")}
-                    canEmail={can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit")}
+                    canEmail={(can(workspacePermissions, "mailbox.send_own") || can(workspacePermissions, "integrations.gmail.send")) && can(workspacePermissions, "leads.edit")}
                     rangeControl={isMobile ? null : rangeControl}
                     onNavigate={(next) => navigate(next as AppView)}
                     canViewLeads={can(workspacePermissions, "leads.view")}
@@ -1529,7 +1546,11 @@ function App() {
                       canManageManualReview={can(workspacePermissions, "manual_review.manage")}
                       canExport={can(workspacePermissions, "leads.export")}
                       canCrmSync={can(workspacePermissions, "crm.sync")}
-                      canViewEmail={can(workspacePermissions, "integrations.view")}
+                      canViewEmail={
+                        can(workspacePermissions, "integrations.view")
+                        || can(workspacePermissions, "mailbox.view_own")
+                        || can(workspacePermissions, "integrations.gmail.view")
+                      }
                       canUseAgent={can(workspacePermissions, "agents.execute")}
                       dialerPhoneConnectionId={
                         can(workspacePermissions, "dialer.call") && isDialerPhoneAvailable(selectedDialer) ? selectedDialer?.id ?? null : null
@@ -1572,7 +1593,7 @@ function App() {
                     total={workspaceLeads.total}
                     canEdit={can(workspacePermissions, "leads.edit")}
                     canCall={can(workspacePermissions, "dialer.call")}
-                    canEmail={can(workspacePermissions, "integrations.view") && can(workspacePermissions, "leads.edit")}
+                    canEmail={(can(workspacePermissions, "mailbox.send_own") || can(workspacePermissions, "integrations.gmail.send")) && can(workspacePermissions, "leads.edit")}
                     onInspect={(id) => openLeadSection(id, "pipeline")}
                     onMoved={(lead) => {
                       if (lead) workspaceLeads.replace(lead);
@@ -1774,7 +1795,11 @@ function App() {
           canViewLeads={can(workspacePermissions, "leads.view")}
           canEdit={can(workspacePermissions, "leads.edit")}
           canCrmSync={can(workspacePermissions, "crm.sync")}
-          canViewEmail={can(workspacePermissions, "integrations.view")}
+          canViewEmail={
+            can(workspacePermissions, "integrations.view")
+            || can(workspacePermissions, "mailbox.view_own")
+            || can(workspacePermissions, "integrations.gmail.view")
+          }
           dialerPhoneConnectionId={
             can(workspacePermissions, "dialer.call") && isDialerPhoneAvailable(selectedDialer) ? selectedDialer?.id ?? null : null
           }

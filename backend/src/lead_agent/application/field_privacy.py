@@ -20,6 +20,9 @@ FIELD_CLASSIFICATIONS: dict[str, str] = {
 SENSITIVE_READ_PERMISSIONS: dict[str, str] = {
     "email": "fields.contact.view",
     "phone": "fields.contact.view",
+    "recipient": "fields.contact.view",
+    "recipients": "fields.contact.view",
+    "sender": "fields.contact.view",
     "annual_revenue": "fields.financial.view",
     "budget": "fields.financial.view",
     "opportunity_value": "fields.financial.view",
@@ -30,9 +33,12 @@ SENSITIVE_READ_PERMISSIONS: dict[str, str] = {
     "snippet": "fields.communications.view",
     "body": "fields.communications.view",
     "transcript": "calls.transcript.view",
+    "transcript_excerpt": "calls.transcript.view",
     "recording_url": "calls.recording.play",
     "analysis": "calls.analysis.view",
     "analysis_payload": "calls.analysis.view",
+    "insights": "calls.analysis.view",
+    "error_message": "fields.communications.view",
 }
 
 
@@ -50,9 +56,18 @@ def filter_sensitive_mapping(
     payload: Mapping[str, Any], permissions: frozenset[str] | set[str]
 ) -> dict[str, Any]:
     """Remove classified values from generic exports and audit payloads."""
-    return {
-        key: value
-        for key, value in payload.items()
-        if (required := SENSITIVE_READ_PERMISSIONS.get(key)) is None
-        or required in permissions
-    }
+    def filtered(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                key: filtered(item)
+                for key, item in value.items()
+                if (required := SENSITIVE_READ_PERMISSIONS.get(str(key))) is None
+                or required in permissions
+            }
+        if isinstance(value, list):
+            return [filtered(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(filtered(item) for item in value)
+        return value
+
+    return filtered(payload)

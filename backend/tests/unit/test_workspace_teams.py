@@ -1,13 +1,13 @@
 import importlib.util
 from io import StringIO
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, delete, inspect, select
 from sqlalchemy.orm import Session
 from test_team_scope import row, store  # noqa: F401,F811
 
@@ -28,6 +28,9 @@ from lead_agent.infrastructure.db.teams import (
 
 def test_team_api_contract_admin_only_writes_own_scope_reads_and_cross_workspace(store):  # noqa: F811
     session, rep_context, visible, hidden, foreign, team, teammate = store
+    session.execute(delete(WorkspaceTeamLeadORM).where(WorkspaceTeamLeadORM.lead_id == hidden.id))
+    hidden.primary_team_id = None
+    session.commit()
     active = {"workspace": WorkspaceContext(
         workspace_id=rep_context.workspace_id, role="owner", permissions=role_permissions("owner"),
     )}
@@ -53,8 +56,8 @@ def test_team_api_contract_admin_only_writes_own_scope_reads_and_cross_workspace
         assert created.status_code == 201, created.text
         result = created.json()
         assert set(result) == {
-            "id", "workspace_id", "name", "description", "is_default", "member_ids", "lead_ids",
-            "created_at", "updated_at",
+            "id", "workspace_id", "name", "description", "is_default", "member_ids",
+            "manager_ids", "lead_ids", "created_at", "updated_at",
         }
         team_id = result["id"]
         assert result["name"] == "Enterprise"
@@ -66,6 +69,8 @@ def test_team_api_contract_admin_only_writes_own_scope_reads_and_cross_workspace
         assigned = client.put(f"/v1/teams/{team_id}/leads/{hidden.id}")
         assert assigned.status_code == 200, assigned.text
         assert assigned.json()["lead_ids"] == [str(hidden.id)]
+        session.expire_all()
+        assert session.get(m.LeadORM, hidden.id).primary_team_id == UUID(team_id)
         assert client.put(f"/v1/teams/{team_id}/leads/{foreign.id}").status_code == 404
         assert client.put(f"/v1/teams/{uuid4()}/leads/{visible.id}").status_code == 404
         assert client.put(f"/v1/teams/{team_id}/members/{uuid4()}").status_code == 404
@@ -90,6 +95,8 @@ def test_team_api_contract_admin_only_writes_own_scope_reads_and_cross_workspace
             role="admin", permissions=role_permissions("admin"),
         )
         assert client.delete(f"/v1/teams/{team_id}/leads/{hidden.id}").json()["lead_ids"] == []
+        session.expire_all()
+        assert session.get(m.LeadORM, hidden.id).primary_team_id is None
         removed = client.delete(f"/v1/teams/{team_id}/members/{teammate.id}")
         assert removed.json()["member_ids"] == []
         assert client.delete(f"/v1/teams/{team_id}").status_code == 204

@@ -265,11 +265,31 @@ def change_team_lead(
     adding = request.method == "PUT"
     link = session.get(WorkspaceTeamLeadORM, (team_id, lead_id))
     if adding and link is None:
-        session.add(WorkspaceTeamLeadORM(
+        link = WorkspaceTeamLeadORM(
             workspace_id=workspace.workspace_id, team_id=team_id, lead_id=lead_id,
-        ))
+        )
+        session.add(link)
+    if adding:
+        primary_link = (
+            session.get(WorkspaceTeamLeadORM, (lead.primary_team_id, lead_id))
+            if lead.primary_team_id is not None
+            else None
+        )
+        if primary_link is None:
+            lead.primary_team_id = team_id
     elif not adding and link is not None:
         session.delete(link)
+        if lead.primary_team_id == team_id:
+            lead.primary_team_id = session.scalar(
+                select(WorkspaceTeamLeadORM.team_id)
+                .where(
+                    WorkspaceTeamLeadORM.workspace_id == workspace.workspace_id,
+                    WorkspaceTeamLeadORM.lead_id == lead_id,
+                    WorkspaceTeamLeadORM.team_id != team_id,
+                )
+                .order_by(WorkspaceTeamLeadORM.created_at, WorkspaceTeamLeadORM.team_id)
+                .limit(1)
+            )
     _save(session, workspace, team, "team_lead_added" if adding else "team_lead_removed",
           after={"lead_id": str(lead_id)})
     return _response(session, team)

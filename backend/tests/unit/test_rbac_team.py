@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from lead_agent.application.auth import membership_permissions, require_membership
 from lead_agent.application.team import (
     accept_invitation,
+    change_member_access_policy,
     change_member_permissions,
     change_member_role,
     get_membership_for_user,
@@ -30,11 +31,13 @@ from lead_agent.domain.rbac import (
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     AuthSessionORM,
+    LeadORM,
     UserORM,
     WorkspaceInvitationORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
 )
+from lead_agent.infrastructure.db.teams import WorkspaceTeamORM
 
 
 def _user(email: str) -> UserORM:
@@ -354,6 +357,56 @@ def test_owner_protection_and_member_lifecycle(session: Session) -> None:
         require_membership(session, staff.id, workspace.id)
 
 
+def test_offboarding_reassigns_owned_leads_to_an_active_teammate(session: Session) -> None:
+    workspace, owner, _owner_membership = _workspace_with_owner(session)
+    staff = _user("offboarded-rep@example.test")
+    now = datetime.now(UTC)
+    staff_membership = WorkspaceMembershipORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        user_id=staff.id,
+        role="sales_rep",
+        status="active",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add_all([staff, staff_membership])
+    session.commit()
+    default_team = session.scalar(
+        select(WorkspaceTeamORM).where(
+            WorkspaceTeamORM.workspace_id == workspace.id,
+            WorkspaceTeamORM.is_default.is_(True),
+        )
+    )
+    assert default_team is not None
+    lead = LeadORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        current_owner_id=staff.id,
+        primary_team_id=default_team.id,
+        lead_number=1,
+        source="manual",
+        full_name="Offboarding Test",
+        email="offboarding@example.test",
+        company_name="Corral Test",
+        product_or_service="CRM",
+        message="Please contact me.",
+        received_at=now,
+        raw_payload={},
+        normalization_version="v1",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(lead)
+    session.commit()
+
+    set_member_status(session, workspace.id, staff_membership.id, owner.id, "suspended")
+
+    refreshed = session.get(LeadORM, lead.id)
+    assert refreshed is not None
+    assert refreshed.current_owner_id == owner.id
+
+
 def test_admin_can_manage_another_admin_and_promote_a_member(session: Session) -> None:
     workspace, _, _ = _workspace_with_owner(session)
     actor = _user("admin-actor@example.test")
@@ -479,3 +532,52 @@ def test_permissions_are_workspace_specific(session: Session) -> None:
     assert one is not None and two is not None
     assert "integrations.manage" in membership_permissions(one)
     assert "integrations.manage" not in membership_permissions(two)
+
+
+def test_member_access_policy_cannot_exceed_actor_scope(session: Session) -> None:
+    workspace, _, _ = _workspace_with_owner(session)
+    actor = _user("limited-manager@example.test")
+    target_user = _user("target-rep@example.test")
+    now = datetime.now(UTC)
+    actor_membership = WorkspaceMembershipORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        user_id=actor.id,
+        role="sales_rep",
+        status="active",
+        permission_overrides={"grants": ["members.manage"], "denies": []},
+        access_policy={"scopes": {"leads.view": "own"}},
+        created_at=now,
+        updated_at=now,
+    )
+    target = WorkspaceMembershipORM(
+        id=uuid4(),
+        workspace_id=workspace.id,
+        user_id=target_user.id,
+        role="sales_rep",
+        status="active",
+        permission_overrides={},
+        access_policy={},
+        created_at=now,
+        updated_at=now,
+    )
+    session.add_all([actor, target_user, actor_membership, target])
+    session.commit()
+
+    with pytest.raises(AuthorizationError, match="broader leads.view scope"):
+        change_member_access_policy(
+            session,
+            workspace.id,
+            target.id,
+            actor.id,
+            {"scopes": {"leads.view": "all"}},
+        )
+
+    updated = change_member_access_policy(
+        session,
+        workspace.id,
+        target.id,
+        actor.id,
+        {"scopes": {"leads.view": "own"}},
+    )
+    assert updated.access_policy == {"scopes": {"leads.view": "own"}}

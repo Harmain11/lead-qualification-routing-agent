@@ -45,17 +45,17 @@ from lead_agent.application.gmail_history import (
     lead_history_context,
 )
 from lead_agent.application.gmail_profile import extract_stated_gmail_profile
-from lead_agent.application.integration_access import assert_connection_action
-from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
-from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
+from lead_agent.application.integration_access import assert_connection_action
 from lead_agent.application.lead_access import (
     assert_lead_action,
     assign_lead,
     revoke_lead_share,
     share_lead,
 )
+from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
+from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
@@ -528,13 +528,15 @@ def list_all_leads(
     conditions = [LeadORM.workspace_id == workspace.workspace_id]
     if search:
         pattern = f"%{search.strip()}%"
+        searchable_fields = [
+            LeadORM.full_name.ilike(pattern),
+            LeadORM.company_name.ilike(pattern),
+            LeadORM.product_or_service.ilike(pattern),
+        ]
+        if "fields.contact.view" in workspace.permissions:
+            searchable_fields.append(LeadORM.email.ilike(pattern))
         conditions.append(
-            or_(
-                LeadORM.full_name.ilike(pattern),
-                LeadORM.email.ilike(pattern),
-                LeadORM.company_name.ilike(pattern),
-                LeadORM.product_or_service.ilike(pattern),
-            )
+            or_(*searchable_fields)
         )
     if source:
         if source in {"salesforce", "hubspot"}:
@@ -856,6 +858,8 @@ def put_lead_share(
     ))
     if member is None:
         raise HTTPException(404, "workspace member not found")
+    if request.can_edit:
+        assert_lead_action(session, workspace, row, "edit")
     grant = share_lead(
         session,
         row,
@@ -1426,6 +1430,8 @@ def update_lead_progress(
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     assert_lead_action(session, workspace, row, "edit")
+    if request.closed_revenue is not None and "fields.financial.edit" not in workspace.permissions:
+        raise HTTPException(status_code=403, detail="permission required: fields.financial.edit")
 
     if (
         row.outcome and row.outcome.pipeline_stage in {"closed_won", "closed_lost"}
@@ -1683,9 +1689,14 @@ def sync_lead_gmail_conversation(
             status_code=409,
             detail="Connect and verify Gmail before syncing conversations.",
         )
-    connections = [connection for connection in connections if can_use_mailbox(workspace, connection)]
+    connections = [
+        connection for connection in connections if can_use_mailbox(workspace, connection)
+    ]
     if not connections:
-        raise HTTPException(403, "No connected Gmail mailbox is available to this workspace member.")
+        raise HTTPException(
+            403,
+            "No connected Gmail mailbox is available to this workspace member.",
+        )
 
     existing_events = list(
         session.scalars(

@@ -6,13 +6,14 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.rbac import (
     AccessScope,
     effective_access_scope,
     effective_permissions,
+    normalize_access_policy,
     normalize_role,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -64,6 +65,67 @@ def _active_grant(
     return grant
 
 
+def _lead_action_scope(workspace: WorkspaceContext, permission: str) -> AccessScope:
+    """Honor explicit action scopes while retaining the legacy edit-scope fallback."""
+    policy = normalize_access_policy(workspace.access_policy)
+    configured = policy["scopes"].get(permission)
+    if configured is not None:
+        return AccessScope(configured)
+    fallback = "leads.view" if permission == "leads.view" else "leads.edit"
+    return effective_access_scope(workspace.role, fallback, policy)
+
+
+def accessible_lead_ids_query(
+    workspace: WorkspaceContext,
+    permission: str = "leads.view",
+):
+    """Return a workspace-bound query containing only leads visible for an action scope."""
+    allowed = select(LeadORM.id).where(LeadORM.workspace_id == workspace.workspace_id)
+    scope = _lead_action_scope(workspace, permission)
+    if scope == AccessScope.ALL:
+        return allowed
+
+    visibility = []
+    if scope == AccessScope.OWN and workspace.user_id is not None:
+        visibility.append(LeadORM.current_owner_id == workspace.user_id)
+    if scope == AccessScope.TEAM and workspace.membership_id is not None:
+        visibility.append(
+            LeadORM.id.in_(
+                select(WorkspaceTeamLeadORM.lead_id)
+                .join(
+                    WorkspaceTeamMemberORM,
+                    and_(
+                        WorkspaceTeamMemberORM.workspace_id
+                        == WorkspaceTeamLeadORM.workspace_id,
+                        WorkspaceTeamMemberORM.team_id == WorkspaceTeamLeadORM.team_id,
+                    ),
+                )
+                .where(
+                    WorkspaceTeamLeadORM.workspace_id == workspace.workspace_id,
+                    WorkspaceTeamMemberORM.membership_id == workspace.membership_id,
+                    WorkspaceTeamMemberORM.is_manager.is_(True),
+                )
+            )
+        )
+    if workspace.membership_id is not None:
+        grant_conditions = [
+            LeadAccessGrantORM.workspace_id == workspace.workspace_id,
+            LeadAccessGrantORM.membership_id == workspace.membership_id,
+            or_(
+                LeadAccessGrantORM.expires_at.is_(None),
+                LeadAccessGrantORM.expires_at > func.now(),
+            ),
+        ]
+        if permission != "leads.view":
+            grant_conditions.append(LeadAccessGrantORM.can_edit.is_(True))
+        visibility.append(
+            LeadORM.id.in_(
+                select(LeadAccessGrantORM.lead_id).where(*grant_conditions)
+            )
+        )
+    return allowed.where(or_(*visibility) if visibility else False)
+
+
 def assert_lead_action(
     session: Session,
     workspace: WorkspaceContext,
@@ -76,20 +138,28 @@ def assert_lead_action(
     permission = f"leads.{action}"
     if permission not in workspace.permissions:
         raise HTTPException(403, f"permission required: {permission}")
-    role = normalize_role(workspace.role)
-    if role in {"owner", "admin"}:
-        return
-    scope_permission = "leads.view" if action == "view" else "leads.edit"
-    scope = effective_access_scope(role, scope_permission, workspace.access_policy)
+    scope = _lead_action_scope(workspace, permission)
     if scope == AccessScope.ALL:
         return
     if scope == AccessScope.OWN and workspace.user_id == lead.current_owner_id:
         return
-    if scope == AccessScope.TEAM and workspace.membership_id and lead.primary_team_id:
-        manager_link = session.get(
-            WorkspaceTeamMemberORM, (lead.primary_team_id, workspace.membership_id)
+    if scope == AccessScope.TEAM and workspace.membership_id:
+        managed_link = session.scalar(
+            select(WorkspaceTeamLeadORM.team_id)
+            .join(
+                WorkspaceTeamMemberORM,
+                WorkspaceTeamMemberORM.team_id == WorkspaceTeamLeadORM.team_id,
+            )
+            .where(
+                WorkspaceTeamLeadORM.workspace_id == lead.workspace_id,
+                WorkspaceTeamLeadORM.lead_id == lead.id,
+                WorkspaceTeamMemberORM.workspace_id == lead.workspace_id,
+                WorkspaceTeamMemberORM.membership_id == workspace.membership_id,
+                WorkspaceTeamMemberORM.is_manager.is_(True),
+            )
+            .limit(1)
         )
-        if manager_link is not None and manager_link.is_manager:
+        if managed_link is not None:
             return
     grant = _active_grant(session, lead, workspace.membership_id)
     if grant is not None and (action == "view" or grant.can_edit):

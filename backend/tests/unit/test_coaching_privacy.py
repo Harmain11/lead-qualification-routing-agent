@@ -23,6 +23,7 @@ from lead_agent.domain.rbac import role_permissions
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
+    AgentToolAuditORM,
     LeadORM,
     LeadOutcomeORM,
     PipelineEventORM,
@@ -335,6 +336,91 @@ def test_performance_projections_and_shared_totals(privacy, actor, expected):
         }
 
 
+def test_advanced_analytics_enforces_record_comparison_and_sensitive_scopes(privacy):
+    p = privacy
+    with Session(p.engine) as session:
+        observer_team = WorkspaceTeamORM(
+            id=uuid4(),
+            workspace_id=p.workspace_id,
+            name="Observer",
+            name_key="observer",
+            description="",
+            is_default=False,
+        )
+        session.add(observer_team)
+        session.flush()
+        session.add_all(
+            [
+                WorkspaceTeamMemberORM(
+                    team_id=observer_team.id,
+                    workspace_id=p.workspace_id,
+                    membership_id=p.memberships["manager"].id,
+                    is_manager=False,
+                ),
+                WorkspaceTeamMemberORM(
+                    team_id=observer_team.id,
+                    workspace_id=p.workspace_id,
+                    membership_id=p.memberships["outsider"].id,
+                    is_manager=False,
+                ),
+            ]
+        )
+        session.commit()
+
+    with Session(p.engine) as session:
+        report = intelligence.analytics(6, session, p.contexts["rep"])
+        assert report["sample_size"] == 1
+        assert {item["name"] for item in report["members"]} == {"rep"}
+        assert report["forecast"]["closed_usd_this_month"] is None
+        assert report["forecast"]["open_pipeline_usd"] is None
+        assert all(row["closed_usd"] is None for row in report["channels"])
+
+    with Session(p.engine) as session:
+        report = intelligence.analytics(6, session, p.contexts["manager"])
+        assert report["sample_size"] == 2
+        assert {item["name"] for item in report["members"]} == {
+            "manager",
+            "rep",
+            "teammate",
+            "viewer",
+        }
+        assert report["forecast"]["closed_usd_this_month"] is None
+
+    with Session(p.engine) as session:
+        report = intelligence.analytics(6, session, p.contexts["admin"])
+        assert report["sample_size"] == 3
+        assert report["forecast"]["closed_usd_this_month"] == 300
+        assert {item["name"] for item in report["members"]} == {
+            "admin",
+            "manager",
+            "rep",
+            "teammate",
+            "outsider",
+            "viewer",
+        }
+
+
+def test_advanced_analytics_narration_receives_only_permitted_metrics(privacy, monkeypatch):
+    p = privacy
+    captured = {}
+
+    class Provider:
+        def summarize_evidence(self, payload, _kind):
+            captured.update(payload)
+            return {"summary": "Scoped team summary"}
+
+    monkeypatch.setattr(
+        "lead_agent.application.advanced_analytics.resolve_workspace_reasoning_provider",
+        lambda *_: Provider(),
+    )
+    with Session(p.engine) as session:
+        report = intelligence.narrate(6, session, p.contexts["manager"])
+
+    assert captured["metrics"]["closed_usd_this_month"] is None
+    assert captured["metrics"]["open_pipeline_usd"] is None
+    assert report["summary"] == "Scoped team summary"
+
+
 def test_credit_overrides_assignment_and_same_names_do_not_merge_private_metrics(privacy):
     p = privacy
     with Session(p.engine) as session:
@@ -451,6 +537,61 @@ def test_export_filters_coaching_and_viewer_cannot_narrate(privacy):
         with pytest.raises(HTTPException) as error:
             intelligence.narrate(6, session, p.contexts["viewer"])
         assert error.value.status_code == 403
+
+
+def test_compliance_export_recursively_filters_nested_sensitive_content(privacy):
+    p = privacy
+    with Session(p.engine) as session:
+        session.add_all(
+            [
+                PipelineEventORM(
+                    workspace_id=p.workspace_id,
+                    lead_id=p.leads["rep"],
+                    stage="manual_progress",
+                    status="completed",
+                    details={
+                        "status": "safe",
+                        "email": "private@example.test",
+                        "nested": {"body": "private message", "result": "safe result"},
+                    },
+                    created_at=p.now,
+                ),
+                AgentToolAuditORM(
+                    workspace_id=p.workspace_id,
+                    actor_id=p.contexts["rep"].actor_id,
+                    tool_name="lead.lookup",
+                    required_permission="leads.view",
+                    idempotency_key=uuid4().hex,
+                    status="completed",
+                    input_summary={
+                        "lead_id": str(p.leads["rep"]),
+                        "email": "private@example.test",
+                    },
+                    output={
+                        "status": "safe",
+                        "nested": {"transcript": "private call", "result": "safe result"},
+                    },
+                    error_message="private provider response",
+                    created_at=p.now,
+                ),
+            ]
+        )
+        session.commit()
+        response = audit_export(p.leads["rep"], session, p.contexts["viewer"])
+
+    exported = json.loads(response.body)
+    event = next(item for item in exported["events"] if item["stage"] == "manual_progress")
+    assert event["details"] == {
+        "status": "safe",
+        "nested": {"result": "safe result"},
+    }
+    tool_audit = exported["agent_tool_audit"][0]
+    assert tool_audit["input_summary"] == {"lead_id": str(p.leads["rep"])}
+    assert tool_audit["output"] == {
+        "status": "safe",
+        "nested": {"result": "safe result"},
+    }
+    assert "error_message" not in tool_audit
 
 
 def test_manager_without_team_fails_closed_to_self(privacy):
