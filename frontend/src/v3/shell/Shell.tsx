@@ -3,6 +3,7 @@ import { leadDetailSections, leadSectionHref } from "../../leadSections";
 import type { PinnedLeadSection } from "../../components/PinnedLeadNavigation";
 import { OPEN_SEARCH_EVENT } from "../../components/CommandPalette";
 import { Icon, type IconName } from "../ui/Icon";
+import type { Theme, ThemePreference } from "../../theme";
 import { Menu, MenuItem, MenuSeparator, Sheet } from "../ui/primitives";
 
 export type NavChild = { id: string; label: string; children?: NavChild[] };
@@ -23,11 +24,18 @@ export type AccountProps = {
   name: string;
   email: string;
   online: boolean;
-  theme: "light" | "dark";
-  onToggleTheme: () => void;
+  theme: Theme;
+  themePreference: ThemePreference;
+  onSetThemePreference: (preference: ThemePreference) => void;
   onGuide: () => void;
   onSignOut: () => void;
 };
+
+const APPEARANCES: Array<{ id: ThemePreference; label: string; icon: IconName }> = [
+  { id: "system", label: "System", icon: "monitor" },
+  { id: "light", label: "Light", icon: "sun" },
+  { id: "dark", label: "Dark", icon: "moon" },
+];
 
 const isPlainClick = (event: React.MouseEvent) =>
   event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
@@ -151,6 +159,41 @@ export function Sidebar({
         </button>
       </div>
       <nav className="v-sidebar-nav" aria-label="Primary">
+        {(pins.length > 0 || pinNotice) && (
+          <div className="v-navsection">
+            <h2 className="v-navsection-title">Pinned</h2>
+            <ul>
+              {pins.map((pin) => {
+                const label = leadDetailSections.find((section) => section.id === pin.section)?.label ?? "";
+                const active = activePin?.leadId === pin.leadId && activePin.section === pin.section;
+                return (
+                  <li key={`${pin.leadId}:${pin.section}`} className="v-pin">
+                    <a
+                      href={leadSectionHref(pin.leadId, pin.section)}
+                      className="v-navitem"
+                      aria-current={active ? "page" : undefined}
+                      onClick={(event) => {
+                        if (!isPlainClick(event)) return;
+                        event.preventDefault();
+                        onOpenPin(pin);
+                      }}
+                    >
+                      <Icon name="pin" size={16} />
+                      <span className="v-navitem-label">
+                        {pin.company}
+                        <small>{label}</small>
+                      </span>
+                    </a>
+                    <button type="button" className="v-pin-remove" onClick={() => onRemovePin(pin)} aria-label={`Unpin ${[pin.company, label].filter(Boolean).join(" · ")}`}>
+                      <Icon name="close" size={12} />
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {pinNotice && <p className="v-pin-notice" role="status">{pinNotice}</p>}
+          </div>
+        )}
         {sections.map((section) => (
           <div className="v-navsection" key={section.id}>
             {section.label && <h2 className="v-navsection-title">{section.label}</h2>}
@@ -192,41 +235,6 @@ export function Sidebar({
             </ul>
           </div>
         ))}
-        {(pins.length > 0 || pinNotice) && (
-          <div className="v-navsection">
-            <h2 className="v-navsection-title">Pinned</h2>
-            <ul>
-              {pins.map((pin) => {
-                const label = leadDetailSections.find((section) => section.id === pin.section)?.label ?? "";
-                const active = activePin?.leadId === pin.leadId && activePin.section === pin.section;
-                return (
-                  <li key={`${pin.leadId}:${pin.section}`} className="v-pin">
-                    <a
-                      href={leadSectionHref(pin.leadId, pin.section)}
-                      className="v-navitem"
-                      aria-current={active ? "page" : undefined}
-                      onClick={(event) => {
-                        if (!isPlainClick(event)) return;
-                        event.preventDefault();
-                        onOpenPin(pin);
-                      }}
-                    >
-                      <Icon name="pin" size={16} />
-                      <span className="v-navitem-label">
-                        {pin.company}
-                        <small>{label}</small>
-                      </span>
-                    </a>
-                    <button type="button" className="v-pin-remove" onClick={() => onRemovePin(pin)} aria-label={`Unpin ${pin.company} · ${label}`}>
-                      <Icon name="close" size={12} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {pinNotice && <p className="v-pin-notice" role="status">{pinNotice}</p>}
-          </div>
-        )}
       </nav>
       {flyoutItem?.children?.length ? (
         <div
@@ -275,7 +283,7 @@ export function Sidebar({
   );
 }
 
-function AccountMenu({ name, email, online, theme, onToggleTheme, onGuide, onSignOut }: AccountProps) {
+function AccountMenu({ name, email, online, themePreference, onSetThemePreference, onGuide, onSignOut }: AccountProps) {
   return (
     <Menu
       label="Account and preferences"
@@ -296,9 +304,19 @@ function AccountMenu({ name, email, online, theme, onToggleTheme, onGuide, onSig
       {(close) => (
         <>
           <span className="v-menu-label">{email}</span>
-          <MenuItem icon={theme === "light" ? "moon" : "sun"} onSelect={() => { onToggleTheme(); close(); }}>
-            {theme === "light" ? "Dark appearance" : "Light appearance"}
-          </MenuItem>
+          <span className="v-menu-label">Appearance</span>
+          {APPEARANCES.map((option) => (
+            <MenuItem
+              key={option.id}
+              icon={themePreference === option.id ? "check" : option.icon}
+              role="menuitemradio"
+              aria-checked={themePreference === option.id}
+              onSelect={() => { onSetThemePreference(option.id); close(); }}
+            >
+              {option.label}
+            </MenuItem>
+          ))}
+          <MenuSeparator />
           <MenuItem icon="guide" aria-haspopup="dialog" onSelect={() => { close(); onGuide(); }}>Product guide</MenuItem>
           <MenuSeparator />
           <MenuItem icon="signOut" onSelect={() => { close(); onSignOut(); }}>Sign out</MenuItem>
@@ -391,10 +409,24 @@ export function TabBar({
                   <span className="v-avatar" aria-hidden="true">{(account.name || account.email || "?").slice(0, 1).toUpperCase()}</span>
                   <span>{account.name || account.email}<small>{account.email}</small></span>
                 </div>
-                <button type="button" className="v-more-item" onClick={() => { account.onToggleTheme(); }}>
-                  <span className="v-row-icon"><Icon name={account.theme === "light" ? "moon" : "sun"} size={16} /></span>
-                  <span>{account.theme === "light" ? "Dark appearance" : "Light appearance"}</span>
-                </button>
+                <div className="v-more-item is-static" role="radiogroup" aria-label="Appearance">
+                  <span className="v-row-icon"><Icon name={account.theme === "light" ? "sun" : "moon"} size={16} /></span>
+                  <span>Appearance</span>
+                  <span className="v-appearance-options">
+                    {APPEARANCES.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={account.themePreference === option.id}
+                        className="v-appearance-option"
+                        onClick={() => account.onSetThemePreference(option.id)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </span>
+                </div>
                 <button type="button" className="v-more-item" onClick={() => { setMoreOpen(false); account.onGuide(); }}>
                   <span className="v-row-icon"><Icon name="guide" size={16} /></span>
                   <span>Product guide</span>

@@ -28,7 +28,11 @@ from lead_agent.api.routes.email import (
     update_email_draft,
 )
 from lead_agent.infrastructure.db.base import Base
-from lead_agent.infrastructure.db.models import WorkspaceEmailDraftORM, WorkspaceORM
+from lead_agent.infrastructure.db.models import (
+    WorkspaceEmailDraftORM,
+    WorkspaceORM,
+)
+from lead_agent.infrastructure.db.teams import WorkspaceTeamORM
 
 
 def test_ai_composer_uses_matching_thread_and_preserves_reply_subject(
@@ -179,7 +183,9 @@ def test_email_html_sanitizer_keeps_basic_formatting_and_removes_unsafe_links() 
     assert "there" in safe
 
 
-def test_gmail_send_account_list_exposes_only_sendable_sender_identity() -> None:
+def test_gmail_send_account_list_exposes_only_sendable_sender_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     workspace_id = uuid4()
     sendable = SimpleNamespace(
         id=uuid4(),
@@ -201,6 +207,13 @@ def test_gmail_send_account_list_exposes_only_sendable_sender_identity() -> None
     )
     session = MagicMock()
     session.scalars.return_value = [sendable, no_send_scope, invalid_sender]
+    monkeypatch.setattr(
+        email_routes,
+        "allowed_connection_actions",
+        lambda _session, _workspace, connection: {"send"}
+        if GMAIL_SEND_SCOPE in connection.scopes
+        else set(),
+    )
 
     accounts = list_gmail_send_accounts(
         session,
@@ -244,11 +257,26 @@ def test_send_email_request_rejects_header_injection_and_invalid_thread_ids(
 
 def test_workspace_drafts_are_private_and_versioned() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine, tables=[WorkspaceORM.__table__, WorkspaceEmailDraftORM.__table__])
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            WorkspaceORM.__table__,
+            WorkspaceTeamORM.__table__,
+            WorkspaceEmailDraftORM.__table__,
+        ],
+    )
     workspace_id = uuid4()
     now = datetime.now(UTC)
     with Session(engine) as session:
-        session.add(WorkspaceORM(id=workspace_id, name="Test", slug="test-drafts", created_at=now, updated_at=now))
+        session.add(
+            WorkspaceORM(
+                id=workspace_id,
+                name="Test",
+                slug="test-drafts",
+                created_at=now,
+                updated_at=now,
+            )
+        )
         session.commit()
         alice = SimpleNamespace(workspace_id=workspace_id, actor_id="alice")
         bob = SimpleNamespace(workspace_id=workspace_id, actor_id="bob")

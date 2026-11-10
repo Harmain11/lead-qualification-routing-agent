@@ -1,0 +1,145 @@
+/* Meetings panel (lead Pipeline tab) on the v3 system. */
+
+.lmp {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); padding: var(--s5);
+  border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface); color: var(--label);
+}
+.lmp-head { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; gap: var(--s3); }
+.lmp-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--tint-soft); color: var(--tint-text); }
+.lmp-head-main { min-width: 0; }
+.lmp-head h3 { margin: 6px 0 0; font: var(--t-headline); color: var(--label); }
+.lmp-intro { margin: 2px 0 0; max-width: 62ch; font: var(--t-subhead); color: var(--label-2); text-wrap: pretty; }
+.lmp-eyebrow { display: none; }
+.lmp-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); }
+
+/* States: empty, error, outcome */
+.lmp-state, .lmp-outcome {
+  display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--s3); align-items: start;
+  padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--surface-sunken);
+}
+.lmp-state-icon, .lmp-outcome-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface); color: var(--label-2); box-shadow: inset 0 0 0 var(--hairline) var(--separator); }
+.lmp-outcome { background: var(--tint-soft); }
+.lmp-outcome .lmp-outcome-icon { background: var(--tint); color: var(--on-tint); box-shadow: none; }
+.lmp-outcome-failure, .lmp-error { background: var(--danger-soft); }
+.lmp-error .lmp-state-icon, .lmp-outcome-failure .lmp-outcome-icon { color: var(--danger-text); }
+.lmp-state h4, .lmp-outcome h4 { margin: 5px 0 2px; font: var(--t-callout); font-weight: 600; color: var(--label); }
+.lmp-state p, .lmp-outcome p { margin: 0; font: var(--t-subhead); color: var(--label-2); text-wrap: pretty; }
+.lmp-state-action { margin-top: var(--s2); }
+
+/* Evidence from the conversation */
+.lmp-context { display: grid; gap: var(--s2); padding: var(--s3) var(--s4); border-radius: var(--r-md); background: var(--surface-sunken); }
+.lmp-context-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); }
+.lmp-context-label { font: var(--t-footnote); font-weight: 600; color: var(--label-3); }
+.lmp-subject { font: var(--t-callout); font-weight: 600; color: var(--label); overflow-wrap: anywhere; }
+.lmp-excerpt { margin: 0; padding-left: var(--s3); border-left: 2px solid var(--separator-strong); font: var(--t-subhead); color: var(--label-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lmp-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2); }
+.lmp-controls small { font: var(--t-footnote); color: var(--label-3); }
+.lmp-booking-warning, .lmp-calendly-notice, .lmp-calendly-fallback, .lmp-calendly-fix {
+  display: grid; gap: var(--s1); padding: var(--s3); border-radius: var(--r-sm); background: var(--attention-soft); font: var(--t-subhead); color: var(--label);
+}
+.lmp-booking-warning b, .lmp-calendly-notice b { font-weight: 600; }
+.lmp-booking-warning p, .lmp-calendly-notice p, .lmp-calendly-fallback p, .lmp-calendly-fix p { margin: 0; color: var(--label-2); }
+.lmp-calendly-notice a, .lmp-calendly-fallback a { color: var(--tint-text); font-weight: 600; }
+
+/* Calendly event types */
+.lmp-calendly-types { display: grid; gap: var(--s2); }
+.lmp-calendly-types-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s2); }
+.lmp-calendly-types-head b { display: block; font: var(--t-callout); font-weight: 600; }
+.lmp-calendly-types-head small { display: block; font: var(--t-footnote); color: var(--label-3); }
+.lmp-calendly-type-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--s2); }
+.lmp-calendly-type {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s3);
+  border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-md); background: var(--surface); color: var(--label); text-align: left;
+}
+.lmp-calendly-type span:first-child { display: grid; min-width: 0; }
+.lmp-calendly-type b { font: var(--t-callout); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmp-calendly-type small { font: var(--t-footnote); color: var(--label-3); }
+.lmp-calendly-type.is-selected { border-color: var(--tint); box-shadow: 0 0 0 3px var(--focus); }
+.lmp-calendly-type:disabled { opacity: 0.55; }
+.lmp-type-status { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--fill); color: var(--label-2); font: 600 11px/16px var(--font); }
+.lmp-type-status.available { background: var(--tint-soft); color: var(--tint-text); }
+
+/* Available times */
+.lmp-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); }
+.lmp-section-heading h4 { font: var(--t-callout); font-weight: 600; }
+.lmp-count { font: var(--t-footnote); color: var(--label-3); }
+.lmp-groups { display: grid; gap: var(--s3); }
+.lmp-group { display: grid; gap: var(--s2); }
+.lmp-group-head { display: flex; align-items: center; gap: var(--s2); }
+.lmp-group-head b { display: block; font: var(--t-subhead); font-weight: 600; overflow-wrap: anywhere; }
+.lmp-group-head small { display: block; font: var(--t-footnote); color: var(--label-3); }
+.lmp-provider-mark { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 8px; background: var(--fill); color: var(--label-2); }
+.lmp-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: var(--s2); }
+.lmp-option {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-md); background: var(--surface); cursor: pointer;
+  transition: border-color var(--d-fast) ease, box-shadow var(--d-fast) ease;
+}
+.lmp-option input { accent-color: var(--tint); }
+.lmp-option > span:nth-child(2) { display: grid; min-width: 0; }
+.lmp-option-time { font: var(--t-callout); font-weight: 600; color: var(--label); font-variant-numeric: tabular-nums; }
+.lmp-option-zone, .lmp-option-duration { font: var(--t-footnote); color: var(--label-3); }
+.lmp-option.is-selected { border-color: var(--tint); box-shadow: 0 0 0 3px var(--focus); }
+@media (hover: hover) and (pointer: fine) { .lmp-option:not(.is-selected):hover { border-color: var(--label-4); } }
+.lmp-footnote { margin: 0; font: var(--t-footnote); color: var(--label-3); }
+
+/* Connection status and provider errors */
+.lmp-integrations { display: grid; gap: 0; border-radius: var(--r-md); background: var(--surface-sunken); }
+.lmp-integration { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2); padding: var(--s2) var(--s4); font: var(--t-subhead); }
+.lmp-integration + .lmp-integration { border-top: var(--hairline) solid var(--separator); }
+.lmp-integration b { font-weight: 600; color: var(--label); }
+.lmp-connection { display: inline-flex; align-items: center; gap: 6px; font: var(--t-footnote); color: var(--label-3); }
+.lmp-connection::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--label-4); }
+.lmp-connection.connected { color: var(--tint-text); }
+.lmp-connection.connected::before { background: var(--tint); }
+.lmp-errors { display: grid; gap: var(--s2); }
+.lmp-provider-error { display: grid; gap: 2px; padding: var(--s3); border-radius: var(--r-sm); background: var(--danger-soft); color: var(--label); font: var(--t-subhead); }
+.lmp-provider-error b { color: var(--danger-text); font-weight: 600; }
+.lmp-calendly-howto > summary { font: var(--t-subhead); font-weight: 600; color: var(--tint-text); cursor: pointer; }
+.lmp-recovery-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s1); }
+
+/* Review before drafting */
+.lmp-review { display: grid; gap: var(--s3); padding: var(--s4); border-radius: var(--r-md); background: var(--surface-sunken); }
+.lmp-review-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); font: var(--t-callout); font-weight: 600; }
+.lmp-review-badge { padding: 2px 8px; border-radius: var(--r-pill); background: var(--tint-soft); color: var(--tint-text); font: 600 11px/16px var(--font); }
+.lmp-review-slot { font: var(--t-subhead); color: var(--label-2); }
+.lmp-review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+
+/* Buttons used inside the panel */
+.lmp :is(.lmp-primary, .lmp-secondary, .lmp-link-button) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 var(--s3);
+  border: 0; border-radius: var(--r-sm); font: var(--t-subhead); font-weight: 600; text-decoration: none; white-space: nowrap;
+  transition: transform var(--d-fast) var(--ease-out), background var(--d-fast) ease;
+}
+.lmp .lmp-primary { background: var(--tint); color: var(--on-tint); }
+.lmp .lmp-secondary { background: var(--fill-hover); color: var(--label); }
+.lmp .lmp-link-button { height: auto; padding: 0; background: none; color: var(--tint-text); }
+.lmp :is(.lmp-primary, .lmp-secondary):active { transform: scale(0.97); }
+.lmp :is(.lmp-primary, .lmp-secondary, .lmp-link-button):disabled { opacity: 0.45; }
+.lmp :is(.lmp-primary, .lmp-secondary, .lmp-link-button):focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+
+/* Loading */
+.lmp-skeleton { display: grid; gap: var(--s2); }
+.lmp-skeleton-line { height: 14px; border-radius: var(--r-xs); background: var(--fill); }
+.lmp-skeleton-line:nth-child(3) { width: 70%; }
+.lmp-skeleton-line:nth-child(4) { width: 45%; }
+.lmp-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Booked meeting controls */
+.v-app .meeting-management { display: grid; gap: var(--s3); padding: var(--s4); border-radius: var(--r-md); background: var(--tint-soft); }
+.v-app .meeting-management-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2); }
+.v-app .meeting-management-head .eyebrow { display: block; font: var(--t-footnote); font-weight: 600; color: var(--tint-text); text-transform: none; letter-spacing: 0; }
+.v-app .meeting-management-head h3 { margin: 2px 0 0; font: var(--t-headline); color: var(--label); }
+.v-app .meeting-management-time { margin: 0; font: 600 18px/1.3 var(--font-display); color: var(--label); font-variant-numeric: tabular-nums; }
+.v-app .meeting-management-meta { margin: 0; font: var(--t-subhead); color: var(--label-2); }
+.v-app .meeting-management-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.v-app .meeting-management-form { display: grid; gap: var(--s2); }
+.v-app .meeting-management-form > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+.v-app .meeting-management-alert { margin: 0; padding: var(--s3); border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger-text); font: var(--t-subhead); }
+.v-app .meeting-management-notice { margin: 0; padding: var(--s3); border-radius: var(--r-sm); background: var(--surface); color: var(--tint-text); font: var(--t-subhead); }
+
+@container record (max-width: 560px) {
+  .lmp { padding: var(--s4); }
+  .lmp-head { grid-template-columns: 36px minmax(0, 1fr); }
+  .lmp-head > .v-btn { grid-column: 2; justify-self: start; }
+}

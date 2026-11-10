@@ -1,22 +1,21 @@
 .workspace-switcher { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.workspace-mark .workspace-trigger { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 4px 0; border: 0; background: transparent; color: var(--text); text-align: left; line-height: 1.5; }
-.workspace-trigger-label { font-size: 13px; color: var(--muted); }
+.workspace-trigger-label { font-size: 13px; color: var(--label-2); }
 .workspace-trigger strong { max-width: 100%; font-size: 13px; white-space: normal; overflow-wrap: anywhere; }
-.workspace-trigger-action { font-size: 13px; color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
-.workspace-chooser { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--bg, #f7faf8); color: var(--text); overflow-y: auto; overscroll-behavior: contain; }
-.workspace-chooser::backdrop { background: var(--bg, #f7faf8); }
+.workspace-trigger-action { font-size: 13px; color: var(--tint-text); text-decoration: underline; text-underline-offset: 3px; }
+.workspace-chooser { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: var(--canvas); color: var(--label); overflow-y: auto; overscroll-behavior: contain; }
+.workspace-chooser::backdrop { background: var(--canvas); }
 .workspace-chooser-inner { width: min(100%, 1000px); margin: 0 auto; padding: clamp(20px, 5vw, 64px); }
 .workspace-chooser-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 32px; }
 .workspace-chooser-heading h1 { margin: 10px 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.2; }
-.workspace-chooser-heading p { max-width: 55ch; color: var(--muted); line-height: 1.65; }
+.workspace-chooser-heading p { max-width: 55ch; color: var(--label-2); line-height: 1.65; }
 .workspace-chooser-heading > button { flex: 0 0 auto; }
 .workspace-options { display: grid; gap: 14px; }
-.workspace-option { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); color: var(--text); text-align: left; }
-.workspace-option.selected { border-color: var(--green); }
+.workspace-option { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; padding: 24px; border: 1px solid var(--separator-strong); border-radius: 12px; background: var(--surface, var(--surface)); color: var(--label); text-align: left; }
+.workspace-option.selected { border-color: var(--tint); }
 .workspace-option > span:first-child { min-width: 0; display: grid; gap: 8px; }
 .workspace-option strong { font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; }
-.workspace-option small { color: var(--muted); font-size: 13px; line-height: 1.6; text-transform: capitalize; }
-.workspace-option-status { flex: 0 0 auto; font-size: 13px; line-height: 1.5; color: var(--green); }
+.workspace-option small { color: var(--label-2); font-size: 13px; line-height: 1.6; text-transform: capitalize; }
+.workspace-option-status { flex: 0 0 auto; font-size: 13px; line-height: 1.5; color: var(--tint-text); }
 @media (max-width: 600px) {
   .workspace-chooser-heading { flex-direction: column-reverse; gap: 24px; }
   .workspace-option { align-items: flex-start; flex-direction: column; gap: 12px; padding: 20px; }

@@ -218,7 +218,7 @@ function DonutGraphic({
     return `${colors[index % colors.length]} ${start}% ${end}%`;
   });
   return <div className="donut-wrap">
-    <div className="donut" key={stops.join("-")} style={{ background: total ? `conic-gradient(${stops.join(",")})` : "var(--surface-high)" }}><div><strong>{total}</strong><span>total</span></div></div>
+    <div className="donut" key={stops.join("-")} style={{ background: total ? `conic-gradient(${stops.join(",")})` : "var(--surface-sunken)" }}><div><strong>{total}</strong><span>total</span></div></div>
     <div className="donut-legend">{rows.map((row, index) => <span key={row.label}><i style={{ background: colors[index % colors.length] }} />{row.label}<b>{formatValue(row.value)}</b></span>)}</div>
   </div>;
 }
@@ -555,7 +555,7 @@ export function TimedAreaChart({
   const activePoint = hoveredPoint === null ? null : plotted[hoveredPoint] ?? null;
   return <div className="trend-chart timed-area-chart">
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--orange)" stopOpacity=".3" /><stop offset="1" stopColor="var(--orange)" stopOpacity=".025" /></linearGradient></defs>
+      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--tint)" stopOpacity=".3" /><stop offset="1" stopColor="var(--tint)" stopOpacity=".025" /></linearGradient></defs>
       <line className="timed-area-baseline" x1={inset.left} x2={width - inset.right} y1={baseline} y2={baseline} />
       {segments.map((items, segmentIndex) => {
         const line = makePath(items);

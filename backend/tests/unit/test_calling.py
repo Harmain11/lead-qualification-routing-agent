@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import httpx
@@ -55,6 +55,39 @@ CREDENTIALS = {
         "agent_id": "7",
     },
 }
+
+
+def test_call_detail_fields_are_filtered_by_granular_permissions():
+    record = calling.CallRecord(
+        id=uuid4(),
+        lead_id=uuid4(),
+        connection_id=uuid4(),
+        provider="cloudtalk",
+        external_id="call-1",
+        status="completed",
+        direction="outbound",
+        customer_phone=TARGET,
+        started_at=datetime.now(UTC),
+        duration_seconds=90,
+        transcript="private transcript",
+        recording_url="https://recording.example.test/private",
+        insights={"summary": "private analysis"},
+        message="Call complete",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    metadata_only = calling.call_record_for_permissions(record, {"calls.metadata.view"})
+    assert metadata_only.transcript is None
+    assert metadata_only.recording_url is None
+    assert metadata_only.insights is None
+
+    transcript_only = calling.call_record_for_permissions(
+        record, {"calls.metadata.view", "calls.transcript.view"},
+    )
+    assert transcript_only.transcript == "private transcript"
+    assert transcript_only.recording_url is None
+    assert transcript_only.insights is None
 
 
 @pytest.mark.parametrize("provider", CREDENTIALS)
@@ -943,7 +976,7 @@ def test_direct_call_requires_per_member_dialer_permission(calls):
     _, client, workspace, _, connection, _, adapter = calls
     sales_rep_permissions = role_permissions("sales_rep")
     assert "agents.execute" in sales_rep_permissions
-    assert "dialer.call" not in sales_rep_permissions
+    assert "dialer.call" in sales_rep_permissions
     app.dependency_overrides[get_workspace_context] = lambda: replace(
         workspace, role="sales_rep", permissions=sales_rep_permissions
     )
@@ -952,14 +985,6 @@ def test_direct_call_requires_per_member_dialer_permission(calls):
         "phone_number": "+14155550199",
         "consent_confirmed": True,
     }
-    assert client.post("/v1/calling/direct/start", json=payload).status_code == 403
-    assert adapter.count == 0
-
-    app.dependency_overrides[get_workspace_context] = lambda: replace(
-        workspace,
-        role="sales_rep",
-        permissions=sales_rep_permissions | {"dialer.call"},
-    )
     allowed = client.post("/v1/calling/direct/start", json=payload)
     assert allowed.status_code == 200, allowed.text
     assert adapter.count == 1
@@ -980,7 +1005,7 @@ def test_lead_call_requires_per_member_dialer_permission(calls):
     _, client, workspace, lead, connection, _, adapter = calls
     permissions = role_permissions("sales_rep")
     assert {"leads.view", "leads.edit"} <= permissions
-    assert "dialer.call" not in permissions
+    assert "dialer.call" in permissions
     app.dependency_overrides[get_workspace_context] = lambda: replace(
         workspace, role="sales_rep", permissions=permissions
     )
@@ -988,8 +1013,8 @@ def test_lead_call_requires_per_member_dialer_permission(calls):
         f"/v1/calling/leads/{lead.id}/start",
         json=request(connection),
     )
-    assert response.status_code == 403
-    assert adapter.count == 0
+    assert response.status_code == 200, response.text
+    assert adapter.count == 1
 
 
 def test_uncertain_provider_timeout_is_durable_and_never_retried(calls):
@@ -1382,3 +1407,54 @@ def test_cloudtalk_lead_handoff_requires_dialer_and_lead_permissions(calls):
     )
     assert response.status_code == 403
     assert adapter.count == 0
+
+
+def _stored_call(session, lead, connection, *, phone, direction, status, duration, minutes_ago, linked):
+    now = datetime.now(UTC)
+    row = CallRecordORM(
+        workspace_id=lead.workspace_id,
+        lead_id=lead.id if linked else None,
+        connection_id=connection.id,
+        provider="twilio",
+        external_id=f"ext-{uuid4().hex[:8]}",
+        status=status,
+        direction=direction,
+        customer_phone=phone,
+        started_at=now - timedelta(minutes=minutes_ago),
+        duration_seconds=duration,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def test_unified_history_reports_direction_outcome_and_lead(calls):
+    session, client, _, lead, connection, other, _ = calls
+    _stored_call(session, lead, connection, phone=TARGET, direction="outbound", status="completed", duration=95, minutes_ago=30, linked=True)
+    missed = _stored_call(session, lead, connection, phone=TARGET, direction="inbound", status="no-answer", duration=None, minutes_ago=10, linked=False)
+    _stored_call(session, lead, connection, phone="+15555550199", direction="inbound", status="completed", duration=40, minutes_ago=5, linked=False)
+
+    payload = client.get("/v1/calling/history").json()
+    assert [record["outcome"] for record in payload["records"]] == ["answered", "missed", "answered"]
+    by_id = {record["id"]: record for record in payload["records"]}
+    # An unlinked call from a known number is matched to its lead but not marked linked.
+    assert by_id[str(missed.id)]["lead_id"] == str(lead.id)
+    assert by_id[str(missed.id)]["linked"] is False
+
+    only_missed = client.get("/v1/calling/history", params={"direction": "missed"}).json()["records"]
+    assert [record["id"] for record in only_missed] == [str(missed.id)]
+    outbound = client.get("/v1/calling/history", params={"direction": "outbound"}).json()["records"]
+    assert [record["direction"] for record in outbound] == ["outbound"]
+
+
+def test_link_call_to_lead_sets_the_lead_once(calls):
+    session, client, _, lead, connection, _, _ = calls
+    call = _stored_call(session, lead, connection, phone="+15555550111", direction="inbound", status="completed", duration=12, minutes_ago=1, linked=False)
+    response = client.post(f"/v1/calling/calls/{call.id}/link", json={"lead_id": str(lead.id)})
+    assert response.status_code == 200, response.text
+    session.refresh(call)
+    assert call.lead_id == lead.id
+    history = client.get("/v1/calling/history").json()["records"]
+    assert history[0]["linked"] is True

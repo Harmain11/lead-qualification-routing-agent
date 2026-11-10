@@ -17,6 +17,7 @@ from lead_agent.api.main import app
 from lead_agent.application.exports import (
     ExportLeadRecord,
     LeadExportRequest,
+    allowed_export_columns,
     canonical_records,
     list_export_leads,
     render_csv,
@@ -60,6 +61,15 @@ def _record(name: str = "Jane Doe") -> ExportLeadRecord:
         summary="Business is evaluating a grounded workflow.",
         recommended_action="Schedule a discovery call.",
     )
+
+
+def test_sensitive_export_columns_require_matching_field_permissions():
+    requested = ["lead_name", "email", "phone", "budget", "revenue_value", "inquiry_message"]
+    assert allowed_export_columns(requested, frozenset()) == ["lead_name"]
+    assert allowed_export_columns(
+        requested,
+        frozenset({"fields.contact.view", "fields.financial.view"}),
+    ) == ["lead_name", "email", "phone", "budget", "revenue_value"]
 
 _LEAD_NUMBERS = count(1)
 
@@ -195,6 +205,34 @@ def test_export_query_is_workspace_isolated_and_preserves_filters(tmp_path) -> N
         assert [row.full_name for row in rows] == ["A Lead"]
         assert all(row.workspace_id == workspace_a for row in rows)
         assert canonical_records(rows, workspace_a)[0].qualification_band == "Warm"
+
+
+def test_export_search_does_not_match_contact_fields_without_permission(tmp_path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'export-search-privacy.db'}")
+    Base.metadata.create_all(engine)
+    workspace_id = uuid4()
+    with Session(engine) as session:
+        lead = _lead(
+            workspace_id,
+            name="Visible Name",
+            received_at=datetime(2026, 9, 23, tzinfo=UTC),
+        )
+        lead.email = "private-contact@example.test"
+        session.add(lead)
+        session.commit()
+        request = LeadExportRequest(
+            format="csv",
+            scope="current_filters",
+            filters={"search": "private-contact"},
+        )
+
+        assert list_export_leads(session, workspace_id, request, permissions=frozenset()) == []
+        assert list_export_leads(
+            session,
+            workspace_id,
+            request,
+            permissions=frozenset({"fields.contact.view"}),
+        ) == [lead]
 
 
 def test_export_scope_semantics_do_not_apply_stale_filters_to_selected_or_all(tmp_path) -> None:

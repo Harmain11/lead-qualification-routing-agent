@@ -656,7 +656,8 @@ export function formatMoney(value: number, currency = "USD", compact = false) {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
       currency,
-      minimumFractionDigits: compact ? 0 : 2,
+      // Whole amounts read as $189,000; cents appear only when there are cents.
+      minimumFractionDigits: compact || Number.isInteger(value) ? 0 : 2,
       maximumFractionDigits: compact ? (Math.abs(value) >= 1000 ? 1 : 0) : 2,
       notation: compact && Math.abs(value) >= 10_000 ? "compact" : "standard",
     }).format(value);

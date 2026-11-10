@@ -49,61 +49,6 @@ def _line(
     )
 
 
-_NEGATIVE_INTENT_SIGNALS = (
-    "not interested",
-    "no longer interested",
-    "not moving forward",
-    "no longer moving forward",
-    "do not contact",
-    "don't contact",
-    "do not follow up",
-    "don't follow up",
-    "declined the proposal",
-    "declined the offer",
-    "chose a competitor",
-    "selected another vendor",
-    "went with another vendor",
-    "closed lost",
-    "lost to a competitor",
-    "not a priority",
-    "no need",
-    "project cancelled",
-    "project canceled",
-    "project paused",
-    "put the project on hold",
-    "not proceeding",
-    "will not proceed",
-)
-_POSITIVE_INTENT_SIGNALS = (
-    "asked for a proposal",
-    "requested a proposal",
-    "asked for pricing",
-    "requested pricing",
-    "requested a demo",
-    "asked to schedule",
-    "wants to proceed",
-    "ready to proceed",
-    "ready to buy",
-    "wants to purchase",
-    "budget approved",
-    "moving forward",
-    "meeting confirmed",
-)
-
-
-def _meeting_request_signal(text: str) -> str | None:
-    """Recognize a concrete meeting request without treating a date alone as intent."""
-    request = re.search(
-        r"\b(?:can|could|shall|should) we (?:do (?:it|this)|meet|talk|call|schedule)\b"
-        r"|\b(?:please|let'?s|want to|would like to) (?:meet|talk|call|schedule)\b",
-        text,
-    )
-    time = re.search(
-        r"\b(?:tomorrow|next (?:monday|tuesday|wednesday|thursday|friday|week)"
-        r"|(?:[01]?\d|2[0-3])(?::[0-5]\d)?\s*(?:am|pm))\b",
-        text,
-    )
-    return request.group(0) if request and time else None
 _NEGATIVE_BUDGET_SIGNALS = (
     "no budget",
     "without a budget",
@@ -127,32 +72,6 @@ def _ordered_evidence(lead: NormalizedLead) -> list[RecordedLeadEvidence]:
         if evidence.observed_at
         else 0,
     )
-
-
-def _latest_directional_evidence(
-    lead: NormalizedLead,
-) -> tuple[str | None, RecordedLeadEvidence | None]:
-    direction: str | None = None
-    latest: RecordedLeadEvidence | None = None
-    for evidence in _ordered_evidence(lead):
-        source = evidence.source.casefold()
-        stage = source.partition(":")[2]
-        text = _norm(evidence.text)
-        if source.startswith("manual_progress:") and stage == "lost":
-            direction = "negative"
-        elif source.startswith("manual_progress:") and stage in {
-            "converted",
-            "meeting_scheduled",
-        }:
-            direction = "positive"
-        elif _contains_any(text, _NEGATIVE_INTENT_SIGNALS):
-            direction = "negative"
-        elif _contains_any(text, _POSITIVE_INTENT_SIGNALS):
-            direction = "positive"
-        else:
-            continue
-        latest = evidence
-    return direction, latest
 
 
 def _latest_signal_state(
@@ -233,6 +152,16 @@ def _field_signal(field: AnalyzedField | None, accepted: Iterable[str] | None = 
         return field.value
     normalized = _norm(field.value)
     return field.value if any(_norm(value) in normalized for value in accepted) else None
+
+
+def _trusted_ai_analysis(analysis: LeadContextAnalysis | None) -> LeadContextAnalysis | None:
+    if (
+        not isinstance(analysis, LeadContextAnalysis)
+        or analysis.provider in {"deterministic", "deterministic-safeguard"}
+        or analysis.status not in {"completed", "manual_review"}
+    ):
+        return None
+    return analysis
 
 
 def _field_evidence(field: AnalyzedField | None) -> tuple[str, ...]:
@@ -502,115 +431,28 @@ def qualify_lead(
             ]
         )
     )
-    interest_direction, interest_evidence = _latest_directional_evidence(lead)
-    interest_excerpt = _evidence_excerpt(interest_evidence)
-    negative_interest = interest_direction == "negative"
-    analyzed_urgency = _analysis_field(analysis, "urgency")
-    urgent = _contains_any(text, icp.scoring.signals.get("urgent", [])) or _field_signal(
-        analyzed_urgency, ["high", "urgent", "immediate"]
-    )
-    meeting_request = _meeting_request_signal(text)
-    urgent = urgent or (meeting_request if "tomorrow" in text else None)
-    if negative_interest:
-        urgent = None
-    lines.append(
-        _line(
-            "intent_urgency",
-            "urgency",
-            intent_points.get("urgency", 0) if urgent else 0,
-            intent_points.get("urgency", 0),
-            (
-                "Recent sales evidence lowered current buying interest, so older urgency "
-                "signals are not counted."
-                if negative_interest
-                else f"Urgency signal {'found' if urgent else 'not found'}."
-            ),
-            urgent or (interest_excerpt if negative_interest else "no urgency signal"),
-            *_field_evidence(analyzed_urgency),
+    ai_analysis = _trusted_ai_analysis(analysis)
+    ai_intent_scores = ai_analysis.intent_scoring if ai_analysis is not None else None
+    for key in ("urgency", "buying_stage", "budget_signal", "specific_request"):
+        maximum = intent_points.get(key, 0)
+        assessment = getattr(ai_intent_scores, key) if ai_intent_scores is not None else None
+        evidence = (
+            tuple(f"{item.source_field}: {item.excerpt}" for item in assessment.evidence)
+            if assessment is not None
+            else ()
         )
-    )
-    analyzed_stage = _analysis_field(analysis, "buying_stage")
-    buying_stage = _contains_any(
-        text, icp.scoring.signals.get("ready_to_buy", [])
-    ) or _field_signal(analyzed_stage, ["ready_to_buy", "ready to buy", "purchase"]) or meeting_request
-    if negative_interest:
-        buying_stage = None
-    elif interest_direction == "positive" and interest_evidence is not None:
-        source = interest_evidence.source.casefold()
-        stage = source.partition(":")[2]
-        if source.startswith("manual_progress:") and stage in {
-            "converted",
-            "meeting_scheduled",
-        }:
-            buying_stage = f"recorded {stage.replace('_', ' ')}"
-        elif _contains_any(_norm(interest_evidence.text), _POSITIVE_INTENT_SIGNALS):
-            buying_stage = buying_stage or "recent positive buying update"
-    lines.append(
-        _line(
-            "intent_urgency",
-            "buying_stage",
-            intent_points.get("buying_stage", 0) if buying_stage else 0,
-            intent_points.get("buying_stage", 0),
-            (
-                "Recent sales evidence lowered current buying interest, so older buying-stage "
-                "signals are not counted."
-                if negative_interest
-                else f"Buying interest signal {'found' if buying_stage else 'not found'}."
-            ),
-            buying_stage or (interest_excerpt if negative_interest else "no ready-to-buy signal"),
-            *_field_evidence(analyzed_stage),
+        lines.append(
+            _line(
+                "intent_urgency",
+                key,
+                assessment.points if assessment is not None else 0,
+                maximum,
+                assessment.rationale
+                if assessment is not None
+                else "No validated AI intent assessment is available; no intent points were awarded.",
+                *evidence,
+            )
         )
-    )
-    analyzed_budget = _analysis_field(analysis, "budget_information")
-    budget_signal = (
-        lead.budget is not None
-        or _contains_any(text, icp.scoring.signals.get("budget", []))
-        or _field_signal(analyzed_budget)
-    )
-    if budget_state == "negative":
-        budget_signal = None
-    lines.append(
-        _line(
-            "intent_urgency",
-            "budget_signal",
-            intent_points.get("budget_signal", 0) if budget_signal else 0,
-            intent_points.get("budget_signal", 0),
-            (
-                "A recent update says the budget is unavailable or not approved."
-                if budget_state == "negative"
-                else f"Budget signal {'present' if budget_signal else 'absent'}."
-            ),
-            str(lead.budget)
-            if lead.budget is not None and budget_state != "negative"
-            else (budget_excerpt or "no budget signal")
-            if budget_state == "negative"
-            else "no budget signal",
-            *_field_evidence(analyzed_budget),
-            *([budget_excerpt] if budget_excerpt else []),
-        )
-    )
-    analyzed_technical = _analysis_field(analysis, "technical_requirements")
-    specific = _contains_any(
-        text, icp.scoring.signals.get("specific_request", [])
-    ) or _field_signal(analyzed_technical)
-    if negative_interest:
-        specific = None
-    lines.append(
-        _line(
-            "intent_urgency",
-            "specific_request",
-            intent_points.get("specific_request", 0) if specific else 0,
-            intent_points.get("specific_request", 0),
-            (
-                "Recent sales evidence lowered current buying interest, so older request signals "
-                "are not counted."
-                if negative_interest
-                else f"Specific request signal {'found' if specific else 'not found'}."
-            ),
-            specific or (interest_excerpt if negative_interest else "no specific request signal"),
-            *_field_evidence(analyzed_technical),
-        )
-    )
 
     engagement_points = points.get("engagement_quality", {})
     detail_max = engagement_points.get("message_detail", 0)

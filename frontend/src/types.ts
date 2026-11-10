@@ -455,6 +455,9 @@ export type MeetingRecommendations = {
   offer_has_confirmed_selection: boolean;
   offer_can_be_replaced: boolean;
   booked_meeting_at: string | null;
+  cancelled_meeting_at?: string | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
 };
 
 export type ManagedMeeting = {
@@ -468,6 +471,14 @@ export type ManagedMeeting = {
   reschedule_url: string | null;
   cancel_url: string | null;
   can_cancel_here: boolean;
+};
+
+export type SavedMeetingStatus = {
+  status: "scheduled" | "cancelled";
+  start_at: string | null;
+  title: string;
+  provider: MeetingProvider | null;
+  cancellation_reason: string | null;
 };
 
 export type MeetingOfferDraftResult = {
@@ -578,6 +589,16 @@ export type ProviderConnection = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  owner_user_id?: string | null;
+  connection_type?: "personal" | "team_shared" | "workspace_managed";
+  allowed_actions?: string[];
+};
+
+export type ConnectionAccessGrant = {
+  connection_id: string;
+  membership_id: string;
+  actions: string[];
+  expires_at: string | null;
 };
 
 export type AuthSession = {
@@ -598,6 +619,10 @@ export type PermissionOverrides = {
   denies: string[];
 };
 
+export type AccessPolicy = {
+  scopes: Record<string, "none" | "own" | "team" | "all" | "custom">;
+};
+
 export type WorkspaceMember = {
   id: string;
   workspace_id: string;
@@ -609,6 +634,7 @@ export type WorkspaceMember = {
   status: "invited" | "active" | "suspended" | "revoked" | string;
   permission_overrides: PermissionOverrides;
   effective_permissions: string[];
+  access_policy: AccessPolicy;
   invited_by: string | null;
   invited_at: string | null;
   accepted_at: string | null;
@@ -654,6 +680,7 @@ export type WorkspaceInvitation = {
   role: string;
   role_label: string;
   permission_overrides: PermissionOverrides;
+  access_policy: AccessPolicy;
   status: "pending" | "accepted" | "expired" | "revoked" | string;
   invited_by: string;
   accepted_user_id: string | null;
@@ -702,6 +729,8 @@ export type IntegrationCard = {
   };
   connection: ProviderConnection | null;
   connections: ProviderConnection[];
+  /** Actions the current member may perform for this provider. */
+  allowed_actions: string[];
 };
 
 export type LeadApprovalPolicy = {
@@ -852,15 +881,16 @@ export type ChannelAnalytics = {
     channel: string;
     lead_volume: number;
     share_percent: number;
-    qualification_rate: number;
+    qualification_rate: number | null;
     qualified_leads?: number;
     booked_leads?: number;
-    booked_rate?: number;
+    booked_rate?: number | null;
     qualified_to_booked_rate?: number | null;
+    rate_sample_minimum?: number;
     closed_won_count?: number;
     scored_leads?: number;
-    sql_conversion_rate: number;
-    closed_won_conversion_rate: number;
+    sql_conversion_rate: number | null;
+    closed_won_conversion_rate: number | null;
     revenue: number;
     average_score: number;
     importance_index: number;
@@ -1107,6 +1137,7 @@ export type GmailMailboxMessage = {
   thread_id: string;
   sender: string;
   sender_name: string;
+  reply_to?: string;
   recipients: string;
   subject: string;
   sent_at: string;
@@ -1120,12 +1151,21 @@ export type GmailThreadMessage = {
   thread_id: string;
   sender: string;
   sender_name: string;
+  reply_to?: string;
   recipients: string;
   subject: string;
   sent_at: string;
   rfc_message_id: string;
   direction: "inbound" | "outbound" | string;
   body: string;
+  attachments?: GmailMailboxAttachment[];
+};
+
+export type GmailMailboxAttachment = {
+  attachment_id: string;
+  filename: string;
+  mime_type: string;
+  size: number;
 };
 
 export type GmailMailboxMessagePage = {

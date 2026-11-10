@@ -52,7 +52,7 @@ export function useWorkspaceLeads(enabled: boolean, revision = 0) {
     if (!enabled) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") setTick((value) => value + 1);
-    }, 20_000);
+    }, 120_000);
     return () => window.clearInterval(timer);
   }, [enabled]);
 
@@ -70,15 +70,22 @@ export function recordedStages(pipeline: PipelineAnalytics | null | undefined) {
   return map;
 }
 
+/** Same floor as the server's analytics: fewer closed deals than this is not a rate. */
+export const MIN_CLOSED_FOR_FORECAST = 5;
+
+/** Won ÷ closed across recorded outcomes, or null until there are enough closed deals to mean anything. */
+export function observedWinRate(leads: Pick<Lead, "outcome">[]): number | null {
+  const closed = leads.filter((lead) => ["closed_won", "closed_lost"].includes(lead.outcome?.pipeline_stage ?? ""));
+  if (closed.length < MIN_CLOSED_FOR_FORECAST) return null;
+  return closed.filter((lead) => lead.outcome?.pipeline_stage === "closed_won").length / closed.length;
+}
+
 export function useDealViews(leads: Lead[], pipeline: PipelineAnalytics | null | undefined): DealView[] {
   const store = useDeals();
   const stages = useMemo(() => recordedStages(pipeline), [pipeline]);
   return useMemo(
     () => {
-      const closed = leads.filter((lead) => ["closed_won", "closed_lost"].includes(lead.outcome?.pipeline_stage ?? ""));
-      const rate = closed.length
-        ? closed.filter((lead) => lead.outcome?.pipeline_stage === "closed_won").length / closed.length
-        : null;
+      const rate = observedWinRate(leads);
       return leads.map((lead) => viewDeal(lead, store.deals[lead.id], stages.get(lead.id), rate));
     },
     [leads, store, stages],

@@ -10,7 +10,9 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.email_templates import (
+    lead_signoff,
     apply_workspace_email_signature,
     get_email_template,
 )
@@ -35,6 +37,7 @@ from lead_agent.infrastructure.db.operations import LeadNoteORM
 from lead_agent.infrastructure.gmail import GMAIL_SEND_SCOPE, GmailOutboundProvider
 from lead_agent.infrastructure.provider_lifecycle import get_workspace_connection_resolver
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 
 
 class FollowUpNotEligible(ValueError):
@@ -190,13 +193,28 @@ def generate_follow_up_draft(
         raise FollowUpNotEligible(
             "Connect and verify OpenAI to generate an AI follow-up. No template draft was created."
         )
+    meeting_verified = (
+        session.scalar(
+            select(PipelineEventORM.id).where(
+                PipelineEventORM.workspace_id == lead.workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "meeting_scheduled",
+                PipelineEventORM.status.in_(VERIFIED_MEETING_STATUSES),
+            )
+        )
+        is not None
+    )
     try:
         content = FollowUpEmailContent.model_validate(draft_method(facts))
+        guarded = guard_outgoing_email(
+            content.subject, content.body, meeting_verified=meeting_verified
+        )
         content = FollowUpEmailContent.model_validate(
             {
                 **content.model_dump(),
+                "subject": guarded.subject or content.subject,
                 "body": apply_workspace_email_signature(
-                    content.body,
+                    guarded.body or content.body,
                     business_profile,
                     fallback_business_name=workspace.name if workspace else "",
                 ),
@@ -262,7 +280,7 @@ def _template(lead: LeadORM, plan: dict[str, object]) -> FollowUpEmailContent:
         body=(
             f"Hi {first_name},\n\nThanks for reaching out to us about "
             f"{lead.product_or_service}. I read your note and would be glad to learn a little "
-            f"more about what {lead.company_name} is looking for.\n\n{question}\n\nBest,\nThe team"
+            f"more about what {lead.company_name} is looking for.\n\n{question}\n\n{lead_signoff(lead)}"
         ),
         rationale=(
             "Uses the lead’s stated request and company; asks permission for a next step "

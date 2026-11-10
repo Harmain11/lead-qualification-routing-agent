@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.application.routing import record_pipeline_event
-from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.analysis import LeadContextAnalysis, load_persisted_analysis
 from lead_agent.domain.crm import (
     CanonicalCrmPayload,
     CrmEntityReferences,
@@ -36,7 +36,7 @@ _LOGGER = logging.getLogger("lead_agent.crm")
 def _analysis(lead: LeadORM) -> LeadContextAnalysis | None:
     if lead.analysis is None:
         return None
-    return LeadContextAnalysis.model_validate(lead.analysis.structured_output)
+    return load_persisted_analysis(lead.analysis.structured_output)
 
 
 def _split_name(full_name: str) -> tuple[str, str]:

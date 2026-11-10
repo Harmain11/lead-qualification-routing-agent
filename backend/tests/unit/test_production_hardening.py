@@ -33,6 +33,7 @@ def production_settings(**overrides: object) -> Settings:
         "auth_development_fallback": False,
         "auth_cookie_secure": True,
         "secret_key": "s" * 48,
+        "corral_site_access_password": "local-test-site-password-123",
         "webhook_signing_secret": "w" * 48,
         "secret_store_provider": "managed",
         "managed_secret_store_backend": "deployment.secrets:create_backend",

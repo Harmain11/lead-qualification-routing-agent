@@ -4,21 +4,21 @@
 .workspace-business-profile-section { display: grid; gap: 10px; min-width: 0; }
 .workspace-business-profile-section + .workspace-business-profile-section {
   padding-top: 17px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--separator-strong);
 }
 .workspace-business-profile-section-heading { display: grid; gap: 3px; }
-.workspace-business-profile-section-heading h3 { margin: 0; color: var(--text); font-size: 14px; font-weight: 700; }
-.workspace-business-profile-section-heading p { margin: 0; color: var(--subtle); font-size: 12px; line-height: 1.4; }
-.workspace-business-profile-section-heading h3 small { margin-left: 5px; color: var(--subtle); font-size: 11px; font-weight: 500; }
+.workspace-business-profile-section-heading h3 { margin: 0; color: var(--label); font-size: 14px; font-weight: 700; }
+.workspace-business-profile-section-heading p { margin: 0; color: var(--label-3); font-size: 12px; line-height: 1.4; }
+.workspace-business-profile-section-heading h3 small { margin-left: 5px; color: var(--label-3); font-size: 11px; font-weight: 500; }
 .workspace-business-profile-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 14px;
   min-width: 0;
 }
-.workspace-business-profile-form label { display: grid; min-width: 0; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.workspace-business-profile-form label { display: grid; min-width: 0; gap: 5px; color: var(--label-2); font-size: 12px; font-weight: 650; }
 .workspace-business-profile-form label > span { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.workspace-business-profile-form label small { color: var(--subtle); font-size: 11px; font-weight: 450; }
+.workspace-business-profile-form label small { color: var(--label-3); font-size: 11px; font-weight: 450; }
 .workspace-business-profile .workspace-business-profile-form input,
 .workspace-business-profile .workspace-business-profile-form textarea,
 .workspace-business-profile .workspace-business-profile-form select {
@@ -26,10 +26,10 @@
   min-width: 0;
   min-height: 42px;
   padding: 9px 11px;
-  border: 1px solid var(--line-bright);
+  border: 1px solid var(--separator-strong);
   border-radius: 9px;
   background: var(--surface);
-  color: var(--text);
+  color: var(--label);
   font: inherit;
   font-size: 13px;
   transition: border-color 150ms ease, box-shadow 150ms ease;
@@ -37,8 +37,8 @@
 .workspace-business-profile .workspace-business-profile-form input:focus-visible,
 .workspace-business-profile .workspace-business-profile-form textarea:focus-visible,
 .workspace-business-profile .workspace-business-profile-form select:focus-visible {
-  border-color: var(--green);
-  outline: 3px solid var(--blue-soft);
+  border-color: var(--tint);
+  outline: 3px solid var(--tint-soft);
   outline-offset: 1px;
 }
 .workspace-business-profile .workspace-business-profile-form textarea { min-height: 78px; resize: vertical; line-height: 1.45; }
@@ -48,24 +48,24 @@
 .workspace-business-profile-website-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .workspace-business-profile-analyze { min-height: 42px; padding: 7px 12px; white-space: nowrap; }
 .workspace-business-profile-hint,
-.workspace-business-profile-analysis-error { color: var(--subtle); font-size: 11px; line-height: 1.4; }
-.workspace-business-profile-analysis-error { color: var(--danger, #a43d35); }
+.workspace-business-profile-analysis-error { color: var(--label-3); font-size: 11px; line-height: 1.4; }
+.workspace-business-profile-analysis-error { color: var(--danger, var(--label-2)); }
 .workspace-business-profile-service-field { display: grid; gap: 5px; min-width: 0; }
 .workspace-business-profile-service-add { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr); align-items: center; gap: 8px; }
 .workspace-business-profile-service-add small,
-.workspace-business-profile-preset-status { color: var(--subtle); font-size: 11px; line-height: 1.35; }
-.workspace-business-profile-analysis { display: grid; gap: 7px; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.workspace-business-profile-evidence { padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }
+.workspace-business-profile-preset-status { color: var(--label-3); font-size: 11px; line-height: 1.35; }
+.workspace-business-profile-analysis { display: grid; gap: 7px; color: var(--label-2); font-size: 12px; line-height: 1.45; }
+.workspace-business-profile-evidence { padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--tint-soft); }
 .workspace-business-profile-evidence > summary { cursor: pointer; font-weight: 650; }
 .workspace-business-profile-evidence p { margin: 7px 0; overflow-wrap: anywhere; }
 .workspace-business-profile-evidence ul { display: grid; gap: 7px; margin: 7px 0; padding-left: 18px; }
 .workspace-business-profile-evidence li { display: grid; gap: 2px; }
 .workspace-business-profile-evidence li span,
-.workspace-business-profile-evidence > small { color: var(--subtle); }
-.workspace-business-profile-readonly { margin: 0; color: var(--muted); font-size: 12px; }
+.workspace-business-profile-evidence > small { color: var(--label-3); }
+.workspace-business-profile-readonly { margin: 0; color: var(--label-2); font-size: 12px; }
 .workspace-business-profile-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 3px; }
-.workspace-business-profile-actions [role="status"] { color: var(--green); font-size: 12px; line-height: 1.45; }
-.workspace-business-profile-save-hint { color: var(--subtle); font-size: 11px; }
+.workspace-business-profile-actions [role="status"] { color: var(--tint-text); font-size: 12px; line-height: 1.45; }
+.workspace-business-profile-save-hint { color: var(--label-3); font-size: 11px; }
 .workspace-business-profile-actions .primary-button { flex: none; }
 @media (max-width: 700px) {
   .workspace-business-profile-field-grid { grid-template-columns: minmax(0, 1fr); }

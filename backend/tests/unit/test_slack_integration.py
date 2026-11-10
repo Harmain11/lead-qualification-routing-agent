@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import get_workspace_context
 from lead_agent.api.main import app
+from lead_agent.application.assignment_notifications import _notify_slack_assignee
 from lead_agent.application.integrations import (
     begin_oauth_connection,
     complete_oauth_connection,
@@ -75,9 +77,79 @@ def test_slack_direct_message_opens_dm_before_posting():
     )
     assert result.state == "sent"
     assert [call[0] for call in calls] == [
-        "/api/conversations.open", "/api/chat.postMessage",
+        "/api/conversations.open",
+        "/api/chat.postMessage",
     ]
     assert "channel=D123" in calls[1][1]
+
+
+def test_assignment_notification_sends_a_direct_message_to_linked_member(monkeypatch):
+    sent = []
+    provider = MagicMock()
+    provider.send_direct.side_effect = lambda member_id, message: (
+        sent.append((member_id, message)) or NotificationDelivery(state="sent")
+    )
+    resolver = MagicMock()
+    resolver.resolve_for_direct_message.return_value = provider
+    monkeypatch.setattr(
+        "lead_agent.infrastructure.slack.get_workspace_slack_notification_resolver",
+        lambda: resolver,
+    )
+    monkeypatch.setattr(
+        "lead_agent.application.assignment_notifications.assert_lead_action",
+        lambda *_args, **_kwargs: None,
+    )
+    membership = SimpleNamespace(
+        id=uuid4(),
+        role="sales_rep",
+        permission_grants=[],
+        permission_denies=[],
+        access_policy={},
+        slack_member_id="U012345678",
+        slack_team_id="T123",
+    )
+    lead = SimpleNamespace(
+        company_name="Acme Builders", full_name="Harmain Mughal", email="lead@example.test"
+    )
+    assigned_by = SimpleNamespace(display_name="A team manager")
+    session = MagicMock()
+    session.scalar.return_value = membership
+    session.get.side_effect = [lead, assigned_by]
+
+    _notify_slack_assignee(
+        session,
+        workspace_id=uuid4(),
+        lead_id=uuid4(),
+        recipient_user_id=uuid4(),
+        assigned_by_user_id=uuid4(),
+        assignment_notification_id=uuid4(),
+    )
+
+    assert len(sent) == 1
+    assert sent[0][0] == "U012345678"
+    assert "Acme Builders" in sent[0][1].text
+    assert "A team manager" in sent[0][1].text
+
+
+def test_direct_message_never_falls_back_to_a_different_slack_workspace(tmp_path):
+    store = DevelopmentSecretStore()
+    with database(tmp_path) as session:
+        workspace_id = uuid4()
+        make_connection(session, store, workspace_id)
+        resolver = WorkspaceSlackNotificationResolver(
+            store,
+            WorkspaceAuthorizedConnectionResolver(store),
+            slack_client(lambda _: httpx.Response(200, json={"ok": True})),
+        )
+
+        assert (
+            resolver.resolve_for_direct_message(
+                session,
+                workspace_id,
+                slack_team_id="T-DIFFERENT",
+            )
+            is None
+        )
 
 
 @pytest.mark.parametrize("fallback_enabled,expected_calls", [(False, 1), (True, 2)])
@@ -155,7 +227,7 @@ def make_connection(session: Session, store: DevelopmentSecretStore, workspace_i
 
 
 def test_slack_setup_scopes_are_minimal() -> None:
-    assert PROVIDER_SETUP["slack"].required_scopes == ["chat:write", "channels:read"]
+    assert PROVIDER_SETUP["slack"].required_scopes == ["chat:write", "channels:read", "im:write"]
     assert "channels:history" not in PROVIDER_SETUP["slack"].required_scopes
     assert "users:read" not in PROVIDER_SETUP["slack"].required_scopes
 
@@ -178,8 +250,14 @@ def test_slack_oauth_uses_exact_scopes_and_derived_callback_path(tmp_path) -> No
             "operator",
         )
         params = parse_qs(urlparse(started.authorization_url).query)
-        assert row.scopes == ["chat:write", "channels:read", "channels:join", "groups:read"]
-        assert params["scope"] == ["chat:write,channels:read,channels:join,groups:read"]
+        assert row.scopes == [
+            "chat:write",
+            "channels:read",
+            "im:write",
+            "channels:join",
+            "groups:read",
+        ]
+        assert params["scope"] == ["chat:write,channels:read,im:write,channels:join,groups:read"]
         assert "team" not in params  # Slack must allow workspace selection.
         assert row.connection_metadata["oauth_redirect_uri"] == (
             "https://api.example.test/v1/integrations/slack/oauth/callback"
@@ -196,7 +274,7 @@ def test_non_expiring_slack_oauth_token_does_not_get_a_fake_refresh_deadline(tmp
             assert code_verifier and redirect_uri.endswith("/v1/integrations/slack/oauth/callback")
             return {
                 "access_token": "workspace-token",
-                "scope": "chat:write,channels:read",
+                "scope": "chat:write,channels:read,im:write",
                 "external_account_id": "T-expected",
                 "account_name": "Test Slack workspace",
                 "bot_user_id": "U-bot",
@@ -239,7 +317,9 @@ def test_non_expiring_slack_oauth_token_does_not_get_a_fake_refresh_deadline(tmp
         )
         assert audit is not None
         assert audit.actor_id == "operator"
-        assert audit.details == {"scopes": ["chat:write", "channels:read", "channels:join", "groups:read"]}
+        assert audit.details == {
+            "scopes": ["chat:write", "channels:read", "im:write", "channels:join", "groups:read"]
+        }
         assert "workspace-token" not in str(audit.details)
 
 
@@ -248,7 +328,7 @@ def test_validator_checks_token_team_and_required_scopes() -> None:
         assert request.url.path.endswith("auth.test")
         return httpx.Response(
             200,
-            headers={"x-oauth-scopes": "chat:write,channels:read"},
+            headers={"x-oauth-scopes": "chat:write,channels:read,im:write"},
             json={
                 "ok": True,
                 "team_id": "T-A",
@@ -263,7 +343,7 @@ def test_validator_checks_token_team_and_required_scopes() -> None:
     )
     assert result.verified is True
     assert result.metadata["slack_team_id"] == "T-A"
-    assert result.metadata["granted_scopes"] == ["channels:read", "chat:write"]
+    assert result.metadata["granted_scopes"] == ["channels:read", "chat:write", "im:write"]
 
 
 @pytest.mark.parametrize(
@@ -301,7 +381,7 @@ def test_validator_rejects_a_valid_token_from_the_wrong_workspace() -> None:
     client = slack_client(
         lambda _: httpx.Response(
             200,
-            headers={"x-oauth-scopes": "chat:write,channels:read"},
+            headers={"x-oauth-scopes": "chat:write,channels:read,im:write"},
             json={"ok": True, "team_id": "T-OTHER"},
         )
     )
@@ -394,7 +474,9 @@ def test_resolver_and_channel_configuration_are_workspace_scoped(tmp_path) -> No
         with pytest.raises(ValueError, match="unavailable"):
             resolver.select_channel(session, workspace_a, connection_a.id, "C-B", "actor-a")
         channels = resolver.list_channels(session, workspace_a, connection_a.id, "actor-a")
-        assert channels == [{"id": "C123", "name": "lead-agent-testing", "is_member": True, "is_private": False}]
+        assert channels == [
+            {"id": "C123", "name": "lead-agent-testing", "is_member": True, "is_private": False}
+        ]
         assert resolver.select_channel(
             session, workspace_a, connection_a.id, "C-new", "actor-a"
         ) == {
@@ -428,14 +510,17 @@ def test_channel_list_includes_public_channels_before_app_is_invited(tmp_path) -
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.url.path.endswith("conversations.list")
             assert parse_qs(request.content.decode())["types"] == ["public_channel"]
-            return httpx.Response(200, json={
-                "ok": True,
-                "channels": [
-                    {"id": "CJOINED", "name": "announcements", "is_member": True},
-                    {"id": "CINVITE", "name": "leads", "is_member": False},
-                    {"id": "CUNKNOWN", "name": "projects"},
-                ],
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "channels": [
+                        {"id": "CJOINED", "name": "announcements", "is_member": True},
+                        {"id": "CINVITE", "name": "leads", "is_member": False},
+                        {"id": "CUNKNOWN", "name": "projects"},
+                    ],
+                },
+            )
 
         resolver = WorkspaceSlackNotificationResolver(
             store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
@@ -464,10 +549,18 @@ def test_select_public_channel_joins_only_the_selected_channel(tmp_path) -> None
             calls.append(method)
             if method == "conversations.join":
                 joined = True
-            return httpx.Response(200, json={
-                "ok": True,
-                "channel": {"id": "CNEW", "name": "sales", "is_member": joined, "is_private": False},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "channel": {
+                        "id": "CNEW",
+                        "name": "sales",
+                        "is_member": joined,
+                        "is_private": False,
+                    },
+                },
+            )
 
         resolver = WorkspaceSlackNotificationResolver(
             store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
@@ -493,10 +586,18 @@ def test_private_invitation_and_failed_public_join_preserve_destination(tmp_path
             methods.append(method)
             if method == "conversations.join":
                 return httpx.Response(200, json={"ok": False, "error": "restricted_action"})
-            return httpx.Response(200, json={
-                "ok": True,
-                "channel": {"id": "CNEW", "name": "sales", "is_member": False, "is_private": private},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "channel": {
+                        "id": "CNEW",
+                        "name": "sales",
+                        "is_member": False,
+                        "is_private": private,
+                    },
+                },
+            )
 
         resolver = WorkspaceSlackNotificationResolver(
             store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
@@ -504,7 +605,9 @@ def test_private_invitation_and_failed_public_join_preserve_destination(tmp_path
         with pytest.raises(ValueError):
             resolver.select_channel(session, workspace, connection.id, "CNEW", "actor")
         assert connection.connection_metadata["slack_channel_id"] == "C123"
-        assert methods == (["conversations.info"] if private else ["conversations.info", "conversations.join"])
+        assert methods == (
+            ["conversations.info"] if private else ["conversations.info", "conversations.join"]
+        )
 
 
 def test_channel_list_includes_invited_private_channels_with_granted_permission(tmp_path) -> None:
@@ -517,10 +620,20 @@ def test_channel_list_includes_invited_private_channels_with_granted_permission(
 
         def handler(request: httpx.Request) -> httpx.Response:
             assert parse_qs(request.content.decode())["types"] == ["public_channel,private_channel"]
-            return httpx.Response(200, json={
-                "ok": True,
-                "channels": [{"id": "CPRIVATE", "name": "lead-review", "is_member": True, "is_private": True}],
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "channels": [
+                        {
+                            "id": "CPRIVATE",
+                            "name": "lead-review",
+                            "is_member": True,
+                            "is_private": True,
+                        }
+                    ],
+                },
+            )
 
         resolver = WorkspaceSlackNotificationResolver(
             store, WorkspaceAuthorizedConnectionResolver(store), slack_client(handler)
@@ -556,7 +669,9 @@ def test_matching_slack_rule_can_override_the_workspace_channel(tmp_path) -> Non
         )
         session.commit()
         resolver = WorkspaceSlackNotificationResolver(
-            store, WorkspaceAuthorizedConnectionResolver(store), slack_client(lambda _: httpx.Response(200))
+            store,
+            WorkspaceAuthorizedConnectionResolver(store),
+            slack_client(lambda _: httpx.Response(200)),
         )
         provider = resolver.resolve_for_lead(
             session,
@@ -660,9 +775,7 @@ def test_successful_slack_notification_and_revoke_use_mocked_boundaries(tmp_path
             assert request.headers["Authorization"] == f"Bearer workspace-{workspace}"
             if request.url.path.endswith("chat.postMessage"):
                 form = parse_qs(request.content.decode())
-                assert form["client_msg_id"] == [
-                    str(uuid5(NAMESPACE_URL, "lead-agent:route-1"))
-                ]
+                assert form["client_msg_id"] == [str(uuid5(NAMESPACE_URL, "lead-agent:route-1"))]
             return httpx.Response(200, json={"ok": True, "ts": "123.456", "revoked": True})
 
         resolver = WorkspaceSlackNotificationResolver(

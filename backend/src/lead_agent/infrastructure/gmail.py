@@ -4,6 +4,7 @@ import base64
 import binascii
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import html
 import json
 import re
 import time
@@ -40,6 +41,7 @@ GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 _API = "https://gmail.googleapis.com/gmail/v1/users/me"
 _MAX_BODY_CHARS = 32_000
 _MAX_MESSAGE_BYTES = 1_000_000
+_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 _AUTO_LOCAL = re.compile(
     r"(?:^|[+._-])(no.?reply|do.?not.?reply|mailer-daemon|postmaster)(?:$|[+._-])", re.I
 )
@@ -152,22 +154,29 @@ def _phone_evidence_is_from_source(source: str, excerpt: str) -> bool:
 
 
 def _field_evidence_matches(
-    field: str, source: str, excerpt: str, value: str | None = None,
+    field: str, source: str, excerpt: str, value: Any | None = None,
 ) -> bool:
+    value_text = str(value) if value is not None else None
     if field == "phone":
         return (
             _phone_evidence_is_from_source(source, excerpt)
-            and (value is None or _phone_evidence_is_from_source(excerpt, value))
+            and (
+                value_text is None
+                or _phone_evidence_is_from_source(excerpt, value_text)
+            )
         )
     return (
         _evidence_is_from_source(source, excerpt)
-        and (value is None or _evidence_is_from_source(excerpt, value))
+        and (value_text is None or _evidence_is_from_source(excerpt, value_text))
     )
 
 
 def _verified_optional_fields(candidate: Any, sources: dict[str, str]) -> tuple[Any, list[str]]:
     """Unknown enrichment must not veto a separately verified prospect identity."""
-    optional = {"company_name", "job_title", "requested_service", "referral_context"}
+    optional = {
+        "company_name", "industry", "job_title", "geography", "employee_count",
+        "annual_revenue", "budget", "requested_service", "referral_context",
+    }
     if candidate.email:
         optional.add("phone")
     dropped = []
@@ -271,7 +280,7 @@ class GmailTransport:
         self.client = client or httpx.Client(timeout=timeout_seconds)
         self.access_token = access_token
 
-    def get(self, path: str, **params: object) -> dict[str, Any]:
+    def get(self, path: str, *, max_response_bytes: int = _MAX_MESSAGE_BYTES, **params: object) -> dict[str, Any]:
         response: httpx.Response | None = None
         for attempt in range(3):
             try:
@@ -315,7 +324,7 @@ class GmailTransport:
                 category="temporarily_unavailable",
                 retryable=True,
             )
-        if len(response.content) > _MAX_MESSAGE_BYTES:
+        if len(response.content) > max_response_bytes:
             raise ProviderOperationError(
                 "Gmail message exceeds the permitted size.",
                 provider="gmail",
@@ -1140,10 +1149,15 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
         body = part.get("body", {})
         if not isinstance(body, dict):
             return
-        if filename and mime not in {"text/plain", "message/rfc822"}:
+        if filename and mime != "text/plain":
             return
         data = _decode_body(body.get("data"))
-        if mime in {"text/plain", "message/rfc822"} and data:
+        # message/rfc822 parts are attached or forwarded emails. Adding their
+        # raw RFC headers to the parent message makes the inbox unreadable and
+        # can cause a quoted message to be treated as the newest lead reply.
+        # Gmail exposes the parent message body separately, so only ingest
+        # displayable plain-text parts here.
+        if mime == "text/plain" and data:
             plain.append(data)
         elif mime == "text/html" and data:
             html.append(data)
@@ -1167,6 +1181,33 @@ def parse_mime_body(payload: dict[str, Any]) -> str:
             if normalized_html not in normalized_plain:
                 content = f"{content}\n\n{html_content}"
     return content[:_MAX_BODY_CHARS]
+
+
+def parse_mime_attachments(payload: dict[str, Any]) -> list[dict[str, str | int]]:
+    """Return display-safe Gmail attachment metadata without downloading file bytes."""
+    attachments: list[dict[str, str | int]] = []
+
+    def visit(part: dict[str, Any]) -> None:
+        body = part.get("body", {})
+        if isinstance(body, dict):
+            attachment_id = str(body.get("attachmentId") or "")
+            filename = str(part.get("filename") or "").strip()
+            mime_type = str(part.get("mimeType") or "application/octet-stream").lower()
+            if attachment_id and filename:
+                attachments.append({
+                    "attachment_id": attachment_id[:255],
+                    "filename": filename[:255],
+                    "mime_type": mime_type[:127],
+                    "size": min(max(int(body.get("size") or 0), 0), _MAX_ATTACHMENT_BYTES),
+                })
+        children = part.get("parts", [])
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict):
+                    visit(child)
+
+    visit(payload)
+    return attachments[:20]
 
 
 class GmailInboundProvider:
@@ -1400,6 +1441,11 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            reply_to = ", ".join(
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("reply-to", "")])
+                if address
+            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")])
@@ -1420,7 +1466,8 @@ class GmailInboundProvider:
                 "recipients": ", ".join(recipients)[:1000],
                 "subject": headers.get("subject", "(no subject)")[:500],
                 "sent_at": sent_at,
-                "snippet": str(metadata.get("snippet") or "")[:500],
+                # Gmail API snippets are HTML-escaped ("wasn&#39;t"); show plain text.
+                "snippet": html.unescape(str(metadata.get("snippet") or ""))[:500],
                 "direction": (
                     "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
                 ),
@@ -1433,12 +1480,12 @@ class GmailInboundProvider:
             else None,
         }
 
-    def fetch_mailbox_thread(self, thread_id: str) -> list[dict[str, str]]:
+    def fetch_mailbox_thread(self, thread_id: str) -> list[dict[str, Any]]:
         """Read a full thread from this mailbox, including messages to non-lead recipients."""
         result = self.api.get(
             f"threads/{thread_id}",
             format="full",
-            fields="id,messages(id,threadId,internalDate,snippet,payload(mimeType,headers,body(data),parts(mimeType,filename,body(data),parts)))",
+            fields="id,messages(id,threadId,internalDate,snippet,payload(mimeType,headers,body(data,attachmentId,size),parts(mimeType,filename,body(data,attachmentId,size),parts(mimeType,filename,body(data,attachmentId,size)))))",
         )
         rows: list[dict[str, str]] = []
         messages = result.get("messages", [])
@@ -1454,6 +1501,11 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
+            reply_to = ", ".join(
+                address.strip().lower()
+                for _name, address in getaddresses([headers.get("reply-to", "")])
+                if address
+            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses(
@@ -1473,6 +1525,7 @@ class GmailInboundProvider:
                 "thread_id": str(message.get("threadId") or thread_id),
                 "sender": sender.strip().lower(),
                 "sender_name": sender_name[:255],
+                "reply_to": reply_to[:1000],
                 "recipients": ", ".join(recipients)[:1000],
                 "subject": headers.get("subject", "(no subject)")[:500],
                 "sent_at": sent_at,
@@ -1480,10 +1533,73 @@ class GmailInboundProvider:
                 "direction": (
                     "outbound" if sender.strip().lower() == self.mailbox_email else "inbound"
                 ),
-                "body": (body or str(message.get("snippet") or ""))[:8000],
+                "body": (body or html.unescape(str(message.get("snippet") or "")))[:8000],
+                "attachments": parse_mime_attachments(payload),
             })
         rows.sort(key=lambda item: item["sent_at"])
         return rows
+
+    def fetch_mailbox_attachment(self, message_id: str, attachment_id: str) -> tuple[bytes, str, str]:
+        """Fetch one attachment only after it was listed in its message's metadata."""
+        result = self.api.get(
+            f"messages/{message_id}",
+            format="full",
+            fields="id,payload(mimeType,filename,body(attachmentId,size),parts(mimeType,filename,body(attachmentId,size),parts(mimeType,filename,body(attachmentId,size))))",
+        )
+        payload = result.get("payload", {})
+        found: tuple[str, str, int] | None = None
+
+        def visit(part: dict[str, Any]) -> None:
+            nonlocal found
+            if found is not None:
+                return
+            body = part.get("body", {})
+            if isinstance(body, dict) and str(body.get("attachmentId") or "") == attachment_id:
+                size = int(body.get("size") or 0)
+                if size > _MAX_ATTACHMENT_BYTES:
+                    raise ProviderOperationError(
+                        "This attachment is larger than 10 MB.", provider="gmail",
+                        code="gmail_attachment_too_large", category="invalid_request", retryable=False,
+                    )
+                found = (str(part.get("filename") or "attachment"), str(part.get("mimeType") or "application/octet-stream"), size)
+                return
+            children = part.get("parts", [])
+            if isinstance(children, list):
+                for child in children:
+                    if isinstance(child, dict):
+                        visit(child)
+
+        if isinstance(payload, dict):
+            visit(payload)
+        if found is None:
+            raise ProviderOperationError(
+                "Gmail attachment was not found in this message.", provider="gmail",
+                code="gmail_attachment_missing", category="not_found", retryable=False,
+            )
+        attachment = self.api.get(
+            f"messages/{message_id}/attachments/{attachment_id}",
+            max_response_bytes=14 * 1024 * 1024,
+        )
+        encoded = attachment.get("data")
+        if not isinstance(encoded, str):
+            raise ProviderOperationError(
+                "Gmail returned an unreadable attachment.", provider="gmail",
+                code="gmail_attachment_malformed", category="malformed_response", retryable=False,
+            )
+        try:
+            content = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        except (ValueError, binascii.Error):
+            raise ProviderOperationError(
+                "Gmail returned an unreadable attachment.", provider="gmail",
+                code="gmail_attachment_malformed", category="malformed_response", retryable=False,
+            ) from None
+        if len(content) > _MAX_ATTACHMENT_BYTES:
+            raise ProviderOperationError(
+                "This attachment is larger than 10 MB.", provider="gmail",
+                code="gmail_attachment_too_large", category="invalid_request", retryable=False,
+            )
+        filename, mime_type, _size = found
+        return content, filename, mime_type
 
     def fetch_thread(self, thread_id: str, *, lead_email: str) -> list[dict[str, str]]:
         """Read messages between this mailbox and a lead from a known Gmail thread."""
@@ -1929,7 +2045,9 @@ class GmailInboundProvider:
                     # fields must not veto independently valid candidates.
                     candidate = candidate.model_copy(update={
                         "full_name": None, "email": None, "company_name": None,
-                        "job_title": None, "requested_service": None, "phone": None,
+                        "industry": None, "job_title": None, "geography": None,
+                        "employee_count": None, "annual_revenue": None, "budget": None,
+                        "requested_service": None, "phone": None,
                         "evidence": [],
                     })
                 else:
@@ -1957,7 +2075,12 @@ class GmailInboundProvider:
                     "full_name": candidate.full_name,
                     "email": candidate.email,
                     "company_name": candidate.company_name,
+                    "industry": candidate.industry,
                     "job_title": candidate.job_title,
+                    "geography": candidate.geography,
+                    "employee_count": candidate.employee_count,
+                    "annual_revenue": candidate.annual_revenue,
+                    "budget": candidate.budget,
                     "requested_service": candidate.requested_service,
                     "phone": candidate.phone,
                 }.items():
@@ -1966,7 +2089,7 @@ class GmailInboundProvider:
                             item for item in candidate.evidence if item.field == field_name
                         ]
                         if not field_evidence or not any(
-                            _evidence_is_from_source(item.excerpt, field_value)
+                            _evidence_is_from_source(item.excerpt, str(field_value))
                             for item in field_evidence
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
@@ -2165,14 +2288,24 @@ class GmailInboundProvider:
                 if contact_phone
                 else extracted.phone if extracted else None
             ),
-            "geography": contact_phone.get("country") if contact_phone else None,
-            "gmail_phone_country_inferred": bool(
-                contact_phone and contact_phone.get("country")
-            ),
             "company_name": (
                 (extracted.company_name if extracted else None) or explicit_company or company or "Unknown company"
             ),
-            "industry": explicit_industry,
+            "industry": (
+                (extracted.industry if extracted else None) or explicit_industry
+            ),
+            "geography": (
+                (extracted.geography if extracted else None)
+                or (contact_phone.get("country") if contact_phone else None)
+            ),
+            "gmail_phone_country_inferred": bool(
+                contact_phone
+                and contact_phone.get("country")
+                and not (extracted and extracted.geography)
+            ),
+            "employee_count": extracted.employee_count if extracted else None,
+            "annual_revenue": extracted.annual_revenue if extracted else None,
+            "budget": extracted.budget if extracted else None,
             "product_or_service": (
                 (extracted.requested_service if extracted else None) or "Inbound inquiry"
             ),
@@ -2441,7 +2574,12 @@ class GmailInboundProvider:
                 "full_name": candidate.full_name,
                 "email": candidate.email,
                 "company_name": candidate.company_name,
+                "industry": candidate.industry,
                 "job_title": candidate.job_title,
+                "geography": candidate.geography,
+                "employee_count": candidate.employee_count,
+                "annual_revenue": candidate.annual_revenue,
+                "budget": candidate.budget,
                 "phone": candidate.phone,
                 "requested_service": candidate.requested_service,
                 "referred_by": candidate.referred_by,
@@ -2538,10 +2676,14 @@ class GmailInboundProvider:
                     if contact_phone
                     else candidate.phone or ""
                 ),
-                "geography": phone_country,
-                "gmail_phone_country_inferred": bool(phone_country),
+                "geography": candidate.geography or phone_country,
+                "gmail_phone_country_inferred": bool(phone_country and not candidate.geography),
                 "company_name": candidate.company_name or "Unknown",
+                "industry": candidate.industry,
                 "job_title": candidate.job_title,
+                "employee_count": candidate.employee_count,
+                "annual_revenue": candidate.annual_revenue,
+                "budget": candidate.budget,
                 "product_or_service": candidate.requested_service or "Unknown",
                 "message": f"{summary}\n\nOriginal thread:\n{thread_text}",
                 "gmail_candidate_role": candidate.role,
@@ -2652,7 +2794,7 @@ class GmailOutboundProvider:
             f"We have received your request for {company_name or 'your team'} and "
             "our team will review it shortly.\n\n"
             "We will follow up with the next step soon.\n\n"
-            "Best,\nThe team"
+            "Best regards,"
         )
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
         payload = self.api.post("messages/send", {"raw": raw})

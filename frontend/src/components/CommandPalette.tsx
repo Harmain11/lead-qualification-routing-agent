@@ -1,3 +1,4 @@
+import { Icon } from "../v3/ui/Icon";
 import { useEffect, useRef, useState } from "react";
 import { listLeads } from "../api";
 import { opsGet, type Company, type Contact } from "../operationsApi";
@@ -64,7 +65,7 @@ export function CommandPalette({
             (data) =>
               data.items.map((item) => ({
                 id: item.id,
-                label: `${item.full_name} · ${item.company_name}`,
+                label: [item.full_name, item.company_name].filter(Boolean).join(" · ") || "Unnamed lead",
                 kind: "Lead" as const,
               })),
           ),
@@ -74,7 +75,7 @@ export function CommandPalette({
           ).then((data) =>
             data.items.map((item) => ({
               id: item.id,
-              label: item.name + " · " + (item.email || ""),
+              label: [item.name, item.email].filter(Boolean).join(" · ") || "Unnamed contact",
               kind: "Contact" as const,
             })),
           ),
@@ -84,7 +85,7 @@ export function CommandPalette({
           ).then((data) =>
             data.items.map((item) => ({
               id: item.id,
-              label: item.name + " · " + (item.domain || ""),
+              label: [item.name, item.domain].filter(Boolean).join(" · ") || "Unnamed company",
               kind: "Company" as const,
             })),
           ),
@@ -140,17 +141,18 @@ export function CommandPalette({
             }
           }}>
           <label className="command-search-field">
-            Search pages, leads, contacts and companies
+            <Icon name="search" size={18} />
+            <span className="v-sr">Search pages, leads, contacts and companies</span>
             <input
               autoFocus
               type="search"
-              placeholder="Search Corral…"
+              placeholder="Search pages, leads, contacts and companies"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
           <p className="ops-muted">
-            Use ↑ ↓ to move, Enter to open, or Escape to close.
+            Use the up and down keys to move, Enter to open, or Escape to close.
           </p>
           <div className="ops-result-list" ref={resultList} aria-label="Search results">
             {matchedPages.map((page) => (

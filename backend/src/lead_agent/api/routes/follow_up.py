@@ -11,7 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from lead_agent.api.dependencies import require_permission
+from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.api.routes.email import (
     EmailAttachment,
     _sanitize_email_html,
@@ -22,6 +22,7 @@ from lead_agent.application.follow_up import (
     generate_follow_up_draft,
     send_approved_follow_up,
 )
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import LeadFollowUpEmailORM, LeadORM, PipelineEventORM
 from lead_agent.infrastructure.db.session import get_db
@@ -183,7 +184,8 @@ def delete_appointment_draft(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> None:
-    _lead(session, lead_id, workspace.workspace_id)
+    lead = _lead(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     draft = session.scalar(select(LeadFollowUpEmailORM).where(
         LeadFollowUpEmailORM.id == draft_id,
         LeadFollowUpEmailORM.lead_id == lead_id,
@@ -220,6 +222,7 @@ def create_follow_up_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> dict[str, object]:
     lead = _lead(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     try:
         row = generate_follow_up_draft(session, lead, actor_id=workspace.actor_id)
     except FollowUpNotEligible as error:
@@ -236,6 +239,7 @@ def update_follow_up_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> dict[str, object]:
     lead = _lead(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     row = session.scalar(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.id == draft_id,
@@ -271,9 +275,12 @@ def approve_and_send_follow_up(
     lead_id: UUID,
     draft_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.edit", "mailbox.send_own")
+    ),
 ) -> dict[str, object]:
-    _lead(session, lead_id, workspace.workspace_id)
+    lead = _lead(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     row = session.scalar(
         select(LeadFollowUpEmailORM).where(
             LeadFollowUpEmailORM.id == draft_id,

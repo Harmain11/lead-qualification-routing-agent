@@ -27,6 +27,7 @@ class ContactRecord(RecordResponse):
     phone: str | None
     job_title: str | None
     timezone: str
+    profile: dict[str, Any]
     updated_at: datetime
 
 
@@ -94,6 +95,7 @@ class ConsentPage(BaseModel):
 class NoteRecord(RecordResponse):
     id: UUID
     body: str
+    is_private: bool = False
     version: int
     author_id: str
     updated_by: str

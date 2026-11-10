@@ -1,41 +1,44 @@
 /* Corral v3 — sign in. One calm card, the mark, and nothing competing with it. */
 .a-shell {
   position: relative;
-  display: grid;
-  grid-template-rows: 1fr auto;
-  justify-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   min-height: 100dvh;
   padding: 48px 16px 24px;
   background:
     radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--c-green) 10%, transparent), transparent 70%),
     var(--canvas);
+  box-sizing: border-box;
 }
 .a-theme {
-  position: absolute; top: 16px; right: 16px; height: 30px; padding: 0 12px;
+  position: absolute; z-index: 1; top: 16px; right: 16px; display: grid; place-items: center; min-height: 34px; padding: 0 12px;
   border: 0; border-radius: var(--r-pill); background: var(--fill-hover); color: var(--label-2); font: 500 13px/1 var(--font);
 }
 .a-card {
-  align-self: center;
+  flex: 0 0 auto;
+  margin-block: auto;
   display: grid;
   justify-items: center;
-  width: min(400px, 100%);
+  width: min(440px, 100%);
   padding: 40px 32px 32px;
   border-radius: 24px;
   background: var(--surface);
   text-align: center;
   animation: v-sheet-in var(--d-slow) var(--ease-sheet);
+  box-sizing: border-box;
 }
 .a-mark { width: 64px; height: 64px; margin-bottom: 18px; }
-.a-card h1 { font: 700 26px/1.2 var(--font-display); letter-spacing: -0.024em; }
-.a-lede { margin-top: 8px; max-width: 32ch; font: var(--t-callout); color: var(--label-2); }
+.a-card h1 { max-width: 100%; margin: 0; font: 700 26px/1.2 var(--font-display); letter-spacing: -0.024em; text-wrap: balance; }
+.a-lede { margin: 8px 0 0; max-width: 38ch; font: var(--t-callout); color: var(--label-2); text-wrap: pretty; }
 .a-modes {
   position: relative; isolation: isolate;
   display: grid; grid-template-columns: repeat(3, 1fr);
-  width: 100%; height: 32px; margin: 26px 0 18px; padding: 2px;
+  width: 100%; height: 40px; margin: 26px 0 18px; padding: 3px;
   border-radius: 9px; background: var(--fill);
 }
 .a-modes-thumb {
-  position: absolute; z-index: -1; top: 2px; bottom: 2px; left: 2px; width: calc((100% - 4px) / 3);
+  position: absolute; z-index: -1; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3);
   border-radius: 7px; background: var(--surface); box-shadow: 0 1px 3px rgba(15, 27, 45, 0.1);
   transform: translateX(calc(100% * var(--a-index))); transition: transform var(--d-base) var(--ease-out);
 }
@@ -51,14 +54,25 @@ html[data-theme="dark"] .a-modes-thumb { background: #2b363f; }
 .a-google:active { transform: scale(0.98); }
 .a-or { display: flex; align-items: center; gap: 12px; width: 100%; margin: 16px 0; font: var(--t-footnote); color: var(--label-3); }
 .a-or::before, .a-or::after { content: ""; flex: 1; height: var(--hairline); background: var(--separator); }
-.a-form { display: grid; gap: 14px; width: 100%; }
-.a-fields { display: grid; gap: 1px; border-radius: 12px; background: var(--separator); overflow: hidden; text-align: left; }
-.a-field { display: grid; gap: 2px; padding: 9px 14px 8px; background: var(--fill-hover); cursor: text; }
-html:not([data-theme="dark"]) .a-field { background: #f1f3f0; }
+.a-form { display: grid; gap: 14px; width: 100%; min-width: 0; }
+.a-fields { display: grid; gap: 10px; width: 100%; min-width: 0; background: transparent; overflow: visible; text-align: left; }
+.a-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px 14px 10px;
+  border: 1px solid var(--separator-strong);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  cursor: text;
+  box-sizing: border-box;
+  transition: border-color var(--d-fast) ease, box-shadow var(--d-fast) ease;
+}
 .a-field span { font: 500 12px/1.2 var(--font); color: var(--label-3); }
-.a-field input { width: 100%; height: 22px; padding: 0; border: 0; background: transparent; font: 400 16px/1.2 var(--font); color: var(--label); }
+.a-field input { display: block; width: 100%; min-width: 0; height: 24px; padding: 0; border: 0; background: transparent; font: 400 16px/1.35 var(--font); color: var(--label); box-sizing: border-box; }
 .a-field input:focus { outline: none; }
-.a-field:focus-within { box-shadow: inset 0 0 0 2px var(--focus); }
+.a-field input:focus-visible { outline: none; box-shadow: none; }
+.a-field:focus-within { border-color: var(--tint); box-shadow: 0 0 0 3px var(--tint-soft); }
 .a-field input::placeholder { color: var(--label-4); }
 .a-submit {
   width: 100%; height: 46px; border: 0; border-radius: 12px; background: var(--tint); color: #fff; font: 600 16px/1 var(--font);
@@ -72,7 +86,15 @@ html:not([data-theme="dark"]) .a-field { background: #f1f3f0; }
 .a-error { padding: 10px 12px; border-radius: 10px; background: var(--danger-soft); color: var(--danger-text); font: var(--t-callout); text-align: left; }
 .a-state { display: grid; gap: 8px; width: 100%; padding: 16px; border-radius: 12px; background: var(--fill); font: var(--t-callout); color: var(--label-2); }
 .a-state b { color: var(--label); }
-.a-foot { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; padding-top: 32px; font: var(--t-footnote); color: var(--label-3); text-align: center; }
-.a-foot nav { display: flex; gap: 14px; }
+.a-foot { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px; width: min(100%, 920px); margin-top: 24px; padding: 8px 0 0; font: var(--t-footnote); color: var(--label-3); text-align: center; box-sizing: border-box; }
+.a-foot > span { max-width: 100%; overflow-wrap: anywhere; }
+.a-foot nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 14px; }
 .a-foot a { color: inherit; }
-@media (max-width: 480px) { .a-card { padding: 32px 20px 24px; } }
+.a-fields > .a-hint { max-width: 100%; margin: -2px 4px 0; line-height: 1.4; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .a-card { padding: 32px 20px 24px; border-radius: 20px; }
+  .a-card h1 { font-size: 24px; }
+}
+.a-notice { padding: 10px 12px; border-radius: 10px; background: var(--tint-soft); color: var(--tint-text); font: var(--t-callout); text-align: left; }
+.a-forgot { justify-self: end; margin: -6px -8px 0 0; font-size: 13px; }
+.a-hint { margin: -4px 0 0; font: var(--t-footnote); color: var(--label-3); text-align: left; }

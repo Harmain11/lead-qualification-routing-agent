@@ -19,6 +19,7 @@ from lead_agent.infrastructure.db.models import (
     AuthSessionORM,
     EmailVerificationTokenORM,
     ExternalIdentityORM,
+    PasswordResetTokenORM,
     UserORM,
     WorkspaceMembershipORM,
     WorkspaceORM,
@@ -276,6 +277,107 @@ def resend_email_verification(
         raise
     session.commit()
     return True
+
+
+def request_password_reset(
+    session: Session,
+    *,
+    email: str,
+    reset_base_url: str,
+    expiry_minutes: int = 30,
+    resend_after_seconds: int = 60,
+) -> VerificationEmail | None:
+    """Store a single-use reset token and return the email to send, if any.
+
+    Sending is left to the caller so the HTTP response can return before any
+    mail is handed off; otherwise response time would reveal which addresses
+    have accounts.
+    """
+    normalized_email = email.strip().lower()
+    user = session.scalar(select(UserORM).where(UserORM.email == normalized_email))
+    if user is None or user.status != "active" or not user.email_verified:
+        return None
+    now = datetime.now(UTC)
+    latest = session.scalar(
+        select(PasswordResetTokenORM)
+        .where(PasswordResetTokenORM.user_id == user.id)
+        .order_by(PasswordResetTokenORM.created_at.desc())
+    )
+    if latest is not None:
+        created_at = (
+            latest.created_at.replace(tzinfo=UTC)
+            if latest.created_at.tzinfo is None
+            else latest.created_at
+        )
+        if created_at + timedelta(seconds=resend_after_seconds) > now:
+            return None
+    token = secrets.token_urlsafe(48)
+    expires_at = now + timedelta(minutes=expiry_minutes)
+    session.add(
+        PasswordResetTokenORM(
+            id=uuid4(),
+            user_id=user.id,
+            token_hash=_digest(token),
+            expires_at=expires_at,
+            consumed_at=None,
+            created_at=now,
+        )
+    )
+    session.commit()
+    return VerificationEmail(
+        recipient=normalized_email,
+        verification_url=f"{reset_base_url.rstrip('/')}/?reset_password={token}",
+        expires_at=expires_at.isoformat(),
+        purpose="reset_password",
+    )
+
+
+def send_password_reset_email(email_provider: EmailProvider, message: VerificationEmail) -> None:
+    """Background delivery; a failed send leaves an unused token that simply expires."""
+    try:
+        email_provider.send_verification_email(message)
+    except EmailDeliveryError:
+        logger.warning("auth.password_reset_delivery_failed")
+
+
+def reset_password(session: Session, token: str, new_password: str) -> None:
+    """Set a new password from a valid reset link and sign the account out everywhere."""
+    if not token.strip():
+        raise AuthenticationError("password reset link is invalid or expired")
+    row = session.scalar(
+        select(PasswordResetTokenORM)
+        .where(PasswordResetTokenORM.token_hash == _digest(token))
+        .with_for_update()
+    )
+    now = datetime.now(UTC)
+    expires_at = (
+        row.expires_at.replace(tzinfo=UTC)
+        if row and row.expires_at.tzinfo is None
+        else (row.expires_at if row else None)
+    )
+    if row is None or row.consumed_at is not None or expires_at is None or expires_at <= now:
+        raise AuthenticationError("password reset link is invalid or expired")
+    user = session.get(UserORM, row.user_id)
+    if user is None or user.status != "active":
+        raise AuthenticationError("password reset link is invalid or expired")
+    user.password_hash = hash_password(new_password)
+    user.updated_at = now
+    # Every outstanding link and every signed-in session stops working.
+    for pending in session.scalars(
+        select(PasswordResetTokenORM).where(
+            PasswordResetTokenORM.user_id == user.id,
+            PasswordResetTokenORM.consumed_at.is_(None),
+        )
+    ):
+        pending.consumed_at = now
+    for active in session.scalars(
+        select(AuthSessionORM).where(
+            AuthSessionORM.user_id == user.id,
+            AuthSessionORM.revoked_at.is_(None),
+        )
+    ):
+        active.revoked_at = now
+    session.commit()
 
 
 def verify_email_token(

@@ -11,6 +11,8 @@
 .v-app[data-sidebar="hidden"] .v-sidebar { visibility: hidden; transition: visibility 0s var(--d-slow); }
 
 /* ---------------------------------------------------------------- Sidebar */
+
+/* ---------------------------------------------------------------- Sidebar */
 .v-sidebar {
   position: sticky;
   top: 0;
@@ -104,6 +106,8 @@
 }
 
 /* Workspace switcher, dressed as the sidebar's title. */
+
+/* Workspace switcher, dressed as the sidebar's title. */
 .v-sidebar-workspace .workspace-switcher, .v-more-workspace .workspace-switcher { display: block; position: relative; }
 .v-sidebar-workspace .workspace-trigger, .v-more-workspace .workspace-trigger {
   display: grid;
@@ -149,6 +153,8 @@
 .v-sidebar-workspace .workspace-switcher > small, .v-more-workspace .workspace-switcher > small {
   position: absolute; left: 46px; top: 26px; font: 400 12px/1.2 var(--font); color: var(--label-3); pointer-events: none;
 }
+
+/* ---------------------------------------------------------------- Window */
 
 /* ---------------------------------------------------------------- Window */
 .v-window { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 100dvh; transition: margin-right var(--d-slow) var(--ease-sheet); }
@@ -206,9 +212,9 @@
 .v-ask[aria-expanded="true"] img { filter: brightness(0) invert(1); }
 
 .v-content { flex: 1; min-width: 0; padding: 12px var(--page-pad) 72px; }
-.v-page { width: 100%; max-width: var(--v-page-max); margin: 0 auto; animation: v-page-in var(--d-slow) var(--ease-out); }
+.v-page { width: 100%; max-width: var(--v-page-max); margin: 0 auto; animation: v-page-in var(--d-fast) var(--ease-out); }
 .v-page[data-width="wide"] { max-width: 1440px; }
-@keyframes v-page-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes v-page-in { from { opacity: 0; } }
 
 .v-footer {
   display: flex;
@@ -225,6 +231,8 @@
 .v-alert-bar { margin: 0 auto 16px; max-width: var(--v-page-max); }
 
 /* Notification bell, restyled to sit with the toolbar's icon buttons. */
+
+/* Notification bell, restyled to sit with the toolbar's icon buttons. */
 .v-toolbar .lead-notification-center { position: relative; }
 .v-toolbar .lead-notification-trigger {
   position: relative; display: grid; place-items: center; width: 32px; height: 32px;
@@ -237,6 +245,8 @@
   display: grid; place-items: center; border-radius: 8px; background: var(--c-amber); color: var(--on-attention);
   font: 700 10px/1 var(--font); box-shadow: 0 0 0 2px var(--canvas);
 }
+
+/* -------------------------------------------------------------- Inspector */
 
 /* -------------------------------------------------------------- Inspector */
 .corral-agent-window {
@@ -292,6 +302,8 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
 .corral-agent-list-status, .corral-agent-access-note, .corral-agent-error { font: var(--t-callout); color: var(--label-2); }
 
 /* ---------------------------------------------------------------- Tab bar */
+
+/* ---------------------------------------------------------------- Tab bar */
 .v-tabbar { display: none; }
 @media (max-width: 767px) {
   .v-app, .v-app[data-sidebar="hidden"] { grid-template-columns: minmax(0, 1fr); }
@@ -343,6 +355,8 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
 }
 
 /* "More" sheet */
+
+/* "More" sheet */
 .v-more { display: grid; gap: 22px; }
 .v-more-workspace .workspace-trigger { background: var(--fill); }
 .v-more-section h3 { padding: 0 4px 8px; font: 600 13px/1 var(--font); color: var(--label-3); }
@@ -361,6 +375,10 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
 /* Product tour, OpenAI prompt and toasts keep their own components; they inherit the type and colour system. */
 
 /* ------------------------------------------------------------- Odds & ends */
+
+/* Product tour, OpenAI prompt and toasts keep their own components; they inherit the type and colour system. */
+
+/* ------------------------------------------------------------- Odds & ends */
 .v-skip { position: fixed; top: 8px; left: 8px; z-index: 100; padding: 8px 14px; border-radius: var(--r-sm); background: var(--tint); color: #fff; transform: translateY(-200%); }
 .v-skip:focus { transform: none; }
 .v-content:focus { outline: none; }
@@ -374,6 +392,7 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
 .v-section-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding-bottom: 20px; }
 .v-section-tabs .v-tab-pill { border: 0; background: transparent; cursor: pointer; }
 .v-section-tabs .v-tab-pill[aria-current="page"] { background: var(--label); color: var(--canvas); }
+/* When a page has section tabs, its own big title would repeat the one above. */
 /* When a page has section tabs, its own big title would repeat the one above. */
 .v-section-tabs-wrap ~ .v-page .page-hero h1, .v-section-tabs-wrap ~ .v-page .page-hero > div > p { display: none; }
 .v-section-tabs-wrap ~ .v-page .page-hero:not(:has(> :not(div:first-child))) { display: none; }
@@ -393,3 +412,14 @@ html[data-theme="dark"] .v-agent-scope button[aria-checked="true"] { background:
 .loading-state .loading-core { width: 56px; height: 56px; margin-bottom: 8px; background: url("/asset/brand/corral-mark.png") center / contain no-repeat; animation: v-breathe 1.6s ease-in-out infinite; }
 .loading-state .loading-core i { display: none; }
 .loading-state b { font: var(--t-headline); color: var(--label); }
+
+.v-appearance-options { display: inline-flex; gap: var(--s1); margin-left: auto; }
+.v-appearance-option {
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--label-2);
+  padding: var(--s1) var(--s2); font: var(--t-subhead);
+}
+.v-appearance-option[aria-checked="true"] { background: var(--tint-soft); color: var(--tint-text); font-weight: 600; }
+
+/* The page area is a size container: content adapts to the space it actually
+   has (screen minus sidebar, minus Ask Corral when open), never overflowing. */
+.v-window { container: page / inline-size; }

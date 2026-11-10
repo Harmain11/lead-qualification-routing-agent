@@ -97,7 +97,6 @@ export function SalesforceSetupGuide({
       >
         <header className="salesforce-guide-header">
           <div className="salesforce-guide-heading">
-            <span className="eyebrow">Salesforce connection</span>
             <h2 id="salesforce-guide-title">Prepare your Salesforce org</h2>
             <p id="salesforce-guide-intro">
               Install Corral’s package in the org you intend to connect, then authorize access. Your Salesforce administrator can help with the install.
@@ -111,14 +110,14 @@ export function SalesforceSetupGuide({
             disabled={busy}
             aria-label="Close setup guide"
           >
-            <span aria-hidden="true">×</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="m3 3 8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" /></svg>
           </button>
         </header>
 
         <div className="salesforce-guide-content">
           <ol className="salesforce-guide-steps">
             <li className="salesforce-guide-step">
-              <span className="salesforce-step-number" aria-hidden="true">01</span>
+              <span className="salesforce-step-number" aria-hidden="true">1</span>
               <div className="salesforce-step-copy">
                 <h3>Install the package in the right org</h3>
                 <p>
@@ -130,7 +129,7 @@ export function SalesforceSetupGuide({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Open Corral package installer <span aria-hidden="true">↗</span>
+                  Open the Corral package installer
                 </a>
                 <p className="salesforce-guide-note">
                   The installer opens in a new tab. If your browser blocks it, use the link above to open it manually.
@@ -138,16 +137,16 @@ export function SalesforceSetupGuide({
               </div>
             </li>
             <li className="salesforce-guide-step">
-              <span className="salesforce-step-number" aria-hidden="true">02</span>
+              <span className="salesforce-step-number" aria-hidden="true">2</span>
               <div className="salesforce-step-copy">
                 <h3>Wait for installation to finish</h3>
                 <p>
-                  Continue after Salesforce confirms success. If the package is already installed, verify it in <strong>Setup → Installed Packages</strong>; there is no need to reinstall it.
+                  Continue after Salesforce confirms success. If the package is already installed, verify it in <strong>Setup › Installed Packages</strong>; there is no need to reinstall it.
                 </p>
               </div>
             </li>
             <li className="salesforce-guide-step">
-              <span className="salesforce-step-number" aria-hidden="true">03</span>
+              <span className="salesforce-step-number" aria-hidden="true">3</span>
               <div className="salesforce-step-copy">
                 <h3>Return here to authorize Corral</h3>
                 <p>

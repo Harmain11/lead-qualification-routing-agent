@@ -39,13 +39,21 @@
 - [Lead phone country formatting](lead-phone-country-formatting.md) — Use a clear lead country for dialing codes; only infer +1 for valid NANP numbers when country is absent.
 - [Separate Corral pipelines](separate-pipelines.md) — keep qualification progress alongside a distinct sales journey built from recorded outreach and outcomes.
 - [ICP scoring activation](icp-scoring-activation.md) — Until a custom workspace ICP is published, score urgency and engagement only; built-in ICP fit and exclusions stay inactive.
+- [AI-owned intent scoring](ai-intent-scoring.md) — Intent and urgency points come from validated AI output only; never recalculate them with keyword or stage rules.
+- [Legacy analysis compatibility](legacy-analysis-compatibility.md) — Keep provider validation strict, but adapt older saved analysis JSON when new required fields are added.
 - [Settings categories](settings-categories.md) — Keep workspace configuration under Company and personal/team account settings under User.
 - [Corral Agent scope and approvals](corral-agent-scope.md) — Main workspace for agentic, in-chat work; generalize workflows, preserve approval gates, and show lead buttons only on request.
+- [Corral site access gate](site-access-gate.md) — Use Corral's own password screen and server check backed by Replit Secrets; do not use Replit's built-in gate.
+- [Account deletion policy](account-deletion-policy.md) — Only the signed-in person can delete their account; preserve shared workspaces and protect other members.
+- [Authentication test isolation](auth-test-isolation.md) — Startup-captured site-gate settings can obscure auth-route tests even when dependencies use test settings.
+- [Workspace deletion dependencies](workspace-deletion-dependencies.md) — Check indirect RESTRICT foreign keys; direct workspace cascades alone may not clear dependent link rows.
 - [Corral Agent mobile layout](corral-agent-mobile-layout.md) — Keep the full-screen phone Agent keyboard-aware, background-locked, and limited to one content scroller.
 - [Lead assignment notifications](assignment-notifications.md) — Notify the assigned member in Corral's in-app inbox for new automatic or manual assignments.
+- [Invitation success resilience](invitation-success-resilience.md) — Show a created invitation and its one-time code independently from later roster refreshes; correlate server errors by request and workspace without logging invitee data.
 - [Preview error logs](preview-error-logs.md) — Keep JSON logging in the Replit preview so request paths and sanitized failure details remain visible.
 - [Completed source bundles](source-bundle-integration.md) — Integrate supplied complete workflows, not reduced substitutes; preserve newer behavior from the current app.
 - [Gmail message presentation](gmail-message-presentation.md) — Group by Gmail thread ID, repair legacy IDs, and keep message text readable with warnings collapsed.
 - [Nested flyout alignment](nested-flyout-alignment.md) — Keep category submenus beside and aligned to their selected row, without overlap or horizontal scrolling.
 - [Agent smoke fixtures](agent-browser-smoke-fixtures.md) — DOM-injected fixtures inside mode-specific transcripts can be replaced on remount; reattach them before assertions.
 - [HubSpot contact property provisioning](hubspot-contact-property-provisioning.md) — Create only missing mapped Contact properties; preserve existing definitions and fail clearly on type conflicts.
+- [Dependency security](dependency-security.md) — Preserve patched minima across pip and uv installations; watch for root scaffolding from the managed Python installer.

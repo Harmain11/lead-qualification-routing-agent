@@ -1,8 +1,5 @@
 /* One control scale for every product screen and editor. */
-.primary-button,
-.app-shell .primary-button,
-.lead-drawer .primary-button,
-.ops-dialog .primary-button {
+.primary-button, .app-shell .primary-button, .ops-dialog .primary-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -11,9 +8,9 @@
   max-width: 100%;
   padding: 9px 16px;
   margin: 0;
-  border: 1px solid var(--workspace-accent, #1e6b52);
-  border-radius: var(--radius-sm);
-  background: var(--workspace-accent, #1e6b52);
+  border: 1px solid var(--workspace-accent, var(--tint));
+  border-radius: var(--r-sm);
+  background: var(--workspace-accent, var(--tint));
   color: var(--workspace-accent-text, #fff);
   font-size: 13px;
   font-weight: 600;
@@ -22,21 +19,15 @@
   box-shadow: none;
   transform: none;
 }
-.primary-button:hover:not(:disabled),
-.app-shell .primary-button:hover:not(:disabled),
-.lead-drawer .primary-button:hover:not(:disabled),
-.ops-dialog .primary-button:hover:not(:disabled) {
-  background: var(--workspace-accent, #1e6b52);
-  border-color: var(--workspace-accent, #1e6b52);
+.primary-button:hover:not(:disabled), .app-shell .primary-button:hover:not(:disabled), .ops-dialog .primary-button:hover:not(:disabled) {
+  background: var(--workspace-accent, var(--tint));
+  border-color: var(--workspace-accent, var(--tint));
   color: var(--workspace-accent-text, #fff);
   filter: brightness(.92);
   box-shadow: none;
   transform: none;
 }
-.primary-button:disabled,
-.app-shell .primary-button:disabled,
-.lead-drawer .primary-button:disabled,
-.ops-dialog .primary-button:disabled {
+.primary-button:disabled, .app-shell .primary-button:disabled, .ops-dialog .primary-button:disabled {
   opacity: .5;
   box-shadow: none;
   cursor: not-allowed;
@@ -50,10 +41,10 @@ html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-butto
   max-width: 100%;
   padding: 9px 14px;
   margin: 0;
-  border: 1px solid var(--line-bright);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--r-sm);
   background: var(--surface);
-  color: var(--text);
+  color: var(--label);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -61,9 +52,9 @@ html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-butto
   transform: none;
 }
 html[data-theme] :is(.app-shell, .lead-drawer, .ops-dialog) :is(.secondary-button, .button-quiet, .invitation-actions button):hover:not(:disabled) {
-  border-color: var(--orange);
-  background: var(--surface-high);
-  color: var(--text);
+  border-color: var(--tint);
+  background: var(--surface-sunken);
+  color: var(--label);
   box-shadow: none;
   transform: none;
 }
@@ -72,9 +63,9 @@ button:disabled { cursor: not-allowed; }
 html[data-theme] .danger-button {
   min-height: 40px;
   padding: 9px 14px;
-  border-color: var(--red);
+  border-color: var(--danger);
   background: var(--surface);
-  color: var(--red);
+  color: var(--danger-text);
   font-size: 13px;
   font-weight: 600;
 }

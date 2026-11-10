@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from pydantic import Field, field_validator
-from sqlalchemy import Select, func, inspect, select, update
+from sqlalchemy import Select, func, inspect, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -23,8 +23,11 @@ from lead_agent.api.operations_schemas import (
     ContactRecord,
 )
 from lead_agent.api.schemas import lead_response
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS, insight_visibility
+from lead_agent.application.field_privacy import filter_sensitive_mapping
 from lead_agent.application.governance import audit_operation, hosting_region, operations_policy
 from lead_agent.application.intelligence import suggest_workspace_business_profile
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.auth import AuthenticatedIdentity
 from lead_agent.domain.operations import (
     ConsentInput,
@@ -370,6 +373,7 @@ def audit_export(
     )
     if lead is None:
         raise HTTPException(404, "Lead not found")
+    assert_lead_action(session, workspace, lead, "view")
     linked = session.get(LeadContactORM, lead_id)
     contact = session.get(ContactORM, linked.contact_id) if linked else None
     if contact and contact.workspace_id != workspace.workspace_id:
@@ -380,33 +384,65 @@ def audit_export(
     if company and company.workspace_id != workspace.workspace_id:
         company = None
     queries: dict[str, Select[Any]] = {
-        "events": select(PipelineEventORM).where(PipelineEventORM.lead_id == lead_id),
+        "events": select(PipelineEventORM).where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+        ),
         "follow_ups": select(LeadFollowUpEmailORM).where(LeadFollowUpEmailORM.lead_id == lead_id),
         "consent": select(ConsentEventORM).where(ConsentEventORM.email == lead.email.lower()),
-        "notes": select(LeadNoteORM).where(LeadNoteORM.lead_id == lead_id),
+        "notes": select(LeadNoteORM).where(
+            LeadNoteORM.lead_id == lead_id,
+            or_(
+                LeadNoteORM.is_private.is_(False),
+                LeadNoteORM.author_id == workspace.actor_id,
+                "comments.view_private" in workspace.permissions,
+            ),
+        ),
         "calls": select(CallRecordORM).where(CallRecordORM.lead_id == lead_id),
-        "insights": select(AgentInsightORM).where(AgentInsightORM.lead_id == lead_id),
+        "insights": select(AgentInsightORM).where(
+            AgentInsightORM.lead_id == lead_id, insight_visibility(session, workspace)
+        ),
         "automations": select(AutomationRunORM).where(AutomationRunORM.lead_id == lead_id),
     }
     payload: dict[str, Any] = {
         "exported_at": datetime.now(UTC),
-        "lead": lead_response(lead),
-        "contact": ContactRecord.model_validate(contact) if contact else None,
-        "company": CompanyRecord.model_validate(company) if company else None,
+        "lead": lead_response(lead, permissions=workspace.permissions),
+        "contact": (
+            filter_sensitive_mapping(
+                ContactRecord.model_validate(contact).model_dump(), workspace.permissions
+            )
+            if contact and "fields.contact.view" in workspace.permissions
+            else None
+        ),
+        "company": (
+            filter_sensitive_mapping(
+                CompanyRecord.model_validate(company).model_dump(), workspace.permissions
+            )
+            if company
+            else None
+        ),
     }
     for key, query in queries.items():
         model = query.column_descriptions[0]["entity"]
         payload[key] = [
-            orm_columns(row)
+            filter_sensitive_mapping(orm_columns(row), workspace.permissions)
             for row in session.scalars(query.where(model.workspace_id == workspace.workspace_id))
         ]
-    payload["routing_history"] = [orm_columns(row) for row in lead.routing_decisions]
-    payload["crm_history"] = [orm_columns(row) for row in lead.crm_syncs]
+    payload["routing_history"] = [
+        filter_sensitive_mapping(orm_columns(row), workspace.permissions)
+        for row in lead.routing_decisions
+    ]
+    payload["crm_history"] = [
+        filter_sensitive_mapping(orm_columns(row), workspace.permissions)
+        for row in lead.crm_syncs
+    ]
     payload["notifications"] = [
-        orm_columns(notice) for route in lead.routing_decisions for notice in route.notifications
+        filter_sensitive_mapping(orm_columns(notice), workspace.permissions)
+        for route in lead.routing_decisions
+        for notice in route.notifications
     ]
     payload["agent_tool_audit"] = [
-        orm_columns(row)
+        filter_sensitive_mapping(orm_columns(row), workspace.permissions)
         for row in session.scalars(
             select(AgentToolAuditORM).where(
                 AgentToolAuditORM.workspace_id == workspace.workspace_id,

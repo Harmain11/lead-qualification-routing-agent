@@ -9,7 +9,7 @@ import {
   type DealView,
 } from "../deals/dealStore";
 import { BarList, ColumnChart, GoalRing } from "../ui/charts";
-import { Icon } from "../ui/Icon";
+import { Icon, type IconName } from "../ui/Icon";
 import { Badge, Button, EmptyState, Monogram, PageHeader, Segmented, formatShortDate, titleize } from "../ui/primitives";
 import { sourceLabel } from "./leadFormat";
 
@@ -99,7 +99,7 @@ export function RevenueScreen({
         <div className="r-kpis">
           <Kpi icon="revenue" label={`Recorded ${RANGE_LABEL[range] ?? ""}`} value={revenue ? usd(revenue.total_revenue) : "—"} foot={<DataStatus status={revenue?.data_status} />} />
           <Kpi icon="pipeline" label="Open pipeline" value={usd(pipeline)} foot={`${open.length} open deals`} />
-           <Kpi icon="target" label="Weighted forecast" value={weighted == null ? "—" : usd(weighted)} foot={weighted == null ? "Not tracked: no recorded close rate" : "By recorded cohort win rate"} accent />
+           <Kpi icon="target" label="Weighted forecast" value={weighted == null ? "—" : usd(weighted)} foot={weighted == null ? "Needs 5 closed deals to forecast" : "By recorded cohort win rate"} accent />
           <Kpi icon="quote" label="Quotes out" value={usd(quoted)} foot={`${quotes.length} sent or accepted`} />
           <Kpi icon="trophy" label="Average won deal" value={avgDeal ? usd(avgDeal) : "—"} foot={`${won.length} won`} />
           <Kpi icon="star" label="Win rate" value={won.length + lost.length ? `${Math.round((won.length / (won.length + lost.length)) * 100)}%` : "—"} foot={`${won.length} won · ${lost.length} lost`} />
@@ -178,7 +178,7 @@ function periodLabel(period: string) {
   return period.length === 7 ? date.toLocaleDateString(undefined, { month: "short", year: "2-digit" }) : date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function Kpi({ icon, label, value, foot, accent }: { icon: string; label: string; value: string; foot?: React.ReactNode; accent?: boolean }) {
+function Kpi({ icon, label, value, foot, accent }: { icon: IconName; label: string; value: string; foot?: React.ReactNode; accent?: boolean }) {
   return (
     <div className="r-kpi" data-accent={accent || undefined}>
       <span className="r-kpi-label"><Icon name={icon} size={15} />{label}</span>

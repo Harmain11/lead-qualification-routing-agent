@@ -28,7 +28,9 @@ def dashboard(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "dashboard", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "dashboard", range
+    )
 
 
 @router.get("/channels")
@@ -37,7 +39,9 @@ def channels(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "channels", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "channels", range
+    )
 
 
 @router.get("/pipeline")
@@ -46,7 +50,9 @@ def pipeline(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "pipeline", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "pipeline", range
+    )
 
 
 @router.get("/revenue")
@@ -55,7 +61,9 @@ def revenue(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "revenue", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "revenue", range
+    )
 
 
 @router.get("/reps")
@@ -64,7 +72,9 @@ def reps(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "reps", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "reps", range
+    )
 
 
 @router.get("/time-series")
@@ -73,7 +83,9 @@ def time_series(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "time_series", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "time_series", range
+    )
 
 
 @router.get("/agent-activity")
@@ -82,7 +94,11 @@ def agent_activity(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "agent_activity", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace),
+        "agent_activity",
+        range,
+    )
 
 
 @router.get("/manual-review")
@@ -91,7 +107,11 @@ def manual_review(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("manual_review.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "manual_review", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace),
+        "manual_review",
+        range,
+    )
 
 
 @router.get("/extended")
@@ -100,4 +120,6 @@ def extended(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("analytics.view")),
 ) -> dict[str, Any]:
-    return _run(AnalyticsService(session, workspace.workspace_id), "extended", range)
+    return _run(
+        AnalyticsService(session, workspace.workspace_id, workspace=workspace), "extended", range
+    )

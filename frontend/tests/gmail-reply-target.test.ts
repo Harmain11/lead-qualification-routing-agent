@@ -1,11 +1,42 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { latestGmailReplyTarget } from "../src/utils/gmailEvents.ts";
-import type { LeadPipelineEvent } from "../src/types.ts";
+import { latestGmailReplyTarget, newestFirstGmailEvents, newestFirstGmailThread } from "../src/utils/gmailEvents.ts";
+import type { GmailThreadMessage, LeadPipelineEvent } from "../src/types.ts";
 
 function message(id: string, createdAt: string, details: Record<string, unknown>): LeadPipelineEvent {
   return { id, stage: "gmail_message", status: "received", details, created_at: createdAt };
 }
+
+test("orders a lead email thread newest first without mutating the original list", () => {
+  const oldest = message("oldest", "2026-10-20T08:00:00Z", {});
+  const newest = message("newest", "2026-10-20T10:00:00Z", {});
+  const input = [oldest, newest];
+
+  assert.deepEqual(newestFirstGmailEvents(input).map((event) => event.id), ["newest", "oldest"]);
+  assert.deepEqual(input.map((event) => event.id), ["oldest", "newest"]);
+});
+
+test("orders mailbox conversation messages newest first", () => {
+  const createMailboxMessage = (messageId: string, sentAt: string): GmailThreadMessage => ({
+    thread_id: "thread",
+    sender: "lead@example.test",
+    sender_name: "Lead",
+    recipients: "sales@example.test",
+    subject: "Conversation",
+    rfc_message_id: `<${messageId}@example.test>`,
+    direction: "inbound",
+    body: "Message body",
+    message_id: messageId,
+    sent_at: sentAt,
+  });
+  const oldest = createMailboxMessage("oldest", "2026-10-20T08:00:00Z");
+  const newest = createMailboxMessage("newest", "2026-10-20T10:00:00Z");
+
+  assert.deepEqual(
+    newestFirstGmailThread([oldest, newest]).map((message) => message.message_id),
+    ["newest", "oldest"],
+  );
+});
 
 test("replies to the latest lead conversation using its original mailbox and RFC reference", () => {
   const events = [

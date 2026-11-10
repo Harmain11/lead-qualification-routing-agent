@@ -1,3 +1,4 @@
+from concurrent.futures import Future
 from contextlib import nullcontext
 from types import SimpleNamespace
 
@@ -43,3 +44,35 @@ def test_preview_scheduler_cannot_replace_production_scheduler(monkeypatch):
     monkeypatch.setattr(preview_sync, "settings", SimpleNamespace(app_env="production"))
     with pytest.raises(SystemExit, match="production Celery"):
         preview_sync.main()
+
+
+def test_preview_reasoning_backfill_runs_locally_and_releases_reservation(monkeypatch):
+    calls = []
+
+    class InlineExecutor:
+        def submit(self, operation, *args):
+            future = Future()
+            try:
+                future.set_result(operation(*args))
+            except Exception as error:
+                future.set_exception(error)
+            return future
+
+    monkeypatch.setattr(preview_sync, "_REASONING_BACKFILL_EXECUTOR", InlineExecutor())
+    monkeypatch.setattr(
+        preview_sync.reanalyze_workspace_leads,
+        "run",
+        lambda *args: calls.append(args),
+    )
+    lock_key = "reasoning-backfill:test"
+    job_id = "job-one"
+
+    assert preview_sync.reserve_reasoning_backfill(lock_key, job_id) is None
+    assert preview_sync.reserve_reasoning_backfill(lock_key, "job-two") == job_id
+    preview_sync.enqueue_reserved_reasoning_backfill(
+        lock_key, job_id, "workspace", "connection", "openai|model|prompt"
+    )
+
+    assert calls == [("workspace", "connection", job_id, "openai|model|prompt")]
+    assert preview_sync.reserve_reasoning_backfill(lock_key, "job-two") is None
+    preview_sync.release_reasoning_backfill(lock_key, "job-two")

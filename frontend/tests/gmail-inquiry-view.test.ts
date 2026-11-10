@@ -64,7 +64,8 @@ Could we discuss your onboarding service?
   assert.match(html, /Riley Chen/);
   assert.match(html, /riley@example\.test/);
   assert.match(html, /Received email/);
-  assert.match(html, /Original inquiry/);
+  // The card around the inquiry already says "Original inquiry"; the message shows only its own subject.
+  assert.doesNotMatch(html, /gmail-inquiry-type-badge/);
   assert.match(html, /Onboarding question/);
   assert.match(html, /<ul>/);
   assert.match(html, /sales@example\.test/);

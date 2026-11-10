@@ -48,6 +48,8 @@ html[data-theme="dark"] {
 [data-stage="lost"] { --stage: var(--st-lost); }
 
 /* Cards gain soft depth in v4; tone alone separated them before. */
+
+/* Cards gain soft depth in v4; tone alone separated them before. */
 .v-card, .v-group-body { box-shadow: var(--elev-1); }
 
 .v-muted { color: var(--label-4); }
@@ -72,6 +74,8 @@ html[data-theme="dark"] {
   font: 500 12.5px/1 var(--font);
   white-space: nowrap;
 }
+
+/* =============================================================== Toolbar */
 
 /* =============================================================== Toolbar */
 
@@ -154,12 +158,26 @@ html[data-theme="dark"] {
   .c-quick-label { display: none; }
   .c-quick-item { padding: 0 8px; }
 }
+/* page-container mirror */
+@container page (max-width: 1112px) {
+.c-quick-label { display: none; }
+.c-quick-item { padding: 0 8px; }
+}
 @media (max-width: 1180px) {
   .c-search { width: 36px; padding: 0; justify-content: center; }
   .c-search span, .c-search kbd { display: none; }
   .c-new-label { display: none; }
   .c-new.v-btn { width: 34px; padding: 0; justify-content: center; }
 }
+/* page-container mirror */
+@container page (max-width: 932px) {
+.c-search { width: 36px; padding: 0; justify-content: center; }
+.c-search span, .c-search kbd { display: none; }
+.c-new-label { display: none; }
+.c-new.v-btn { width: 34px; padding: 0; justify-content: center; }
+}
+
+/* ============================================================= Phone panel */
 
 /* ============================================================= Phone panel */
 
@@ -239,6 +257,8 @@ html[data-theme="dark"] {
 .p-dialer { margin: 0 -4px; }
 
 /* The provider phone keeps its own content; it sits where the Corral phone does. */
+
+/* The provider phone keeps its own content; it sits where the Corral phone does. */
 .dialer-phone-dock .dialer-phone-window { height: min(760px, calc(100dvh - var(--toolbar-h) - 24px)); }
 .dialer-phone-dock .dialer-phone-window.is-closed { visibility: hidden; pointer-events: none; opacity: 0; animation: none; }
 .dialer-phone-dock .dialer-phone-bubble { display: none !important; }
@@ -269,6 +289,8 @@ html[data-theme="dark"] {
 
 /* ========================================================== Lead picker */
 
+/* ========================================================== Lead picker */
+
 .lp { display: grid; gap: 10px; }
 .lp-list { max-height: 52dvh; overflow: auto; }
 .lp-list > li { padding: 0; }
@@ -285,6 +307,8 @@ html[data-theme="dark"] {
   color: var(--label-3);
 }
 @media (hover: hover) { .lp-item:hover { background: var(--fill); } }
+
+/* ================================================================ Home */
 
 /* ================================================================ Home */
 
@@ -369,12 +393,24 @@ button.h-kpi:active { transform: scale(0.985); }
 .h-recent .v-list { padding: 0 10px 10px; }
 .v-list-owner { font: var(--t-footnote); color: var(--label-3); white-space: nowrap; }
 @media (max-width: 1180px) { .v-list-owner { display: none; } }
+/* page-container mirror */
+@container page (max-width: 932px) {
+.v-list-owner { display: none; }
+}
 
 @media (max-width: 1100px) {
   .h-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .h-grid { grid-template-columns: minmax(0, 1fr); }
   .h-focus { grid-row: auto; }
 }
+/* page-container mirror */
+@container page (max-width: 852px) {
+.h-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.h-grid { grid-template-columns: minmax(0, 1fr); }
+.h-focus { grid-row: auto; }
+}
+
+/* ============================================================== Shared acts */
 
 /* ============================================================== Shared acts */
 
@@ -393,6 +429,8 @@ button.h-kpi:active { transform: scale(0.985); }
 .b-act:active { transform: scale(0.92); }
 @media (hover: hover) { .b-act:hover { background: var(--tint); color: var(--on-tint); } }
 .b-act.v-iconbtn { width: 28px; height: 28px; }
+
+/* ============================================================ Pipeline */
 
 /* ============================================================ Pipeline */
 
@@ -419,7 +457,16 @@ button.h-kpi:active { transform: scale(0.985); }
   padding: 2px 2px 18px;
   margin: 0 -2px;
   scroll-snap-type: x proximity;
+  scroll-padding-inline: 2px;
   overscroll-behavior-x: contain;
+  /* Fade the trailing edge so a column past the edge reads as "scroll for more", not cut off. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.b-board::after { content: ""; flex: 0 0 24px; }
+@media (min-width: 1680px) {
+  .b-board { mask-image: none; }
+  .b-col { flex: 1 1 0; min-width: 0; }
+  .b-col[data-empty] { flex: 0.7 1 0; }
 }
 .b-col {
   flex: 1 0 264px;
@@ -553,18 +600,25 @@ button.h-kpi:active { transform: scale(0.985); }
 .b-list .v-table td { vertical-align: middle; }
 .b-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; }
 .b-sort[aria-pressed="true"] { color: var(--label); }
-.b-sort[aria-pressed="true"]::after { content: " ↓"; }
+.b-sort[aria-pressed="true"]::after { content: " ▾"; }
 .b-stage-select { min-width: 150px; }
 .b-stage-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--stage) 12%, transparent); font: 500 12.5px/1 var(--font); }
 .num-col { text-align: right; }
 
 @media (max-width: 1240px) { .b-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } .b-metrics > :nth-child(n+4) { display: none; } }
+/* page-container mirror */
+@container page (max-width: 992px) {
+.b-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.b-metrics > :nth-child(n+4) { display: none; }
+}
 @media (max-width: 767px) {
   .b-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .b-metrics > :nth-child(3) { display: none; }
   .b-board { grid-auto-columns: 84vw; }
   .b-hint { display: none; }
 }
+
+/* ============================================================ Lead record */
 
 /* ============================================================ Lead record */
 
@@ -608,8 +662,8 @@ button.h-kpi:active { transform: scale(0.985); }
 .v-fact-score-text small { font: var(--t-footnote); color: var(--label-3); }
 .v-tab-count { margin-left: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--fill-hover); font: 600 11px/18px var(--font); text-align: center; }
 .v-tab-pill[aria-selected="true"] .v-tab-count { background: rgba(255, 255, 255, 0.22); }
-.v-callhead { display: flex; align-items: center; gap: 14px; }
-.v-callhead > div { flex: 1; min-width: 0; }
+
+/* Stage rail */
 
 /* Stage rail */
 .d-rail { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; }
@@ -649,6 +703,8 @@ button.h-kpi:active { transform: scale(0.985); }
   .d-rail li[data-state="current"] .d-rail-label { display: inline; }
   .d-rail li[data-state="current"] { grid-column: span 2; }
 }
+
+/* Deal room */
 
 /* Deal room */
 .d-room { display: grid; gap: 14px; }
@@ -748,6 +804,8 @@ button.h-kpi:active { transform: scale(0.985); }
 }
 
 /* Stage move sheet */
+
+/* Stage move sheet */
 .d-move { display: grid; gap: 14px; }
 .d-move-path { display: flex; align-items: center; gap: 10px; color: var(--label-3); }
 .d-move-path span {
@@ -769,6 +827,8 @@ button.h-kpi:active { transform: scale(0.985); }
 .d-move-foot { display: flex; align-items: flex-start; gap: 6px; font: var(--t-footnote); color: var(--label-3); }
 .d-move-foot svg { flex: none; margin-top: 1px; }
 .d-move-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Quote editor */
 
 /* Quote editor */
 .q-editor { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 18px; align-items: start; }
@@ -836,6 +896,16 @@ button.h-kpi:active { transform: scale(0.985); }
   .q-line { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "item item total" "desc desc del" "qty price disc" "billing billing billing"; }
   .q-terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* page-container mirror */
+@container page (max-width: 652px) {
+.q-editor { grid-template-columns: minmax(0, 1fr); }
+.q-catalog { position: static; }
+.q-catalog ul { grid-auto-flow: column; grid-auto-columns: 200px; overflow-x: auto; max-height: none; }
+.q-line { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "item item total" "desc desc del" "qty price disc" "billing billing billing"; }
+.q-terms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Leads table additions */
 
 /* Leads table additions */
 .v-lead-table .c-stage { width: 136px; }
@@ -851,9 +921,9 @@ button.h-kpi:active { transform: scale(0.985); }
   gap: 4px;
   padding: 4px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  /* Solid, so the value and date beneath never show through the pill. */
+  background: var(--surface);
+  border: var(--hairline) solid var(--separator);
   box-shadow: var(--elev-2);
   opacity: 0;
   translate: 0 -50%;
@@ -866,13 +936,19 @@ button.h-kpi:active { transform: scale(0.985); }
 .v-lead-table .c-score { width: 172px; }
 .v-lead-table[data-lens="overview"] .c-a { width: 13%; }
 .v-lead-table[data-lens="overview"] .c-b { width: 15%; }
-.v-lead-table .c-gen { width: 84px; }
 .v-lead-table .c-date { width: 88px; }
 @media (max-width: 1280px) { .v-lead-table .c-score .v-badge { display: none; } .v-lead-table .c-score { width: 64px; } }
+/* page-container mirror */
+@container page (max-width: 1032px) {
+.v-lead-table .c-score .v-badge { display: none; }
+.v-lead-table .c-score { width: 64px; }
+}
 @media (max-width: 767px) { .v-lead-table .c-stage, .v-lead-table .c-value { display: none !important; } }
 .v-record-head .v-record-actions { justify-content: flex-end; }
 @container record (max-width: 760px) { .v-record-head .v-record-actions { justify-content: flex-start; } }
 .v-split-item-meta small { display: inline-flex; align-items: center; }
+
+/* ============================================================== Charts */
 
 /* ============================================================== Charts */
 
@@ -910,6 +986,8 @@ button.h-kpi:active { transform: scale(0.985); }
 .k-delta[data-tone="down"] { color: var(--danger-text); }
 .k-delta[data-tone="flat"] { color: var(--label-3); }
 .h-kpi[data-accent] .k-delta { color: #fff; }
+
+/* ============================================================= Revenue */
 
 /* ============================================================= Revenue */
 
@@ -956,7 +1034,14 @@ button.h-kpi:active { transform: scale(0.985); }
   .r-hero { grid-template-columns: minmax(0, 1fr); }
   .r-grid { grid-template-columns: minmax(0, 1fr); }
 }
+/* page-container mirror */
+@container page (max-width: 852px) {
+.r-hero { grid-template-columns: minmax(0, 1fr); }
+.r-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 767px) { .r-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .r-goal { flex-direction: column; text-align: center; } .r-goal-text { justify-items: center; } }
+
+/* ========================================================= Performance */
 
 /* ========================================================= Performance */
 
@@ -1016,11 +1101,19 @@ button.h-kpi:active { transform: scale(0.985); }
   .t-podium { grid-template-columns: minmax(0, 1fr); }
   .t-grid { grid-template-columns: 120px repeat(var(--cols), minmax(0, 1fr)); }
 }
+/* page-container mirror */
+@container page (max-width: 652px) {
+.t-podium { grid-template-columns: minmax(0, 1fr); }
+.t-grid { grid-template-columns: 120px repeat(var(--cols), minmax(0, 1fr)); }
+}
 
 /* ============================================================== Motion */
 @media (prefers-reduced-motion: reduce) {
   .c-live { animation: none; }
 }
+
+/* ===================================================== Older screens, harmonised */
+/* Same depth as v4 cards; nested wells stay flat one tone down. */
 
 /* ===================================================== Older screens, harmonised */
 /* Same depth as v4 cards; nested wells stay flat one tone down. */
@@ -1038,9 +1131,12 @@ button.h-kpi:active { transform: scale(0.985); }
 .v-app :is(.dialer-head, .contacts-heading, .records-head) p { margin-top: 6px; max-width: 64ch; font: var(--t-body); color: var(--label-2); }
 .v-app :is(.dialer-head, .contacts-heading, .records-head, .compact-hero) .eyebrow { display: none; }
 /* Analytics: its title lives above the section tabs, so the provenance note sits left, not adrift on the right. */
+/* Analytics: its title lives above the section tabs, so the provenance note sits left, not adrift on the right. */
 .v-section-tabs-wrap ~ .v-page .page-hero { justify-content: flex-start; margin-bottom: 16px; }
 .v-app .v-section-tabs-wrap { margin-bottom: 20px; }
 .v-app table th { font: 600 12px/16px var(--font) !important; letter-spacing: 0 !important; text-transform: none !important; color: var(--label-3) !important; font-family: var(--font) !important; }
+
+/* Team roster: flat list rows with member details and actions kept together. */
 
 /* Team roster: flat list rows with member details and actions kept together. */
 .v-app .team-member-list { display: block; }
@@ -1145,6 +1241,8 @@ button.h-kpi:active { transform: scale(0.985); }
 }
 
 /* Sidebar hover menus */
+
+/* Sidebar hover menus */
 .v-navitem-more { margin-left: auto; color: var(--label-4); opacity: 0; transition: opacity var(--d-fast) ease; }
 .v-navitem:hover .v-navitem-more, .v-navitem[aria-current="page"] .v-navitem-more { opacity: 1; }
 .v-navitem .v-count + .v-navitem-more { margin-left: 6px; }
@@ -1167,14 +1265,6 @@ button.h-kpi:active { transform: scale(0.985); }
 .v-flyout-item:hover, .v-flyout-item:focus-visible { background: var(--tint); color: var(--on-tint); }
 @media (hover: none) { .v-flyout { display: none; } }
 .v-section-tabs-wrap ~ .v-page .page-hero > div:first-child { display: none; }
-.v-app .data-provenance {
-  display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
-  min-height: 0; padding: 9px 14px; border: 0 !important; border-radius: var(--r-md);
-  background: var(--surface) !important; box-shadow: var(--elev-1) !important;
-}
-.v-app .data-provenance span { font: 500 12.5px/16px var(--font); color: var(--label-3); }
-.v-app .data-provenance b { font: 600 14px/18px var(--font); color: var(--attention-text); }
-.v-app .data-provenance small { font: var(--t-footnote); color: var(--label-3); }
 .v-app .channel-head span, .v-app .channel-head > * {
   font: 600 12px/16px var(--font) !important; letter-spacing: 0 !important; text-transform: none !important; color: var(--label-3) !important;
 }

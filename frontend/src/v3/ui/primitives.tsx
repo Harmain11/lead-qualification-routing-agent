@@ -344,7 +344,7 @@ export function Sheet({
     const element = dialog.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     element?.showModal();
-    element?.querySelector<HTMLElement>("[autofocus], input:not([type=radio]):not([type=checkbox]), textarea, select")?.focus();
+    element?.querySelector<HTMLElement>("[data-autofocus], [autofocus], input:not([type=radio]):not([type=checkbox]), textarea, select")?.focus();
     return () => {
       element?.close();
       if (previous?.isConnected) previous.focus();
@@ -465,16 +465,24 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  back,
   children,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  back?: { label: string; onClick: () => void };
   children?: ReactNode;
 }) {
   return (
     <header className="v-pagehead">
       <div className="v-pagehead-text">
+        {back && (
+          <button type="button" className="v-pagehead-back" onClick={back.onClick}>
+            <Icon name="chevronLeft" size={14} />
+            {back.label}
+          </button>
+        )}
         <h1>{title}</h1>
         {subtitle && <p>{subtitle}</p>}
       </div>

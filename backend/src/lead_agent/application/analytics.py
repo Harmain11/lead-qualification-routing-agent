@@ -12,9 +12,15 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from lead_agent.application.manual_review import lead_manual_review_reasons
+from lead_agent.application.coaching_privacy import (
+    PRIVATE_INSIGHT_KINDS,
+    personal_data_user_ids,
+)
 from lead_agent.application.commercial import pipeline_value_usd
+from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.domain.lead_sources import lead_source_category
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.deals import DealORM
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
@@ -82,6 +88,16 @@ class AnalyticsWindow:
         )
 
 
+
+# Rates over fewer leads than this are withheld: "100%" from one lead misleads.
+MIN_RATE_SAMPLE = 5
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    if denominator < MIN_RATE_SAMPLE:
+        return None
+    return round((numerator / denominator) * 100, 1)
+
 def _safe_change(current: float, previous: float) -> float | None:
     if previous == 0:
         return None
@@ -144,15 +160,34 @@ class AnalyticsService:
     display-ready metrics and never aggregate cross-tenant records themselves.
     """
 
-    def __init__(self, session: Session, workspace_id: UUID) -> None:
+    def __init__(
+        self, session: Session, workspace_id: UUID, *, workspace: WorkspaceContext | None = None
+    ) -> None:
+        if workspace is not None and workspace.workspace_id != workspace_id:
+            raise ValueError("Analytics context belongs to another workspace")
         self.session = session
         self.workspace_id = workspace_id
+        self.personal_user_ids = (
+            personal_data_user_ids(session, workspace) if workspace is not None else None
+        )
         self.deals = {row.lead_id: row.data for row in session.scalars(
             select(DealORM).where(DealORM.workspace_id == workspace_id)
         )}
 
     def _pipeline_amount(self, lead: LeadORM) -> float:
         return pipeline_value_usd(lead, self.deals.get(lead.id))
+
+    def _personal_leads(self, leads: list[LeadORM]) -> list[LeadORM]:
+        if self.personal_user_ids is None:
+            return leads
+        return [lead for lead in leads if self._performance_owner(lead) in self.personal_user_ids]
+
+    @staticmethod
+    def _performance_owner(lead: LeadORM) -> str | None:
+        if lead.outcome and lead.outcome.credited_user_id:
+            return str(lead.outcome.credited_user_id)
+        route = _latest_route(lead)
+        return route.assigned_rep_id if route else None
 
     def metadata(self, window: AnalyticsWindow) -> dict[str, Any]:
         workspace = self._workspace()
@@ -222,7 +257,10 @@ class AnalyticsService:
                 PipelineEventORM.workspace_id == self.workspace_id,
                 PipelineEventORM.lead_id.in_(lead_ids),
                 (
-                    (PipelineEventORM.stage == "meeting_scheduled")
+                    (
+                        (PipelineEventORM.stage == "meeting_scheduled")
+                        & PipelineEventORM.status.in_(VERIFIED_MEETING_STATUSES)
+                    )
                     | (
                         (PipelineEventORM.stage == "manual_progress")
                         & (PipelineEventORM.status == "meeting_scheduled")
@@ -266,16 +304,15 @@ class AnalyticsService:
                     "lead_volume": len(items),
                     "qualified_leads": qualified,
                     "booked_leads": booked,
-                    "booked_rate": round((booked / len(items)) * 100, 1) if items else 0,
-                    "qualified_to_booked_rate": (
-                        round((booked / qualified) * 100, 1) if qualified else None
-                    ),
+                    "booked_rate": _rate(booked, len(items)),
+                    "qualified_to_booked_rate": _rate(booked, qualified),
                     "closed_won_count": won,
                     "scored_leads": len(scored),
                     "share_percent": round((len(items) / total) * 100, 1) if total else 0,
-                    "qualification_rate": round((qualified / len(items)) * 100, 1),
-                    "sql_conversion_rate": round((sqls / len(items)) * 100, 1),
-                    "closed_won_conversion_rate": round((won / len(items)) * 100, 1),
+                    "qualification_rate": _rate(qualified, len(items)),
+                    "sql_conversion_rate": _rate(sqls, len(items)),
+                    "closed_won_conversion_rate": _rate(won, len(items)),
+                    "rate_sample_minimum": MIN_RATE_SAMPLE,
                     "revenue": round(revenue, 2),
                     "average_score": average_score,
                     "importance_index": importance,
@@ -447,21 +484,23 @@ class AnalyticsService:
             "by_channel": self._revenue_group(
                 facts, lambda lead: lead_source_category(lead.source, lead.source_detail)
             ),
-            "by_rep": self._revenue_group(facts, _rep_name),
+            "by_rep": self._revenue_group(self._personal_leads(facts), _rep_name),
             "by_service": self._revenue_group(facts, lambda lead: lead.product_or_service),
             "over_time": self._revenue_time_series(facts, window),
         }
 
     def reps(self, range_key: RangeKey = "monthly") -> dict[str, Any]:
         window = AnalyticsWindow.build(range_key)
-        leads = self._leads(window.start, window.end)
-        grouped: dict[str, list[LeadORM]] = defaultdict(list)
+        leads = self._personal_leads(self._leads(window.start, window.end))
+        grouped: dict[tuple[str, str], list[LeadORM]] = defaultdict(list)
         for lead in leads:
             route = _latest_route(lead)
-            if route is not None and route.assigned_rep_name:
-                grouped[route.assigned_rep_name].append(lead)
+            if (lead.outcome and lead.outcome.credited_user_id) or (
+                route is not None and route.assigned_rep_name
+            ):
+                grouped[(self._performance_owner(lead) or "", _rep_name(lead))].append(lead)
         rows = []
-        for name, items in sorted(grouped.items()):
+        for (_, name), items in sorted(grouped.items()):
             qualified = len(
                 [lead for lead in items if _qualification(lead).classification in QUALIFIED_BANDS]
             )
@@ -496,7 +535,12 @@ class AnalyticsService:
         roster = self.session.execute(
             select(WorkspaceMembershipORM, UserORM)
             .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
-            .where(WorkspaceMembershipORM.workspace_id == self.workspace_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == self.workspace_id,
+                *([] if self.personal_user_ids is None else [
+                    UserORM.id.in_([UUID(value) for value in self.personal_user_ids])
+                ]),
+            )
             .order_by(UserORM.display_name, UserORM.id)
         ).all()
         identities = {str(user.id): (member, user) for member, user in roster}
@@ -609,6 +653,7 @@ class AnalyticsService:
                 select(PipelineEventORM)
                 .where(
                     PipelineEventORM.workspace_id == self.workspace_id,
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
                     PipelineEventORM.created_at >= window.start,
                     PipelineEventORM.created_at <= window.end,
                 )
@@ -974,7 +1019,7 @@ class AnalyticsService:
         booked_ids = {
             event.lead_id
             for event in events
-            if event.stage == "meeting_scheduled"
+            if (event.stage == "meeting_scheduled" and event.status in VERIFIED_MEETING_STATUSES)
             or (
                 event.stage == "manual_progress"
                 and event.status == "meeting_scheduled"
@@ -1238,7 +1283,10 @@ class AnalyticsService:
         assignment_counts: Counter[tuple[str, str]] = Counter()
         for lead in leads:
             for route in lead.routing_decisions:
-                if route.assigned_rep_name:
+                if route.assigned_rep_name and (
+                    self.personal_user_ids is None
+                    or route.assigned_rep_id in self.personal_user_ids
+                ):
                     assignment_counts[
                         (route.created_at.strftime("%Y-%m"), route.assigned_rep_name)
                     ] += 1

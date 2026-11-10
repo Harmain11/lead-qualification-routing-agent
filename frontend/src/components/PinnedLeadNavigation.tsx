@@ -74,7 +74,7 @@ export function PinnedLeadNavigation({ pins, notice, activeLeadId, activeSection
           onClick={(event) => { if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onOpen(pin); } }}>
           <span>{pin.company}</span><small>{label}</small>
         </a>
-        <button type="button" onClick={() => onRemove(pin)} aria-label={`Unpin ${pin.company} · ${label}`} title="Unpin section">×</button>
+        <button type="button" onClick={() => onRemove(pin)} aria-label={`Unpin ${[pin.company, label].filter(Boolean).join(" · ")}`} title="Unpin section">×</button>
       </div>;
     })}</div>
     {notice && <p role="status">{notice}</p>}

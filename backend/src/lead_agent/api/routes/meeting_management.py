@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
 from lead_agent.api.routes.meetings import _resolve_credentials
+from lead_agent.application.integration_access import assert_connection_action
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.calendar_providers import CalendlyClient, GoogleCalendarClient
@@ -34,6 +36,14 @@ class ManagedMeeting(BaseModel):
     reschedule_url: str | None = None
     cancel_url: str | None = None
     can_cancel_here: bool = True
+
+
+class SavedMeetingStatus(BaseModel):
+    status: Literal["scheduled", "cancelled"]
+    start_at: datetime | None = None
+    title: str
+    provider: Literal["google_calendar", "calendly"] | None = None
+    cancellation_reason: str | None = None
 
 
 class CancelMeetingRequest(BaseModel):
@@ -255,7 +265,49 @@ def get_meeting_management(
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> ManagedMeeting | None:
     lead, row = _booking(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "view")
     return _verified_meeting(session, lead, row, workspace) if row is not None else None
+
+
+@router.get("/{lead_id}/meeting-status", response_model=SavedMeetingStatus | None)
+def get_saved_meeting_status(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> SavedMeetingStatus | None:
+    lead = session.scalar(
+        select(LeadORM).where(
+            LeadORM.id == lead_id,
+            LeadORM.workspace_id == workspace.workspace_id,
+        )
+    )
+    if lead is None:
+        raise HTTPException(404, "Lead not found.")
+    assert_lead_action(session, workspace, lead, "view")
+    row = session.scalar(
+        select(PipelineEventORM)
+        .where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.stage == "meeting_scheduled",
+            PipelineEventORM.status.in_(("scheduled", "cancelled")),
+        )
+        .order_by(PipelineEventORM.created_at.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    details = row.details if isinstance(row.details, dict) else {}
+    provider = details.get("provider")
+    return SavedMeetingStatus(
+        status=row.status,  # type: ignore[arg-type]
+        start_at=_datetime(details.get("start_at")),
+        title=str(details.get("title") or "Meeting"),
+        provider=provider if provider in {"google_calendar", "calendly"} else None,
+        cancellation_reason=(
+            str(details.get("cancellation_reason") or "").strip() or None
+        ),
+    )
 
 
 @router.post("/{lead_id}/meetings/{booking_id}/cancel", response_model=dict[str, str])
@@ -267,6 +319,7 @@ def cancel_lead_meeting(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> dict[str, str]:
     lead, row = _booking(session, lead_id, workspace.workspace_id, booking_id)
+    assert_lead_action(session, workspace, lead, "edit")
     if row is None:
         raise HTTPException(409, "This meeting is no longer active. Refresh the lead.")
     managed = _verified_meeting(session, lead, row, workspace)
@@ -279,6 +332,7 @@ def cancel_lead_meeting(
             "to avoid cancelling other attendees.",
         )
     connection = _connection(session, row, workspace)
+    assert_connection_action(session, workspace, connection, "use")
     try:
         token = _resolve_credentials(session, workspace, connection)["access_token"]
         event_id = str(row.details["provider_event_id"])
@@ -303,6 +357,7 @@ def reschedule_lead_meeting(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> ManagedMeeting:
     lead, row = _booking(session, lead_id, workspace.workspace_id, booking_id)
+    assert_lead_action(session, workspace, lead, "edit")
     if row is None:
         raise HTTPException(409, "This meeting is no longer active. Refresh the lead.")
     managed = _verified_meeting(session, lead, row, workspace)
@@ -311,6 +366,7 @@ def reschedule_lead_meeting(
     if managed.provider != "google_calendar":
         raise HTTPException(409, "Use the invitee’s Calendly reschedule link for this meeting.")
     connection = _connection(session, row, workspace)
+    assert_connection_action(session, workspace, connection, "use")
     try:
         token = _resolve_credentials(session, workspace, connection)["access_token"]
         event = GoogleCalendarClient(token).reschedule_event(

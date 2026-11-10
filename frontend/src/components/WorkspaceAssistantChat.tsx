@@ -21,8 +21,13 @@ import { assistantConversation } from "../assistantConversation";
 import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AssistantLeadDraft } from "./AssistantLeadDraft";
 import { AgentLeadChoices } from "./AgentLeadChoices";
+import { AssistantResultActions } from "./AssistantResultActions";
 import { isDirectPhoneCallRequest } from "./workspaceAssistantIntents";
+import { parseAssistantCommand } from "./assistantCommands";
+import { TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
 import {
+  ASSISTANT_AREAS,
+  automationDraftSpec,
   applyWorkspaceAssistantAction,
   applyWorkspaceEmailSignature,
   canOpenAssistantArea,
@@ -68,6 +73,16 @@ const prompts: Array<{
     requires: ["analytics.view"],
   },
   {
+    label: "Coach me on a recent call",
+    prompt: "Coach me on my most recent recorded call with a lead. Give a short summary, what went well, what to improve, a talk track for the next touch and one next step with a date. Use only the recorded transcript and notes; if none exist, say so.",
+    requires: ["leads.view"],
+  },
+  {
+    label: "Write meeting minutes",
+    prompt: "Write minutes for a recent meeting with a lead: attendees, summary, decisions, action items with owners, and the next step. Ask me which lead if it is unclear. Use only recorded notes and transcripts.",
+    requires: ["leads.view"],
+  },
+  {
     label: "Check workspace document sources",
     prompt: "Tell me whether a connected workspace document source is available and what you can cite. If none is connected, say so; do not guess about document content.",
   },
@@ -91,6 +106,36 @@ const prompts: Array<{
     requires: ["leads.view", "leads.edit"],
   },
 ];
+
+const STEP_LABELS: Record<string, string> = {
+  wait: "Wait", draft: "Draft email", research: "Research", coach: "Coaching tip", note: "Note",
+};
+
+function AutomationDraftPreview({ action }: { action: WorkspaceAssistantAction }) {
+  let spec: ReturnType<typeof automationDraftSpec> | null = null;
+  try {
+    spec = automationDraftSpec(JSON.parse(action.payload_json ?? "{}"));
+  } catch {
+    return <p className="corral-workspace-error" role="alert">This draft is incomplete. Ask Corral to rebuild it.</p>;
+  }
+  const steps = spec.nodes.slice(1, -1);
+  return (
+    <ol className="corral-automation-draft" aria-label={`${spec.name} steps`}>
+      {steps.map((step, index) => (
+        <li key={step.id}>
+          <span className="corral-automation-draft-index">{index + 1}</span>
+          <div>
+            <strong>
+              {STEP_LABELS[step.type] ?? step.type}
+              {step.type === "wait" ? ` ${step.wait_hours >= 24 && step.wait_hours % 24 === 0 ? `${step.wait_hours / 24} day${step.wait_hours === 24 ? "" : "s"}` : `${step.wait_hours} h`}` : ""}
+            </strong>
+            {step.text && <p>{step.text}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 type Props = {
   permissions: ReadonlySet<string>;
@@ -364,6 +409,38 @@ export function WorkspaceAssistantChat({
       return;
     }
 
+    // Safe UI moves run instantly; only work that needs judgement reaches the model.
+    const command = parseAssistantCommand(content);
+    if (command?.kind === "close") {
+      setDraft("");
+      window.dispatchEvent(new CustomEvent(TOGGLE_AGENT_EVENT, { detail: { open: false } }));
+      return;
+    }
+    if (command?.kind === "new_chat") {
+      void startNewConversation();
+      return;
+    }
+    if (command?.kind === "navigate") {
+      const { area } = command;
+      const { label } = ASSISTANT_AREAS[area];
+      const allowed = canOpenAssistantArea(area, permissions);
+      if (allowed) onNavigate(area);
+      setDraft("");
+      setError("");
+      setMessages((current) => [
+        ...current,
+        { id: createClientId(), role: "user", content },
+        {
+          id: createClientId(),
+          role: "assistant",
+          content: allowed
+            ? `Opened ${label}.`
+            : `Your workspace role can’t open ${label}. Ask a workspace admin for access.`,
+        },
+      ]);
+      return;
+    }
+
     const nextMessages = [
       ...messages,
       { id: createClientId(), role: "user" as const, content },
@@ -379,7 +456,7 @@ export function WorkspaceAssistantChat({
             kind: "open_module",
             area: "dialer",
             title: "Open Dialer",
-            summary: "Choose the lead or enter a number, then start the call yourself. Corral Agent cannot place calls.",
+            summary: "Choose the lead or enter a number, then start the call yourself. Corral never places calls.",
             target_id: null,
             target_label: null,
             email: null,
@@ -424,13 +501,33 @@ export function WorkspaceAssistantChat({
             ),
           }
         : result.action;
+      // Opening a page or lead is a reversible, local UI movement. Complete it
+      // immediately when Corral has resolved an explicit navigation request;
+      // do not make the user approve a second “Open” button.
+      const navigationAction = action && ["open_module", "open_lead", "open_deal_desk"].includes(action.kind)
+        && canApplyWorkspaceAssistantAction(action, permissions)
+        ? action
+        : undefined;
+      if (navigationAction?.kind === "open_module" && navigationAction.area) {
+        onNavigate(navigationAction.area);
+      } else if (navigationAction?.kind === "open_lead" && navigationAction.target_id) {
+        onInspectLead(navigationAction.target_id);
+      } else if (navigationAction?.kind === "open_deal_desk" && navigationAction.target_id) {
+        onInspectLead(navigationAction.target_id, "deal");
+      }
       setMessages((current) => [
         ...current,
         {
           id: createClientId(),
           role: "assistant",
-          content: directCallRequested ? callInstruction : result.reply,
-          action: action?.kind !== "none" ? action : undefined,
+          content: directCallRequested
+            ? callInstruction
+            : navigationAction
+              ? navigationAction.kind === "open_module"
+                ? `Opened ${ASSISTANT_AREAS[navigationAction.area!].label}. ${result.reply}`
+                : `Opened ${navigationAction.target_label || "the selected lead"}. ${result.reply}`
+              : result.reply,
+          action: navigationAction ? undefined : action?.kind !== "none" ? action : undefined,
           leadLinks: result.lead_links,
           contextWarnings: result.context_warnings,
         },
@@ -453,7 +550,7 @@ export function WorkspaceAssistantChat({
         setError(
           reason instanceof Error
             ? reason.message
-            : "Corral Agent could not answer. Try again.",
+            : "Corral couldn’t answer. Try again.",
         );
       }
     } finally {
@@ -687,12 +784,12 @@ export function WorkspaceAssistantChat({
   }
 
   return (
-    <section className="corral-workspace-chat" aria-label="Chat with Corral Agent">
+    <section className="corral-workspace-chat" aria-label="Chat with Ask Corral">
       <header className="corral-workspace-chat-toolbar">
         <div className="corral-workspace-chat-toolbar__title">
           <strong>
             {conversations.find((conversation) => conversation.id === conversationId)?.title
-              || "Corral Agent"}
+              || "Ask Corral"}
           </strong>
           {historyError && <span role="status">{historyError}</span>}
         </div>
@@ -825,13 +922,16 @@ export function WorkspaceAssistantChat({
         {messages.map((message) => (
           <div className="corral-workspace-message-group" key={message.id}>
             <article className={`corral-workspace-message is-${message.role}`}>
-              <span>{message.role === "user" ? "You" : "Corral Agent"}</span>
+              <span>{message.role === "user" ? "You" : "Corral"}</span>
               <p>{message.content}</p>
               {Boolean(message.leadLinks?.length) && (
                 <AgentLeadChoices
                   leads={message.leadLinks!}
                   onSelect={onInspectLead}
                 />
+              )}
+              {message.role === "assistant" && !message.leadLinks?.length && (!message.action || message.action.kind === "none") && (
+                <AssistantResultActions content={message.content} permissions={permissions} onNavigate={onNavigate} />
               )}
               {Boolean(message.contextWarnings?.length) && (
                 <p role="status">Some workspace information could not be loaded or was limited: {message.contextWarnings!.join(" ")}</p>
@@ -1096,7 +1196,10 @@ export function WorkspaceAssistantChat({
                         ))}
                       />
                     )}
-                    {message.action.payload_json && !["add_lead_note", "create_lead"].includes(message.action.kind) && (
+                    {message.action.kind === "create_automation_draft" && (
+                      <AutomationDraftPreview action={message.action} />
+                    )}
+                    {message.action.payload_json && !["add_lead_note", "create_lead", "create_automation_draft"].includes(message.action.kind) && (
                       <details open={["update_lead_profile", "add_lead_note", "record_lead_progress"].includes(message.action.kind) || undefined}>
                         <summary>Review exact changes</summary>
                         <pre>{message.action.payload_json}</pre>
@@ -1183,11 +1286,7 @@ export function WorkspaceAssistantChat({
                         {message.actionStatus === "applying"
                           ? "Applying…"
                           : message.action.kind === "open_module"
-                            ? message.action.area === "dialer"
-                              ? "Open Dialer"
-                              : message.action.area === "agents"
-                                ? "Open AI Activity"
-                              : `Open ${message.action.area ?? "workspace"}`
+                            ? `Open ${message.action.area ? ASSISTANT_AREAS[message.action.area].label : "page"}`
                             : message.action.kind === "open_lead"
                               ? "Open lead"
                               : message.action.kind === "open_deal_desk"
@@ -1196,6 +1295,8 @@ export function WorkspaceAssistantChat({
                               ? "Complete review & reroute"
                             : message.action.kind === "add_lead_note" ? "Save note"
                             : message.action.kind === "create_lead" ? "Create lead"
+                            : message.action.kind === "create_automation_draft" ? "Save as paused draft"
+                            : message.action.kind === "enroll_lead_in_automation" ? "Enroll lead"
                             : "Approve and apply"}
                       </button>
                       {message.action.kind !== "open_module" && (
@@ -1216,7 +1317,7 @@ export function WorkspaceAssistantChat({
         ))}
         {busy && (
           <p className="corral-workspace-thinking" role="status">
-            Corral Agent is thinking…
+            Corral is thinking…
           </p>
         )}
         {error && (
@@ -1231,7 +1332,7 @@ export function WorkspaceAssistantChat({
         className="corral-workspace-composer"
         onSubmit={(event) => void submit(event)}
       >
-        <label htmlFor="corral-workspace-prompt">Message Corral Agent</label>
+        <label htmlFor="corral-workspace-prompt" className="v-sr">Message Ask Corral</label>
         <textarea
           id="corral-workspace-prompt"
           rows={3}
@@ -1247,7 +1348,7 @@ export function WorkspaceAssistantChat({
           placeholder="Ask a question or describe something to create…"
         />
         <div className="corral-workspace-composer-footer">
-          <small>Press Enter to send · Shift+Enter for a new line</small>
+          <small><kbd>↵</kbd> send · <kbd>⇧</kbd><kbd>↵</kbd> new line</small>
           <button
             className="primary-button"
             type="submit"

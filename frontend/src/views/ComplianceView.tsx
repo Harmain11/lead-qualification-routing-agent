@@ -8,6 +8,8 @@ import {
   type PolicyResponse,
 } from "../operationsApi";
 import type { Lead } from "../types";
+import { confirmAction } from "../v3/ui/confirm";
+import { PageHeader } from "../v3/ui/primitives";
 type Retention = {
   lead_ids: string[];
   count: number;
@@ -15,7 +17,7 @@ type Retention = {
   scope: string;
   more: boolean;
 };
-export function ComplianceView() {
+export function ComplianceView({ onBack }: { onBack?: () => void } = {}) {
   const [policy, setPolicy] = useState<PolicyResponse | null>(null);
   const [events, setEvents] = useState<Consent[]>([]);
   const [total, setTotal] = useState(0);
@@ -106,17 +108,12 @@ export function ComplianceView() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
-    <div className="page-view ops-page">
-      <header className="ops-page-head">
-        <div>
-          <span className="eyebrow">Consent and evidence</span>
-          <h1>Compliance controls</h1>
-          <p>
-            Record contact permissions, enforce outreach suppression, export
-            decision history and review retention.
-          </p>
-        </div>
-      </header>
+    <div className="page-view ops-page settings-sub">
+      <PageHeader
+        back={onBack ? { label: "Settings", onClick: onBack } : undefined}
+        title="Consent & governance"
+        subtitle="Record contact permissions, block outreach to people who opted out, export a lead’s decision history and review data retention."
+      />
       {error && (
         <p role="alert" className="team-alert">
           {error}
@@ -447,11 +444,13 @@ export function ComplianceView() {
               className="secondary-button"
               disabled={!plan.count || busy}
               onClick={() => {
-                if (
-                  window.confirm(
-                    `Permanently delete these ${plan.count} inactive leads and their dependent history? Export anything you need first. This cannot be undone from Corral.`,
-                  )
-                )
+                void confirmAction({
+                  title: `Permanently delete ${plan.count} inactive lead${plan.count === 1 ? "" : "s"}?`,
+                  message: "Their dependent history is deleted too. Export anything you need first. This can't be undone from Corral.",
+                  confirmLabel: "Delete permanently",
+                  tone: "danger",
+                }).then((confirmed) => {
+                  if (!confirmed) return;
                   void action(async () => {
                     await opsSave("/v1/ops/retention/apply", {
                       proof: plan.proof,
@@ -459,6 +458,7 @@ export function ComplianceView() {
                     });
                     setPlan(null);
                   }, "Retention plan applied.");
+                });
               }}
             >
               Apply reviewed deletion plan

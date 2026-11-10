@@ -22,3 +22,18 @@ test("does not redirect questions about existing email to the composer", () => {
     assert.equal(isFollowUpEmailDraftRequest(question), false, question);
   }
 });
+
+test("does not open a composer for safety questions that only mention email sending", () => {
+  assert.equal(
+    isFollowUpEmailDraftRequest(
+      "Can you book or send an email? Do not execute anything or send an email; explain what needs approval.",
+    ),
+    false,
+  );
+  assert.equal(
+    isFollowUpEmailDraftRequest(
+      "Cancel the meeting. Do not cancel anything or send an email; tell me what you can verify.",
+    ),
+    false,
+  );
+});

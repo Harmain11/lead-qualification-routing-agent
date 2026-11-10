@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 DEFAULT_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -15,3 +16,4 @@ class WorkspaceContext:
     membership_id: UUID | None = None
     role: str = "owner"
     permissions: frozenset[str] = frozenset()
+    access_policy: dict[str, Any] | None = None

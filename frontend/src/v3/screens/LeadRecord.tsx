@@ -5,11 +5,13 @@ import {
   completeLeadManualReview,
   getLead,
   getLeadClosingOptions,
+  getLeadMeetingStatus,
   getLeadMomentum,
   getLeadPipelineHistory,
   listIntegrations,
   retryLeadCongratulations,
   retryLeadNotification,
+  reevaluateLead,
   sendLeadToCrm,
   syncLeadGmailConversation,
   updateLeadAssignment,
@@ -31,7 +33,7 @@ import { getLeadTalkingPoints } from "../../leadActionPlan";
 import { leadSectionHref, type LeadDetailSection } from "../../leadSections";
 import { buildLeadProfileUpdates, createLeadProfileDraft, type LeadProfileDraft } from "../../leadProfileEditor";
 import type { CrmSync, Lead, LeadAssignmentOption, LeadMomentum, LeadOutcome, ProviderConnection, Qualification } from "../../types";
-import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageFromBackend, stageInfo, useDeals, viewDeal, type DealStage } from "../deals/dealStore";
+import { dealActions, flushDealChanges, getDeal, formatDuration, formatMoney, stageFromBackend, stageInfo, useDeals, viewDeal, type DealStage, type DealView } from "../deals/dealStore";
 import { StageMoveSheet } from "../deals/StageMoveSheet";
 import { togglePhone, type LeadAction } from "../shell/events";
 import { Icon } from "../ui/Icon";
@@ -51,13 +53,20 @@ import {
   titleize,
 } from "../ui/primitives";
 import { DealRoom, StageRail } from "./DealRoom";
+import { LeadPipeline } from "./LeadPipeline";
+import { LeadStanding } from "./LeadStanding";
+import { useScrollEdges } from "../ui/useScrollEdges";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
+import { confirmAction } from "../ui/confirm";
+import { LeadHighlights } from "./LeadHighlights";
 
 /** The record's sections, in the order a person works a lead. */
 const TABS: Array<{ id: LeadDetailSection; label: string }> = [
   { id: "overview", label: "Overview" },
   { id: "ai", label: "Qualification" },
-  { id: "follow-ups", label: "Follow up" },
+  // This section carries the meeting / appointment workflow as well as stage
+  // progress.  "Follow-up" tells a rep where to act on an agreed meeting.
+  { id: "pipeline", label: "Follow-up" },
   { id: "email", label: "Emails" },
   { id: "calls", label: "Calls" },
   { id: "deal", label: "Deal" },
@@ -71,6 +80,8 @@ type Props = {
   lead: Lead;
   canCrmSync?: boolean;
   canEdit?: boolean;
+  canViewComments?: boolean;
+  canAddComments?: boolean;
   canViewEmail?: boolean;
   canUseAgent?: boolean;
   canCall?: boolean;
@@ -82,6 +93,8 @@ type Props = {
   embeddedPhone?: boolean;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
+  boardViews?: DealView[];
+  onOpenPipeline?: () => void;
   canEnrollAutomations?: boolean;
   onEnrollAutomation?: (kind: "sequence" | "playbook") => void;
   onUpdated?: (lead: Lead) => void;
@@ -97,12 +110,16 @@ export function LeadRecord({
   lead,
   canCrmSync = false,
   canEdit = false,
+  canViewComments = false,
+  canAddComments = false,
   canViewEmail = false,
   canUseAgent = false,
   canCall = false,
   canManageRouting = false,
   canManageManualReview = false,
   assignmentOptions = [],
+  boardViews,
+  onOpenPipeline,
   recordedStage = null,
   intent = null,
   embeddedPhone = false,
@@ -126,17 +143,26 @@ export function LeadRecord({
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [activityRefresh, setActivityRefresh] = useState(0);
   const [compose, setCompose] = useState<{ subject?: string; body?: string; quoteId?: string; nonce: number } | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState<{ text: string; nonce: number } | null>(null);
   const [newQuote, setNewQuote] = useState(false);
   const [move, setMove] = useState<DealStage | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [completingManualReview, setCompletingManualReview] = useState(false);
   const [manualReviewError, setManualReviewError] = useState<string | null>(null);
   const [meetingIndicator, setMeetingIndicator] = useState<{ leadId: string; status: LeadMeetingIndicator } | null>(null);
   const store = useDeals();
   const dealView = viewDeal(lead, store.deals[lead.id], recordedStage);
   const tabsRef = useRef<HTMLDivElement>(null);
+  useScrollEdges(tabsRef);
   const tabs = TABS.filter((tab) => (tab.id !== "email" || canViewEmail));
   const shownSection: LeadDetailSection = activeSection === "closing" ? "deal" : activeSection;
+  // Panels mount on first visit and stay mounted, so opening a lead doesn't run every tab's requests.
+  const [visited, setVisited] = useState<Set<LeadDetailSection>>(() => new Set([shownSection]));
+  useEffect(() => {
+    setVisited((current) => (current.has(shownSection) ? current : new Set([...current, shownSection])));
+  }, [shownSection]);
+  useEffect(() => { setVisited(new Set([shownSection])); }, [lead.id]);
   const updatedRef = useRef(onUpdated);
   useEffect(() => { updatedRef.current = onUpdated; }, [onUpdated]);
   useEffect(() => {
@@ -183,15 +209,41 @@ export function LeadRecord({
       return { leadId: lead.id, status };
     });
   }, [lead.id]);
+  useEffect(() => {
+    const controller = new AbortController();
+    getLeadMeetingStatus(lead.id, controller.signal)
+      .then((saved) => {
+        if (controller.signal.aborted) return;
+        setMeetingIndicator((current) => {
+          if (!saved) return current?.leadId === lead.id ? null : current;
+          const status: LeadMeetingIndicator = saved.status === "scheduled"
+            ? { kind: "booked", bookedAt: saved.start_at }
+            : {
+              kind: "cancelled",
+              bookedAt: null,
+              cancelledMeetingAt: saved.start_at,
+              cancellationReason: saved.cancellation_reason,
+            };
+          return { leadId: lead.id, status };
+        });
+      })
+      .catch(() => {
+        // The follow-up meeting panel reports provider verification errors.
+        // Keep the lead page usable if the lightweight saved-status read fails.
+      });
+    return () => controller.abort();
+  }, [lead.id, meetingRefresh]);
   const synced = () => {
     setActivityRefresh((value) => value + 1);
     setMeetingRefresh((value) => value + 1);
   };
 
   const completeManualReview = async () => {
-    if (!window.confirm(
-      `Mark ${lead.full_name || "this lead"}'s manual review done? This clears the hold, applies current routing, and may notify the assignee.`,
-    )) return;
+    if (!(await confirmAction({
+      title: `Mark ${lead.full_name || "this lead"}'s review done?`,
+      message: "This clears the hold, applies current routing and may notify the assignee.",
+      confirmLabel: "Mark done",
+    }))) return;
     setCompletingManualReview(true);
     setManualReviewError(null);
     try {
@@ -208,8 +260,24 @@ export function LeadRecord({
     }
   };
 
+  const reanalyze = async () => {
+    if (reanalyzing) return;
+    setReanalyzing(true);
+    setNotice(null);
+    try {
+      const updated = await reevaluateLead(lead.id);
+      onUpdated?.(updated);
+      setActivityRefresh((value) => value + 1);
+      setNotice("AI qualification and routing were refreshed from the latest lead details and activity.");
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : "This lead could not be re-analyzed.");
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
   const deleteThisLead = async () => {
-    if (!window.confirm("Delete this lead from the workspace? A later matching inquiry can be imported again.")) return;
+    if (!(await confirmAction({ title: "Delete this lead?", message: "It is removed from the workspace. A later matching inquiry can be imported again.", confirmLabel: "Delete lead", tone: "danger" }))) return;
     try {
       await deleteLead(lead.id);
       onDeleted?.(lead.id);
@@ -281,6 +349,11 @@ export function LeadRecord({
             <Button kind="tinted" icon="mail" onClick={() => startEmail()} disabled={!lead.email} title={lead.email ? `Email ${lead.email}` : "No email address on record"}>Email</Button>
           )}
           {canEdit && <Button icon="quote" onClick={() => { onSectionChange("deal"); setNewQuote(true); }}>Quote</Button>}
+          {canEdit && (
+            <Button kind="gray" icon="refresh" onClick={() => void reanalyze()} disabled={reanalyzing}>
+              {reanalyzing ? "Analyzing…" : "Re-analyze"}
+            </Button>
+          )}
           {canUseAgent && (
             <Button kind="gray" icon="sparkle" onClick={() => window.dispatchEvent(new CustomEvent(TOGGLE_AGENT_EVENT, { detail: { open: true } }))}>
               Ask Corral
@@ -475,77 +548,23 @@ export function LeadRecord({
       {notice && <Banner title={notice} action={<Button kind="plain" size="sm" onClick={() => setNotice(null)}>Dismiss</Button>} />}
       {manualReviewError && <Banner tone="attention" title="Manual review wasn't completed">{manualReviewError}</Banner>}
 
-      {review && (
-        <div className="v-hold" role="status" aria-labelledby={`hold-${lead.id}`}>
-          <span className="v-hold-icon"><Icon name="hand" size={18} /></span>
-          <div className="v-hold-copy">
-            <b id={`hold-${lead.id}`}>Waiting for a person to review</b>
-            <p>{reviewReasons[0] ?? "This lead matched one of your review rules. Check the details and analysis before contacting them."}</p>
-            {reviewReasons.length > 1 && (
-              <details>
-                <summary>{reviewReasons.length - 1} more matched condition{reviewReasons.length > 2 ? "s" : ""}</summary>
-                <ul>{reviewReasons.slice(1).map((reason) => <li key={reason}>{reason}</li>)}</ul>
-              </details>
-            )}
-          </div>
-          {canManageManualReview && (
-            <div className="v-hold-actions">
-              <Button
-                kind="filled"
-                size="sm"
-                type="button"
-                disabled={completingManualReview}
-                onClick={() => void completeManualReview()}
-              >
-                {completingManualReview ? "Completing…" : "Mark review done"}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-      {activeMeetingIndicator && (
-        <div className="v-meeting-status" data-state={activeMeetingIndicator.kind} role="status" aria-label="Meeting status">
-          <span className="v-meeting-status-mark" aria-hidden="true"><Icon name="calendar" size={18} /></span>
-          <div className="v-meeting-status-copy">
-            <b>
-              {activeMeetingIndicator.kind === "appointment_needed" ? "Appointment needed"
-                : activeMeetingIndicator.kind === "draft_ready" ? "Appointment draft ready to send"
-                : activeMeetingIndicator.kind === "sending" ? "Appointment link is being sent"
-                  : activeMeetingIndicator.kind === "awaiting_booking" ? "Booking link sent"
-                    : activeMeetingIndicator.kind === "booked" ? "Meeting booked"
-                      : "Meeting booking needs attention"}
-            </b>
-            <p>
-              {activeMeetingIndicator.kind === "appointment_needed"
-                ? "This lead asked to set up a meeting. Prepare an appointment draft, then review and send it from Emails."
-                : activeMeetingIndicator.kind === "draft_ready"
-                ? canViewEmail
-                  ? "Review or edit the draft in Emails, then send it so the lead can book a meeting."
-                  : "An appointment draft is ready. Ask a teammate with email access to review and send it."
-                : activeMeetingIndicator.kind === "sending" ? "The appointment email is being processed."
-                  : activeMeetingIndicator.kind === "awaiting_booking" ? "The lead has the booking link; waiting for them to choose a time."
-                    : activeMeetingIndicator.kind === "booked" ? activeMeetingIndicator.bookedAt
-                      ? `Meeting set for ${formatMeetingDate(activeMeetingIndicator.bookedAt)}.`
-                      : "The calendar confirmed this meeting."
-                      : "Open Follow up to review the booking issue."}
-            </p>
-          </div>
-          {activeMeetingIndicator.kind === "draft_ready" && canViewEmail && (
-            <Button kind="plain" size="sm" onClick={() => onSectionChange("email")}>Open email draft</Button>
-          )}
-          {activeMeetingIndicator.kind === "needs_attention" && (
-            <Button kind="plain" size="sm" onClick={() => onSectionChange("follow-ups")}>Open Follow up</Button>
-          )}
-          {activeMeetingIndicator.kind === "awaiting_booking" && (
-            <Button kind="plain" size="sm" onClick={() => setMeetingRefresh((value) => value + 1)}>Refresh status</Button>
-          )}
-        </div>
-      )}
-      {analysis?.status === "provider_error" && (
-        <Banner tone="attention" title="The AI analysis didn’t complete">
-          A rules-based fallback assessment was used. It appears in Review only when that rule is enabled or another rule applies.
-        </Banner>
-      )}
+      <LeadHighlights
+        lead={lead}
+        review={review}
+        reviewReasons={reviewReasons}
+        meeting={activeMeetingIndicator}
+        slaDue={slaDue ?? null}
+        canEdit={canEdit}
+        canViewEmail={canViewEmail}
+        canManageManualReview={canManageManualReview}
+        completingReview={completingManualReview}
+        onCompleteReview={() => void completeManualReview()}
+        onOpenSection={(section) => onSectionChange(section)}
+        onEditDetails={() => { setProfileDraft(createLeadProfileDraft(lead)); setEditingProfile(true); setNotice(null); }}
+        onRefreshMeeting={() => setMeetingRefresh((value) => value + 1)}
+        formatDate={formatMeetingDate}
+        formatDuration={formatDuration}
+      />
 
       <div className="v-tabs" ref={tabsRef} role="tablist" aria-label="Lead sections">
         {tabs.map((tab, index) => (
@@ -591,13 +610,11 @@ export function LeadRecord({
             canEdit={canEdit}
             canEmail={canViewEmail && canEdit && Boolean(lead.email)}
             onEmailQuote={(subject, body, quoteId) => startEmail({ subject, body, quoteId })}
-            onMoved={(fresh, message) => { setNotice(message); if (fresh) onUpdated?.(fresh); else synced(); }}
             startNewQuote={newQuote}
             onQuoteStarted={() => setNewQuote(false)}
           />
         )}
       </div>
-      <ProgressAndHistory lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Calls */}
       <div id="lead-panel-calls" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-calls" tabIndex={0} hidden={shownSection !== "calls"}>
@@ -621,9 +638,24 @@ export function LeadRecord({
       <div id="lead-panel-overview" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-overview" tabIndex={0} hidden={shownSection !== "overview"}>
         <div className="v-overview">
           <div className="v-overview-main">
-            <section className="v-card v-card-pad">
-              <h2 className="v-card-title">{lead.source_detail === "manual-control-center" ? "Inquiry and context" : "Original inquiry"}</h2>
-              <p className="v-card-sub">From {sourceLabel(lead.source)} · {new Date(lead.received_at).toLocaleString()}</p>
+            <LeadStanding
+              lead={lead}
+              view={dealView}
+              meeting={activeMeetingIndicator}
+              canEdit={canEdit}
+              canEmail={canViewEmail && canEdit}
+              canCall={canCall}
+              onOpenSection={(section) => onSectionChange(section)}
+              onEmail={() => startEmail()}
+            />
+            {/* The inquiry leads the page while the lead is new; later it folds away. */}
+            <details className="v-card v-card-pad ls-inquiry" open={dealView.stage === "new" || undefined}>
+              <summary>
+                <span>
+                  <h2 className="v-card-title">{lead.source_detail === "manual-control-center" ? "Inquiry and context" : "Original inquiry"}</h2>
+                  <span className="v-card-sub">From {sourceLabel(lead.source)} · {new Date(lead.received_at).toLocaleString()}</span>
+                </span>
+              </summary>
               <div className="v-inquiry">
                 <GmailInquiryView
                   message={lead.message}
@@ -633,10 +665,11 @@ export function LeadRecord({
                   displayAsContext={lead.source_detail === "manual-control-center"}
                 />
               </div>
-            </section>
+            </details>
             {analysis && (
               <section className="v-card v-card-pad v-gist">
                 <h2 className="v-card-title">In short</h2>
+                <p className="v-card-sub">Read from the inquiry when it was qualified. The current status is shown at the top of this lead.</p>
                 <dl>
                   {analysis.summary.need && <div><dt>Need</dt><dd>{analysis.summary.need}</dd></div>}
                   {analysis.summary.pain_point && <div><dt>Pain</dt><dd>{analysis.summary.pain_point}</dd></div>}
@@ -646,7 +679,7 @@ export function LeadRecord({
               </section>
             )}
             <div className="v-collab">
-              <CollaborationPanel leadId={lead.id} canEdit={canEdit} />
+              {canViewComments && <CollaborationPanel leadId={lead.id} canEdit={canAddComments} />}
             </div>
           </div>
           <aside className="v-overview-side">
@@ -758,68 +791,48 @@ export function LeadRecord({
         </div>
       </div>
 
-      {/* ---------------------------------------------------------- Follow up */}
-      <section id="lead-panel-follow-ups" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-follow-ups" tabIndex={0} hidden={shownSection !== "follow-ups"}>
-        <div className="v-stack">
-          <section className="v-card v-card-pad">
-            <div className="v-card-headrow">
-              <div>
-                <h2 className="v-card-title">Follow-up plan</h2>
-                <p className="v-card-sub">Use the latest lead assessment to decide what to do next.</p>
-              </div>
-              {canViewEmail && canEdit && <Button kind="plain" size="sm" onClick={() => startEmail()}>Write email</Button>}
-            </div>
-            {route ? <>
-              <div className="v-nextstep">
-                <span>Recommended now</span>
-                <b>{route.action_plan.immediate_action}</b>
-                <p>{route.action_plan.next_step_recommendation}</p>
-              </div>
-              <h3 className="v-mini-title" style={{ marginTop: 20 }}>Recommended sequence</h3>
-              <ol className="v-steps">
-                {(route.action_plan.follow_up_strategy?.length
-                  ? route.action_plan.follow_up_strategy
-                  : [route.action_plan.immediate_action, route.action_plan.next_step_recommendation]
-                ).map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}
-              </ol>
-              {route.action_plan.conversion_goal && <p className="v-card-sub" style={{ marginTop: 18 }}>Goal: {route.action_plan.conversion_goal}</p>}
-            </> : <p className="v-card-sub">A follow-up plan will appear after this lead is routed.</p>}
-          </section>
-          <div className="v-legacy-block">
-            <LeadMeetingPanel
-              lead={lead}
-              canEdit={canEdit}
-              canViewEmails={canViewEmail}
-              refreshToken={meetingRefresh}
-              onDraftCreated={() => onSectionChange("email")}
-              onStatusChange={handleMeetingStatusChange}
-            />
-          </div>
-        </div>
+      {/* ---------------------------------------------------------- Pipeline */}
+      <section id="lead-panel-pipeline" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-pipeline" tabIndex={0} hidden={shownSection !== "pipeline"}>
+        {shownSection === "pipeline" && (
+          <LeadPipeline
+            lead={lead}
+            view={dealView}
+            canEdit={canEdit}
+            canViewEmail={canViewEmail}
+            meetingRefresh={meetingRefresh}
+            onOpenBoard={onOpenPipeline}
+            updates={<ProgressAndHistory part="update" lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />}
+            onMove={(target) => setMove(target)}
+            onDraftCreated={() => onSectionChange("email")}
+            onMeetingStatusChange={handleMeetingStatusChange}
+          />
+        )}
       </section>
+
+      <ProgressAndHistory part="history" lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />
 
       {/* ------------------------------------------------------------- Email */}
       <section id="lead-panel-email" className="v-panel" role="tabpanel" aria-labelledby="lead-tab-email" tabIndex={0} hidden={shownSection !== "email"}>
         <div className="v-stack">
-          {canEdit && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
-          <div className="v-legacy-block">
+          {visited.has("email") && canEdit && compose && <FollowUpComposer lead={lead} canEdit={canEdit} seed={compose} title={`Write to ${lead.full_name || title}`} />}
+          {visited.has("email") && <div className="v-legacy-block">
             <LeadEmailPanel
               lead={lead}
               active={shownSection === "email"}
               canView={canViewEmail}
               canSend={canEdit}
-              hideComposeButton
-              onAskAgent={() => onSectionChange("agent")}
+              onAskAgent={(prompt) => { if (prompt) setAgentPrompt({ text: prompt, nonce: Date.now() }); onSectionChange("agent"); }}
               onConversationSynced={synced}
             />
-          </div>
+          </div>}
         </div>
       </section>
 
       {/* ---------------------------------------------- Progress & History */}
       {/* --------------------------------------------------------- Assistant */}
       <section id="lead-panel-agent" className="v-panel v-legacy-block" role="tabpanel" aria-labelledby="lead-tab-agent" tabIndex={0} hidden={shownSection !== "agent"}>
-        <LeadAssistantPanel
+        {visited.has("agent") && <LeadAssistantPanel
+          seedPrompt={agentPrompt}
           lead={lead}
           canEdit={canEdit}
           canManageManualReview={canManageManualReview}
@@ -832,7 +845,7 @@ export function LeadRecord({
           onUpdated={(updated) => onUpdated?.(updated)}
           onDeleted={(leadId) => onDeleted?.(leadId)}
           onSectionChange={onSectionChange}
-        />
+        />}
       </section>
       {move && (
         <StageMoveSheet
@@ -1010,7 +1023,7 @@ function Momentum({ lead }: { lead: Lead }) {
       <p className="v-card-sub">What changed, from the evidence Corral has seen.</p>
       <div className="v-stats">
         <div><span>Temperature</span><b>{titleize(momentum.state)}</b><small>{titleize(momentum.classification)} · {momentum.score}/100</small></div>
-        <div><span>Movement</span><b>{delta}</b><small>{momentum.previous_score === null ? "No earlier score" : `${momentum.previous_score} → ${momentum.score}`}</small></div>
+        <div><span>Movement</span><b>{delta}</b><small>{momentum.previous_score === null ? "No earlier score" : `${momentum.previous_score} › ${momentum.score}`}</small></div>
         <div><span>Freshness</span><b>{momentum.freshness_hours < 1 ? "Just updated" : `${momentum.freshness_hours}h ago`}</b><small>{momentum.observed_signals} verified signal{momentum.observed_signals === 1 ? "" : "s"}</small></div>
       </div>
       <div className="v-nextstep">
@@ -1038,7 +1051,7 @@ function Momentum({ lead }: { lead: Lead }) {
             {momentum.delivery.map((item) => (
               <li key={item.destination} data-attention={item.needs_attention || undefined}>
                 <span className="v-meta">{item.destination}{item.attempted_at ? ` · ${new Date(item.attempted_at).toLocaleString()}` : ""}</span>
-                <p><b>{titleize(item.status)}</b> — {item.detail}</p>
+                <p><b>{titleize(item.status)}</b>. {item.detail}</p>
               </li>
             ))}
           </ul>
@@ -1327,17 +1340,19 @@ const STAGES: Array<{ value: string; label: string }> = [
   { value: "responded", label: "Responded" },
   { value: "meeting_scheduled", label: "Meeting scheduled" },
   { value: "proposal_sent", label: "Proposal sent" },
-  { value: "converted", label: "Won — Project or Sale" },
-  { value: "lost", label: "Closed — lost" },
+  { value: "converted", label: "Won" },
+  { value: "lost", label: "Lost" },
 ];
 
 function ProgressAndHistory({
+  part,
   lead,
   canEdit,
   refreshToken,
   activeSection,
   onConversationSynced,
 }: {
+  part: "update" | "history";
   lead: Lead;
   canEdit: boolean;
   refreshToken: number;
@@ -1470,7 +1485,7 @@ function ProgressAndHistory({
       title: `${event.details.direction === "outbound" ? "You sent" : "Lead sent"}: ${String(event.details.subject || "(no subject)")}`,
       when: event.created_at,
       body: String(event.details.body || ""),
-      meta: `${String(event.details.sender || "")} → ${String(event.details.recipients || "")}`,
+      meta: `${String(event.details.sender || "")} › ${String(event.details.recipients || "")}`,
     })),
     ...meetingEvents.slice(0, 10).map((event) => ({
       id: event.id,
@@ -1485,7 +1500,7 @@ function ProgressAndHistory({
   const closing = stage === "converted" || stage === "lost";
   return (
     <>
-      <section id="lead-panel-closing" className="v-panel" role="region" aria-label="Pipeline activity updates" tabIndex={0} hidden={activeSection !== "deal"}>
+      {part === "update" && <div id="lead-panel-closing" className="lp-update" role="region" aria-label="Log a deal update">
         <div className="v-stack">
           {outcome && (
             <OutcomeReceipt
@@ -1505,11 +1520,11 @@ function ProgressAndHistory({
             <form className="v-card v-card-pad v-form" onSubmit={(event) => void save(event)}>
               <div className="v-card-headrow">
                 <div>
-                  <h2 className="v-card-title">Pipeline activity update</h2>
-                  <p className="v-card-sub">Record a verified update at the correct stage. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
+                  <h2 className="v-card-title">Log an update</h2>
+                  <p className="v-card-sub">Record what just happened. Corral re-checks the lead afterwards; closing a lead doesn’t re-run AI or create a CRM record.</p>
                 </div>
                 <Button size="sm" disabled={syncBusy || busy} onClick={() => void syncConversation()} icon="refresh">
-                  {syncBusy ? "Syncing Gmail…" : "Sync Gmail & Re-check"}
+                  {syncBusy ? "Syncing Gmail…" : "Sync Gmail"}
                 </Button>
               </div>
               <div className="v-stagepicker" role="radiogroup" aria-label="Manual progress or closing outcome">
@@ -1572,9 +1587,9 @@ function ProgressAndHistory({
           )}
           {notice && <Banner tone="tint" title={notice} />}
         </div>
-      </section>
+      </div>}
 
-      <section id="lead-panel-history" className="v-panel v-panel-follow" role="region" aria-label="Lead history" hidden={activeSection !== "history"}>
+      {part === "history" && <section id="lead-panel-history" className="v-panel v-panel-follow" role="region" aria-label="Lead history" hidden={activeSection !== "history"}>
         {eventsLoading && (
           <div className="v-card v-card-pad" aria-label="Loading lead history">
             <i className="v-skel" style={{ width: "50%" }} /><i className="v-skel" style={{ width: "70%", marginTop: 12 }} /><i className="v-skel" style={{ width: "40%", marginTop: 12 }} />
@@ -1604,7 +1619,7 @@ function ProgressAndHistory({
             ))}
           </ol>
         )}
-      </section>
+      </section>}
     </>
   );
 }
@@ -1617,7 +1632,7 @@ function OutcomeReceipt({ outcome, canEdit, busy, onRetry }: { outcome: LeadOutc
     <section className="v-outcome" data-won={won || undefined} role="status">
       <span className="v-outcome-icon"><Icon name={won ? "check" : "close"} size={20} strokeWidth={2} /></span>
       <div>
-        <h2>{won ? `Won — nice work, ${outcome.credited_name ?? "team"}` : "Closed — lost"}</h2>
+        <h2>{won ? `Won. Nice work, ${outcome.credited_name ?? "team"}` : "Closed as lost"}</h2>
         <p>
           {won ? `${titleize(outcome.conversion_type ?? "closed_won")} recorded` : "Lost outcome recorded"}
           {outcome.closed_revenue !== null && won ? ` · ${outcome.currency} ${outcome.closed_revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : won ? " · Value not recorded" : ""}

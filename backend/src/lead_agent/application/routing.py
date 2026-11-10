@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.analysis import LeadContextAnalysis, load_persisted_analysis
 from lead_agent.domain.configuration import (
     ActionConfig,
     RepConfig,
@@ -27,6 +27,7 @@ from lead_agent.domain.routing import (
 )
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.application.assignment_notifications import notify_assigned_member
+from lead_agent.application.lead_access import assign_lead
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     LeadOutcomeORM,
@@ -62,7 +63,7 @@ def _matches(value: str | None, options: list[str]) -> bool:
 def _analysis(lead: LeadORM) -> LeadContextAnalysis | None:
     if lead.analysis is None:
         return None
-    return LeadContextAnalysis.model_validate(lead.analysis.structured_output)
+    return load_persisted_analysis(lead.analysis.structured_output)
 
 
 def _qualification(lead: LeadORM) -> QualificationResult:
@@ -767,17 +768,7 @@ def route_and_notify(
             assignment_reason = "Manual representative assignment preserved."
         else:
             assignment_reason = "Manual unassignment preserved."
-    elif (
-        not manual_review
-        and not qualification.hard_disqualified
-        and band not in {"nurture", "disqualify"}
-        and queue
-        not in {
-            routing.manual_review_queue,
-            "nurture",
-            "archive",
-        }
-    ):
+    elif not qualification.hard_disqualified and queue != "archive":
         assigned_rep, assignment_reason = _choose_workspace_rep(session, routing, queue, lead)
     action_plan = _build_action_plan(routing, qualification, lead, analysis, action_key)
     sla_hours = (
@@ -816,6 +807,31 @@ def route_and_notify(
         idempotency_key=idempotency_key,
         is_current=True,
         created_at=now,
+    )
+    canonical_owner_id = None
+    if assigned_rep is not None:
+        try:
+            candidate_owner_id = UUID(assigned_rep.id)
+        except ValueError:
+            candidate_owner_id = None
+        if candidate_owner_id is not None and session.scalar(select(WorkspaceMembershipORM.id).where(
+            WorkspaceMembershipORM.workspace_id == lead.workspace_id,
+            WorkspaceMembershipORM.user_id == candidate_owner_id,
+            WorkspaceMembershipORM.status == "active",
+        )) is not None:
+            canonical_owner_id = candidate_owner_id
+    if current is not None and lead.current_owner_id is None and current.assigned_rep_id:
+        try:
+            lead.current_owner_id = UUID(current.assigned_rep_id)
+        except ValueError:
+            pass
+    # Legacy static routing entries that are not active workspace users remain
+    # notification-only; they never gain record access through an arbitrary ID.
+    assign_lead(
+        session,
+        lead,
+        canonical_owner_id,
+        reason="automatic routing" if not manually_assigned else "preserved manual assignment",
     )
     session.add(decision)
     try:

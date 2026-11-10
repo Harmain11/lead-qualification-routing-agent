@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     log_format: Literal["text", "json"] = "text"
     observability_enabled: bool = True
     secret_key: str = "local-development-only"
+    corral_site_access_password: str = Field(default="", repr=False, exclude=True)
     auth_development_fallback: bool = True
     auth_session_cookie_name: str = "lead_agent_session"
     auth_csrf_cookie_name: str = "lead_agent_csrf"
@@ -40,6 +41,7 @@ class Settings(BaseSettings):
     email_from: str = "no-reply@example.invalid"
     email_verification_expiry_minutes: int = 60
     email_verification_resend_seconds: int = 60
+    password_reset_expiry_minutes: int = 30
     email_smtp_host: str = ""
     email_smtp_port: int = 587
     email_smtp_username: str = ""
@@ -80,7 +82,7 @@ class Settings(BaseSettings):
     queue_name: str = "lead-processing"
     job_max_retries: int = 3
     crm_inbound_scheduler_interval_seconds: int = 15
-    crm_inbound_default_interval_seconds: int = 300
+    crm_inbound_default_interval_seconds: int = 60
     crm_inbound_batch_limit: int = 500
     crm_inbound_page_size: int = 100
     outlook_initial_sync_days: int = 30
@@ -93,11 +95,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = ""
     openai_org_id: str = ""
-    openai_supported_models: str = "gpt-4.1-mini,gpt-4.1"
-    openai_default_model: str = "gpt-4.1-mini"
-    gemini_supported_models: str = "gemini-3.8-flash,gemini-2.5-flash"
+    openai_supported_models: str = "gpt-6-astra,gpt-6.1-sol,gpt-6.1-terra,gpt-6-luna,gpt-5.3-codex,gpt-4.1,gpt-4.1-mini"
+    openai_default_model: str = "gpt-6.1-terra"
+    gemini_supported_models: str = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.1-pro-preview,gemini-2.5-pro,gemini-2.5-flash,gemini-2.5-flash-lite"
     gemini_default_model: str = "gemini-3.8-flash"
-    claude_supported_models: str = "claude-sonnet-4-6,claude-haiku-4-5"
+    claude_supported_models: str = "claude-fable-5,claude-opus-5,claude-opus-4-8,claude-opus-4-7,claude-opus-4-6,claude-sonnet-5,claude-sonnet-4-6,claude-haiku-4-5-20251001"
     claude_default_model: str = "claude-sonnet-4-6"
     deepseek_supported_models: str = "deepseek-flash,deepseek-v4-pro"
     deepseek_default_model: str = "deepseek-flash"
@@ -170,6 +172,8 @@ class Settings(BaseSettings):
             raise ValueError("EMAIL_VERIFICATION_EXPIRY_MINUTES must be between 5 and 10080")
         if not 10 <= self.email_verification_resend_seconds <= 24 * 3600:
             raise ValueError("EMAIL_VERIFICATION_RESEND_SECONDS must be between 10 and 86400")
+        if not 5 <= self.password_reset_expiry_minutes <= 24 * 60:
+            raise ValueError("PASSWORD_RESET_EXPIRY_MINUTES must be between 5 and 1440")
         if self.email_smtp_port < 1 or self.email_smtp_port > 65535:
             raise ValueError("EMAIL_SMTP_PORT must be between 1 and 65535")
         if self.email_smtp_timeout_seconds <= 0:
@@ -235,6 +239,10 @@ class Settings(BaseSettings):
         require(
             self.auth_require_email_verification,
             "AUTH_REQUIRE_EMAIL_VERIFICATION must be true",
+        )
+        require(
+            bool(self.corral_site_access_password.strip()),
+            "CORRAL_SITE_ACCESS_PASSWORD must be configured",
         )
         require(self.log_format == "json", "LOG_FORMAT must be json in production")
         require(

@@ -26,7 +26,7 @@
   overflow: hidden;
   border: 1px solid rgba(29, 66, 54, 0.18);
   border-radius: 18px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 20px 60px rgba(12, 36, 28, 0.24);
   transform-origin: bottom right;
   transition:
@@ -58,8 +58,8 @@
   gap: 14px;
   padding: 12px 14px;
   border-bottom: 1px solid rgba(29, 66, 54, 0.12);
-  background: #fff;
-  color: #173b30;
+  background: var(--surface);
+  color: var(--label);
 }
 
 .dialer-phone-header-main {
@@ -75,7 +75,7 @@
 
 .dialer-phone-header small {
   overflow: hidden;
-  color: #63746e;
+  color: var(--label-2);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -97,8 +97,8 @@
   padding: 6px 10px;
   border: 1px solid rgba(29, 66, 54, 0.16);
   border-radius: 10px;
-  background: #f7faf8;
-  color: #31594b;
+  background: var(--surface-sunken);
+  color: var(--label);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
@@ -113,8 +113,8 @@
 .dialer-phone-alert-toggle:hover:not(:disabled),
 .dialer-phone-alert-toggle[aria-pressed="true"] {
   border-color: rgba(29, 107, 82, 0.25);
-  background: #eaf4ee;
-  color: #175943;
+  background: var(--surface-sunken);
+  color: var(--label);
 }
 
 .dialer-phone-alert-toggle:focus-visible {
@@ -135,16 +135,16 @@
   place-items: center;
   border: 1px solid rgba(29, 66, 54, 0.12);
   border-radius: 10px;
-  background: #f7faf8;
-  color: #405b51;
+  background: var(--surface-sunken);
+  color: var(--label-2);
   cursor: pointer;
   font-size: 22px;
   line-height: 1;
 }
 
 .dialer-phone-close:hover:not(:disabled) {
-  background: #edf3ef;
-  color: #173b30;
+  background: var(--surface-sunken);
+  color: var(--label);
 }
 
 .dialer-phone-close:disabled {
@@ -159,7 +159,7 @@
   flex: 1;
   flex-direction: column;
   overflow: hidden;
-  background: #f7faf8;
+  background: var(--surface-sunken);
 }
 
 .dialer-phone-cloudtalk-alert-note {
@@ -171,16 +171,16 @@
   margin: 0;
   padding: 9px 14px;
   border-bottom: 1px solid rgba(29, 66, 54, 0.09);
-  background: #f7faf8;
-  color: #63746e;
+  background: var(--surface-sunken);
+  color: var(--label-2);
   font-size: 11px;
   line-height: 1.4;
 }
 
 .dialer-phone-cloudtalk-alert-note.is-feedback {
   border-bottom-color: rgba(138, 91, 16, 0.16);
-  background: #fff8e9;
-  color: #765618;
+  background: var(--surface-sunken);
+  color: var(--label);
 }
 
 .dialer-phone-cloudtalk-safety-note {
@@ -188,8 +188,8 @@
   margin: 0;
   padding: 8px 14px;
   border-bottom: 1px solid rgba(138, 91, 16, 0.16);
-  background: #fff8e9;
-  color: #765618;
+  background: var(--surface-sunken);
+  color: var(--label);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -211,7 +211,7 @@
   margin: 0;
   padding: 7px 12px;
   border-bottom: 1px solid rgba(29, 66, 54, 0.09);
-  color: #64746e;
+  color: var(--label-2);
   font-size: 11px;
 }
 
@@ -221,7 +221,7 @@
   min-height: 0;
   flex: 1 1 auto;
   border: 0;
-  background: #fff;
+  background: var(--surface);
 }
 
 .dialer-phone-cloudtalk-frame-viewport {
@@ -233,7 +233,7 @@
   justify-content: center;
   align-items: flex-start;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
 }
 
 .dialer-phone-frame-cloudtalk {
@@ -273,7 +273,7 @@
   gap: 10px;
   height: 100%;
   padding: 28px;
-  color: #29483e;
+  color: var(--label);
 }
 
 .dialer-phone-setup strong {
@@ -283,16 +283,16 @@
 .dialer-phone-setup p,
 .dialer-phone-setup small {
   margin: 0;
-  color: #63746e;
+  color: var(--label-2);
   font-size: 13px;
   line-height: 1.55;
 }
 
 .dialer-phone-setup code {
   border-radius: 5px;
-  background: #edf3ef;
+  background: var(--surface-sunken);
   padding: 2px 4px;
-  color: #244c3d;
+  color: var(--label);
   font-size: 11px;
 }
 
@@ -304,7 +304,7 @@
   padding: 6px 15px 6px 7px;
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 999px;
-  background: #1e6b52;
+  background: var(--tint);
   box-shadow: 0 10px 28px rgba(13, 59, 43, 0.28);
   color: #fff;
   cursor: pointer;
@@ -352,7 +352,7 @@
   align-items: center;
   gap: 7px 12px;
   margin: 12px 0 14px;
-  color: #29483e;
+  color: var(--label);
   font-size: 12px;
 }
 
@@ -366,21 +366,21 @@
   padding: 8px 30px 8px 10px;
   border: 1px solid rgba(29, 66, 54, 0.2);
   border-radius: 9px;
-  background: #fff;
-  color: #173b30;
+  background: var(--surface);
+  color: var(--label);
   font: inherit;
 }
 
 .dialer-preferred-provider > span {
   overflow: hidden;
-  color: #63746e;
+  color: var(--label-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dialer-preferred-provider > small {
   grid-column: 2;
-  color: #8a5b10;
+  color: var(--label-2);
   font-size: 11px;
 }
 
@@ -389,12 +389,12 @@
   padding: 14px 16px;
   border: 1px solid rgba(148, 105, 25, 0.16);
   border-radius: 12px;
-  background: #fbf8f0;
+  background: var(--surface-sunken);
 }
 
 .embedded-phone-warning {
   margin: 0;
-  color: #73551e;
+  color: var(--label);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -459,3 +459,9 @@
     line-height: 1.3;
   }
 }
+
+/* The embedded provider phone renders its own light UI; keep its frame white. */
+
+/* The embedded provider phone renders its own light UI; keep its frame white. */
+.dialer-phone-frame,
+.dialer-phone-cloudtalk-frame-viewport { background: #fff; }

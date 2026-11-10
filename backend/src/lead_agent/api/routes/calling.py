@@ -11,10 +11,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from lead_agent.api.data_access import require_workspace_wide_access
 from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.api.routes.collaboration import owned_lead
 from lead_agent.application.governance import (
@@ -25,6 +26,15 @@ from lead_agent.application.governance import (
     operations_policy,
     outreach_allowed,
 )
+from lead_agent.application.integration_access import (
+    allowed_connection_actions,
+    assert_connection_action,
+)
+from lead_agent.application.lead_access import (
+    accessible_lead_ids_query,
+    assert_lead_action,
+)
+from lead_agent.domain.call_outcome import call_outcome
 from lead_agent.domain.operations import StrictModel
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -64,6 +74,37 @@ class CallRecord(BaseModel):
     message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+def call_record_for_permissions(
+    row: CallRecord | CallRecordORM,
+    permissions: set[str] | frozenset[str],
+) -> CallRecord:
+    record = row if isinstance(row, CallRecord) else CallRecord.model_validate(row)
+    return record.model_copy(
+        update={
+            "customer_phone": (
+                record.customer_phone if "fields.contact.view" in permissions else "[redacted]"
+            ),
+            "transcript": record.transcript if "calls.transcript.view" in permissions else None,
+            "recording_url": (
+                record.recording_url if "calls.recording.play" in permissions else None
+            ),
+            "insights": record.insights if "calls.analysis.view" in permissions else None,
+            "message": (record.message if "fields.communications.view" in permissions else None),
+        }
+    )
+
+
+def _call_snapshot_payload(snapshot: Any, permissions: set[str] | frozenset[str]) -> dict[str, Any]:
+    payload = snapshot.model_dump(mode="json")
+    if "calls.transcript.view" not in permissions:
+        payload["transcript"] = None
+    if "calls.recording.play" not in permissions:
+        payload["recording_url"] = None
+    if "calls.analysis.view" not in permissions:
+        payload["insights"] = None
+    return payload
 
 
 class StartCall(StrictModel):
@@ -135,6 +176,7 @@ def _client(
     connection: ProviderConnectionORM,
     resolver: WorkspaceAuthorizedConnectionResolver,
 ) -> CommunicationsClient:
+    assert_connection_action(session, workspace, connection, "use")
     try:
         resolved = resolver.resolve_connection(
             session, workspace.workspace_id, connection.id, actor_id=workspace.actor_id
@@ -155,9 +197,7 @@ def _target(lead: LeadORM) -> str:
         raise HTTPException(422, str(error)) from None
 
 
-def _validate_direct_call_policy(
-    session: Session, workspace_id: UUID, target: str
-) -> None:
+def _validate_direct_call_policy(session: Session, workspace_id: UUID, target: str) -> None:
     target_digits = "".join(character for character in target if character.isdigit())
     matching_leads = [
         lead
@@ -232,9 +272,10 @@ def cloudtalk_phone_numbers(
 def recent_cloudtalk_calls(
     page: int = Query(default=1, ge=1),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
+    workspace: WorkspaceContext = Depends(require_permission("calls.metadata.view")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
+    require_workspace_wide_access(workspace)
     connections = list(
         session.scalars(
             select(ProviderConnectionORM)
@@ -283,8 +324,12 @@ def recent_cloudtalk_calls(
         for lead_id, full_name, company_name, _, representative in leads
     }
     by_phone = {
-        "".join(character for character in (phone_number or "") if character.isdigit()):
-        (str(lead_id), full_name, company_name, representative)
+        "".join(character for character in (phone_number or "") if character.isdigit()): (
+            str(lead_id),
+            full_name,
+            company_name,
+            representative,
+        )
         for lead_id, full_name, company_name, phone_number, representative in leads
         if phone_number
     }
@@ -303,9 +348,7 @@ def recent_cloudtalk_calls(
         else []
     )
     linked_lead_ids = {
-        row.external_id: str(row.lead_id)
-        for row in linked_calls
-        if row.external_id and row.lead_id
+        row.external_id: str(row.lead_id) for row in linked_calls if row.external_id and row.lead_id
     }
     records = []
     for call in recent:
@@ -316,7 +359,7 @@ def recent_cloudtalk_calls(
             matched = by_phone.get(digits)
             lead_id = matched[0] if matched else None
             lead = matched[1:] if matched else None
-        record = call.model_dump(mode="json")
+        record = _call_snapshot_payload(call, workspace.permissions)
         call_created_at = (
             call.started_at.isoformat() if call.started_at else datetime.now(UTC).isoformat()
         )
@@ -346,9 +389,10 @@ def cloudtalk_call_details(
     call_id: str,
     page: int = Query(default=1, ge=1),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
+    workspace: WorkspaceContext = Depends(require_permission("calls.metadata.view")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
+    require_workspace_wide_access(workspace)
     connection = session.scalar(
         select(ProviderConnectionORM)
         .where(
@@ -372,7 +416,7 @@ def cloudtalk_call_details(
     call = next((item for item in calls if item.external_id == call_id), None)
     if call is None:
         raise HTTPException(404, "CloudTalk call not found on this history page")
-    return call.model_dump(mode="json")
+    return _call_snapshot_payload(call, workspace.permissions)
 
 
 @router.post(
@@ -383,12 +427,12 @@ def assign_cloudtalk_call_to_lead(
     call_id: str,
     request: AssignCloudTalkCall,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(
-        require_permissions("dialer.call", "leads.edit")
-    ),
+    workspace: WorkspaceContext = Depends(require_permissions("dialer.call", "leads.edit")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> AssignCloudTalkCallResponse:
+    require_workspace_wide_access(workspace)
     lead = owned_lead(session, workspace.workspace_id, request.lead_id)
+    assert_lead_action(session, workspace, lead, "edit")
     connection = _connection(session, workspace.workspace_id, request.connection_id)
     if connection.provider_type != "cloudtalk":
         raise HTTPException(404, "CloudTalk connection not found")
@@ -467,9 +511,10 @@ def assign_cloudtalk_call_to_lead(
 def call_activity(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.view", "calls.metadata.view")),
 ) -> Any:
     lead = owned_lead(session, workspace.workspace_id, lead_id)
+    assert_lead_action(session, workspace, lead, "view")
     connections = list(
         session.scalars(
             select(ProviderConnectionORM)
@@ -499,13 +544,14 @@ def call_activity(
     allowed, reason = outreach_allowed(session, workspace.workspace_id, lead.email, "call")
     public_records = []
     for record in records:
-        item = CallRecord.model_validate(record).model_dump()
-        item.update(transcript=None, recording_url=None, insights=None)
-        public_records.append(item)
+        public_records.append(
+            call_record_for_permissions(record, workspace.permissions).model_dump()
+        )
     return {
         "connections": [
             {"id": row.id, "provider": row.provider_type, "account_name": row.account_name}
             for row in connections
+            if {"view", "view_status", "use"} & allowed_connection_actions(session, workspace, row)
         ],
         "records": public_records,
         "outreach_allowed": allowed,
@@ -518,10 +564,11 @@ def call_activity_details(
     lead_id: UUID,
     call_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.view", "calls.metadata.view")),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
     lead = owned_lead(session, workspace.workspace_id, lead_id)
+    assert_lead_action(session, workspace, lead, "view")
     record = session.scalar(
         select(CallRecordORM).where(
             CallRecordORM.id == call_id,
@@ -535,9 +582,7 @@ def call_activity_details(
         connection = _connection(session, workspace.workspace_id, record.connection_id)
         client = _client(session, workspace, connection, resolver)
         try:
-            snapshots = client.recent_calls(
-                _target(lead), details_for_call_id=record.external_id
-            )
+            snapshots = client.recent_calls(_target(lead), details_for_call_id=record.external_id)
         except ProviderOperationError as error:
             raise HTTPException(429 if error.status_code == 429 else 502, str(error)) from None
         except (ValueError, TypeError, KeyError, AttributeError):
@@ -554,7 +599,7 @@ def call_activity_details(
         record.insights = snapshot.insights
         record.updated_at = datetime.now(UTC)
         session.commit()
-    return CallRecord.model_validate(record)
+    return call_record_for_permissions(record, workspace.permissions)
 
 
 @router.post(
@@ -572,6 +617,7 @@ def start_call(
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> CallRecordORM:
     lead = owned_lead(session, workspace.workspace_id, lead_id)
+    assert_lead_action(session, workspace, lead, "edit")
     if not request.confirmed:
         raise HTTPException(422, "Confirm this individual call before dialing.")
     target = _target(lead)
@@ -992,7 +1038,7 @@ def prepare_cloudtalk_lead_handoff(
 @router.get("/direct/recent")
 def recent_direct_calls(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("dialer.call")),
+    workspace: WorkspaceContext = Depends(require_permission("calls.metadata.view")),
 ) -> dict[str, list[dict[str, object]]]:
     records = list(
         session.scalars(
@@ -1001,6 +1047,7 @@ def recent_direct_calls(
                 CallRecordORM.workspace_id == workspace.workspace_id,
                 CallRecordORM.lead_id.is_(None),
                 CallRecordORM.request_id.is_not(None),
+                CallRecordORM.actor_id == workspace.actor_id,
             )
             .order_by(
                 func.coalesce(CallRecordORM.started_at, CallRecordORM.created_at).desc(),
@@ -1009,27 +1056,35 @@ def recent_direct_calls(
             .limit(50)
         )
     )
-    leads = list(
-        session.execute(
-            select(
-                LeadORM.id,
-                LeadORM.full_name,
-                LeadORM.company_name,
-                LeadORM.phone,
-            ).where(
-                LeadORM.workspace_id == workspace.workspace_id,
-                LeadORM.phone.is_not(None),
+    can_view_contact = "fields.contact.view" in workspace.permissions
+    leads = (
+        list(
+            session.execute(
+                select(
+                    LeadORM.id,
+                    LeadORM.full_name,
+                    LeadORM.company_name,
+                    LeadORM.phone,
+                ).where(
+                    LeadORM.id.in_(accessible_lead_ids_query(workspace)),
+                    LeadORM.phone.is_not(None),
+                )
             )
         )
+        if can_view_contact
+        else []
     )
     by_phone = {
-        "".join(character for character in (phone_number or "") if character.isdigit()):
-        (str(lead_id), full_name, company_name)
+        "".join(character for character in (phone_number or "") if character.isdigit()): (
+            str(lead_id),
+            full_name,
+            company_name,
+        )
         for lead_id, full_name, company_name, phone_number in leads
     }
     payload: list[dict[str, object]] = []
     for row in records:
-        item = CallRecord.model_validate(row).model_dump(mode="json")
+        item = call_record_for_permissions(row, workspace.permissions).model_dump(mode="json")
         match = by_phone.get(
             "".join(character for character in row.customer_phone if character.isdigit())
         )
@@ -1049,7 +1104,9 @@ def sync_calls(
     lead_id: UUID,
     request: SyncCalls,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permissions("leads.view", "leads.edit")),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.view", "leads.edit", "dialer.call")
+    ),
     resolver: WorkspaceAuthorizedConnectionResolver = Depends(get_workspace_connection_resolver),
 ) -> Any:
     lead = owned_lead(session, workspace.workspace_id, lead_id)
@@ -1112,3 +1169,157 @@ def sync_calls(
         "refreshed": refreshed,
         "message": "Recent calls matching this lead number were refreshed.",
     }
+
+
+def _digits(value: str | None) -> str:
+    return "".join(character for character in (value or "") if character.isdigit())
+
+
+@router.get("/history")
+def call_history(
+    direction: str = Query("all", pattern="^(all|inbound|outbound|missed)$"),
+    search: str = Query("", max_length=120),
+    before: datetime | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("calls.metadata.view")),
+) -> dict[str, object]:
+    """Every call recorded in this workspace, newest first, with one outcome vocabulary."""
+    when = func.coalesce(CallRecordORM.started_at, CallRecordORM.created_at)
+    query = (
+        select(CallRecordORM, LeadORM.full_name, LeadORM.company_name)
+        .outerjoin(
+            LeadORM,
+            and_(
+                LeadORM.id == CallRecordORM.lead_id, LeadORM.workspace_id == workspace.workspace_id
+            ),
+        )
+        .where(
+            CallRecordORM.workspace_id == workspace.workspace_id,
+            or_(
+                CallRecordORM.lead_id.in_(accessible_lead_ids_query(workspace)),
+                and_(
+                    CallRecordORM.lead_id.is_(None),
+                    CallRecordORM.actor_id == workspace.actor_id,
+                ),
+            ),
+        )
+    )
+    if before is not None:
+        query = query.where(when < before)
+    if direction in {"inbound", "outbound"}:
+        query = query.where(func.lower(CallRecordORM.direction) == direction)
+    if direction == "missed":
+        query = query.where(func.lower(CallRecordORM.direction) == "inbound")
+    term = search.strip()
+    if term:
+        like = f"%{term}%"
+        digits = _digits(term)
+        conditions = [LeadORM.company_name.ilike(like)]
+        if "fields.contact.view" in workspace.permissions:
+            conditions.append(LeadORM.full_name.ilike(like))
+        if len(digits) >= 3 and "fields.contact.view" in workspace.permissions:
+            conditions.append(CallRecordORM.customer_phone.like(f"%{digits[-7:]}%"))
+        query = query.where(or_(*conditions))
+    fetch = limit * 3 if direction == "missed" else limit + 1
+    rows = session.execute(
+        query.order_by(when.desc(), CallRecordORM.created_at.desc()).limit(fetch)
+    ).all()
+
+    unlinked_digits = {
+        _digits(row[0].customer_phone)[-7:]
+        for row in rows
+        if row[0].lead_id is None and len(_digits(row[0].customer_phone)) >= 7
+    }
+    phone_matches: dict[str, tuple[str, str, str]] = {}
+    if unlinked_digits and "fields.contact.view" in workspace.permissions:
+        candidates = session.execute(
+            select(LeadORM.id, LeadORM.full_name, LeadORM.company_name, LeadORM.phone).where(
+                LeadORM.id.in_(accessible_lead_ids_query(workspace)),
+                or_(*[LeadORM.phone.like(f"%{tail}%") for tail in unlinked_digits]),
+            )
+        ).all()
+        for lead_id, full_name, company_name, phone in candidates:
+            phone_matches[_digits(phone)] = (str(lead_id), full_name, company_name)
+
+    lead_ids = {row[0].lead_id for row in rows if row[0].lead_id is not None}
+    reps = (
+        {
+            decision.lead_id: decision.assigned_rep_name
+            for decision in session.scalars(
+                select(RoutingDecisionORM).where(
+                    RoutingDecisionORM.workspace_id == workspace.workspace_id,
+                    RoutingDecisionORM.lead_id.in_(lead_ids),
+                    RoutingDecisionORM.is_current.is_(True),
+                )
+            )
+        }
+        if lead_ids
+        else {}
+    )
+
+    records: list[dict[str, object]] = []
+    for call, lead_name, company_name in rows:
+        outcome = call_outcome(call.status, call.direction, call.duration_seconds)
+        if direction == "missed" and outcome != "missed":
+            continue
+        item = call_record_for_permissions(call, workspace.permissions).model_dump(mode="json")
+        match = None if call.lead_id else phone_matches.get(_digits(call.customer_phone))
+        item.update(
+            outcome=outcome,
+            linked=call.lead_id is not None,
+            lead_id=str(call.lead_id) if call.lead_id else (match[0] if match else None),
+            lead_name=(lead_name if call.lead_id else (match[1] if match else None))
+            if "fields.contact.view" in workspace.permissions
+            else None,
+            company_name=company_name if call.lead_id else (match[2] if match else None),
+            representative_name=(reps.get(call.lead_id) if call.lead_id else None)
+            if "fields.internal.view" in workspace.permissions
+            else None,
+        )
+        records.append(item)
+        if len(records) > limit:
+            break
+    has_more = len(records) > limit
+    records = records[:limit]
+    return {
+        "records": records,
+        "has_more": has_more,
+        "next_before": records[-1]["started_at"] or records[-1]["created_at"]
+        if has_more and records
+        else None,
+    }
+
+
+class LinkCall(StrictModel):
+    lead_id: UUID
+
+
+@router.post("/calls/{call_id}/link")
+def link_call_to_lead(
+    call_id: UUID,
+    request: LinkCall,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permissions("dialer.call", "leads.edit")),
+) -> dict[str, str]:
+    call = session.scalar(
+        select(CallRecordORM).where(
+            CallRecordORM.id == call_id,
+            CallRecordORM.workspace_id == workspace.workspace_id,
+        )
+    )
+    if call is None:
+        raise HTTPException(404, "Call not found")
+    if call.lead_id is not None and call.lead_id != request.lead_id:
+        raise HTTPException(409, "This call is already linked to another lead.")
+    lead = session.scalar(
+        select(LeadORM).where(
+            LeadORM.id == request.lead_id, LeadORM.workspace_id == workspace.workspace_id
+        )
+    )
+    if lead is None:
+        raise HTTPException(404, "Lead not found")
+    call.lead_id = lead.id
+    call.updated_at = datetime.now(UTC)
+    session.commit()
+    return {"call_id": str(call.id), "lead_id": str(lead.id)}

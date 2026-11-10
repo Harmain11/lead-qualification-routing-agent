@@ -339,6 +339,77 @@ def test_note_versions_preserve_teammate_edits_and_presence_expires(ops):
     assert not client.get(f"/v1/collaboration/leads/{lead.id}").json()["presence"]
 
 
+def test_authorized_note_delete_removes_note(ops):
+    session, client, _, _, lead, *_ = ops
+    note_id = uuid4()
+    path = f"/v1/collaboration/leads/{lead.id}/notes/{note_id}"
+    assert client.put(path, json={"body": "Delete me", "version": 0}).status_code == 200
+
+    response = client.delete(path)
+
+    assert response.status_code == 204
+    assert session.get(LeadNoteORM, note_id) is None
+
+
+def test_note_delete_requires_comments_delete(ops):
+    session, client, workspace, _, lead, *_ = ops
+    note_id = uuid4()
+    path = f"/v1/collaboration/leads/{lead.id}/notes/{note_id}"
+    assert client.put(path, json={"body": "Keep me", "version": 0}).status_code == 200
+    app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
+        workspace_id=workspace.workspace_id,
+        actor_id=workspace.actor_id,
+        user_id=workspace.user_id,
+        membership_id=workspace.membership_id,
+        role="sales_rep",
+        permissions=role_permissions("sales_rep"),
+    )
+
+    response = client.delete(path)
+
+    assert response.status_code == 403
+    assert session.get(LeadNoteORM, note_id) is not None
+
+
+def test_presence_hides_active_member_without_current_lead_access(ops):
+    from lead_agent.infrastructure.db.operations import LeadPresenceORM
+
+    session, client, workspace, _, lead, *_ = ops
+    now = datetime.now(UTC)
+    outsider = UserORM(
+        id=uuid4(),
+        email="outsider@example.test",
+        display_name="Outsider",
+        password_hash="test",
+        created_at=now,
+        updated_at=now,
+        email_verified=True,
+        status="active",
+    )
+    outsider_membership = WorkspaceMembershipORM(
+        workspace_id=workspace.workspace_id,
+        user_id=outsider.id,
+        role="sales_rep",
+        status="active",
+        created_at=now,
+        updated_at=now,
+        permission_overrides={},
+    )
+    session.add_all([outsider, outsider_membership])
+    session.flush()
+    session.add(LeadPresenceORM(
+        lead_id=lead.id,
+        user_id=outsider.id,
+        workspace_id=workspace.workspace_id,
+        expires_at=now + timedelta(seconds=45),
+    ))
+    session.commit()
+
+    result = client.get(f"/v1/collaboration/leads/{lead.id}").json()
+
+    assert result["presence"] == []
+
+
 def test_retention_deletes_graph_but_preserves_independent_contacts(ops):
     from lead_agent.infrastructure.db.models import LeadFollowUpEmailORM, LeadORM, PipelineEventORM
 

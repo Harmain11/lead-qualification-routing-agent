@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.application.meeting_email import (
     can_replace_unbooked_offer,
     create_booking_link_offer_draft,
@@ -107,6 +108,9 @@ class MeetingRecommendationsResponse(BaseModel):
     offer_has_confirmed_selection: bool = False
     offer_can_be_replaced: bool = False
     booked_meeting_at: datetime | None = None
+    cancelled_meeting_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    cancellation_reason: str | None = None
 
 
 class ConfirmMeetingRequest(BaseModel):
@@ -323,6 +327,34 @@ def get_meeting_recommendations(
     lead_id: UUID,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> MeetingRecommendationsResponse:
+    response = _meeting_recommendations(lead_id, session, workspace)
+    if response.offer_status == "booked":
+        return response
+    # A cancelled meeting must not read as "appointment needed" with no history.
+    latest = session.scalar(
+        select(PipelineEventORM)
+        .where(
+            PipelineEventORM.lead_id == lead_id,
+            PipelineEventORM.workspace_id == workspace.workspace_id,
+            PipelineEventORM.stage == "meeting_scheduled",
+        )
+        .order_by(PipelineEventORM.created_at.desc())
+        .limit(1)
+    )
+    if latest is not None and latest.status == "cancelled":
+        details = latest.details if isinstance(latest.details, dict) else {}
+        response.cancelled_meeting_at = _parse_provider_time(str(details.get("start_at") or ""))
+        response.cancelled_at = _parse_provider_time(str(details.get("cancelled_at") or ""))
+        reason = str(details.get("cancellation_reason") or "").strip()
+        response.cancellation_reason = reason[:300] or None
+    return response
+
+
+def _meeting_recommendations(
+    lead_id: UUID,
+    session: Session,
+    workspace: WorkspaceContext,
 ) -> MeetingRecommendationsResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
     connections = _workspace_calendar_connections(session, workspace.workspace_id)
@@ -669,6 +701,7 @@ def create_meeting_offer_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> MeetingOfferDraftResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     current = get_meeting_recommendations(
         lead_id,
         session=session,
@@ -713,6 +746,7 @@ def create_meeting_preferred_offer_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> MeetingOfferDraftResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     draft = create_preferred_meeting_offer_draft(
         session, lead=lead, workspace_id=workspace.workspace_id,
         actor_id=workspace.actor_id,
@@ -730,6 +764,7 @@ def create_meeting_booking_link_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> MeetingOfferDraftResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     draft = create_booking_link_offer_draft(
         session,
         lead=lead,
@@ -750,6 +785,7 @@ def confirm_meeting(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> ConfirmMeetingResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     session.scalar(
         select(LeadORM.id)
         .where(

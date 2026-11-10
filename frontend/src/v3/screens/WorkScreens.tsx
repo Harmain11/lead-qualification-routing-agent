@@ -19,6 +19,7 @@ import {
   titleize,
 } from "../ui/primitives";
 import { sourceLabel } from "./leadFormat";
+import { confirmAction } from "../ui/confirm";
 
 /* ================================================================= Today */
 
@@ -182,7 +183,7 @@ export function TodayScreen({
       <section className="h-kpis" aria-label="Key numbers">
         <HomeKpi label="New leads" value={leads ? leads.value.toLocaleString() : String(views.length)} change={leads?.change_percent ?? null} onClick={canViewLeads ? () => onNavigate("leads") : undefined} />
         <HomeKpi label="Open pipeline" value={formatMoney(pipeline)} detail={`${open.length} open deals`} onClick={() => onNavigate("pipeline")} />
-        <HomeKpi label="Weighted forecast" value={weighted == null ? "—" : formatMoney(weighted)} detail={weighted == null ? "Not tracked: no recorded close rate" : "Recorded cohort win rate"} onClick={() => onNavigate("revenue")} accent />
+        <HomeKpi label="Weighted forecast" value={weighted == null ? "—" : formatMoney(weighted)} detail={weighted == null ? "Needs 5 closed deals to forecast" : "Recorded cohort win rate"} onClick={() => onNavigate("revenue")} accent />
         <HomeKpi
           label="Won this month"
           value={formatMoney(wonMonth)}
@@ -356,7 +357,7 @@ export function ReviewScreen({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   async function completeReview(id: string, name: string) {
-    if (!window.confirm(`Mark ${name}'s review done? This clears the hold, applies current routing, and may notify the assignee.`)) return;
+    if (!(await confirmAction({ title: `Mark ${name}'s review done?`, message: "This clears the hold, applies current routing and may notify the assignee.", confirmLabel: "Mark done" }))) return;
     setBusyId(id);
     setError(null);
     try {

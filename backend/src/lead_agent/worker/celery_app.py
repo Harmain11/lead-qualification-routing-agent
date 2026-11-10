@@ -1,15 +1,19 @@
 import hashlib
 import logging
+import os
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from celery import Celery  # type: ignore[import-untyped]
 from celery.signals import task_failure, task_retry  # type: ignore[import-untyped]
+from kombu import Queue  # type: ignore[import-untyped]
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
@@ -22,7 +26,10 @@ from lead_agent.application.icp import resolve_workspace_icp
 from lead_agent.application.manual_review import workspace_manual_review_config
 from lead_agent.application.reasoning_cache import reasoning_request_fingerprint
 from lead_agent.application.services import reprocess_lead
+from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.models import QualificationResult
 from lead_agent.domain.normalization import normalize_lead
+from lead_agent.domain.scoring import qualify_lead
 from lead_agent.infrastructure.crm.inbound_factory import get_workspace_inbound_crm_resolver
 from lead_agent.infrastructure.db.models import (
     CrmInboundSyncStateORM,
@@ -37,16 +44,56 @@ from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDER
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.settings.config import get_settings
 
+
+@dataclass(frozen=True)
+class CeleryTransport:
+    broker_url: str
+    result_backend: str
+    broker_options: dict[str, object]
+    result_options: dict[str, object]
+
+
+def _resolve_celery_transport(
+    redis_url: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> CeleryTransport:
+    """Use Vercel Queues on Vercel and preserve Redis everywhere else."""
+    runtime_environment = os.environ if environ is None else environ
+    if runtime_environment.get("VERCEL") == "1":
+        return CeleryTransport(
+            broker_url="vercel://",
+            result_backend="vercel-runtime-cache://",
+            broker_options={
+                "consumer_group": "corral-workers",
+                "lease_duration": 300,
+                "requeue_delay_seconds": 60,
+            },
+            result_options={
+                "namespace": "corral-celery-results",
+                "ttl": 86400,
+            },
+        )
+    return CeleryTransport(
+        broker_url=redis_url,
+        result_backend=redis_url,
+        broker_options={"visibility_timeout": 3600},
+        result_options={"visibility_timeout": 3600},
+    )
+
+
 settings = get_settings()
 configure_logging(json_logs=settings.log_format == "json", level=settings.log_level)
 _LOGGER = logging.getLogger("lead_agent.worker")
+_transport = _resolve_celery_transport(settings.redis_url)
 celery_app = Celery(
     "lead_agent",
-    broker=settings.redis_url,
-    backend=settings.redis_url,
+    broker=_transport.broker_url,
+    backend=_transport.result_backend,
 )
 celery_app.conf.update(
     task_default_queue=settings.queue_name,
+    task_queues=(Queue(settings.queue_name),),
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_track_started=True,
@@ -64,8 +111,8 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     broker_connection_max_retries=10,
     result_expires=86400,
-    broker_transport_options={"visibility_timeout": 3600},
-    result_backend_transport_options={"visibility_timeout": 3600},
+    broker_transport_options=_transport.broker_options,
+    result_backend_transport_options=_transport.result_options,
     beat_schedule={
         "workspace-operations": {"task": "lead_agent.workspace_operations", "schedule": 30},
         "dispatch-due-crm-inbound-syncs": {
@@ -107,6 +154,21 @@ def _persisted_lead_payload(lead: LeadORM) -> dict[str, object]:
         "raw_payload": lead.raw_payload,
         "normalization_version": lead.normalization_version,
     }
+
+
+def _qualification_matches(lead: LeadORM, expected: QualificationResult) -> bool:
+    """Return whether the durable score already reflects the validated analysis."""
+    current = lead.qualification
+    if current is None:
+        return False
+    return (
+        current.total_score == expected.total_score
+        and current.classification == expected.classification
+        and current.routing_queue == expected.routing_queue
+        and current.routing_action == expected.routing_action
+        and current.hard_disqualified == expected.hard_disqualified
+        and current.component_scores == expected.component_scores
+    )
 
 
 def _on_task_failure(
@@ -316,6 +378,7 @@ def reanalyze_workspace_leads(
     del self
     workspace_uuid = UUID(workspace_id)
     with get_session_factory()() as session:
+        connection = session.get(ProviderConnectionORM, UUID(connection_id))
         icp, routing = settings.load_policies()
         resolved_icp = resolve_workspace_icp(session, workspace_uuid, icp)
         business_profile = operations_policy(session, workspace_uuid).business_profile
@@ -325,24 +388,82 @@ def reanalyze_workspace_leads(
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         provider_name = getattr(provider, "provider_name", "")
         model_name = getattr(provider, "model_name", "")
-        if provider_name not in REASONING_PROVIDERS:
-            return "skipped: verified workspace reasoning provider is unavailable"
-        connection = session.get(ProviderConnectionORM, UUID(connection_id))
-        if (
-            connection is None
-            or connection.workspace_id != workspace_uuid
-            or connection.provider_type != provider_name
-            or not connection.is_active
-            or connection.status != "verified"
-            or (
-                f"{provider_name}|{model_name}|{getattr(provider, 'prompt_version', '')}"
-                != config_key
-            )
-        ):
-            return "skipped: verified workspace reasoning connection is unavailable"
         correlation_id = job_id
         lock_hash = hashlib.sha256(config_key.encode()).hexdigest()[:24]
         lock_key = f"reasoning-backfill:{workspace_id}:{connection_id}:{lock_hash}"
+
+        def release_lock() -> None:
+            if settings.app_env != "production":
+                return
+            client = Redis.from_url(
+                settings.redis_url, socket_connect_timeout=1, socket_timeout=1
+            )
+            try:
+                client.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    "return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    lock_key,
+                    job_id,
+                )
+            except (RedisError, OSError, ValueError):
+                _LOGGER.warning("reasoning.backfill_lock_release_failed")
+            finally:
+                client.close()
+
+        provider_configuration_is_current = (
+            provider_name in REASONING_PROVIDERS
+            and connection is not None
+            and connection.workspace_id == workspace_uuid
+            and connection.provider_type == provider_name
+            and connection.is_active
+            and connection.status == "verified"
+            and (
+                f"{provider_name}|{model_name}|{getattr(provider, 'prompt_version', '')}"
+                == config_key
+            )
+        )
+        if not provider_configuration_is_current:
+            failure_message = (
+                "The verified workspace AI configuration changed before this refresh "
+                "started. Verify the intended provider and retry."
+            )
+            if connection is not None and connection.workspace_id == workspace_uuid:
+                total = int(session.scalar(
+                    select(func.count(LeadORM.id)).where(
+                        LeadORM.workspace_id == workspace_uuid
+                    )
+                ) or 0)
+                session.add(
+                    ProviderLifecycleAuditORM(
+                        id=uuid4(),
+                        workspace_id=workspace_uuid,
+                        connection_id=connection.id,
+                        provider=connection.provider_type,
+                        actor_id="reasoning-backfill-worker",
+                        action="reasoning_backfill",
+                        outcome="failed",
+                        correlation_id=correlation_id,
+                        details={
+                            "provider": connection.provider_type,
+                            "model": model_name,
+                            "config_key": config_key,
+                            "total": total,
+                            "completed": 0,
+                            "failed": total,
+                            "skipped": 0,
+                            "status": "failed",
+                            "message": failure_message,
+                            "failure_categories": {
+                                "provider_configuration_changed": 1
+                            },
+                        },
+                        created_at=datetime.now(UTC),
+                    )
+                )
+                session.commit()
+            release_lock()
+            return f"failed: {failure_message}"
 
         def record(outcome: str, details: dict[str, object]) -> None:
             session.add(
@@ -365,23 +486,6 @@ def reanalyze_workspace_leads(
                 )
             )
             session.commit()
-
-        def release_lock() -> None:
-            client = Redis.from_url(
-                settings.redis_url, socket_connect_timeout=1, socket_timeout=1
-            )
-            try:
-                client.eval(
-                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                    "return redis.call('del', KEYS[1]) else return 0 end",
-                    1,
-                    lock_key,
-                    job_id,
-                )
-            except (RedisError, OSError, ValueError):
-                _LOGGER.warning("reasoning.backfill_lock_release_failed")
-            finally:
-                client.close()
 
         lead_ids = list(
             session.scalars(
@@ -408,10 +512,12 @@ def reanalyze_workspace_leads(
         failed = 0
         skipped = 0
         from lead_agent.domain.analysis import (
+            ReasoningProviderError,
             ReasoningProviderTimeout,
             ReasoningProviderUnavailable,
         )
         retryable_provider_errors = (ReasoningProviderTimeout, ReasoningProviderUnavailable)
+        failure_categories: dict[str, int] = {}
 
         for lead_id in lead_ids:
             lead = session.get(LeadORM, lead_id)
@@ -445,30 +551,26 @@ def reanalyze_workspace_leads(
                 and existing.status == "skipped_hard_disqualifier"
                 and existing.analysis_request_fingerprint == request_fingerprint
             )
-            if same_successful_analysis or same_hard_disqualifier:
-                skipped += 1
-                record("running", {
-                    "total": len(lead_ids), "completed": completed,
-                    "failed": failed, "skipped": skipped,
-                    "current_lead_id": str(lead_id),
-                })
-                continue
-            prior_completion = session.scalar(
-                select(ProviderLifecycleAuditORM.id)
-                .where(
-                    ProviderLifecycleAuditORM.workspace_id == workspace_uuid,
-                    ProviderLifecycleAuditORM.connection_id == connection.id,
-                    ProviderLifecycleAuditORM.action == "reasoning_backfill",
-                    ProviderLifecycleAuditORM.outcome == "lead_completed",
-                    ProviderLifecycleAuditORM.details["lead_id"].as_string() == str(lead_id),
-                    ProviderLifecycleAuditORM.details["config_key"].as_string() == config_key,
-                    ProviderLifecycleAuditORM.details[
-                        "analysis_request_fingerprint"
-                    ].as_string() == request_fingerprint,
-                )
-                .limit(1)
-            )
-            if prior_completion:
+            qualification_is_current = False
+            if same_successful_analysis:
+                try:
+                    # Keep this strict: legacy output without AI intent scores must be re-analyzed.
+                    validated_analysis = LeadContextAnalysis.model_validate(
+                        existing.structured_output
+                    )
+                    expected = resolved_icp.trace_result(
+                        qualify_lead(
+                            normalized,
+                            resolved_icp.configuration,
+                            routing,
+                            validated_analysis,
+                            include_icp=resolved_icp.source == "workspace",
+                        )
+                    )
+                    qualification_is_current = _qualification_matches(lead, expected)
+                except (TypeError, ValueError):
+                    qualification_is_current = False
+            if (same_successful_analysis and qualification_is_current) or same_hard_disqualifier:
                 skipped += 1
                 record("running", {
                     "total": len(lead_ids), "completed": completed,
@@ -514,6 +616,21 @@ def reanalyze_workspace_leads(
             except Exception as error:
                 session.rollback()
                 failed += 1
+                failure_code = getattr(error, "code", None)
+                if (
+                    not isinstance(failure_code, str)
+                    or not failure_code
+                    or not failure_code.replace("_", "").isalnum()
+                ):
+                    failure_code = (
+                        "provider_error"
+                        if isinstance(error, ReasoningProviderError)
+                        else type(error).__name__
+                    )
+                failure_code = failure_code[:64]
+                failure_categories[failure_code] = (
+                    failure_categories.get(failure_code, 0) + 1
+                )
                 _LOGGER.warning(
                     "reasoning.backfill_lead_failed",
                     extra={
@@ -521,13 +638,23 @@ def reanalyze_workspace_leads(
                             "workspace_id": workspace_id,
                             "lead_id": str(lead_id),
                             "error_type": type(error).__name__,
+                            "failure_code": failure_code,
                         }
+                    },
+                )
+                record(
+                    "lead_failed",
+                    {
+                        "lead_id": str(lead_id),
+                        "failure_code": failure_code,
+                        "status": "running",
                     },
                 )
             record("running", {
                 "total": len(lead_ids), "completed": completed,
                 "failed": failed, "skipped": skipped,
                 "current_lead_id": str(lead_id),
+                "failure_categories": failure_categories,
             })
         terminal = (
             "partial_failure" if failed and completed else "failed" if failed else "completed"
@@ -537,6 +664,7 @@ def reanalyze_workspace_leads(
             "completed": completed,
             "failed": failed,
             "skipped": skipped,
+            "failure_categories": failure_categories,
             "status": terminal,
             "current_lead_id": None,
         })

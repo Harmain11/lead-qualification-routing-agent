@@ -16,6 +16,7 @@ from lead_agent.api.dependencies import (
 )
 from lead_agent.application.team import (
     accept_invitation,
+    change_member_access_policy,
     change_member_permissions,
     change_member_role,
     invite_member,
@@ -31,6 +32,7 @@ from lead_agent.domain.rbac import (
     ROLE_LABELS,
     effective_override_metadata,
     effective_permissions,
+    normalize_access_policy,
     normalize_role,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -56,6 +58,13 @@ class PermissionOverridesRequest(BaseModel):
 class InviteMemberRequest(PermissionOverridesRequest):
     email: str = Field(min_length=3, max_length=320)
     role: str = Field(min_length=1, max_length=32)
+    access_policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class AccessPolicyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scopes: dict[str, str] = Field(default_factory=dict)
 
 
 class RoleChangeRequest(BaseModel):
@@ -82,6 +91,7 @@ class MemberResponse(BaseModel):
     status: str
     permission_overrides: dict[str, list[str]]
     effective_permissions: list[str]
+    access_policy: dict[str, dict[str, str]]
     invited_by: UUID | None
     invited_at: datetime | None
     accepted_at: datetime | None
@@ -102,6 +112,7 @@ class InvitationResponse(BaseModel):
     role: str
     role_label: str
     permission_overrides: dict[str, list[str]]
+    access_policy: dict[str, dict[str, str]]
     status: str
     invited_by: UUID
     accepted_user_id: UUID | None
@@ -141,6 +152,7 @@ def _member_response(row: Any, user: Any | None = None) -> MemberResponse:
         status=row.status,
         permission_overrides=overrides,
         effective_permissions=sorted(effective_permissions(role, overrides)),
+        access_policy=normalize_access_policy(row.access_policy),
         invited_by=row.invited_by,
         invited_at=row.invited_at,
         accepted_at=row.accepted_at,
@@ -160,6 +172,7 @@ def _invitation_response(
         role=row.role,
         role_label=ROLE_LABELS.get(row.role, row.role),
         permission_overrides=effective_override_metadata(row.permission_overrides),
+        access_policy=normalize_access_policy(row.access_policy),
         status=row.status,
         invited_by=row.invited_by,
         accepted_user_id=row.accepted_user_id,
@@ -257,7 +270,7 @@ def link_member_slack(
 )
 def audit_events(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("members.view")),
+    workspace: WorkspaceContext = Depends(require_permission("audit.view")),
 ) -> list[AuditEventResponse]:
     return [
         _audit_response(row)
@@ -283,6 +296,7 @@ def invite(
             request.email,
             request.role,
             request.model_dump(include={"grants", "denies"}),
+            request.access_policy,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -401,6 +415,31 @@ def update_permissions(
 ) -> MemberResponse:
     try:
         membership = change_member_permissions(
+            session,
+            workspace.workspace_id,
+            membership_id,
+            _actor(workspace),
+            request.model_dump(),
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _member_response(membership, session.get(UserORM, membership.user_id))
+
+
+@router.patch(
+    "/v1/members/{membership_id}/access-policy",
+    response_model=MemberResponse,
+)
+def update_access_policy(
+    membership_id: UUID,
+    request: AccessPolicyRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("members.manage")),
+) -> MemberResponse:
+    try:
+        membership = change_member_access_policy(
             session,
             workspace.workspace_id,
             membership_id,

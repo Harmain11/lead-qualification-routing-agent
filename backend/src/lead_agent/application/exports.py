@@ -103,6 +103,32 @@ EXPORT_COLUMNS: tuple[ExportColumn, ...] = (
     "inquiry_message",
 )
 
+EXPORT_COLUMN_PERMISSIONS: dict[ExportColumn, str] = {
+    "email": "fields.contact.view",
+    "phone": "fields.contact.view",
+    "opportunity_value": "fields.financial.view",
+    "revenue_value": "fields.financial.view",
+    "annual_revenue": "fields.financial.view",
+    "budget": "fields.financial.view",
+    "summary": "fields.communications.view",
+    "recommended_action": "fields.internal.view",
+    "inquiry_message": "fields.communications.view",
+}
+
+
+def allowed_export_columns(
+    columns: list[ExportColumn] | None,
+    permissions: frozenset[str] | set[str],
+) -> list[ExportColumn]:
+    """Return only export columns whose data class the actor may view."""
+    selected = _resolve_export_columns(columns)
+    return [
+        column
+        for column in selected
+        if (required := EXPORT_COLUMN_PERMISSIONS.get(column)) is None
+        or required in permissions
+    ]
+
 
 class LeadExportFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -297,6 +323,7 @@ def list_export_leads(
     request: LeadExportRequest,
     *,
     limit: int | None = None,
+    permissions: frozenset[str] | set[str] | None = None,
 ) -> list[LeadORM]:
     """Query the export dataset with the same workspace and current-state semantics as Leads."""
     filters = request.filters
@@ -317,14 +344,14 @@ def list_export_leads(
     apply_filters = request.scope == "current_filters"
     if apply_filters and filters.search.strip():
         term = f"%{filters.search.strip()}%"
-        statement = statement.where(
-            or_(
-                LeadORM.full_name.ilike(term),
-                LeadORM.company_name.ilike(term),
-                LeadORM.email.ilike(term),
-                LeadORM.product_or_service.ilike(term),
-            )
-        )
+        search_fields = [
+            LeadORM.full_name.ilike(term),
+            LeadORM.company_name.ilike(term),
+            LeadORM.product_or_service.ilike(term),
+        ]
+        if permissions is None or "fields.contact.view" in permissions:
+            search_fields.append(LeadORM.email.ilike(term))
+        statement = statement.where(or_(*search_fields))
     if apply_filters and filters.source:
         statement = statement.where(LeadORM.source == filters.source)
     if apply_filters and filters.qualification_bands:
@@ -509,7 +536,7 @@ def render_xlsx(
         48,
         42,
     ]
-    width_by_column = dict(zip(DEFAULT_EXPORT_COLUMNS, legacy_widths))
+    width_by_column = dict(zip(DEFAULT_EXPORT_COLUMNS, legacy_widths, strict=True))
     width_by_column.update({
         "phone": 18,
         "job_title": 22,
@@ -525,7 +552,13 @@ def render_xlsx(
         worksheet.column_dimensions[get_column_letter(index)].width = width_by_column[column]
     for row in worksheet.iter_rows(min_row=2):
         for index, column in enumerate(selected):
-            if column in {"icp_score", "intent_score", "engagement_score", "total_score", "employee_count"}:
+            if column in {
+                "icp_score",
+                "intent_score",
+                "engagement_score",
+                "total_score",
+                "employee_count",
+            }:
                 row[index].number_format = "0"
             elif column in {"opportunity_value", "revenue_value", "annual_revenue", "budget"}:
                 row[index].number_format = "#,##0.00"

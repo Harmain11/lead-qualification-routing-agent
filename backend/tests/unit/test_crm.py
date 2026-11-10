@@ -624,6 +624,34 @@ def test_hubspot_creates_only_missing_contact_properties(crm_config) -> None:
     )
 
 
+def test_hubspot_sync_continues_when_schema_write_is_not_granted(crm_config) -> None:
+    config: HubSpotCrmConfig = crm_config.hubspot.model_copy(
+        update={
+            "sync_company": False,
+            "sync_deal": False,
+            "contact_fields": {"qualification_score": "qualification_score"},
+        }
+    )
+    transport = FakeTransport(
+        [
+            FakeResponse(403, {"message": "schema scope not granted"}),
+            FakeResponse(200, {"results": [{"id": "contact-1"}]}),
+        ]
+    )
+    provider = HubSpotCrmProvider(
+        access_token="private-app-token",
+        api_base_url="https://api.hubapi.test",
+        config=config,
+        transport=transport,
+    )
+
+    result = provider.sync(canonical_payload())
+
+    assert result.entities.contact_id == "contact-1"
+    contact_body = transport.requests[1]["json"]["inputs"][0]["properties"]
+    assert "qualification_score" not in contact_body
+
+
 def test_hubspot_does_not_overwrite_contact_property_with_wrong_type(crm_config) -> None:
     config: HubSpotCrmConfig = crm_config.hubspot.model_copy(
         update={

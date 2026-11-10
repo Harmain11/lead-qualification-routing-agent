@@ -30,7 +30,9 @@ from lead_agent.infrastructure.provider_lifecycle import (
     record_provider_lifecycle_audit,
 )
 
-SLACK_REQUIRED_SCOPES = ("chat:write", "channels:read")
+# ``im:write`` is required for conversations.open, which is how Slack opens
+# a private DM before chat.postMessage can deliver the assignment alert.
+SLACK_REQUIRED_SCOPES = ("chat:write", "channels:read", "im:write")
 _API = "https://slack.com/api/"
 
 
@@ -337,15 +339,18 @@ class SlackNotificationProvider:
                     state="sent",
                     external_id=fallback.external_id,
                     error_message=(
-                        f"Direct message could not be delivered ({direct.error_message or 'Slack rejected it'}); "
+                        "Direct message could not be delivered "
+                        f"({direct.error_message or 'Slack rejected it'}); "
                         "sent to the configured fallback channel instead."
                     ),
                 )
             return NotificationDelivery(
                 state=fallback.state,
                 error_message=(
-                    f"Direct message could not be delivered ({direct.error_message or 'Slack rejected it'}); "
-                    f"channel fallback also failed: {fallback.error_message or 'Slack rejected it'}."
+                    "Direct message could not be delivered "
+                    f"({direct.error_message or 'Slack rejected it'}); "
+                    "channel fallback also failed: "
+                    f"{fallback.error_message or 'Slack rejected it'}."
                 ),
                 retryable=fallback.retryable,
                 retry_after_seconds=fallback.retry_after_seconds,
@@ -457,6 +462,66 @@ class WorkspaceSlackNotificationResolver:
                 connection = preferred
         return self.provider_for_connection(session, workspace_id, connection.id, actor_id)
 
+    def resolve_for_direct_message(
+        self,
+        session: Session,
+        workspace_id: UUID,
+        actor_id: str = "system",
+        slack_team_id: str | None = None,
+    ) -> SlackNotificationProvider | None:
+        """Resolve the verified Slack connection used for member DMs.
+
+        A direct message must not depend on a configured team channel. This is
+        intentionally separate from ``resolve_for_workspace`` because channel
+        routing is optional for assignment notifications.
+        """
+        connections = list(
+            session.scalars(
+                select(ProviderConnectionORM)
+                .where(
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "slack",
+                    ProviderConnectionORM.is_active.is_(True),
+                    ProviderConnectionORM.status == "verified",
+                )
+                .order_by(ProviderConnectionORM.updated_at.desc())
+            )
+        )
+        connection = (
+            next(
+                (
+                    row
+                    for row in connections
+                    if row.connection_metadata.get("slack_team_id") == slack_team_id
+                ),
+                None,
+            )
+            if slack_team_id
+            else (connections[0] if connections else None)
+        )
+        if connection is None:
+            return None
+        config = session.get(WorkspaceNotificationConfigORM, workspace_id)
+        if config and config.default_slack_connection_id and not slack_team_id:
+            preferred = session.scalar(
+                select(ProviderConnectionORM).where(
+                    ProviderConnectionORM.id == config.default_slack_connection_id,
+                    ProviderConnectionORM.workspace_id == workspace_id,
+                    ProviderConnectionORM.provider_type == "slack",
+                    ProviderConnectionORM.is_active.is_(True),
+                    ProviderConnectionORM.status == "verified",
+                )
+            )
+            if preferred is not None:
+                connection = preferred
+        return self.provider_for_connection(
+            session,
+            workspace_id,
+            connection.id,
+            actor_id,
+            destination_type="direct_message",
+        )
+
     def resolve_for_lead(
         self,
         session: Session,
@@ -493,11 +558,14 @@ class WorkspaceSlackNotificationResolver:
                 if target is not None and self._rule_matches(raw_rule, lead, decision):
                     matching_rules.append((raw_rule, target))
             if matching_rules:
-                total_weight = sum(
-                    max(0.01, float(rule.get("weight", 1)))
-                    for rule, _ in matching_rules
-                    if isinstance(rule.get("weight", 1), (int, float))
-                ) or 1
+                total_weight = (
+                    sum(
+                        max(0.01, float(rule.get("weight", 1)))
+                        for rule, _ in matching_rules
+                        if isinstance(rule.get("weight", 1), (int, float))
+                    )
+                    or 1
+                )
                 bucket = int(sha256(str(lead.id).encode()).hexdigest()[:12], 16) / 16**12
                 selected = bucket * total_weight
                 for raw_rule, target in matching_rules:
@@ -607,11 +675,13 @@ class WorkspaceSlackNotificationResolver:
     ) -> SlackNotificationProvider | None:
         row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
         selected_channel_id = channel_id or row.connection_metadata.get("slack_channel_id")
-        if not isinstance(selected_channel_id, str) or not selected_channel_id:
+        if destination_type != "direct_message" and (
+            not isinstance(selected_channel_id, str) or not selected_channel_id
+        ):
             return None
         return SlackNotificationProvider(
             connection=resolved,
-            channel_id=selected_channel_id,
+            channel_id=selected_channel_id or "",
             destination_type=destination_type,
             fallback_to_channel=fallback_to_channel,
             fallback_channel_id=(
@@ -632,8 +702,7 @@ class WorkspaceSlackNotificationResolver:
     ) -> dict[str, str | bool]:
         row, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
         api = SlackWebApi(
-            resolved.credentials.get("access_token")
-            or resolved.credentials.get("bot_token", ""),
+            resolved.credentials.get("access_token") or resolved.credentials.get("bot_token", ""),
             self.client,
         )
         joined = False
@@ -661,7 +730,9 @@ class WorkspaceSlackNotificationResolver:
         except ProviderOperationError as error:
             raise ValueError(str(error)) from None
         if not isinstance(channel, dict) or channel.get("is_member") is not True:
-            raise ValueError("Slack has not confirmed app membership; the destination was not changed.")
+            raise ValueError(
+                "Slack has not confirmed app membership; the destination was not changed."
+            )
         metadata = dict(row.connection_metadata)
         previous_channel_id = metadata.get("slack_channel_id")
         previous_channel_name = metadata.get("slack_channel_name")
@@ -686,8 +757,10 @@ class WorkspaceSlackNotificationResolver:
         )
         session.commit()
         return {
-            "id": channel_id, "name": str(channel.get("name") or channel_id),
-            "is_member": True, "is_private": channel.get("is_private") is True,
+            "id": channel_id,
+            "name": str(channel.get("name") or channel_id),
+            "is_member": True,
+            "is_private": channel.get("is_private") is True,
         }
 
     @staticmethod
@@ -714,7 +787,9 @@ class WorkspaceSlackNotificationResolver:
             cursor: str | None = None
             for _ in range(10):
                 params: dict[str, str | int] = {
-                    "types": "public_channel,private_channel" if include_private else "public_channel",
+                    "types": "public_channel,private_channel"
+                    if include_private
+                    else "public_channel",
                     "exclude_archived": "true",
                     "limit": 200,
                 }
@@ -730,9 +805,7 @@ class WorkspaceSlackNotificationResolver:
                         "is_private": item.get("is_private") is True,
                     }
                     for item in page
-                    if isinstance(item, dict)
-                    and item.get("id")
-                    and item.get("name")
+                    if isinstance(item, dict) and item.get("id") and item.get("name")
                 )
                 response_metadata = payload.get("response_metadata", {})
                 next_cursor = (
@@ -757,8 +830,7 @@ class WorkspaceSlackNotificationResolver:
     ) -> list[dict[str, str]]:
         _, resolved = self.resolve_connection(session, workspace_id, connection_id, actor_id)
         api = SlackWebApi(
-            resolved.credentials.get("access_token")
-            or resolved.credentials.get("bot_token", ""),
+            resolved.credentials.get("access_token") or resolved.credentials.get("bot_token", ""),
             self.client,
         )
         members: list[str] = []

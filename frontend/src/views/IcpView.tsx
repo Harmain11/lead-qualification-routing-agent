@@ -2,6 +2,7 @@ import { OperationsDialog } from "../components/OperationsDialog";
 import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 import {
+archiveIcpVersion,
 createIcpDraft,
 getCurrentIcp,
 getSystemDefaultIcp,
@@ -13,6 +14,9 @@ validateIcpDraft,
 } from "../api";
 import type { IcpConfiguration,IcpPreview,IcpValidation,IcpVersion } from "../types";
 import { parseCommaSeparatedList } from "../textEntry";
+import { Button, PageHeader, Segmented } from "../v3/ui/primitives";
+import { Icon } from "../v3/ui/Icon";
+import { confirmAction } from "../v3/ui/confirm";
 
 const SECTIONS = [
   "Company Profile",
@@ -158,6 +162,19 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
     finally { setBusy(false); }
   }
 
+  async function discardDraft() {
+    if (!selected?.id || selected.status !== "draft") return;
+    const ok = await confirmAction({ title: "Discard this draft?", message: `Draft v${selected.version_number} will be archived. Published scoring is not affected.`, confirmLabel: "Discard draft", cancelLabel: "Keep draft", tone: "danger" });
+    if (!ok) return;
+    setBusy(true); setError(null);
+    try {
+      await archiveIcpVersion(selected.id);
+      await load();
+      setNotice("Draft discarded. Published scoring remains unchanged.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to discard draft"); }
+    finally { setBusy(false); }
+  }
+
   async function runValidation() {
     if (!selected?.id) return;
     await saveDraft();
@@ -195,47 +212,40 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
   if (!configuration || !selected) return <div className="icp-loading">{error || "ICP is unavailable."}</div>;
 
   return <div className="page-view operational-page icp-page">
-    <header className="page-hero compact-hero icp-hero">
-      <div><span className="eyebrow">Workspace qualification policy</span><h1>Ideal customer profile</h1><p>Define fit once, test it safely, then publish a deterministic 40-point ICP for this workspace.</p></div>
-      <div className="icp-current-card"><small>Current ICP</small>{current?.source === "not_configured" ? <><strong>No custom ICP published</strong><span>ICP fit scoring and ICP hard exclusions are disabled.</span><span>Publish a workspace ICP to enable them.</span></> : <><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "Built-in template" : `Workspace v${current?.version_number}`} · {current?.status}</span><span>Last updated {current?.updated_at ? new Date(current.updated_at).toLocaleString() : "by system policy"}</span></>}</div>
-    </header>
-    <div className="icp-toolbar">
-      <button className="button-quiet" onClick={onBack}>← Settings</button>
-      <span className={`icp-status status-${selected.status}`}>{selected.source === "system_default" ? "Built-in template" : selected.source === "not_configured" ? "Not configured" : `v${selected.version_number}`} · {pretty(selected.status)}</span>
-      <span className={`weight-pill ${total === 40 ? "valid" : "invalid"}`} aria-label={`${total} of 40 ICP points configured`}><b>{total} / 40</b> ICP points · {total === 40 ? "valid" : "needs attention"}</span>
-      {editable && <button className="secondary-button" disabled={busy} onClick={() => void saveDraft()}>Save draft</button>}
-      {canManage && !editable && <button className="primary-button" disabled={busy} onClick={() => void createDraft()}>Create new draft</button>}
-    </div>
-     <section className="icp-mode-picker" aria-label="Choose ICP setup mode">
-       <div className="icp-mode-intro">
-         <span className="eyebrow">ICP setup</span>
-          <p>The built-in profile is only a template. A published custom ICP is required for fit scoring.</p>
-       </div>
-       <div className="icp-mode-options">
-         <button
-           type="button"
-           className={`icp-mode-option ${selected.source === "system_default" ? "active" : ""}`}
-           aria-pressed={selected.source === "system_default"}
-           disabled={busy || !systemDefault}
-           onClick={() => systemDefault && choose(systemDefault)}
-         >
-            <span><b>Built-in template</b><small>View an example profile; it is not used to score leads.</small></span>
-         </button>
-         <button
-           type="button"
-           className={`icp-mode-option ${selected.source === "workspace" ? "active" : ""}`}
-           aria-pressed={selected.source === "workspace"}
-           disabled={busy || (!canManage && versions.length === 0)}
-           onClick={() => void openCustom()}
-         >
-            <span><b>Custom</b><small>Publish a workspace ICP to enable fit scoring and hard exclusions.</small></span>
-         </button>
-       </div>
-     </section>
+    <PageHeader back={{ label: "Settings", onClick: onBack }} title="Ideal customer profile" subtitle="Describe who you sell to, test it against existing leads, then publish. Corral scores every new lead’s fit out of 40 points." />
+    <section className="icp-overview" aria-label="Profile status">
+      <div className="icp-live">
+        <small>Live profile</small>
+        {current?.source === "not_configured"
+          ? <><strong>None published yet</strong><span>Fit scoring and hard exclusions stay off until you publish one.</span></>
+          : <><strong>{current?.name}</strong><span>{current?.source === "system_default" ? "Built-in template" : `Workspace v${current?.version_number}`} · {pretty(current?.status ?? "")}{current?.updated_at ? ` · Updated ${new Date(current.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}</span></>}
+      </div>
+      <div className="icp-mode">
+        <Segmented<"template" | "custom">
+          label="ICP setup mode"
+          value={selected.source === "system_default" ? "template" : "custom"}
+          options={[{ value: "template", label: "Built-in template" }, { value: "custom", label: "Custom" }]}
+          onChange={(mode) => { if (busy) return; if (mode === "template") { if (systemDefault) choose(systemDefault); } else if (!(!canManage && versions.length === 0)) void openCustom(); }}
+        />
+        <p>{selected.source === "system_default" ? "A read-only example. It is not used to score leads." : "Publish a workspace ICP to turn on fit scoring and hard exclusions."}</p>
+      </div>
+      <div className="icp-overview-foot">
+        <span className="icp-chip" data-status={selected.status}><i aria-hidden="true" />{selected.source === "not_configured" ? "Not configured" : selected.source === "system_default" ? "Built-in template" : `${pretty(selected.status)} · v${selected.version_number ?? "–"}`}</span>
+        <span className="icp-chip" data-valid={total === 40} aria-label={`${total} of 40 ICP points configured`}><Icon name={total === 40 ? "check" : "alert"} size={13} /><b>{total} / 40</b> points</span>
+        <span className="icp-spacer" />
+        {editable && <Button kind="plain" disabled={busy} onClick={() => void discardDraft()}>Discard draft</Button>}
+        {editable && <Button kind="gray" disabled={busy} onClick={() => void saveDraft()}>Save draft</Button>}
+        {canManage && !editable && versions.some((version) => version.status === "draft") && <Button kind="filled" disabled={busy} onClick={() => choose(versions.find((version) => version.status === "draft")!)}>Edit draft</Button>}
+        {canManage && !editable && !versions.some((version) => version.status === "draft") && <Button kind="filled" disabled={busy} onClick={() => void createDraft()}>Create new draft</Button>}
+      </div>
+    </section>
     {error && <div className="team-alert" role="alert"><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message">×</button></div>}
     {notice && <div className="icp-notice" role="status">{notice}</div>}
      <div className="icp-layout">
-      <aside className="panel icp-sections" aria-label="ICP builder sections">{SECTIONS.map((label, index) => <button key={label} className={section === index ? "active" : ""} onClick={() => setSection(index)}><i>{index + 1}</i><span>{label}</span></button>)}</aside>
+      <div className="icp-rail">
+        <nav className="icp-sections" aria-label="ICP builder sections">{SECTIONS.map((label, index) => <button key={label} type="button" className={section === index ? "active" : ""} aria-current={section === index ? "step" : undefined} onClick={() => setSection(index)}><i>{index + 1}</i><span>{label}</span></button>)}</nav>
+<section className="icp-history" aria-label="Version history"><h2>Versions</h2>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>Built-in template</b><span>Not used for lead qualification</span><em>Template</em></button>}{versions.filter((version) => !(version.status === "archived" && !version.published_at)).map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</section>
+      </div>
      <section className="panel icp-builder" data-tour="icp">
         <div className="icp-builder-head"><div><span className="eyebrow">Step {section + 1} of 7</span><h2>{SECTIONS[section]}</h2></div>{!editable && <span className="read-only-badge">Read only</span>}</div>
         {section === 0 && <div className="icp-profile-meta"><label className="icp-field"><span>ICP name</span><input disabled={!editable} value={selected.name} onChange={(event) => { const name = event.target.value; setSelected((value) => value ? { ...value, name } : value); updateConfig((next) => { next.profile_name = name; }); }} /></label><label className="icp-field"><span>Description</span><input disabled={!editable} value={selected.description} onChange={(event) => { const description = event.target.value; setSelected((value) => value ? { ...value, description } : value); }} placeholder="Explain who this ICP is designed to identify" /></label></div>}
@@ -246,9 +256,8 @@ export function IcpView({ canManage, onBack }: { canManage: boolean; onBack: () 
         {section === 4 && <ExclusionsSection config={configuration} editable={editable} update={updateConfig} />}
         {section === 5 && <WeightsSection config={configuration} editable={editable} update={updateConfig} total={total} />}
         {section === 6 && <ReviewSection selected={selected} total={total} validation={validation} preview={preview} editable={editable} busy={busy} runValidation={runValidation} runPreview={runPreview} openPublish={() => setPublishOpen(true)} />}
-        <div className="icp-step-actions"><button className="button-quiet" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Previous</button><button className="secondary-button" disabled={section === 6} onClick={() => setSection((value) => Math.min(6, value + 1))}>Next section →</button></div>
+        <div className="icp-step-actions"><Button kind="gray" disabled={section === 0} onClick={() => setSection((value) => Math.max(0, value - 1))}>Back</Button><Button kind="filled" disabled={section === 6} trailingIcon="arrowRight" onClick={() => setSection((value) => Math.min(6, value + 1))}>Next</Button></div>
       </section>
-        <aside className="panel icp-history"><div className="icp-history-head"><span className="eyebrow">Version history</span><h2>Workspace versions</h2></div>{systemDefault && <button className={selected.source === "system_default" ? "active" : ""} onClick={() => choose(systemDefault)}><b>Built-in template</b><span>Not used for lead qualification</span><em>Template</em></button>}{versions.map((version) => <button key={version.id} className={selected.id === version.id ? "active" : ""} onClick={() => choose(version)}><b>v{version.version_number} · {version.name}</b><span>{version.created_by || "Unknown author"}</span><span>{version.updated_at ? new Date(version.updated_at).toLocaleString() : "—"}</span><em>{pretty(version.status)}</em></button>)}</aside>
     </div>
     {publishOpen && <OperationsDialog title="Publish workspace ICP?" className="team-modal confirm-modal icp-publish-modal" showHeader={false} onClose={() => { if (!busy) setPublishOpen(false); }}><button className="modal-close" onClick={() => setPublishOpen(false)} aria-label="Close">×</button><span className="eyebrow">Deliberate policy change</span><h2 id="publish-title">Publish workspace ICP?</h2><p>New qualification runs will use this version. Existing lead scores and their ICP references will not be rewritten.</p><label><input type="checkbox" checked={confirmUse} onChange={(event) => setConfirmUse(event.target.checked)} /> I understand new leads will use this version.</label><label><input type="checkbox" checked={confirmHistory} onChange={(event) => setConfirmHistory(event.target.checked)} /> I understand historical results are preserved.</label>{exclusionsChanged && <label className="exclusion-confirm"><input type="checkbox" checked={confirmExclusions} onChange={(event) => setConfirmExclusions(event.target.checked)} /> I confirm the hard-disqualifier changes may force matching leads to Disqualified.</label>}<div className="team-modal-actions"><button className="button-quiet" onClick={() => setPublishOpen(false)}>Cancel</button><button className="primary-button" disabled={total !== 40 || !confirmUse || !confirmHistory || (exclusionsChanged && !confirmExclusions) || busy} onClick={() => void publish()}>Publish ICP</button></div></OperationsDialog>}
   </div>;
@@ -294,5 +303,5 @@ function WeightsSection({ config, editable, update, total }: SectionProps & { to
 }
 
 function ReviewSection({ selected, total, validation, preview, editable, busy, runValidation, runPreview, openPublish }: { selected: IcpVersion; total: number; validation: IcpValidation | null; preview: IcpPreview | null; editable: boolean; busy: boolean; runValidation: () => Promise<void>; runPreview: () => Promise<void>; openPublish: () => void }) {
-  return <div className="icp-review"><div className="review-summary"><div><small>Version</small><b>{selected.source === "system_default" ? "System default" : `v${selected.version_number}`}</b></div><div><small>Status</small><b>{pretty(selected.status)}</b></div><div><small>ICP allocation</small><b>{total} / 40</b></div><div><small>Fixed components</small><b>35 Intent · 25 Engagement</b></div></div>{editable && <div className="review-actions"><button className="secondary-button" disabled={busy} onClick={() => void runValidation()}>Validate draft</button><button className="secondary-button" disabled={busy || total !== 40} onClick={() => void runPreview()}>Test against existing leads</button><button className="primary-button" disabled={busy || total !== 40 || validation?.valid !== true} onClick={openPublish}>Publish ICP</button></div>}{validation && <div className={`validation-result ${validation.valid ? "valid" : "invalid"}`}><b>{validation.valid ? "Validation passed" : "Draft is not publishable"}</b>{validation.problems.length > 0 && <ul>{validation.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}</div>}{preview && <div className="preview-result"><header><div><span className="eyebrow">Non-destructive preview</span><h3>{preview.leads_evaluated} leads evaluated · {preview.changed_count} changed</h3></div><div>{Object.entries(preview.transitions).map(([transition, count]) => <span key={transition}>{count} {transition}</span>)}</div></header><div className="preview-leads">{preview.representative_changes.map((lead) => <article key={lead.lead_id}><div><b>{lead.lead_name}</b><span>{lead.company_name}</span></div><span>Current: {pretty(lead.current_classification)} {lead.current_score}</span><span>Proposed: {pretty(lead.proposed_classification)} {lead.proposed_score}</span><strong className={lead.score_delta >= 0 ? "positive" : "negative"}>{lead.score_delta >= 0 ? "+" : ""}{lead.score_delta}</strong><p>{lead.important_changed_matches.join(" ") || "Classification boundary changed under the proposed ICP."}</p></article>)}</div></div>}</div>;
+  return <div className="icp-review"><div className="review-summary"><div><small>Version</small><b>{selected.source === "system_default" ? "Built-in template" : selected.version_number == null ? "Not published" : `v${selected.version_number}`}</b></div><div><small>Status</small><b>{pretty(selected.status)}</b></div><div><small>ICP allocation</small><b>{total} / 40</b></div><div><small>Fixed components</small><b>35 Intent · 25 Engagement</b></div></div>{editable && <div className="review-actions"><button className="secondary-button" disabled={busy} onClick={() => void runValidation()}>Validate draft</button><button className="secondary-button" disabled={busy || total !== 40} onClick={() => void runPreview()}>Test against existing leads</button><button className="primary-button" disabled={busy || total !== 40 || validation?.valid !== true} onClick={openPublish}>Publish ICP</button></div>}{validation && <div className={`validation-result ${validation.valid ? "valid" : "invalid"}`}><b>{validation.valid ? "Validation passed" : "Draft is not publishable"}</b>{validation.problems.length > 0 && <ul>{validation.problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}</div>}{preview && <div className="preview-result"><header><div><span className="eyebrow">Non-destructive preview</span><h3>{preview.leads_evaluated} leads evaluated · {preview.changed_count} changed</h3></div><div>{Object.entries(preview.transitions).map(([transition, count]) => <span key={transition}>{count} {transition}</span>)}</div></header><div className="preview-leads">{preview.representative_changes.map((lead) => <article key={lead.lead_id}><div><b>{lead.lead_name}</b><span>{lead.company_name}</span></div><span>Current: {pretty(lead.current_classification)} {lead.current_score}</span><span>Proposed: {pretty(lead.proposed_classification)} {lead.proposed_score}</span><strong className={lead.score_delta >= 0 ? "positive" : "negative"}>{lead.score_delta >= 0 ? "+" : ""}{lead.score_delta}</strong><p>{lead.important_changed_matches.join(" ") || "Classification boundary changed under the proposed ICP."}</p></article>)}</div></div>}</div>;
 }

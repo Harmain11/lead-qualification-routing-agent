@@ -454,6 +454,7 @@ def test_gmail_shared_inbox_lists_messages_and_reads_full_thread() -> None:
                             "headers": [
                                 {"name": "From", "value": "Pat Example <pat@example.test>"},
                                 {"name": "To", "value": "team@example.test"},
+                                {"name": "Reply-To", "value": "Billing <billing@pat.example>"},
                                 {"name": "Subject", "value": "Pricing request"},
                                 {"name": "Message-ID", "value": "<message-1@example.test>"},
                             ],
@@ -483,6 +484,41 @@ def test_gmail_shared_inbox_lists_messages_and_reads_full_thread() -> None:
     assert thread[0]["direction"] == "inbound"
     assert thread[0]["body"] == "Could you send pricing?"
     assert thread[0]["rfc_message_id"] == "<message-1@example.test>"
+    assert thread[0]["reply_to"] == "billing@pat.example"
+
+
+def test_gmail_mailbox_thread_lists_image_attachment_metadata() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/threads/thread-with-image"):
+            return httpx.Response(200, json={
+                "messages": [{
+                    "id": "message-with-image",
+                    "threadId": "thread-with-image",
+                    "internalDate": "1792494000000",
+                    "payload": {
+                        "mimeType": "multipart/mixed",
+                        "headers": [
+                            {"name": "From", "value": "Pat Example <pat@example.test>"},
+                            {"name": "To", "value": "team@example.test"},
+                            {"name": "Subject", "value": "Screenshot"},
+                        ],
+                        "parts": [
+                            {"mimeType": "text/plain", "body": {"data": _encoded("See attached.")}},
+                            {"mimeType": "image/png", "filename": "preview.png", "body": {"attachmentId": "attachment-1", "size": 2048}},
+                        ],
+                    },
+                }],
+            })
+        raise AssertionError(f"Unexpected Gmail request: {request.url}")
+
+    provider = GmailInboundProvider(uuid4(), "access", "team@example.test", client=_client(handler))
+    thread = provider.fetch_mailbox_thread("thread-with-image")
+
+    assert thread[0]["body"] == "See attached."
+    assert thread[0]["attachments"] == [{
+        "attachment_id": "attachment-1", "filename": "preview.png",
+        "mime_type": "image/png", "size": 2048,
+    }]
 
 
 def test_gmail_outbound_provider_returns_message_and_thread_ids() -> None:

@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClientId } from "../clientIds";
 import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { opsGet, opsSave, type Company, type Contact } from "../operationsApi";
+import { confirmAction } from "../v3/ui/confirm";
+import { Button, Menu, MenuItem, Sheet } from "../v3/ui/primitives";
+import type { IconName } from "../v3/ui/Icon";
+import type { ReactNode } from "react";
 type Touch = {
   id: string;
   source: string;
@@ -33,7 +37,21 @@ type Form = {
   website: string;
   website_reviewed: boolean;
   industry: string;
+  linkedin_url: string;
+  department: string;
+  seniority: string;
+  mobile_phone: string;
+  preferred_channel: string;
+  location: string;
+  notes: string;
+  tags: string;
+  description: string;
+  employees: string;
+  annual_revenue: string;
+  headquarters: string;
+  founded_year: string;
 };
+const splitTags = (value: string) => value.split(",").map((tag) => tag.trim()).filter(Boolean);
 const blank = (): Form => ({
   id: createClientId(),
   name: "",
@@ -46,6 +64,19 @@ const blank = (): Form => ({
   website: "",
   website_reviewed: false,
   industry: "",
+  linkedin_url: "",
+  department: "",
+  seniority: "",
+  mobile_phone: "",
+  preferred_channel: "",
+  location: "",
+  notes: "",
+  tags: "",
+  description: "",
+  employees: "",
+  annual_revenue: "",
+  headquarters: "",
+  founded_year: "",
 });
 export function RecordsView({
   mode,
@@ -84,13 +115,19 @@ export function RecordsView({
   const [viewMode, setViewMode] = useState<"board" | "table">(
     mode === "companies" ? "board" : "table",
   );
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<{ company: string; email: boolean; phone: boolean; reviewed: "" | "reviewed" | "pending" }>({ company: "", email: false, phone: false, reviewed: "" });
+  const [localSort, setLocalSort] = useState<"" | "name-desc" | "industry">("");
   const [savedView, setSavedView] = useState<"all" | "mine">("all");
   const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
   useEffect(() => {
     setViewMode(mode === "companies" ? "board" : "table");
     setSavedView("all");
     setExpandedColumns({});
+  }, [mode]);
+  useEffect(() => {
+    setFilters({ company: "", email: false, phone: false, reviewed: "" });
+    setLocalSort("");
+    setSort("name");
   }, [mode]);
   useEffect(() => {
     const controller = new AbortController();
@@ -181,6 +218,13 @@ export function RecordsView({
     const value = blank();
     value.id = item.id;
     value.name = item.name;
+    const profile = (item.profile ?? {}) as Record<string, unknown>;
+    const text = (key: string) => (typeof profile[key] === "string" ? (profile[key] as string) : typeof profile[key] === "number" ? String(profile[key]) : "");
+    Object.assign(value, {
+      linkedin_url: text("linkedin_url"),
+      notes: text("notes"),
+      tags: Array.isArray(profile.tags) ? (profile.tags as unknown[]).filter((tag) => typeof tag === "string").join(", ") : "",
+    });
     if ("email" in item) {
       Object.assign(value, {
         email: item.email || "",
@@ -188,9 +232,20 @@ export function RecordsView({
         phone: item.phone || "",
         job_title: item.job_title || "",
         timezone: item.timezone,
+        department: text("department"),
+        seniority: text("seniority"),
+        mobile_phone: text("mobile_phone"),
+        preferred_channel: text("preferred_channel"),
+        location: text("location"),
       });
     } else {
       Object.assign(value, {
+        description: text("description"),
+        employees: text("employees"),
+        annual_revenue: text("annual_revenue"),
+        headquarters: text("headquarters"),
+        founded_year: text("founded_year"),
+        phone: text("phone"),
         domain: item.domain || "",
         website: item.website || "",
         website_reviewed: item.website_reviewed,
@@ -231,6 +286,16 @@ export function RecordsView({
             phone: form.phone || null,
             job_title: form.job_title || null,
             timezone: form.timezone,
+            profile: {
+              linkedin_url: form.linkedin_url,
+              department: form.department,
+              seniority: form.seniority,
+              mobile_phone: form.mobile_phone,
+              preferred_channel: form.preferred_channel,
+              location: form.location,
+              notes: form.notes,
+              tags: splitTags(form.tags),
+            },
           }
         : {
             name: form.name,
@@ -238,6 +303,17 @@ export function RecordsView({
             website: form.website || null,
             website_reviewed: form.website_reviewed,
             industry: form.industry || null,
+            profile: {
+              description: form.description,
+              employees: form.employees,
+              annual_revenue: form.annual_revenue,
+              headquarters: form.headquarters,
+              founded_year: form.founded_year,
+              phone: form.phone,
+              linkedin_url: form.linkedin_url,
+              notes: form.notes,
+              tags: splitTags(form.tags),
+            },
           };
     await act(
       async () => {
@@ -248,13 +324,25 @@ export function RecordsView({
       mode === "companies" ? "Company details saved." : "Contact details saved.",
     );
   }
+  const activeFilters = (filters.company ? 1 : 0) + (filters.email ? 1 : 0) + (filters.phone ? 1 : 0) + (filters.reviewed ? 1 : 0);
+  const rows = useMemo(() => {
+    let list = items;
+    if (mode === "contacts") {
+      list = (list as Contact[]).filter((item) => (!filters.company || item.company_id === filters.company) && (!filters.email || Boolean(item.email)) && (!filters.phone || Boolean(item.phone)));
+    } else {
+      list = (list as Company[]).filter((item) => !filters.reviewed || (filters.reviewed === "reviewed" ? item.website_reviewed : !item.website_reviewed));
+    }
+    if (localSort === "name-desc") list = [...list].sort((a, b) => b.name.localeCompare(a.name));
+    if (localSort === "industry" && mode === "companies") list = [...(list as Company[])].sort((a, b) => (a.industry ?? "~").localeCompare(b.industry ?? "~"));
+    return list;
+  }, [items, filters, localSort, mode]);
   const companyById = useMemo(
     () => new Map(companies.map((company) => [company.id, company])),
     [companies],
   );
   const boardColumns = useMemo(() => {
     if (mode === "companies") {
-      const companiesInView = items as Company[];
+      const companiesInView = rows as Company[];
       return [
         {
           key: "reviewed",
@@ -280,7 +368,7 @@ export function RecordsView({
         },
       ];
     }
-    const contactsInView = items as Contact[];
+    const contactsInView = rows as Contact[];
     return [
       {
         key: "linked",
@@ -370,7 +458,7 @@ export function RecordsView({
           </div>
         )}
         <button className="records-card-footer" onClick={() => void open(item.id)}>
-          View {recordLabel} <span aria-hidden="true">→</span>
+          View {recordLabel} <span aria-hidden="true">›</span>
         </button>
       </article>
     );
@@ -412,7 +500,7 @@ export function RecordsView({
         <p role="status" className="records-notice">{notice}</p>
       )}
       <div className="records-toolbar">
-        <label className="records-search">
+        <label className="records-search"><Icon name="search" size={16} />
           <span className="sr-only">Search {recordLabelPlural}</span>
           <input
             value={search}
@@ -425,33 +513,76 @@ export function RecordsView({
             }
           />
         </label>
-        <button className={`records-filter-button ${filtersOpen ? "is-active" : ""}`} onClick={() => setFiltersOpen((value) => !value)}>
-          <Icon name="filter" size={16} /> Filter{mode === "contacts" && sort !== "name" ? " · 1" : ""}
-        </button>
-        <button className="records-filter-button" onClick={() => setFiltersOpen(true)}>
-          <Icon name="chevronUpDown" size={16} /> Sort by
-        </button>
+        <ToolbarPopover icon="filter" label="Filter" badge={activeFilters || undefined}>
+          {(close) => (
+            <div className="rec-pop-body">
+              {mode === "contacts" ? (
+                <>
+                  <label className="rec-pop-field"><span>Company</span>
+                    <select value={filters.company} onChange={(event) => setFilters({ ...filters, company: event.target.value })}>
+                      <option value="">Any company</option>
+                      {companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="rec-pop-check"><input type="checkbox" checked={filters.email} onChange={(event) => setFilters({ ...filters, email: event.target.checked })} />Has an email address</label>
+                  <label className="rec-pop-check"><input type="checkbox" checked={filters.phone} onChange={(event) => setFilters({ ...filters, phone: event.target.checked })} />Has a phone number</label>
+                </>
+              ) : (
+                <label className="rec-pop-field"><span>Research status</span>
+                  <select value={filters.reviewed} onChange={(event) => setFilters({ ...filters, reviewed: event.target.value as typeof filters.reviewed })}>
+                    <option value="">Any status</option>
+                    <option value="reviewed">Website reviewed</option>
+                    <option value="pending">Not reviewed yet</option>
+                  </select>
+                </label>
+              )}
+              <div className="rec-pop-foot">
+                <Button kind="plain" size="sm" disabled={!activeFilters} onClick={() => setFilters({ company: "", email: false, phone: false, reviewed: "" })}>Clear</Button>
+                <Button kind="filled" size="sm" onClick={close}>Done</Button>
+              </div>
+            </div>
+          )}
+        </ToolbarPopover>
+        <ToolbarPopover icon="chevronUpDown" label="Sort by">
+          {(close) => {
+            const options: Array<{ id: string; label: string; apply: () => void; active: boolean }> = mode === "contacts"
+              ? [
+                  { id: "name", label: "Name, A to Z", active: sort === "name" && !localSort, apply: () => { setLocalSort(""); setSort("name"); setOffset(0); } },
+                  { id: "name-desc", label: "Name, Z to A", active: localSort === "name-desc", apply: () => { setSort("name"); setLocalSort("name-desc"); } },
+                  { id: "recent", label: "Recently updated", active: sort === "recent", apply: () => { setLocalSort(""); setSort("recent"); setOffset(0); } },
+                  { id: "company", label: "Company", active: sort === "company", apply: () => { setLocalSort(""); setSort("company"); setOffset(0); } },
+                ]
+              : [
+                  { id: "name", label: "Name, A to Z", active: !localSort, apply: () => setLocalSort("") },
+                  { id: "name-desc", label: "Name, Z to A", active: localSort === "name-desc", apply: () => setLocalSort("name-desc") },
+                  { id: "industry", label: "Industry", active: localSort === "industry", apply: () => setLocalSort("industry") },
+                ];
+            return (
+              <ul className="rec-pop-list" role="listbox" aria-label="Sort order">
+                {options.map((option) => (
+                  <li key={option.id}><button type="button" role="option" aria-selected={option.active} onClick={() => { option.apply(); close(); }}><span>{option.label}</span>{option.active && <Icon name="check" size={14} />}</button></li>
+                ))}
+              </ul>
+            );
+          }}
+        </ToolbarPopover>
         <div className="records-toolbar-spacer" />
         <div className="records-view-switcher" role="group" aria-label="View mode">
           <button className={viewMode === "board" ? "is-active" : ""} onClick={() => setViewMode("board")} aria-pressed={viewMode === "board"}><Icon name="layers" size={16} /> Board</button>
           <button className={viewMode === "table" ? "is-active" : ""} onClick={() => setViewMode("table")} aria-pressed={viewMode === "table"}><Icon name="dashboard" size={16} /> Table</button>
         </div>
+        {(canEdit || mode === "contacts") && (
+          <Menu label="More record actions" iconOnly="more" trigger={null}>
+            {(close) => (
+              <>
+                {canEdit && <MenuItem icon="link" disabled={busy} onSelect={() => { close(); void act(() => opsSave("/v1/records/backfill", {})); }}>Link existing lead touches</MenuItem>}
+                {mode === "contacts" && <MenuItem icon="layers" onSelect={() => { close(); void act(async () => setDuplicates((await opsGet<{ items: typeof duplicates }>("/v1/records/duplicates")).items)); }}>Review duplicates</MenuItem>}
+              </>
+            )}
+          </Menu>
+        )}
         <button className="records-icon-button" aria-label="Refresh records" title="Refresh" onClick={() => setRevision((value) => value + 1)}><Icon name="refresh" size={18} /></button>
       </div>
-      {filtersOpen && (
-        <div className="records-filter-panel">
-          <label>
-            Sort records
-            <select value={sort} onChange={(event) => { setSort(event.target.value); setOffset(0); }}>
-              <option value="name">Name</option>
-              {mode === "contacts" && <><option value="recent">Recently updated</option><option value="company">Company</option></>}
-            </select>
-          </label>
-          {canEdit && <button className="button-quiet" disabled={busy} onClick={() => void act(() => opsSave("/v1/records/backfill", {}))}>Link existing lead touches</button>}
-          {mode === "contacts" && <button className="secondary-button" onClick={() => void act(async () => setDuplicates((await opsGet<{ items: typeof duplicates }>("/v1/records/duplicates")).items))}>Review duplicates</button>}
-          <button className="records-filter-close" onClick={() => setFiltersOpen(false)}>Done</button>
-        </div>
-      )}
       {loading ? (
         <p role="status">Loading records…</p>
       ) : !items.length ? (
@@ -461,6 +592,11 @@ export function RecordsView({
             New lead intake creates linked records. Add a record here or link
             your existing lead touches.
           </p>
+        </section>
+      ) : !rows.length ? (
+        <section className="ops-empty">
+          <h3>Nothing matches these filters</h3>
+          <p>Clear a filter to see more {recordLabelPlural}.</p>
         </section>
       ) : viewMode === "board" ? (
         <section className="records-board" aria-label={`${recordLabelPlural} board`}>
@@ -481,7 +617,7 @@ export function RecordsView({
                     {expandedColumns[column.key]
                       ? "Show less"
                       : `See more (${column.items.length - 3})`}
-                    <span aria-hidden="true">{expandedColumns[column.key] ? "↑" : "↓"}</span>
+                    <span aria-hidden="true">{expandedColumns[column.key] ? "–" : "+"}</span>
                   </button>
                 )}
                 {canEdit && <button className="records-add-inline" onClick={() => { setError(""); setNotice(""); setForm(blank()); }}>+ {mode === "contacts" ? "Contact" : "Company"}</button>}
@@ -502,7 +638,7 @@ export function RecordsView({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {rows.map((item) => (
                 <tr key={item.id}>
                   <td>
                     <button
@@ -579,11 +715,12 @@ export function RecordsView({
                 <button
                   className="secondary-button"
                   onClick={() => {
-                    if (
-                      window.confirm(
-                        "Merge these contact records? Lead touches move to the first person. Both email identities and consent histories remain recorded.",
-                      )
-                    )
+                    void confirmAction({
+                      title: "Merge these contacts?",
+                      message: "Lead touches move to the first person. Both email identities and consent histories stay recorded.",
+                      confirmLabel: "Merge contacts",
+                    }).then((confirmed) => {
+                      if (!confirmed) return;
                       void act(async () => {
                         await opsSave(
                           `/v1/records/contacts/${row.right_id}/merge`,
@@ -593,6 +730,7 @@ export function RecordsView({
                           current.filter((value) => value !== row),
                         );
                       });
+                    });
                   }}
                 >
                   Merge after review
@@ -603,160 +741,124 @@ export function RecordsView({
         </section>
       )}
       {form && (
-        <OperationsDialog
-          title={mode === "contacts" ? "Contact details" : "Company details"}
-          className="record-editor-dialog"
+        <Sheet
+          title={`${companies.some((c) => c.id === form.id) || items.some((i) => i.id === form.id) ? "Edit" : "New"} ${mode === "contacts" ? "contact" : "company"}`}
+          subtitle={mode === "contacts" ? "Everything Corral knows about this person. Only the name is required." : "Firmographics, research permission and notes for this account."}
+          width={640}
           onClose={() => setForm(null)}
+          footer={
+            <div className="rec-footer">
+              {error && <span role="alert" className="rec-error">{error}</span>}
+              <Button kind="gray" onClick={() => setForm(null)}>Cancel</Button>
+              <Button kind="filled" type="submit" form="record-form" disabled={busy || !form.name.trim()}>{busy ? "Saving…" : "Save"}</Button>
+            </div>
+          }
         >
-          <form
-            className="ops-form record-editor-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save();
-            }}
-          >
-            {error && (
-              <p role="alert" className="team-alert">
-                {error}
-              </p>
-            )}
-            {notice && <p role="status" className="records-notice">{notice}</p>}
-            {mode === "companies" && (
-              <p className="records-form-help">
-                Enter company details manually, or add its official page and mark it reviewed to request a cited AI enrichment draft. Suggestions stay in Intelligence for your approval.
-              </p>
-            )}
-            <label>
-              Name
-              <input
-                required
-                maxLength={255}
-                value={form.name}
-                onChange={(event) =>
-                  setForm({ ...form, name: event.target.value })
-                }
-              />
-            </label>
+          <form id="record-form" className="rec-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+            {notice && <p role="status" className="rec-notice">{notice}</p>}
             {mode === "contacts" ? (
               <>
-                <label>
-                  Email
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(event) =>
-                      setForm({ ...form, email: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Company
-                  <select
-                    value={form.company_id}
-                    onChange={(event) =>
-                      setForm({ ...form, company_id: event.target.value })
-                    }
-                  >
-                    <option value="">Unlinked</option>
-                    {companies.map((company) => (
-                      <option value={company.id} key={company.id}>
-                        {company.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Phone
-                  <input
-                    maxLength={64}
-                    value={form.phone}
-                    onChange={(event) =>
-                      setForm({ ...form, phone: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Job title
-                  <input
-                    maxLength={255}
-                    value={form.job_title}
-                    onChange={(event) =>
-                      setForm({ ...form, job_title: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Timezone
-                  <input
-                    value={form.timezone}
-                    onChange={(event) =>
-                      setForm({ ...form, timezone: event.target.value })
-                    }
-                    placeholder="Asia/Karachi"
-                  />
-                </label>
+                <fieldset className="rec-section">
+                  <legend>Basics</legend>
+                  <div className="rec-grid">
+                    <RecField label="Full name" required><input required maxLength={255} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="off" /></RecField>
+                    <RecField label="Job title"><input maxLength={255} value={form.job_title} onChange={(e) => setForm({ ...form, job_title: e.target.value })} placeholder="Head of Operations" /></RecField>
+                    <RecField label="Department"><input maxLength={300} value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} placeholder="Operations" /></RecField>
+                    <RecField label="Seniority">
+                      <select value={form.seniority} onChange={(e) => setForm({ ...form, seniority: e.target.value })}>
+                        <option value="">Not set</option>
+                        {["Individual contributor", "Manager", "Director", "VP", "C-level", "Owner or founder"].map((level) => <option key={level} value={level}>{level}</option>)}
+                      </select>
+                    </RecField>
+                  </div>
+                </fieldset>
+                <fieldset className="rec-section">
+                  <legend>How to reach them</legend>
+                  <div className="rec-grid">
+                    <RecField label="Email"><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" /></RecField>
+                    <RecField label="Preferred channel">
+                      <select value={form.preferred_channel} onChange={(e) => setForm({ ...form, preferred_channel: e.target.value })}>
+                        <option value="">No preference</option>
+                        <option value="email">Email</option><option value="phone">Phone call</option><option value="sms">Text message</option><option value="whatsapp">WhatsApp</option>
+                      </select>
+                    </RecField>
+                    <RecField label="Phone"><input maxLength={64} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+1 555 010 0100" inputMode="tel" /></RecField>
+                    <RecField label="Mobile"><input maxLength={300} value={form.mobile_phone} onChange={(e) => setForm({ ...form, mobile_phone: e.target.value })} inputMode="tel" /></RecField>
+                    <RecField label="LinkedIn" wide><input type="url" value={form.linkedin_url} onChange={(e) => setForm({ ...form, linkedin_url: e.target.value })} placeholder="https://www.linkedin.com/in/…" /></RecField>
+                  </div>
+                </fieldset>
+                <fieldset className="rec-section">
+                  <legend>Company and place</legend>
+                  <div className="rec-grid">
+                    <RecField label="Company">
+                      <select value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
+                        <option value="">Not linked</option>
+                        {companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}
+                      </select>
+                    </RecField>
+                    <RecField label="Location"><input maxLength={300} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Austin, Texas" /></RecField>
+                    <RecField label="Time zone" wide hint="Used to schedule calls and meetings at a sensible hour.">
+                      <input list="rec-timezones" value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} placeholder="America/Chicago" />
+                    </RecField>
+                  </div>
+                </fieldset>
               </>
             ) : (
               <>
-                <label>
-                  Company domain
-                  <input
-                    value={form.domain}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        domain: event.target.value,
-                      })
-                    }
-                    placeholder="company.com"
-                  />
-                </label>
-                <label>
-                  Official HTTPS page
-                  <input
-                    type="url"
-                    value={form.website}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        website: event.target.value,
-                        website_reviewed: false,
-                      })
-                    }
-                    placeholder="https://company.com/about"
-                  />
-                </label>
-                <label className="ops-check">
-                  <input
-                    type="checkbox"
-                    checked={form.website_reviewed}
-                    disabled={!form.website}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        website_reviewed: event.target.checked,
-                      })
-                    }
-                  />
-                  I reviewed this official company page and allow Corral to
-                  research it.
-                </label>
-                <label>
-                  Industry
-                  <input
-                    value={form.industry}
-                    onChange={(event) =>
-                      setForm({ ...form, industry: event.target.value })
-                    }
-                  />
-                </label>
+                <fieldset className="rec-section">
+                  <legend>Basics</legend>
+                  <div className="rec-grid">
+                    <RecField label="Company name" required><input required maxLength={255} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="off" /></RecField>
+                    <RecField label="Industry"><input value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} placeholder="Software" /></RecField>
+                    <RecField label="Domain" hint="Filled in from the website if you add one."><input value={form.domain} onChange={(e) => setForm({ ...form, domain: e.target.value })} placeholder="company.com" /></RecField>
+                    <RecField label="Founded"><input inputMode="numeric" maxLength={4} value={form.founded_year} onChange={(e) => setForm({ ...form, founded_year: e.target.value })} placeholder="2014" /></RecField>
+                    <RecField label="What they do" wide><textarea rows={3} maxLength={2000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="A short description of the business." /></RecField>
+                  </div>
+                </fieldset>
+                <fieldset className="rec-section">
+                  <legend>Size and place</legend>
+                  <div className="rec-grid">
+                    <RecField label="Employees">
+                      <select value={form.employees} onChange={(e) => setForm({ ...form, employees: e.target.value })}>
+                        <option value="">Not set</option>
+                        {["1-10", "11-50", "51-200", "201-500", "501-1,000", "1,001-5,000", "5,000+"].map((size) => <option key={size} value={size}>{size}</option>)}
+                      </select>
+                    </RecField>
+                    <RecField label="Annual revenue">
+                      <select value={form.annual_revenue} onChange={(e) => setForm({ ...form, annual_revenue: e.target.value })}>
+                        <option value="">Not set</option>
+                        {["Under $1M", "$1M-$10M", "$10M-$50M", "$50M-$250M", "$250M-$1B", "Over $1B"].map((size) => <option key={size} value={size}>{size}</option>)}
+                      </select>
+                    </RecField>
+                    <RecField label="Headquarters"><input maxLength={300} value={form.headquarters} onChange={(e) => setForm({ ...form, headquarters: e.target.value })} placeholder="Austin, Texas" /></RecField>
+                    <RecField label="Main phone"><input maxLength={64} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} inputMode="tel" /></RecField>
+                  </div>
+                </fieldset>
+                <fieldset className="rec-section">
+                  <legend>Online</legend>
+                  <div className="rec-grid">
+                    <RecField label="Official website" hint="HTTPS only. Used for cited research.">
+                      <input type="url" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value, website_reviewed: false })} placeholder="https://company.com/about" />
+                    </RecField>
+                    <RecField label="LinkedIn"><input type="url" value={form.linkedin_url} onChange={(e) => setForm({ ...form, linkedin_url: e.target.value })} placeholder="https://www.linkedin.com/company/…" /></RecField>
+                  </div>
+                  <label className="rec-switch">
+                    <span><b>Allow Corral to research this company</b><small>Turn on after you have reviewed the official page. Suggestions wait in Intelligence for your approval.</small></span>
+                    <input type="checkbox" role="switch" className="v-switch" checked={form.website_reviewed} disabled={!form.website} onChange={(e) => setForm({ ...form, website_reviewed: e.target.checked })} />
+                  </label>
+                </fieldset>
               </>
             )}
-            <button className="primary-button" disabled={busy}>
-              {busy ? "Saving…" : "Save record"}
-            </button>
+            <fieldset className="rec-section">
+              <legend>Notes and labels</legend>
+              <div className="rec-grid">
+                <RecField label="Notes" wide><textarea rows={3} maxLength={2000} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Anything the team should know." /></RecField>
+                <RecField label="Tags" wide hint="Separate with commas, for example: partner, renewal-q4."><input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} /></RecField>
+              </div>
+            </fieldset>
+            <datalist id="rec-timezones">{timezoneOptions().map((zone) => <option key={zone} value={zone} />)}</datalist>
           </form>
-        </OperationsDialog>
+        </Sheet>
       )}
       {detail && (
         <OperationsDialog
@@ -860,6 +962,46 @@ export function RecordsView({
           </section>
         </OperationsDialog>
       )}
+    </div>
+  );
+}
+
+function timezoneOptions(): string[] {
+  try {
+    const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
+    return supported ? supported("timeZone") : ["UTC", "America/New_York", "America/Chicago", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Karachi", "Asia/Dubai", "Asia/Singapore", "Australia/Sydney"];
+  } catch {
+    return ["UTC"];
+  }
+}
+
+function RecField({ label, hint, required, wide, children }: { label: string; hint?: string; required?: boolean; wide?: boolean; children: ReactNode }) {
+  return (
+    <label className="rec-field" data-wide={wide || undefined}>
+      <span>{label}{required && <i aria-hidden="true"> *</i>}</span>
+      {children}
+      {hint && <small>{hint}</small>}
+    </label>
+  );
+}
+
+function ToolbarPopover({ icon, label, badge, children }: { icon: IconName; label: string; badge?: number; children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onPointer); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  return (
+    <div className="rec-pop" ref={root}>
+      <button type="button" className="records-filter-button" data-active={open || Boolean(badge) || undefined} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <Icon name={icon} size={16} />{label}{badge ? <span className="rec-pop-badge">{badge}</span> : null}
+      </button>
+      {open && <div className="rec-pop-panel" role="dialog" aria-label={label}>{children(() => setOpen(false))}</div>}
     </div>
   );
 }

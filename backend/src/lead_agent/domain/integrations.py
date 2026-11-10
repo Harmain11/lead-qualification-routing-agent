@@ -126,11 +126,9 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
             "oauth",
             "crm.objects.contacts.read",
             "crm.objects.contacts.write",
-            "crm.schemas.contacts.read",
-            "crm.schemas.contacts.write",
         ],
         permission_reason=(
-            "Import and update HubSpot Contacts, and create missing Corral contact properties."
+            "Import and update HubSpot Contacts. Existing custom Corral properties are used when available; creating new properties is optional."
         ),
         documentation_url="https://developers.hubspot.com/docs/api/private-apps",
         manual_fields=[],
@@ -148,7 +146,7 @@ PROVIDER_SETUP: dict[str, ProviderSetupMetadata] = {
             "can only connect to the workspace where it was created; the app owner must "
             "enable App Distribution to support other workspaces."
         ),
-        required_scopes=["chat:write", "channels:read"],
+        required_scopes=["chat:write", "channels:read", "im:write"],
         permission_reason=(
             "Send routed lead alerts and list public channels for workspace channel selection."
         ),

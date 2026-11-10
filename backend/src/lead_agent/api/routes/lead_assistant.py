@@ -9,21 +9,34 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
+from lead_agent.application.assistant_access import (
+    ACCESS_KEY,
+    conversation_access_key,
+    conversation_is_accessible,
+)
+from lead_agent.application.claims import guard_outgoing_email
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
 from lead_agent.application.governance import operations_policy
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
-from lead_agent.domain.assistant_capabilities import workspace_action_capabilities
+from lead_agent.domain.assistant_capabilities import (
+    WORKSPACE_ACTION_PERMISSIONS,
+    WORKSPACE_AREA_PERMISSIONS,
+    workspace_action_capabilities,
+)
 from lead_agent.domain.lead_assistant import (
     LeadAssistantAction,
     WorkspaceAssistantAction,
     WorkspaceAssistantReply,
 )
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
     LeadORM,
@@ -109,11 +122,58 @@ def _lead_confirmation_state(
         "yes thats the one",
         "use this lead",
         "use that lead",
+        "open it",
+        "open",
+        "open lead",
+        "open the lead",
+        "open that lead",
+        "open this lead",
+        "ok",
+        "okay",
+        "sure",
+        "right",
+        "exactly",
+        "go ahead",
+        "that is right",
+        "that is the one",
+        "this one",
+        "thats it",
+        "that lead",
+        "yes open it",
     }:
         return "confirmed", original_query
     if normalized in {"no", "nope", "no thanks", "not that one", "not this one"}:
         return "declined", original_query
     return "correction", latest_user_message
+
+
+_OPEN_FOLLOWUPS = re.compile(
+    r"^(?:yes )?(?:please )?(?:go ahead and )?open(?: (?:it|him|her|them|that|this|that lead|this lead|the lead|lead|the record|his record|her record))?(?: please)?$"
+)
+
+
+def _open_followup_lead(
+    latest_user_message: str,
+    confirmation_state: str | None,
+    creation_requested: bool,
+    records: Any,
+    similar_leads: list[Any],
+    confirmation_query: str | None,
+) -> dict[str, Any] | None:
+    """The one lead an "open it" reply refers to, or None when it is not clear."""
+    if creation_requested or not isinstance(records, dict):
+        return None
+    normalized = re.sub(r"[\W_]+", " ", latest_user_message.casefold()).strip()
+    if not _OPEN_FOLLOWUPS.match(normalized):
+        return None
+    matched = [lead for lead in records.get("matched_leads", []) if isinstance(lead, dict) and lead.get("id")]
+    if confirmation_state == "confirmed":
+        if records.get("lead_match_confirmed") is True and matched and not _is_explicit_lead_write_request(confirmation_query or ""):
+            return matched[0]
+        return None
+    if len(matched) == 1 and not similar_leads:
+        return matched[0]
+    return None
 
 
 def _is_explicit_lead_write_request(query: str) -> bool:
@@ -259,7 +319,10 @@ def _lead_assistant_links(
         try:
             with session.begin_nested():
                 records = build_workspace_record_context(
-                    session, workspace.workspace_id, search_query,
+                    session,
+                    workspace.workspace_id,
+                    search_query,
+                    workspace=workspace,
                 )
         except Exception:
             logger.warning("lead_assistant.lead_link_search_unavailable", exc_info=True)
@@ -414,6 +477,72 @@ def _truthful_lead_assistant_reply(
         return (
             "I haven't made that change. I can propose supported lead actions here, "
             "but a change is complete only after you confirm it and the app reports success."
+        )
+    return reply
+
+
+def _guard_unverified_meeting_claims(text: str | None, *, verified: bool) -> str | None:
+    """Keep an editable draft from stating that an unverified calendar action happened."""
+    return guard_outgoing_email(None, text, meeting_verified=verified).body
+
+
+def _has_verified_meeting(events: list[PipelineEventORM]) -> bool:
+    return any(
+        event.stage == "meeting_scheduled"
+        and event.status in VERIFIED_MEETING_STATUSES
+        for event in events
+    )
+
+
+def _has_verified_workspace_meeting(workspace_context: dict[str, Any]) -> bool:
+    records = workspace_context.get("workspace_records")
+    events = records.get("recent_emails_and_meetings", []) if isinstance(records, dict) else []
+    return any(
+        isinstance(event, dict)
+        and event.get("kind") == "meeting_scheduled"
+        and event.get("status") in VERIFIED_MEETING_STATUSES
+        for event in events
+    )
+
+
+def _truthful_workspace_assistant_reply(
+    reply: str,
+    action: WorkspaceAssistantAction,
+    latest_user: str,
+) -> str:
+    """Prevent workspace chat from reporting a proposed action as completed."""
+    completion_claim = re.search(
+        r"\b(?:done|completed|finished)\b|"
+        r"\b(?:I|we)\s+(?:have\s+)?(?:already\s+)?"
+        r"(?:booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b"
+        r"|\b(?:it|that|the action|the meeting|the appointment)\s+(?:has been|was|is now)\s+"
+        r"(?:booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b",
+        reply,
+        re.I,
+    )
+    if action.kind == "send_email":
+        return (
+            "I prepared an editable email draft for your review. Nothing has been sent; "
+            "a meeting is not confirmed unless the calendar provider reports a successful booking."
+        )
+    if not completion_claim:
+        return reply
+    if re.search(r"\bpending\b", latest_user, re.I):
+        return (
+            "Based on the status you described, it is still pending; I cannot confirm "
+            "the action completed until the app reports success."
+        )
+    requested_change = re.search(
+        r"\b(?:book|schedule|cancel|reschedule|send|delete|save|create|update|change|sync|"
+        r"complete|mark|invite|disconnect|suspend|reactivate|add|record|call|open|enable|"
+        r"publish|refresh|confirm|re-?evaluate)\w*\b",
+        latest_user,
+        re.I,
+    )
+    if requested_change or action.kind != "none":
+        return (
+            "I have not completed that action. I can prepare the supported workflow for review, "
+            "but it is only complete after you approve it and the app reports a successful result."
         )
     return reply
 
@@ -608,6 +737,8 @@ def _owned_conversation(
     session: Session,
     workspace: WorkspaceContext,
     conversation_id: UUID,
+    *,
+    check_access: bool = True,
 ) -> WorkspaceAgentConversationORM:
     row = session.scalar(
         select(WorkspaceAgentConversationORM).where(
@@ -618,6 +749,10 @@ def _owned_conversation(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
+    if check_access and not conversation_is_accessible(
+        row.messages, workspace, conversation_access_key(session, workspace)
+    ):
+        raise HTTPException(403, "Conversation access has changed; start a new conversation.")
     return row
 
 
@@ -626,6 +761,7 @@ def list_agent_conversations(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
 ) -> dict[str, object]:
+    access_key = conversation_access_key(session, workspace)
     rows = list(session.scalars(
         select(WorkspaceAgentConversationORM)
         .where(
@@ -648,6 +784,7 @@ def list_agent_conversations(
             )[:180],
         }
         for row in rows
+        if conversation_is_accessible(row.messages, workspace, access_key)
     ]}
 
 
@@ -681,7 +818,10 @@ def get_agent_conversation(
     return {
         "id": str(row.id),
         "title": row.title,
-        "messages": row.messages,
+        "messages": [
+            {key: value for key, value in message.items() if key != ACCESS_KEY}
+            for message in row.messages
+        ],
         "updated_at": row.updated_at.isoformat(),
     }
 
@@ -695,6 +835,9 @@ def save_agent_conversation(
 ) -> dict[str, object]:
     row = _owned_conversation(session, workspace, conversation_id)
     transcript = [message.model_dump(mode="json", exclude_none=True) for message in request.messages]
+    access_key = conversation_access_key(session, workspace)
+    for message in transcript:
+        message[ACCESS_KEY] = access_key
     first_user_text = next((item["content"] for item in transcript if item["role"] == "user"), "")
     row.messages = transcript
     if first_user_text:
@@ -710,7 +853,7 @@ def delete_agent_conversation(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("agents.execute")),
 ) -> Response:
-    row = _owned_conversation(session, workspace, conversation_id)
+    row = _owned_conversation(session, workspace, conversation_id, check_access=False)
     session.delete(row)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -755,6 +898,7 @@ def _history_before_latest_request(
     }
     related: list[tuple[int, list[dict[str, str]]]] = []
     if query_terms:
+        access_key = conversation_access_key(session, workspace)
         rows = session.scalars(
             select(WorkspaceAgentConversationORM).where(
                 WorkspaceAgentConversationORM.workspace_id == workspace.workspace_id,
@@ -763,6 +907,10 @@ def _history_before_latest_request(
             ).order_by(WorkspaceAgentConversationORM.updated_at.desc()).limit(20)
         )
         for past in rows:
+            if not conversation_is_accessible(
+                past.messages, workspace, access_key
+            ):
+                continue
             turns = [
                 {"role": item["role"], "content": contextual_text(item)}
                 for item in past.messages[-12:]
@@ -820,6 +968,10 @@ def chat_with_workspace_assistant(
         search_query = confirmation_query or record_query
     elif confirmation_state == "correction":
         search_query = latest_user_message
+    elif _OPEN_FOLLOWUPS.match(re.sub(r"[\W_]+", " ", latest_user_message.casefold()).strip()):
+        # "Open it" points at the lead asked about just before, not at the words "open it".
+        earlier_user = [m.content for m in request.messages if m.role == "user"][:-1]
+        search_query = earlier_user[-1] if earlier_user else record_query
     else:
         search_query = latest_user_message if read_only_lead_lookup else record_query
     if (
@@ -836,16 +988,59 @@ def chat_with_workspace_assistant(
                         workspace.workspace_id,
                         search_query,
                         confirm_similar_lead=True,
+                        workspace=workspace,
                     )
                 else:
                     workspace_context["workspace_records"] = build_workspace_record_context(
-                        session, workspace.workspace_id, search_query,
+                        session,
+                        workspace.workspace_id,
+                        search_query,
+                        workspace=workspace,
                     )
         except Exception:
             workspace_context.setdefault("context_warnings", []).append(
                 "Workspace record search is unavailable; do not infer lead details "
                 "or propose lead changes."
             )
+    record_context = workspace_context.get("workspace_records")
+    if isinstance(record_context, dict):
+        matched_leads = record_context.get("matched_leads", [])
+        matched_contacts = record_context.get("matched_contacts", [])
+        if "fields.contact.view" not in workspace.permissions:
+            for item in matched_leads if isinstance(matched_leads, list) else []:
+                if isinstance(item, dict):
+                    item.pop("email", None)
+                    item.pop("phone", None)
+            record_context["matched_contacts"] = []
+        if "fields.financial.view" not in workspace.permissions:
+            for item in matched_leads if isinstance(matched_leads, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("outcome"), dict):
+                    item["outcome"].pop("closed_revenue", None)
+                    item["outcome"].pop("currency", None)
+            for item in matched_contacts if isinstance(matched_contacts, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("company"), dict):
+                    item["company"].pop("profile", None)
+            for item in record_context.get("matched_companies", []):
+                if isinstance(item, dict):
+                    item.pop("profile", None)
+            record_counts = record_context.get("record_counts")
+            if isinstance(record_counts, dict):
+                record_counts.pop("revenue", None)
+        if "fields.communications.view" not in workspace.permissions:
+            for item in matched_leads if isinstance(matched_leads, list) else []:
+                if isinstance(item, dict):
+                    item.pop("inquiry", None)
+            for key in ("recent_emails_and_meetings", "calls", "saved_follow_up_emails"):
+                record_context[key] = []
+        if "comments.view" not in workspace.permissions:
+            record_context["lead_notes"] = []
+        if "activity.view" not in workspace.permissions:
+            for key in ("recent_emails_and_meetings", "calls", "saved_follow_up_emails"):
+                record_context[key] = []
+            counts = record_context.get("record_counts")
+            if isinstance(counts, dict):
+                for key in ("calls", "emails", "meetings"):
+                    counts.pop(key, None)
     payload = {
         "messages": assistant_messages,
         "workspace_context": workspace_context,
@@ -868,6 +1063,26 @@ def chat_with_workspace_assistant(
             reply=(
                 "No problem. Tell me another name, company, or email and I’ll search "
                 "the leads saved in this workspace."
+            ),
+        )
+    elif _open_followup_lead(
+        latest_user_message, confirmation_state, creation_requested, records, similar_leads, confirmation_query,
+    ) is not None:
+        # An unambiguous lead plus "open it" needs no AI provider: take the person there.
+        confirmed = _open_followup_lead(
+            latest_user_message, confirmation_state, creation_requested, records, similar_leads, confirmation_query,
+        )
+        assert confirmed is not None
+        label = str(confirmed.get("name") or "the lead")
+        company = confirmed.get("company")
+        result = WorkspaceAssistantReply(
+            reply=f"Opening {label}" + (f" at {company}" if isinstance(company, str) and company.strip() else "") + ".",
+            action=WorkspaceAssistantAction(
+                kind="open_lead",
+                title=f"Open {label}",
+                summary="Read-only navigation to the lead record.",
+                target_id=str(confirmed["id"]),
+                target_label=label,
             ),
         )
     elif (not creation_requested) and (read_only_lead_lookup or (similar_leads and (
@@ -920,7 +1135,7 @@ def chat_with_workspace_assistant(
     if _is_conversation_only_message(request.messages) and result.action.kind != "none":
         result.action = WorkspaceAssistantAction()
         result.reply = "No new changes were made. If you meant to correct something, tell me what should change."
-    if result.action.kind == "open_lead" and not _wants_lead_links(request.messages):
+    if result.action.kind == "open_lead" and confirmation_state != "confirmed" and not _wants_lead_links(request.messages):
         result.action = WorkspaceAssistantAction()
     if result.action.kind == "open_deal_desk" and not any(
         term in record_query.casefold()
@@ -1020,7 +1235,10 @@ def chat_with_workspace_assistant(
         )
         if (
             not target_is_available
-            or (result.action.kind in lead_mutations and "leads.edit" not in workspace.permissions)
+            or (
+                result.action.kind in lead_mutations
+                and not set(WORKSPACE_ACTION_PERMISSIONS[result.action.kind]) <= workspace.permissions
+            )
             or (
                 result.action.kind in manual_review_mutations
                 and "manual_review.manage" not in workspace.permissions
@@ -1078,6 +1296,33 @@ def chat_with_workspace_assistant(
                         f"Clear {result.action.target_label}'s review hold and apply "
                         "current routing rules. The resulting assignee may be notified."
                     )
+    required = WORKSPACE_ACTION_PERMISSIONS.get(result.action.kind, ())
+    permitted = set(required) <= workspace.permissions
+    if result.action.kind == "open_module":
+        area_required = WORKSPACE_AREA_PERMISSIONS.get(result.action.area or "", ())
+        permitted = any(permission in workspace.permissions for permission in area_required)
+    if not permitted:
+        result.action = WorkspaceAssistantAction()
+        result.reply = "You do not have the required workspace permission for that action."
+    result.reply = _truthful_workspace_assistant_reply(
+        result.reply,
+        result.action,
+        latest_user_message,
+    )
+    if result.action.kind == "send_email":
+        verified_meeting = _has_verified_workspace_meeting(workspace_context)
+        guarded = guard_outgoing_email(
+            result.action.email_subject,
+            result.action.email_body,
+            meeting_verified=verified_meeting,
+        )
+        if guarded.changed:
+            result.action.email_subject = guarded.subject
+            result.action.email_body = guarded.body
+            result.action.summary = (
+                f"{result.action.summary.rstrip('.')} "
+                "The draft does not confirm a meeting until a calendar provider reports success."
+            ).strip()
     response = result.model_dump(mode="json")
     response["context_warnings"] = workspace_context.get("context_warnings", [])
     if "leads.view" in workspace.permissions and _wants_lead_links(request.messages):
@@ -1103,6 +1348,11 @@ def chat_with_lead_assistant(
     lead = get_lead(session, lead_id, workspace.workspace_id)
     if lead is None:
         raise HTTPException(404, "Lead not found")
+    assert_lead_action(session, workspace, lead, "view")
+
+    can_contact = "fields.contact.view" in workspace.permissions
+    can_financial = "fields.financial.view" in workspace.permissions
+    can_communications = "fields.communications.view" in workspace.permissions
 
     current_routing = get_current_routing(session, lead.id, workspace.workspace_id)
     review_reasons = lead_manual_review_reasons(session, lead, current_routing)
@@ -1120,42 +1370,52 @@ def chat_with_lead_assistant(
             .where(
                 PipelineEventORM.lead_id == lead_id,
                 PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
             )
             .order_by(PipelineEventORM.created_at.desc())
             .limit(20)
         )
-    )
+    ) if "activity.view" in workspace.permissions else []
     notes = list(
         session.scalars(
             select(LeadNoteORM)
             .where(
                 LeadNoteORM.lead_id == lead_id,
                 LeadNoteORM.workspace_id == workspace.workspace_id,
+                or_(
+                    LeadNoteORM.is_private.is_(False),
+                    LeadNoteORM.author_id == workspace.actor_id,
+                    "comments.view_private" in workspace.permissions,
+                ),
             )
             .order_by(LeadNoteORM.updated_at.desc(), LeadNoteORM.id.desc())
             .limit(30)
         )
-    )
+    ) if {
+        "comments.view", "fields.internal.view"
+    }.issubset(workspace.permissions) else []
     payload = {
         "permissions": sorted(workspace.permissions),
         "lead": {
             "id": str(lead.id),
             "full_name": lead.full_name,
-            "email": lead.email,
-            "phone": lead.phone,
+            "email": lead.email if can_contact else None,
+            "phone": lead.phone if can_contact else None,
             "job_title": lead.job_title,
             "company_name": lead.company_name,
             "industry": lead.industry,
             "employee_count": lead.employee_count,
             "annual_revenue": (
                 float(lead.annual_revenue)
-                if lead.annual_revenue is not None
+                if can_financial and lead.annual_revenue is not None
                 else None
             ),
             "geography": lead.geography,
-            "budget": float(lead.budget) if lead.budget is not None else None,
+            "budget": (
+                float(lead.budget) if can_financial and lead.budget is not None else None
+            ),
             "product_or_service": lead.product_or_service,
-            "original_inquiry_or_context": lead.message,
+            "original_inquiry_or_context": lead.message if can_communications else None,
             "source": lead.source,
             "received_at": lead.received_at.isoformat(),
             "manual_review": {
@@ -1166,7 +1426,7 @@ def chat_with_lead_assistant(
                 {
                     "score": lead.qualification.total_score,
                     "classification": lead.qualification.classification,
-                    "rationale": lead.qualification.rationale,
+                    "rationale": lead.qualification.rationale if can_communications else [],
                 }
                 if lead.qualification
                 else None
@@ -1177,10 +1437,13 @@ def chat_with_lead_assistant(
                     "conversion_type": lead.outcome.conversion_type,
                     "closed_revenue": (
                         float(lead.outcome.closed_revenue)
-                        if lead.outcome.closed_revenue is not None
+                        if can_financial and lead.outcome.closed_revenue is not None
                         else None
                     ),
-                    "credited_name": lead.outcome.credited_name,
+                    "credited_name": (
+                        lead.outcome.credited_user.display_name
+                        if lead.outcome.credited_user else None
+                    ),
                 }
                 if lead.outcome
                 else None
@@ -1194,7 +1457,7 @@ def chat_with_lead_assistant(
                 "stage": event.stage,
                 "status": event.status,
                 "created_at": event.created_at.isoformat(),
-                "details": event.details,
+                "details": event.details if can_communications else {},
             }
             for event in reversed(events)
         ],
@@ -1236,10 +1499,12 @@ def chat_with_lead_assistant(
     if _is_conversation_only_message(request.messages):
         result.action = LeadAssistantAction()
     if result.action.kind == "open_dialer" and (
-        "dialer.call" not in workspace.permissions or not lead.phone
+        "dialer.call" not in workspace.permissions or not can_contact or not lead.phone
     ):
         result.action = LeadAssistantAction()
-        if not lead.phone:
+        if not can_contact:
+            result.reply = "You do not have access to this lead's contact fields."
+        elif not lead.phone:
             result.reply = (
                 f"I don’t have a phone number saved for {lead.full_name}. "
                 "Share the number and I can help update the lead before you call."
@@ -1250,23 +1515,34 @@ def chat_with_lead_assistant(
                 "permission to open the phone from this workspace. Ask an admin for Dialer access."
             )
     lead_edit_actions = {
-        "update_profile", "add_note", "record_progress", "draft_email",
+        "update_profile", "record_progress", "draft_email",
         "send_follow_up", "refresh_email", "delete_lead", "reevaluate_lead",
     }
     email_actions = {"draft_email", "send_follow_up", "refresh_email", "open_email"}
-    if result.action.kind in lead_edit_actions and "leads.edit" not in workspace.permissions:
+    if result.action.kind == "add_note" and "comments.add" not in workspace.permissions:
+        result.action = LeadAssistantAction()
+        result.reply = "You need comment-write access to save a note."
+    elif result.action.kind in lead_edit_actions and "leads.edit" not in workspace.permissions:
         result.action = LeadAssistantAction()
         result.reply = (
             "I can't make that change with your current access. "
             "Ask an admin for lead-edit access."
         )
+    elif result.action.kind in lead_edit_actions:
+        try:
+            assert_lead_action(session, workspace, lead, "edit")
+        except HTTPException:
+            result.action = LeadAssistantAction()
+            result.reply = "This lead is shared read-only; I cannot change it."
     elif result.action.kind == "sync_crm" and "crm.sync" not in workspace.permissions:
         result.action = LeadAssistantAction()
         result.reply = (
             "I can't sync this lead to a CRM with your current access. "
             "Ask an admin for CRM-sync access."
         )
-    elif result.action.kind in email_actions and "integrations.view" not in workspace.permissions:
+    elif result.action.kind in email_actions and not {
+        "integrations.view", "mailbox.send_own"
+    }.issubset(workspace.permissions):
         result.action = LeadAssistantAction()
         result.reply = (
             "I can't open this lead's email with your current access. "
@@ -1279,6 +1555,14 @@ def chat_with_lead_assistant(
     result.reply = _truthful_lead_assistant_reply(
         result.reply, result.action, latest_user_message,
     )
+    if result.action.kind in {"draft_email", "send_follow_up"}:
+        guarded = guard_outgoing_email(
+            result.action.email_subject,
+            result.action.email_body,
+            meeting_verified=_has_verified_meeting(events),
+        )
+        result.action.email_subject = guarded.subject
+        result.action.email_body = guarded.body
     response = result.model_dump(mode="json")
     if "leads.view" in workspace.permissions:
         lead_links = _lead_assistant_links(

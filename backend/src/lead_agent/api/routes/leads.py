@@ -33,11 +33,13 @@ from lead_agent.application.exports import (
     ExportEmptyError,
     ExportLimitError,
     LeadExportRequest,
+    allowed_export_columns,
     canonical_records,
     list_export_leads,
     render_export,
     write_export_audit,
 )
+from lead_agent.application.field_privacy import assert_field_writes
 from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     lead_history_context,
@@ -45,11 +47,23 @@ from lead_agent.application.gmail_history import (
 from lead_agent.application.gmail_profile import extract_stated_gmail_profile
 from lead_agent.application.governance import operations_policy
 from lead_agent.application.icp import resolve_workspace_icp
+from lead_agent.application.integration_access import assert_connection_action
+from lead_agent.application.lead_access import (
+    assert_lead_action,
+    assign_lead,
+    revoke_lead_share,
+    share_lead,
+)
 from lead_agent.application.lead_outcomes import record_outcome, send_win_notifications
+from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.routing import record_pipeline_event, route_and_notify
 from lead_agent.application.services import _analyze_and_qualify, process_lead
-from lead_agent.domain.analysis import ReasoningProvider, ReasoningProviderError
+from lead_agent.domain.analysis import (
+    ReasoningProvider,
+    ReasoningProviderError,
+    load_persisted_analysis,
+)
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
@@ -57,6 +71,7 @@ from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.rbac import effective_permissions
 from lead_agent.domain.routing import NotificationProvider
+from lead_agent.domain.scoring import qualify_lead
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.crm.inbound_factory import (
     WorkspaceInboundCrmProviderResolver,
@@ -67,7 +82,7 @@ from lead_agent.infrastructure.db.models import (
     CrmSyncORM,
     LeadFollowUpEmailORM,
     LeadORM,
-    NotificationORM,
+    LeadSuppressionORM,
     PipelineEventORM,
     ProviderConnectionORM,
     QualificationResultORM,
@@ -78,6 +93,7 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceORM,
 )
 from lead_agent.infrastructure.db.session import get_db
+from lead_agent.infrastructure.db.teams import LeadAccessGrantORM
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import (
@@ -134,6 +150,21 @@ class LeadAssignmentUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     assigned_rep_id: UUID | None
+
+
+class LeadShareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    membership_id: UUID
+    can_edit: bool = False
+    reason: str = Field(default="collaboration", max_length=255)
+
+
+class LeadShareResponse(BaseModel):
+    membership_id: UUID
+    can_edit: bool
+    reason: str
+    expires_at: datetime | None
 
 
 class LeadAssignmentOptionResponse(BaseModel):
@@ -258,27 +289,150 @@ def _delete_lead(
     *,
     actor_id: str,
 ) -> None:
-    """Delete only the local copy; future matching source records may re-enter."""
+    """Move a lead to trash and suppress its source record on future syncs."""
     now = datetime.now(UTC)
+    source_links = list(
+        session.scalars(
+            select(CrmProviderRecordLinkORM).where(
+                CrmProviderRecordLinkORM.workspace_id == row.workspace_id,
+                CrmProviderRecordLinkORM.lead_id == row.id,
+            )
+        )
+    )
+    suppression_sources = {(link.provider, link.provider_record_id) for link in source_links}
+    if not suppression_sources and row.external_id:
+        suppression_sources.add((row.source, row.external_id))
+    for provider, external_id in suppression_sources:
+        existing = session.scalar(
+            select(LeadSuppressionORM).where(
+                LeadSuppressionORM.workspace_id == row.workspace_id,
+                LeadSuppressionORM.provider == provider,
+                LeadSuppressionORM.external_id == external_id,
+            )
+        )
+        if existing is None:
+            session.add(
+                LeadSuppressionORM(
+                    workspace_id=row.workspace_id,
+                    lead_id=row.id,
+                    provider=provider,
+                    external_id=external_id,
+                    lead_email=row.email,
+                    reason="user_deleted",
+                    created_by=actor_id,
+                    created_at=now,
+                )
+            )
+        elif existing.lead_id is None:
+            existing.lead_id = row.id
     if row.source_event_id:
         event = session.get(SourceEventORM, row.source_event_id)
         if event is not None:
             event.status = "deleted"
-            event.error_message = "Lead deleted by workspace user; source may be imported again."
+            event.error_message = (
+                "Lead moved to trash by workspace user; matching source is suppressed."
+            )
             event.updated_at = now
-    # CRM sync rows and notifications reference routing decisions with
-    # restrictive foreign keys. Remove those dependants explicitly before the
-    # database cascades the rest of the lead graph.
-    routing_ids = select(RoutingDecisionORM.id).where(RoutingDecisionORM.lead_id == row.id)
-    session.execute(delete(CrmSyncORM).where(CrmSyncORM.lead_id == row.id))
-    session.execute(delete(NotificationORM).where(NotificationORM.routing_decision_id.in_(routing_ids)))
-    session.execute(delete(RoutingDecisionORM).where(RoutingDecisionORM.lead_id == row.id))
-    session.execute(
-        delete(LeadORM).where(
-            LeadORM.id == row.id,
-            LeadORM.workspace_id == row.workspace_id,
+    row.deleted_at = now
+    row.deleted_by = actor_id
+    row.updated_at = now
+
+
+class LeadTrashItemResponse(BaseModel):
+    id: UUID
+    provider: str
+    external_id: str
+    lead_email: str | None = None
+    reason: str
+    created_by: str
+    created_at: datetime
+
+
+@router.get("/trash", response_model=list[LeadTrashItemResponse])
+def list_lead_trash(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.view")),
+) -> list[LeadTrashItemResponse]:
+    rows = session.scalars(
+        select(LeadSuppressionORM)
+        .where(LeadSuppressionORM.workspace_id == workspace.workspace_id)
+        .order_by(LeadSuppressionORM.created_at.desc())
+        .limit(200)
+    ).all()
+    return [
+        LeadTrashItemResponse(
+            id=row.id,
+            provider=row.provider,
+            external_id=row.external_id,
+            lead_email=row.lead_email,
+            reason=row.reason,
+            created_by=row.created_by,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+@router.post("/trash/{suppression_id}/restore")
+def restore_lead_from_trash(
+    suppression_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.delete_restore")),
+) -> dict[str, str]:
+    row = session.scalar(
+        select(LeadSuppressionORM).where(
+            LeadSuppressionORM.id == suppression_id,
+            LeadSuppressionORM.workspace_id == workspace.workspace_id,
         )
     )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Trash item not found")
+    provider = row.provider
+    external_id = row.external_id
+    lead = None
+    if row.lead_id is not None:
+        lead = session.scalar(
+            select(LeadORM)
+            .execution_options(include_deleted_leads=True)
+            .where(
+                LeadORM.id == row.lead_id,
+                LeadORM.workspace_id == workspace.workspace_id,
+            )
+        )
+    if lead is not None:
+        assert_lead_action(session, workspace, lead, "delete_restore")
+        restored_at = datetime.now(UTC)
+        lead.deleted_at = None
+        lead.deleted_by = None
+        lead.updated_at = restored_at
+        if lead.source_event is not None and lead.source_event.status == "deleted":
+            lead.source_event.status = "processed"
+            lead.source_event.error_message = None
+            lead.source_event.updated_at = restored_at
+        session.execute(
+            delete(LeadSuppressionORM).where(
+                LeadSuppressionORM.workspace_id == workspace.workspace_id,
+                LeadSuppressionORM.lead_id == lead.id,
+            )
+        )
+        record_pipeline_event(
+            session,
+            lead.id,
+            "trash",
+            "restored",
+            {"actor_id": workspace.actor_id},
+        )
+    else:
+        # Legacy trash rows predate lossless soft deletion. Their source can
+        # be imported again, but already-deleted related history is unavailable.
+        session.delete(row)
+    session.commit()
+    return {
+        "status": "restored" if lead is not None else "restore_pending",
+        "provider": provider,
+        "external_id": external_id,
+        "lead_id": str(lead.id) if lead is not None else "",
+    }
 
 
 def policy_dependency() -> tuple[IcpConfig, RoutingConfig]:
@@ -334,6 +488,7 @@ def _process_create_request(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
 
 
@@ -373,13 +528,15 @@ def list_all_leads(
     conditions = [LeadORM.workspace_id == workspace.workspace_id]
     if search:
         pattern = f"%{search.strip()}%"
+        searchable_fields = [
+            LeadORM.full_name.ilike(pattern),
+            LeadORM.company_name.ilike(pattern),
+            LeadORM.product_or_service.ilike(pattern),
+        ]
+        if "fields.contact.view" in workspace.permissions:
+            searchable_fields.append(LeadORM.email.ilike(pattern))
         conditions.append(
-            or_(
-                LeadORM.full_name.ilike(pattern),
-                LeadORM.email.ilike(pattern),
-                LeadORM.company_name.ilike(pattern),
-                LeadORM.product_or_service.ilike(pattern),
-            )
+            or_(*searchable_fields)
         )
     if source:
         if source in {"salesforce", "hubspot"}:
@@ -454,6 +611,7 @@ def list_all_leads(
             current_crm_sync(row),
             _current_confirmation_email(session, row.id, workspace.workspace_id),
             lead_manual_review_reasons(session, row, routing),
+            permissions=workspace.permissions,
         )
 
     return LeadListResponse(
@@ -490,7 +648,7 @@ def closing_options(
 )
 def lead_assignment_options(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> list[LeadAssignmentOptionResponse]:
     members = session.execute(
         select(WorkspaceMembershipORM, UserORM)
@@ -514,7 +672,7 @@ def lead_assignment_options(
 def delete_leads(
     request: LeadBulkDeleteRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.delete_restore")),
 ) -> dict[str, int]:
     rows = list(
         session.scalars(
@@ -525,6 +683,7 @@ def delete_leads(
         )
     )
     for row in rows:
+        assert_lead_action(session, workspace, row, "delete_restore")
         _delete_lead(session, row, actor_id=workspace.actor_id)
     session.commit()
     return {"deleted": len(rows), "requested": len(set(request.lead_ids))}
@@ -545,12 +704,23 @@ def export_leads(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="permission required: leads.export"
         )
+    columns = allowed_export_columns(request.columns, workspace.permissions)
+    if not columns:
+        write_export_audit(
+            session, workspace, request, outcome="denied", error_code="field_permission_required"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No requested export columns are authorized for this member.",
+        )
+    authorized_request = request.model_copy(update={"columns": columns})
     try:
         rows = list_export_leads(
             session,
             workspace.workspace_id,
-            request,
+            authorized_request,
             limit=settings.export_sync_limit + 1,
+            permissions=workspace.permissions,
         )
         if len(rows) > settings.export_sync_limit:
             write_export_audit(
@@ -574,13 +744,13 @@ def export_leads(
         workspace_row = session.get(WorkspaceORM, workspace.workspace_id)
         actor = session.get(UserORM, workspace.user_id) if workspace.user_id else None
         payload, media_type, extension = render_export(
-            request,
+            authorized_request,
             records,
             workspace_row.name if workspace_row else "Current workspace",
             actor.display_name if actor else workspace.actor_id,
         )
         write_export_audit(
-            session, workspace, request, outcome="success", record_count=len(records)
+            session, workspace, authorized_request, outcome="success", record_count=len(records)
         )
     except ExportEmptyError as error:
         raise HTTPException(
@@ -612,11 +782,12 @@ def export_leads(
 def delete_lead(
     lead_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.delete_restore")),
 ) -> Response:
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "delete_restore")
     _delete_lead(session, row, actor_id=workspace.actor_id)
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -638,7 +809,92 @@ def retrieve_lead(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
+
+
+@router.get("/{lead_id}/shares", response_model=list[LeadShareResponse])
+def list_lead_shares(
+    lead_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.access.manage")),
+) -> list[LeadShareResponse]:
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "view")
+    grants = session.scalars(select(LeadAccessGrantORM).where(
+        LeadAccessGrantORM.workspace_id == workspace.workspace_id,
+        LeadAccessGrantORM.lead_id == row.id,
+    ).order_by(LeadAccessGrantORM.created_at))
+    return [LeadShareResponse(
+        membership_id=grant.membership_id,
+        can_edit=grant.can_edit,
+        reason=grant.reason,
+        expires_at=grant.expires_at,
+    ) for grant in grants]
+
+
+@router.put("/{lead_id}/shares/{membership_id}", response_model=LeadShareResponse)
+def put_lead_share(
+    lead_id: UUID,
+    membership_id: UUID,
+    request: LeadShareRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.share")),
+) -> LeadShareResponse:
+    if request.membership_id != membership_id:
+        raise HTTPException(422, "membership IDs must match")
+    if workspace.user_id is None:
+        raise HTTPException(403, "authenticated workspace actor required")
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "view")
+    member = session.scalar(select(WorkspaceMembershipORM).where(
+        WorkspaceMembershipORM.id == membership_id,
+        WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+        WorkspaceMembershipORM.status == "active",
+    ))
+    if member is None:
+        raise HTTPException(404, "workspace member not found")
+    if request.can_edit:
+        assert_lead_action(session, workspace, row, "edit")
+    grant = share_lead(
+        session,
+        row,
+        member,
+        actor_id=workspace.user_id,
+        can_edit=request.can_edit,
+        reason=request.reason,
+    )
+    session.commit()
+    return LeadShareResponse(
+        membership_id=grant.membership_id,
+        can_edit=grant.can_edit,
+        reason=grant.reason,
+        expires_at=grant.expires_at,
+    )
+
+
+@router.delete("/{lead_id}/shares/{membership_id}", status_code=204)
+def delete_lead_share(
+    lead_id: UUID,
+    membership_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.share")),
+) -> Response:
+    if workspace.user_id is None:
+        raise HTTPException(403, "authenticated workspace actor required")
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "view")
+    revoke_lead_share(
+        session, row, membership_id, actor_id=workspace.user_id,
+    )
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.patch("/{lead_id}", response_model=LeadResponse)
@@ -652,6 +908,7 @@ def update_lead_title(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     row.job_title = request.job_title
     row.updated_at = datetime.now(UTC)
     session.commit()
@@ -662,6 +919,7 @@ def update_lead_title(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
 
 
@@ -675,6 +933,7 @@ def update_lead_generated(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     row.is_generated = request.is_generated
     row.updated_at = datetime.now(UTC)
     session.commit()
@@ -685,6 +944,7 @@ def update_lead_generated(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
 
 
@@ -693,11 +953,12 @@ def update_lead_assignment(
     lead_id: UUID,
     request: LeadAssignmentUpdateRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("routing.manage")),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> LeadResponse:
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "reassign")
     routing = get_current_routing(session, row.id, workspace.workspace_id)
     if routing is None:
         raise HTTPException(
@@ -709,29 +970,20 @@ def update_lead_assignment(
     if request.assigned_rep_id is None:
         routing.assigned_rep_id = None
         routing.assigned_rep_name = None
+        assign_lead(
+            session, row, None, actor=workspace, reason="manual unassignment",
+        )
     else:
-        member_and_user = session.execute(
-            select(WorkspaceMembershipORM, UserORM)
-            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
-            .where(
-                WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
-                WorkspaceMembershipORM.user_id == request.assigned_rep_id,
-                WorkspaceMembershipORM.status == "active",
-                UserORM.status == "active",
-            )
-        ).first()
-        if (
-            member_and_user is None
-            or "leads.edit"
-            not in effective_permissions(
-                member_and_user[0].role, member_and_user[0].permission_overrides
-            )
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="Choose an active workspace member with lead-edit access.",
-            )
-        _, user = member_and_user
+        assign_lead(
+            session,
+            row,
+            request.assigned_rep_id,
+            actor=workspace,
+            reason="manual reassignment",
+        )
+        user = session.get(UserORM, request.assigned_rep_id)
+        if user is None:  # assign_lead already validates; retain a fail-closed guard.
+            raise HTTPException(status_code=422, detail="Choose an active workspace member.")
         routing.assigned_rep_id = str(user.id)
         routing.assigned_rep_name = user.display_name
 
@@ -757,6 +1009,7 @@ def update_lead_assignment(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
 
 
@@ -773,7 +1026,9 @@ def update_lead_profile(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     changes = request.model_dump(exclude_unset=True)
+    assert_field_writes(workspace, changes)
     for field, value in changes.items():
         if field == "email":
             value = value.lower()
@@ -795,6 +1050,7 @@ def update_lead_profile(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
 
 
@@ -819,6 +1075,7 @@ def complete_lead_manual_review(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     if row.qualification is None:
         raise HTTPException(
             status_code=409,
@@ -851,6 +1108,58 @@ def complete_lead_manual_review(
         if structured_output.get("status") == "manual_review":
             structured_output["status"] = "completed"
         analysis.structured_output = structured_output
+        progress_context, recorded_evidence = lead_history_context(
+            session,
+            workspace_id=workspace.workspace_id,
+            lead_id=row.id,
+        )
+        normalized = replace(
+            normalize_lead(
+                {
+                    "source": row.source,
+                    "source_detail": row.source_detail,
+                    "external_id": row.external_id,
+                    "full_name": row.full_name,
+                    "email": row.email,
+                    "phone": row.phone,
+                    "job_title": row.job_title,
+                    "company_name": row.company_name,
+                    "industry": row.industry,
+                    "employee_count": row.employee_count,
+                    "annual_revenue": row.annual_revenue,
+                    "geography": row.geography,
+                    "budget": row.budget,
+                    "product_or_service": row.product_or_service,
+                    "message": (
+                        f"{row.message}\n\nVerified lead history (oldest first):\n"
+                        f"{progress_context}"
+                    ),
+                    "received_at": row.received_at,
+                    "raw_payload": row.raw_payload,
+                    "normalization_version": row.normalization_version,
+                },
+                row.id,
+            ),
+            original_message=row.message,
+            recorded_evidence=recorded_evidence,
+        )
+        stored_analysis = load_persisted_analysis(structured_output)
+        resolved_icp = resolve_workspace_icp(session, workspace.workspace_id, policies[0])
+        rescored = qualify_lead(
+            normalized,
+            resolved_icp.configuration,
+            policies[1],
+            stored_analysis,
+            include_icp=resolved_icp.source == "workspace",
+        )
+        update_lead_with_result(
+            session,
+            row,
+            normalized,
+            resolved_icp.trace_result(rescored),
+            stored_analysis,
+            preserve_inquiry=True,
+        )
     row.manual_review_completed_at = datetime.now(UTC)
     row.updated_at = row.manual_review_completed_at
     if row.source_event is not None and row.source_event.status == "manual_review":
@@ -883,6 +1192,7 @@ def complete_lead_manual_review(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         [],
+        permissions=workspace.permissions,
     )
 
 
@@ -892,12 +1202,17 @@ def retrieve_qualification(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> QualificationResponse:
-    if get_lead(session, lead_id, workspace.workspace_id) is None:
+    lead = get_lead(session, lead_id, workspace.workspace_id)
+    if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, lead, "view")
     result = get_qualification(session, lead_id, workspace.workspace_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Qualification not found")
-    return qualification_response(result)  # type: ignore[return-value]
+    return qualification_response(  # type: ignore[return-value]
+        result,
+        include_sensitive_evidence="fields.communications.view" in workspace.permissions,
+    )
 
 
 def _delivery_checkpoint(
@@ -929,6 +1244,7 @@ def retrieve_lead_momentum(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "view")
 
     events = list(
         session.scalars(
@@ -1113,6 +1429,9 @@ def update_lead_progress(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
+    if request.closed_revenue is not None and "fields.financial.edit" not in workspace.permissions:
+        raise HTTPException(status_code=403, detail="permission required: fields.financial.edit")
 
     if (
         row.outcome and row.outcome.pipeline_stage in {"closed_won", "closed_lost"}
@@ -1175,7 +1494,10 @@ def update_lead_progress(
         score=score,
         rationale=rationale,
         updated_at=now,
-        outcome=outcome_response(row.outcome),
+        outcome=outcome_response(
+            row.outcome,
+            include_financial="fields.financial.view" in workspace.permissions,
+        ),
     )
 
 
@@ -1191,12 +1513,16 @@ def retry_win_notifications(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     if row.outcome is None or row.outcome.pipeline_stage != "closed_won":
         raise HTTPException(
             status_code=409, detail="Only a closed-won lead has congratulations to retry."
         )
     send_win_notifications(session, row, slack_resolver, workspace.actor_id, retry=True)
-    return outcome_response(row.outcome)
+    return outcome_response(
+        row.outcome,
+        include_financial="fields.financial.view" in workspace.permissions,
+    )
 
 
 def _reanalyze_lead_with_history(
@@ -1295,6 +1621,7 @@ def reevaluate_lead(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     try:
         _reanalyze_lead_with_history(
             session,
@@ -1323,6 +1650,7 @@ def reevaluate_lead(
         get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
     )
 
 
@@ -1336,13 +1664,16 @@ def sync_lead_gmail_conversation(
     policies: tuple[IcpConfig, RoutingConfig] = Depends(policy_dependency),
     notification_provider: NotificationProvider = Depends(get_notification_provider),
     resolver: WorkspaceInboundCrmProviderResolver = Depends(get_workspace_inbound_crm_resolver),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(
+        require_permissions("leads.edit", "mailbox.sync_own")
+    ),
 ) -> GmailConversationSyncResponse:
     row = session.scalar(
         select(LeadORM).where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace.workspace_id)
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "edit")
     connections = list(
         session.scalars(
             select(ProviderConnectionORM).where(
@@ -1357,6 +1688,14 @@ def sync_lead_gmail_conversation(
         raise HTTPException(
             status_code=409,
             detail="Connect and verify Gmail before syncing conversations.",
+        )
+    connections = [
+        connection for connection in connections if can_use_mailbox(workspace, connection)
+    ]
+    if not connections:
+        raise HTTPException(
+            403,
+            "No connected Gmail mailbox is available to this workspace member.",
         )
 
     existing_events = list(
@@ -1530,6 +1869,7 @@ def retry_saved_meeting_booking(
     )
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found.")
+    assert_lead_action(session, workspace, lead, "edit")
 
     offers = list(
         session.scalars(
@@ -1600,6 +1940,7 @@ def retry_saved_meeting_booking(
             status_code=409,
             detail="Reconnect and verify the Gmail account used for this conversation.",
         )
+    assert_connection_action(session, workspace, gmail_connection, "use")
 
     try:
         provider = resolver.resolve(

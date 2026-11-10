@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from lead_agent.domain.analysis import LeadContextAnalysis
+from lead_agent.domain.analysis import LeadContextAnalysis, load_persisted_analysis
 from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDERS
 
 
@@ -269,6 +269,7 @@ class ProviderConnectionResponse(BaseModel):
     id: UUID
     workspace_id: UUID
     provider_type: str
+    connection_type: str
     external_account_id: str | None
     account_name: str
     auth_type: str
@@ -284,6 +285,7 @@ class ProviderConnectionResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    allowed_actions: list[str] = Field(default_factory=list)
 
 
 class IntegrationCardResponse(BaseModel):
@@ -305,6 +307,7 @@ class IntegrationCardResponse(BaseModel):
     directionality: dict[str, Any]
     connection: ProviderConnectionResponse | None
     connections: list[ProviderConnectionResponse] = Field(default_factory=list)
+    allowed_actions: list[str] = Field(default_factory=list)
 
 
 class CrmInboundSyncStateResponse(BaseModel):
@@ -423,7 +426,9 @@ def crm_inbound_run_response(row: Any) -> CrmInboundSyncRunResponse:
     )
 
 
-def provider_connection_response(row: Any) -> ProviderConnectionResponse:
+def provider_connection_response(
+    row: Any, *, allowed_actions: list[str] | None = None,
+) -> ProviderConnectionResponse:
     forbidden_keys = {
         "api_key",
         "access_token",
@@ -461,6 +466,7 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         id=row.id,
         workspace_id=row.workspace_id,
         provider_type=row.provider_type,
+        connection_type=getattr(row, "connection_type", "workspace_managed"),
         external_account_id=row.external_account_id,
         account_name=row.account_name,
         auth_type=row.auth_type,
@@ -485,10 +491,13 @@ def provider_connection_response(row: Any) -> ProviderConnectionResponse:
         is_active=row.is_active,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        allowed_actions=sorted(allowed_actions or []),
     )
 
 
-def qualification_response(row: Any) -> QualificationResponse | None:
+def qualification_response(
+    row: Any, *, include_sensitive_evidence: bool = True,
+) -> QualificationResponse | None:
     if row is None:
         return None
     return QualificationResponse(
@@ -499,9 +508,9 @@ def qualification_response(row: Any) -> QualificationResponse | None:
         routing_action=row.routing_action,
         hard_disqualified=row.hard_disqualified,
         disqualifier_code=row.disqualifier_code,
-        disqualifier_evidence=row.disqualifier_evidence,
-        rationale=row.rationale,
-        score_breakdown=row.score_breakdown,
+        disqualifier_evidence=(row.disqualifier_evidence if include_sensitive_evidence else []),
+        rationale=row.rationale if include_sensitive_evidence else [],
+        score_breakdown=row.score_breakdown if include_sensitive_evidence else [],
         component_scores=row.component_scores,
         policy_version=row.policy_version,
         icp_version_id=row.icp_version_id,
@@ -516,7 +525,7 @@ def qualification_response(row: Any) -> QualificationResponse | None:
 def analysis_response(row: Any) -> AnalysisResponse | None:
     if row is None:
         return None
-    analysis = LeadContextAnalysis.model_validate(row.structured_output)
+    analysis = load_persisted_analysis(row.structured_output)
     return AnalysisResponse(
         **analysis.model_dump(),
         id=row.id,
@@ -538,9 +547,14 @@ def notification_response(row: Any) -> NotificationResponse:
     )
 
 
-def routing_response(row: Any) -> RoutingDecisionResponse | None:
+def routing_response(
+    row: Any, *, include_sensitive_evidence: bool = True,
+) -> RoutingDecisionResponse | None:
     if row is None:
         return None
+    action_plan = ActionPlanResponse.model_validate(row.action_plan)
+    if not include_sensitive_evidence:
+        action_plan = action_plan.model_copy(update={"supporting_evidence": []})
     return RoutingDecisionResponse(
         id=row.id,
         lead_id=row.lead_id,
@@ -551,7 +565,7 @@ def routing_response(row: Any) -> RoutingDecisionResponse | None:
         assigned_rep_name=row.assigned_rep_name,
         routing_reason=row.routing_reason,
         matched_rules=row.matched_rules,
-        action_plan=ActionPlanResponse.model_validate(row.action_plan),
+        action_plan=action_plan,
         priority=row.priority,
         sla_target_at=row.sla_target_at,
         notification_state=row.notification_state,
@@ -610,6 +624,7 @@ def lead_response(
     crm_sync: Any = None,
     confirmation_email: Any = None,
     review_reasons: list[str] | None = None,
+    permissions: frozenset[str] | set[str] | None = None,
 ) -> LeadResponse:
     analysis = row.analysis
     if review_reasons is None:
@@ -619,6 +634,9 @@ def lead_response(
             else None
         )
         review_reasons = [saved_reason] if saved_reason else []
+    can_contact = permissions is None or "fields.contact.view" in permissions
+    can_financial = permissions is None or "fields.financial.view" in permissions
+    can_communications = permissions is None or "fields.communications.view" in permissions
     return LeadResponse(
         id=row.id,
         lead_number=row.lead_number,
@@ -628,40 +646,56 @@ def lead_response(
         external_id=row.external_id,
         is_generated=row.is_generated,
         full_name=row.full_name,
-        email=row.email,
-        phone=row.phone,
+        email=row.email if can_contact else "",
+        phone=row.phone if can_contact else None,
         job_title=row.job_title,
         company_name=row.company_name,
         industry=row.industry,
         employee_count=row.employee_count,
-        annual_revenue=float(row.annual_revenue) if row.annual_revenue is not None else None,
+        annual_revenue=(
+            float(row.annual_revenue)
+            if can_financial and row.annual_revenue is not None
+            else None
+        ),
         geography=row.geography,
-        budget=float(row.budget) if row.budget is not None else None,
+        budget=float(row.budget) if can_financial and row.budget is not None else None,
         product_or_service=row.product_or_service,
-        message=row.message,
+        message=row.message if can_communications else "",
         received_at=row.received_at,
         normalization_version=row.normalization_version,
         created_at=row.created_at,
-        qualification=qualification_response(row.qualification),
-        analysis=analysis_response(row.analysis),
-        routing=routing_response(routing),
+        qualification=qualification_response(
+            row.qualification, include_sensitive_evidence=can_communications,
+        ),
+        analysis=analysis_response(row.analysis) if can_communications else None,
+        routing=routing_response(routing, include_sensitive_evidence=can_communications),
         crm_sync=crm_sync_response(crm_sync),
         confirmation_email=confirmation_email_response(confirmation_email),
-        outcome=outcome_response(row.outcome),
+        outcome=outcome_response(row.outcome, include_financial=can_financial),
         review_reasons=review_reasons,
     )
 
 
-def outcome_response(row: Any) -> LeadOutcomeResponse | None:
+def outcome_response(
+    row: Any, *, include_financial: bool = True,
+) -> LeadOutcomeResponse | None:
     if row is None:
         return None
     return LeadOutcomeResponse(
         pipeline_stage=row.pipeline_stage, conversion_type=row.conversion_type,
-        opportunity_value=float(row.opportunity_value) if row.opportunity_value is not None else None,
+        opportunity_value=(
+            float(row.opportunity_value)
+            if include_financial and row.opportunity_value is not None
+            else None
+        ),
         send_direct_message=row.send_direct_message,
         credited_user_id=row.credited_user_id,
         credited_name=row.credited_user.display_name if row.credited_user else None,
-        closed_revenue=float(row.closed_revenue) if row.closed_revenue is not None else None,
+        closed_revenue=(
+            float(row.closed_revenue)
+            if include_financial and row.closed_revenue is not None
+            else None
+        ),
         currency=row.currency, closed_at=row.closed_at,
         notifications=[
             {"destination": item.destination, "status": item.status,

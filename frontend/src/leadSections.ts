@@ -1,7 +1,7 @@
 export const leadDetailSections = [
   { id: "overview", label: "Overview" },
   { id: "ai", label: "Qualification" },
-  { id: "follow-ups", label: "Follow up" },
+  { id: "pipeline", label: "Pipeline" },
   { id: "email", label: "Emails" },
   { id: "calls", label: "Calls" },
   { id: "deal", label: "Deal" },
@@ -13,6 +13,8 @@ export type LeadDetailSection = (typeof leadDetailSections)[number]["id"] | "clo
 
 export function parseLeadSection(value: string | null): LeadDetailSection {
   if (value === "closing") return "deal";
+  // "Follow up" became the Pipeline tab; old links and pins still land correctly.
+  if (value === "follow-ups") return "pipeline";
   return leadDetailSections.find((section) => section.id === value)?.id ?? "overview";
 }
 

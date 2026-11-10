@@ -147,7 +147,13 @@ export function OpenAISetupPrompt({
       <p className="backfill-live-status" role="status">{terminal ? "This background job has finished." : status === "running" ? "Analyzing eligible leads in the background…" : "The background job is queued and will continue if you close this window."}</p>
       {status !== "no_eligible_leads" && <div className="backfill-progress"><div className="backfill-progress-track"><span style={{ width: `${progress}%` }} /></div><div className="backfill-counts"><strong>{jobStatus?.completed ?? 0} / {total} completed</strong><span>{jobStatus?.failed ?? 0} failed · {jobStatus?.skipped ?? 0} skipped</span></div></div>}
       {statusError && <p className="team-alert" role="status">{statusError} The job continues; progress will retry automatically.</p>}
+      {status === "failed" && jobStatus?.message && <p className="team-alert" role="alert">{jobStatus.message}</p>}
       {status === "partial_failure" && <p className="backfill-note">Successful analyses were saved. Failed leads remain unchanged and can be retried.</p>}
+      {!!jobStatus?.failures?.length && <div className="backfill-note" role="status">
+        <strong>Leads that need another attempt</strong>
+        <ul>{jobStatus.failures.slice(0, 10).map((failure) => <li key={failure.lead_id}>Lead {failure.lead_id}: {failure.code}</li>)}</ul>
+        {jobStatus.failures.length > 10 && <p>{jobStatus.failures.length - 10} additional failed leads are recorded.</p>}
+      </div>}
       <p className="backfill-cost-note">This uses the workspace’s provider key. Estimated costs are approximate and may differ from the provider’s invoice.</p>
       {!terminal && <p className="backfill-note">You can close this window; background analysis will continue.</p>}
     </OperationsDialog>;

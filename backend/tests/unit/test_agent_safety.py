@@ -69,6 +69,32 @@ def test_lead_assistant_preserves_read_only_answer():
 
 
 @pytest.mark.parametrize(
+    "body",
+    [
+        "Thanks. Your meeting has been scheduled for Friday at 3 PM.",
+        "I confirmed the meeting and it is booked.",
+        "The appointment has been cancelled.",
+    ],
+)
+def test_unverified_meeting_claims_are_removed_from_editable_email_drafts(body):
+    guarded = lead_assistant._guard_unverified_meeting_claims(body, verified=False)
+    assert guarded != body
+    assert not any(
+        phrase in guarded.casefold()
+        for phrase in (
+            "meeting has been scheduled",
+            "meeting is booked",
+            "appointment has been cancelled",
+        )
+    )
+
+
+def test_verified_meeting_claims_are_preserved_for_existing_booking_context():
+    body = "Your meeting has been scheduled for Friday at 3 PM."
+    assert lead_assistant._guard_unverified_meeting_claims(body, verified=True) == body
+
+
+@pytest.mark.parametrize(
     ("kind", "extra_permissions", "expected_limit"),
     [
         ("update_profile", set(), "lead-edit access"),
@@ -139,7 +165,11 @@ def test_context_without_view_permissions_never_reads_database():
     context = build_workspace_assistant_context(
         object(), WorkspaceContext(workspace_id=uuid4(), actor_id="qa", permissions=frozenset({"agents.execute"})),
     )
-    assert context == {"permissions": ["agents.execute"], "available_areas": [], "context_warnings": []}
+    assert context["permissions"] == ["agents.execute"]
+    assert context["available_areas"] == []
+    assert context["context_warnings"] == []
+    assert context["knowledge_sources"]["status"] == "not_connected"
+    assert context["knowledge_sources"]["document_sources"] == []
 
 
 def test_context_exposes_dialer_only_when_call_permission_is_granted():

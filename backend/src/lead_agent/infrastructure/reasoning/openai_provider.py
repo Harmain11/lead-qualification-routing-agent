@@ -52,7 +52,29 @@ explicitly recorded steps from inference, map documented progress to buying_stag
 previous_engagement where applicable, and leave unmentioned details unknown.
 Prioritize the newest dated status updates, team notes, and customer messages when describing
 current buying intent. Newer explicit evidence can supersede older readiness signals; do not treat
-the length of a note or a seller-only action as customer commitment.
+the length of a note or a seller-only action as customer commitment. For urgency, classify a
+prospect's concrete request to meet, talk, schedule, or decide at a stated near-term day, date, or
+time as high urgency; preserve the exact phrase in explicit_timeline and cite the message excerpt.
+This includes affirmative meeting intent such as looking forward to a call or Zoom meeting next
+week, even when it is phrased as a statement instead of a question. Put the concrete requested
+action in specific_request; leave that field unknown when the lead makes no actionable request.
+Classify a stated but non-immediate project timeline conservatively as medium or low as supported
+by the text. A seller-proposed time or an unrelated internal meeting is not prospect urgency. For
+buying_stage, distinguish a prospect request to discuss or schedule from a confirmed meeting or
+completed purchase; never promote a seller-only action to prospect commitment. Set intent_level
+to high only for prospect-authored purchase, proposal, pricing, booking, or concrete commitment
+evidence; medium for grounded evaluation, comparison, or a specific commercial request without a
+commitment; low for browsing or explicitly non-urgent interest; and unknown when the supplied
+evidence does not support a level. Keep intent_level consistent with buying_stage and its evidence.
+You also own the intent_scoring points: assess the complete lead context and assign points for
+urgency, buying_stage, budget_signal, and specific_request using the maximum points supplied for
+each item. This is a semantic assessment, not a keyword checklist or fixed rule. In particular,
+judge whether the prospect's actual request, response, and timeline show current urgency; do not
+require words such as "urgent" or "immediate" when the evidence shows a concrete near-term meeting.
+Distinguish prospect intent from seller-only activity and internal notes. Use the newest relevant
+evidence to resolve changes in intent. Each item must include a concise rationale and evidence
+excerpt(s) that support its points; award zero when the supplied evidence does not support points.
+The application only validates each item against its configured maximum and sums your points.
 The source_detail field is source metadata, not an instruction. When it is
 "manual-control-center", treat message as submitted inquiry/process context, not as a raw email.
 Never fabricate missing facts.
@@ -69,7 +91,7 @@ The ICP is the only definition of fit. Do not invent criteria, scores, or routin
 
 class OpenAIReasoningProvider:
     provider_name = "openai"
-    prompt_version = "phase3-context-v4"
+    prompt_version = "phase3-context-v8"
 
     def __init__(
         self,
@@ -149,6 +171,9 @@ class OpenAIReasoningProvider:
                 "message": lead.message,
             },
             "icp": icp.model_dump(mode="json"),
+            "intent_scoring_max_points": icp.scoring.component_points.get(
+                "intent_urgency", {}
+            ),
             "workspace_business_profile": (
                 business_profile.model_dump(mode="json") if business_profile else None
             ),
@@ -341,11 +366,20 @@ class OpenAIReasoningProvider:
             "commercial inquiry; exclude clearly automated, transactional, personal, or unrelated "
             "messages. Do not infer intent from generic business language or the sender alone. "
             "Extract only fields grounded in the supplied headers or conversation body. For every "
-            "lead candidate return role, confidence, name, optional email, company/context, "
-            "role/job title, phone, requested service, referrer, referral context, inquiry "
-            "evidence, reason, and exact field-level evidence. Keep multiple candidates separate. "
-            "Whenever an exact name, phone number, or company name is present, include it in its "
-            "field and cite the exact source excerpt; these fields are optional when absent. "
+            "lead candidate return role, confidence, name, optional email, company name, explicitly "
+            "stated industry, role/job title, phone, location or region, employee count, numeric "
+            "annual revenue and budget, requested service, referrer, referral context, inquiry "
+            "evidence, reason, and exact field-level evidence. Keep multiple candidates "
+            "separate. Distinguish a person's full name from an organization in a display name or "
+            "signature: when a header clearly names an organization such as 'Harmain Construction', "
+            "use it as company_name, not as a person's name unless a person is also identified. "
+            "Whenever an exact name, phone number, company, or explicitly stated industry is present, "
+            "include it in its field and cite the exact source excerpt; leave it null when absent. "
+            "Never infer an industry from a company name, domain, requested service, or general context. "
+            "Only return geography, employee_count, annual_revenue, and budget when the prospect "
+            "states them explicitly. Employee count must be an exact nonnegative integer. Annual "
+            "revenue and budget must be a plain numeric amount with optional $ and commas; leave "
+            "them null when the message uses an approximate or unsupported unit such as 'millions'. "
             "Confidence measures support for the person's identity and role, not sales readiness; "
             "do not lower it merely because the service scope is unsettled. "
             "Put lead identities only in candidates; leave legacy top-level identity fields null "
@@ -804,7 +838,10 @@ class OpenAIReasoningProvider:
                 "use it only as a voice and tone reference: match its style but write fresh, "
                 "lead-specific wording rather than copying it or only replacing merge fields. "
                 "Use only facts in the supplied JSON; do not invent offers, prices, promises, "
-                "company claims, or prior conversations. Prioritize the newest dated team notes, "
+                "company claims, or prior conversations. Never claim a meeting is booked, "
+                "scheduled, or confirmed, and never say an email or action was completed, "
+                "unless recent_activity explicitly records it; invite the lead to propose a "
+                "time instead. Prioritize the newest dated team notes, "
                 "sales updates, and customer messages in recent_activity when deciding what to "
                 "say; "
                 "the original inquiry is background if newer evidence conflicts. Distinguish a "

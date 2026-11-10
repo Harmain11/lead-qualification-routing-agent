@@ -1,8 +1,6 @@
 /* Final shared controls for the Corral deal desk and connected workspace screens. */
 :root { --workspace-control: 38px; }
-.v-app .eyebrow, .v-app .ops-tag, .v-app .mode-badge,
-.v-app .provider-head > b, .v-app .integration-card code:not(pre code),
-.v-app .agent-capability, .v-app .insight-card header span {
+.v-app .eyebrow, .v-app .provider-head > b, .v-app .integration-card code:not(pre code), .v-app .insight-card header span {
   font-family: var(--font); letter-spacing: 0; text-transform: none;
 }
 .v-app .v-tabs, .v-app .v-section-tabs, .v-app .records-view-tabs {
@@ -72,6 +70,7 @@
 .workspace-chooser .workspace-option { background: transparent; padding: 12px 0; }
 .workspace-chooser button.button-quiet { border: 0; background: transparent; color: var(--tint-text); font: var(--t-callout); padding: 8px; white-space: nowrap; }
 /* Native dialogs live in the top layer and must carry their own layout. */
+/* Native dialogs live in the top layer and must carry their own layout. */
 dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(680px, calc(100dvh - 64px)); margin: 8dvh auto auto; padding: 0; overflow: hidden; font: var(--t-body); color: var(--label); background: var(--surface-raised) !important; }
 .command-palette .ops-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px 10px; }
 .command-palette .ops-dialog-head h2 { margin: 0; font: var(--t-title3); }
@@ -119,41 +118,17 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .records-card-action.is-enrich:hover:not(:disabled) { background: var(--tint-hover); }
 .v-app .records-card-footer { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 38px; padding: 0 14px; border: 0; border-top: 1px solid var(--separator); border-radius: 0; background: transparent; color: var(--tint-text); font: 600 12px/18px var(--font); text-align: left; }
 .v-app .records-card-footer:hover { background: var(--fill); }
-.v-app .dialer-lead-results { display: grid; gap: 8px; max-height: 320px; overflow: auto; }
-.v-app .dialer-lead-option { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px 8px 14px; border: 0; border-radius: var(--r-md); background: var(--fill); }
-.v-app .dialer-lead-option-main { display: flex; flex: 1 1 auto; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; min-height: 40px; padding: 0; border: 0; background: transparent; color: var(--label); font: var(--t-callout); text-align: left; }
-.v-app .dialer-lead-option-main > span:first-child { display: grid; gap: 3px; min-width: 0; }
-.v-app .dialer-lead-option-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px/18px var(--font); }
-.v-app .dialer-lead-option-main small { color: var(--label-3); font: var(--t-footnote); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.v-app .dialer-lead-option-main > span:last-child { flex: none; color: var(--tint-text); font: 600 16px/1 var(--font); }
-.v-app .dialer-lead-call-action { flex: none; min-height: 34px; height: 34px; padding: 0 13px; border: 0; border-radius: var(--r-sm); background: var(--tint); color: #fff; font: 600 12px/18px var(--font); }
-.v-app .dialer-lead-call-action:hover:not(:disabled) { background: var(--tint-hover); }
-.v-app .dialer-lead-call-action:disabled { background: var(--surface-sunken); color: var(--label-3); }
 .v-app .direct-dialer-panel > .dialer-panel-head > div { flex: 1 1 auto; }
 .v-app .direct-dialer-panel > .dialer-panel-head > .dialer-panel-count { flex: 0 0 auto; }
 @media (max-width: 800px) {
   .v-app .direct-dialer-panel > .dialer-panel-head > div,
   .v-app .direct-dialer-panel > .dialer-panel-head > .dialer-panel-count { flex: none; }
 }
-.v-app .email-mailbox-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 16px; }
-.v-app .email-mailbox-toolbar > label { display: grid; gap: 6px; flex: 1 1 190px; min-width: 160px; font: var(--t-subhead); }
-.v-app .email-mailbox-toolbar select, .v-app .email-mailbox-toolbar .select-menu-trigger,
-.v-app .email-mailbox-toolbar input, .v-app .email-mailbox-toolbar > button,
-.v-app .email-mailbox-toolbar .email-search button { height: var(--workspace-control); min-height: var(--workspace-control); margin: 0; padding: 0 12px; border-radius: var(--r-sm); font: var(--t-callout); }
-.v-app .email-folder-switch { display: flex; align-items: stretch; gap: 2px; padding: 3px; height: var(--workspace-control); background: var(--fill); border-radius: var(--r-sm); }
-.v-app .email-folder-switch button { height: 32px; min-height: 32px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; font: var(--t-callout); color: var(--label-2); }
-.v-app .email-folder-switch button.is-active { background: var(--surface); box-shadow: var(--elev-1); color: var(--label); }
-.v-app .email-search { display: flex; align-items: center; gap: 8px; flex: 1 1 250px; margin: 0; }
-.v-app .email-search input { min-width: 80px; width: 100%; }
+/* page-container mirror */
+@container page (max-width: 552px) {
+.v-app .direct-dialer-panel > .dialer-panel-head > div, .v-app .direct-dialer-panel > .dialer-panel-head > .dialer-panel-count { flex: none; }
+}
 .v-app .email-empty-state { padding: 32px; background: var(--surface); border: 0; border-radius: var(--r-lg); }
-.v-app .section-picker-groups { display: grid; gap: 20px; grid-template-columns: 1fr; }
-.v-app .section-picker-group { padding: 0; margin: 0; background: transparent; border: 0; }
-.v-app .section-picker-group legend { margin-bottom: 8px; font: var(--t-headline); }
-.v-app .section-picker-options { display: flex; flex-wrap: wrap; gap: 6px 20px; background: transparent; }
-.v-app .section-picker-option { display: inline-flex; align-items: center; gap: 8px; width: auto; min-height: 32px; margin: 0; padding: 4px 0; border: 0; background: transparent; border-radius: 0; font: var(--t-callout); }
-.v-app .section-picker-option:has(input:checked) { background: transparent; }
-.v-app .section-picker-option input { width: 16px; height: 16px; margin: 0; flex: 0 0 16px; }
-.v-app .section-picker-option span { white-space: nowrap; }
 .v-app .v-agent-scope { padding: 3px; min-height: 36px; }
 .v-app .v-agent-scope button { min-height: 30px; height: 30px; }
 .v-app .corral-agent-start { padding: 24px 20px; gap: 16px; }
@@ -165,21 +140,13 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .corral-agent-lead-option > span:first-child { min-width: 0; }
 .v-app .corral-agent-lead-option small { overflow-wrap: anywhere; }
 /* Subordinate metadata and detail regions use spacing, not tinted containers. */
-.v-app .integration-category-filter { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0; margin: 0 0 24px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.v-app .integration-category-heading { display: none; }
-.v-app .integration-category-filter label { margin-left: auto; min-width: min(240px, 100%); }
-.v-app .integration-category-filter select { height: 38px; padding: 0 12px; }
-.v-app .integration-category-section { margin-top: 24px; }
-.v-app .integration-category-section > header { margin-bottom: 16px; }
 .v-app .integration-card { padding: 20px 24px; margin-bottom: 16px; }
 .v-app .provider-head { min-height: 64px; align-items: center; gap: 14px; }
 .v-app .provider-head h2 { font: var(--t-title3); margin: 0 0 4px; }
 .v-app .provider-head .provider-identity > span { display: none; }
 .v-app .provider-head > b { background: transparent; border: 0; padding: 0; font: 500 12px/18px var(--font); color: var(--label-2); }
 .v-app .provider-details { margin-top: 16px; padding: 0; }
-.v-app .provider-details > *, .v-app .integration-section-disclosure,
-.v-app .integration-section-disclosure-content, .v-app .connection-summary,
-.v-app .agent-insight-metrics, .v-app .agent-insight-metrics > div {
+.v-app .provider-details > *, .v-app .integration-section-disclosure, .v-app .integration-section-disclosure-content, .v-app .agent-insight-metrics, .v-app .agent-insight-metrics > div {
   border: 0; background: transparent; box-shadow: none;
 }
 .v-app .integration-section-disclosure { margin: 0; }
@@ -201,9 +168,13 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .agent-insight-card > ul li { color: var(--label-2); font: var(--t-footnote); }
 .v-app .agent-insight-card > ul li::before { color: var(--tint-text); }
 @media (max-width: 900px) { .v-app .agent-insight-grid { grid-template-columns: minmax(0, 1fr); } }
+/* page-container mirror */
+@container page (max-width: 652px) {
+.v-app .agent-insight-grid { grid-template-columns: minmax(0, 1fr); }
+}
 
 .v-app .v-review-foot .v-btn { min-height: 44px; padding-inline: 14px; }
-.v-app .read-only-badge, .v-app .verification-state, .v-app .connection-status { font-family: var(--font); letter-spacing: 0; text-transform: none; }
+.v-app .read-only-badge { font-family: var(--font); letter-spacing: 0; text-transform: none; }
 .corral-guide { display: grid; gap: 24px; }
 .q-review { display: grid; gap: 24px; }
 .q-review header { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
@@ -225,14 +196,13 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .corral-guide ol, .corral-guide ul { margin: 0; padding-left: 22px; }
 .corral-guide li + li { margin-top: 8px; }
 @media (max-width: 767px) {
-  .v-app .email-folder-switch { width: 100%; overflow-x: auto; }
-  .v-app .email-folder-switch button { flex: 1; padding-inline: 10px; white-space: nowrap; }
   .workspace-chooser-heading { flex-wrap: wrap; }
   .v-app .provider-head { flex-wrap: wrap; }
   .v-app .provider-head .provider-identity { flex: 1; min-width: 120px; }
   .v-app .integration-card { padding: 16px; }
-  .v-app .section-picker-option span { white-space: normal; }
 }
+
+/* Keep every filled Corral action legible, including legacy page controls. */
 
 /* Keep every filled Corral action legible, including legacy page controls. */
 :root {
@@ -403,6 +373,8 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 }
 
 /* Keep disabled secondary controls readable without making them look active. */
+
+/* Keep disabled secondary controls readable without making them look active. */
 .v-app :is(
   .v-btn,
   .secondary-button,
@@ -412,6 +384,8 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   opacity: 1;
   cursor: not-allowed;
 }
+
+/* Agent surfaces use the same low-noise surfaces and controls as the rest of Corral. */
 
 /* Agent surfaces use the same low-noise surfaces and controls as the rest of Corral. */
 .v-app .corral-agent-window,
@@ -479,7 +453,7 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app .corral-workspace-action,
 .v-app .lead-agent-action {
   border: 0;
-  background: var(--surface-high);
+  background: var(--surface-sunken);
   box-shadow: none;
 }
 
@@ -511,6 +485,8 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 }
 
 /* Corral v5 record and contact affordances: names are labels, not links. */
+
+/* Corral v5 record and contact affordances: names are labels, not links. */
 .v-app :is(
   .records-card-name,
   .ops-link,
@@ -528,6 +504,8 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 .v-app :is(.records-card-name, .ops-link):is(:hover, :focus, :focus-visible) {
   text-decoration: none !important;
 }
+
+/* Category tabs retain a shared two-line rhythm at every width. */
 
 /* Category tabs retain a shared two-line rhythm at every width. */
 .v-app .settings-category-tabs {
@@ -611,6 +589,8 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
 }
 
 /* Email bodies prioritize the sender's message; supporting material stays opt-in. */
+
+/* Email bodies prioritize the sender's message; supporting material stays opt-in. */
 .v-app .provider-email-body {
   color: var(--label);
   gap: 12px;
@@ -660,6 +640,8 @@ dialog.command-palette { width: min(640px, calc(100vw - 32px)); max-height: min(
   color: var(--label-2);
   font: var(--t-footnote);
 }
+
+/* Long provider setup stays in the page's normal scroll flow. */
 
 /* Long provider setup stays in the page's normal scroll flow. */
 .v-app .integration-grid {

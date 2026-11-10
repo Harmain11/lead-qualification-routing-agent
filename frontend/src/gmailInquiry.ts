@@ -90,6 +90,28 @@ function normalizeHeaderBoundaries(source: string) {
     .replace(new RegExp(`[\\t ]+(?=(?:${GMAIL_HEADER_NAMES}):\\s)`, "gi"), "\n");
 }
 
+/**
+ * Some Gmail payloads flatten an attached RFC-822 message into the parent
+ * text. Normalize its boundary before parsing so the attachment cannot become
+ * the visible lead reply.
+ */
+function normalizeRawGmailThreadMarkers(source: string) {
+  const header = `(?:${GMAIL_HEADER_NAMES})`;
+  return source
+    .replace(/\r\n?/g, "\n")
+    .replace(
+      new RegExp(`(^|\\n)\\s*---\\s*(?=${header}:\\s)`, "gim"),
+      "$1--- Gmail message imported ---\n",
+    )
+    // Gmail's normal marker ends in "Gmail message <id> ---". The negative
+    // lookbehind preserves that marker while repairing only a flattened raw
+    // RFC-822 boundary such as "1a19... --- From:".
+    .replace(
+      new RegExp(`(?<!Gmail message )\\b[a-z0-9_-]{8,}\\s+---\\s*(?=${header}:\\s)`, "gim"),
+      "--- Gmail message imported ---\n",
+    );
+}
+
 function recoverBodyAppendedToDateHeader(value: string) {
   const greeting = /\s+(?=(?:hi|hello|hey|dear|good\s+(?:morning|afternoon|evening)|greetings|to whom it may concern)\b)/i.exec(value);
   if (!greeting || greeting.index === undefined) return null;
@@ -98,6 +120,24 @@ function recoverBodyAppendedToDateHeader(value: string) {
   const body = value.slice(greeting.index).trim();
   if (!date || !body || !parseEmailDate(date)) return null;
   return { date, body };
+}
+
+const ADDRESS_TOKEN = /^\s*(?:(?:"[^"]*"|[^<>,@"\n]+?)\s*<[^<>\s@]+@[^<>\s]+>|<?[^\s,<>@]+@[^\s,<>]+>?)\s*(?:,\s*)?/;
+
+/** Address headers hold only addresses; text after the last address is the start of the body. */
+function recoverBodyAppendedToAddressHeader(value: string) {
+  let rest = value;
+  let consumed = "";
+  for (let guard = 0; guard < 50; guard += 1) {
+    const match = ADDRESS_TOKEN.exec(rest);
+    if (!match || !match[0].trim()) break;
+    consumed += match[0];
+    rest = rest.slice(match[0].length);
+  }
+  const body = rest.trim();
+  const addresses = consumed.trim().replace(/,\s*$/, "");
+  if (!addresses || !body) return null;
+  return { addresses, body };
 }
 
 function parseHeadersAndBody(source: string) {
@@ -131,6 +171,25 @@ function parseHeadersAndBody(source: string) {
       const inlineBody = headers.subject.slice(inlineBodyStart.index).trim();
       headers.subject = headers.subject.slice(0, inlineBodyStart.index).trim();
       body = [inlineBody, body].filter(Boolean).join("\n");
+    }
+    // Gmail imports can flatten the authored message onto Subject after a
+    // short title. Recover it at the greeting so the title stays compact.
+    const inlineGreeting = /\b(?:hi|hello|dear)\s+[^,\n]{1,80}[,!:]\s+/i.exec(headers.subject);
+    if (inlineGreeting && inlineGreeting.index > 0) {
+      const inlineBody = headers.subject.slice(inlineGreeting.index).trim();
+      const subject = headers.subject.slice(0, inlineGreeting.index).trim();
+      if (subject && inlineBody.length >= 24) {
+        headers.subject = subject;
+        body = [inlineBody, body].filter(Boolean).join("\n");
+      }
+    }
+  }
+  for (const name of ["to", "cc", "bcc", "from", "reply-to"]) {
+    if (!headers[name]) continue;
+    const recovered = recoverBodyAppendedToAddressHeader(headers[name]);
+    if (recovered) {
+      headers[name] = recovered.addresses;
+      body = [recovered.body, body].filter(Boolean).join("\n").trim();
     }
   }
   if (headers.date) {
@@ -168,7 +227,7 @@ function parseForwardedMessage(body: string): ForwardedMessageParseResult {
 }
 
 export function parseGmailInquiry(message: string): ParsedGmailInquiry | null {
-  const source = message
+  const source = normalizeRawGmailThreadMarkers(message)
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]*--- Gmail message ([^ ]+) ---[ \t]*/g, "\n--- Gmail message $1 ---\n");
   const markers = Array.from(source.matchAll(/^--- Gmail message ([^ ]+) ---$/gm));
@@ -382,6 +441,32 @@ function normalizedBlockKey(block: string): string {
   return block.toLocaleLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function deduplicateReadableBlocks(blocks: string[]): string[] {
+  const seenBlocks = new Set<string>();
+  const seenSentences = new Set<string>();
+  return blocks.flatMap((block) => {
+    const blockKey = normalizedBlockKey(block);
+    if (!blockKey || seenBlocks.has(blockKey)) return [];
+    seenBlocks.add(blockKey);
+
+    const sentences = block.split(/(?<=[.!?])(?=\s+[A-Z"'(])/);
+    const kept = sentences.filter((sentence) => {
+      const text = sentence.trim();
+      const key = normalizedBlockKey(text)
+        .replace(/^(?:hi|hello|dear)\s+[^,]{1,80}[,!:]\s*/i, "")
+        .replace(/[^\p{L}\p{N}]+/gu, "");
+      // Keep short repeated phrases (such as "Thanks") but collapse repeated
+      // full sentences that Gmail sometimes duplicates during import.
+      if (key.length < 24) return true;
+      if (seenSentences.has(key)) return false;
+      seenSentences.add(key);
+      return true;
+    });
+    const cleaned = kept.join("").replace(/\n{3,}/g, "\n\n").trim();
+    return cleaned ? [cleaned] : [];
+  });
+}
+
 function uniqueBlocks(blocks: string[]): string[] {
   const seen = new Set<string>();
   return blocks.filter((block) => {
@@ -390,6 +475,16 @@ function uniqueBlocks(blocks: string[]): string[] {
     seen.add(key);
     return true;
   });
+}
+
+function formatThreadMessage(message: GmailInquiryMessage): string {
+  const headers = [
+    message.from && `From: ${message.from}`,
+    message.to && `To: ${message.to}`,
+    message.subject && `Subject: ${message.subject}`,
+    message.date && `Date: ${message.date}`,
+  ].filter(Boolean);
+  return [...headers, message.body].filter(Boolean).join("\n").trim();
 }
 
 function formatFlatEmailBody(source: string): string {
@@ -500,11 +595,27 @@ function splitInlineFooterNotices(source: string): { primary: string; footers: s
 
 export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySections {
   const readable = normalizeReadableEmailText(htmlEmailToReadableText(source));
-  const inline = splitInlineFooterNotices(readable);
-  const blocks = inline.primary.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
+  const parsed = parseGmailInquiry(readable);
+  const latest = parsed?.messages.at(-1);
+  // A parsed Gmail thread is rendered as the newest message plus collapsed
+  // earlier messages. This keeps the prospect's current reply readable and
+  // preserves the rest of the conversation without exposing RFC headers.
+  const threadQuotes = parsed && parsed.messages.length > 1
+    ? parsed.messages.slice(0, -1).map(formatThreadMessage).filter(Boolean)
+    : [];
+  const displayBody = latest?.body || readable;
+  const inline = splitInlineFooterNotices(displayBody);
+  const signatureSeparator = /(?:^|\n)\s*--\s*(?:\n|$)/m.exec(inline.primary);
+  const mainBody = signatureSeparator
+    ? inline.primary.slice(0, signatureSeparator.index).trim()
+    : inline.primary;
+  const signature = signatureSeparator
+    ? inline.primary.slice(signatureSeparator.index).replace(/^\s*--\s*/, "").trim()
+    : "";
+  const blocks = mainBody.split(/\n\s*\n+/).map((block) => block.trim()).filter(Boolean);
   const primary: string[] = [];
-  const quoted: string[] = [];
-  const footers: string[] = [...inline.footers];
+  const quoted: string[] = [...threadQuotes];
+  const footers: string[] = [...inline.footers, ...(signature ? [signature] : [])];
 
   for (const block of blocks) {
     if (FOOTER_NOTICE_PATTERNS.some((pattern) => pattern.test(block)) || isLongSignature(block)) {
@@ -517,7 +628,7 @@ export function splitGmailBodyForDisplay(source: string): GmailBodyDisplaySectio
   }
 
   return {
-    primary: primary.join("\n\n"),
+    primary: deduplicateReadableBlocks(primary).join("\n\n"),
     quoted: uniqueBlocks(quoted),
     footers: uniqueBlocks(footers),
   };

@@ -10,6 +10,10 @@ from uuid import UUID
 from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
+from lead_agent.application.field_privacy import filter_sensitive_mapping
+from lead_agent.application.lead_access import accessible_lead_ids_query
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
@@ -124,6 +128,7 @@ def _similar_workspace_leads(
     session: Session,
     workspace_id: UUID,
     query_terms: list[str],
+    accessible_lead_ids: Any | None = None,
 ) -> list[dict[str, Any]]:
     if not query_terms:
         return []
@@ -131,7 +136,12 @@ def _similar_workspace_leads(
     # Compare only names from this workspace. This never searches external providers.
     name_rows = session.execute(
         select(LeadORM.id, LeadORM.full_name, LeadORM.company_name).where(
-            LeadORM.workspace_id == workspace_id
+            LeadORM.workspace_id == workspace_id,
+            *(
+                (LeadORM.id.in_(accessible_lead_ids),)
+                if accessible_lead_ids is not None
+                else ()
+            ),
         )
     ).all()
     scored = [
@@ -312,8 +322,40 @@ def build_workspace_record_context(
     query: str,
     *,
     confirm_similar_lead: bool = False,
+    workspace: WorkspaceContext | None = None,
 ) -> dict[str, Any]:
     """Retrieve workspace-scoped context and all close lead-name candidates."""
+    if workspace is not None and workspace.workspace_id != workspace_id:
+        raise ValueError("workspace context does not match the requested workspace")
+    scoped = workspace is not None and workspace.role not in {"owner", "admin"}
+    accessible_lead_ids = (
+        accessible_lead_ids_query(workspace)
+        if workspace is not None
+        else select(LeadORM.id).where(LeadORM.workspace_id == workspace_id)
+    )
+    accessible_contact_ids = select(LeadContactORM.contact_id).where(
+        LeadContactORM.lead_id.in_(accessible_lead_ids)
+    )
+    contact_scope = [ContactORM.id.in_(accessible_contact_ids)] if scoped else []
+    company_scope = [
+        CompanyORM.id.in_(
+            select(ContactORM.company_id).where(
+                ContactORM.id.in_(accessible_contact_ids),
+                ContactORM.company_id.is_not(None),
+            )
+        )
+    ] if scoped else []
+    event_scope = [PipelineEventORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    call_scope = [CallRecordORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    follow_up_scope = [LeadFollowUpEmailORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    note_scope: list[Any] = [LeadNoteORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    if workspace is not None and "comments.view_private" not in workspace.permissions:
+        note_scope.append(
+            or_(
+                LeadNoteORM.is_private.is_(False),
+                LeadNoteORM.author_id == workspace.actor_id,
+            )
+        )
     query = query[:3000]
     terms = _terms(query)
     folded_query = query.casefold()
@@ -337,7 +379,8 @@ def build_workspace_record_context(
     counts = {
         "leads": session.scalar(
             select(func.count()).select_from(LeadORM).where(
-                LeadORM.workspace_id == workspace_id
+                LeadORM.workspace_id == workspace_id,
+                LeadORM.id.in_(accessible_lead_ids),
             )
         )
         or 0,
@@ -345,18 +388,21 @@ def build_workspace_record_context(
             select(func.count()).select_from(ContactORM).where(
                 ContactORM.workspace_id == workspace_id,
                 ContactORM.merged_into_id.is_(None),
+                *contact_scope,
             )
         )
         or 0,
         "companies": session.scalar(
             select(func.count()).select_from(CompanyORM).where(
-                CompanyORM.workspace_id == workspace_id
+                CompanyORM.workspace_id == workspace_id,
+                *company_scope,
             )
         )
         or 0,
         "calls": session.scalar(
             select(func.count()).select_from(CallRecordORM).where(
-                CallRecordORM.workspace_id == workspace_id
+                CallRecordORM.workspace_id == workspace_id,
+                *call_scope,
             )
         )
         or 0,
@@ -364,6 +410,7 @@ def build_workspace_record_context(
             select(func.count()).select_from(PipelineEventORM).where(
                 PipelineEventORM.workspace_id == workspace_id,
                 PipelineEventORM.stage == "gmail_message",
+                *event_scope,
             )
         )
         or 0,
@@ -371,21 +418,24 @@ def build_workspace_record_context(
             select(func.count()).select_from(PipelineEventORM).where(
                 PipelineEventORM.workspace_id == workspace_id,
                 PipelineEventORM.stage == "meeting_scheduled",
+                *event_scope,
             )
         )
         or 0,
     }
 
-    lead_columns = (
+    lead_columns: tuple[Any, ...] = (
         LeadORM.full_name,
-        LeadORM.email,
         LeadORM.company_name,
         LeadORM.job_title,
         LeadORM.industry,
         LeadORM.product_or_service,
-        LeadORM.message,
         LeadORM.source,
     )
+    if workspace is None or "fields.contact.view" in workspace.permissions:
+        lead_columns += (LeadORM.email, LeadORM.phone)
+    if workspace is None or "fields.communications.view" in workspace.permissions:
+        lead_columns += (LeadORM.message,)
     leads: list[LeadORM] = []
     if terms:
         leads = list(
@@ -393,6 +443,7 @@ def build_workspace_record_context(
                 select(LeadORM)
                 .where(
                     LeadORM.workspace_id == workspace_id,
+                    LeadORM.id.in_(accessible_lead_ids),
                     _text_filter(lead_columns, terms),
                 )
                 .order_by(LeadORM.received_at.desc())
@@ -403,14 +454,17 @@ def build_workspace_record_context(
         leads = list(
             session.scalars(
                 select(LeadORM)
-                .where(LeadORM.workspace_id == workspace_id)
+                .where(
+                    LeadORM.workspace_id == workspace_id,
+                    LeadORM.id.in_(accessible_lead_ids),
+                )
                 .order_by(LeadORM.received_at.desc())
                 .limit(8)
             )
         )
 
     similar_leads = (
-        _similar_workspace_leads(session, workspace_id, terms)
+        _similar_workspace_leads(session, workspace_id, terms, accessible_lead_ids)
         if terms and (wants_leads or wants_calls or wants_emails or wants_meetings or wants_notes)
         else []
     )
@@ -425,6 +479,7 @@ def build_workspace_record_context(
             select(LeadORM).where(
                 LeadORM.id == confirmed_id,
                 LeadORM.workspace_id == workspace_id,
+                LeadORM.id.in_(accessible_lead_ids),
             )
         )
         if confirmed_lead is not None:
@@ -451,6 +506,7 @@ def build_workspace_record_context(
                 .where(
                     CompanyORM.workspace_id == workspace_id,
                     _text_filter(company_columns, terms),
+                    *company_scope,
                 )
                 .order_by(CompanyORM.updated_at.desc())
                 .limit(6)
@@ -460,13 +516,15 @@ def build_workspace_record_context(
         companies = list(
             session.scalars(
                 select(CompanyORM)
-                .where(CompanyORM.workspace_id == workspace_id)
+                .where(CompanyORM.workspace_id == workspace_id, *company_scope)
                 .order_by(CompanyORM.updated_at.desc())
                 .limit(6)
             )
         )
 
-    contact_columns = (ContactORM.name, ContactORM.email, ContactORM.phone, ContactORM.job_title)
+    contact_columns: tuple[Any, ...] = (ContactORM.name, ContactORM.job_title)
+    if workspace is None or "fields.contact.view" in workspace.permissions:
+        contact_columns += (ContactORM.email, ContactORM.phone)
     contacts: list[ContactORM] = []
     if terms:
         contact_match = _text_filter(contact_columns, terms)
@@ -482,6 +540,7 @@ def build_workspace_record_context(
                     ContactORM.workspace_id == workspace_id,
                     ContactORM.merged_into_id.is_(None),
                     contact_match,
+                    *contact_scope,
                 )
                 .order_by(ContactORM.updated_at.desc())
                 .limit(6)
@@ -494,6 +553,7 @@ def build_workspace_record_context(
                 .where(
                     ContactORM.workspace_id == workspace_id,
                     ContactORM.merged_into_id.is_(None),
+                    *contact_scope,
                 )
                 .order_by(ContactORM.updated_at.desc())
                 .limit(6)
@@ -516,6 +576,7 @@ def build_workspace_record_context(
                 .where(
                     LeadORM.workspace_id == workspace_id,
                     LeadORM.id.in_(lead_ids),
+                    LeadORM.id.in_(accessible_lead_ids),
                 )
                 .order_by(LeadORM.received_at.desc())
             )
@@ -533,6 +594,8 @@ def build_workspace_record_context(
                 .where(
                     PipelineEventORM.workspace_id == workspace_id,
                     PipelineEventORM.lead_id.in_(lead_ids),
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                    *event_scope,
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(60)
@@ -545,6 +608,8 @@ def build_workspace_record_context(
                 .where(
                     PipelineEventORM.workspace_id == workspace_id,
                     _text_filter((cast(PipelineEventORM.details, Text),), terms),
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                    *event_scope,
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(30)
@@ -556,7 +621,11 @@ def build_workspace_record_context(
         event_rows = list(
             session.scalars(
                 select(PipelineEventORM)
-                .where(PipelineEventORM.workspace_id == workspace_id)
+                .where(
+                    PipelineEventORM.workspace_id == workspace_id,
+                    PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                    *event_scope,
+                )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(30)
             )
@@ -573,6 +642,7 @@ def build_workspace_record_context(
                 .where(
                     LeadNoteORM.workspace_id == workspace_id,
                     LeadNoteORM.lead_id.in_(lead_ids),
+                    *note_scope,
                 )
                 .order_by(LeadNoteORM.updated_at.desc())
                 .limit(12)
@@ -585,6 +655,7 @@ def build_workspace_record_context(
                 .where(
                     LeadNoteORM.workspace_id == workspace_id,
                     _text_filter(note_columns, terms),
+                    *note_scope,
                 )
                 .order_by(LeadNoteORM.updated_at.desc())
                 .limit(8)
@@ -594,18 +665,19 @@ def build_workspace_record_context(
         note_rows = list(
             session.scalars(
                 select(LeadNoteORM)
-                .where(LeadNoteORM.workspace_id == workspace_id)
+                .where(LeadNoteORM.workspace_id == workspace_id, *note_scope)
                 .order_by(LeadNoteORM.updated_at.desc())
                 .limit(8)
             )
         )
 
-    call_columns = (
-        CallRecordORM.message,
-        CallRecordORM.transcript,
-        CallRecordORM.provider,
-        cast(CallRecordORM.insights, Text),
-    )
+    call_columns: tuple[Any, ...] = (CallRecordORM.provider,)
+    if workspace is None or "fields.communications.view" in workspace.permissions:
+        call_columns += (CallRecordORM.message,)
+    if workspace is None or "calls.transcript.view" in workspace.permissions:
+        call_columns += (CallRecordORM.transcript,)
+    if workspace is None or "calls.analysis.view" in workspace.permissions:
+        call_columns += (cast(CallRecordORM.insights, Text),)
     call_rows: list[CallRecordORM] = []
     if lead_ids:
         call_rows = list(
@@ -614,6 +686,7 @@ def build_workspace_record_context(
                 .where(
                     CallRecordORM.workspace_id == workspace_id,
                     CallRecordORM.lead_id.in_(lead_ids),
+                    *call_scope,
                 )
                 .order_by(CallRecordORM.created_at.desc())
                 .limit(8)
@@ -626,6 +699,7 @@ def build_workspace_record_context(
                 .where(
                     CallRecordORM.workspace_id == workspace_id,
                     _text_filter(call_columns, terms),
+                    *call_scope,
                 )
                 .order_by(CallRecordORM.created_at.desc())
                 .limit(8)
@@ -637,18 +711,18 @@ def build_workspace_record_context(
         call_rows = list(
             session.scalars(
                 select(CallRecordORM)
-                .where(CallRecordORM.workspace_id == workspace_id)
+                .where(CallRecordORM.workspace_id == workspace_id, *call_scope)
                 .order_by(CallRecordORM.created_at.desc())
                 .limit(8)
             )
         )
 
     follow_up_rows: list[LeadFollowUpEmailORM] = []
-    follow_up_columns = (
-        LeadFollowUpEmailORM.recipient,
-        LeadFollowUpEmailORM.subject,
-        LeadFollowUpEmailORM.body,
-    )
+    follow_up_columns: tuple[Any, ...] = ()
+    if workspace is None or "fields.contact.view" in workspace.permissions:
+        follow_up_columns += (LeadFollowUpEmailORM.recipient,)
+    if workspace is None or "fields.communications.view" in workspace.permissions:
+        follow_up_columns += (LeadFollowUpEmailORM.subject, LeadFollowUpEmailORM.body)
     if lead_ids:
         follow_up_rows = list(
             session.scalars(
@@ -656,6 +730,7 @@ def build_workspace_record_context(
                 .where(
                     LeadFollowUpEmailORM.workspace_id == workspace_id,
                     LeadFollowUpEmailORM.lead_id.in_(lead_ids),
+                    *follow_up_scope,
                 )
                 .order_by(LeadFollowUpEmailORM.created_at.desc())
                 .limit(6)
@@ -668,6 +743,7 @@ def build_workspace_record_context(
                 .where(
                     LeadFollowUpEmailORM.workspace_id == workspace_id,
                     _text_filter(follow_up_columns, terms),
+                    *follow_up_scope,
                 )
                 .order_by(LeadFollowUpEmailORM.created_at.desc())
                 .limit(6)
@@ -682,6 +758,7 @@ def build_workspace_record_context(
             .where(
                 CompanyORM.workspace_id == workspace_id,
                 CompanyORM.id.in_(company_ids),
+                *company_scope,
             )
         )
     ) if company_ids else []
@@ -723,27 +800,67 @@ def build_workspace_record_context(
         "query": query,
         "search_terms": terms,
         "record_counts": counts,
-        "matched_leads": [_lead_summary(lead) for lead in leads[:8]],
+        "matched_leads": [
+            filter_sensitive_mapping(_lead_summary(lead), workspace.permissions)
+            if workspace is not None
+            else _lead_summary(lead)
+            for lead in leads[:8]
+        ],
         "similar_leads": similar_leads,
         "lead_match_confirmed": lead_match_confirmed,
-        "matched_contacts": contact_summaries,
+        "matched_contacts": [
+            filter_sensitive_mapping(item, workspace.permissions)
+            if workspace is not None
+            else item
+            for item in contact_summaries
+        ],
         "matched_companies": company_summaries,
         "recent_emails_and_meetings": [
-            _event_summary(event)
+            (
+                filter_sensitive_mapping(_event_summary(event), workspace.permissions)
+                if workspace is not None
+                else _event_summary(event)
+            )
             for event in event_rows[:16]
             if event.stage in {"gmail_message", "meeting_scheduled", "manual_progress"}
         ],
         "lead_notes": [
-            {
+            filter_sensitive_mapping(
+                {
+                    "lead_id": str(note.lead_id),
+                    "body": _short(note.body, 600),
+                    "updated_at": _iso(note.updated_at),
+                },
+                workspace.permissions,
+            )
+            if workspace is not None
+            else {
                 "lead_id": str(note.lead_id),
                 "body": _short(note.body, 600),
                 "updated_at": _iso(note.updated_at),
             }
             for note in note_rows[:8]
         ],
-        "calls": [_call_summary(call) for call in call_rows[:6]],
+        "calls": [
+            filter_sensitive_mapping(_call_summary(call), workspace.permissions)
+            if workspace is not None
+            else _call_summary(call)
+            for call in call_rows[:6]
+        ],
         "saved_follow_up_emails": [
-            {
+            filter_sensitive_mapping(
+                {
+                    "lead_id": str(email.lead_id),
+                    "recipient": email.recipient,
+                    "subject": email.subject,
+                    "body": _short(email.body, 600),
+                    "status": email.status,
+                    "created_at": _iso(email.created_at),
+                },
+                workspace.permissions,
+            )
+            if workspace is not None
+            else {
                 "lead_id": str(email.lead_id),
                 "recipient": email.recipient,
                 "subject": email.subject,

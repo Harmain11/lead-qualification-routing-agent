@@ -162,6 +162,27 @@ function AircallPhoneFrame({
   );
 }
 
+/**
+ * The provider phone loads once the app is idle (or as soon as it is opened), so
+ * it stays ready for inbound calls without competing with the first paint.
+ */
+function useWarmWhenIdle(open: boolean): boolean {
+  const [warm, setWarm] = useState(open);
+  useEffect(() => {
+    if (warm) return;
+    if (open) { setWarm(true); return; }
+    const supportsIdle = typeof window.requestIdleCallback === "function";
+    const handle = supportsIdle
+      ? window.requestIdleCallback(() => setWarm(true), { timeout: 6000 })
+      : window.setTimeout(() => setWarm(true), 4000);
+    return () => {
+      if (supportsIdle) window.cancelIdleCallback(handle);
+      else window.clearTimeout(handle);
+    };
+  }, [open, warm]);
+  return warm;
+}
+
 export function DialerPhoneDock({
   connection,
   open,
@@ -183,6 +204,7 @@ export function DialerPhoneDock({
 }) {
   const embedded = isDialerPhoneAvailable(connection);
   const selectedConnection = embedded ? connection : null;
+  const warm = useWarmWhenIdle(open);
   const provider = selectedConnection?.provider ?? "";
   const providerName = providerLabels[provider] ?? "Dialer";
   const [browserAlertsEnabled, setBrowserAlertsEnabled] = useState(false);
@@ -335,6 +357,7 @@ export function DialerPhoneDock({
         <section
           className={`dialer-phone-window${open ? " is-open" : " is-closed"}`}
           aria-hidden={!open}
+          inert={!open}
           aria-label={`${providerName} Phone`}
         >
           <header className="dialer-phone-header">
@@ -396,25 +419,9 @@ export function DialerPhoneDock({
             </div>
           </header>
           <div className="dialer-phone-content">
+            {warm && <>
             {provider === "cloudtalk" && (
               <>
-                <div
-                  className={`dialer-phone-cloudtalk-alert-note${browserAlertMessage ? " is-feedback" : ""}`}
-                  role={browserAlertMessage ? "status" : "note"}
-                >
-                  <span className="dialer-phone-alert-note-icon" aria-hidden="true">
-                    {browserAlertMessage ? "!" : "i"}
-                  </span>
-                  <span>
-                    {browserAlertMessage ||
-                      "Corral browser alerts are managed here—not in CloudTalk."}
-                  </span>
-                </div>
-                <p className="dialer-phone-cloudtalk-safety-note" role="note">
-                  CloudTalk keypad calls bypass Corral’s consent, do-not-call,
-                  and residency checks; they may not appear in Corral’s
-                  direct-call history.
-                </p>
                 <CloudTalkPhoneFrame
                   onCallActiveChange={onCallActiveChange}
                   onIncomingCall={showIncomingNotification}
@@ -433,6 +440,7 @@ export function DialerPhoneDock({
                 accountName={selectedConnection?.account_name ?? ""}
               />
             )}
+            </>}
           </div>
         </section>
       )}

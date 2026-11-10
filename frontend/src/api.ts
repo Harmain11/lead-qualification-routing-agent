@@ -12,6 +12,7 @@ import type {
   DashboardAnalytics,
   ExtendedAnalytics,
   IntegrationCard,
+  ConnectionAccessGrant,
   LeadApprovalPolicy,
   Lead,
   LeadAssignmentOption,
@@ -20,6 +21,7 @@ import type {
   GmailConversationSyncResult,
   MeetingRecommendations,
   ManagedMeeting,
+  SavedMeetingStatus,
   MeetingSuggestion,
   WorkspaceCalendarEvent,
   ConfirmMeetingResult,
@@ -39,6 +41,7 @@ import type {
   ReasoningUsagePeriod,
   TimeSeriesAnalytics,
   AuthSession,
+  AccessPolicy,
   PermissionOverrides,
   WorkspaceAuditEvent,
   WorkspaceInvitation,
@@ -63,14 +66,19 @@ const CSRF_COOKIE_NAME = import.meta.env.VITE_AUTH_CSRF_COOKIE_NAME || "lead_age
 const CSRF_COOKIE_NAMES = Array.from(new Set(["lead_agent_csrf", CSRF_COOKIE_NAME]));
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 let activeWorkspaceId = import.meta.env.VITE_WORKSPACE_ID || DEMO_WORKSPACE_ID;
-const inFlightGets = new Map<string, Promise<unknown>>();
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly requestId?: string,
+  ) {
     super(message);
     this.name = "ApiError";
   }
 }
+
+export const SITE_ACCESS_REQUIRED_EVENT = "corral:site-access-required";
 
 export type LeadAssistantAction = {
   kind: "none" | "update_profile" | "add_note" | "record_progress" | "draft_email" | "send_follow_up" | "refresh_email" | "sync_crm" | "delete_lead" | "reevaluate_lead" | "complete_manual_review" | "open_email" | "open_meetings" | "open_dialer" | "open_closing" | "open_history";
@@ -94,14 +102,27 @@ export type LeadAssistantReply = {
 };
 
 export type WorkspaceAssistantArea =
+  | "dashboard"
+  | "leads"
+  | "pipeline"
+  | "revenue"
+  | "review"
+  | "email"
+  | "calendar"
+  | "dialer"
+  | "contacts"
+  | "accounts"
+  | "performance"
   | "analytics"
   | "agents"
+  | "intelligence"
   | "automations"
-  | "icp"
-  | "settings"
   | "integrations"
   | "team"
-  | "dialer";
+  | "settings"
+  | "icp"
+  | "policies"
+  | "compliance";
 
 export type AssignmentNotification = {
   id: string;
@@ -123,6 +144,8 @@ export type WorkspaceAssistantAction = {
     | "create_lead"
     | "set_automation_active"
     | "create_icp_draft"
+    | "create_automation_draft"
+    | "enroll_lead_in_automation"
     | "update_routing_config"
     | "set_lead_confirmation"
     | "disconnect_integration"
@@ -251,26 +274,70 @@ function withWorkspace(headers?: HeadersInit): Headers {
   return result;
 }
 
+type SharedGet = { promise: Promise<unknown>; controller: AbortController; waiting: number };
+const sharedGets = new Map<string, SharedGet>();
+
+function abortError(): DOMException {
+  return new DOMException("The request was aborted.", "AbortError");
+}
+
+/**
+ * Identical concurrent GETs share one network request. Each caller keeps its own
+ * abort signal; the shared request is cancelled only when every caller has left.
+ */
 export async function request<T>(
   url: string,
   options?: RequestInit,
   feedback: { activityToast?: boolean } = {},
 ): Promise<T> {
   const method = options?.method?.toUpperCase() ?? "GET";
-  const key = method === "GET" && !options?.signal ? `${activeWorkspaceId}:${url}` : null;
-  if (key) {
-    const existing = inFlightGets.get(key);
-    if (existing) return existing as Promise<T>;
-  }
+  if (method !== "GET") return performRequest<T>(url, options, feedback.activityToast !== false);
 
-  const pending = performRequest<T>(url, options, feedback.activityToast !== false);
-  if (!key) return pending;
-  inFlightGets.set(key, pending);
-  try {
-    return await pending;
-  } finally {
-    if (inFlightGets.get(key) === pending) inFlightGets.delete(key);
+  const callerSignal = options?.signal ?? null;
+  if (callerSignal?.aborted) throw abortError();
+  const key = `${activeWorkspaceId}:${url}`;
+  let shared = sharedGets.get(key);
+  if (!shared) {
+    const controller = new AbortController();
+    const entry: SharedGet = {
+      controller,
+      waiting: 0,
+      promise: performRequest<T>(url, { ...options, signal: controller.signal }, feedback.activityToast !== false),
+    };
+    entry.promise.then(
+      () => { if (sharedGets.get(key) === entry) sharedGets.delete(key); },
+      () => { if (sharedGets.get(key) === entry) sharedGets.delete(key); },
+    );
+    sharedGets.set(key, entry);
+    shared = entry;
   }
+  const entry = shared;
+  entry.waiting += 1;
+  if (!callerSignal) {
+    try { return (await entry.promise) as T; } finally { entry.waiting -= 1; }
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const leave = () => {
+      if (settled) return;
+      settled = true;
+      callerSignal.removeEventListener("abort", onAbort);
+      entry.waiting -= 1;
+    };
+    const onAbort = () => {
+      leave();
+      if (entry.waiting <= 0) {
+        entry.controller.abort();
+        if (sharedGets.get(key) === entry) sharedGets.delete(key);
+      }
+      reject(abortError());
+    };
+    callerSignal.addEventListener("abort", onAbort, { once: true });
+    entry.promise.then(
+      (value) => { if (!settled) { leave(); resolve(value as T); } },
+      (error) => { if (!settled) { leave(); reject(error); } },
+    );
+  });
 }
 
 async function performRequest<T>(
@@ -285,6 +352,15 @@ async function performRequest<T>(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
+    if (
+      typeof window !== "undefined"
+      && body
+      && typeof body === "object"
+      && "code" in body
+      && body.code === "site_access_required"
+    ) {
+      window.dispatchEvent(new Event(SITE_ACCESS_REQUIRED_EVENT));
+    }
     const detail = typeof body.detail === "string"
       ? body.detail
       : Array.isArray(body.detail)
@@ -302,7 +378,11 @@ async function performRequest<T>(
         : response.status === 403
           ? "You do not have permission to perform this action."
           : `Request failed (${response.status}). Please try again.`);
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      message,
+      response.status,
+      response.headers.get("x-request-id") || undefined,
+    );
   }
   const result = response.status === 204 ? undefined : await response.json();
   const method = options?.method?.toUpperCase() ?? "GET";
@@ -333,6 +413,37 @@ export const updateAccountProfile = (profile: AccountProfileUpdate) =>
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(profile),
+  });
+
+export type AccountOwnedWorkspacePreview = {
+  id: string;
+  name: string;
+  other_active_members: number;
+  leads: number;
+  integrations: number;
+  stored_secrets: number;
+  source_events: number;
+  drafts: number;
+  conversations: number;
+  messages: number;
+};
+
+export type AccountDeletionPreview = {
+  email: string;
+  owned_workspaces: AccountOwnedWorkspacePreview[];
+  shared_workspaces: number;
+  invitations_to_cancel: number;
+  blockers: string[];
+  can_delete: boolean;
+};
+
+export const getAccountDeletionPreview = () =>
+  request<AccountDeletionPreview>("/v1/auth/account-deletion-preview");
+export const deleteCorralAccount = (confirmationEmail: string) =>
+  request<void>("/v1/auth/account", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation_email: confirmationEmail }),
   });
 
 export const getEmailTemplates = () => request<WorkspaceEmailTemplate[]>("/v1/settings/email-templates");
@@ -420,6 +531,20 @@ export async function signIn(email: string, password: string): Promise<AuthSessi
   return session;
 }
 
+export type SiteAccessStatus = { enabled: boolean; unlocked: boolean };
+
+export function getSiteAccessStatus(): Promise<SiteAccessStatus> {
+  return request<SiteAccessStatus>("/v1/site-access/status");
+}
+
+export function unlockSiteAccess(password: string): Promise<{ unlocked: boolean }> {
+  return request<{ unlocked: boolean }>("/v1/site-access/unlock", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+}
+
 export async function signInWithWorkspaceCode(input: {
   workspace_id: string;
   code: string;
@@ -457,6 +582,20 @@ export const resendVerification = (email: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
+  });
+
+export const requestPasswordReset = (email: string) =>
+  request<{ message: string }>("/v1/auth/password-reset/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+export const confirmPasswordReset = (token: string, password: string) =>
+  request<{ message: string }>("/v1/auth/password-reset/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
   });
 
 export function startGoogleAuth(invitationToken?: string): void {
@@ -509,6 +648,29 @@ export async function listLeads(query: LeadListQuery = {}, signal?: AbortSignal)
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<LeadListResponse>(`/v1/leads${suffix}`, { signal });
+}
+
+export type LeadTrashItem = {
+  id: string;
+  provider: string;
+  external_id: string;
+  lead_email: string | null;
+  reason: string;
+  created_by: string;
+  created_at: string;
+};
+
+export function listLeadTrash(signal?: AbortSignal): Promise<LeadTrashItem[]> {
+  return request<LeadTrashItem[]>("/v1/leads/trash", { signal });
+}
+
+export function restoreLeadFromTrash(suppressionId: string): Promise<{
+  status: "restored" | "restore_pending";
+  provider: string;
+  external_id: string;
+  lead_id: string;
+}> {
+  return jsonRequest(`/v1/leads/trash/${suppressionId}/restore`, { method: "POST" });
 }
 
 export const LEAD_EXPORT_COLUMNS = [
@@ -595,6 +757,37 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
 }
 
+export function listConnectionGrants(connectionId: string): Promise<ConnectionAccessGrant[]> {
+  return jsonRequest<ConnectionAccessGrant[]>(
+    `/v1/integrations/connections/${encodeURIComponent(connectionId)}/grants`,
+  );
+}
+
+export function updateConnectionGrant(
+  connectionId: string,
+  membershipId: string,
+  actions: string[],
+): Promise<ConnectionAccessGrant> {
+  return jsonRequest<ConnectionAccessGrant>(
+    `/v1/integrations/connections/${encodeURIComponent(connectionId)}/grants/${encodeURIComponent(membershipId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actions }),
+    },
+  );
+}
+
+export function deleteConnectionGrant(
+  connectionId: string,
+  membershipId: string,
+): Promise<void> {
+  return jsonRequest<void>(
+    `/v1/integrations/connections/${encodeURIComponent(connectionId)}/grants/${encodeURIComponent(membershipId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export function listLeadApprovalPolicies(): Promise<LeadApprovalPolicy[]> {
   return jsonRequest<LeadApprovalPolicy[]>("/v1/integrations/lead-approval-policies");
 }
@@ -632,6 +825,19 @@ export function getGmailMailboxThread(
 ): Promise<{ messages: GmailThreadMessage[] }> {
   const params = new URLSearchParams({ connection_id: connectionId, thread_id: threadId });
   return request(`/v1/email/thread?${params.toString()}`, { signal });
+}
+
+export function getGmailMailboxAttachmentUrl(
+  connectionId: string,
+  messageId: string,
+  attachmentId: string,
+) {
+  const params = new URLSearchParams({
+    connection_id: connectionId,
+    message_id: messageId,
+    attachment_id: attachmentId,
+  });
+  return `${API_BASE_URL}/v1/email/attachment?${params.toString()}`;
 }
 
 export function sendGmailEmail(payload: GmailSendRequest): Promise<GmailSendResult> {
@@ -817,7 +1023,7 @@ export function chatWithLeadAssistant(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
-  });
+  }, { activityToast: false });
 }
 
 export function chatWithWorkspaceAssistant(
@@ -835,7 +1041,7 @@ export function chatWithWorkspaceAssistant(
       conversation_id: conversationId,
       message_count: messageCount,
     }),
-  });
+  }, { activityToast: false });
 }
 
 export function listWorkspaceAgentConversations(): Promise<{ items: WorkspaceAgentConversationSummary[] }> {
@@ -948,6 +1154,9 @@ export type ReasoningBackfillStatus = {
   completed: number;
   failed: number;
   skipped: number;
+  failure_categories?: Record<string, number>;
+  failures?: Array<{ lead_id: string; code: string }>;
+  message?: string | null;
   provider: string;
   model: string;
 };
@@ -1140,6 +1349,10 @@ export function getLeadManagedMeeting(leadId: string, signal?: AbortSignal): Pro
   return jsonRequest<ManagedMeeting | null>(`/v1/leads/${leadId}/meeting-management`, { signal });
 }
 
+export function getLeadMeetingStatus(leadId: string, signal?: AbortSignal): Promise<SavedMeetingStatus | null> {
+  return jsonRequest<SavedMeetingStatus | null>(`/v1/leads/${leadId}/meeting-status`, { signal });
+}
+
 export function cancelLeadMeeting(leadId: string, bookingId: string, reason: string): Promise<{ status: string; message: string }> {
   return jsonRequest(`/v1/leads/${leadId}/meetings/${bookingId}/cancel`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }),
@@ -1274,6 +1487,7 @@ export function inviteMember(input: {
   email: string;
   role: string;
   permission_overrides?: PermissionOverrides;
+  access_policy?: AccessPolicy;
 }): Promise<WorkspaceInvitation> {
   return jsonRequest<WorkspaceInvitation>("/v1/members/invite", {
     method: "POST",
@@ -1283,6 +1497,7 @@ export function inviteMember(input: {
       role: input.role,
       grants: input.permission_overrides?.grants ?? [],
       denies: input.permission_overrides?.denies ?? [],
+      access_policy: input.access_policy ?? { scopes: {} },
     }),
   });
 }
@@ -1308,6 +1523,14 @@ export function updateMemberPermissions(memberId: string, overrides: PermissionO
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(overrides),
+  });
+}
+
+export function updateMemberAccessPolicy(memberId: string, policy: AccessPolicy): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/access-policy`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
   });
 }
 

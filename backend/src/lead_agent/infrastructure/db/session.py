@@ -5,10 +5,29 @@ from functools import lru_cache
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, with_loader_criteria
 
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.settings.config import Settings, get_settings
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _hide_soft_deleted_leads(execute_state) -> None:
+    """Keep trashed leads out of normal reads while retaining their full graph."""
+    if (
+        not execute_state.is_select
+        or execute_state.execution_options.get("include_deleted_leads", False)
+    ):
+        return
+    from lead_agent.infrastructure.db.models import LeadORM
+
+    execute_state.statement = execute_state.statement.options(
+        with_loader_criteria(
+            LeadORM,
+            lambda lead: lead.deleted_at.is_(None),
+            include_aliases=True,
+        )
+    )
 
 
 def build_engine(settings: Settings | None = None) -> Engine:

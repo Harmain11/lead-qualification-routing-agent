@@ -1,4 +1,4 @@
-import type { LeadPipelineEvent } from "../types";
+import type { GmailThreadMessage, LeadPipelineEvent } from "../types";
 
 function detail(details: Record<string, unknown>, key: string): string {
   const value = details[key];
@@ -36,6 +36,22 @@ export function dedupeGmailEvents(
     seen.add(identity);
     return true;
   });
+}
+
+export function newestFirstGmailEvents(
+  events: LeadPipelineEvent[],
+): LeadPipelineEvent[] {
+  return [...events].sort(
+    (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+  );
+}
+
+export function newestFirstGmailThread(
+  messages: GmailThreadMessage[],
+): GmailThreadMessage[] {
+  return [...messages].sort(
+    (a, b) => Date.parse(b.sent_at) - Date.parse(a.sent_at),
+  );
 }
 
 export type GmailReplyTarget = {

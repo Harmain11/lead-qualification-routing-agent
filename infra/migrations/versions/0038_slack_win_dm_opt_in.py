@@ -14,7 +14,8 @@ def upgrade() -> None:
         "lead_outcomes",
         sa.Column("send_direct_message", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
-    op.alter_column("lead_outcomes", "send_direct_message", server_default=None)
+    with op.batch_alter_table("lead_outcomes") as batch:
+        batch.alter_column("send_direct_message", server_default=None)
 
 
 def downgrade() -> None:

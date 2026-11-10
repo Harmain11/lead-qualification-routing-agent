@@ -46,7 +46,12 @@ class WorkspaceEmailDraftORM(Base):
 
     __tablename__ = "workspace_email_drafts"
     __table_args__ = (
-        Index("ix_workspace_email_drafts_owner_updated", "workspace_id", "created_by", "updated_at"),
+        Index(
+            "ix_workspace_email_drafts_owner_updated",
+            "workspace_id",
+            "created_by",
+            "updated_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -287,6 +292,22 @@ class EmailVerificationTokenORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class PasswordResetTokenORM(Base):
+    """Single-use password reset tokens; only their hashes are stored."""
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (Index("ix_password_reset_tokens_user_created", "user_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class WorkspaceMembershipORM(Base):
     __tablename__ = "workspace_memberships"
     __table_args__ = (
@@ -312,6 +333,7 @@ class WorkspaceMembershipORM(Base):
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    access_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     slack_member_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -333,6 +355,7 @@ class WorkspaceInvitationORM(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    access_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     invited_by: Mapped[UUID] = mapped_column(
@@ -464,6 +487,12 @@ class ProviderConnectionORM(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    connection_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="workspace_managed"
     )
     provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
     external_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -779,6 +808,7 @@ class LeadORM(Base):
         Index("ix_leads_email", "email"),
         Index("ix_leads_workspace_created", "workspace_id", "created_at"),
         Index("ix_leads_workspace_received", "workspace_id", "received_at"),
+        Index("ix_leads_workspace_deleted", "workspace_id", "deleted_at"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -786,6 +816,18 @@ class LeadORM(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
         default=lambda: DEFAULT_WORKSPACE_ID,
+    )
+    current_owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    primary_team_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_teams.id", ondelete="SET NULL"), nullable=True
+    )
+    original_importer_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    source_connection_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="SET NULL"), nullable=True
     )
     lead_number: Mapped[int] = mapped_column(Integer, nullable=False)
     source_event_id: Mapped[UUID | None] = mapped_column(
@@ -815,6 +857,8 @@ class LeadORM(Base):
     manual_review_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -854,6 +898,9 @@ class LeadSuppressionORM(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
     )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1259,3 +1306,4 @@ class LeadWinNotificationORM(Base):
 
 from lead_agent.infrastructure.db import calling as calling_models  # noqa: E402,F401
 from lead_agent.infrastructure.db import operations as operations_models  # noqa: E402,F401
+from lead_agent.infrastructure.db import teams as team_models  # noqa: E402,F401

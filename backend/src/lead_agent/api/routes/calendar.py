@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import LeadORM, PipelineEventORM, WorkspaceCalendarEventORM
 from lead_agent.infrastructure.db.session import get_db
@@ -137,6 +138,7 @@ def create_calendar_event(
         ))
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found in this workspace.")
+        assert_lead_action(session, workspace, lead, "edit")
     row = WorkspaceCalendarEventORM(
         id=uuid4(), workspace_id=workspace.workspace_id, lead_id=request.lead_id,
         kind=request.kind, title=request.title,

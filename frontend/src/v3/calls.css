@@ -1,0 +1,56 @@
+/* Calls: unified history and dialing. */
+.calls { display: grid; gap: var(--s4); width: 100%; max-width: 1200px; margin: 0 auto; }
+.calls-history { display: grid; gap: var(--s3); padding: var(--s4); border: var(--hairline) solid var(--separator); border-radius: var(--r-lg); background: var(--surface); }
+.calls-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); justify-content: space-between; }
+.calls-search { display: flex; align-items: center; gap: var(--s2); min-width: 240px; flex: 0 1 320px; height: var(--control-h); padding: 0 var(--s3); border-radius: var(--r-sm); background: var(--surface-sunken); color: var(--label-3); }
+.calls-search input { flex: 1; min-width: 0; border: 0; background: transparent; font: var(--t-callout); color: var(--label); outline: none; }
+.calls-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.calls-row {
+  display: grid;
+  grid-template-columns: 28px 34px minmax(0, 1.4fr) minmax(0, 1fr) 128px 104px;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s2);
+  border-bottom: var(--hairline) solid var(--separator);
+}
+.calls-row:last-child { border-bottom: 0; }
+.calls-direction { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-pill); background: var(--fill); color: var(--label-2); }
+.calls-row[data-outcome="missed"] .calls-direction, .calls-row[data-outcome="failed"] .calls-direction { background: var(--danger-soft); color: var(--danger-text); }
+.calls-row[data-outcome="answered"] .calls-direction { background: var(--tint-soft); color: var(--tint-text); }
+.calls-who { display: grid; min-width: 0; }
+.calls-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-callout); font-weight: 600; color: var(--label); }
+.calls-row[data-outcome="missed"] .calls-who b { color: var(--danger-text); }
+.calls-who small, .calls-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-footnote); color: var(--label-3); }
+.calls-meta { display: grid; justify-items: start; gap: 2px; min-width: 0; }
+.calls-time { font: var(--t-subhead); color: var(--label-3); text-align: right; white-space: nowrap; }
+.calls-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.calls-unknown { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r-pill); background: var(--fill-hover); color: var(--label-3); }
+.calls-detail { grid-column: 3 / -1; margin: var(--s2) 0 0; font: var(--t-callout); color: var(--label-2); }
+.calls-dial { display: grid; gap: var(--s3); justify-items: start; }
+.calls-dial > :last-child { justify-self: stretch; }
+.calls-picker { display: grid; gap: var(--s3); }
+.calls-picker .calls-search { flex: none; min-width: 0; }
+.calls-picker-list { display: grid; margin: 0; padding: 0; list-style: none; max-height: 50vh; overflow-y: auto; }
+.calls-picker-list button { display: flex; align-items: center; gap: var(--s3); width: 100%; padding: var(--s2); border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; color: var(--label); }
+.calls-picker-list button span { display: grid; flex: 1; min-width: 0; }
+.calls-picker-list b { font: var(--t-callout); font-weight: 600; }
+.calls-picker-list small { font: var(--t-footnote); color: var(--label-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calls-picker-list button:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (hover: hover) and (pointer: fine) { .calls-picker-list button:not(:disabled):hover { background: var(--fill); } }
+.calls-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+.calls-form-wide { grid-column: 1 / -1; }
+@media (max-width: 860px) {
+  .calls-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .calls-row > .v-mono, .calls-row > .calls-unknown, .calls-meta { display: none; }
+  .calls-time { grid-column: 2; text-align: left; }
+  .calls-actions { grid-row: 1 / span 2; grid-column: 3; }
+  .calls-form { grid-template-columns: 1fr; }
+}
+/* page-container mirror */
+@container page (max-width: 612px) {
+.calls-row { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.calls-row > .v-mono, .calls-row > .calls-unknown, .calls-meta { display: none; }
+.calls-time { grid-column: 2; text-align: left; }
+.calls-actions { grid-row: 1 / span 2; grid-column: 3; }
+.calls-form { grid-template-columns: 1fr; }
+}

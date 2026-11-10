@@ -469,7 +469,7 @@ export function WorkspaceBusinessProfilePanel({
         <section className="workspace-business-profile-section">
           <div className="workspace-business-profile-section-heading">
             <h3>Email signature <small>Optional</small></h3>
-            <p>Used on AI-generated follow-up emails. Leave blank to use the business name when available.</p>
+            <p>Added to AI-generated emails, including appointment drafts. Leave blank to use the business name when available.</p>
           </div>
           <label>
             <span>Workspace sender signature</span>

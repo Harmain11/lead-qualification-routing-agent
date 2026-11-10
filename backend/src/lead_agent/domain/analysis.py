@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lead_agent.domain.configuration import IcpConfig, ManualReviewConfig
 from lead_agent.domain.email import is_personal_email_address
@@ -47,6 +47,7 @@ class ContextFields(BaseModel):
     person_role: AnalyzedField
     decision_maker_status: AnalyzedField
     buying_stage: AnalyzedField
+    specific_request: AnalyzedField = Field(default_factory=AnalyzedField)
     competitor_or_current_tools: AnalyzedField
     technical_requirements: AnalyzedField
     previous_engagement: AnalyzedField
@@ -76,6 +77,33 @@ class IcpEvaluation(BaseModel):
     explicit_disqualifiers: list[str] = Field(default_factory=list)
 
 
+class IntentScoreAssessment(BaseModel):
+    """AI-assigned points and evidence for one intent/urgency criterion."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    points: int = Field(ge=0, le=35)
+    rationale: str = Field(min_length=1, max_length=500)
+    evidence: list[EvidenceReference] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def awarded_points_need_evidence(self) -> IntentScoreAssessment:
+        if self.points > 0 and not self.evidence:
+            raise ValueError("AI intent points require supporting evidence.")
+        return self
+
+
+class IntentScoring(BaseModel):
+    """Provider-owned intent scores; the application only validates and sums them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    urgency: IntentScoreAssessment
+    buying_stage: IntentScoreAssessment
+    budget_signal: IntentScoreAssessment
+    specific_request: IntentScoreAssessment
+
+
 class SalesSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -90,12 +118,13 @@ class SalesSummary(BaseModel):
 
 
 class ReasoningOutput(BaseModel):
-    """Strict provider output. It deliberately contains no arbitrary numeric score."""
+    """Strict provider output, including its evidence-based intent score."""
 
     model_config = ConfigDict(extra="forbid")
 
     context: ContextFields
     intent_level: IntentLevel
+    intent_scoring: IntentScoring
     overall_confidence: float = Field(ge=0, le=1)
     unknown_fields: list[str] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
@@ -117,6 +146,26 @@ class LeadContextAnalysis(ReasoningOutput):
     analysis_request_fingerprint: str | None = Field(default=None, exclude=True, repr=False)
 
 
+def load_persisted_analysis(value: object) -> LeadContextAnalysis:
+    """Read saved analyses across schema versions without inventing AI scores."""
+    if isinstance(value, dict) and "intent_scoring" not in value:
+        legacy_value = dict(value)
+        no_score = {
+            "points": 0,
+            "rationale": (
+                "This saved analysis predates AI intent scoring; re-analyze it "
+                "to receive AI-assigned intent points."
+            ),
+            "evidence": [],
+        }
+        legacy_value["intent_scoring"] = {
+            key: dict(no_score)
+            for key in ("urgency", "buying_stage", "budget_signal", "specific_request")
+        }
+        value = legacy_value
+    return LeadContextAnalysis.model_validate(value)
+
+
 class ReasoningProvider(Protocol):
     provider_name: str
     model_name: str
@@ -128,7 +177,7 @@ class ReasoningProvider(Protocol):
         icp: IcpConfig,
         business_profile: WorkspaceBusinessProfile | None = None,
     ) -> ReasoningOutput:
-        """Extract grounded context and ICP signals without selecting a final score."""
+        """Assess lead context, ICP signals, and evidence-based intent points."""
 
 
 class ReasoningProviderError(RuntimeError):

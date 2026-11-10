@@ -69,8 +69,9 @@ test("permission fallback order includes the calendar and checks view permission
 
 test("bulk actions keep their confirmations and permission gates", async () => {
   const leads = await source("../src/v3/screens/LeadsScreen.tsx");
-  assert.match(leads, /window\.confirm\(`Delete \$\{selectedIds\.size\} selected lead/);
-  assert.match(leads, /window\.confirm\(`Transfer or update \$\{selectedIds\.size\} selected leads/);
+  assert.match(leads, /confirmAction\(\{ title: `Delete \$\{count\} lead[\s\S]*?tone: "danger"/);
+  assert.match(leads, /confirmAction\(\{ title: `Sync \$\{selectedIds\.size\} lead/);
+  assert.doesNotMatch(leads, /window\.confirm/);
   assert.match(leads, /\{canCrmSync && \(/);
   assert.match(leads, /\{canEdit && <Button size="sm" kind="destructive"/);
   assert.match(leads, /\{canExport && <Button/);
@@ -80,7 +81,8 @@ test("bulk actions keep their confirmations and permission gates", async () => {
 
 test("the lead record keeps delete confirmation, CRM gating and enrolment gating", async () => {
   const record = await source("../src/v3/screens/LeadRecord.tsx");
-  assert.match(record, /window\.confirm\("Delete this lead from the workspace\?/);
+  assert.match(record, /confirmAction\(\{ title: "Delete this lead\?"[\s\S]*?tone: "danger"/);
+  assert.doesNotMatch(record, /window\.confirm/);
   assert.match(record, /\{canEdit && \(\s*<>\s*<MenuItem icon="edit"/);
   assert.match(record, /\{canEnrollAutomations && \(/);
   assert.match(record, /\{canUseAgent && \(/);
@@ -143,4 +145,19 @@ test("v3 never draws outlines around buttons or cards", async () => {
   assert.match(css, /--shadow-control: none;/);
   assert.doesNotMatch(css, /\.v-btn[^{]*\{[^}]*border:\s*1px/);
   assert.doesNotMatch(css, /\.v-card[^{]*\{[^}]*border:\s*1px/);
+});
+
+test("no screen uses the browser's native confirm dialog", async () => {
+  const { readdir, readFile: read } = await import("node:fs/promises");
+  const root = new URL("../src/", import.meta.url);
+  const offenders: string[] = [];
+  async function walk(dir: URL) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const next = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+      if (entry.isDirectory()) await walk(next);
+      else if (/\.(tsx?|jsx?)$/.test(entry.name) && /window\.confirm\(/.test(await read(next, "utf8"))) offenders.push(entry.name);
+    }
+  }
+  await walk(root);
+  assert.deepEqual(offenders, []);
 });

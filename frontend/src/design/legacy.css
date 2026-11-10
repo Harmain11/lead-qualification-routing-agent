@@ -5,7 +5,6 @@
  * migrated one at a time and the legacy layer shrinks as they are.
  * (Legacy !important declarations still win; v2 avoids competing with them.)
  */
-@import "../designTokens.css" layer(legacy);
 @import "../styles.css" layer(legacy);
 /* Component styles that were imported by eagerly loaded modules */
 @import "../components/ActivityToasts.css" layer(legacy);
@@ -17,18 +16,14 @@
 @import "../components/DialerPhoneDock.css" layer(legacy);
 @import "../components/pinnedLeadNavigation.css" layer(legacy);
 @import "../components/leadOutcomes.css" layer(legacy);
-@import "../components/leadDetailTabs.css" layer(legacy);
 @import "../components/dashboardSignals.css" layer(legacy);
 @import "../components/dashboardInsights.css" layer(legacy);
 @import "../components/analyticsInsights.css" layer(legacy);
 @import "../components/teamPerformance.css" layer(legacy);
-@import "../views/PipelineView.css" layer(legacy);
 @import "../components/workspaceBusinessProfile.css" layer(legacy);
 /* Global patch sheets that main.tsx loaded after App */
 @import "../components/navigationMenus.css" layer(legacy);
 @import "../components/usabilityFixes.css" layer(legacy);
-@import "../components/navigationLayout.css" layer(legacy);
-@import "../components/leadDetailPolish.css" layer(legacy);
 @import "../components/subpages.css" layer(legacy);
 @import "../components/leadBrowserLayout.css" layer(legacy);
 @import "../components/tableTypography.css" layer(legacy);

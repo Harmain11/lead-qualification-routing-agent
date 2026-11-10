@@ -7,14 +7,17 @@ import {
   LEAD_EXPORT_COLUMNS,
   listIntegrations,
   listLeadAssignmentOptions,
+  listLeadTrash,
   listLeads,
+  restoreLeadFromTrash,
   updateLeadAssignment,
   type LeadExportColumn,
+  type LeadTrashItem,
 } from "../../api";
 import { AutomationEnrollmentDialog } from "../../components/AutomationEnrollmentDialog";
 import type { LeadDetailSection } from "../../leadSections";
 import type { Lead, LeadAssignmentOption, LeadPayload } from "../../types";
-import { formatMoney, stageInfo, useDeals, viewDeal } from "../deals/dealStore";
+import { formatMoney, stageInfo, useDeals, viewDeal, type DealView } from "../deals/dealStore";
 import { leadAction, NEW_LEAD_EVENT } from "../shell/events";
 import { Icon } from "../ui/Icon";
 import {
@@ -33,6 +36,8 @@ import {
 } from "../ui/primitives";
 import { LeadRecord, type LeadIntent } from "./LeadRecord";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
+import { confirmAction } from "../ui/confirm";
+import { FeatureGuide } from "../../components/FeatureGuide";
 
 const LEAD_PAGE_SIZE = 50;
 
@@ -112,6 +117,8 @@ type Props = {
   newLeadIds: ReadonlySet<string>;
   canEdit?: boolean;
   canManageRouting?: boolean;
+  canViewComments?: boolean;
+  canAddComments?: boolean;
   canManageManualReview?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
@@ -119,6 +126,8 @@ type Props = {
   canUseAgent?: boolean;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
+  boardViews?: DealView[];
+  onOpenPipeline?: () => void;
   canEnrollAutomations?: boolean;
   onOpenAutomations?: () => void;
   canCall?: boolean;
@@ -143,6 +152,8 @@ export function LeadsScreen({
   newLeadIds,
   canEdit = true,
   canManageRouting = false,
+  canViewComments = false,
+  canAddComments = false,
   canManageManualReview = false,
   canExport = false,
   canCrmSync = false,
@@ -150,6 +161,8 @@ export function LeadsScreen({
   canUseAgent = false,
   dialerPhoneConnectionId = null,
   onNavigateToDialer,
+  boardViews,
+  onOpenPipeline,
   canEnrollAutomations = false,
   onOpenAutomations,
   canCall = false,
@@ -171,6 +184,9 @@ export function LeadsScreen({
   const loadedOnce = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
+  const [leadListMode, setLeadListMode] = useState<"all" | "trash">("all");
+  const [trashItems, setTrashItems] = useState<LeadTrashItem[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -334,19 +350,47 @@ export function LeadsScreen({
   };
 
   const deleteSelected = async () => {
-    if (!selectedIds.size || !window.confirm(`Delete ${selectedIds.size} selected lead${selectedIds.size === 1 ? "" : "s"}? A later matching inquiry can be imported again.`)) return;
+    if (!selectedIds.size) return;
+    const count = selectedIds.size;
+    if (!(await confirmAction({ title: `Delete ${count} lead${count === 1 ? "" : "s"}?`, message: "They will move to Trash and matching source records will stay suppressed during future syncs.", confirmLabel: `Move to Trash`, tone: "danger" }))) return;
     try {
       const result = await bulkDeleteLeads([...selectedIds]);
       setSelectedIds(new Set());
-      setNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} deleted. Later matching inquiries can be imported again.`);
+      setNotice(`${result.deleted} lead${result.deleted === 1 ? "" : "s"} moved to Trash. Future syncs will keep matching source records suppressed.`);
       setRefreshKey((value) => value + 1);
       void onDeleted("bulk");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Unable to delete selected leads");
     }
   };
+  const openTrash = async () => {
+    setLeadListMode("trash");
+    setTrashLoading(true);
+    try {
+      setTrashItems(await listLeadTrash());
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to load Trash");
+    } finally {
+      setTrashLoading(false);
+    }
+  };
+  const restoreTrash = async (item: LeadTrashItem) => {
+    try {
+      const restored = await restoreLeadFromTrash(item.id);
+      setTrashItems((current) => current.filter((candidate) => candidate.id !== item.id));
+      setLeadListMode("all");
+      setNotice(
+        restored.status === "restored"
+          ? `${item.lead_email || "Lead"} restored with all saved details.`
+          : `${item.lead_email || "Lead"} was deleted before lossless Trash was available. ${providerLabel(item.provider)} will recreate it on the next sync.`,
+      );
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to restore Trash item");
+    }
+  };
   const transferSelected = async () => {
-    if (!window.confirm(`Transfer or update ${selectedIds.size} selected leads in ${providerLabel(bulkProvider)}?`)) return;
+    if (!(await confirmAction({ title: `Sync ${selectedIds.size} lead${selectedIds.size === 1 ? "" : "s"} to ${providerLabel(bulkProvider)}?`, message: "Records are created or updated in the CRM with each lead's current details.", confirmLabel: "Sync" }))) return;
     try {
       const result = await bulkSendLeadsToCrm([...selectedIds], bulkProvider);
       const firstFailure = result.results.find((item) => item.status !== "synced" && item.error)?.error;
@@ -429,6 +473,8 @@ export function LeadsScreen({
             canUseAgent={canUseAgent}
             canCall={canCall}
             canManageRouting={canManageRouting}
+            canViewComments={canViewComments}
+            canAddComments={canAddComments}
             canManageManualReview={canManageManualReview}
             assignmentOptions={assignmentOptions}
             recordedStage={recordedStages?.get(selected.id) ?? null}
@@ -436,6 +482,8 @@ export function LeadsScreen({
             embeddedPhone={embeddedPhone}
             dialerPhoneConnectionId={dialerPhoneConnectionId}
             onNavigateToDialer={onNavigateToDialer}
+            boardViews={boardViews}
+            onOpenPipeline={onOpenPipeline}
             canEdit={canEdit}
             canEnrollAutomations={canEnrollAutomations}
             onEnrollAutomation={(kind) =>
@@ -471,13 +519,19 @@ export function LeadsScreen({
         }
         actions={
           <>
+            <FeatureGuide topic="lead" compact />
             {canExport && <Button icon="share" onClick={() => setShowExport(true)}>Export</Button>}
             {canEdit && <Button kind="filled" icon="plus" onClick={() => setShowForm(true)}>New Lead</Button>}
           </>
         }
       />
 
-      <section className="v-queue" data-tour="leads" aria-label="Lead queue">
+      <nav className="v-lead-list-tabs" aria-label="Lead list">
+        <button type="button" aria-current={leadListMode === "all" ? "page" : undefined} onClick={() => setLeadListMode("all")}>All leads</button>
+        <button type="button" aria-current={leadListMode === "trash" ? "page" : undefined} onClick={() => void openTrash()}>Trash</button>
+      </nav>
+
+      <section className="v-queue" data-tour="leads" aria-label="Lead queue" hidden={leadListMode !== "all"}>
         <div className="v-queue-bar" role="search">
           <label className="v-searchfield">
             <Icon name="search" size={16} />
@@ -649,7 +703,29 @@ export function LeadsScreen({
         )}
       </section>
 
-      {selectedIds.size > 0 && (
+      {leadListMode === "trash" && (
+        <section className="v-queue v-lead-trash-view" aria-label="Deleted leads">
+          {trashLoading ? <p className="v-muted">Loading Trash…</p> : trashItems.length === 0 ? <EmptyState icon="review" title="Trash is empty">Deleted leads will appear here after you move them out of the workspace.</EmptyState> : (
+            <div className="v-tablewrap">
+              <table className="v-table v-trash-table">
+                <thead><tr><th scope="col">Lead</th><th scope="col">Source</th><th scope="col">Removed</th><th scope="col" className="c-actions">Action</th></tr></thead>
+                <tbody>
+                  {trashItems.map((item) => (
+                    <tr key={item.id}>
+                      <td className="c-lead"><div className="v-lead-name"><strong>{item.lead_email || "Deleted lead"}</strong><span className="v-muted">Source suppressed after {item.reason.replaceAll("_", " ")}.</span></div></td>
+                      <td className="trash-source"><span>{item.provider}</span><code title={item.external_id}>{item.external_id}</code></td>
+                      <td className="c-date">{formatShortDate(item.created_at)}</td>
+                      <td className="c-actions"><Button size="sm" onClick={() => void restoreTrash(item)}>Restore</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {leadListMode === "all" && selectedIds.size > 0 && (
         <div className="v-selectionbar" role="group" aria-label="Bulk actions">
           <b className="num">{selectedIds.size} selected</b>
           {canCrmSync && (

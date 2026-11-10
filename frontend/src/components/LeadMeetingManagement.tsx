@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { cancelLeadMeeting, getLeadManagedMeeting, rescheduleLeadMeeting } from "../api";
 import type { ManagedMeeting } from "../types";
 import type { LeadMeetingIndicator } from "./LeadMeetingPanel";
+import { confirmAction } from "../v3/ui/confirm";
 
 type Props = {
   leadId: string;
@@ -45,7 +46,7 @@ export function LeadMeetingManagement({ leadId, canEdit, refreshToken, onChanged
   async function cancel(event: FormEvent) {
     event.preventDefault();
     if (!meeting || !reason.trim() || busy) return;
-    if (!window.confirm(`Cancel the ${formatTime(meeting.start_at)} meeting? The calendar may notify attendees.`)) return;
+    if (!(await confirmAction({ title: `Cancel the ${formatTime(meeting.start_at)} meeting?`, message: "The calendar provider may notify every attendee.", confirmLabel: "Cancel meeting", cancelLabel: "Keep meeting", tone: "danger" }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -71,7 +72,7 @@ export function LeadMeetingManagement({ leadId, canEdit, refreshToken, onChanged
       setError("Choose a valid start and end time.");
       return;
     }
-    if (!window.confirm(`Move the meeting to ${formatTime(startAt.toISOString())}? The calendar may notify attendees.`)) return;
+    if (!(await confirmAction({ title: `Move the meeting to ${formatTime(startAt.toISOString())}?`, message: "The calendar provider may notify every attendee.", confirmLabel: "Move meeting" }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -100,14 +101,14 @@ export function LeadMeetingManagement({ leadId, canEdit, refreshToken, onChanged
     {meeting && <>
       <p className="meeting-management-time">{formatTime(meeting.start_at)}</p>
       <p className="meeting-management-meta">{meeting.provider === "calendly" ? "Calendly" : "Google Calendar"} · {meeting.title}</p>
-      {meeting.event_url?.startsWith("https://") && <a href={meeting.event_url} target="_blank" rel="noreferrer">Open calendar event ↗</a>}
+      {meeting.event_url?.startsWith("https://") && <a href={meeting.event_url} target="_blank" rel="noreferrer">Open calendar event ›</a>}
       {canEdit && <div className="meeting-management-actions">
         {meeting.provider === "calendly" ? (
-          meeting.reschedule_url && <a className="secondary-button" href={meeting.reschedule_url} target="_blank" rel="noreferrer">Reschedule in Calendly ↗</a>
+          meeting.reschedule_url && <a className="secondary-button" href={meeting.reschedule_url} target="_blank" rel="noreferrer">Reschedule in Calendly ›</a>
         ) : <button className="secondary-button" type="button" onClick={() => { setAction(action === "reschedule" ? null : "reschedule"); setError(null); }}>Reschedule</button>}
         {meeting.can_cancel_here
           ? <button className="secondary-button" type="button" onClick={() => { setAction(action === "cancel" ? null : "cancel"); setError(null); }}>Cancel meeting</button>
-          : meeting.cancel_url && <a className="secondary-button" href={meeting.cancel_url} target="_blank" rel="noreferrer">Cancel invitee in Calendly ↗</a>}
+          : meeting.cancel_url && <a className="secondary-button" href={meeting.cancel_url} target="_blank" rel="noreferrer">Cancel invitee in Calendly ›</a>}
       </div>}
       {meeting.provider === "calendly" && <small>After changing the meeting in Calendly, select Refresh status here to verify the result.</small>}
       {action === "cancel" && <form className="meeting-management-form" onSubmit={(event) => void cancel(event)}>

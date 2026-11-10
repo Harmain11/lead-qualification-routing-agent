@@ -18,7 +18,6 @@ export function IntegrationAccountChoice({
   const ready = choice === "current" || (choice === "different" && switched);
   useEffect(() => { onReadyChange?.(ready); }, [ready, onReadyChange]);
   return <section className="integration-guide integration-account-choice" aria-label={`Choose ${name} account`}>
-    <span className="eyebrow">Choose before connecting</span>
     <h3>Which {name} account do you want to use?</h3>
     {accountName && <p>Currently connected in Corral: <strong>{accountName}</strong>. Your browser may be signed in to a different account.</p>}
     <div className="account-choice-options">

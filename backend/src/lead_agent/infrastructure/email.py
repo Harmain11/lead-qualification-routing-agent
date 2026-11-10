@@ -24,6 +24,7 @@ class VerificationEmail:
     recipient: str
     verification_url: str
     expires_at: str
+    purpose: str = "verify_email"  # or "reset_password"
 
 
 class EmailProvider(Protocol):
@@ -64,6 +65,15 @@ def _verification_message(
     email = EmailMessage()
     email["From"] = sender
     email["To"] = message.recipient
+    if message.purpose == "reset_password":
+        email["Subject"] = "Reset your Ingenuity Systems password"
+        email.set_content(
+            "Someone asked to reset the password for this Ingenuity Systems account.\n\n"
+            f"Open this link within {settings.password_reset_expiry_minutes} minutes to choose "
+            f"a new password:\n{message.verification_url}\n\n"
+            "If you did not ask for this, ignore this message. Your password stays the same."
+        )
+        return email
     email["Subject"] = "Verify your Ingenuity Systems account"
     email.set_content(
         "Verify your email address to activate your Ingenuity Systems workspace.\n\n"

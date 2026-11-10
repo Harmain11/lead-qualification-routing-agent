@@ -11,18 +11,29 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import require_permission
+from lead_agent.api.dependencies import (
+    require_any_permission,
+    require_permission,
+    require_permissions,
+)
+from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.gmail_threading import matches_lead_thread
 from lead_agent.application.governance import operations_policy
+from lead_agent.application.integration_access import (
+    allowed_connection_actions,
+    assert_connection_action,
+)
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.follow_up import FollowUpEmailContent
+from lead_agent.domain.meeting_status import VERIFIED_MEETING_STATUSES
 from lead_agent.domain.provider_errors import ProviderOperationError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
@@ -46,8 +57,20 @@ _EMAIL_ADDRESS = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
 _GMAIL_ID = re.compile(r"^[A-Za-z0-9_-]{1,255}$")
 _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 _ALLOWED_EMAIL_TAGS = {
-    "a", "b", "blockquote", "br", "div", "em", "i", "li", "ol", "p", "span",
-    "strong", "u", "ul",
+    "a",
+    "b",
+    "blockquote",
+    "br",
+    "div",
+    "em",
+    "i",
+    "li",
+    "ol",
+    "p",
+    "span",
+    "strong",
+    "u",
+    "ul",
 }
 _VOID_EMAIL_TAGS = {"br"}
 
@@ -98,9 +121,7 @@ class _EmailHTMLSanitizer(HTMLParser):
                     )
                     return
                 if parsed.scheme == "mailto" and parsed.path:
-                    self.parts.append(
-                        f'<a href="{html_module.escape(href.strip(), quote=True)}">'
-                    )
+                    self.parts.append(f'<a href="{html_module.escape(href.strip(), quote=True)}">')
                     return
         self.parts.append(f"<{tag}>")
 
@@ -125,8 +146,10 @@ def _validate_address_list(value: str, *, required: bool) -> str:
     if "\r" in value or "\n" in value:
         raise ValueError("Email recipients cannot contain line breaks")
     addresses = [address.strip() for _name, address in getaddresses([value]) if address]
-    if ((required or value.strip()) and not addresses) or len(addresses) > 10 or any(
-        not _EMAIL_ADDRESS.fullmatch(address) for address in addresses
+    if (
+        ((required or value.strip()) and not addresses)
+        or len(addresses) > 10
+        or any(not _EMAIL_ADDRESS.fullmatch(address) for address in addresses)
     ):
         raise ValueError("Enter up to 10 valid email addresses, separated by commas")
     return value
@@ -150,8 +173,30 @@ class MailboxMessagePageResponse(BaseModel):
     next_page_token: str | None
 
 
+class MailboxAttachmentResponse(BaseModel):
+    attachment_id: str
+    filename: str
+    mime_type: str
+    size: int = 0
+
+
+class MailboxThreadMessageResponse(BaseModel):
+    message_id: str
+    thread_id: str
+    sender: str
+    sender_name: str
+    reply_to: str = ""
+    recipients: str
+    subject: str
+    sent_at: str
+    rfc_message_id: str = ""
+    direction: str
+    body: str = ""
+    attachments: list[MailboxAttachmentResponse] = Field(default_factory=list)
+
+
 class MailboxThreadResponse(BaseModel):
-    messages: list[dict[str, str]]
+    messages: list[MailboxThreadMessageResponse]
 
 
 class ComposeWithAIRequest(BaseModel):
@@ -203,9 +248,11 @@ class SendEmailRequest(BaseModel):
     draft_id: UUID | None = None
 
     @model_validator(mode="after")
-    def require_reply_reference(self) -> "SendEmailRequest":
+    def require_reply_reference(self) -> SendEmailRequest:
         if self.thread_id and not self.in_reply_to:
-            raise ValueError("Refresh the Gmail conversation before replying so the message stays in its thread")
+            raise ValueError(
+                "Refresh the Gmail conversation before replying so the message stays in its thread"
+            )
         return self
 
     @field_validator("recipient")
@@ -295,17 +342,24 @@ class EmailDraftSummary(BaseModel):
 
 def _email_draft_response(row: WorkspaceEmailDraftORM) -> EmailDraftResponse:
     return EmailDraftResponse(
-        id=row.id, version=row.version, data=row.data,
-        created_at=row.created_at, updated_at=row.updated_at,
+        id=row.id,
+        version=row.version,
+        data=row.data,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
-def _owned_email_draft(session: Session, workspace: WorkspaceContext, draft_id: UUID) -> WorkspaceEmailDraftORM:
-    row = session.scalar(select(WorkspaceEmailDraftORM).where(
-        WorkspaceEmailDraftORM.id == draft_id,
-        WorkspaceEmailDraftORM.workspace_id == workspace.workspace_id,
-        WorkspaceEmailDraftORM.created_by == str(workspace.actor_id),
-    ))
+def _owned_email_draft(
+    session: Session, workspace: WorkspaceContext, draft_id: UUID
+) -> WorkspaceEmailDraftORM:
+    row = session.scalar(
+        select(WorkspaceEmailDraftORM).where(
+            WorkspaceEmailDraftORM.id == draft_id,
+            WorkspaceEmailDraftORM.workspace_id == workspace.workspace_id,
+            WorkspaceEmailDraftORM.created_by == str(workspace.actor_id),
+        )
+    )
     if row is None:
         raise HTTPException(status_code=404, detail="Draft not found")
     return row
@@ -317,7 +371,9 @@ def _draft_payload(request: SaveEmailDraftRequest) -> dict:
         try:
             total_bytes += len(base64.b64decode(attachment.content_base64, validate=True))
         except (binascii.Error, ValueError):
-            raise HTTPException(status_code=422, detail="An attachment could not be decoded.") from None
+            raise HTTPException(
+                status_code=422, detail="An attachment could not be decoded."
+            ) from None
     if total_bytes > _MAX_ATTACHMENT_BYTES:
         raise HTTPException(status_code=413, detail="Attachments must total 10 MB or less.")
     return request.model_dump(mode="json", exclude={"expected_version"}) | {
@@ -334,7 +390,9 @@ class GmailSendAccountResponse(BaseModel):
 @router.get("/send-accounts", response_model=list[GmailSendAccountResponse])
 def list_gmail_send_accounts(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(
+        require_any_permission("mailbox.send_own", "integrations.gmail.send")
+    ),
 ) -> list[GmailSendAccountResponse]:
     connections = session.scalars(
         select(ProviderConnectionORM)
@@ -353,12 +411,14 @@ def list_gmail_send_accounts(
             sender_email=sender_email,
         )
         for connection in connections
+        if "send" in allowed_connection_actions(session, workspace, connection)
         if GMAIL_SEND_SCOPE in set(connection.scopes or [])
         and _EMAIL_ADDRESS.fullmatch(
             sender_email := str(
-                connection.connection_metadata.get("gmail_email")
-                or connection.account_name
-            ).strip().lower()
+                connection.connection_metadata.get("gmail_email") or connection.account_name
+            )
+            .strip()
+            .lower()
         )
     ]
 
@@ -381,6 +441,12 @@ def _gmail_connection(
     )
     if connection is None:
         raise HTTPException(status_code=404, detail="Verified Gmail account not found")
+    assert_connection_action(
+        session,
+        workspace,
+        connection,
+        "view" if required_scope == GMAIL_READONLY_SCOPE else "send",
+    )
     if required_scope not in connection.scopes:
         raise HTTPException(
             status_code=409,
@@ -415,14 +481,18 @@ def list_mailbox_messages(
     page_token: str | None = Query(default=None, max_length=1024),
     limit: int = Query(default=25, ge=1, le=50),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(
+        require_any_permission("mailbox.view_own", "integrations.gmail.view")
+    ),
 ) -> MailboxMessagePageResponse:
     connection, access_token = _gmail_connection(
         session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
     )
-    mailbox = str(
-        connection.connection_metadata.get("gmail_email") or connection.account_name
-    ).strip().lower()
+    mailbox = (
+        str(connection.connection_metadata.get("gmail_email") or connection.account_name)
+        .strip()
+        .lower()
+    )
     provider = GmailInboundProvider(connection.id, access_token, mailbox)
     try:
         page = provider.list_mailbox_messages(
@@ -444,14 +514,18 @@ def get_mailbox_thread(
     connection_id: UUID,
     thread_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(
+        require_any_permission("mailbox.view_own", "integrations.gmail.view")
+    ),
 ) -> MailboxThreadResponse:
     connection, access_token = _gmail_connection(
         session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
     )
-    mailbox = str(
-        connection.connection_metadata.get("gmail_email") or connection.account_name
-    ).strip().lower()
+    mailbox = (
+        str(connection.connection_metadata.get("gmail_email") or connection.account_name)
+        .strip()
+        .lower()
+    )
     provider = GmailInboundProvider(connection.id, access_token, mailbox)
     try:
         messages = provider.fetch_mailbox_thread(thread_id)
@@ -463,11 +537,55 @@ def get_mailbox_thread(
     return MailboxThreadResponse(messages=messages)
 
 
+@router.get("/attachment")
+def get_mailbox_attachment(
+    connection_id: UUID,
+    message_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
+    attachment_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(
+        require_any_permission("mailbox.view_own", "integrations.gmail.view")
+    ),
+) -> Response:
+    connection, access_token = _gmail_connection(
+        session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
+    )
+    mailbox = (
+        str(connection.connection_metadata.get("gmail_email") or connection.account_name)
+        .strip()
+        .lower()
+    )
+    try:
+        content, filename, mime_type = GmailInboundProvider(
+            connection.id, access_token, mailbox
+        ).fetch_mailbox_attachment(message_id, attachment_id)
+    except ProviderOperationError as error:
+        raise HTTPException(
+            status_code=503 if error.retryable else 502,
+            detail=str(error),
+        ) from error
+    safe_type = (
+        mime_type.lower()
+        if re.fullmatch(r"[a-z0-9.+-]+/[a-z0-9.+-]+", mime_type.lower())
+        else "application/octet-stream"
+    )
+    safe_name = re.sub(r"[\\\r\n\"]+", "", filename) or "attachment"
+    disposition = "inline" if safe_type.startswith("image/") else "attachment"
+    return Response(
+        content=content,
+        media_type=safe_type,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
 @router.post("/compose-ai", response_model=ComposeWithAIResponse)
 def compose_email_with_ai(
     request: ComposeWithAIRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "agents.execute")),
 ) -> ComposeWithAIResponse:
     lead = None
     if request.lead_id:
@@ -479,6 +597,7 @@ def compose_email_with_ai(
         )
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
+        assert_lead_action(session, workspace, lead, "edit")
     if not any(
         (request.thread_id, lead, request.subject, request.current_body, request.instruction)
     ):
@@ -537,7 +656,10 @@ def compose_email_with_ai(
         ):
             raise HTTPException(
                 status_code=409,
-                detail="The selected message is no longer in this Gmail thread. Refresh before drafting.",
+                detail=(
+                    "The selected message is no longer in this Gmail thread. "
+                    "Refresh before drafting."
+                ),
             )
     elif lead:
         events = session.scalars(
@@ -578,7 +700,9 @@ def compose_email_with_ai(
         "reply_target_message": next(
             (item for item in conversation if item.get("rfc_message_id") == request.in_reply_to),
             {},
-        ) if request.in_reply_to else {},
+        )
+        if request.in_reply_to
+        else {},
         "workspace_business_profile": profile.model_dump(mode="json"),
     }
     provider = resolve_workspace_reasoning_provider(session, workspace.workspace_id)
@@ -603,10 +727,24 @@ def compose_email_with_ai(
                 status_code=409,
                 detail="AI could not preserve the meeting options. The current draft was kept.",
             )
-    subject = request.subject if request.thread_id else generated.subject
+    meeting_verified = lead is not None and (
+        session.scalar(
+            select(PipelineEventORM.id).where(
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "meeting_scheduled",
+                PipelineEventORM.status.in_(VERIFIED_MEETING_STATUSES),
+            )
+        )
+        is not None
+    )
+    guarded = guard_outgoing_email(
+        generated.subject, generated.body, meeting_verified=meeting_verified
+    )
+    subject = request.subject if request.thread_id else guarded.subject
     return ComposeWithAIResponse(
-        subject=subject,
-        body=apply_workspace_email_signature(generated.body, profile),
+        subject=subject or "",
+        body=apply_workspace_email_signature(guarded.body or generated.body, profile),
     )
 
 
@@ -616,17 +754,24 @@ def list_email_drafts(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> list[EmailDraftSummary]:
     rows = session.scalars(
-        select(WorkspaceEmailDraftORM).where(
+        select(WorkspaceEmailDraftORM)
+        .where(
             WorkspaceEmailDraftORM.workspace_id == workspace.workspace_id,
             WorkspaceEmailDraftORM.created_by == str(workspace.actor_id),
-        ).order_by(WorkspaceEmailDraftORM.updated_at.desc()).limit(100)
+        )
+        .order_by(WorkspaceEmailDraftORM.updated_at.desc())
+        .limit(100)
     ).all()
-    return [EmailDraftSummary(
-        id=row.id, version=row.version,
-        subject=str(row.data.get("subject") or ""),
-        recipient=str(row.data.get("recipient") or ""),
-        updated_at=row.updated_at,
-    ) for row in rows]
+    return [
+        EmailDraftSummary(
+            id=row.id,
+            version=row.version,
+            subject=str(row.data.get("subject") or ""),
+            recipient=str(row.data.get("recipient") or ""),
+            updated_at=row.updated_at,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/drafts/{draft_id}", response_model=EmailDraftResponse)
@@ -646,9 +791,13 @@ def create_email_draft(
 ) -> EmailDraftResponse:
     now = datetime.now(UTC)
     row = WorkspaceEmailDraftORM(
-        id=uuid4(), workspace_id=workspace.workspace_id,
-        created_by=str(workspace.actor_id), version=1,
-        data=_draft_payload(request), created_at=now, updated_at=now,
+        id=uuid4(),
+        workspace_id=workspace.workspace_id,
+        created_by=str(workspace.actor_id),
+        version=1,
+        data=_draft_payload(request),
+        created_at=now,
+        updated_at=now,
     )
     session.add(row)
     session.commit()
@@ -664,7 +813,9 @@ def update_email_draft(
 ) -> EmailDraftResponse:
     row = _owned_email_draft(session, workspace, draft_id)
     if request.expected_version != row.version:
-        raise HTTPException(status_code=409, detail="This draft changed elsewhere. Reopen it before saving.")
+        raise HTTPException(
+            status_code=409, detail="This draft changed elsewhere. Reopen it before saving."
+        )
     row.data = _draft_payload(request)
     row.version += 1
     row.updated_at = datetime.now(UTC)
@@ -692,9 +843,11 @@ def send_email(
     connection, access_token = _gmail_connection(
         session, workspace, request.connection_id, required_scope=GMAIL_SEND_SCOPE
     )
-    mailbox = str(
-        connection.connection_metadata.get("gmail_email") or connection.account_name
-    ).strip().lower()
+    mailbox = (
+        str(connection.connection_metadata.get("gmail_email") or connection.account_name)
+        .strip()
+        .lower()
+    )
     lead: LeadORM | None = None
     if request.lead_id is not None:
         lead = session.scalar(
@@ -705,12 +858,15 @@ def send_email(
         )
         if lead is None:
             raise HTTPException(status_code=404, detail="Lead not found")
+        assert_lead_action(session, workspace, lead, "edit")
     if lead is not None and request.thread_id:
-        messages = session.scalars(select(PipelineEventORM).where(
-            PipelineEventORM.workspace_id == workspace.workspace_id,
-            PipelineEventORM.lead_id == lead.id,
-            PipelineEventORM.stage == "gmail_message",
-        )).all()
+        messages = session.scalars(
+            select(PipelineEventORM).where(
+                PipelineEventORM.workspace_id == workspace.workspace_id,
+                PipelineEventORM.lead_id == lead.id,
+                PipelineEventORM.stage == "gmail_message",
+            )
+        ).all()
         if not matches_lead_thread(
             (event.details for event in messages if isinstance(event.details, dict)),
             connection_id=str(connection.id),
@@ -720,7 +876,10 @@ def send_email(
         ):
             raise HTTPException(
                 status_code=409,
-                detail="This reply no longer matches the lead’s Gmail thread. Refresh its history and reply again.",
+                detail=(
+                    "This reply no longer matches the lead’s Gmail thread. "
+                    "Refresh its history and reply again."
+                ),
             )
     draft = _owned_email_draft(session, workspace, request.draft_id) if request.draft_id else None
 
@@ -731,7 +890,9 @@ def send_email(
         try:
             content = base64.b64decode(attachment.content_base64, validate=True)
         except (binascii.Error, ValueError):
-            raise HTTPException(status_code=422, detail="An attachment could not be decoded.") from None
+            raise HTTPException(
+                status_code=422, detail="An attachment could not be decoded."
+            ) from None
         total_attachment_bytes += len(content)
         if total_attachment_bytes > _MAX_ATTACHMENT_BYTES:
             raise HTTPException(
@@ -767,9 +928,7 @@ def send_email(
             "thread_id": thread_id or "",
             "sender": mailbox,
             "sender_name": "",
-            "recipients": ", ".join(
-                value for value in (request.recipient, request.cc) if value
-            ),
+            "recipients": ", ".join(value for value in (request.recipient, request.cc) if value),
             "subject": request.subject,
             "sent_at": sent_at.isoformat(),
             "rfc_message_id": "",

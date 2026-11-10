@@ -106,7 +106,10 @@ def sales_store(icp, routing):
         workspace = WorkspaceContext(
             workspace_id=workspace_id, user_id=members[0].user_id,
             actor_id=str(members[0].user_id), role="owner",
-            permissions=frozenset({"leads.view", "leads.edit", "analytics.view", "members.manage"}),
+            permissions=frozenset({
+                "leads.view", "leads.edit", "analytics.view", "members.manage",
+                "fields.financial.edit", "fields.financial.view",
+            }),
         )
         yield SimpleNamespace(
             session=session, leads=leads, members=members, provider=provider,
@@ -253,3 +256,18 @@ def test_http_permissions_mapping_and_cross_workspace_lead(sales_store):
             assert denied.status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+def test_closing_revenue_requires_financial_edit_permission(sales_store):
+    store = sales_store
+    store.workspace = WorkspaceContext(
+        workspace_id=store.workspace.workspace_id,
+        user_id=store.members[0].user_id,
+        actor_id=str(store.members[0].user_id),
+        role="owner",
+        permissions=frozenset({"leads.view", "leads.edit"}),
+    )
+    with pytest.raises(HTTPException, match="fields.financial.edit") as error:
+        close(store)
+    assert error.value.status_code == 403
+    assert store.leads[0].outcome is None

@@ -273,7 +273,7 @@ export function DirectDialer({
     {!connections.length ? (
       <div className="direct-dialer-status is-unavailable" role="status">
         <span aria-hidden="true" />
-        <div><strong>No verified calling account</strong><p>Connect and verify a calling provider in Integrations → Calling before dialing.</p></div>
+        <div><strong>No verified calling account</strong><p>Connect and verify a calling provider in Integrations › Calling before dialing.</p></div>
       </div>
     ) : !canCall ? (
       <div className="direct-dialer-status is-unavailable" role="status">

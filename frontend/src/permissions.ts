@@ -3,6 +3,22 @@ export type PermissionGroup = {
   permissions: Array<{ id: string; label: string }>;
 };
 
+const PROVIDERS = [
+  "salesforce", "hubspot", "gmail", "outlook", "google_calendar", "calendly",
+  "slack", "cloudtalk", "twilio", "aircall", "ringcentral", "vapi", "retell",
+  "gohighlevel", "openai", "gemini", "claude", "deepseek", "xai", "linkedin",
+  "instagram", "messenger", "whatsapp_business", "clutch",
+] as const;
+
+const PROVIDER_ACTIONS = [
+  "view", "view_status", "connect_own", "use", "sync", "send", "disconnect_own",
+  "manage_own", "manage_shared", "configure", "manage_credentials",
+] as const;
+
+const providerLabel = (value: string) => value.split("_").map((part) =>
+  part.charAt(0).toUpperCase() + part.slice(1),
+).join(" ");
+
 export const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     label: "Leads",
@@ -10,11 +26,31 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { id: "leads.view", label: "View leads" },
       { id: "leads.edit", label: "Edit leads" },
       { id: "leads.export", label: "Export leads" },
+      { id: "leads.reassign", label: "Reassign leads" },
+      { id: "leads.delete_restore", label: "Delete and restore leads" },
+      { id: "leads.share", label: "Share leads" },
+      { id: "leads.access.manage", label: "Manage lead access" },
+    ],
+  },
+  {
+    label: "Collaboration",
+    permissions: [
+      { id: "comments.view", label: "View team notes and comments" },
+      { id: "comments.add", label: "Add notes and comments" },
+      { id: "comments.edit_own", label: "Edit own notes" },
+      { id: "comments.edit_shared", label: "Edit shared notes" },
+      { id: "comments.delete", label: "Delete notes" },
+      { id: "comments.view_private", label: "View private notes" },
+      { id: "activity.view", label: "View lead activity history" },
     ],
   },
   {
     label: "Analytics",
-    permissions: [{ id: "analytics.view", label: "View analytics" }],
+    permissions: [
+      { id: "analytics.view", label: "View analytics" },
+      { id: "analytics.compare", label: "Compare teams and reps" },
+      { id: "analytics.sensitive", label: "View sensitive metrics" },
+    ],
   },
   {
     label: "Manual review",
@@ -59,6 +95,10 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { id: "agents.view", label: "View agent activity" },
       { id: "agents.execute", label: "Execute permitted agent actions" },
+      { id: "agents.configure", label: "Configure agents" },
+      { id: "agents.logs.view", label: "View agent logs" },
+      { id: "agents.external_actions", label: "Run external actions" },
+      { id: "agents.approve_high_impact", label: "Approve high-impact actions" },
     ],
   },
   {
@@ -71,8 +111,55 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   },
   {
     label: "Workspace",
-    permissions: [{ id: "workspace.manage", label: "Manage workspace" }],
+    permissions: [
+      { id: "workspace.manage", label: "Manage workspace" },
+      { id: "privacy.manage", label: "Manage privacy policies" },
+      { id: "audit.view", label: "View security audit" },
+    ],
   },
+  {
+    label: "Mailbox",
+    permissions: [
+      { id: "mailbox.view_own", label: "View own mailbox" },
+      { id: "mailbox.connect_own", label: "Connect own mailbox" },
+      { id: "mailbox.disconnect_own", label: "Disconnect own mailbox" },
+      { id: "mailbox.sync_own", label: "Sync own mailbox" },
+      { id: "mailbox.send_own", label: "Send from own mailbox" },
+      { id: "mailbox.delegate", label: "Delegate shared mailbox" },
+    ],
+  },
+  {
+    label: "Calls & recordings",
+    permissions: [
+      { id: "calls.metadata.view", label: "View call metadata" },
+      { id: "calls.transcript.view", label: "View transcripts" },
+      { id: "calls.recording.play", label: "Play recordings" },
+      { id: "calls.recording.download", label: "Download recordings" },
+      { id: "calls.analysis.view", label: "View call analysis" },
+    ],
+  },
+  {
+    label: "Sensitive fields",
+    permissions: [
+      { id: "fields.contact.view", label: "View contact fields" },
+      { id: "fields.contact.edit", label: "Edit contact fields" },
+      { id: "fields.financial.view", label: "View financial fields" },
+      { id: "fields.financial.edit", label: "Edit financial fields" },
+      { id: "fields.communications.view", label: "View communication content" },
+      { id: "fields.communications.edit", label: "Edit communication content" },
+      { id: "fields.internal.view", label: "View internal fields" },
+      { id: "fields.internal.edit", label: "Edit internal fields" },
+      { id: "fields.restricted.view", label: "View restricted fields" },
+      { id: "fields.restricted.edit", label: "Edit restricted fields" },
+    ],
+  },
+  ...PROVIDERS.map((provider) => ({
+    label: `Integration · ${providerLabel(provider)}`,
+    permissions: PROVIDER_ACTIONS.map((action) => ({
+      id: `integrations.${provider}.${action}`,
+      label: providerLabel(action),
+    })),
+  })),
 ];
 
 export const ROLE_OPTIONS = [
@@ -84,17 +171,17 @@ export const ROLE_OPTIONS = [
   {
     id: "sales_manager",
     label: "Manager",
-    description: "Manage leads, routing, manual review, analytics and exports.",
+    description: "Oversee explicitly managed teams, manual review, reassignment and team analytics.",
   },
   {
     id: "sales_rep",
     label: "Sales Rep",
-    description: "Work permitted leads and normal sales actions.",
+    description: "Work only assigned or explicitly shared leads, own mailbox and approved tools.",
   },
   {
     id: "viewer",
     label: "Analyst / Viewer",
-    description: "Read-only operational visibility for the workspace.",
+    description: "Read-only visibility into permitted leads, activity, analytics and team members.",
   },
 ] as const;
 
@@ -111,12 +198,16 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
   owner: ALL_PERMISSIONS,
   admin: ALL_PERMISSIONS,
   sales_manager: [
-    "leads.view", "leads.edit", "leads.export", "analytics.view", "manual_review.view",
-    "manual_review.manage", "routing.view", "routing.manage", "members.view", "agents.view",
-    "agents.execute", "crm.sync",
+    "leads.view", "leads.edit", "analytics.view", "analytics.compare", "manual_review.view",
+    "manual_review.manage", "routing.view", "members.view", "agents.view", "agents.execute",
+    "dialer.call", "leads.reassign", "comments.view", "comments.add", "comments.edit_own", "activity.view",
+    "calls.metadata.view", "calls.transcript.view", "calls.recording.play", "calls.analysis.view",
+    "mailbox.view_own", "mailbox.connect_own", "mailbox.disconnect_own", "mailbox.sync_own", "mailbox.send_own",
+    "fields.contact.view", "fields.contact.edit", "fields.financial.view", "fields.financial.edit",
+    "fields.communications.view", "fields.internal.view",
   ],
-  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "crm.sync"],
-  viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view"],
+  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "dialer.call", "members.view", "comments.view", "comments.add", "comments.edit_own", "activity.view", "calls.metadata.view", "calls.transcript.view", "calls.recording.play", "calls.analysis.view", "mailbox.view_own", "mailbox.connect_own", "mailbox.disconnect_own", "mailbox.sync_own", "mailbox.send_own", "fields.contact.view", "fields.contact.edit", "fields.financial.view", "fields.financial.edit", "fields.communications.view"],
+  viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view", "members.view", "comments.view", "activity.view"],
 };
 
 export function roleLabel(role: string) {

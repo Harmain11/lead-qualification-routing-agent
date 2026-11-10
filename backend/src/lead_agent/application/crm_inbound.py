@@ -39,6 +39,7 @@ from lead_agent.infrastructure.db.models import (
     CrmProviderRecordLinkORM,
     CrmSyncORM,
     LeadORM,
+    LeadSuppressionORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
 )
@@ -100,7 +101,7 @@ def _state(
         object_type=object_type,
         enabled=False,
         initial_import_completed=False,
-        sync_interval_seconds=300 if connection.provider_type == "gmail" else 60,
+        sync_interval_seconds=60,
         next_sync_at=None,
         status="disabled",
         records_processed=0,
@@ -149,7 +150,7 @@ def configure_inbound_sync(
         raise ValueError("provider does not support automatic inbound synchronization")
     if not connection.is_active or connection.status not in {"connected", "verified"}:
         raise ValueError("provider connection is inactive or unavailable")
-    default_interval = 300 if connection.provider_type == "gmail" else 60
+    default_interval = 60
     interval = max(60, min(interval_seconds or default_interval, 86_400))
     state = _state(session, connection, object_type)
     if initial_cursor is not None:
@@ -214,7 +215,7 @@ def list_due_inbound_sync_states(
 def upgrade_default_gmail_sync_intervals(
     session: Session, *, now: datetime | None = None
 ) -> int:
-    """Move enabled Gmail mailboxes from the former one-minute default to five minutes."""
+    """Move enabled Gmail mailboxes from the former five-minute default to one minute."""
     now = now or datetime.now(UTC)
     states = list(
         session.scalars(
@@ -226,14 +227,14 @@ def upgrade_default_gmail_sync_intervals(
             .where(
                 CrmInboundSyncStateORM.provider == "gmail",
                 CrmInboundSyncStateORM.enabled.is_(True),
-                CrmInboundSyncStateORM.sync_interval_seconds == 60,
+                CrmInboundSyncStateORM.sync_interval_seconds == 300,
                 ProviderConnectionORM.is_active.is_(True),
                 ProviderConnectionORM.status == "verified",
             )
         )
     )
     for state in states:
-        state.sync_interval_seconds = 300
+        state.sync_interval_seconds = 60
         # A running sync still owns its lease. Do not discard its checkpoint.
         if state.status != "running":
             state.next_sync_at = now
@@ -942,11 +943,25 @@ def _process_record(
     actor_id: str,
     correlation_id: str,
     send_confirmation_email: bool,
+    allow_suppressed: bool = False,
 ) -> str:
     normalized_payload = _json_safe_payload(canonical.normalized_payload)
     manual_review_reason = _gmail_manual_review_reason(canonical)
     effective_review_reason = manual_review_reason
     link = _record_link(session, connection, canonical)
+    suppressed = session.scalar(
+        select(LeadSuppressionORM).where(
+            LeadSuppressionORM.workspace_id == connection.workspace_id,
+            LeadSuppressionORM.provider == canonical.provider,
+            LeadSuppressionORM.external_id == canonical.provider_record_id,
+        )
+    )
+    if suppressed is not None:
+        if not allow_suppressed:
+            return "suppressed"
+        # An explicit manual sync is an intentional restore request.
+        session.delete(suppressed)
+        session.flush()
     now = datetime.now(UTC)
     if canonical.provider == "gohighlevel":
         email = str(normalized_payload.get("email") or "").strip().lower()
@@ -1750,6 +1765,7 @@ def run_inbound_sync(
                                 actor_id=actor_id,
                                 correlation_id=run.correlation_id,
                                 send_confirmation_email=send_confirmation_email,
+                                allow_suppressed=mode == "manual",
                             )
                             candidate_outcomes.append((candidate_canonical, candidate_outcome))
                         except ValueError as candidate_error:

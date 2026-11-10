@@ -353,6 +353,19 @@ def _rebind_outlook_mailbox_state(
     _rebind_mailbox_state(session, connection, mailbox_email, now, "outlook")
 
 
+def _connection_owner(actor_id: str) -> UUID | None:
+    try:
+        return UUID(actor_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _connection_type(provider: str) -> str:
+    return "personal" if provider in {
+        "gmail", "outlook", "google_calendar", "calendly",
+    } else "workspace_managed"
+
+
 def create_manual_connection(
     session: Session,
     workspace_id: UUID,
@@ -365,6 +378,8 @@ def create_manual_connection(
         provider, request.auth_type, request.credentials
     )
     metadata = _safe_metadata(request.metadata)
+    if actor_id != "system":
+        metadata["owner_user_id"] = actor_id
     if provider in REASONING_PROVIDERS:
         metadata = {
             "selected_model": validate_reasoning_model(
@@ -378,6 +393,8 @@ def create_manual_connection(
     row = ProviderConnectionORM(
         id=uuid4(),
         workspace_id=workspace_id,
+        owner_user_id=_connection_owner(actor_id),
+        connection_type=_connection_type(provider),
         provider_type=provider,
         external_account_id=request.external_account_id,
         account_name=request.account_name,
@@ -472,6 +489,8 @@ def begin_oauth_connection(
     row = ProviderConnectionORM(
         id=connection_id,
         workspace_id=workspace_id,
+        owner_user_id=_connection_owner(actor_id),
+        connection_type=_connection_type(provider),
         provider_type=provider,
         external_account_id=None,
         account_name=account_name,
@@ -488,6 +507,7 @@ def begin_oauth_connection(
             "oauth_redirect_uri": redirect_uri,
             "oauth_callback_provider": provider,
             "oauth_actor_id": actor_id,
+            "owner_user_id": actor_id,
         },
         is_active=False,
         disconnected_at=None,
@@ -1072,7 +1092,7 @@ def _persist_validation(
                 row,
                 enabled=True,
                 object_type=object_type,
-                interval_seconds=300 if row.provider_type == "gmail" else 60,
+                interval_seconds=60,
                 actor_id=actor_id,
                 initial_cursor=(
                     {"history_id": str(history_id)}

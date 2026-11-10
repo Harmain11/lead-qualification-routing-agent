@@ -95,17 +95,23 @@ def test_generated_marker_and_manual_assignment_persist(tmp_path, icp, routing) 
     _, _, lead = process_lead(
         session, payload, icp, routing, workspace_id=workspace_id
     )
+    # Assignment behavior must not depend on the selected reasoning provider's score.
+    assert lead.qualification is not None
+    lead.qualification.classification = "warm"
+    lead.qualification.total_score = 65
+    route_and_notify(session, lead, routing, force=True, send_notification=False)
+    session.commit()
     initial_routing = get_current_routing(session, lead.id, workspace_id)
     assert initial_routing is not None
     assert initial_routing.assigned_rep_id in {
         str(user.id) for user in representatives
-    }
+    }, initial_routing.routing_reason
     auto_assignee_id = UUID(initial_routing.assigned_rep_id)
     viewer_context = WorkspaceContext(
         workspace_id=workspace_id,
         actor_id="lead-row-editor",
         user_id=viewer.id,
-        permissions=frozenset({"leads.view", "leads.edit", "routing.manage"}),
+        permissions=frozenset({"leads.view", "leads.edit", "leads.reassign"}),
     )
     workspace_context = viewer_context
 
@@ -193,6 +199,66 @@ def test_generated_marker_and_manual_assignment_persist(tmp_path, icp, routing) 
         )
         assert forced_decision.assigned_rep_id == str(representatives[1].id)
         assert forced_decision.is_manually_assigned is True
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+        engine.dispose()
+
+
+def test_lead_list_accepts_legacy_analysis_without_intent_scoring(
+    tmp_path, icp, routing
+) -> None:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'legacy-analysis-list.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    session = Session(engine)
+    workspace_id = uuid4()
+    ensure_workspace(session, workspace_id, name="Legacy Analysis Workspace")
+    _, _, lead = process_lead(
+        session,
+        {
+            "external_id": "legacy-analysis-list",
+            "source": "website",
+            "full_name": "Legacy Analysis Lead",
+            "email": "legacy-analysis@example.test",
+            "company_name": "Legacy Analysis Co",
+            "product_or_service": "Lead workflow",
+            "message": "Please share information about your service.",
+        },
+        icp,
+        routing,
+        workspace_id=workspace_id,
+    )
+    legacy_output = dict(lead.analysis.structured_output)
+    legacy_output.pop("intent_scoring")
+    lead.analysis.structured_output = legacy_output
+    session.commit()
+
+    workspace_context = WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id="legacy-analysis-reader",
+        user_id=uuid4(),
+        permissions=frozenset({"leads.view"}),
+    )
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_workspace_context] = lambda: workspace_context
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/leads", params={"limit": 50})
+
+        assert response.status_code == 200, response.text
+        intent_scoring = response.json()["items"][0]["analysis"]["intent_scoring"]
+        assert intent_scoring["urgency"]["points"] == 0
+        assert intent_scoring["buying_stage"]["points"] == 0
+        assert intent_scoring["budget_signal"]["points"] == 0
+        assert intent_scoring["specific_request"]["points"] == 0
+        assert "intent_scoring" not in lead.analysis.structured_output
     finally:
         app.dependency_overrides.clear()
         session.close()

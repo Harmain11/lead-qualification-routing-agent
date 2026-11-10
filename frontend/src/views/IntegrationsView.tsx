@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Children, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import type { CloudTalkAgent, LeadConfirmationSources, SlackChannel } from "../api";
 import { IntegrationAccountChoice } from "../components/IntegrationAccountChoice";
 import { FeatureGuide } from "../components/FeatureGuide";
 import { GmailAccountsPanel } from "../components/GmailAccountsPanel";
+import { IntegrationSetupGuide } from "../components/IntegrationSetupGuide";
+import { BRAND_MARKS } from "../v3/ui/brandMarks";
+import { Icon } from "../v3/ui/Icon";
 import { OperationsDialog } from "../components/OperationsDialog";
 import { SlackChannelDestination } from "../components/SlackChannelDestination";
 import { SlackSetupGuide } from "../components/SlackSetupGuide";
@@ -11,10 +14,12 @@ import { createSlackRule } from "../slackRouting";
 import {
 addIntegrationCredential,
 apiUrl,
+backfillReasoning,
 beginIntegration,
   cancelInboundSync,
 configureInboundSync,
 disconnectIntegration,
+  getReasoningBackfillStatus,
   getLeadConfirmationSources,
 getInboundSyncState,
 getInboundSyncRuns,
@@ -79,20 +84,82 @@ function ProviderDetailsPanel({
   open,
   onClose,
   id,
+  title,
+  subtitle,
   children,
 }: {
   provider: string;
   open: boolean;
   onClose: () => void;
   id: string;
+  title: string;
+  subtitle?: ReactNode;
   children: ReactNode;
 }) {
+  const [tab, setTab] = useState<string | null>(null);
+  useEffect(() => { if (!open) setTab(null); }, [open]);
   if (provider === "slack") {
     return open ? <OperationsDialog id={id} title="Slack connection" onClose={onClose} className="slack-connection-dialog">
       <div className="provider-details slack-provider-details">{children}</div>
     </OperationsDialog> : null;
   }
-  return <div className="provider-details" id={id} hidden={!open}>{children}</div>;
+  void title; void subtitle; void onClose;
+  if (!open) return null;
+
+  // The setup is organised in three places: a summary (what this connection does and
+  // its main actions), then one tab per area, each holding what used to be a disclosure.
+  const summary: ReactNode[] = [];
+  const actions: ReactNode[] = [];
+  const panes: Array<{ id: string; label: string; open: boolean; body: ReactNode }> = [];
+  Children.toArray(children).forEach((child) => {
+    if (isValidElement(child) && child.type === IntegrationDisclosure) {
+      const el = child as ReactElement<{ title: string; className?: string; open?: boolean; children: ReactNode }>;
+      const cls = el.props.className ?? "";
+      const paneId = cls.includes("settings") ? "settings" : cls.includes("briefing") ? "connection" : "guide";
+      if (paneId === "connection" && !cls.includes("has-form")) return;
+      if (paneId === "settings" && !cls.includes("is-live") && !el.props.title.startsWith("Usage")) return;
+      const label = paneId === "settings" ? (el.props.title.startsWith("Usage") ? "Usage" : "Settings") : paneId === "connection" ? "Connection" : "Setup guide";
+      panes.push({ id: paneId, label, open: Boolean(el.props.open), body: el.props.children });
+    } else if (isValidElement(child) && String((child.props as { className?: string }).className ?? "").includes("integration-direction")) {
+      // The card header already says what this connection does.
+    } else if (isValidElement(child) && String((child.props as { className?: string }).className ?? "").includes("integration-connection-actions")) {
+      actions.push(child);
+    } else {
+      summary.push(child);
+    }
+  });
+  const order = ["overview", "connection", "settings", "guide"];
+  panes.sort((x, y) => order.indexOf(x.id) - order.indexOf(y.id));
+  // A compact provider header is enough until the user chooses Manage. Everything
+  // else—including mailbox rows and automatic-sync controls—belongs in a tab.
+  const overview = summary.length > 0
+    ? { id: "overview", label: "Overview", open: true, body: <div className="int-overview">{summary}</div> }
+    : null;
+  // Working panes (overview, connection, settings, usage) get tabs; the setup guide is one quiet row beneath them.
+  const working = [...(overview ? [overview] : []), ...panes.filter((pane) => pane.id !== "guide")];
+  const guide = panes.find((pane) => pane.id === "guide");
+  const active = working.find((pane) => pane.id === tab) ?? working.find((pane) => pane.open) ?? working[0];
+  const showTabs = working.length > 1;
+
+  return (
+    <div className="int-detail" id={id}>
+      {actions.length > 0 && <div className="int-detail-actions">{actions}</div>}
+      {showTabs && (
+        <div className="int-tabs" role="tablist" aria-label="Integration sections">
+          {working.map((pane) => (
+            <button key={pane.id} type="button" role="tab" id={`${id}-tab-${pane.id}`} aria-selected={active?.id === pane.id} aria-controls={`${id}-pane-${pane.id}`} tabIndex={active?.id === pane.id ? 0 : -1} onClick={() => setTab(pane.id)}>{pane.label}</button>
+          ))}
+        </div>
+      )}
+      {active && <div className="int-pane" role={showTabs ? "tabpanel" : undefined} id={`${id}-pane-${active.id}`} aria-labelledby={showTabs ? `${id}-tab-${active.id}` : undefined}>{active.body}</div>}
+      {guide && (
+        <details className="int-guide-row" open={!active && actions.length === 0}>
+          <summary>Setup guide</summary>
+          <div className="int-guide-body">{guide.body}</div>
+        </details>
+      )}
+    </div>
+  );
 }
 
 function IntegrationDisclosure({
@@ -112,7 +179,6 @@ function IntegrationDisclosure({
   </details>;
 }
 
-const connectionStages = ["Disconnected", "Authorizing", "Credentials stored", "Verified"];
 const AI_PROVIDER_GROUP = "ai-analysis";
 const AI_PROVIDER_IDS = ["openai", "gemini", "claude", "deepseek", "xai"] as const;
 type ReasoningProviderId = typeof AI_PROVIDER_IDS[number];
@@ -150,18 +216,50 @@ function integrationCategory(card: IntegrationCard): IntegrationCategory {
   return "other";
 }
 
-function connectionStage(status?: string) {
-  if (status === "verified") return 3;
-  if (["configured", "connected", "validating", "needs_attention", "connection_failed", "authorization_expired", "reconnect_required", "expired", "needs_reauthorization", "error"].includes(status ?? "")) return 2;
-  if (["connecting", "awaiting_authorization"].includes(status ?? "")) return 1;
-  return 0;
+const FAILED_STATUSES = new Set(["needs_attention", "connection_failed", "authorization_expired", "reconnect_required", "expired", "needs_reauthorization", "error"]);
+
+type ConnectionTone = "ok" | "pending" | "error" | "idle";
+function connectionTone(status?: string): ConnectionTone {
+  if (status === "verified") return "ok";
+  if (FAILED_STATUSES.has(status ?? "")) return "error";
+  if (["connected", "configured", "validating", "connecting", "awaiting_authorization"].includes(status ?? "")) return "pending";
+  return "idle";
 }
 
 function connectionStatusLabel(status?: string) {
   if (!status || ["disconnected", "not_connected"].includes(status)) return "Not connected";
-  if (status === "verified") return "Verified";
-  if (["connected", "configured", "validating"].includes(status)) return "Needs verification";
-  return "Needs authorization";
+  if (status === "verified") return "Connected";
+  if (FAILED_STATUSES.has(status)) return status.includes("expire") || status.includes("reauth") ? "Sign-in expired" : "Needs attention";
+  if (["connecting", "awaiting_authorization"].includes(status)) return "Waiting for sign-in";
+  return "Not verified yet";
+}
+
+const BRAND_TINT: Record<string, string> = {
+  gmail: "#d93025", outlook: "#0a64ad", google_calendar: "#1a73e8", calendly: "#006bff", slack: "#4a154b",
+  salesforce: "#0b72c7", hubspot: "#e0613f", gohighlevel: "#155ec9", twilio: "#e22e43", aircall: "#00a379",
+  ringcentral: "#e36b00", vapi: "#1f2937", retell: "#111827", cloudtalk: "#1f5fe0", openai: "#111827",
+  gemini: "#2f6fe4", claude: "#c96442", deepseek: "#4d6bfe", xai: "#111827", linkedin: "#0a66c2",
+  instagram: "#c1356f", messenger: "#0078ff", whatsapp_business: "#1a9e57", clutch: "#17313b",
+};
+
+function ProviderMark({ provider, name }: { provider: string; name: string }) {
+  const mark = BRAND_MARKS[provider];
+  const [hasFile, setHasFile] = useState(false);
+  const [ext, setExt] = useState<"svg" | "png">("svg");
+  if (mark) {
+    return (
+      <span className="int-mark int-mark-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill={mark.hex} focusable="false"><path d={mark.path} /></svg>
+      </span>
+    );
+  }
+  // Official artwork can be dropped in public/brand/logos/<provider>.svg; until then the lettered tile stands in.
+  return (
+    <span className={`int-mark${hasFile ? " int-mark-logo" : ""}`} style={{ "--int-tint": BRAND_TINT[provider] ?? "var(--tint)" } as React.CSSProperties} aria-hidden="true">
+      {!hasFile && name.trim().charAt(0).toUpperCase()}
+      <img src={`/brand/logos/${provider}.${ext}`} alt="" hidden={!hasFile} onLoad={() => setHasFile(true)} onError={() => { setHasFile(false); if (ext === "svg") setExt("png"); }} />
+    </span>
+  );
 }
 
 function oauthConnectFailureMessage(provider: string, message: string) {
@@ -177,7 +275,7 @@ function oauthConnectFailureMessage(provider: string, message: string) {
   };
   const providerSettings = settings[provider];
   if (providerSettings && /OAuth application credentials are not configured|Meta social connections require real provider OAuth credentials/i.test(message)) {
-    return `${providerSettings.name} can't connect yet. Add ${providerSettings.keys.join(" and ")} to Replit Secrets, then try again.`;
+    return `${providerSettings.name} sign-in isn't set up for this workspace yet. Ask your Corral administrator to enable it.`;
   }
   return message;
 }
@@ -295,7 +393,7 @@ function SlackRoutingEditor({
     setRules(config?.rules ?? []);
   }, [config?.default_connection_id, config?.rules, verifiedIds, editing]);
 
-  if (loading || loadError) return <section className="integration-guide slack-routing-guide"><div className="slack-routing-heading"><div><span className="eyebrow">Admin notification routing</span><h3>{loading ? "Loading saved routing" : "Routing could not be loaded"}</h3><p>{loading ? "Reading the current Slack rules before enabling edits." : loadError}</p></div></div></section>;
+  if (loading || loadError) return <section className="integration-guide slack-routing-guide"><div className="slack-routing-heading"><div><h3>{loading ? "Loading saved routing" : "Routing could not be loaded"}</h3><p>{loading ? "Reading the current Slack rules before enabling edits." : loadError}</p></div></div></section>;
   const save = async () => {
     if (rules.some((rule) => !rule.name.trim())) {
       setEditorError("Give each Slack routing rule a name before saving.");
@@ -348,11 +446,11 @@ function SlackRoutingEditor({
   return <section className="integration-guide slack-routing-guide">
     <div className="slack-routing-heading">
       <div>
-        <span className="eyebrow">Admin notification routing</span>
+        
         <h3>Decide where each lead goes</h3>
         <p>{verified.length <= 1 ? "Use the default destination for every lead, or add conditions for specific lead types." : "Route different lead types to different Slack workspaces and channels."}</p>
       </div>
-      <div className="slack-routing-health"><i /> <span>{verified.length} verified workspace{verified.length === 1 ? "" : "s"}</span></div>
+      <div className="slack-routing-health"><span>{verified.length} verified workspace{verified.length === 1 ? "" : "s"}</span></div>
     </div>
     {canManage ? <>
       {!verified.length && <div className="notice">Connect and verify Slack above to create routing rules. No verified Slack destination is available yet.</div>}
@@ -367,7 +465,7 @@ function SlackRoutingEditor({
         <p className="slack-rules-help">Open each dropdown to choose several values. Choices inside one field mean OR; classification, source and queue fields combine as AND. Leave a dropdown on “Any / all” to ignore that condition.</p>
         {rules.length === 0 && <div className="slack-empty-rules"><span>◎</span><div><strong>Default routing is active</strong><small>Add a rule when a lead classification needs a different Slack destination.</small></div></div>}
         {rules.map((rule, index) => <div className="slack-routing-rule" data-slack-rule-id={rule.id} key={rule.id}>
-          <div className="slack-rule-heading"><div><span className="slack-rule-index">Rule {String(index + 1).padStart(2, "0")}</span><input aria-label="Slack routing rule name" value={rule.name} onChange={(event) => updateRule(rule.id, { name: event.target.value })} /></div><button className="button-quiet danger" onClick={() => { setEditing(true); setRules((current) => current.filter((item) => item.id !== rule.id)); }}>Remove</button></div>
+          <div className="slack-rule-heading"><div><span className="slack-rule-index">Rule {index + 1}</span><input aria-label="Slack routing rule name" value={rule.name} onChange={(event) => updateRule(rule.id, { name: event.target.value })} /></div><button className="button-quiet danger" onClick={() => { setEditing(true); setRules((current) => current.filter((item) => item.id !== rule.id)); }}>Remove</button></div>
           <div className="slack-condition-grid">
             <SlackMultiSelect label="Lead classifications" values={rule.qualification_bands} options={slackBandOptions} onChange={(values) => updateRule(rule.id, { qualification_bands: values })} hint="Choose one or more; empty means all." />
             <SlackMultiSelect label="Lead sources" values={rule.sources} options={slackSourceOptions} onChange={(values) => updateRule(rule.id, { sources: values })} hint="Choose one or more; empty means all." />
@@ -441,13 +539,21 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const [slackRouting, setSlackRouting] = useState<SlackNotificationConfig | null>(null);
   const [slackRoutingReady, setSlackRoutingReady] = useState(false);
   const [slackRoutingLoadError, setSlackRoutingLoadError] = useState<string | null>(null);
-  const canView = can(permissions, "integrations.view");
+  const canView = [
+    "integrations.view",
+    "mailbox.view_own",
+    "mailbox.connect_own",
+    "dialer.call",
+    "agents.view",
+  ].some((permission) => can(permissions, permission));
   const canManage = can(permissions, "integrations.manage");
-  const canConnect = can(permissions, "integrations.connect");
-  const canDisconnect = can(permissions, "integrations.disconnect");
+  const canConnect = can(permissions, "integrations.connect")
+    || can(permissions, "mailbox.connect_own");
+  const canDisconnect = can(permissions, "integrations.disconnect")
+    || can(permissions, "mailbox.disconnect_own");
   const canSync = can(permissions, "crm.sync");
   const canCallDialer = can(permissions, "dialer.call");
-  const canInboundSync = canSync;
+  const canInboundSync = canSync || can(permissions, "mailbox.sync_own");
   useEffect(() => {
     if (isReasoningProvider(selectedSection)) {
       setSelectedAIProvider(selectedSection);
@@ -463,16 +569,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     aiProviderSelectionInitialized.current = true;
   }, [cards, selectedSection]);
   function toggleProviderExpanded(provider: string) {
-    const opening = !expandedProviders.has(provider);
-    setExpandedProviders((current) => {
-      const next = new Set(current);
-      if (next.has(provider)) next.delete(provider);
-      else next.add(provider);
-      return next;
-    });
-    if (opening) {
-      requestAnimationFrame(() => document.querySelector<HTMLElement>(`.integration-card.provider-${provider}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
-    }
+    // One setup sheet at a time.
+    setExpandedProviders((current) => current.has(provider) ? new Set() : new Set([provider]));
   }
   function showCredentialSetup(provider: string) {
     setExpanded(provider);
@@ -505,7 +603,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
 
   function setExpanded(provider: string | null) {
     if (provider) {
-      setExpandedProviders((current) => new Set(current).add(provider));
+      setExpandedProviders(new Set([provider]));
       return;
     }
     setExpandedProviders((current) => current.size === 1 ? new Set() : current);
@@ -625,7 +723,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     const displayName = cards.find((card) => card.provider === provider)?.display_name
       ?? provider.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
     const message = status === "connected"
-      ? `${displayName} connected successfully.`
+      ? `${displayName} signed in. Verify the connection before relying on it.`
       : callbackMessage || `${displayName} authorization was cancelled or failed. Reconnect to try again.`;
     setNotice(message);
     setActionErrors((current) => {
@@ -712,10 +810,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           ? "Slack"
           : provider.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
       const message = params.get("message")?.trim().slice(0, 500);
-      setNotice(status === "connected" ? `${name} connected successfully.` : message || `${name} authorization failed. Reconnect to try again.`);
+      setNotice(status === "connected" ? `${name} signed in. Verify the connection before relying on it.` : message || `${name} authorization failed. Reconnect to try again.`);
       setOperationFeedback((current) => ({ ...current, [provider]: {
         state: status === "connected" ? "success" : "error",
-        message: status === "connected" ? `${name} connected successfully.` : message || `${name} authorization failed.`,
+        message: status === "connected" ? `${name} signed in. Verify the connection before relying on it.` : message || `${name} authorization failed.`,
       } }));
       if (provider === "salesforce" && status !== "connected" && canConnect) {
         setSalesforceSetupOpen(true);
@@ -729,13 +827,20 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     }
   }, []);
 
-  async function act(provider: string, operation: () => Promise<unknown>, success: string, kind?: ConnectionOperation, targetConnectionId?: string) {
+  async function act(
+    provider: string,
+    operation: () => Promise<unknown>,
+    success: string | ((result: unknown) => string),
+    kind?: ConnectionOperation,
+    targetConnectionId?: string,
+  ) {
     if (runningProvider.current) return;
     runningProvider.current = provider;
     setBusy(provider); setBusyAction(kind ?? null); setBusyTargetConnectionId(targetConnectionId ?? null); setNotice(null);
     if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "running", message: operationProgress[kind] } }));
     try {
-      await operation();
+      const result = await operation();
+      const successMessage = typeof success === "function" ? success(result) : success;
       if (kind === "disconnect") setCards((current) => current.map((card) => {
         if (card.provider !== provider) return card;
         const id = targetConnectionId ?? card.connection?.id;
@@ -749,8 +854,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           connections: card.connections.map((item) => item.id === id ? disconnected : item),
         };
       }));
-      setNotice(success);
-      if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "success", message: success } }));
+      setNotice(successMessage);
+      if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "success", message: successMessage } }));
       setCredentials((current) => ({ ...current, [provider]: {} }));
       await refresh();
     } catch (actionError) {
@@ -758,6 +863,75 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       setNotice(message);
       if (kind) setOperationFeedback((current) => ({ ...current, [provider]: { state: "error", message } }));
     } finally { setBusy(null); setBusyAction(null); setBusyTargetConnectionId(null); runningProvider.current = null; }
+  }
+
+  async function runReasoningBackfill(
+    connectionId: string,
+    provider: string,
+  ): Promise<{ message: string }> {
+    const queued = await backfillReasoning(connectionId);
+    if (queued.status === "no_eligible_leads") {
+      setOperationFeedback((current) => ({
+        ...current,
+        [provider]: { state: "success", message: queued.message },
+      }));
+      return { message: queued.message };
+    }
+    setOperationFeedback((current) => ({
+      ...current,
+      [provider]: {
+        state: "running",
+        message: `AI re-analysis queued for ${queued.queued_count} workspace leads.`,
+      },
+    }));
+    const terminalStatuses = new Set(["completed", "partial_failure", "failed", "no_eligible_leads"]);
+    let latestStatus: Awaited<ReturnType<typeof getReasoningBackfillStatus>> | null = null;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      latestStatus = await getReasoningBackfillStatus(connectionId, queued.job_id);
+      const processed = latestStatus.completed + latestStatus.failed + latestStatus.skipped;
+      setOperationFeedback((current) => ({
+        ...current,
+        [provider]: {
+          state: "running",
+          message: `AI re-analysis: ${processed} / ${latestStatus?.total ?? 0} processed · ${latestStatus?.completed ?? 0} updated · ${latestStatus?.failed ?? 0} failed · ${latestStatus?.skipped ?? 0} already current.`,
+        },
+      }));
+      if (terminalStatuses.has(latestStatus.status)) break;
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+    }
+    if (!latestStatus || !terminalStatuses.has(latestStatus.status)) {
+      return { message: "AI re-analysis is still running. Check the AI connection again shortly." };
+    }
+    if (latestStatus.status === "no_eligible_leads") {
+      return { message: "There are no existing leads that need this provider configuration." };
+    }
+    if (latestStatus.status === "failed" || latestStatus.status === "partial_failure") {
+      const categories = Object.entries(latestStatus.failure_categories ?? {})
+        .map(([category, count]) => `${category}: ${count}`)
+        .join(", ");
+      const reason = categories ? ` (${categories})` : "";
+      const failedLeadIds = (latestStatus.failures ?? [])
+        .slice(0, 5)
+        .map((failure) => failure.lead_id)
+        .join(", ");
+      const failedLeads = failedLeadIds
+        ? ` Affected lead IDs: ${failedLeadIds}${(latestStatus.failures?.length ?? 0) > 5 ? ", and more" : ""}.`
+        : "";
+      const message = `AI re-analysis finished with ${latestStatus.failed} failed of ${latestStatus.total} leads${reason}.${failedLeads}`;
+      setOperationFeedback((current) => ({
+        ...current,
+        [provider]: { state: "error", message },
+      }));
+      throw new Error(
+        message,
+      );
+    }
+    const message = `AI re-analysis complete: ${latestStatus.completed} updated, ${latestStatus.skipped} already current.`;
+    setOperationFeedback((current) => ({
+      ...current,
+      [provider]: { state: "success", message },
+    }));
+    return { message };
   }
 
   async function syncInbound(
@@ -947,11 +1121,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     if (!canConnect || (adminOnlyProviders.has(provider) && !canManage) || (provider === "slack" && !canManage) || busy) return;
     const connection = cards.find((card) => card.provider === provider)?.connection;
     oauthIntent.current = intent ?? (connection && connection.status !== "disconnected" ? "reconnect" : "connect");
-    if (provider === "calendly") {
-      setExpanded(provider);
-      setAccountChoiceProvider(provider);
-      return;
-    }
     if (provider === "salesforce") {
       setSalesforceSetupOpen(true);
       setActionErrors((current) => {
@@ -1096,7 +1265,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     ...categorySections.map((section) => ({
       ...section,
       providers: cards
-        .filter((card) => card.availability !== "future" && integrationCategory(card) === section.id)
+        .filter((card) => card.availability === "available" && integrationCategory(card) === section.id)
         .map((card) => card.provider),
     })),
     {
@@ -1108,7 +1277,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
-  const categoryCounts = cards.reduce<Record<string, number>>((counts, card) => {
+  const categoryCounts = cards.filter((card) => card.availability === "available").reduce<Record<string, number>>((counts, card) => {
     const category = integrationCategory(card);
     counts[category] = (counts[category] ?? 0) + 1;
     return counts;
@@ -1142,31 +1311,37 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       || state?.status === "cancel_requested"
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
-  return <div className={`page-view operational-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
-    <header className="page-hero integrations-hero" data-tour="integrations"><div><span className="eyebrow">Integrations{focusedLabel ? ` / ${focusedLabel}` : ""}</span><h1>{focusedLabel || "Integrations"}</h1><p>Connect the accounts your team uses for email, calling, CRM and AI.</p></div><FeatureGuide topic="integrations" /></header>
+  const providerCards = cards.filter((card) => card.availability === "available");
+  const connectedCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "ok").length;
+  const attentionCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "error").length;
+  const comingSoonCards = cards.filter((card) => card.availability === "future");
+  return <div className={`page-view operational-page integrations-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
+    <header className="v-pagehead" data-tour="integrations">
+      <div className="v-pagehead-text">
+        <h1>{focusedLabel || "Integrations"}</h1>
+        <p>{focusedLabel ? "Connection, setup and settings" : `${connectedCount} connected${attentionCount ? `, ${attentionCount} need${attentionCount === 1 ? "s" : ""} attention` : ""}`}</p>
+      </div>
+      <div className="v-pagehead-actions"><FeatureGuide topic="integrations" /></div>
+    </header>
     {activeGmailSyncs.map(({ connection, state, feedback }) => <section className="gmail-sync-active-banner" key={connection.id} role="status" aria-live="polite">
       <span className="gmail-sync-active-indicator" aria-hidden="true" />
       <div><span className="eyebrow">Gmail · AI review active</span><strong>{state?.status === "cancel_requested" ? "Stopping Gmail sync" : "Sync is still running"}</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
       <span className="gmail-sync-active-state">{state?.status === "cancel_requested" ? "Stopping" : "In progress"}</span>
     </section>)}
-    {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <div className="integration-category-filter">
-      <div className="integration-category-heading">
-        <span className="eyebrow">Browse integrations</span>
-        <strong>Choose a category</strong>
-      </div>
-      <label>
-        <span className="sr-only">Integration category</span>
-        <select value={activeCategory} onChange={(event) => setActiveCategory(event.target.value as IntegrationCategory)}>
-          {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => <option value={id} key={id}>{label}</option>)}
-        </select>
-      </label>
-    </div>}
+    {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <nav className="int-categories" aria-label="Integration categories">
+      {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => (
+        <button type="button" key={id} aria-pressed={activeCategory === id} onClick={() => setActiveCategory(id)}>
+          {id === "all" ? "All" : label}
+          <span className="num">{id === "all" ? providerCards.length : categoryCounts[id]}</span>
+        </button>
+      ))}
+    </nav>}
     {notice && (() => {
       const noticeState = Object.values(operationFeedback).find((item) => item.message === notice)?.state;
       return <div className={`notice${noticeState ? ` notice-${noticeState}` : ""}`} role="status">{notice}</div>;
     })()}
-    {!canView ? <div className="team-denied panel"><span className="eyebrow">Integration visibility</span><h2>Integration controls are restricted</h2><p>Your current workspace permissions do not include <code>integrations.view</code>.</p></div> : <div className="integration-sections">{displayedSections.map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
-      <div className="integration-section-heading"><div><span className="eyebrow">{section.eyebrow}</span><h2 id={`integration-section-${section.id}`}>{section.title}</h2></div><p>{section.description}</p></div>
+    {!canView ? <div className="team-denied panel"><h2>Integrations are managed by your admins</h2><p>Ask a workspace admin for access if you need to connect or change an integration.</p></div> : <div className="integration-sections">{displayedSections.filter((section) => section.id !== "coming-soon").map((section) => <section className={`integration-section integration-section-${section.id}`} key={section.id} aria-labelledby={`integration-section-${section.id}`}>
+      <div className="integration-section-heading"><h2 id={`integration-section-${section.id}`}>{section.title.replace(/ Integrations$/, "")}</h2></div>
       <div className={`integration-grid${section.id === "ai" ? " integration-grid-ai" : ""}`}>{section.providers.map((provider) => cardByProvider.get(provider)).filter((card): card is IntegrationCard => Boolean(card)).map((card) => {
        const connection = card.connection;
        const status = connection?.status ?? "not_connected";
@@ -1189,7 +1364,6 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
          : connectionStatusLabel(connection?.status);
       const providerCredentials = credentials[card.provider] ?? {};
        const open = expandedProviders.has(card.provider);
-      const activeConnectionStage = connectionStage(connection?.status);
       const syncState = connection ? syncStates[connection.id] : null;
       const crmDirection = card.category === "CRM";
       const gmailDirection = card.provider === "gmail";
@@ -1209,9 +1383,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
               (source) => source.source === card.provider,
             )
           : undefined;
-       const canConnectProvider = reasoningProvider
+       const cardAllowsConnect = card.allowed_actions.includes("connect")
+        || card.allowed_actions.includes("connect_own");
+       const canConnectProvider = cardAllowsConnect && (reasoningProvider
         ? canManage
-        : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage);
+        : canConnect && (!adminOnlyProviders.has(card.provider) || canManage) && (card.provider !== "slack" || canManage));
        const slackConnections = card.provider === "slack"
          ? (card.connections.length ? card.connections : connection ? [connection] : [])
            .filter((item) => item.is_active && item.status === "verified" && item.credential_state === "configured")
@@ -1236,30 +1412,31 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           (reasoningProvider && connection && canManage) ||
           (!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified"),
         );
-        const expandableSettingsOpen = Boolean(
-          accountChoiceProvider === card.provider ||
-          (connection && syncFeedback[connection.id]) ||
-          leadConfirmationSourceError,
-        );
       const oauthConnected =
         (card.provider === "instagram" || card.provider === "messenger") &&
         connection &&
         ["connected", "verified"].includes(connection.status);
-         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : ""}`} key={card.provider}>
-           <div className="provider-head"><div className="provider-glyph">{section.id === "ai" ? "AI" : card.display_name.slice(0, 2).toUpperCase()}</div><div className="provider-identity"><span>{section.id === "ai" ? "AI analysis" : card.category}</span><h2>{section.id === "ai" ? "AI connection" : card.display_name}</h2><small className="provider-account-summary">{section.id === "ai" ? "Choose a provider for lead analysis" : connection?.account_name ?? (comingSoon ? "Not available yet" : "No account connected")}</small></div><b><i />{statusLabel}</b><button type="button" className="provider-collapse-toggle" aria-label={`${detailsOpen ? "Close" : "Open"} ${section.id === "ai" ? "AI connection" : card.display_name} details`} aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}><span aria-hidden="true">{detailsOpen ? "−" : "+"}</span></button></div>
-          <ProviderDetailsPanel provider={card.provider} open={detailsOpen} onClose={() => setSlackPanelOpen(false)} id={`integration-details-${card.provider}`}>
+         return <article data-navigation-section={section.id === "ai" ? "ai" : card.provider} tabIndex={-1} className={`integration-card int-card provider-${card.provider}${section.id === "ai" ? " ai-connection-card" : ""} state-${comingSoon ? "coming-soon" : status}${card.provider === "slack" || !open ? " is-collapsed" : " is-expanded"}`} key={card.provider}>
+           <div className="int-head">
+             <ProviderMark provider={section.id === "ai" ? card.provider : card.provider} name={section.id === "ai" ? card.display_name : card.display_name} />
+             <div className="int-id">
+               <h2>{card.display_name}</h2>
+               <p>{section.id === "ai" ? "Scores and summarises leads with your own provider key" : connection?.account_name && connection.status !== "disconnected" ? connection.account_name : card.directionality.description || card.category}</p>
+             </div>
+             <span className="int-status" data-tone={comingSoon ? "idle" : cloudTalk && connection?.status === "connected" && !connection.metadata.cloudtalk_agent_id ? "pending" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}</span>
+             <button type="button" className="v-btn int-toggle" data-kind={connectionTone(connection?.status) === "ok" ? "gray" : connectionTone(connection?.status) === "error" ? "destructive" : "tinted"} data-size="md" aria-expanded={detailsOpen} aria-haspopup={card.provider === "slack" ? "dialog" : undefined} aria-controls={`integration-details-${card.provider}`} onClick={() => card.provider === "slack" ? setSlackPanelOpen((current) => !current) : toggleProviderExpanded(card.provider)}>
+               <span className="v-btn-label">{detailsOpen ? <><Icon name="close" size={14} /><span className="v-sr">Close</span></> : connectionTone(connection?.status) === "ok" ? "Manage" : connectionTone(connection?.status) === "error" ? "Fix" : connection && connection.status !== "disconnected" ? "Continue setup" : "Connect"}</span>
+             </button>
+           </div>
+          <ProviderDetailsPanel
+            provider={card.provider}
+            open={detailsOpen}
+            onClose={() => card.provider === "slack" ? setSlackPanelOpen(false) : toggleProviderExpanded(card.provider)}
+            id={`integration-details-${card.provider}`}
+            title={section.id === "ai" ? `AI analysis · ${card.display_name}` : card.display_name}
+            subtitle={<span className="int-status" data-tone={comingSoon ? "idle" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}{connection?.account_name && connection.status !== "disconnected" ? ` · ${connection.account_name}` : ""}</span>}
+          >
          {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
-           <IntegrationDisclosure title="Setup guidance and permissions">
-             <p>{card.credential_help}</p>
-             {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
-               <span className="eyebrow">Meta inbound message setup</span>
-               <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>
-               <p><strong>Subscribe</strong><br />{metaWebhookSubscription}</p>
-               <p>Use the configured <code>WEBHOOK_SIGNING_SECRET</code> as Meta’s verify token. POST signatures are checked with this provider’s existing Meta app secret.</p>
-               <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
-             </div>}
-             {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
-           </IntegrationDisclosure>
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && connection.last_validation_result.message !== operationFeedback[card.provider]?.message && connection.last_validation_result.message !== actionErrors[card.provider] && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}
@@ -1272,7 +1449,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             onDisconnect={(gmailAccount) => void act("gmail", () => disconnectIntegration(gmailAccount.id), `${gmailAccount.account_name} disconnected successfully.`, "disconnect", gmailAccount.id)}
             statusLabel={connectionStatusLabel}
           />}
-         <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application → Slack · outbound notifications only" : openAI ? "Workspace OpenAI project → structured lead analysis" : card.directionality.description}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>
+         {(comingSoon || gmailDirection || crmDirection || card.provider === "slack" || openAI) && <p className="integration-direction"><strong>{comingSoon ? card.credential_help : gmailDirection ? "Automatic inbound email acquisition" : crmDirection ? "Automatic contact import · Manual contact writeback" : card.provider === "slack" ? "Application › Slack · outbound notifications only" : "Workspace OpenAI project › structured lead analysis"}</strong>{crmDirection && " — CRM records enter only after inbound sync is enabled; sending contact data back always requires an explicit action."}</p>}
          {comingSoon && <div className="coming-soon-provider" role="status"><b>Coming soon</b><span>This provider is not available for connection in the current release.</span></div>}
          {card.provider === "slack" && <>
              <SlackSetupGuide open={slackGuideOpen} onOpenChange={setSlackGuideOpen} />
@@ -1305,21 +1482,22 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              canManage={canManage} onSaved={setSlackRouting} onNotice={setNotice}
              loading={!slackRoutingReady} loadError={slackRoutingLoadError} />
          </>}
-        {!comingSoon && <IntegrationDisclosure title="Connection health details" className="connection-health-disclosure">
-          <div className="connection-facts"><span>Credential <b>{connection?.credential_state ?? "missing"}</b></span><span>Verification <b>{connection?.verification_status?.replaceAll("_", " ") ?? "not verified"}</b></span><span>Last checked <b>{connection?.last_validation_at ? new Date(connection.last_validation_at).toLocaleString() : "Never"}</b></span></div>
-          {openAI && connection && <div className="connection-facts"><span>Selected model <b>{connection.selected_model ?? "Not configured"}</b></span><span>Billing <b>Your OpenAI account</b></span></div>}
-          <div className={`connection-state-path state-step-${activeConnectionStage}`} aria-label={`Connection state: ${connectionStages[activeConnectionStage]}`}>
-            {connectionStages.map((label, index) => <div className={index < activeConnectionStage ? "complete" : index === activeConnectionStage ? "active" : ""} key={label}><i /><span>{label}</span>{index < connectionStages.length - 1 && <b />}</div>)}
-          </div>
-        </IntegrationDisclosure>}
+        {!comingSoon && connection && connection.status !== "disconnected" && <section className="int-health" aria-label="Connection health">
+          <dl className="int-facts">
+            <div><dt>Credential</dt><dd>{(connection.credential_state ?? "missing").replaceAll("_", " ")}</dd></div>
+            <div><dt>Verification</dt><dd>{(connection.verification_status ?? "not verified").replaceAll("_", " ")}</dd></div>
+            <div><dt>Last checked</dt><dd>{connection.last_validation_at ? new Date(connection.last_validation_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Never"}</dd></div>
+            {openAI && <div><dt>Model</dt><dd>{connection.selected_model ?? "Not configured"}</dd></div>}
+          </dl>
+        </section>}
           {!comingSoon && (card.provider !== "slack" || canConnectProvider || canManage || canDisconnect) && <div className="card-actions integration-connection-actions">
-            {!connection || connection.status === "disconnected" ? canConnectProvider && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
-            {card.provider !== "slack" && <button className="button-quiet" onClick={() => card.provider === "salesforce" ? setSalesforceSetupOpen(true) : toggleProviderExpanded(card.provider)}>Setup guide</button>}
+            {!connection || connection.status === "disconnected" ? canConnectProvider && (card.supported_auth.includes("oauth2") || card.manual_fields.length === 0 || !canManage) && <button onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "connect" ? "Connecting…" : gmailDirection ? "Connect Gmail" : outlookDirection ? "Connect Outlook" : googleCalendarDirection ? "Connect Google Calendar" : calendlyDirection ? "Connect Calendly" : openAI ? "Connect OpenAI" : "Connect"}</button> : <>{canManage && <><button onClick={() => void act(card.provider, async () => { const result = await testIntegration(connection.id); if (!result.verified) throw new Error(result.message); }, `${card.display_name} connection verified.`)} disabled={Boolean(busy) || (cloudTalk && !connection.metadata.cloudtalk_agent_id)}>{openAI ? "Test Connection" : "Verify connection"}</button><button className="button-quiet" onClick={() => card.supported_auth.includes("oauth2") ? void connectOAuth(card.provider) : showCredentialSetup(card.provider)} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "reconnect" ? "Reconnecting…" : openAI ? "Replace Key" : "Reconnect"}</button></>}{canDisconnect && <button className="button-quiet danger" onClick={() => void act(card.provider, () => disconnectIntegration(connection.id), `${card.display_name} disconnected successfully.`, "disconnect")} disabled={Boolean(busy)}>{busy === card.provider && busyAction === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}</>}
+            {section.id === "ai" && connection?.status === "verified" && connection.is_active && canManage && <button className="button-quiet" onClick={() => void act(card.provider, () => runReasoningBackfill(connection.id, card.provider), (result) => result && typeof result === "object" && "message" in result ? String(result.message) : "AI re-analysis finished.")} disabled={Boolean(busy)}>Re-analyze leads</button>}
+            {card.provider === "salesforce" && <button className="int-tertiary" onClick={() => setSalesforceSetupOpen(true)}>Prepare org</button>}
           </div>}
          {hasExpandableSettings && <IntegrationDisclosure
            title={openAI || section.id === "ai" ? "Usage and settings" : crmDirection || mailDirection ? "Sync and settings" : "More settings"}
-           className="integration-settings-disclosure"
-           open={expandableSettingsOpen}
+           className={`integration-settings-disclosure${connection && connection.status !== "disconnected" ? " is-live" : ""}`}
          >
          {openAI && <OpenAIUsagePanel />}
          {section.id === "ai" && !openAI && <AiUsagePanel providerName={card.display_name} />}
@@ -1511,9 +1689,8 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           </div>}
          </div>}
          </IntegrationDisclosure>}
-           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className="connection-briefing-disclosure">
+           {!comingSoon && (open || card.provider === "slack") && <IntegrationDisclosure title="Connection briefing and credentials" className={`connection-briefing-disclosure${card.manual_fields.length > 0 && canManage && !oauthConnected ? " has-form" : ""}`} open={!connection || !["connected", "verified"].includes(connection.status)}>
            <div className="integration-guide" id={`connection-briefing-${card.provider}`}>
-          <span className="eyebrow">Connection briefing</span>
           <strong>{card.dashboard_path}</strong>
           <p>{card.permission_reason}</p>
           {card.provider === "slack" && <p>New connections also request <code>channels:join</code> to join a public channel you select, and <code>groups:read</code> to list private channels after the app is invited. Corral does not read channel messages or join channels until you choose one.</p>}
@@ -1522,11 +1699,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
              <p><strong>{card.display_name} API usage is billed directly to your provider account.</strong></p>
           </>}
           <div className="scope-list">{card.required_scopes.map((scope) => <code key={scope}>{scope}</code>)}</div>
-          <a href={card.documentation_url} target="_blank" rel="noreferrer">Official provider documentation →</a>
-          {card.supported_auth.includes("oauth2") && canConnectProvider && <button className="oauth-button" onClick={() => void connectOAuth(card.provider)}>Sign in to {card.display_name} →</button>}
+          <a href={card.documentation_url} target="_blank" rel="noopener noreferrer">Official documentation<Icon name="external" size={13} /></a>
           {card.manual_fields.length > 0 && canManage && !oauthConnected && <div className="manual-credential">
             <span>Secure credential setup</span>
-            {!openAI && <label>Account label<input placeholder="Connected account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}
+            {!openAI && <label>Account label<input placeholder="Account name" value={accountNames[card.provider] ?? ""} onChange={(event) => setAccountNames((current) => ({ ...current, [card.provider]: event.target.value }))} /></label>}
             {openAI && !connection && <label>Model<select value={selectedOpenAIModel} onChange={(event) => setModelSelections((current) => ({ ...current, [card.provider]: event.target.value }))}>{card.supported_models.map((model) => <option value={model} key={model}>{model}</option>)}</select></label>}
             {card.manual_fields.filter((field) => !cloudTalk || field !== "agent_id").map((field) => {
               const secret = /token|secret|jwt|api_key/.test(field);
@@ -1552,17 +1728,33 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
               } else {
                 await addIntegrationCredential(card.provider, accountNames[card.provider] || (openAI ? "OpenAI project" : `${card.display_name} account`), card.preferred_auth === "api_key" ? "api_key" : "private_token", card.required_scopes, providerCredentials, openAI ? { selected_model: selectedOpenAIModel } : {});
               }
-            }, `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace Key" : connection ? "Replace credentials" : "Store credentials"}</button>
+            }, `${card.display_name} credential stored securely; test it before use.`)}>{connection && openAI ? "Replace key" : connection ? "Replace credentials" : `Connect ${card.display_name}`}</button>
             <small>The key is sent only to the backend, encrypted by the configured secret service, cleared from this form after success, and never returned.</small>
             </div>}
             </div>
           </IntegrationDisclosure>}
         {operationFeedback[card.provider] && <div className={`notice notice-${operationFeedback[card.provider].state} integration-operation-feedback operation-${operationFeedback[card.provider].state}`} role={operationFeedback[card.provider].state === "error" ? "alert" : "status"} aria-live="polite" aria-busy={operationFeedback[card.provider].state === "running"}>{operationFeedback[card.provider].message}</div>}
         {actionErrors[card.provider] && actionErrors[card.provider] !== operationFeedback[card.provider]?.message && <div className="integration-action-error" role="alert">{actionErrors[card.provider]}</div>}
+           <IntegrationDisclosure title="Setup guide and permissions" className="int-guidance">
+             <IntegrationSetupGuide card={card} />
+             {metaWebhookSubscription && <div className="integration-guide meta-webhook-guide">
+               <span className="eyebrow">Meta inbound message setup</span>
+               <p><strong>Callback path</strong><br /><code>/v1/webhooks/meta</code></p>
+               <p><strong>Subscribe</strong><br />{metaWebhookSubscription}</p>
+               <p>Use the configured <code>WEBHOOK_SIGNING_SECRET</code> as Meta’s verify token. POST signatures are checked with this provider’s existing Meta app secret.</p>
+               <p>Connect the matching Instagram account, Facebook Page, or WhatsApp Business account. Events from an unknown or ambiguous account are rejected.</p>
+             </div>}
+             {!comingSoon && card.supported_auth.includes("oauth2") && <p className="account-selection-note">{gmailDirection ? "Connect more than one Gmail mailbox. Each account stays separate, and you choose which mailbox to read or send from in Corral." : "Choose your account or organization at provider sign-in. Only one account per provider remains active after verification."}</p>}
+           </IntegrationDisclosure>
           </ProviderDetailsPanel>
        </article>;
     })}</div>
-    </section>)}</div>}
+    </section>)}
+      {!selectedProvider && !aiSection && !callingSection && comingSoonCards.length > 0 && activeCategory === "all" && <section className="int-coming-soon" aria-label="Coming soon">
+        <h2>Coming soon</h2>
+        <p>{comingSoonCards.map((card) => card.display_name).join(", ")}</p>
+      </section>}
+    </div>}
      {salesforceSetupOpen && <SalesforceSetupGuide
        accountName={cards.find((card) => card.provider === "salesforce")?.connection?.account_name}
        onClose={() => setSalesforceSetupOpen(false)}

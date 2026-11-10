@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from lead_agent.api.dependencies import get_active_crm_provider, require_permission
 from lead_agent.api.schemas import CrmSyncResponse, crm_sync_response
 from lead_agent.application.crm import manually_retry_crm_sync, manually_sync_lead_to_crm
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.crm import CrmProvider, CrmProviderError
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import CrmSyncORM, LeadORM
@@ -97,6 +98,7 @@ def synchronize_crm(
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmSyncResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     try:
         row = manually_sync_lead_to_crm(
             session,
@@ -127,6 +129,7 @@ def retry_crm(
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmSyncResponse:
     lead = _lead_or_404(lead_id, session, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     try:
         row = manually_retry_crm_sync(
             session,
@@ -168,6 +171,7 @@ def bulk_synchronize_crm(
                 BulkCrmSyncItemResponse(lead_id=lead_id, status="failed", error="Lead not found")
             )
             continue
+        assert_lead_action(session, workspace, lead, "edit")
         try:
             row = manually_sync_lead_to_crm(
                 session,

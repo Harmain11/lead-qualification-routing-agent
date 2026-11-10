@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createLeadMeetingPreferredOfferDraft, getLeadMeetingRecommendations, retryConfirmedMeetingBooking, syncLeadGmailConversation } from "../api";
 import type { Lead, MeetingRecommendations, MeetingSuggestion } from "../types";
 import { LeadMeetingManagement } from "./LeadMeetingManagement";
+import { Icon } from "../v3/ui/Icon";
+import { Button } from "../v3/ui/primitives";
 
 type Props = {
   lead: Lead;
@@ -14,8 +16,10 @@ type Props = {
 type LoadState = "loading" | "ready" | "error";
 
 export type LeadMeetingIndicator = {
-  kind: "appointment_needed" | "draft_ready" | "sending" | "awaiting_booking" | "booked" | "needs_attention";
+  kind: "appointment_needed" | "draft_ready" | "sending" | "awaiting_booking" | "booked" | "needs_attention" | "cancelled";
   bookedAt: string | null;
+  cancelledMeetingAt?: string | null;
+  cancellationReason?: string | null;
 };
 
 const providerName = (provider: string) => provider === "google_calendar" ? "Google Calendar" : provider === "calendly" ? "Calendly" : provider;
@@ -33,11 +37,17 @@ function meetingIndicatorFor(
     case "awaiting_confirmation": return { kind: "awaiting_booking", bookedAt: null };
     case "booked": return { kind: "booked", bookedAt: recommendations.booked_meeting_at };
     case "needs_attention": return { kind: "needs_attention", bookedAt: null };
-    default: return draftCreated
-      ? { kind: "draft_ready", bookedAt: null }
-      : recommendations.detected
-        ? { kind: "appointment_needed", bookedAt: null }
-        : null;
+    default:
+      if (draftCreated) return { kind: "draft_ready", bookedAt: null };
+      if (recommendations.cancelled_at || recommendations.cancelled_meeting_at) {
+        return {
+          kind: "cancelled",
+          bookedAt: null,
+          cancelledMeetingAt: recommendations.cancelled_meeting_at ?? null,
+          cancellationReason: recommendations.cancellation_reason ?? null,
+        };
+      }
+      return recommendations.detected ? { kind: "appointment_needed", bookedAt: null } : null;
   }
 }
 
@@ -53,131 +63,6 @@ function meetingWindow(startAt: string, endAt: string, timeZone: string) {
   return `${dateLabel(startAt, timeZone, { weekday: "short", month: "short", day: "numeric" })} · ${dateLabel(startAt, timeZone, { hour: "numeric", minute: "2-digit" })}–${dateLabel(endAt, timeZone, { hour: "numeric", minute: "2-digit" })}`;
 }
 
-const styles = `
-.lmp {
- --lmp-ink:var(--text); --lmp-muted:var(--muted); --lmp-line:var(--line);
- --lmp-wash:var(--surface-high); --lmp-green:var(--orange-hot); --lmp-green-soft:var(--orange-soft);
- --lmp-gold:var(--amber); --lmp-warning-bg:color-mix(in srgb,var(--amber) 9%,var(--surface));
- --lmp-warning-line:color-mix(in srgb,var(--amber) 35%,var(--line));
- --lmp-error-bg:color-mix(in srgb,var(--red) 9%,var(--surface));
- --lmp-error-line:color-mix(in srgb,var(--red) 35%,var(--line));
- color:var(--lmp-ink); border:1px solid var(--lmp-line); border-radius:12px; background:var(--surface); overflow:hidden;
-}
-.lmp * { box-sizing:border-box; }
-.lmp-head { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:22px 24px 18px; background:var(--surface); border-bottom:1px solid var(--lmp-line); }
-.lmp-head-main { display:flex; gap:13px; min-width:0; }
-.lmp-mark { width:38px; height:38px; display:grid; place-items:center; flex:0 0 auto; border:1px solid var(--lmp-line); border-radius:11px; background:var(--lmp-green-soft); color:var(--lmp-green); font:700 13px/1 "Cascadia Mono","SFMono-Regular",monospace; letter-spacing:.04em; }
-.lmp-eyebrow { display:block; margin:1px 0 5px; color:var(--lmp-green); font:600 13px/1.4 "Cascadia Mono","SFMono-Regular",monospace; letter-spacing:.14em; text-transform:uppercase; }
-.lmp h3 { margin:0; color:var(--lmp-ink); font:600 19px/1.2 "Arial Nova","Segoe UI Variable",system-ui,sans-serif; letter-spacing:-.025em; }
-.lmp-intro { margin:6px 0 0; color:var(--lmp-muted); font-size:14px; line-height:1.55; }
-.lmp .lmp-refresh { display:inline-flex; align-items:center; gap:7px; min-height:44px; flex:0 0 auto; padding:0 11px; border:1px solid var(--lmp-line); border-radius:8px; background:var(--surface); color:var(--lmp-muted); font-size:14px; font-weight:650; transition:transform 160ms ease,border-color 160ms ease,background 160ms ease; }
-.lmp-refresh:hover:not(:disabled) { transform:translateY(-1px); border-color:var(--orange); background:var(--lmp-wash); }
-.lmp-refresh:disabled { cursor:wait; opacity:.58; }
-.lmp-refresh-mark { font-size:15px; line-height:0; }
-.lmp-body { padding:19px 24px 23px; }
-.lmp-state { display:flex; align-items:flex-start; gap:12px; padding:14px 15px; border:1px solid var(--lmp-line); border-radius:11px; background:var(--surface); }
-.lmp-state-icon { width:25px; height:25px; display:grid; place-items:center; flex:0 0 auto; border-radius:8px; background:var(--lmp-wash); color:var(--lmp-green); font:700 13px "Cascadia Mono","SFMono-Regular",monospace; }
-.lmp-state h4 { margin:1px 0 5px; color:var(--lmp-ink); font-size:14px; font-weight:700; }
-.lmp-state p { margin:0; color:var(--lmp-muted); font-size:14px; line-height:1.65; }
-.lmp-error { border-color:var(--lmp-error-line); background:var(--lmp-error-bg); }
-.lmp-error .lmp-state-icon { background:var(--lmp-error-bg); color:var(--red); }
-.lmp-state-action { margin-top:10px; }
-.lmp-link-button { padding:0; border:0; background:transparent; color:var(--lmp-green); font-size:14px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
-.lmp-recovery-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:8px; }
-.lmp-recovery-actions .lmp-link-button { display:inline-block; }
-.lmp-calendly-types { display:grid; gap:8px; margin:14px 0; padding:12px; border:1px solid var(--lmp-line); border-radius:10px; background:var(--lmp-wash); }
-.lmp-calendly-types-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
-.lmp-calendly-types-head b, .lmp-calendly-type b { display:block; color:var(--lmp-ink); font-size:14px; }
-.lmp-calendly-types-head small, .lmp-calendly-type small { display:block; margin-top:3px; color:var(--lmp-muted); font-size:14px; line-height:1.5; }
-.lmp-calendly-type-list { display:grid; gap:6px; }
-.lmp-calendly-type { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; padding:8px 10px; border:1px solid var(--lmp-line); border-radius:8px; background:var(--surface); text-align:left; }
-.lmp-calendly-type:not(:disabled) { cursor:pointer; }
-.lmp-calendly-type:not(:disabled):hover { border-color:var(--orange); background:var(--lmp-wash); }
-.lmp-calendly-type.is-selected { border-color:var(--orange); background:var(--lmp-green-soft); }
-.lmp-calendly-type:disabled { cursor:not-allowed; opacity:.82; }
-.lmp-type-status { flex:0 0 auto; color:var(--lmp-gold); font-size:14px; font-weight:700; }
-.lmp-type-status.available { color:var(--lmp-green); }
-.lmp-calendly-fix { margin-top:9px; padding-top:9px; border-top:1px solid var(--lmp-warning-line); }
-.lmp-calendly-fix > b, .lmp-calendly-fallback > b { color:var(--lmp-gold); font-size:14px; }
-.lmp-calendly-fix ol { margin:6px 0 6px; padding-left:18px; }
-.lmp-calendly-fix li, .lmp-calendly-fix p, .lmp-calendly-fallback p { margin:4px 0; color:var(--lmp-gold); font-size:14px; line-height:1.55; }
-.lmp-calendly-fallback { margin-top:12px; padding:12px; border:1px solid var(--lmp-warning-line); border-radius:9px; background:var(--lmp-warning-bg); }
-.lmp-calendly-howto { margin-top:9px; color:var(--lmp-gold); font-size:14px; }
-.lmp-calendly-howto summary { cursor:pointer; color:var(--lmp-gold); font-weight:700; }
-.lmp-calendly-howto ol { margin:6px 0 0; padding-left:18px; }
-.lmp-calendly-howto li { margin:4px 0; line-height:1.5; }
-.lmp-booking-warning, .lmp-calendly-notice { margin-top:8px; padding:9px 10px; border:1px solid var(--lmp-warning-line); border-radius:8px; background:var(--lmp-warning-bg); color:var(--lmp-gold); font-size:14px; line-height:1.5; }
-.lmp-booking-warning p, .lmp-calendly-notice p { margin:3px 0; }
-.lmp-calendly-notice a { color:var(--lmp-gold); font-weight:700; }
-.lmp-skeleton { display:grid; gap:10px; }
-.lmp-skeleton-line { height:11px; border-radius:8px; background:linear-gradient(90deg,var(--lmp-wash) 25%,var(--lmp-line) 42%,var(--lmp-wash) 65%); background-size:240% 100%; animation:lmp-shimmer 1.4s ease-in-out infinite; }
-@keyframes lmp-shimmer { to { background-position:-120% 0; } }
-.lmp-skeleton-line:nth-child(2) { width:76%; }.lmp-skeleton-line:nth-child(3) { width:52%; }
-.lmp-context { margin-bottom:18px; padding:13px 15px; border-left:2px solid var(--orange); border-radius:0 9px 9px 0; background:var(--lmp-wash); }
-.lmp-context-top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:7px; margin-bottom:6px; }
-.lmp-context-label { color:var(--lmp-muted); font:600 13px "Cascadia Mono","SFMono-Regular",monospace; letter-spacing:.11em; text-transform:uppercase; }
-.lmp-subject { color:var(--lmp-ink); font-size:14px; font-weight:700; }
-.lmp-excerpt { margin:0; color:var(--lmp-muted); font-size:14px; line-height:1.65; }
-.lmp-section-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin:0 0 11px; }
-.lmp-section-heading h4 { margin:0; color:var(--lmp-ink); font-size:14px; font-weight:700; }
-.lmp-count { color:var(--lmp-muted); font:13px "Cascadia Mono","SFMono-Regular",monospace; }
-.lmp-groups { display:grid; gap:13px; }
-.lmp-group { overflow:hidden; border:1px solid var(--lmp-line); border-radius:11px; background:var(--surface); }
-.lmp-group-head { display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid var(--lmp-line); background:var(--lmp-wash); }
-.lmp-provider-mark { width:24px; height:24px; display:grid; place-items:center; border:1px solid var(--lmp-line); border-radius:7px; background:var(--surface); color:var(--lmp-green); font:700 13px "Cascadia Mono","SFMono-Regular",monospace; }
-.lmp-group-head div { min-width:0; }
-.lmp-group-head b { display:block; overflow:hidden; color:var(--lmp-ink); font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
-.lmp-group-head small { display:block; margin-top:2px; color:var(--lmp-muted); font-size:14px; }
-.lmp-options { display:grid; gap:0; }
-.lmp-option { position:relative; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:10px; min-height:54px; padding:10px 12px; border-bottom:1px solid var(--lmp-line); cursor:pointer; transition:background 150ms ease; }
-.lmp-option:last-child { border-bottom:0; }
-.lmp-option:hover { background:var(--lmp-wash); }
-.lmp-option.is-selected { background:var(--lmp-green-soft); }
-.lmp-option input { width:14px; height:14px; margin:0; accent-color:var(--lmp-green); }
-.lmp-option-time { color:var(--lmp-ink); font-size:14px; font-weight:700; }
-.lmp-option-zone { display:block; margin-top:3px; color:var(--lmp-muted); font:13px "Cascadia Mono","SFMono-Regular",monospace; }
-.lmp-option-duration { color:var(--lmp-muted); font-size:14px; white-space:nowrap; }
-.lmp-footnote { margin:12px 0 0; color:var(--lmp-muted); font-size:14px; line-height:1.55; }
-.lmp-integrations { display:grid; gap:7px; margin-top:13px; }
-.lmp-integration { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 11px; border:1px solid var(--lmp-line); border-radius:8px; background:var(--surface); color:var(--lmp-muted); font-size:14px; }
-.lmp-integration b { color:var(--lmp-ink); font-size:14px; font-weight:650; }
-.lmp-connection { display:inline-flex; align-items:center; gap:6px; min-width:0; color:var(--lmp-muted); font-size:14px; }
-.lmp-connection::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--subtle); flex-shrink:0; }
-.lmp-connection.connected { color:var(--lmp-green); }.lmp-connection.connected::before { background:var(--lmp-green); }
-.lmp-errors { display:grid; gap:7px; margin-top:13px; }
-.lmp-provider-error { padding:10px 12px; border:1px solid var(--lmp-warning-line); border-radius:9px; background:var(--lmp-warning-bg); color:var(--lmp-gold); font-size:14px; line-height:1.5; }
-.lmp-provider-error b { display:block; margin-bottom:3px; color:var(--lmp-gold); font-size:14px; }
-.lmp-controls { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:16px; padding-top:14px; border-top:1px solid var(--lmp-line); }
-.lmp-controls small { color:var(--lmp-muted); font-size:14px; line-height:1.45; }
-.lmp-primary { min-height:44px; flex:0 0 auto; padding:0 15px; border:1px solid var(--brand-orange); border-radius:8px; background:var(--brand-orange); color:#fff; font-size:14px; font-weight:700; transition:background 150ms ease,transform 150ms ease; }
-.lmp-primary:hover:not(:disabled) { transform:translateY(-1px); background:color-mix(in srgb,var(--brand-orange) 85%,black); }
-.lmp-primary:disabled { cursor:not-allowed; opacity:.45; }
-.lmp-review { padding:15px; border:1px solid var(--lmp-warning-line); border-radius:11px; background:var(--lmp-warning-bg); }
-.lmp-review-title { display:flex; align-items:center; gap:8px; margin:0 0 9px; color:var(--lmp-gold); font-size:14px; font-weight:750; }
-.lmp-review-badge { padding:4px 6px; border:1px solid var(--lmp-warning-line); border-radius:5px; background:var(--lmp-warning-bg); color:var(--lmp-gold); font:700 13px "Cascadia Mono","SFMono-Regular",monospace; letter-spacing:.06em; text-transform:uppercase; }
-.lmp-review p { margin:0; color:var(--lmp-gold); font-size:14px; line-height:1.6; }
-.lmp-review-slot { margin:11px 0; padding:10px 11px; border:1px solid var(--lmp-warning-line); border-radius:8px; background:var(--surface-high); color:var(--lmp-ink); font-size:14px; font-weight:700; line-height:1.5; }
-.lmp-review-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:12px; }
-.lmp-secondary { min-height:44px; padding:0 12px; border:1px solid var(--lmp-line); border-radius:8px; background:var(--surface); color:var(--lmp-muted); font-size:14px; font-weight:650; }
-.lmp-secondary:hover:not(:disabled) { background:var(--lmp-wash); }
-.lmp-review .lmp-primary { min-height:44px; }
-.lmp-outcome { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; padding:13px 14px; border:1px solid var(--orange); border-radius:10px; background:var(--lmp-green-soft); }
-.lmp-outcome-icon { width:24px; height:24px; display:grid; place-items:center; flex:0 0 auto; border-radius:50%; background:var(--lmp-green-soft); color:var(--lmp-green); font-size:14px; font-weight:800; }
-.lmp-outcome h4 { margin:1px 0 4px; color:var(--lmp-green); font-size:14px; }
-.lmp-outcome p { margin:0; color:var(--lmp-muted); font-size:14px; line-height:1.55; }
-.lmp-outcome a { display:inline-block; margin-top:7px; color:var(--lmp-green); font-size:14px; font-weight:700; text-decoration:underline; text-underline-offset:3px; }
-.lmp-outcome-failure { border-color:var(--lmp-error-line); background:var(--lmp-error-bg); }
-.lmp-outcome-failure .lmp-outcome-icon { background:var(--lmp-error-bg); color:var(--red); }
-.lmp-outcome-failure h4 { color:var(--red); }.lmp-outcome-failure p { color:var(--lmp-muted); }
-.lmp-sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-@media(max-width:640px) {
- .lmp-head { padding:17px 15px 15px; }.lmp-body { padding:15px; }.lmp h3 { font-size:17px; }
- .lmp .lmp-refresh { width:44px; padding:0; justify-content:center; font-size:0; }.lmp-refresh-mark { font-size:16px; }
- .lmp-option { grid-template-columns:18px minmax(0,1fr); }.lmp-option-duration { grid-column:2; margin-top:-3px; }
- .lmp-controls { align-items:stretch; flex-direction:column; }.lmp-controls .lmp-primary { width:100%; }
-  .lmp-calendly-type { align-items:flex-start; }.lmp-type-status { margin-top:2px; }
-}
-`;
 
 export function LeadMeetingPanel({
   lead,
@@ -415,7 +300,7 @@ export function LeadMeetingPanel({
 
   const renderLoadError = () => (
     <div className="lmp-state lmp-error" role="alert">
-      <span className="lmp-state-icon">!</span>
+      <span className="lmp-state-icon" aria-hidden="true"><Icon name="alert" size={16} /></span>
       <div><h4>Recommendations unavailable</h4><p>{loadError || "The meeting options could not be loaded."}</p><div className="lmp-state-action"><button className="lmp-link-button" type="button" onClick={() => setRetryCount((count) => count + 1)}>Try again</button></div></div>
     </div>
   );
@@ -433,19 +318,22 @@ export function LeadMeetingPanel({
   );
 
   return <section className="lmp" aria-labelledby={`meeting-title-${lead.id}`}>
-    <style>{styles}</style>
     <header className="lmp-head">
+      <span className="lmp-mark" aria-hidden="true"><Icon name="calendar" size={18} /></span>
       <div className="lmp-head-main">
-        <span className="lmp-mark" aria-hidden="true">MTG</span>
-        <div>
-          <span className="lmp-eyebrow">Gmail · calendar scheduling</span>
-          <h3 id={`meeting-title-${lead.id}`}>Schedule from the lead’s email</h3>
-          <p className="lmp-intro">When a lead asks to meet in Gmail, Corral prepares up to five available times in that thread. Review and send the draft from Emails. A clear reply choosing one time is booked after the calendar verifies it. When slots are unavailable, the draft uses a booking link.</p>
-        </div>
+        <h3 id={`meeting-title-${lead.id}`}>Meetings</h3>
+        <p className="lmp-intro">When {lead.full_name?.split(" ")[0] || "the lead"} asks to meet by email, Corral finds open times on your calendar and drafts the reply for you to send. A booking only counts once your calendar confirms it.</p>
       </div>
-      <button className="lmp-refresh" type="button" onClick={() => { scanGmailOnNextLoad.current = canEdit; setRetryCount((count) => count + 1); }} disabled={loadState === "loading" || confirming} aria-label={canEdit ? "Read latest Gmail conversation and refresh meeting recommendations" : "Refresh meeting recommendations"}>
-        <span className="lmp-refresh-mark" aria-hidden="true">↻</span> {canEdit ? "Read Gmail & refresh" : "Refresh"}
-      </button>
+      <Button
+        kind="gray"
+        size="sm"
+        icon="refresh"
+        onClick={() => { scanGmailOnNextLoad.current = canEdit; setRetryCount((count) => count + 1); }}
+        disabled={loadState === "loading" || confirming}
+        aria-label={canEdit ? "Read the latest email and refresh meeting times" : "Refresh meeting times"}
+      >
+        {canEdit ? "Check email" : "Refresh"}
+      </Button>
     </header>
 
     <div className="lmp-body">
@@ -460,19 +348,19 @@ export function LeadMeetingPanel({
       {loadState === "error" && renderLoadError()}
       {loadState === "ready" && recommendations && <>
         {draftCreated && <div className="lmp-outcome" role="status">
-          <span className="lmp-outcome-icon" aria-hidden="true">✓</span>
+          <span className="lmp-outcome-icon" aria-hidden="true"><Icon name="check" size={16} /></span>
           <div><h4>Appointment draft prepared</h4><p>Open the reply in Emails to review and send it. Corral records a booking only after the connected calendar confirms the chosen time.</p>
             <div><button className="lmp-link-button" type="button" onClick={scheduleAnother}>Refresh meeting status</button></div>
           </div>
         </div>}
 
         {!draftCreated && noThread && <div className="lmp-state">
-          <span className="lmp-state-icon" aria-hidden="true">G</span>
-          <div><h4>No matching meeting request found</h4><p>No meeting request was recognized in the imported conversation. Use “Read Gmail & refresh” to sync the latest messages and check again.</p></div>
+          <span className="lmp-state-icon" aria-hidden="true"><Icon name="mail" size={16} /></span>
+          <div><h4>No meeting request yet</h4><p>Nothing in their emails asks for a meeting yet. Choose Check email after they reply.</p></div>
         </div>}
 
         {!draftCreated && noMeetingDetected && <div className="lmp-state">
-          <span className="lmp-state-icon" aria-hidden="true">—</span>
+          <span className="lmp-state-icon" aria-hidden="true"><Icon name="calendar" size={16} /></span>
           <div><h4>No meeting request detected</h4><p>{recommendations.message || "The latest conversation does not contain a meeting request or proposed time."}</p></div>
         </div>}
 
@@ -532,8 +420,8 @@ export function LeadMeetingPanel({
           </div>}
 
           {!hasCalendar && <div className="lmp-state">
-            <span className="lmp-state-icon" aria-hidden="true">!</span>
-            <div><h4>No connected calendar account</h4><p>Connect a Google Calendar or Calendly account in Integrations settings to see bookable times. No event or message has been created.</p></div>
+            <span className="lmp-state-icon" aria-hidden="true"><Icon name="alert" size={16} /></span>
+            <div><h4>No calendar connected</h4><p>Connect Google Calendar or Calendly in Integrations to offer open times.</p></div>
           </div>}
 
         {!draftCreated && calendlyEventTypes.length > 0 && <div className="lmp-calendly-types" aria-label="Calendly event type availability">
@@ -566,7 +454,7 @@ export function LeadMeetingPanel({
               {groupedSuggestions.map(([groupKey, slots]) => {
                 const first = slots[0];
                 return <div className="lmp-group" key={groupKey}>
-                  <div className="lmp-group-head"><span className="lmp-provider-mark" aria-hidden="true">{first.provider === "google_calendar" ? "G" : "C"}</span><div><b>{providerName(first.provider)} · {first.account_name}</b><small>{first.event_type_name || "Suggested meeting"}</small></div></div>
+                  <div className="lmp-group-head"><span className="lmp-provider-mark" aria-hidden="true"><Icon name="calendar" size={14} /></span><div><b>{providerName(first.provider)} · {first.account_name}</b><small>{first.event_type_name || "Suggested meeting"}</small></div></div>
                   <div className="lmp-options" role="radiogroup" aria-label={`${providerName(first.provider)} times for ${first.account_name}`}>
                     {slots.map((slot) => {
                       const key = slotKey(slot);
@@ -585,7 +473,7 @@ export function LeadMeetingPanel({
           </>}
 
           {recommendations.suggestions.length === 0 && hasCalendar && <div className="lmp-state">
-            <span className="lmp-state-icon" aria-hidden="true">…</span>
+            <span className="lmp-state-icon" aria-hidden="true"><Icon name="clock" size={16} /></span>
             <div><h4>No available times yet</h4><p>{recommendations.message || "The connected account did not return an available slot for this conversation."} Refresh to check again.</p></div>
           </div>}
         </>}

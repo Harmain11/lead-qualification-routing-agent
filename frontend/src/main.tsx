@@ -11,11 +11,23 @@ import "./v3/auth.css";
 import "./v3/v4.css";
 import "./v3/polish.css";
 import "./v3/audit.css";
+import "./v3/mail.css";
+import "./v3/calls.css";
+import "./v3/integrations.css";
+import "./v3/workspace.css";
+import "./v3/lead.css";
+import "./v3/meetings.css";
+import "./v3/adaptive.css";
+import "./v3/refine.css";
 import App from "./App";
+import { ActivityToasts } from "./components/ActivityToasts";
+import { ConfirmHost } from "./v3/ui/confirm";
 import "./components/corralAgentMobile.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
+    <ActivityToasts />
+    <ConfirmHost />
   </StrictMode>,
 );

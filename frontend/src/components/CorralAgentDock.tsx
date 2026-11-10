@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -9,8 +11,13 @@ import { listLeads } from "../api";
 import type { WorkspaceAssistantArea } from "../api";
 import type { Lead } from "../types";
 import type { LeadDetailSection } from "../leadSections";
+
+// The assistant is the heaviest part of the shell. It loads, and starts fetching
+// chat history, only the first time someone opens it.
+const WorkspaceAssistantChat = lazy(() =>
+  import("./WorkspaceAssistantChat").then((module) => ({ default: module.WorkspaceAssistantChat })),
+);
 import { LeadAssistantPanel } from "./LeadAssistantPanel";
-import { WorkspaceAssistantChat } from "./WorkspaceAssistantChat";
 import { AGENT_STATE_EVENT, TOGGLE_AGENT_EVENT } from "./shell/agentEvents";
 import { FeatureGuide } from "./FeatureGuide";
 
@@ -57,6 +64,7 @@ export function CorralAgentDock({
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [panelVisible, setPanelVisible] = useState(false);
+  const [everOpened, setEverOpened] = useState(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
@@ -225,10 +233,17 @@ export function CorralAgentDock({
       window.cancelAnimationFrame(openingFrameRef.current);
     }
     setPanelVisible(true);
-    openingFrameRef.current = window.requestAnimationFrame(() => {
+    setEverOpened(true);
+    // One frame lets the panel mount before it slides in. Background tabs pause
+    // animation frames, so a short timer guarantees it still opens.
+    const reveal = () => {
+      if (openingFrameRef.current !== null) window.cancelAnimationFrame(openingFrameRef.current);
       openingFrameRef.current = null;
+      window.clearTimeout(openingFallback);
       setOpen(true);
-    });
+    };
+    const openingFallback = window.setTimeout(reveal, 60);
+    openingFrameRef.current = window.requestAnimationFrame(reveal);
   }, []);
 
   const closeAgent = useCallback(() => {
@@ -382,7 +397,7 @@ export function CorralAgentDock({
           .filter(Boolean)
           .join(" ")}
         data-lead-active={Boolean(targetLead && !showLeadPicker)}
-        aria-label="Corral Agent"
+        aria-label="Ask Corral"
         aria-hidden={!open}
         inert={!open}
         hidden={!panelVisible}
@@ -391,7 +406,7 @@ export function CorralAgentDock({
           <div className="v-agent-title">
             <img src="/asset/brand/corral-mark.png" alt="" width="20" height="20" />
             <strong>Ask Corral</strong>
-            <FeatureGuide topic="agent" />
+            <FeatureGuide topic="agent" compact />
           </div>
           <button
             ref={closeButtonRef}
@@ -456,6 +471,8 @@ export function CorralAgentDock({
         </div>
 
         <div className="corral-agent-window-body">
+          {everOpened && (
+          <Suspense fallback={<p className="corral-agent-loading" role="status">Loading Corral…</p>}>
           <div
             className="corral-agent-mode"
             hidden={Boolean(targetLead) || showLeadPicker}
@@ -496,6 +513,8 @@ export function CorralAgentDock({
               }
             />
             </div>
+          )}
+          </Suspense>
           )}
           {showLeadPicker && (
             <div className="corral-agent-start">
@@ -563,7 +582,7 @@ export function CorralAgentDock({
                                   .join(" · ") || "No company or email"}
                               </small>
                             </span>
-                            <span aria-hidden="true">→</span>
+                            <span aria-hidden="true">›</span>
                           </button>
                         ))
                       ) : (
@@ -601,7 +620,7 @@ export function CorralAgentDock({
         <span className="corral-agent-launcher-mark" aria-hidden="true">
           CA
         </span>
-        <span>Corral Agent</span>
+        <span>Ask Corral</span>
         <span className="corral-agent-launcher-state" aria-hidden="true">
           {open ? "−" : "+"}
         </span>

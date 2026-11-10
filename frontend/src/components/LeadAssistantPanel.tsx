@@ -27,6 +27,9 @@ import { AssistantNoteDraft } from "./AssistantNoteDraft";
 import { AgentLeadChoices } from "./AgentLeadChoices";
 import "../views/emailWorkspace.css";
 import "./leadAssistant.css";
+import { confirmAction } from "../v3/ui/confirm";
+import { Button } from "../v3/ui/primitives";
+import { Icon } from "../v3/ui/Icon";
 
 type ChatMessage = {
   id: string;
@@ -48,7 +51,9 @@ type ClosingSelection = { conversionType: "" | "project" | "sale"; creditedUserI
 const suggestions = [
   "Summarize this lead and suggest a next step",
   "What details are still missing?",
+  "What is blocking this deal?",
   "Write and send a follow-up email",
+  "Prepare me for a call with this lead",
   "I want to call this lead",
 ];
 const fieldLabels: Record<string, string> = {
@@ -89,6 +94,7 @@ export function LeadAssistantPanel({
   onUpdated,
   onDeleted,
   onSectionChange,
+  seedPrompt = null,
 }: {
   lead: Lead;
   canEdit: boolean;
@@ -102,6 +108,8 @@ export function LeadAssistantPanel({
   onUpdated: (lead: Lead) => void;
   onDeleted: (leadId: string) => void;
   onSectionChange: (section: LeadDetailSection) => void;
+  /** A prompt another screen wants Corral to answer (for example "Summarize this email thread"). */
+  seedPrompt?: { text: string; nonce: number } | null;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -206,7 +214,7 @@ export function LeadAssistantPanel({
         role: "assistant",
         content: emailComposerOpened
           ? aiComposerOpened
-            ? "I’ve opened an editable follow-up email below. Review and edit the recipient, subject, and message before sending."
+            ? "I’ve opened an editable follow-up email below. Review and edit it before sending. Nothing is sent, and a meeting is not confirmed unless the calendar reports a successful booking."
             : "I couldn’t generate a draft from that response, so I opened the full email editor below. Add or edit the recipient, subject, and message there; nothing is sent automatically."
           : isDialerAction
           ? `${reply.reply}\n\nClick below to open the Dialer. Corral will not place the call.`
@@ -339,9 +347,11 @@ export function LeadAssistantPanel({
     changeMessage(message.id, { busy: true, error: undefined });
     try {
       if (action.kind === "reevaluate_lead") {
-        if (!window.confirm(
-          `Re-evaluate ${lead.full_name}'s qualification and routing using its current profile and recorded history?`,
-        )) return;
+        if (!(await confirmAction({
+          title: `Re-evaluate ${lead.full_name}?`,
+          message: "Qualification and routing are recalculated from the current profile and recorded history. The owner may change.",
+          confirmLabel: "Re-evaluate",
+        }))) return;
         const updated = await reevaluateLead(lead.id);
         onUpdated(updated);
         changeMessage(message.id, { done: true });
@@ -435,24 +445,24 @@ export function LeadAssistantPanel({
           ? action.crm_provider!
           : selectedCrm;
         if (!provider) throw new Error("Select a verified CRM connection first.");
-        if (!window.confirm(`Sync ${lead.full_name} to ${crmName(provider)} now?`)) return;
+        if (!(await confirmAction({ title: `Sync ${lead.full_name} to ${crmName(provider)}?`, message: "The CRM record is created or updated with this lead's current details.", confirmLabel: "Sync now" }))) return;
         changeMessage(message.id, { busy: true, error: undefined });
         await sendLeadToCrm(lead.id, provider);
         changeMessage(message.id, { busy: false, done: true });
         void refreshLeadAfterAction(message.id);
       } else if (action.kind === "delete_lead") {
         if (!canEdit) throw new Error("You need lead-edit access to delete this lead.");
-        if (!window.confirm(`Delete ${lead.full_name} from this workspace? A later matching inquiry may be imported again.`)) return;
+        if (!(await confirmAction({ title: `Delete ${lead.full_name}?`, message: "The lead is removed from this workspace. A later matching inquiry may be imported again.", confirmLabel: "Delete lead", tone: "danger" }))) return;
         await deleteLead(lead.id);
         onDeleted(lead.id);
       } else if (action.kind === "open_email") {
         onSectionChange("email");
         changeMessage(message.id, { done: true });
       } else if (action.kind === "open_meetings") {
-        onSectionChange("follow-ups");
+        onSectionChange("pipeline");
         changeMessage(message.id, {
           done: true,
-          actionResult: "Meeting controls opened in Follow up. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
+          actionResult: "Meeting controls opened in Pipeline. Review the booked event, enter a reason to cancel or select a new time. Corral has not changed the calendar.",
         });
       } else if (action.kind === "open_dialer") {
         if (dialerPhoneConnectionId && lead.phone?.trim()) {
@@ -585,46 +595,39 @@ export function LeadAssistantPanel({
     </details>;
   }
 
+  const lastSeed = useRef(0);
+  useEffect(() => {
+    if (!seedPrompt || seedPrompt.nonce === lastSeed.current) return;
+    lastSeed.current = seedPrompt.nonce;
+    void submit(undefined, seedPrompt.text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedPrompt]);
+
   return <section className="lead-agent" aria-label={`Assistant for ${lead.full_name}`}>
-    <header className="lead-agent-heading">
-      <div className="lead-agent-mark" aria-hidden="true">CA</div>
-      <div><span className="eyebrow">Lead assistant</span><h2>Work with {lead.full_name}</h2><p>Ask Corral to help with this lead. Check any proposed changes, then choose the action you want.</p></div>
-    </header>
-    <section className="lead-agent-quick-actions" aria-label="Quick lead actions">
-      <div className="lead-agent-phone-card">
-        <div className="lead-agent-phone-copy">
-          <span className="eyebrow">Phone number</span>
-          <strong>{lead.phone || "No number saved"}</strong>
-        </div>
-        <div className="lead-agent-quick-buttons">
-          {lead.phone && <button type="button" className="secondary-button" onClick={() => void copyLeadPhone()}>Copy number</button>}
-          {lead.phone && dialerPhoneConnectionId && <button type="button" className="secondary-button" onClick={openLeadPhone}>Open phone</button>}
-          {!lead.phone && canEdit && <button type="button" className="secondary-button" onClick={() => {
-            setDraft(`Add a phone number for ${lead.full_name}: `);
-            window.requestAnimationFrame(() => document.getElementById("lead-agent-input")?.focus());
-          }}>Add number with Corral</button>}
-        </div>
-        {lead.phone && <p>{dialerPhoneConnectionId
-          ? "To call: copy the number or open the selected phone, then dial it yourself. Corral won’t start a call."
-          : "To call: copy the number and dial it using your approved phone. Select an embedded phone to open it here."}</p>}
-      </div>
-      <button
-        className="primary-button lead-agent-email-shortcut"
-        type="button"
+    <div className="la-actions" role="group" aria-label="Quick lead actions">
+      <Button
+        kind="filled"
+        size="sm"
+        icon="mail"
         disabled={!canUseAgent || !canEdit || !canViewEmail || busy}
         onClick={startEmailDraft}
-        title={followUpBlockedReason || (!canEdit ? "Lead-edit access is required to send a follow-up." : !canViewEmail ? "Email access is required to compose a follow-up." : undefined)}
+        title={followUpBlockedReason || (!canEdit ? "Lead-edit access is required to send a follow-up." : !canViewEmail ? "Email access is required to compose a follow-up." : "Choose the sender, write the message and send it.")}
       >
-        Compose follow-up email
-      </button>
-      <small className="lead-agent-email-shortcut-note">Choose sender and recipient, format the message, then send it directly.</small>
-      {(quickActionNotice || followUpBlockedReason) && <p className="lead-agent-quick-notice" role="status">{quickActionNotice || followUpBlockedReason}</p>}
-    </section>
+        Email
+      </Button>
+      {lead.phone && dialerPhoneConnectionId && <Button kind="gray" size="sm" icon="phone" onClick={openLeadPhone} title="Opens your phone with this number. You start the call.">Call</Button>}
+      {lead.phone && <Button kind="gray" size="sm" icon="copy" onClick={() => void copyLeadPhone()} title={lead.phone}>Copy number</Button>}
+      {!lead.phone && canEdit && <Button kind="gray" size="sm" icon="phone" onClick={() => {
+        setDraft(`Add a phone number for ${lead.full_name}: `);
+        window.requestAnimationFrame(() => document.getElementById("lead-agent-input")?.focus());
+      }}>Add phone</Button>}
+    </div>
+    {(quickActionNotice || followUpBlockedReason) && <p className="la-notice" role="status">{quickActionNotice || followUpBlockedReason}</p>}
     <div className="lead-agent-transcript" ref={transcriptRef} aria-live="polite">
-      {!messages.length && <div className="lead-agent-welcome">
-        <h3>What would you like to do with this lead?</h3>
-        <p>{canUseAgent ? "I can answer from the record, update details, save notes and progress, compose emails, or open the right lead workflow. You’ll confirm email sends, CRM syncs, and deletion." : "Your workspace role does not include AI action access. Ask a workspace admin to grant “Execute permitted agent actions”."}</p>
-        {canUseAgent && <div className="lead-agent-suggestions">{suggestions.map((item) => <button type="button" key={item} onClick={() => void submit(undefined, item)}>{item}</button>)}</div>}
+      {!messages.length && <div className="la-welcome">
+        <h3>What should we do with {lead.full_name.split(" ")[0] || "this lead"}?</h3>
+        <p>{canUseAgent ? "Corral reads this lead’s record and history. It can update details, save notes and draft emails; sends, CRM syncs and deletions wait for you." : "Your role doesn’t include AI actions. A workspace admin can grant “Execute permitted agent actions”."}</p>
+        {canUseAgent && <div className="la-suggestions">{suggestions.map((item) => <button type="button" key={item} onClick={() => void submit(undefined, item)}><Icon name="sparkle" size={14} /><span>{item}</span><Icon name="chevronRight" size={14} /></button>)}</div>}
       </div>}
       {messages.map((message) => <article className={`lead-agent-message is-${message.role}`} key={message.id}>
         <span className="lead-agent-role">{message.role === "user" ? "You" : "Corral"}</span>
@@ -659,11 +662,11 @@ export function LeadAssistantPanel({
       {busy && <div className="lead-agent-thinking" role="status"><i /><i /><i /><span>Checking this lead’s record…</span></div>}
       {error && <p className="lead-agent-error" role="alert">{error}</p>}
     </div>
-    <form className="lead-agent-composer" onSubmit={(event) => void submit(event)}>
-      <label htmlFor="lead-agent-input">Message Corral</label>
-      <div><textarea
+    <form className="la-composer" onSubmit={(event) => void submit(event)}>
+      <label htmlFor="lead-agent-input" className="v-sr">Message Ask Corral about this lead</label>
+      <textarea
         id="lead-agent-input"
-        rows={4}
+        rows={3}
         maxLength={3000}
         placeholder="Ask about this lead or describe an update…"
         value={draft}
@@ -674,8 +677,11 @@ export function LeadAssistantPanel({
             void submit();
           }
         }}
-      /><button className="primary-button" type="submit" disabled={!canUseAgent || busy || !draft.trim()}>{busy ? "Thinking…" : "Send"}</button></div>
-      <small>Corral uses this lead’s record and recent history. Review proposed changes before applying them.</small>
+      />
+      <div className="la-composer-foot">
+        <small>Changes wait for your approval</small>
+        <Button kind="filled" size="sm" type="submit" disabled={!canUseAgent || busy || !draft.trim()}>{busy ? "Thinking…" : "Send"}</Button>
+      </div>
     </form>
   </section>;
 }

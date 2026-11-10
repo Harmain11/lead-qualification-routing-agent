@@ -1,75 +1,23 @@
 /* Small usability corrections shared by dense views and compact screens. */
-.side-rail,
-.side-rail nav,
-.side-rail nav > div { overflow: visible; }
-.side-rail nav { min-height: 0; }
 
 .field { min-width: 0; gap: 7px; }
-.field span { color: var(--text); font-size: 13px; font-weight: 600; line-height: 1.4; }
-.field input,
-.field select,
-.field textarea,
-.lead-toolbar input,
-.lead-toolbar select,
-.follow-up-field input,
-.follow-up-field textarea {
+.field span { color: var(--label); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.field input, .field select, .field textarea, .follow-up-field input, .follow-up-field textarea {
   min-width: 0;
   min-height: 42px;
   padding-inline: 12px;
-  border: 1px solid var(--line-bright);
+  border: 1px solid var(--separator-strong);
   border-radius: 9px;
-  background: var(--surface-solid, var(--surface));
-  color: var(--text);
+  background: var(--surface);
+  color: var(--label);
   font-size: 13px;
   line-height: 1.45;
 }
 .field textarea,
 .follow-up-field textarea { padding-block: 10px; }
-.field :is(input, select, textarea):focus,
-.lead-toolbar :is(input, select):focus,
-.follow-up-field :is(input, textarea):focus {
-  border-color: var(--orange);
-  box-shadow: 0 0 0 3px var(--orange-soft);
+.field :is(input, select, textarea):focus, .follow-up-field :is(input, textarea):focus {
+  border-color: var(--tint);
+  box-shadow: 0 0 0 3px var(--tint-soft);
 }
 .field input::placeholder,
-.field textarea::placeholder { color: var(--subtle); opacity: .9; }
-.form-grid { align-items: start; gap: 16px; }
-
-.lead-detail-navigation { min-width: 0; }
-.lead-detail-tabs { min-height: 50px; }
-.lead-detail-tab { min-height: 46px; }
-
-@media (max-width: 760px) {
-  .side-rail { overflow-y: auto; overflow-x: hidden; }
-  .product-bar {
-    height: auto;
-    min-height: 62px;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 5px 8px;
-    padding: 8px 12px;
-  }
-  .bar-leading { min-width: 0; flex: 1 1 145px; gap: 9px; }
-  .breadcrumb { min-width: 0; overflow: hidden; }
-  .breadcrumb b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar-actions {
-    min-width: 0;
-    flex: 1 1 100%;
-    justify-content: space-between;
-    gap: 6px;
-  }
-  .range-picker { min-width: 0; }
-  .range-picker button { width: auto; min-width: 0; padding: 6px 8px; font-size: 13px; }
-  .product-bar .guide-launch { white-space: nowrap; }
-  .product-bar .theme-toggle { white-space: nowrap; }
-  .form-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .lead-detail-navigation { gap: 7px; }
-}
-
-@media (max-width: 380px) {
-  .product-bar { padding-inline: 9px; }
-  .bar-actions { gap: 4px; }
-  .range-picker button { padding-inline: 6px; font-size: 13px; }
-  .product-bar .guide-launch span,
-  .product-bar .theme-label { display: none; }
-}
+.field textarea::placeholder { color: var(--label-3); opacity: .9; }

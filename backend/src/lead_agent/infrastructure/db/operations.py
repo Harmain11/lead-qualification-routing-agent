@@ -84,6 +84,7 @@ class ContactORM(Base):
     phone: Mapped[str | None] = mapped_column(String(64))
     job_title: Mapped[str | None] = mapped_column(String(255))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    profile: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     merged_into_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("contacts.id", ondelete="SET NULL")
     )
@@ -128,6 +129,7 @@ class LeadNoteORM(Base):
     )
     lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(Text)
+    is_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
     author_id: Mapped[str] = mapped_column(String(255))
     updated_by: Mapped[str] = mapped_column(String(255))

@@ -45,6 +45,27 @@ test("leaves non-Gmail inquiry text available to the plain-message presentation"
   assert.equal(parseGmailInquiry("Interested in learning more about your services."), null);
 });
 
+test("moves standard signature separators and everything after them into collapsed footer content", () => {
+  const body = `Hi Harmain,
+
+I would like to discuss a possible collaboration.
+
+--
+Junaid Paracha
+Chief Executive Officer | Ingenuity Systems
+PK: +92 300 6666336
+
+I would be happy to discuss this further.
+--
+Junaid Paracha`;
+  const sections = splitGmailBodyForDisplay(body);
+
+  assert.match(sections.primary, /possible collaboration/);
+  assert.doesNotMatch(sections.primary, /Junaid Paracha|happy to discuss this further/);
+  assert.match(sections.footers.join("\n"), /Junaid Paracha/);
+  assert.match(sections.footers.join("\n"), /happy to discuss this further/);
+});
+
 test("parses inline Gmail thread markers and compact header text", () => {
   const inquiry = parseGmailInquiry(`Thread role: direct prospect. Original thread: --- Gmail message abc123 ---
 From: Pat Example <pat@example.test> To: team@example.test Subject: Pricing request Date: Tue, 20 Oct 2026 09:00:00 +0000
@@ -68,6 +89,26 @@ MIME-Version: 1.0
 
 Please send pricing for the project.`);
   assert.equal(readable, "Please send pricing for the project.");
+});
+
+test("keeps a flattened Gmail thread focused on the newest lead reply", () => {
+  const sections = splitGmailBodyForDisplay(`1a19da5c1f1ce9d1 --- From: Junaid <sales@example.test>
+To: Harmain <harmain@example.test>
+Subject: Re: Quick call
+
+Here are three times that work for me.
+
+1a19da5c1f1ce9d1 --- From: Harmain <harmain@example.test>
+In-Reply-To: <old-message@example.test>
+References: <old-message@example.test>
+Subject: Re: Quick call
+
+Wednesday works for me. Can we meet at 2 PM?`);
+
+  assert.equal(sections.primary, "Wednesday works for me. Can we meet at 2 PM?");
+  assert.equal(sections.quoted.length, 1);
+  assert.match(sections.quoted[0], /Here are three times that work for me/);
+  assert.doesNotMatch(sections.primary, /In-Reply-To|References|From:/);
 });
 
 test("parses a normal email's sender, recipients, date, subject, and body", () => {
@@ -196,4 +237,45 @@ test("extracts inline sender/security banners and deduplicates flat-text legal n
   assert.match(sections.footers.join(" "), /EXTERNAL EMAIL/);
   assert.match(sections.footers.join(" "), /opt out/);
   assert.match(sections.footers.join(" "), /aka\.ms/);
+});
+
+test("recovers a message body that was flattened onto the To line", () => {
+  const inquiry = parseGmailInquiry(
+    "From: Harmain Mughal <harmain@example.test> Date: Wed, 28 Oct 2026 15:28:00 +0500 Subject: AI agent To: junaid@ingenuity.example Hey, I want to ask you about making an AI automation for my business, need more details?",
+  );
+  assert.ok(inquiry);
+  const [message] = inquiry.messages;
+  assert.equal(message.to, "junaid@ingenuity.example");
+  assert.equal(message.subject, "AI agent");
+  assert.match(message.body, /^Hey, I want to ask you about making an AI automation/);
+});
+
+test("keeps display names and multiple recipients in address headers", () => {
+  const inquiry = parseGmailInquiry(
+    'From: Ana <ana@example.test>\nTo: "Sales Team" <sales@example.test>, ops@example.test\nSubject: Pricing\n\nCan you share pricing?',
+  );
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].to, '"Sales Team" <sales@example.test>, ops@example.test');
+  assert.equal(inquiry.messages[0].body, "Can you share pricing?");
+});
+
+test("recovers a flattened subject and removes repeated mail content and signature noise", () => {
+  const body = "Hello Pei, I'm looking forward to hopping on a 10-minute Zoom call to discuss a potential tech collaboration. Let me know a suitable time to connect.";
+  const inquiry = parseGmailInquiry(`--- Gmail message compact-email ---
+From: Reese Maddox <reese@example.test>
+To: Pei Yao <pei@example.test>
+Date: Tue, 13 Oct 2026 09:31:16 +0000
+Subject: Pei Can I call you on Wednesday? ${body}
+
+${body} Best Regards, Reese Maddox, Manager Customer Success, Ingenuity Systems. P.S. If you want to opt out of our email list, reply with STOP.
+Links: ----- [1] https://example.test/about Links: ----- [1] https://example.test/about`);
+
+  assert.ok(inquiry);
+  assert.equal(inquiry.messages[0].subject, "Pei Can I call you on Wednesday?");
+  const sections = splitGmailBodyForDisplay(inquiry.messages[0].body);
+  assert.equal(sections.primary.split("I'm looking forward").length - 1, 1);
+  assert.equal(sections.primary.split("Let me know a suitable time").length - 1, 1);
+  assert.match(sections.primary, /Manager Customer Success/);
+  assert.doesNotMatch(sections.primary, /opt out|Links:/i);
+  assert.match(sections.footers.join(" "), /opt out/);
 });

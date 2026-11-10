@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from lead_agent.api.schemas import provider_connection_response
+from lead_agent.api.schemas import analysis_response, provider_connection_response
 from lead_agent.application.integrations import (
     activate_reasoning_provider,
     create_manual_connection,
@@ -22,6 +22,9 @@ from lead_agent.domain.analysis import (
     ContextFields,
     IcpCriterionEvaluation,
     IcpEvaluation,
+    IntentScoreAssessment,
+    IntentScoring,
+    LeadContextAnalysis,
     ReasoningOutput,
     SalesSummary,
 )
@@ -68,6 +71,20 @@ def _reasoning_output() -> dict[str, object]:
     return ReasoningOutput(
         context=context,
         intent_level="unknown",
+        intent_scoring=IntentScoring(
+            urgency=IntentScoreAssessment(
+                points=0, rationale="No urgency was assessed from the supplied evidence."
+            ),
+            buying_stage=IntentScoreAssessment(
+                points=0, rationale="No buying-stage points were assessed."
+            ),
+            budget_signal=IntentScoreAssessment(
+                points=0, rationale="No budget-signal points were assessed."
+            ),
+            specific_request=IntentScoreAssessment(
+                points=0, rationale="No specific request was assessed."
+            ),
+        ),
         overall_confidence=0,
         icp_evaluation=IcpEvaluation(
             profile_name="Default",
@@ -90,6 +107,31 @@ def _reasoning_output() -> dict[str, object]:
         ),
         recommended_action="Review the available lead details.",
     ).model_dump(mode="json")
+
+
+def test_analysis_response_loads_legacy_saved_output_without_intent_scoring() -> None:
+    stored = LeadContextAnalysis(
+        **_reasoning_output(),
+        provider="openai",
+        model="legacy-model",
+        prompt_version="phase3-context-v7",
+    ).model_dump(mode="json")
+    stored.pop("intent_scoring")
+    row = SimpleNamespace(
+        structured_output=stored,
+        id=uuid4(),
+        created_at=datetime.now(UTC),
+    )
+
+    response = analysis_response(row)
+
+    assert response is not None
+    assert response.intent_scoring.urgency.points == 0
+    assert response.intent_scoring.buying_stage.points == 0
+    assert response.intent_scoring.budget_signal.points == 0
+    assert response.intent_scoring.specific_request.points == 0
+    assert not response.intent_scoring.urgency.evidence
+    assert response.provider == "openai"
 
 
 def _provider_payload(provider: str) -> dict[str, object]:
@@ -179,7 +221,8 @@ def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
         timeout_seconds=3,
         post=post,
     )
-    result = client.analyze(_lead(), IcpConfig(profile_name="Default", profile_version="1"))
+    icp = IcpConfig(profile_name="Default", profile_version="1")
+    result = client.analyze(_lead(), icp)
 
     assert result.intent_level == "unknown"
     assert len(requests) == 1
@@ -200,6 +243,17 @@ def test_structured_api_analysis_uses_vendor_schema_and_keeps_key_out_of_logs(
     )
     body = request["json"]
     assert isinstance(body, dict)
+    if provider == "gemini":
+        prompt = body["contents"][0]["parts"][0]["text"]
+    elif provider == "claude":
+        prompt = body["messages"][0]["content"]
+    elif provider == "deepseek":
+        prompt = body["messages"][1]["content"]
+    else:
+        prompt = body["input"][1]["content"]
+    assert json.loads(prompt)["intent_scoring_max_points"] == icp.scoring.component_points.get(
+        "intent_urgency", {}
+    )
     if provider == "gemini":
         assert str(request["url"]).endswith(f"{_MODELS[provider]}:generateContent")
         schema = body["generationConfig"]["responseSchema"]

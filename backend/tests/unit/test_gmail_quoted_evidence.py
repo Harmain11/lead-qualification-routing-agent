@@ -70,6 +70,9 @@ def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead
     body = (
         "From: Morgan West <morgan@agency.example>\n"
         "To: <lee@studio.example>\nSubject: More information\n\n"
+        "I am with Lee Creative Studio, a digital marketing agency. "
+        "Our team has 18 employees, our annual revenue is $2,400,000, "
+        "our budget is $25,000, and we are based in Karachi, Pakistan. "
         "We build an AI layer for your existing systems.\n\n"
         "> Subject: More information\n> Date: Monday\n"
         '> From: "lee studio.example" <lee@studio.example>\n'
@@ -82,10 +85,31 @@ def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead
         reason="Asked for more information about services.",
         inquiry_evidence="Give me a little more context",
         full_name="Lee Taylor", email="lee@studio.example",
+        company_name="Lee Creative Studio", industry="digital marketing",
+        geography="Karachi, Pakistan", employee_count=18,
+        annual_revenue="$2,400,000", budget="$25,000",
         requested_service="A fully specified AI transformation package",
         evidence=[
             GmailEvidence(field="full_name", source="from_header", excerpt="lee studio.example"),
             GmailEvidence(field="email", source="from_header", excerpt="To: <lee@studio.example>"),
+            GmailEvidence(
+                field="company_name", source="body", excerpt="I am with Lee Creative Studio",
+            ),
+            GmailEvidence(
+                field="industry", source="body", excerpt="a digital marketing agency",
+            ),
+            GmailEvidence(
+                field="geography", source="body", excerpt="Karachi, Pakistan",
+            ),
+            GmailEvidence(
+                field="employee_count", source="body", excerpt="18 employees",
+            ),
+            GmailEvidence(
+                field="annual_revenue", source="body", excerpt="$2,400,000",
+            ),
+            GmailEvidence(
+                field="budget", source="body", excerpt="$25,000",
+            ),
             GmailEvidence(
                 field="requested_service", source="body",
                 excerpt="We build an AI layer for your existing systems.",
@@ -95,6 +119,12 @@ def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead
     [lead] = _provider(lambda **_: _extraction([candidate])).normalize_records(_record(body))
     assert lead.normalized_payload["full_name"] == "Lee Taylor"
     assert lead.normalized_payload["email"] == "lee@studio.example"
+    assert lead.normalized_payload["company_name"] == "Lee Creative Studio"
+    assert lead.normalized_payload["industry"] == "digital marketing"
+    assert lead.normalized_payload["geography"] == "Karachi, Pakistan"
+    assert lead.normalized_payload["employee_count"] == 18
+    assert lead.normalized_payload["annual_revenue"] == "$2,400,000"
+    assert lead.normalized_payload["budget"] == "$25,000"
     assert lead.normalized_payload["product_or_service"] == "Unknown"
     assert lead.normalized_payload["gmail_candidate_review_notes"]
     assert {item["source"] for item in lead.normalized_payload["gmail_evidence"]} == {"body"}
