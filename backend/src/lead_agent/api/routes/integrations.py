@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
     get_authenticated_identity,
+    get_workspace_context,
     require_any_permission,
     require_permission,
 )
@@ -37,13 +38,22 @@ from lead_agent.application.integrations import (
     update_openai_model,
     validate_connection,
 )
+from lead_agent.application.integration_access import (
+    allowed_connection_actions,
+    assert_connection_action,
+    assert_manage_connection_grants,
+    can_view_provider,
+    grant_connection_access,
+    provider_card_actions,
+    revoke_connection_access,
+    visible_connections,
+)
 from lead_agent.application.lead_approval import (
     LEAD_APPROVAL_PROVIDER_LABELS,
     lead_approval_policy,
     provider_has_verified_connection,
     update_lead_approval_policy,
 )
-from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.domain.auth import AuthenticatedIdentity, AuthorizationError
 from lead_agent.domain.integration_directionality import directionality_for
 from lead_agent.domain.integrations import (
@@ -63,8 +73,10 @@ from lead_agent.infrastructure.db.models import (
     LeadORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
+    WorkspaceMembershipORM,
     WorkspaceNotificationConfigORM,
 )
+from lead_agent.infrastructure.db.teams import ConnectionAccessGrantORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.oauth import get_oauth_broker
 from lead_agent.infrastructure.provider_lifecycle import (
@@ -387,6 +399,19 @@ class ValidationResponse(BaseModel):
     backfill_job_id: str | None = None
 
 
+class ConnectionGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actions: list[Literal["view", "view_status", "use", "sync", "send"]]
+
+
+class ConnectionGrantResponse(BaseModel):
+    connection_id: UUID
+    membership_id: UUID
+    actions: list[str]
+    expires_at: datetime | None = None
+
+
 def _connection_or_404(session: Session, workspace_id: UUID, connection_id: UUID) -> Any:
     row = get_provider_connection(session, workspace_id, connection_id)
     if row is None:
@@ -599,20 +624,22 @@ def list_integrations(
     ensure_workspace(session, workspace.workspace_id)
     session.commit()
     connections = list_provider_connections(session, workspace.workspace_id)
-    dialer_only = "integrations.view" not in workspace.permissions
+    dialer_only = (
+        "integrations.view" not in workspace.permissions
+        and "mailbox.view_own" not in workspace.permissions
+        and "agents.view" not in workspace.permissions
+    )
     if dialer_only:
         connections = [
             row for row in connections if row.provider_type in DIALERS
         ]
-    elif "integrations.view" in workspace.permissions:
-        connections = [
-            row for row in connections
-            if row.provider_type not in {"gmail", "outlook"}
-            or can_use_mailbox(workspace, row)
-        ]
+    connections = visible_connections(session, workspace, connections)
 
     def visible_connection(row: Any) -> ProviderConnectionResponse:
-        response = provider_connection_response(row)
+        response = provider_connection_response(
+            row,
+            allowed_actions=sorted(allowed_connection_actions(session, workspace, row)),
+        )
         if dialer_only:
             response.external_account_id = None
             response.metadata = {}
@@ -650,9 +677,10 @@ def list_integrations(
                 for row in connections
                 if row.provider_type == provider
             ],
+            allowed_actions=sorted(provider_card_actions(workspace, provider)),
         )
         for provider, setup in PROVIDER_SETUP.items()
-        if not dialer_only or provider in DIALERS
+        if (not dialer_only or provider in DIALERS) and can_view_provider(workspace, provider)
     ]
 
 
@@ -859,11 +887,81 @@ def update_slack_notification_config(
 def retrieve_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
 ) -> ProviderConnectionResponse:
+    row = _connection_or_404(session, workspace.workspace_id, connection_id)
+    assert_connection_action(session, workspace, row, "view")
     return provider_connection_response(
-        _connection_or_404(session, workspace.workspace_id, connection_id)
+        row, allowed_actions=sorted(allowed_connection_actions(session, workspace, row))
     )
+
+
+@router.get(
+    "/connections/{connection_id}/grants",
+    response_model=list[ConnectionGrantResponse],
+)
+def list_connection_grants(
+    connection_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
+) -> list[ConnectionGrantResponse]:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    assert_manage_connection_grants(workspace, connection)
+    rows = session.scalars(select(ConnectionAccessGrantORM).where(
+        ConnectionAccessGrantORM.workspace_id == workspace.workspace_id,
+        ConnectionAccessGrantORM.connection_id == connection.id,
+    )).all()
+    return [
+        ConnectionGrantResponse(
+            connection_id=row.connection_id,
+            membership_id=row.membership_id,
+            actions=sorted(row.actions),
+            expires_at=row.expires_at,
+        )
+        for row in rows
+    ]
+
+
+@router.put(
+    "/connections/{connection_id}/grants/{membership_id}",
+    response_model=ConnectionGrantResponse,
+)
+def set_connection_grant(
+    connection_id: UUID,
+    membership_id: UUID,
+    request: ConnectionGrantRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
+) -> ConnectionGrantResponse:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    membership = session.get(WorkspaceMembershipORM, membership_id)
+    if membership is None:
+        raise HTTPException(404, "workspace member not found")
+    grant = grant_connection_access(
+        session, workspace, connection, membership, request.actions,
+    )
+    session.commit()
+    return ConnectionGrantResponse(
+        connection_id=grant.connection_id,
+        membership_id=grant.membership_id,
+        actions=sorted(grant.actions),
+        expires_at=grant.expires_at,
+    )
+
+
+@router.delete(
+    "/connections/{connection_id}/grants/{membership_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_connection_grant(
+    connection_id: UUID,
+    membership_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
+) -> None:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    revoke_connection_access(session, workspace, connection, membership_id)
+    session.commit()
 
 
 @router.post(
@@ -902,11 +1000,14 @@ def begin_connection(
     provider: str,
     request: OAuthBeginRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.connect")),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
     broker: OAuthBroker = Depends(get_oauth_broker),
     secret_store: SecretStore = Depends(get_secret_store),
     settings: Settings = Depends(get_settings),
 ) -> OAuthBeginResponse:
+    card_actions = provider_card_actions(workspace, provider)
+    if not ({"connect", "connect_own"} & set(card_actions)):
+        raise HTTPException(status_code=403, detail=f"connection permission required: {provider}")
     if provider == "slack" and "integrations.manage" not in workspace.permissions:
         raise HTTPException(
             status_code=403, detail="permission required: integrations.manage"
@@ -931,7 +1032,9 @@ def begin_connection(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return OAuthBeginResponse(
-        connection=provider_connection_response(row),
+        connection=provider_connection_response(
+            row, allowed_actions=sorted(allowed_connection_actions(session, workspace, row))
+        ),
         authorization_url=started.authorization_url,
         state=started.state,
     )
@@ -975,8 +1078,18 @@ def browser_connection_callback(
         if connection is None:
             raise HTTPException(status_code=404, detail="Provider connection not found")
         membership = require_membership(session, identity.user_id, connection.workspace_id)
-        if "integrations.connect" not in membership_permissions(membership):
-            raise AuthorizationError("permission required: integrations.connect")
+        callback_workspace = WorkspaceContext(
+            workspace_id=connection.workspace_id,
+            actor_id=str(identity.user_id),
+            user_id=identity.user_id,
+            membership_id=membership.id,
+            role=membership.role,
+            permissions=membership_permissions(membership),
+            access_policy=membership.access_policy,
+        )
+        if not ({"connect", "connect_own"} & set(provider_card_actions(callback_workspace, provider))):
+            raise AuthorizationError(f"connection permission required: {provider}")
+        assert_connection_action(session, callback_workspace, connection, "manage")
         if (
             provider in _ADMIN_ONLY_PROVIDERS
             and "integrations.manage" not in membership_permissions(membership)
@@ -1089,7 +1202,7 @@ def connection_callback(
     provider: str,
     request: OAuthCallbackRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.connect")),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
 ) -> ProviderConnectionResponse:
@@ -1099,6 +1212,7 @@ def connection_callback(
             detail="Only workspace admins can complete social integrations.",
         )
     connection = _connection_or_404(session, workspace.workspace_id, request.connection_id)
+    assert_connection_action(session, workspace, connection, "manage")
     if connection.provider_type != provider:
         raise HTTPException(status_code=404, detail="Provider connection not found")
     try:
@@ -1125,12 +1239,14 @@ def connection_callback(
 def test_connection(
     connection_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
     secret_store: SecretStore = Depends(get_secret_store),
     broker: OAuthBroker = Depends(get_oauth_broker),
     validator: ProviderConnectionValidator = Depends(get_provider_connection_validator),
     settings: Settings = Depends(get_settings),
 ) -> ValidationResponse:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    assert_connection_action(session, workspace, connection, "manage")
     try:
         row, validation = validate_connection(
             session,
@@ -1363,10 +1479,12 @@ def send_slack_test_notification(
 def disconnect(
     connection_id: UUID,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.disconnect")),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
     secret_store: SecretStore = Depends(get_secret_store),
     revoker: ProviderRevoker = Depends(get_provider_revoker),
 ) -> ProviderConnectionResponse:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    assert_connection_action(session, workspace, connection, "disconnect")
     try:
         row = disconnect_connection(
             session,
@@ -1390,9 +1508,11 @@ def reconnect(
     connection_id: UUID,
     request: ReconnectRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
+    workspace: WorkspaceContext = Depends(get_workspace_context),
     secret_store: SecretStore = Depends(get_secret_store),
 ) -> ProviderConnectionResponse:
+    connection = _connection_or_404(session, workspace.workspace_id, connection_id)
+    assert_connection_action(session, workspace, connection, "manage")
     try:
         row = reconnect_connection(
             session,

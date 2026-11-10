@@ -589,6 +589,16 @@ export type ProviderConnection = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  owner_user_id?: string | null;
+  connection_type?: "personal" | "team_shared" | "workspace_managed";
+  allowed_actions?: string[];
+};
+
+export type ConnectionAccessGrant = {
+  connection_id: string;
+  membership_id: string;
+  actions: string[];
+  expires_at: string | null;
 };
 
 export type AuthSession = {
@@ -609,6 +619,10 @@ export type PermissionOverrides = {
   denies: string[];
 };
 
+export type AccessPolicy = {
+  scopes: Record<string, "none" | "own" | "team" | "all" | "custom">;
+};
+
 export type WorkspaceMember = {
   id: string;
   workspace_id: string;
@@ -620,6 +634,7 @@ export type WorkspaceMember = {
   status: "invited" | "active" | "suspended" | "revoked" | string;
   permission_overrides: PermissionOverrides;
   effective_permissions: string[];
+  access_policy: AccessPolicy;
   invited_by: string | null;
   invited_at: string | null;
   accepted_at: string | null;
@@ -665,6 +680,7 @@ export type WorkspaceInvitation = {
   role: string;
   role_label: string;
   permission_overrides: PermissionOverrides;
+  access_policy: AccessPolicy;
   status: "pending" | "accepted" | "expired" | "revoked" | string;
   invited_by: string;
   accepted_user_id: string | null;

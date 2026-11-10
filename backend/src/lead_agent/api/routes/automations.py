@@ -22,6 +22,7 @@ from lead_agent.api.operations_schemas import (
 )
 from lead_agent.application.automations import advance_run, latest_reply
 from lead_agent.application.governance import audit_operation, operations_policy
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.operations import AutomationInput, StrictModel
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import LeadORM
@@ -218,6 +219,7 @@ def enroll(
         raise HTTPException(404, "Playbook not found")
     if lead is None or lead.workspace_id != workspace.workspace_id:
         raise HTTPException(404, "Lead not found")
+    assert_lead_action(session, workspace, lead, "edit")
     if not definition.active:
         raise HTTPException(409, "Activate the definition before enrollment")
     row, _ = _enroll_one(session, definition, lead, workspace)
@@ -253,6 +255,8 @@ def enroll_bulk(
     }
     if len(leads) != len(request.lead_ids):
         raise HTTPException(404, "One or more leads were not found")
+    for lead in leads.values():
+        assert_lead_action(session, workspace, lead, "edit")
 
     items: list[AutomationEnrollmentItem] = []
     enrolled = 0
@@ -317,6 +321,10 @@ def run_action(
     )
     if row is None:
         raise HTTPException(404, "Run not found")
+    lead = session.get(LeadORM, row.lead_id)
+    if lead is None:
+        raise HTTPException(404, "Lead not found")
+    assert_lead_action(session, workspace, lead, "edit")
     previous_status = row.status
     if row.status == "processing":
         raise HTTPException(
@@ -345,9 +353,6 @@ def run_action(
     elif request.action == "resume":
         if row.status not in {"paused", "blocked"}:
             raise HTTPException(409, "Only paused or blocked runs can resume")
-        lead = session.get(LeadORM, row.lead_id)
-        if lead is None:
-            raise HTTPException(404, "Lead not found")
         reply = latest_reply(session, lead, datetime.fromisoformat(row.state["enrolled_at"]))
         row.state = {**row.state, "acknowledged_reply": str(reply.id) if reply else None}
         row.status, row.due_at = "queued", datetime.now(UTC)

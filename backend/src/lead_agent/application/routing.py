@@ -27,6 +27,7 @@ from lead_agent.domain.routing import (
 )
 from lead_agent.domain.workspaces import DEFAULT_WORKSPACE_ID
 from lead_agent.application.assignment_notifications import notify_assigned_member
+from lead_agent.application.lead_access import assign_lead
 from lead_agent.infrastructure.db.models import (
     LeadORM,
     LeadOutcomeORM,
@@ -806,6 +807,31 @@ def route_and_notify(
         idempotency_key=idempotency_key,
         is_current=True,
         created_at=now,
+    )
+    canonical_owner_id = None
+    if assigned_rep is not None:
+        try:
+            candidate_owner_id = UUID(assigned_rep.id)
+        except ValueError:
+            candidate_owner_id = None
+        if candidate_owner_id is not None and session.scalar(select(WorkspaceMembershipORM.id).where(
+            WorkspaceMembershipORM.workspace_id == lead.workspace_id,
+            WorkspaceMembershipORM.user_id == candidate_owner_id,
+            WorkspaceMembershipORM.status == "active",
+        )) is not None:
+            canonical_owner_id = candidate_owner_id
+    if current is not None and lead.current_owner_id is None and current.assigned_rep_id:
+        try:
+            lead.current_owner_id = UUID(current.assigned_rep_id)
+        except ValueError:
+            pass
+    # Legacy static routing entries that are not active workspace users remain
+    # notification-only; they never gain record access through an arbitrary ID.
+    assign_lead(
+        session,
+        lead,
+        canonical_owner_id,
+        reason="automatic routing" if not manually_assigned else "preserved manual assignment",
     )
     session.add(decision)
     try:

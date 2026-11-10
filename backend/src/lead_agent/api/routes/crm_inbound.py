@@ -26,6 +26,7 @@ from lead_agent.application.crm_inbound import (
     request_inbound_sync_cancellation,
     run_inbound_sync,
 )
+from lead_agent.application.integration_access import assert_connection_action
 from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -94,6 +95,7 @@ def update_inbound_sync_configuration(
     workspace: WorkspaceContext = Depends(require_permission("integrations.manage")),
 ) -> CrmInboundSyncStateResponse:
     connection = _member_connection(session, workspace, connection_id)
+    assert_connection_action(session, workspace, connection, "sync")
     if (
         connection.provider_type not in {"gmail", "outlook"}
         and "crm.sync" not in workspace.permissions
@@ -129,6 +131,7 @@ def synchronize_inbound_crm(
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmInboundSyncRunResponse | CrmInboundSyncAcceptedResponse:
     connection = _member_connection(session, workspace, connection_id)
+    assert_connection_action(session, workspace, connection, "sync")
     if request.mode == "review_previous" and (
         connection.provider_type != "gmail" or request.object_type != "message"
     ):
@@ -273,7 +276,8 @@ def retrieve_inbound_sync_state(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
 ) -> CrmInboundSyncStateResponse:
-    _member_connection(session, workspace, connection_id)
+    connection = _member_connection(session, workspace, connection_id)
+    assert_connection_action(session, workspace, connection, "view_status")
     row = get_inbound_sync_state(session, workspace.workspace_id, connection_id, object_type)
     if row is None:
         raise HTTPException(status_code=404, detail="Inbound synchronization state not found")
@@ -290,7 +294,8 @@ def retrieve_inbound_sync_runs(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
 ) -> list[CrmInboundSyncRunResponse]:
-    _member_connection(session, workspace, connection_id)
+    connection = _member_connection(session, workspace, connection_id)
+    assert_connection_action(session, workspace, connection, "view_status")
     return [
         crm_inbound_run_response(row)
         for row in list_inbound_sync_runs(
@@ -311,6 +316,7 @@ def cancel_inbound_sync(
     workspace: WorkspaceContext = Depends(require_permission("crm.sync")),
 ) -> CrmInboundSyncCancellationResponse:
     connection = _member_connection(session, workspace, connection_id)
+    assert_connection_action(session, workspace, connection, "sync")
     if connection.provider_type != "gmail":
         raise HTTPException(
             status_code=409,

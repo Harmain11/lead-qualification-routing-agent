@@ -95,6 +95,7 @@ class ConsentPage(BaseModel):
 class NoteRecord(RecordResponse):
     id: UUID
     body: str
+    is_private: bool = False
     version: int
     author_id: str
     updated_by: str

@@ -12,6 +12,7 @@ import type {
   DashboardAnalytics,
   ExtendedAnalytics,
   IntegrationCard,
+  ConnectionAccessGrant,
   LeadApprovalPolicy,
   Lead,
   LeadAssignmentOption,
@@ -40,6 +41,7 @@ import type {
   ReasoningUsagePeriod,
   TimeSeriesAnalytics,
   AuthSession,
+  AccessPolicy,
   PermissionOverrides,
   WorkspaceAuditEvent,
   WorkspaceInvitation,
@@ -755,6 +757,37 @@ export function listIntegrations(): Promise<IntegrationCard[]> {
   return jsonRequest<IntegrationCard[]>("/v1/integrations");
 }
 
+export function listConnectionGrants(connectionId: string): Promise<ConnectionAccessGrant[]> {
+  return jsonRequest<ConnectionAccessGrant[]>(
+    `/v1/integrations/connections/${encodeURIComponent(connectionId)}/grants`,
+  );
+}
+
+export function updateConnectionGrant(
+  connectionId: string,
+  membershipId: string,
+  actions: string[],
+): Promise<ConnectionAccessGrant> {
+  return jsonRequest<ConnectionAccessGrant>(
+    `/v1/integrations/connections/${encodeURIComponent(connectionId)}/grants/${encodeURIComponent(membershipId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actions }),
+    },
+  );
+}
+
+export function deleteConnectionGrant(
+  connectionId: string,
+  membershipId: string,
+): Promise<void> {
+  return jsonRequest<void>(
+    `/v1/integrations/connections/${encodeURIComponent(connectionId)}/grants/${encodeURIComponent(membershipId)}`,
+    { method: "DELETE" },
+  );
+}
+
 export function listLeadApprovalPolicies(): Promise<LeadApprovalPolicy[]> {
   return jsonRequest<LeadApprovalPolicy[]>("/v1/integrations/lead-approval-policies");
 }
@@ -1454,6 +1487,7 @@ export function inviteMember(input: {
   email: string;
   role: string;
   permission_overrides?: PermissionOverrides;
+  access_policy?: AccessPolicy;
 }): Promise<WorkspaceInvitation> {
   return jsonRequest<WorkspaceInvitation>("/v1/members/invite", {
     method: "POST",
@@ -1463,6 +1497,7 @@ export function inviteMember(input: {
       role: input.role,
       grants: input.permission_overrides?.grants ?? [],
       denies: input.permission_overrides?.denies ?? [],
+      access_policy: input.access_policy ?? { scopes: {} },
     }),
   });
 }
@@ -1488,6 +1523,14 @@ export function updateMemberPermissions(memberId: string, overrides: PermissionO
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(overrides),
+  });
+}
+
+export function updateMemberAccessPolicy(memberId: string, policy: AccessPolicy): Promise<WorkspaceMember> {
+  return jsonRequest<WorkspaceMember>(`/v1/members/${memberId}/access-policy`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(policy),
   });
 }
 

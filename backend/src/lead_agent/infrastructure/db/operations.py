@@ -129,6 +129,7 @@ class LeadNoteORM(Base):
     )
     lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(Text)
+    is_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
     author_id: Mapped[str] = mapped_column(String(255))
     updated_by: Mapped[str] = mapped_column(String(255))

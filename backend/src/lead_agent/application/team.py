@@ -7,23 +7,30 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.auth import AuthorizationError
 from lead_agent.domain.rbac import (
     effective_override_metadata,
     effective_permissions,
+    normalize_access_policy,
     normalize_role,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
+    AuthSessionORM,
     UserORM,
     WorkspaceAdminAuditEventORM,
     WorkspaceInvitationORM,
     WorkspaceMembershipORM,
 )
-from lead_agent.infrastructure.db.teams import WorkspaceTeamMemberORM, WorkspaceTeamORM
+from lead_agent.infrastructure.db.teams import (
+    ConnectionAccessGrantORM,
+    LeadAccessGrantORM,
+    WorkspaceTeamMemberORM,
+    WorkspaceTeamORM,
+)
 
 _EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 INVITATION_TTL = timedelta(days=7)
@@ -93,6 +100,7 @@ def _membership_snapshot(row: WorkspaceMembershipORM | None) -> dict[str, Any]:
         "role": normalize_role(row.role),
         "status": row.status,
         "permission_overrides": effective_override_metadata(row.permission_overrides),
+        "access_policy": normalize_access_policy(row.access_policy),
     }
 
 
@@ -218,12 +226,14 @@ def invite_member(
     email: str,
     role: str,
     permission_overrides: dict[str, Any] | None = None,
+    access_policy: dict[str, Any] | None = None,
 ) -> tuple[WorkspaceInvitationORM, str]:
     normalized_email = _normalize_email(email)
     canonical_role = normalize_role(role)
     if canonical_role == "owner":
         raise ValueError("ownership transfer is not implemented")
     overrides = effective_override_metadata(permission_overrides)
+    normalized_policy = normalize_access_policy(access_policy)
     permissions = _actor_permissions(session, workspace_id, actor_id, "members.invite")
     _assert_delegable(permissions, canonical_role, overrides)
     membership = session.scalar(
@@ -258,6 +268,7 @@ def invite_member(
                 invited_at=now,
                 accepted_at=None,
                 permission_overrides=overrides,
+                access_policy=normalized_policy,
                 created_at=now,
                 updated_at=now,
             )
@@ -269,6 +280,7 @@ def invite_member(
         membership.status = "invited"
         membership.role = canonical_role
         membership.permission_overrides = overrides
+        membership.access_policy = normalized_policy
         membership.invited_by = actor_id
         membership.invited_at = now
         membership.accepted_at = None
@@ -280,6 +292,7 @@ def invite_member(
             email=normalized_email,
             role=canonical_role,
             permission_overrides=overrides,
+            access_policy=normalized_policy,
             token_hash=_token_hash(token),
             status="pending",
             invited_by=actor_id,
@@ -295,6 +308,7 @@ def invite_member(
     else:
         invitation.role = canonical_role
         invitation.permission_overrides = overrides
+        invitation.access_policy = normalized_policy
         invitation.token_hash = _token_hash(token)
         invitation.invited_by = actor_id
         invitation.expires_at = now + INVITATION_TTL
@@ -315,6 +329,7 @@ def invite_member(
             "email": normalized_email,
             "role": canonical_role,
             "permission_overrides": overrides,
+            "access_policy": normalized_policy,
         },
     )
     session.commit()
@@ -442,6 +457,7 @@ def accept_invitation(
             invited_at=invitation.created_at,
             accepted_at=now,
             permission_overrides=invitation.permission_overrides,
+            access_policy=invitation.access_policy,
             created_at=now,
             updated_at=now,
         )
@@ -453,6 +469,7 @@ def accept_invitation(
         membership.invited_at = invitation.created_at
         membership.accepted_at = now
         membership.permission_overrides = invitation.permission_overrides
+        membership.access_policy = invitation.access_policy
         membership.updated_at = now
     invitation.status = "accepted"
     invitation.accepted_user_id = user_id
@@ -547,6 +564,32 @@ def change_member_permissions(
     return target
 
 
+def change_member_access_policy(
+    session: Session,
+    workspace_id: UUID,
+    membership_id: UUID,
+    actor_id: UUID,
+    access_policy: dict[str, Any],
+) -> WorkspaceMembershipORM:
+    target = _target_for_change(session, workspace_id, membership_id, actor_id)
+    policy = normalize_access_policy(access_policy)
+    before = _membership_snapshot(target)
+    target.access_policy = policy
+    target.updated_at = datetime.now(UTC)
+    _audit(
+        session,
+        workspace_id,
+        actor_id,
+        "access_policy_changed",
+        target_membership_id=target.id,
+        before=before,
+        after=_membership_snapshot(target),
+    )
+    session.commit()
+    session.refresh(target)
+    return target
+
+
 def set_member_status(
     session: Session,
     workspace_id: UUID,
@@ -562,6 +605,28 @@ def set_member_status(
     before = _membership_snapshot(target)
     target.status = status
     target.updated_at = datetime.now(UTC)
+    if status in {"suspended", "revoked"}:
+        session.execute(
+            update(AuthSessionORM)
+            .where(
+                AuthSessionORM.user_id == target.user_id,
+                AuthSessionORM.current_workspace_id == workspace_id,
+                AuthSessionORM.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC))
+        )
+        session.execute(
+            delete(LeadAccessGrantORM).where(
+                LeadAccessGrantORM.workspace_id == workspace_id,
+                LeadAccessGrantORM.membership_id == target.id,
+            )
+        )
+        session.execute(
+            delete(ConnectionAccessGrantORM).where(
+                ConnectionAccessGrantORM.workspace_id == workspace_id,
+                ConnectionAccessGrantORM.membership_id == target.id,
+            )
+        )
     operation = {
         "suspended": "member_suspended",
         "active": "member_reactivated",

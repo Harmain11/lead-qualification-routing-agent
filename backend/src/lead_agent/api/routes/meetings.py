@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.application.meeting_email import (
     can_replace_unbooked_offer,
     create_booking_link_offer_draft,
@@ -700,6 +701,7 @@ def create_meeting_offer_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> MeetingOfferDraftResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     current = get_meeting_recommendations(
         lead_id,
         session=session,
@@ -744,6 +746,7 @@ def create_meeting_preferred_offer_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> MeetingOfferDraftResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     draft = create_preferred_meeting_offer_draft(
         session, lead=lead, workspace_id=workspace.workspace_id,
         actor_id=workspace.actor_id,
@@ -761,6 +764,7 @@ def create_meeting_booking_link_draft(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> MeetingOfferDraftResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     draft = create_booking_link_offer_draft(
         session,
         lead=lead,
@@ -781,6 +785,7 @@ def confirm_meeting(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> ConfirmMeetingResponse:
     lead = _lead_or_404(session, lead_id, workspace.workspace_id)
+    assert_lead_action(session, workspace, lead, "edit")
     session.scalar(
         select(LeadORM.id)
         .where(

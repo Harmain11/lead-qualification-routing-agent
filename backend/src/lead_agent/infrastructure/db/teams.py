@@ -5,10 +5,12 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    JSON,
     String,
     Text,
     event,
@@ -59,6 +61,7 @@ class WorkspaceTeamMemberORM(Base):
         ForeignKey("workspace_memberships.id", ondelete="CASCADE"), primary_key=True,
     )
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    is_manager: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -76,6 +79,91 @@ class WorkspaceTeamLeadORM(Base):
         ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True,
     )
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class LeadAccessGrantORM(Base):
+    """An explicit, revocable collaboration grant independent of assignment."""
+
+    __tablename__ = "lead_access_grants"
+    __table_args__ = (
+        Index("ix_lead_access_grants_member", "workspace_id", "membership_id"),
+        Index("ix_lead_access_grants_lead", "workspace_id", "lead_id"),
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True,
+    )
+    membership_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspace_memberships.id", ondelete="CASCADE"), primary_key=True,
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    can_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    granted_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="collaboration")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class LeadAssignmentHistoryORM(Base):
+    """Immutable assignment snapshots used for audit and historical attribution."""
+
+    __tablename__ = "lead_assignment_history"
+    __table_args__ = (
+        Index("ix_lead_assignment_history_lead", "workspace_id", "lead_id", "created_at"),
+        Index("ix_lead_assignment_history_owner", "workspace_id", "new_owner_id", "created_at"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False,
+    )
+    previous_owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    new_owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    previous_team_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_teams.id", ondelete="SET NULL"), nullable=True,
+    )
+    new_team_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_teams.id", ondelete="SET NULL"), nullable=True,
+    )
+    actor_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="assignment")
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class ConnectionAccessGrantORM(Base):
+    """Delegates a bounded set of connection actions without transferring ownership."""
+
+    __tablename__ = "connection_access_grants"
+    __table_args__ = (
+        Index("ix_connection_access_grants_member", "workspace_id", "membership_id"),
+    )
+    connection_id: Mapped[UUID] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="CASCADE"), primary_key=True,
+    )
+    membership_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspace_memberships.id", ondelete="CASCADE"), primary_key=True,
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    actions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    granted_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 

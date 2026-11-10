@@ -30,7 +30,11 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceMembershipORM,
 )
 from lead_agent.infrastructure.db.operations import AgentInsightORM
-from lead_agent.infrastructure.db.teams import WorkspaceTeamMemberORM, WorkspaceTeamORM
+from lead_agent.infrastructure.db.teams import (
+    LeadAccessGrantORM,
+    WorkspaceTeamMemberORM,
+    WorkspaceTeamORM,
+)
 from lead_agent.infrastructure.repositories import ensure_workspace
 
 
@@ -96,6 +100,7 @@ def privacy(tmp_path, icp, routing):
                     team_id=team.id,
                     workspace_id=workspace_id,
                     membership_id=memberships[name].id,
+                    is_manager=name == "manager",
                 )
             )
         session.commit()
@@ -119,6 +124,8 @@ def privacy(tmp_path, icp, routing):
             )
             route = next(row for row in lead.routing_decisions if row.is_current)
             route.assigned_rep_id, route.assigned_rep_name = str(users[name].id), name
+            lead.current_owner_id = users[name].id
+            lead.primary_team_id = team.id if name in {"rep", "teammate"} else None
             session.add(
                 LeadOutcomeORM(
                     workspace_id=workspace_id,
@@ -138,6 +145,17 @@ def privacy(tmp_path, icp, routing):
             session.commit()
             session.refresh(lead)
             leads[name] = lead.id
+        session.add(
+            LeadAccessGrantORM(
+                workspace_id=workspace_id,
+                lead_id=leads["rep"],
+                membership_id=memberships["viewer"].id,
+                can_edit=False,
+                granted_by=users["admin"].id,
+                created_at=now,
+            )
+        )
+        session.commit()
     yield SimpleNamespace(
         engine=engine,
         contexts=contexts,
@@ -381,6 +399,45 @@ def test_legacy_private_history_never_reaches_assistants_or_shared_activity(priv
         assert sentinel not in json.dumps([row.model_dump() for row in history], default=str)
         snapshot = build_workspace_assistant_context(session, p.contexts["viewer"])
         assert sentinel not in json.dumps(snapshot, default=str)
+
+
+def test_lead_assistant_context_redacts_fields_the_actor_cannot_view(privacy, monkeypatch):
+    p = privacy
+    captured = {}
+
+    class Provider:
+        def assist_with_lead(self, payload):
+            captured.update(payload)
+            return LeadAssistantReply(reply="I can summarize the permitted record.")
+
+    monkeypatch.setattr(
+        lead_assistant, "resolve_workspace_reasoning_provider", lambda *_: Provider()
+    )
+    viewer = p.contexts["viewer"]
+    limited = WorkspaceContext(
+        workspace_id=viewer.workspace_id,
+        user_id=viewer.user_id,
+        actor_id=viewer.actor_id,
+        membership_id=viewer.membership_id,
+        role=viewer.role,
+        permissions=frozenset({*viewer.permissions, "agents.execute"}),
+    )
+    with Session(p.engine) as session:
+        lead_assistant.chat_with_lead_assistant(
+            p.leads["rep"],
+            lead_assistant.AssistantChatRequest(
+                messages=[lead_assistant.AssistantMessage(role="user", content="Summarize")]
+            ),
+            session,
+            limited,
+        )
+
+    assert captured["lead"]["email"] is None
+    assert captured["lead"]["phone"] is None
+    assert captured["lead"]["budget"] is None
+    assert captured["lead"]["annual_revenue"] is None
+    assert captured["lead"]["original_inquiry_or_context"] is None
+    assert captured["team_notes"] == []
 
 
 def test_export_filters_coaching_and_viewer_cannot_narrate(privacy):

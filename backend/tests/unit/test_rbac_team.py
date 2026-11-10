@@ -29,6 +29,7 @@ from lead_agent.domain.rbac import (
 )
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
+    AuthSessionORM,
     UserORM,
     WorkspaceInvitationORM,
     WorkspaceMembershipORM,
@@ -102,7 +103,10 @@ def _workspace_with_owner(session: Session) -> tuple[WorkspaceORM, UserORM, Work
 def test_role_catalog_and_deterministic_overrides() -> None:
     assert normalize_role("Sales Manager") == "sales_manager"
     assert role_permissions("owner") == PERMISSION_CATALOG
-    assert "leads.export" in role_permissions("sales manager")
+    assert "leads.export" not in role_permissions("sales manager")
+    assert "leads.export" in effective_permissions(
+        "sales manager", {"grants": ["leads.export"], "denies": []}
+    )
     assert "dialer.call" in role_permissions("sales manager")
     assert "dialer.call" in role_permissions("sales rep")
     assert "routing.manage" not in role_permissions("sales manager")
@@ -140,6 +144,7 @@ def test_invitation_acceptance_is_scoped_single_use_and_audited(session: Session
         invitee.email,
         "Sales Rep",
         {"grants": ["leads.export"], "denies": []},
+        {"scopes": {"leads.view": "own", "leads.edit": "own"}},
     )
     assert len(token) >= 48
     assert invitation.token_hash != token
@@ -148,12 +153,17 @@ def test_invitation_acceptance_is_scoped_single_use_and_audited(session: Session
     )
     assert pending_membership is not None
     assert pending_membership.status == "invited"
+    assert pending_membership.access_policy == {
+        "scopes": {"leads.edit": "own", "leads.view": "own"},
+    }
+    assert invitation.access_policy == pending_membership.access_policy
 
     with pytest.raises(ValueError, match="another workspace"):
         accept_invitation(session, token, invitee.id, invitee.email, uuid4())
     accepted = accept_invitation(session, token, invitee.id, invitee.email, workspace.id)
     assert accepted.status == "active"
     assert accepted.role == "sales_rep"
+    assert accepted.access_policy == pending_membership.access_policy
     assert membership_permissions(accepted) == effective_permissions(
         "sales_rep", {"grants": ["leads.export"], "denies": []}
     )
@@ -310,6 +320,19 @@ def test_owner_protection_and_member_lifecycle(session: Session) -> None:
     )
     session.add_all([staff, staff_membership])
     session.commit()
+    active_session = AuthSessionORM(
+        id=uuid4(),
+        user_id=staff.id,
+        current_workspace_id=workspace.id,
+        token_hash="staff-session-token",
+        csrf_token_hash="staff-session-csrf",
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+        last_seen_at=datetime.now(UTC),
+        revoked_at=None,
+        created_at=datetime.now(UTC),
+    )
+    session.add(active_session)
+    session.commit()
 
     with pytest.raises(ValueError, match="protected"):
         set_member_status(session, workspace.id, owner_membership.id, staff.id, "revoked")
@@ -322,6 +345,7 @@ def test_owner_protection_and_member_lifecycle(session: Session) -> None:
     assert changed.role == "viewer"
     suspended = set_member_status(session, workspace.id, staff_membership.id, owner.id, "suspended")
     assert suspended.status == "suspended"
+    assert session.get(AuthSessionORM, active_session.id).revoked_at is not None
     reactivated = set_member_status(session, workspace.id, staff_membership.id, owner.id, "active")
     assert reactivated.status == "active"
     removed = set_member_status(session, workspace.id, staff_membership.id, owner.id, "revoked")

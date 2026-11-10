@@ -57,6 +57,39 @@ CREDENTIALS = {
 }
 
 
+def test_call_detail_fields_are_filtered_by_granular_permissions():
+    record = calling.CallRecord(
+        id=uuid4(),
+        lead_id=uuid4(),
+        connection_id=uuid4(),
+        provider="cloudtalk",
+        external_id="call-1",
+        status="completed",
+        direction="outbound",
+        customer_phone=TARGET,
+        started_at=datetime.now(UTC),
+        duration_seconds=90,
+        transcript="private transcript",
+        recording_url="https://recording.example.test/private",
+        insights={"summary": "private analysis"},
+        message="Call complete",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    metadata_only = calling.call_record_for_permissions(record, {"calls.metadata.view"})
+    assert metadata_only.transcript is None
+    assert metadata_only.recording_url is None
+    assert metadata_only.insights is None
+
+    transcript_only = calling.call_record_for_permissions(
+        record, {"calls.metadata.view", "calls.transcript.view"},
+    )
+    assert transcript_only.transcript == "private transcript"
+    assert transcript_only.recording_url is None
+    assert transcript_only.insights is None
+
+
 @pytest.mark.parametrize("provider", CREDENTIALS)
 def test_connection_verification_never_calls_customer(provider, calls):
     seen = []

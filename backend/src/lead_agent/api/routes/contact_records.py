@@ -30,17 +30,62 @@ from lead_agent.infrastructure.db.session import get_db
 router = APIRouter(prefix="/v1/records", tags=["contacts and accounts"])
 
 
-def owned_company(session: Session, workspace_id: UUID, company_id: UUID) -> CompanyORM:
+def _require_field_permission(workspace: WorkspaceContext, permission: str) -> None:
+    if permission not in workspace.permissions:
+        raise HTTPException(403, f"permission required: {permission}")
+
+
+def _accessible_contact_ids(workspace: WorkspaceContext):
+    return (
+        select(LeadContactORM.contact_id)
+        .join(LeadORM, LeadORM.id == LeadContactORM.lead_id)
+        .where(LeadORM.workspace_id == workspace.workspace_id)
+    )
+
+
+def _restrict_record_scope(conditions: list[Any], workspace: WorkspaceContext, column: Any) -> None:
+    if workspace.role not in {"owner", "admin"}:
+        conditions.append(column.in_(_accessible_contact_ids(workspace)))
+
+
+def owned_company(
+    session: Session, workspace: WorkspaceContext, company_id: UUID
+) -> CompanyORM:
     row = session.get(CompanyORM, company_id)
-    if row is None or row.workspace_id != workspace_id:
+    if row is None or row.workspace_id != workspace.workspace_id:
         raise HTTPException(404, "Company not found")
+    if workspace.role not in {"owner", "admin"}:
+        visible = session.scalar(
+            select(func.count())
+            .select_from(ContactORM)
+            .where(
+                ContactORM.company_id == row.id,
+                ContactORM.id.in_(_accessible_contact_ids(workspace)),
+            )
+        )
+        if not visible:
+            raise HTTPException(404, "Company not found")
     return row
 
 
-def owned_contact(session: Session, workspace_id: UUID, contact_id: Any) -> ContactORM:
+def owned_contact(
+    session: Session, workspace: WorkspaceContext, contact_id: Any
+) -> ContactORM:
     row = session.get(ContactORM, contact_id)
-    if row is None or row.workspace_id != workspace_id or row.merged_into_id:
+    if row is None or row.workspace_id != workspace.workspace_id or row.merged_into_id:
         raise HTTPException(404, "Contact not found")
+    if workspace.role not in {"owner", "admin"}:
+        visible = session.scalar(
+            select(func.count())
+            .select_from(LeadContactORM)
+            .join(LeadORM, LeadORM.id == LeadContactORM.lead_id)
+            .where(
+                LeadContactORM.contact_id == row.id,
+                LeadORM.workspace_id == workspace.workspace_id,
+            )
+        )
+        if not visible:
+            raise HTTPException(404, "Contact not found")
     return row
 
 
@@ -73,10 +118,12 @@ def list_contacts(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> Any:
+    _require_field_permission(workspace, "fields.contact.view")
     conditions = [
         ContactORM.workspace_id == workspace.workspace_id,
         ContactORM.merged_into_id.is_(None),
     ]
+    _restrict_record_scope(conditions, workspace, ContactORM.id)
     if search:
         conditions.append(
             or_(ContactORM.name.ilike(f"%{search}%"), ContactORM.email.ilike(f"%{search}%"))
@@ -108,13 +155,16 @@ def save_contact(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> Any:
+    _require_field_permission(workspace, "fields.contact.edit")
     if request.company_id:
-        owned_company(session, workspace.workspace_id, request.company_id)
+        owned_company(session, workspace, request.company_id)
     row = session.get(ContactORM, contact_id)
     if row and row.workspace_id != workspace.workspace_id:
         raise HTTPException(404, "Contact not found")
     if row and row.merged_into_id:
         raise HTTPException(409, "This contact was merged; edit the surviving record.")
+    if row:
+        owned_contact(session, workspace, contact_id)
     if row is None:
         row = ContactORM(id=contact_id, workspace_id=workspace.workspace_id)
         session.add(row)
@@ -143,7 +193,8 @@ def contact_detail(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> Any:
-    contact = owned_contact(session, workspace.workspace_id, contact_id)
+    _require_field_permission(workspace, "fields.contact.view")
+    contact = owned_contact(session, workspace, contact_id)
     leads = list(
         session.scalars(
             select(LeadORM)
@@ -158,7 +209,7 @@ def contact_detail(
     )
     return {
         "contact": contact,
-        "company": owned_company(session, workspace.workspace_id, contact.company_id)
+        "company": owned_company(session, workspace, contact.company_id)
         if contact.company_id
         else None,
         "touches": [
@@ -183,6 +234,15 @@ def companies(
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> Any:
     conditions = [CompanyORM.workspace_id == workspace.workspace_id]
+    if workspace.role not in {"owner", "admin"}:
+        conditions.append(
+            CompanyORM.id.in_(
+                select(ContactORM.company_id).where(
+                    ContactORM.id.in_(_accessible_contact_ids(workspace)),
+                    ContactORM.company_id.is_not(None),
+                )
+            )
+        )
     if search:
         conditions.append(
             or_(CompanyORM.name.ilike(f"%{search}%"), CompanyORM.domain.ilike(f"%{search}%"))
@@ -210,6 +270,8 @@ def save_company(
     row = session.get(CompanyORM, company_id)
     if row and row.workspace_id != workspace.workspace_id:
         raise HTTPException(404, "Company not found")
+    if row:
+        owned_company(session, workspace, company_id)
     if row is None:
         row = CompanyORM(id=company_id, workspace_id=workspace.workspace_id)
         session.add(row)
@@ -239,15 +301,17 @@ def company_detail(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> Any:
-    company = owned_company(session, workspace.workspace_id, company_id)
+    company = owned_company(session, workspace, company_id)
+    contact_conditions = [
+        ContactORM.workspace_id == workspace.workspace_id,
+        ContactORM.company_id == company_id,
+        ContactORM.merged_into_id.is_(None),
+    ]
+    _restrict_record_scope(contact_conditions, workspace, ContactORM.id)
     contacts = list(
         session.scalars(
             select(ContactORM)
-            .where(
-                ContactORM.workspace_id == workspace.workspace_id,
-                ContactORM.company_id == company_id,
-                ContactORM.merged_into_id.is_(None),
-            )
+            .where(*contact_conditions)
             .order_by(ContactORM.name)
             .limit(100)
         )
@@ -265,10 +329,13 @@ def company_detail(
         )
     )
     revenue: dict[str, float] = {}
-    for lead in rows:
-        if lead.outcome and lead.outcome.pipeline_stage == "closed_won":
-            currency = lead.outcome.currency or "USD"
-            revenue[currency] = revenue.get(currency, 0) + float(lead.outcome.closed_revenue or 0)
+    if "fields.financial.view" in workspace.permissions:
+        for lead in rows:
+            if lead.outcome and lead.outcome.pipeline_stage == "closed_won":
+                currency = lead.outcome.currency or "USD"
+                revenue[currency] = revenue.get(currency, 0) + float(
+                    lead.outcome.closed_revenue or 0
+                )
     return {
         "company": company,
         "contacts": contacts,
@@ -295,13 +362,16 @@ def duplicates(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> Any:
+    _require_field_permission(workspace, "fields.contact.view")
+    conditions = [
+        ContactORM.workspace_id == workspace.workspace_id,
+        ContactORM.merged_into_id.is_(None),
+    ]
+    _restrict_record_scope(conditions, workspace, ContactORM.id)
     rows = list(
         session.scalars(
             select(ContactORM)
-            .where(
-                ContactORM.workspace_id == workspace.workspace_id,
-                ContactORM.merged_into_id.is_(None),
-            )
+            .where(*conditions)
             .order_by(ContactORM.updated_at.desc())
             .limit(500)
         )
@@ -325,8 +395,9 @@ def merge_contact(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> Any:
-    source = owned_contact(session, workspace.workspace_id, contact_id)
-    target = owned_contact(session, workspace.workspace_id, request.target_id)
+    _require_field_permission(workspace, "fields.contact.edit")
+    source = owned_contact(session, workspace, contact_id)
+    target = owned_contact(session, workspace, request.target_id)
     if not request.confirm or source.id == target.id:
         raise HTTPException(422, "Review both people and confirm an explicit merge")
     session.execute(

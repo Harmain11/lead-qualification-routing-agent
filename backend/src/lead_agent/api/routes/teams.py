@@ -50,6 +50,7 @@ class TeamResponse(BaseModel):
     description: str
     is_default: bool
     member_ids: list[UUID]
+    manager_ids: list[UUID]
     lead_ids: list[UUID]
     created_at: datetime
     updated_at: datetime
@@ -62,6 +63,11 @@ def _response(session: Session, team: WorkspaceTeamORM) -> TeamResponse:
         member_ids=list(session.scalars(select(WorkspaceTeamMemberORM.membership_id).where(
             WorkspaceTeamMemberORM.workspace_id == team.workspace_id,
             WorkspaceTeamMemberORM.team_id == team.id,
+        ).order_by(WorkspaceTeamMemberORM.membership_id))),
+        manager_ids=list(session.scalars(select(WorkspaceTeamMemberORM.membership_id).where(
+            WorkspaceTeamMemberORM.workspace_id == team.workspace_id,
+            WorkspaceTeamMemberORM.team_id == team.id,
+            WorkspaceTeamMemberORM.is_manager.is_(True),
         ).order_by(WorkspaceTeamMemberORM.membership_id))),
         lead_ids=list(session.scalars(select(WorkspaceTeamLeadORM.lead_id).where(
             WorkspaceTeamLeadORM.workspace_id == team.workspace_id,
@@ -192,11 +198,53 @@ def change_team_member(
     if adding and link is None:
         session.add(WorkspaceTeamMemberORM(
             workspace_id=workspace.workspace_id, team_id=team_id, membership_id=membership_id,
+            is_manager=False,
         ))
     elif not adding and link is not None:
         session.delete(link)
     _save(session, workspace, team, "team_member_added" if adding else "team_member_removed",
           after={"membership_id": str(membership_id)})
+    return _response(session, team)
+
+
+@router.put("/{team_id}/managers/{membership_id}", response_model=TeamResponse)
+@router.delete("/{team_id}/managers/{membership_id}", response_model=TeamResponse)
+def change_team_manager(
+    team_id: UUID,
+    membership_id: UUID,
+    request: Request,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(_admin),
+) -> TeamResponse:
+    team = _team(session, workspace, team_id)
+    member = session.scalar(select(WorkspaceMembershipORM).where(
+        WorkspaceMembershipORM.id == membership_id,
+        WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+        WorkspaceMembershipORM.status == "active",
+    ))
+    if member is None:
+        raise HTTPException(404, "active member not found")
+    if normalize_role(member.role) != "sales_manager":
+        raise HTTPException(422, "only a Sales Manager can manage a team")
+    adding = request.method == "PUT"
+    link = session.get(WorkspaceTeamMemberORM, (team_id, membership_id))
+    if link is None and adding:
+        link = WorkspaceTeamMemberORM(
+            workspace_id=workspace.workspace_id,
+            team_id=team_id,
+            membership_id=membership_id,
+            is_manager=True,
+        )
+        session.add(link)
+    elif link is not None:
+        link.is_manager = adding
+    _save(
+        session,
+        workspace,
+        team,
+        "team_manager_added" if adding else "team_manager_removed",
+        after={"membership_id": str(membership_id)},
+    )
     return _response(session, team)
 
 

@@ -353,6 +353,19 @@ def _rebind_outlook_mailbox_state(
     _rebind_mailbox_state(session, connection, mailbox_email, now, "outlook")
 
 
+def _connection_owner(actor_id: str) -> UUID | None:
+    try:
+        return UUID(actor_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def _connection_type(provider: str) -> str:
+    return "personal" if provider in {
+        "gmail", "outlook", "google_calendar", "calendly",
+    } else "workspace_managed"
+
+
 def create_manual_connection(
     session: Session,
     workspace_id: UUID,
@@ -380,6 +393,8 @@ def create_manual_connection(
     row = ProviderConnectionORM(
         id=uuid4(),
         workspace_id=workspace_id,
+        owner_user_id=_connection_owner(actor_id),
+        connection_type=_connection_type(provider),
         provider_type=provider,
         external_account_id=request.external_account_id,
         account_name=request.account_name,
@@ -474,6 +489,8 @@ def begin_oauth_connection(
     row = ProviderConnectionORM(
         id=connection_id,
         workspace_id=workspace_id,
+        owner_user_id=_connection_owner(actor_id),
+        connection_type=_connection_type(provider),
         provider_type=provider,
         external_account_id=None,
         account_name=account_name,

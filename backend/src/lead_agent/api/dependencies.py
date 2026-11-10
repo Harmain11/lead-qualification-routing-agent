@@ -13,6 +13,7 @@ from lead_agent.application.auth import (
     require_membership,
     verify_csrf,
 )
+from lead_agent.application.integration_access import assert_connection_action
 from lead_agent.domain.auth import (
     AuthenticatedIdentity,
     AuthenticationError,
@@ -27,6 +28,7 @@ from lead_agent.infrastructure.crm.factory import (
     get_crm_provider,
     get_workspace_crm_resolver,
 )
+from lead_agent.infrastructure.db.models import ProviderConnectionORM
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.db.team_scope import bind_team_scope
 from lead_agent.settings.config import Settings, get_settings
@@ -140,6 +142,7 @@ def get_workspace_context(
             membership_id=membership.id,
             role=membership.role,
             permissions=membership_permissions(membership),
+            access_policy=membership.access_policy,
         )
         bind_team_scope(session, context)
         return context
@@ -166,6 +169,7 @@ def get_workspace_context(
         actor_id=(x_actor_id or "development-user")[:255],
         role="owner",
         permissions=role_permissions("owner"),
+        access_policy={},
     )
     bind_team_scope(session, context)
     return context
@@ -183,13 +187,20 @@ def get_active_crm_provider(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="permission required: crm.sync",
         )
-    return resolver.resolve(
+    provider = resolver.resolve(
         session,
         workspace.workspace_id,
         fallback,
         actor_id=workspace.actor_id,
         provider_type=provider_type,
     )
+    connection_id = getattr(provider, "connection_id", None)
+    if connection_id is not None:
+        connection = session.get(ProviderConnectionORM, connection_id)
+        if connection is None:
+            raise HTTPException(status_code=404, detail="CRM connection not found")
+        assert_connection_action(session, workspace, connection, "sync")
+    return provider
 
 
 def require_permissions(*permissions: str) -> Callable[..., WorkspaceContext]:

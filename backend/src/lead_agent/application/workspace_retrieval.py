@@ -11,6 +11,7 @@ from sqlalchemy import Text, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
+from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import (
     LeadFollowUpEmailORM,
@@ -313,8 +314,36 @@ def build_workspace_record_context(
     query: str,
     *,
     confirm_similar_lead: bool = False,
+    workspace: WorkspaceContext | None = None,
 ) -> dict[str, Any]:
     """Retrieve workspace-scoped context and all close lead-name candidates."""
+    if workspace is not None and workspace.workspace_id != workspace_id:
+        raise ValueError("workspace context does not match the requested workspace")
+    scoped = workspace is not None and workspace.role not in {"owner", "admin"}
+    accessible_lead_ids = select(LeadORM.id).where(LeadORM.workspace_id == workspace_id)
+    accessible_contact_ids = select(LeadContactORM.contact_id).where(
+        LeadContactORM.lead_id.in_(accessible_lead_ids)
+    )
+    contact_scope = [ContactORM.id.in_(accessible_contact_ids)] if scoped else []
+    company_scope = [
+        CompanyORM.id.in_(
+            select(ContactORM.company_id).where(
+                ContactORM.id.in_(accessible_contact_ids),
+                ContactORM.company_id.is_not(None),
+            )
+        )
+    ] if scoped else []
+    event_scope = [PipelineEventORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    call_scope = [CallRecordORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    follow_up_scope = [LeadFollowUpEmailORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    note_scope: list[Any] = [LeadNoteORM.lead_id.in_(accessible_lead_ids)] if scoped else []
+    if workspace is not None and "comments.view_private" not in workspace.permissions:
+        note_scope.append(
+            or_(
+                LeadNoteORM.is_private.is_(False),
+                LeadNoteORM.author_id == workspace.actor_id,
+            )
+        )
     query = query[:3000]
     terms = _terms(query)
     folded_query = query.casefold()
@@ -346,18 +375,21 @@ def build_workspace_record_context(
             select(func.count()).select_from(ContactORM).where(
                 ContactORM.workspace_id == workspace_id,
                 ContactORM.merged_into_id.is_(None),
+                *contact_scope,
             )
         )
         or 0,
         "companies": session.scalar(
             select(func.count()).select_from(CompanyORM).where(
-                CompanyORM.workspace_id == workspace_id
+                CompanyORM.workspace_id == workspace_id,
+                *company_scope,
             )
         )
         or 0,
         "calls": session.scalar(
             select(func.count()).select_from(CallRecordORM).where(
-                CallRecordORM.workspace_id == workspace_id
+                CallRecordORM.workspace_id == workspace_id,
+                *call_scope,
             )
         )
         or 0,
@@ -365,6 +397,7 @@ def build_workspace_record_context(
             select(func.count()).select_from(PipelineEventORM).where(
                 PipelineEventORM.workspace_id == workspace_id,
                 PipelineEventORM.stage == "gmail_message",
+                *event_scope,
             )
         )
         or 0,
@@ -372,6 +405,7 @@ def build_workspace_record_context(
             select(func.count()).select_from(PipelineEventORM).where(
                 PipelineEventORM.workspace_id == workspace_id,
                 PipelineEventORM.stage == "meeting_scheduled",
+                *event_scope,
             )
         )
         or 0,
@@ -452,6 +486,7 @@ def build_workspace_record_context(
                 .where(
                     CompanyORM.workspace_id == workspace_id,
                     _text_filter(company_columns, terms),
+                    *company_scope,
                 )
                 .order_by(CompanyORM.updated_at.desc())
                 .limit(6)
@@ -461,7 +496,7 @@ def build_workspace_record_context(
         companies = list(
             session.scalars(
                 select(CompanyORM)
-                .where(CompanyORM.workspace_id == workspace_id)
+                .where(CompanyORM.workspace_id == workspace_id, *company_scope)
                 .order_by(CompanyORM.updated_at.desc())
                 .limit(6)
             )
@@ -483,6 +518,7 @@ def build_workspace_record_context(
                     ContactORM.workspace_id == workspace_id,
                     ContactORM.merged_into_id.is_(None),
                     contact_match,
+                    *contact_scope,
                 )
                 .order_by(ContactORM.updated_at.desc())
                 .limit(6)
@@ -495,6 +531,7 @@ def build_workspace_record_context(
                 .where(
                     ContactORM.workspace_id == workspace_id,
                     ContactORM.merged_into_id.is_(None),
+                    *contact_scope,
                 )
                 .order_by(ContactORM.updated_at.desc())
                 .limit(6)
@@ -535,6 +572,7 @@ def build_workspace_record_context(
                     PipelineEventORM.workspace_id == workspace_id,
                     PipelineEventORM.lead_id.in_(lead_ids),
                     PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                    *event_scope,
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(60)
@@ -548,6 +586,7 @@ def build_workspace_record_context(
                     PipelineEventORM.workspace_id == workspace_id,
                     _text_filter((cast(PipelineEventORM.details, Text),), terms),
                     PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                    *event_scope,
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(30)
@@ -562,6 +601,7 @@ def build_workspace_record_context(
                 .where(
                     PipelineEventORM.workspace_id == workspace_id,
                     PipelineEventORM.stage.not_in(PRIVATE_INSIGHT_KINDS),
+                    *event_scope,
                 )
                 .order_by(PipelineEventORM.created_at.desc())
                 .limit(30)
@@ -579,6 +619,7 @@ def build_workspace_record_context(
                 .where(
                     LeadNoteORM.workspace_id == workspace_id,
                     LeadNoteORM.lead_id.in_(lead_ids),
+                    *note_scope,
                 )
                 .order_by(LeadNoteORM.updated_at.desc())
                 .limit(12)
@@ -591,6 +632,7 @@ def build_workspace_record_context(
                 .where(
                     LeadNoteORM.workspace_id == workspace_id,
                     _text_filter(note_columns, terms),
+                    *note_scope,
                 )
                 .order_by(LeadNoteORM.updated_at.desc())
                 .limit(8)
@@ -600,7 +642,7 @@ def build_workspace_record_context(
         note_rows = list(
             session.scalars(
                 select(LeadNoteORM)
-                .where(LeadNoteORM.workspace_id == workspace_id)
+                .where(LeadNoteORM.workspace_id == workspace_id, *note_scope)
                 .order_by(LeadNoteORM.updated_at.desc())
                 .limit(8)
             )
@@ -620,6 +662,7 @@ def build_workspace_record_context(
                 .where(
                     CallRecordORM.workspace_id == workspace_id,
                     CallRecordORM.lead_id.in_(lead_ids),
+                    *call_scope,
                 )
                 .order_by(CallRecordORM.created_at.desc())
                 .limit(8)
@@ -632,6 +675,7 @@ def build_workspace_record_context(
                 .where(
                     CallRecordORM.workspace_id == workspace_id,
                     _text_filter(call_columns, terms),
+                    *call_scope,
                 )
                 .order_by(CallRecordORM.created_at.desc())
                 .limit(8)
@@ -643,7 +687,7 @@ def build_workspace_record_context(
         call_rows = list(
             session.scalars(
                 select(CallRecordORM)
-                .where(CallRecordORM.workspace_id == workspace_id)
+                .where(CallRecordORM.workspace_id == workspace_id, *call_scope)
                 .order_by(CallRecordORM.created_at.desc())
                 .limit(8)
             )
@@ -662,6 +706,7 @@ def build_workspace_record_context(
                 .where(
                     LeadFollowUpEmailORM.workspace_id == workspace_id,
                     LeadFollowUpEmailORM.lead_id.in_(lead_ids),
+                    *follow_up_scope,
                 )
                 .order_by(LeadFollowUpEmailORM.created_at.desc())
                 .limit(6)
@@ -674,6 +719,7 @@ def build_workspace_record_context(
                 .where(
                     LeadFollowUpEmailORM.workspace_id == workspace_id,
                     _text_filter(follow_up_columns, terms),
+                    *follow_up_scope,
                 )
                 .order_by(LeadFollowUpEmailORM.created_at.desc())
                 .limit(6)
@@ -688,6 +734,7 @@ def build_workspace_record_context(
             .where(
                 CompanyORM.workspace_id == workspace_id,
                 CompanyORM.id.in_(company_ids),
+                *company_scope,
             )
         )
     ) if company_ids else []

@@ -12,8 +12,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission
-from lead_agent.application.governance import audit_operation
 from lead_agent.application.commercial import quote_total
+from lead_agent.application.governance import audit_operation
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.application.routing import record_pipeline_event
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.deals import CommercialSettingsORM, DealORM
@@ -158,7 +159,11 @@ def list_deals(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.view")),
 ) -> dict[str, Any]:
-    rows = session.scalars(select(DealORM).where(DealORM.workspace_id == workspace.workspace_id))
+    rows = session.scalars(
+        select(DealORM)
+        .join(LeadORM, LeadORM.id == DealORM.lead_id)
+        .where(DealORM.workspace_id == workspace.workspace_id)
+    )
     settings = session.get(CommercialSettingsORM, workspace.workspace_id)
     return {
         "deals": {str(row.lead_id): {"version": row.version, "deal": row.data} for row in rows},
@@ -174,6 +179,7 @@ def save_deal(
     workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
 ) -> dict[str, Any]:
     lead = owned_lead(session, workspace, lead_id)
+    assert_lead_action(session, workspace, lead, "edit")
     if request.deal.leadId != lead_id:
         raise HTTPException(422, "The deal must belong to the requested lead")
     if request.deal.stage in {"won", "lost"}:

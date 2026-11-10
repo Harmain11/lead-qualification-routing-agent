@@ -37,7 +37,21 @@ def test_legacy_oauth_owner_is_supported_but_unowned_mailbox_fails_closed():
     )
 
 
-def test_workspace_admins_can_manage_member_mailboxes():
-    connection = SimpleNamespace(connection_metadata={"owner_user_id": str(uuid4())})
-    assert can_use_mailbox(_workspace("owner", str(uuid4())), connection)
-    assert can_use_mailbox(_workspace("admin", str(uuid4())), connection)
+def test_workspace_admins_cannot_read_another_members_personal_mailbox():
+    mailbox_owner = str(uuid4())
+    connection = SimpleNamespace(connection_metadata={"owner_user_id": mailbox_owner})
+    assert not can_use_mailbox(_workspace("owner", str(uuid4())), connection)
+    assert not can_use_mailbox(_workspace("admin", str(uuid4())), connection)
+    assert can_use_mailbox(_workspace("owner", mailbox_owner), connection)
+
+
+def test_first_class_owner_column_cannot_be_overridden_by_metadata():
+    owner = uuid4()
+    attacker = uuid4()
+    connection = SimpleNamespace(
+        owner_user_id=owner,
+        connection_metadata={"owner_user_id": str(attacker)},
+    )
+    assert connection_owner_id(connection) == str(owner)
+    assert can_use_mailbox(_workspace("owner", str(owner)), connection)
+    assert not can_use_mailbox(_workspace("admin", str(attacker)), connection)

@@ -11,13 +11,13 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import String, and_, cast, event, false, func, inspect, select, true
+from sqlalchemy import String, and_, cast, event, false, func, inspect, or_, select, true
 from sqlalchemy.orm import ORMExecuteState, Session, with_loader_criteria
 from sqlalchemy.sql import visitors
 from sqlalchemy.sql.elements import ColumnClause, TextClause
 from sqlalchemy.sql.schema import Column, Table
 
-from lead_agent.domain.rbac import normalize_role
+from lead_agent.domain.rbac import AccessScope, effective_access_scope, normalize_role
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.base import Base
 
@@ -30,6 +30,9 @@ class TeamScope:
     membership_id: UUID | None
     unrestricted: bool
     team_ids: tuple[UUID, ...] = ()
+    user_id: UUID | None = None
+    role: str = "viewer"
+    lead_scope: AccessScope = AccessScope.NONE
 
 
 def _criteria(scope: TeamScope) -> dict[type[Any], Any]:
@@ -41,16 +44,39 @@ def _criteria(scope: TeamScope) -> dict[type[Any], Any]:
         ContactORM,
         LeadContactORM,
     )
-    from lead_agent.infrastructure.db.teams import WorkspaceTeamLeadORM
+    from lead_agent.infrastructure.db.teams import LeadAccessGrantORM, WorkspaceTeamLeadORM
 
     leads = m.LeadORM.__table__
     links = WorkspaceTeamLeadORM.__table__
     teams = scope.team_ids
     allowed = select(leads.c.id).where(leads.c.workspace_id == scope.workspace_id)
     if not scope.unrestricted:
-        allowed = allowed.where(leads.c.id.in_(select(links.c.lead_id).where(
-            links.c.workspace_id == scope.workspace_id, links.c.team_id.in_(teams),
-        )))
+        grants = LeadAccessGrantORM.__table__
+        visibility = []
+        if scope.membership_id is not None:
+            visibility.append(leads.c.id.in_(select(grants.c.lead_id).where(
+                grants.c.workspace_id == scope.workspace_id,
+                grants.c.membership_id == scope.membership_id,
+                or_(grants.c.expires_at.is_(None), grants.c.expires_at > func.now()),
+            )))
+        if scope.lead_scope == AccessScope.TEAM and teams:
+            visibility.append(leads.c.id.in_(select(links.c.lead_id).where(
+                links.c.workspace_id == scope.workspace_id, links.c.team_id.in_(teams),
+            )))
+        if scope.lead_scope == AccessScope.OWN and scope.user_id is not None:
+            decisions = m.RoutingDecisionORM.__table__
+            visibility.extend((
+                leads.c.current_owner_id == scope.user_id,
+                and_(
+                    leads.c.current_owner_id.is_(None),
+                    leads.c.id.in_(select(decisions.c.lead_id).where(
+                        decisions.c.workspace_id == scope.workspace_id,
+                        decisions.c.is_current.is_(True),
+                        decisions.c.assigned_rep_id == str(scope.user_id),
+                    )),
+                ),
+            ))
+        allowed = allowed.where(or_(*visibility) if visibility else false())
 
     result: dict[type[Any], Any] = {}
     # New mapped lead children automatically inherit the same boundary, including
@@ -176,23 +202,34 @@ def bind_team_scope(session: Session, workspace: WorkspaceContext) -> None:
     Instance get/refresh guards are intentional: SQLAlchemy's identity-map hit
     emits no event, so a do_orm_execute listener alone cannot protect Session.get.
     """
-    unrestricted = normalize_role(workspace.role) in {"owner", "admin"}
+    role = normalize_role(workspace.role)
+    lead_scope = effective_access_scope(role, "leads.view", workspace.access_policy)
+    unrestricted = role in {"owner", "admin"} or lead_scope == AccessScope.ALL
     team_ids: tuple[UUID, ...] = ()
     if not unrestricted and workspace.membership_id is not None:
         from lead_agent.infrastructure.db.teams import WorkspaceTeamMemberORM, WorkspaceTeamORM
 
         rows = session.execute(
-            select(WorkspaceTeamMemberORM.team_id, WorkspaceTeamORM.is_default)
+            select(
+                WorkspaceTeamMemberORM.team_id,
+                WorkspaceTeamORM.is_default,
+                WorkspaceTeamMemberORM.is_manager,
+            )
             .join(WorkspaceTeamORM, WorkspaceTeamORM.id == WorkspaceTeamMemberORM.team_id)
             .where(
                 WorkspaceTeamMemberORM.workspace_id == workspace.workspace_id,
                 WorkspaceTeamMemberORM.membership_id == workspace.membership_id,
             )
         ).all()
-        explicit = tuple(team_id for team_id, is_default in rows if not is_default)
-        team_ids = explicit or tuple(team_id for team_id, _ in rows)
+        if role == "sales_manager":
+            managed = tuple(team_id for team_id, _is_default, is_manager in rows if is_manager)
+            team_ids = managed
+        else:
+            explicit = tuple(team_id for team_id, is_default, _is_manager in rows if not is_default)
+            team_ids = explicit or tuple(team_id for team_id, _is_default, _is_manager in rows)
     scope = TeamScope(
         workspace.workspace_id, workspace.membership_id, unrestricted, team_ids,
+        workspace.user_id, role, lead_scope,
     )
     previous = session.info.get(_KEY)
     if previous == scope:
@@ -212,6 +249,12 @@ def bind_team_scope(session: Session, workspace: WorkspaceContext) -> None:
     def guarded_get(entity: Any, ident: Any, **kwargs: Any) -> Any:
         mapper = inspect(entity)
         if mapper.class_ not in _criteria(scope):
+            return original_get(entity, ident, **kwargs)
+        if mapper.class_.__name__ == "LeadORM" and not isinstance(ident, dict) and ident in session.info.get(
+            "corral_scope_created_leads", set()
+        ):
+            # Permit the request that created a lead to finish its pipeline graph
+            # even when automatic routing immediately transfers ownership.
             return original_get(entity, ident, **kwargs)
         if isinstance(ident, dict):
             values = tuple(ident[column.key] for column in mapper.primary_key)
@@ -270,6 +313,17 @@ def _assert_visible(session: Session, instance: Any, *, check_values: bool = Tru
             # server creates in this request; reads still require a visible lead.
             created_audits.add(id(instance))
             return
+    from lead_agent.infrastructure.db.models import NotificationORM, RoutingDecisionORM
+    if (
+        isinstance(instance, RoutingDecisionORM)
+        and instance.id in session.info.get("corral_scope_created_decisions", set())
+    ):
+        return
+    if (
+        isinstance(instance, NotificationORM)
+        and instance.id in session.info.get("corral_scope_created_notifications", set())
+    ):
+        return
     if state.pending:
         from lead_agent.infrastructure.db.models import LeadORM, SourceEventORM
         from lead_agent.infrastructure.db.operations import CompanyORM, ContactORM
@@ -284,10 +338,23 @@ def _assert_visible(session: Session, instance: Any, *, check_values: bool = Tru
             ).limit(1))
             if own_team is None:
                 raise HTTPException(403, "join a team before creating leads")
+            if scope.user_id is not None and scope.lead_scope == AccessScope.OWN:
+                instance.current_owner_id = scope.user_id
+                instance.original_importer_id = instance.original_importer_id or scope.user_id
+            instance.primary_team_id = instance.primary_team_id or own_team
+            session.info.setdefault("corral_scope_created_leads", set()).add(instance.id)
             return
         if isinstance(instance, CompanyORM | ContactORM | SourceEventORM):
             # Fresh directory records contain no previously stored private data.
             # Reads remain hidden until an authorized lead link is inserted.
+            return
+        if (
+            hasattr(instance, "lead_id")
+            and instance.lead_id in session.info.get("corral_scope_created_leads", set())
+        ):
+            from lead_agent.infrastructure.db.models import RoutingDecisionORM
+            if isinstance(instance, RoutingDecisionORM):
+                session.info.setdefault("corral_scope_created_decisions", set()).add(instance.id)
             return
         related_id = instance.id if isinstance(instance, SourceEventORM) else getattr(
             instance, "lead_id", None,
@@ -312,7 +379,15 @@ def _assert_visible(session: Session, instance: Any, *, check_values: bool = Tru
         ):
             return
     if state.pending:
-        from lead_agent.infrastructure.db.models import LeadOutcomeORM, RoutingDecisionORM
+        from lead_agent.infrastructure.db.models import LeadOutcomeORM, NotificationORM, RoutingDecisionORM
+        if (
+            isinstance(instance, NotificationORM)
+            and instance.routing_decision_id in session.info.get(
+                "corral_scope_created_decisions", set()
+            )
+        ):
+            session.info.setdefault("corral_scope_created_notifications", set()).add(instance.id)
+            return
         indirect_parents: tuple[tuple[str, type[Any]], ...] = (
             ("routing_decision_id", RoutingDecisionORM), ("outcome_id", LeadOutcomeORM),
         )

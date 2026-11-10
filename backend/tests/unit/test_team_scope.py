@@ -22,14 +22,24 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from sqlalchemy.pool import StaticPool
 
+from lead_agent.api.routes.contact_records import list_contacts
+from lead_agent.application.lead_access import assert_lead_action, assign_lead
 from lead_agent.application.team import personal_data_user_ids
+from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.rbac import role_permissions
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db import models as m
 from lead_agent.infrastructure.db.base import Base
-from lead_agent.infrastructure.db.operations import AgentInsightORM, LeadNoteORM
+from lead_agent.infrastructure.db.operations import (
+    AgentInsightORM,
+    ContactORM,
+    LeadContactORM,
+    LeadNoteORM,
+)
 from lead_agent.infrastructure.db.team_scope import bind_team_scope
 from lead_agent.infrastructure.db.teams import (
+    LeadAccessGrantORM,
+    LeadAssignmentHistoryORM,
     WorkspaceTeamLeadORM,
     WorkspaceTeamMemberORM,
     WorkspaceTeamORM,
@@ -90,11 +100,14 @@ def store():
         session.flush()
         session.add_all([
             WorkspaceTeamMemberORM(workspace_id=workspace.id, team_id=team.id,
-                                   membership_id=member.id),
+                                   membership_id=member.id, is_manager=True),
             WorkspaceTeamMemberORM(workspace_id=workspace.id, team_id=team.id,
                                    membership_id=teammate.id),
             WorkspaceTeamLeadORM(workspace_id=workspace.id, team_id=team.id, lead_id=visible.id),
         ])
+        visible.current_owner_id = user.id
+        visible.primary_team_id = team.id
+        hidden.current_owner_id = colleague.id
         session.commit()
         context = WorkspaceContext(
             workspace_id=workspace.id, user_id=user.id, actor_id=str(user.id),
@@ -123,6 +136,163 @@ def test_entities_scalars_aggregates_aliases_subqueries_and_cached_get(store):
     # A clean preloaded object reattached later must not bypass Session.get.
     session.add(cached)
     assert session.get(m.LeadORM, hidden.id) is None
+
+
+def test_same_team_representatives_are_isolated_by_assignment(store):
+    session, context, visible, hidden, _foreign, team, _teammate = store
+    session.add(WorkspaceTeamLeadORM(
+        workspace_id=context.workspace_id, team_id=team.id, lead_id=hidden.id,
+    ))
+    session.commit()
+    bind_team_scope(session, context)
+    assert list(session.scalars(select(m.LeadORM.id).order_by(m.LeadORM.id))) == [visible.id]
+
+
+def test_contact_directory_inherits_lead_scope(store):
+    session, context, visible, hidden, *_ = store
+    visible_contact = row(
+        ContactORM,
+        workspace_id=context.workspace_id,
+        name="Visible contact",
+        email="visible@example.test",
+    )
+    hidden_contact = row(
+        ContactORM,
+        workspace_id=context.workspace_id,
+        name="Hidden contact",
+        email="hidden@example.test",
+    )
+    session.add_all([visible_contact, hidden_contact])
+    session.flush()
+    session.add_all(
+        [
+            LeadContactORM(lead_id=visible.id, contact_id=visible_contact.id),
+            LeadContactORM(lead_id=hidden.id, contact_id=hidden_contact.id),
+        ]
+    )
+    session.commit()
+    bind_team_scope(session, context)
+
+    page = list_contacts(
+        search="",
+        company_id=None,
+        sort="name",
+        limit=50,
+        offset=0,
+        session=session,
+        workspace=context,
+    )
+
+    assert page["total"] == 1
+    assert [contact.id for contact in page["items"]] == [visible_contact.id]
+    context_result = build_workspace_record_context(
+        session,
+        context.workspace_id,
+        "show contacts",
+        workspace=context,
+    )
+    assert context_result["record_counts"]["contacts"] == 1
+    assert [item["email"] for item in context_result["matched_contacts"]] == [
+        "visible@example.test"
+    ]
+
+
+def test_manager_sees_managed_team_but_not_unrelated_team(store):
+    session, context, visible, hidden, _foreign, team, _teammate = store
+    session.add(WorkspaceTeamLeadORM(
+        workspace_id=context.workspace_id, team_id=team.id, lead_id=hidden.id,
+    ))
+    session.commit()
+    manager = WorkspaceContext(
+        workspace_id=context.workspace_id,
+        user_id=context.user_id,
+        actor_id=context.actor_id,
+        membership_id=context.membership_id,
+        role="sales_manager",
+        permissions=role_permissions("sales_manager"),
+    )
+    bind_team_scope(session, manager)
+    assert set(session.scalars(select(m.LeadORM.id))) == {visible.id, hidden.id}
+
+
+def test_explicit_share_grants_rep_access_without_changing_owner(store):
+    session, context, visible, hidden, *_ = store
+    session.add(LeadAccessGrantORM(
+        workspace_id=context.workspace_id,
+        lead_id=hidden.id,
+        membership_id=context.membership_id,
+        can_edit=False,
+        granted_by=context.user_id,
+        reason="handoff support",
+    ))
+    session.commit()
+    bind_team_scope(session, context)
+    assert set(session.scalars(select(m.LeadORM.id))) == {visible.id, hidden.id}
+    assert hidden.current_owner_id != context.user_id
+    assert_lead_action(session, context, hidden, "view")
+    with pytest.raises(HTTPException, match="outside your authorized scope"):
+        assert_lead_action(session, context, hidden, "edit")
+
+    grant = session.get(LeadAccessGrantORM, (hidden.id, context.membership_id))
+    assert grant is not None
+    grant.can_edit = True
+    session.commit()
+    assert_lead_action(session, context, hidden, "edit")
+
+
+def test_manager_ordinary_team_membership_does_not_grant_supervisory_access(store):
+    session, context, visible, hidden, _foreign, team, _teammate = store
+    manager_link = session.get(WorkspaceTeamMemberORM, (team.id, context.membership_id))
+    assert manager_link is not None
+    manager_link.is_manager = False
+    session.commit()
+    manager = WorkspaceContext(
+        workspace_id=context.workspace_id,
+        user_id=context.user_id,
+        actor_id=context.actor_id,
+        membership_id=context.membership_id,
+        role="sales_manager",
+        permissions=role_permissions("sales_manager"),
+    )
+    bind_team_scope(session, manager)
+    assert list(session.scalars(select(m.LeadORM.id))) == []
+
+
+def test_reassignment_revokes_old_owner_and_preserves_history(store):
+    session, context, visible, _hidden, _foreign, team, teammate = store
+    engine = session.get_bind()
+    with Session(engine, expire_on_commit=False) as admin:
+        lead = admin.get(m.LeadORM, visible.id)
+        actor = WorkspaceContext(
+            workspace_id=context.workspace_id,
+            user_id=context.user_id,
+            actor_id=context.actor_id,
+            role="owner",
+            permissions=role_permissions("owner"),
+        )
+        assign_lead(admin, lead, teammate.user_id, actor=actor, reason="coverage transfer")
+        admin.commit()
+        history = admin.scalar(select(LeadAssignmentHistoryORM).where(
+            LeadAssignmentHistoryORM.lead_id == visible.id,
+        ))
+        assert history.previous_owner_id == context.user_id
+        assert history.new_owner_id == teammate.user_id
+        assert history.new_team_id == team.id
+
+    with Session(engine) as old_owner:
+        bind_team_scope(old_owner, context)
+        assert old_owner.get(m.LeadORM, visible.id) is None
+    with Session(engine) as new_owner:
+        new_context = WorkspaceContext(
+            workspace_id=context.workspace_id,
+            user_id=teammate.user_id,
+            actor_id=str(teammate.user_id),
+            membership_id=teammate.id,
+            role="sales_rep",
+            permissions=role_permissions("sales_rep"),
+        )
+        bind_team_scope(new_owner, new_context)
+        assert new_owner.get(m.LeadORM, visible.id).current_owner_id == teammate.user_id
 
 
 DIRECT_CHILDREN = [
@@ -263,7 +433,7 @@ def test_personal_audiences_and_suspended_team_members(store):
 
 
 def test_revocation_get_refresh_and_expired_column_fail_closed(store):
-    session, context, visible, *_ = store
+    session, context, visible, _hidden, _foreign, _team, teammate = store
     bind_team_scope(session, context)
     loaded = session.get(m.LeadORM, visible.id)
     lead_id = loaded.id
@@ -271,6 +441,9 @@ def test_revocation_get_refresh_and_expired_column_fail_closed(store):
         admin.execute(delete(WorkspaceTeamLeadORM).where(
             WorkspaceTeamLeadORM.lead_id == lead_id,
             WorkspaceTeamLeadORM.team_id != context.workspace_id,
+        ))
+        admin.execute(update(m.LeadORM).where(m.LeadORM.id == lead_id).values(
+            current_owner_id=teammate.user_id,
         ))
         admin.commit()
     assert session.get(m.LeadORM, lead_id) is None

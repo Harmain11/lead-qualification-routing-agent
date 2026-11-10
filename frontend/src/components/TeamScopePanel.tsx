@@ -3,7 +3,7 @@ import { opsGet, opsSave } from "../operationsApi";
 import type { WorkspaceMember } from "../types";
 import { LeadPicker } from "./LeadPicker";
 
-type Team = { id: string; name: string; description: string; member_ids: string[]; lead_ids: string[]; is_default: boolean };
+type Team = { id: string; name: string; description: string; member_ids: string[]; manager_ids: string[]; lead_ids: string[]; is_default: boolean };
 
 export function TeamScopePanel({ members, canManage }: { members: WorkspaceMember[]; canManage: boolean }) {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -30,7 +30,7 @@ export function TeamScopePanel({ members, canManage }: { members: WorkspaceMembe
   }
   return <section className="panel" style={{ padding: 20 }} aria-label="Team visibility">
     <h2>Team visibility</h2>
-    <p>Members share leads linked to their teams. Removing a team link removes that team's access; other team links remain active.</p>
+    <p>Managers see leads in teams they explicitly manage. Sales reps still see only leads assigned or shared directly with them; ordinary team membership does not expose teammates&apos; leads.</p>
     {error && <p role="alert">{error}</p>}
     {canManage && <form onSubmit={(event) => { event.preventDefault(); void save("/v1/teams", { name: name.trim() }, "POST"); }}>
       <label className="team-field"><span>New team name</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></label>
@@ -40,11 +40,18 @@ export function TeamScopePanel({ members, canManage }: { members: WorkspaceMembe
     {teams.map((team) => <details key={team.id} style={{ marginTop: 16 }}>
       <summary>{team.name} · {team.member_ids.length} members · {team.lead_ids.length} leads</summary>
       <p>{team.description}</p>
-      {members.filter((member) => member.status === "active").map((member) => <label key={member.id} style={{ display: "flex", gap: 8, padding: 8 }}>
-        <input type="checkbox" checked={team.member_ids.includes(member.id)} disabled={!canManage || busy}
-          onChange={(event) => void save(`/v1/teams/${team.id}/members/${member.id}`, {}, event.target.checked ? "PUT" : "DELETE")} />
-        <span>{member.display_name}<small style={{ display: "block", color: "var(--text-muted, #667085)" }}>{member.slack_member_id ? `Slack ${member.slack_member_id}` : "Slack not linked"}</small></span>
-      </label>)}
+      {members.filter((member) => member.status === "active").map((member) => <div key={member.id} style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) auto", gap: 12, padding: 8 }}>
+        <label style={{ display: "flex", gap: 8 }}>
+          <input type="checkbox" checked={team.member_ids.includes(member.id)} disabled={!canManage || busy}
+            onChange={(event) => void save(`/v1/teams/${team.id}/members/${member.id}`, {}, event.target.checked ? "PUT" : "DELETE")} />
+          <span>{member.display_name}<small style={{ display: "block", color: "var(--text-muted, #667085)" }}>{member.slack_member_id ? `Slack ${member.slack_member_id}` : "Slack not linked"}</small></span>
+        </label>
+        {member.role === "sales_manager" && <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="checkbox" checked={team.manager_ids.includes(member.id)} disabled={!canManage || busy}
+            onChange={(event) => void save(`/v1/teams/${team.id}/managers/${member.id}`, {}, event.target.checked ? "PUT" : "DELETE")} />
+          Manages team
+        </label>}
+      </div>)}
       {canManage && <>
         <button className="secondary-button" disabled={busy} onClick={() => { setChosen(null); setPicker(picker === team.id ? null : team.id); }}>{picker === team.id ? "Close lead picker" : "Manage lead access"}</button>
         {picker === team.id && <LeadPicker placeholder="Search a lead to manage team access" onPick={(lead) => setChosen({ id: lead.id, name: lead.full_name || lead.company_name })} />}

@@ -5,7 +5,10 @@ import { useCallback,useEffect,useMemo,useState } from "react";
 
 import {
 ApiError,
+deleteConnectionGrant,
 inviteMember,
+listConnectionGrants,
+listIntegrations,
 listInvitations,
 listMemberAuditEvents,
 listMembers,
@@ -15,13 +18,18 @@ resendInvitation,
 revokeInvitation,
 suspendMember,
 updateMemberPermissions,
+updateMemberAccessPolicy,
 updateMemberRole,
 updateMemberSlackLink,
+updateConnectionGrant,
 } from "../api";
 import { can,defaultPermissionsForRole,PERMISSION_GROUPS,ROLE_LABELS,ROLE_OPTIONS,roleLabel,statusLabel } from "../permissions";
 import type {
 AuthSession,
+AccessPolicy,
+IntegrationCard,
 PermissionOverrides,
+ProviderConnection,
 WorkspaceAuditEvent,
 WorkspaceInvitation,
 WorkspaceMember,
@@ -50,6 +58,131 @@ type Confirmation = {
 };
 
 const emptyOverrides = (): PermissionOverrides => ({ grants: [], denies: [] });
+const emptyAccessPolicy = (): AccessPolicy => ({ scopes: {} });
+const scopedPermissions = [
+  { id: "leads.view", label: "Lead visibility" },
+  { id: "leads.edit", label: "Lead editing" },
+  { id: "analytics.view", label: "Analytics visibility" },
+] as const;
+
+function AccessScopeEditor({ policy, readOnly, onChange }: { policy: AccessPolicy; readOnly?: boolean; onChange?: (policy: AccessPolicy) => void }) {
+  return <div className="permission-groups">
+    <section className="permission-group">
+      <h3>Record scopes</h3>
+      <p className="permission-edit-hint">Scope controls which records an allowed action can reach. Explicit lead shares remain separate and never grant mailbox access.</p>
+      <div>
+        {scopedPermissions.map((permission) => <label className="team-field" key={permission.id}>
+          <span>{permission.label}</span>
+          <select
+            value={policy.scopes[permission.id] ?? ""}
+            disabled={readOnly}
+            onChange={(event) => {
+              const scopes = { ...policy.scopes };
+              if (event.target.value) scopes[permission.id] = event.target.value as AccessPolicy["scopes"][string];
+              else delete scopes[permission.id];
+              onChange?.({ scopes });
+            }}
+          >
+            <option value="">Use role default</option>
+            <option value="none">None</option>
+            <option value="own">Own / assigned</option>
+            <option value="team">Managed teams</option>
+            <option value="all">All workspace records</option>
+            <option value="custom">Explicitly shared only</option>
+          </select>
+        </label>)}
+      </div>
+    </section>
+  </div>;
+}
+
+function ConnectionAccessEditor({
+  memberId,
+  connections,
+  editable,
+}: {
+  memberId: string;
+  connections: ProviderConnection[];
+  editable: boolean;
+}) {
+  const [granted, setGranted] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setError(null);
+    void Promise.all(
+      connections.map(async (connection) => ({
+        id: connection.id,
+        grants: await listConnectionGrants(connection.id),
+      })),
+    ).then((rows) => {
+      if (!active) return;
+      setGranted(new Set(
+        rows
+          .filter((row) => row.grants.some((grant) => grant.membership_id === memberId))
+          .map((row) => row.id),
+      ));
+    }).catch((requestError) => {
+      if (active) setError(friendlyError(requestError));
+    });
+    return () => { active = false; };
+  }, [connections, memberId]);
+
+  if (!connections.length) {
+    return <p className="permission-edit-hint">No delegatable team-shared or workspace-managed connections are available.</p>;
+  }
+  return <div className="permission-groups">
+    <section className="permission-group">
+      <p className="permission-edit-hint">Delegation permits this member to use a shared account only when their provider permission also allows the requested action. Personal mailboxes can never be delegated.</p>
+      {error && <div className="team-alert" role="alert"><span>{error}</span></div>}
+      <div>
+        {connections.map((connection) => {
+          const isGranted = granted.has(connection.id);
+          return <button
+            type="button"
+            key={connection.id}
+            className={`permission-toggle ${isGranted ? "grant" : "none"}`}
+            disabled={!editable || busy === connection.id}
+            aria-pressed={isGranted}
+            onClick={async () => {
+              setBusy(connection.id);
+              setError(null);
+              try {
+                if (isGranted) {
+                  await deleteConnectionGrant(connection.id, memberId);
+                  setGranted((current) => {
+                    const next = new Set(current);
+                    next.delete(connection.id);
+                    return next;
+                  });
+                } else {
+                  await updateConnectionGrant(
+                    connection.id,
+                    memberId,
+                    ["view", "use", "sync", "send"],
+                  );
+                  setGranted((current) => new Set([...current, connection.id]));
+                }
+              } catch (requestError) {
+                setError(friendlyError(requestError));
+              } finally {
+                setBusy(null);
+              }
+            }}
+          >
+            <i aria-hidden="true">{isGranted ? "✓" : "·"}</i>
+            <span>
+              <b>{connection.account_name || connection.provider_type}</b>
+              <small>{connection.provider_type.replaceAll("_", " ")} · {connection.connection_type?.replaceAll("_", " ") ?? "shared"}</small>
+            </span>
+          </button>;
+        })}
+      </div>
+    </section>
+  </div>;
+}
 
 function friendlyError(error: unknown) {
   const message = error instanceof Error ? error.message : "The request could not be completed.";
@@ -171,6 +304,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [audit, setAudit] = useState<WorkspaceAuditEvent[]>([]);
+  const [integrations, setIntegrations] = useState<IntegrationCard[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -181,6 +315,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("sales_rep");
   const [inviteOverrides, setInviteOverrides] = useState<PermissionOverrides>(emptyOverrides);
+  const [inviteAccessPolicy, setInviteAccessPolicy] = useState<AccessPolicy>(emptyAccessPolicy);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [generatedInvite, setGeneratedInvite] = useState<WorkspaceInvitation | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
@@ -188,6 +323,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const sessionPermissions = auth.workspaces.find((workspace) => workspace.id === auth.current_workspace_id)?.effective_permissions ?? [];
   const canReadAdminHistory = sessionPermissions.includes("members.manage");
   const canReadInvitations = canReadAdminHistory || sessionPermissions.includes("members.invite");
+  const canManageConnections = canReadAdminHistory && sessionPermissions.includes("integrations.manage");
 
   const load = useCallback(async (
     signal?: AbortSignal,
@@ -197,15 +333,17 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     if (preserve) setRefreshing(true); else setLoading(true);
     if (!suppressErrors) setError(null);
     try {
-      const [nextMembers, nextInvitations, nextAudit] = await Promise.all([
+      const [nextMembers, nextInvitations, nextAudit, nextIntegrations] = await Promise.all([
         listMembers(signal),
         canReadInvitations ? listInvitations(signal) : Promise.resolve([]),
         canReadAdminHistory ? listMemberAuditEvents(signal) : Promise.resolve([]),
+        canManageConnections ? listIntegrations() : Promise.resolve([] as IntegrationCard[]),
       ]);
       if (signal?.aborted) return false;
       setMembers(nextMembers);
       setInvitations(nextInvitations);
       setAudit(nextAudit);
+      setIntegrations(nextIntegrations);
       setSelectedId((current) => current && nextMembers.some((member) => member.id === current) ? current : null);
       return true;
     } catch (requestError) {
@@ -217,7 +355,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
         setRefreshing(false);
       }
     }
-  }, [canReadAdminHistory, canReadInvitations]);
+  }, [canManageConnections, canReadAdminHistory, canReadInvitations]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -231,6 +369,14 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const canView = can(actorPermissions, "members.view");
   const canInvite = can(actorPermissions, "members.invite");
   const canManage = can(actorPermissions, "members.manage");
+  const delegatableConnections = useMemo(
+    () => integrations.flatMap((card) => card.connections).filter(
+      (connection, index, all) =>
+        connection.connection_type !== "personal"
+        && all.findIndex((item) => item.id === connection.id) === index,
+    ),
+    [integrations],
+  );
 
   function showToast(message: string) {
     setToast(message);
@@ -257,10 +403,16 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     setInviteBusy(true);
     setError(null);
     try {
-      const invitation = await inviteMember({ email: inviteEmail, role: inviteRole, permission_overrides: inviteOverrides });
+      const invitation = await inviteMember({
+        email: inviteEmail,
+        role: inviteRole,
+        permission_overrides: inviteOverrides,
+        access_policy: inviteAccessPolicy,
+      });
       setInviteOpen(false);
       setInviteEmail("");
       setInviteOverrides(emptyOverrides());
+      setInviteAccessPolicy(emptyAccessPolicy());
       setInvitations((current) => [
         invitation,
         ...current.filter((item) => item.id !== invitation.id),
@@ -302,7 +454,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           </section>
           <section className="panel" style={{ padding: 20 }} aria-label="Role access defaults">
             <h2>Role access defaults</h2>
-            <p>Lead visibility follows team membership. Owners and Admins have workspace access; personal coaching is limited to its recipient and authorized managers.</p>
+            <p>Owners and Admins have workspace access. Managers see explicitly managed teams; Sales Reps see assigned or shared leads only. Personal coaching remains limited to its recipient and authorized managers.</p>
             <label className="team-field"><span>Inspect a role</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{Object.entries(ROLE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
             <PermissionEditor overrides={emptyOverrides()} effective={defaultPermissionsForRole(matrixRole)} readOnly />
             <p className="permission-edit-hint">These are role defaults. Select a member to inspect their effective permissions and explicit exceptions.</p>
@@ -347,6 +499,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
               member={selected}
               actor={actor}
               canManage={canManage}
+              connections={delegatableConnections}
               collapsed={detailsCollapsed}
               onToggleCollapsed={() => setDetailsCollapsed((current) => !current)}
               onSaveRole={async (role) => {
@@ -362,6 +515,13 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
                   const next = await updateMemberPermissions(selected.id, overrides);
                   setMembers((current) => current.map((item) => item.id === next.id ? next : item));
                 }, "Permissions updated.");
+              }}
+              onSaveAccessPolicy={async (policy) => {
+                if (!selected) return;
+                await runAction(async () => {
+                  const next = await updateMemberAccessPolicy(selected.id, policy);
+                  setMembers((current) => current.map((item) => item.id === next.id ? next : item));
+                }, "Record scopes updated.");
               }}
               onSaveSlack={async (slackId) => {
                 if (!selected) return;
@@ -390,7 +550,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           </div>}
         </>
       )}
-      {inviteOpen && <InviteDialog email={inviteEmail} role={inviteRole} overrides={inviteOverrides} busy={inviteBusy} onEmail={setInviteEmail} onRole={setInviteRole} onOverrides={setInviteOverrides} onClose={() => setInviteOpen(false)} onSubmit={submitInvitation} />}
+      {inviteOpen && <InviteDialog email={inviteEmail} role={inviteRole} overrides={inviteOverrides} accessPolicy={inviteAccessPolicy} busy={inviteBusy} onEmail={setInviteEmail} onRole={setInviteRole} onOverrides={setInviteOverrides} onAccessPolicy={setInviteAccessPolicy} onClose={() => setInviteOpen(false)} onSubmit={submitInvitation} />}
       {generatedInvite?.access_code && <InviteCodeDialog invitation={generatedInvite} onClose={() => setGeneratedInvite(null)} workspaceId={auth.current_workspace_id} />}
       {confirmation && <ConfirmDialog confirmation={confirmation} busy={actionBusy} onClose={() => !actionBusy && setConfirmation(null)} onConfirm={() => void runAction(confirmation.action, confirmation.confirmLabel.endsWith("?") ? "Action completed." : `${confirmation.confirmLabel.replace("?", "")} completed.`)} />}
       {toast && <div className="team-toast" role="status">✓ {toast}</div>}
@@ -402,10 +562,12 @@ function MemberDetail({
   member,
   actor,
   canManage,
+  connections,
   collapsed,
   onToggleCollapsed,
   onSaveRole,
   onSavePermissions,
+  onSaveAccessPolicy,
   onSaveSlack,
   onSuspend,
   onReactivate,
@@ -414,10 +576,12 @@ function MemberDetail({
   member: WorkspaceMember | null;
   actor: WorkspaceMember | undefined;
   canManage: boolean;
+  connections: ProviderConnection[];
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onSaveRole: (role: string) => Promise<void>;
   onSavePermissions: (overrides: PermissionOverrides) => Promise<void>;
+  onSaveAccessPolicy: (policy: AccessPolicy) => Promise<void>;
   onSaveSlack: (slackId: string) => Promise<void>;
   onSuspend: () => void;
   onReactivate: () => void;
@@ -425,12 +589,14 @@ function MemberDetail({
 }) {
   const [role, setRole] = useState(member?.role ?? "viewer");
   const [overrides, setOverrides] = useState<PermissionOverrides>(member?.permission_overrides ?? emptyOverrides());
+  const [accessPolicy, setAccessPolicy] = useState<AccessPolicy>(member?.access_policy ?? emptyAccessPolicy());
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [slackId, setSlackId] = useState(member?.slack_member_id ?? "");
   useEffect(() => {
     setRole(member?.role ?? "viewer");
     setOverrides(member?.permission_overrides ?? emptyOverrides());
+    setAccessPolicy(member?.access_policy ?? emptyAccessPolicy());
     setEditing(false);
     setSlackId(member?.slack_member_id ?? "");
   }, [member]);
@@ -439,6 +605,7 @@ function MemberDetail({
   function cancelEditing() {
     setRole(selectedMember.role);
     setOverrides(selectedMember.permission_overrides);
+    setAccessPolicy(selectedMember.access_policy);
     setEditing(false);
   }
   const isOwner = member.role === "owner";
@@ -448,6 +615,7 @@ function MemberDetail({
   const effective = new Set(member.effective_permissions);
   async function saveRole() { setSaving(true); try { await onSaveRole(role); } finally { setSaving(false); } }
   async function savePermissions() { setSaving(true); try { await onSavePermissions(overrides); } finally { setSaving(false); } }
+  async function saveAccessPolicy() { setSaving(true); try { await onSaveAccessPolicy(accessPolicy); } finally { setSaving(false); } }
   return (
     <aside className="team-detail panel">
       <div className="team-detail-head">
@@ -501,6 +669,24 @@ function MemberDetail({
           <PermissionEditor overrides={overrides} effective={effective} readOnly={!editable || saving} onChange={setOverrides} />
           {editable && JSON.stringify(overrides) !== JSON.stringify(member.permission_overrides) && <button className="secondary-button" disabled={saving} onClick={() => void savePermissions()}>{saving ? "Saving…" : "Save permissions"}</button>}
         </div>
+        <div className="detail-editor-section">
+          <div className="section-heading">
+            <div><span className="eyebrow">Data boundaries</span><h3>Record access scopes</h3></div>
+            {editable && Object.keys(accessPolicy.scopes).length > 0 && <button className="button-quiet" disabled={saving} onClick={() => setAccessPolicy(emptyAccessPolicy())}>Reset to role defaults</button>}
+          </div>
+          <AccessScopeEditor policy={accessPolicy} readOnly={!editable || saving} onChange={setAccessPolicy} />
+          {editable && JSON.stringify(accessPolicy) !== JSON.stringify(member.access_policy) && <button className="secondary-button" disabled={saving} onClick={() => void saveAccessPolicy()}>{saving ? "Saving…" : "Save record scopes"}</button>}
+        </div>
+        <div className="detail-editor-section">
+          <div className="section-heading">
+            <div><span className="eyebrow">Connected account delegation</span><h3>Shared integrations</h3></div>
+          </div>
+          <ConnectionAccessEditor
+            memberId={member.id}
+            connections={connections}
+            editable={canManage && !isOwner && !isSelf}
+          />
+        </div>
         {canManage && !isOwner && !isSelf && <div className="member-danger-actions">
           {member.status === "suspended"
             ? <button className="button-quiet" onClick={onReactivate}>Reactivate member</button>
@@ -515,20 +701,24 @@ function InviteDialog({
   email,
   role,
   overrides,
+  accessPolicy,
   busy,
   onEmail,
   onRole,
   onOverrides,
+  onAccessPolicy,
   onClose,
   onSubmit,
 }: {
   email: string;
   role: string;
   overrides: PermissionOverrides;
+  accessPolicy: AccessPolicy;
   busy: boolean;
   onEmail: (value: string) => void;
   onRole: (value: string) => void;
   onOverrides: (value: PermissionOverrides) => void;
+  onAccessPolicy: (value: AccessPolicy) => void;
   onClose: () => void;
   onSubmit: (event: React.FormEvent) => void;
 }) {
@@ -538,7 +728,7 @@ function InviteDialog({
     event.preventDefault();
     setStep("review");
   }
-  return <OperationsDialog title="Invite team member" className="team-modal panel" showHeader={false} onClose={() => { if (!busy) onClose(); }}><div className="team-modal-head"><div><span className="eyebrow">Add workspace staff · {step === "details" ? "01 Details" : "02 Review"}</span><h2 id="invite-title">Invite team member</h2><p>{step === "details" ? "Choose an email, role and any deliberate permission exceptions." : "Review the access package before creating the pending invitation."}</p></div><button className="modal-close" onClick={onClose} aria-label="Close invitation dialog">×</button></div><form onSubmit={step === "details" ? review : onSubmit}>{step === "details" ? <><label className="team-field"><span>Work email</span><input required type="email" value={email} onChange={(event) => onEmail(event.target.value)} placeholder="name@company.com" autoFocus /></label><label className="team-field"><span>Workspace role</span><select value={role} onChange={(event) => onRole(event.target.value)}>{ROLE_OPTIONS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><small>{roleInfo.description}</small></label><div className="invite-permission-custom"><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Permission overrides</h3></div><span className="panel-action">Tap to cycle: grant · deny · reset</span></div><PermissionEditor overrides={overrides} effective={defaultPermissionsForRole(role)} onChange={onOverrides} /></div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={onClose}>Cancel</button><button className="primary-button">Review invitation ›</button></div></> : <><div className="invite-review-card"><span className="member-avatar large">{email.slice(0, 1).toUpperCase()}</span><div><b>{email}</b><RolePill role={role} /><p>{roleInfo.description}</p></div></div><div className="invite-review-facts"><span>Custom grants <b>{overrides.grants.length}</b></span><span>Explicit denies <b>{overrides.denies.length}</b></span><span>Access <b>One-time code</b></span></div><div className="notice">The code is shown once after creation. Share it privately with the invited staff member; resending invalidates the previous code.</div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setStep("details")} disabled={busy}>‹ Edit details</button><button className="primary-button" disabled={busy}>{busy ? "Creating…" : "Create access code"}</button></div></>}</form></OperationsDialog>;
+  return <OperationsDialog title="Invite team member" className="team-modal panel" showHeader={false} onClose={() => { if (!busy) onClose(); }}><div className="team-modal-head"><div><span className="eyebrow">Add workspace staff · {step === "details" ? "01 Details" : "02 Review"}</span><h2 id="invite-title">Invite team member</h2><p>{step === "details" ? "Choose an email, role, record scope and deliberate permission exceptions." : "Review the access package before creating the pending invitation."}</p></div><button className="modal-close" onClick={onClose} aria-label="Close invitation dialog">×</button></div><form onSubmit={step === "details" ? review : onSubmit}>{step === "details" ? <><label className="team-field"><span>Work email</span><input required type="email" value={email} onChange={(event) => onEmail(event.target.value)} placeholder="name@company.com" autoFocus /></label><label className="team-field"><span>Workspace role</span><select value={role} onChange={(event) => onRole(event.target.value)}>{ROLE_OPTIONS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><small>{roleInfo.description}</small></label><div className="invite-permission-custom"><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Record scopes</h3></div></div><AccessScopeEditor policy={accessPolicy} onChange={onAccessPolicy} /><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Permission overrides</h3></div><span className="panel-action">Tap to cycle: grant · deny · reset</span></div><PermissionEditor overrides={overrides} effective={defaultPermissionsForRole(role)} onChange={onOverrides} /></div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={onClose}>Cancel</button><button className="primary-button">Review invitation ›</button></div></> : <><div className="invite-review-card"><span className="member-avatar large">{email.slice(0, 1).toUpperCase()}</span><div><b>{email}</b><RolePill role={role} /><p>{roleInfo.description}</p></div></div><div className="invite-review-facts"><span>Custom grants <b>{overrides.grants.length}</b></span><span>Explicit denies <b>{overrides.denies.length}</b></span><span>Scope overrides <b>{Object.keys(accessPolicy.scopes).length}</b></span><span>Access <b>One-time code</b></span></div><div className="notice">The code is shown once after creation. Share it privately with the invited staff member; resending invalidates the previous code.</div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setStep("details")} disabled={busy}>‹ Edit details</button><button className="primary-button" disabled={busy}>{busy ? "Creating…" : "Create access code"}</button></div></>}</form></OperationsDialog>;
 }
 
 function InviteCodeDialog({ invitation, workspaceId, onClose }: { invitation: WorkspaceInvitation; workspaceId: string; onClose: () => void }) {

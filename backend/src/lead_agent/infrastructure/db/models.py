@@ -333,6 +333,7 @@ class WorkspaceMembershipORM(Base):
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    access_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     slack_member_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     slack_team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -354,6 +355,7 @@ class WorkspaceInvitationORM(Base):
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     permission_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    access_policy: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     invited_by: Mapped[UUID] = mapped_column(
@@ -485,6 +487,12 @@ class ProviderConnectionORM(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    connection_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="workspace_managed"
     )
     provider_type: Mapped[str] = mapped_column(String(64), nullable=False)
     external_account_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -808,6 +816,18 @@ class LeadORM(Base):
         ForeignKey("workspaces.id", ondelete="CASCADE"),
         nullable=False,
         default=lambda: DEFAULT_WORKSPACE_ID,
+    )
+    current_owner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    primary_team_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workspace_teams.id", ondelete="SET NULL"), nullable=True
+    )
+    original_importer_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    source_connection_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="SET NULL"), nullable=True
     )
     lead_number: Mapped[int] = mapped_column(Integer, nullable=False)
     source_event_id: Mapped[UUID | None] = mapped_column(

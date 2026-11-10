@@ -17,11 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import require_permission
+from lead_agent.api.dependencies import require_permission, require_permissions
 from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.email_templates import apply_workspace_email_signature
 from lead_agent.application.gmail_history import append_gmail_thread_messages
 from lead_agent.application.gmail_threading import matches_lead_thread
+from lead_agent.application.integration_access import assert_connection_action
 from lead_agent.application.mailbox_access import can_use_mailbox
 from lead_agent.application.governance import operations_policy
 from lead_agent.domain.follow_up import FollowUpEmailContent
@@ -359,7 +360,7 @@ class GmailSendAccountResponse(BaseModel):
 @router.get("/send-accounts", response_model=list[GmailSendAccountResponse])
 def list_gmail_send_accounts(
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permission("mailbox.send_own")),
 ) -> list[GmailSendAccountResponse]:
     connections = session.scalars(
         select(ProviderConnectionORM)
@@ -396,8 +397,9 @@ def _gmail_connection(
     *,
     required_scope: str,
 ) -> tuple[ProviderConnectionORM, str]:
-    if required_scope == GMAIL_READONLY_SCOPE and "integrations.view" not in workspace.permissions:
-        raise HTTPException(403, "permission required: integrations.view")
+    permission = "mailbox.view_own" if required_scope == GMAIL_READONLY_SCOPE else "mailbox.send_own"
+    if permission not in workspace.permissions:
+        raise HTTPException(403, f"permission required: {permission}")
     connection = session.scalar(
         select(ProviderConnectionORM).where(
             ProviderConnectionORM.id == connection_id,
@@ -411,6 +413,12 @@ def _gmail_connection(
         raise HTTPException(status_code=404, detail="Verified Gmail account not found")
     if not can_use_mailbox(workspace, connection):
         raise HTTPException(403, "This mailbox belongs to another workspace member")
+    assert_connection_action(
+        session,
+        workspace,
+        connection,
+        "view" if required_scope == GMAIL_READONLY_SCOPE else "send",
+    )
     if required_scope not in connection.scopes:
         raise HTTPException(
             status_code=409,
@@ -445,7 +453,7 @@ def list_mailbox_messages(
     page_token: str | None = Query(default=None, max_length=1024),
     limit: int = Query(default=25, ge=1, le=50),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(require_permission("mailbox.view_own")),
 ) -> MailboxMessagePageResponse:
     connection, access_token = _gmail_connection(
         session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
@@ -474,7 +482,7 @@ def get_mailbox_thread(
     connection_id: UUID,
     thread_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(require_permission("mailbox.view_own")),
 ) -> MailboxThreadResponse:
     connection, access_token = _gmail_connection(
         session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
@@ -499,7 +507,7 @@ def get_mailbox_attachment(
     message_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
     attachment_id: str = Query(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$"),
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("integrations.view")),
+    workspace: WorkspaceContext = Depends(require_permission("mailbox.view_own")),
 ) -> Response:
     connection, access_token = _gmail_connection(
         session, workspace, connection_id, required_scope=GMAIL_READONLY_SCOPE
@@ -533,7 +541,7 @@ def get_mailbox_attachment(
 def compose_email_with_ai(
     request: ComposeWithAIRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "agents.execute")),
 ) -> ComposeWithAIResponse:
     lead = None
     if request.lead_id:
@@ -767,7 +775,7 @@ def delete_email_draft(
 def send_email(
     request: SendEmailRequest,
     session: Session = Depends(get_db),
-    workspace: WorkspaceContext = Depends(require_permission("leads.edit")),
+    workspace: WorkspaceContext = Depends(require_permissions("leads.edit", "mailbox.send_own")),
 ) -> SendEmailResponse:
     connection, access_token = _gmail_connection(
         session, workspace, request.connection_id, required_scope=GMAIL_SEND_SCOPE

@@ -9,19 +9,20 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import require_permission, require_permissions
+from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
 from lead_agent.application.assistant_access import (
     ACCESS_KEY,
     conversation_access_key,
     conversation_is_accessible,
 )
-from lead_agent.api.workspace_assistant_context import build_workspace_assistant_context
 from lead_agent.application.claims import guard_outgoing_email
 from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
 from lead_agent.application.governance import operations_policy
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.application.manual_review import lead_manual_review_reasons
 from lead_agent.application.workspace_retrieval import build_workspace_record_context
 from lead_agent.domain.analysis import ReasoningProviderError
@@ -318,7 +319,10 @@ def _lead_assistant_links(
         try:
             with session.begin_nested():
                 records = build_workspace_record_context(
-                    session, workspace.workspace_id, search_query,
+                    session,
+                    workspace.workspace_id,
+                    search_query,
+                    workspace=workspace,
                 )
         except Exception:
             logger.warning("lead_assistant.lead_link_search_unavailable", exc_info=True)
@@ -984,10 +988,14 @@ def chat_with_workspace_assistant(
                         workspace.workspace_id,
                         search_query,
                         confirm_similar_lead=True,
+                        workspace=workspace,
                     )
                 else:
                     workspace_context["workspace_records"] = build_workspace_record_context(
-                        session, workspace.workspace_id, search_query,
+                        session,
+                        workspace.workspace_id,
+                        search_query,
+                        workspace=workspace,
                     )
         except Exception:
             workspace_context.setdefault("context_warnings", []).append(
@@ -996,6 +1004,34 @@ def chat_with_workspace_assistant(
             )
     record_context = workspace_context.get("workspace_records")
     if isinstance(record_context, dict):
+        matched_leads = record_context.get("matched_leads", [])
+        matched_contacts = record_context.get("matched_contacts", [])
+        if "fields.contact.view" not in workspace.permissions:
+            for item in matched_leads if isinstance(matched_leads, list) else []:
+                if isinstance(item, dict):
+                    item.pop("email", None)
+                    item.pop("phone", None)
+            record_context["matched_contacts"] = []
+        if "fields.financial.view" not in workspace.permissions:
+            for item in matched_leads if isinstance(matched_leads, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("outcome"), dict):
+                    item["outcome"].pop("closed_revenue", None)
+                    item["outcome"].pop("currency", None)
+            for item in matched_contacts if isinstance(matched_contacts, list) else []:
+                if isinstance(item, dict) and isinstance(item.get("company"), dict):
+                    item["company"].pop("profile", None)
+            for item in record_context.get("matched_companies", []):
+                if isinstance(item, dict):
+                    item.pop("profile", None)
+            record_counts = record_context.get("record_counts")
+            if isinstance(record_counts, dict):
+                record_counts.pop("revenue", None)
+        if "fields.communications.view" not in workspace.permissions:
+            for item in matched_leads if isinstance(matched_leads, list) else []:
+                if isinstance(item, dict):
+                    item.pop("inquiry", None)
+            for key in ("recent_emails_and_meetings", "calls", "saved_follow_up_emails"):
+                record_context[key] = []
         if "comments.view" not in workspace.permissions:
             record_context["lead_notes"] = []
         if "activity.view" not in workspace.permissions:
@@ -1312,6 +1348,11 @@ def chat_with_lead_assistant(
     lead = get_lead(session, lead_id, workspace.workspace_id)
     if lead is None:
         raise HTTPException(404, "Lead not found")
+    assert_lead_action(session, workspace, lead, "view")
+
+    can_contact = "fields.contact.view" in workspace.permissions
+    can_financial = "fields.financial.view" in workspace.permissions
+    can_communications = "fields.communications.view" in workspace.permissions
 
     current_routing = get_current_routing(session, lead.id, workspace.workspace_id)
     review_reasons = lead_manual_review_reasons(session, lead, current_routing)
@@ -1341,31 +1382,40 @@ def chat_with_lead_assistant(
             .where(
                 LeadNoteORM.lead_id == lead_id,
                 LeadNoteORM.workspace_id == workspace.workspace_id,
+                or_(
+                    LeadNoteORM.is_private.is_(False),
+                    LeadNoteORM.author_id == workspace.actor_id,
+                    "comments.view_private" in workspace.permissions,
+                ),
             )
             .order_by(LeadNoteORM.updated_at.desc(), LeadNoteORM.id.desc())
             .limit(30)
         )
-    ) if "comments.view" in workspace.permissions else []
+    ) if {
+        "comments.view", "fields.internal.view"
+    }.issubset(workspace.permissions) else []
     payload = {
         "permissions": sorted(workspace.permissions),
         "lead": {
             "id": str(lead.id),
             "full_name": lead.full_name,
-            "email": lead.email,
-            "phone": lead.phone,
+            "email": lead.email if can_contact else None,
+            "phone": lead.phone if can_contact else None,
             "job_title": lead.job_title,
             "company_name": lead.company_name,
             "industry": lead.industry,
             "employee_count": lead.employee_count,
             "annual_revenue": (
                 float(lead.annual_revenue)
-                if lead.annual_revenue is not None
+                if can_financial and lead.annual_revenue is not None
                 else None
             ),
             "geography": lead.geography,
-            "budget": float(lead.budget) if lead.budget is not None else None,
+            "budget": (
+                float(lead.budget) if can_financial and lead.budget is not None else None
+            ),
             "product_or_service": lead.product_or_service,
-            "original_inquiry_or_context": lead.message,
+            "original_inquiry_or_context": lead.message if can_communications else None,
             "source": lead.source,
             "received_at": lead.received_at.isoformat(),
             "manual_review": {
@@ -1376,7 +1426,7 @@ def chat_with_lead_assistant(
                 {
                     "score": lead.qualification.total_score,
                     "classification": lead.qualification.classification,
-                    "rationale": lead.qualification.rationale,
+                    "rationale": lead.qualification.rationale if can_communications else [],
                 }
                 if lead.qualification
                 else None
@@ -1387,7 +1437,7 @@ def chat_with_lead_assistant(
                     "conversion_type": lead.outcome.conversion_type,
                     "closed_revenue": (
                         float(lead.outcome.closed_revenue)
-                        if lead.outcome.closed_revenue is not None
+                        if can_financial and lead.outcome.closed_revenue is not None
                         else None
                     ),
                     "credited_name": (
@@ -1407,7 +1457,7 @@ def chat_with_lead_assistant(
                 "stage": event.stage,
                 "status": event.status,
                 "created_at": event.created_at.isoformat(),
-                "details": event.details,
+                "details": event.details if can_communications else {},
             }
             for event in reversed(events)
         ],
@@ -1449,10 +1499,12 @@ def chat_with_lead_assistant(
     if _is_conversation_only_message(request.messages):
         result.action = LeadAssistantAction()
     if result.action.kind == "open_dialer" and (
-        "dialer.call" not in workspace.permissions or not lead.phone
+        "dialer.call" not in workspace.permissions or not can_contact or not lead.phone
     ):
         result.action = LeadAssistantAction()
-        if not lead.phone:
+        if not can_contact:
+            result.reply = "You do not have access to this lead's contact fields."
+        elif not lead.phone:
             result.reply = (
                 f"I don’t have a phone number saved for {lead.full_name}. "
                 "Share the number and I can help update the lead before you call."
@@ -1476,13 +1528,21 @@ def chat_with_lead_assistant(
             "I can't make that change with your current access. "
             "Ask an admin for lead-edit access."
         )
+    elif result.action.kind in lead_edit_actions:
+        try:
+            assert_lead_action(session, workspace, lead, "edit")
+        except HTTPException:
+            result.action = LeadAssistantAction()
+            result.reply = "This lead is shared read-only; I cannot change it."
     elif result.action.kind == "sync_crm" and "crm.sync" not in workspace.permissions:
         result.action = LeadAssistantAction()
         result.reply = (
             "I can't sync this lead to a CRM with your current access. "
             "Ask an admin for CRM-sync access."
         )
-    elif result.action.kind in email_actions and "integrations.view" not in workspace.permissions:
+    elif result.action.kind in email_actions and not {
+        "integrations.view", "mailbox.send_own"
+    }.issubset(workspace.permissions):
         result.action = LeadAssistantAction()
         result.reply = (
             "I can't open this lead's email with your current access. "
