@@ -1,0 +1,56 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "web": {
+      "root": "frontend/",
+      "framework": "vite"
+    },
+    "api": {
+      "root": "backend/",
+      "framework": "fastapi",
+      "entrypoint": "lead_agent.api.main:app"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/v1/(.*)",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/health/(.*)",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/assets/(.*)",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/asset/(.*)",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/brand/(.*)",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/terms.html",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/privacy.html",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/robots.txt",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/cloudtalk-notifications-sw.js",
+      "destination": { "service": "web" }
+    },
+    {
+      "source": "/(.*)",
+      "destination": { "service": "web", "path": "/index.html" }
+    }
+  ]
+}

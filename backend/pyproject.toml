@@ -67,3 +67,9 @@ pythonpath = ["src"]
 python_version = "3.12"
 strict = true
 plugins = []
+
+[tool.vercel]
+entrypoint = "lead_agent.api.main:app"
+
+[[tool.vercel.subscribers]]
+entrypoint = "lead_agent.worker.celery_app:celery_app"

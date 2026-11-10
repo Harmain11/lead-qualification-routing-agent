@@ -1,12 +1,16 @@
 import hashlib
 import logging
+import os
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from celery import Celery  # type: ignore[import-untyped]
 from celery.signals import task_failure, task_retry  # type: ignore[import-untyped]
+from kombu import Queue  # type: ignore[import-untyped]
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
@@ -40,16 +44,56 @@ from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDER
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.settings.config import get_settings
 
+
+@dataclass(frozen=True)
+class CeleryTransport:
+    broker_url: str
+    result_backend: str
+    broker_options: dict[str, object]
+    result_options: dict[str, object]
+
+
+def _resolve_celery_transport(
+    redis_url: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> CeleryTransport:
+    """Use Vercel Queues on Vercel and preserve Redis everywhere else."""
+    runtime_environment = os.environ if environ is None else environ
+    if runtime_environment.get("VERCEL") == "1":
+        return CeleryTransport(
+            broker_url="vercel://",
+            result_backend="vercel-runtime-cache://",
+            broker_options={
+                "consumer_group": "corral-workers",
+                "lease_duration": 300,
+                "requeue_delay_seconds": 60,
+            },
+            result_options={
+                "namespace": "corral-celery-results",
+                "ttl": 86400,
+            },
+        )
+    return CeleryTransport(
+        broker_url=redis_url,
+        result_backend=redis_url,
+        broker_options={"visibility_timeout": 3600},
+        result_options={"visibility_timeout": 3600},
+    )
+
+
 settings = get_settings()
 configure_logging(json_logs=settings.log_format == "json", level=settings.log_level)
 _LOGGER = logging.getLogger("lead_agent.worker")
+_transport = _resolve_celery_transport(settings.redis_url)
 celery_app = Celery(
     "lead_agent",
-    broker=settings.redis_url,
-    backend=settings.redis_url,
+    broker=_transport.broker_url,
+    backend=_transport.result_backend,
 )
 celery_app.conf.update(
     task_default_queue=settings.queue_name,
+    task_queues=(Queue(settings.queue_name),),
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     task_track_started=True,
@@ -67,8 +111,8 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     broker_connection_max_retries=10,
     result_expires=86400,
-    broker_transport_options={"visibility_timeout": 3600},
-    result_backend_transport_options={"visibility_timeout": 3600},
+    broker_transport_options=_transport.broker_options,
+    result_backend_transport_options=_transport.result_options,
     beat_schedule={
         "workspace-operations": {"task": "lead_agent.workspace_operations", "schedule": 30},
         "dispatch-due-crm-inbound-syncs": {
