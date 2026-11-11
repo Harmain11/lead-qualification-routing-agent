@@ -1651,7 +1651,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
         {!comingSoon && (crmDirection || mailDirection) && connection?.status === "verified" && <div className="integration-guide">
           <span className="eyebrow">{mailDirection ? "Automatic inbound email acquisition" : "Inbound CRM synchronization"}</span>
           <strong>{syncState?.enabled ? "Enabled · automatic inbound" : "Disabled"}</strong>
-          {syncState?.enabled && <p>Automatically checks every {syncState.sync_interval_seconds} seconds, even when Corral is closed. New records appear without pressing Sync now.</p>}
+          {syncState?.enabled && <p>Automatic sync is enabled. Corral checks on the configured schedule; the hosted Vercel deployment processes due syncs about every 15 minutes, even when Corral is closed.</p>}
           <p>{syncState?.last_successful_sync_at ? `Last synced ${new Date(syncState.last_successful_sync_at).toLocaleString()} · ${syncState.records_processed.toLocaleString()} records processed.` : "No provider records have been imported yet."}</p>
           {mailDirection && <p>{syncState?.next_sync_at ? `Next sync ${new Date(syncState.next_sync_at).toLocaleString()}.` : `Status: ${syncState?.status ?? "not configured"}.`}{syncState?.status && ` Latest result: ${syncState.status.replaceAll("_", " ")}.`}</p>}
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
