@@ -11,12 +11,13 @@
       "entrypoint": "main:app"
     }
   },
-  "crons": [
-    {
+  "schedules": {
+    "inbound-sync": {
+      "schedule": "*/15 * * * *",
       "path": "/v1/internal/scheduled-sync",
-      "schedule": "*/10 * * * *"
+      "requestMethod": "GET"
     }
-  ],
+  },
   "rewrites": [
     {
       "source": "/v1/(.*)",
