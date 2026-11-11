@@ -11,6 +11,12 @@
       "entrypoint": "main:app"
     }
   },
+  "crons": [
+    {
+      "path": "/v1/internal/scheduled-sync",
+      "schedule": "*/10 * * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/v1/(.*)",

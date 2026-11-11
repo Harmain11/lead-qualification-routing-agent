@@ -38,6 +38,7 @@ from lead_agent.api.routes import (
     meta_webhooks,
     notifications,
     routing,
+    scheduler,
     site_access,
     team,
     teams,
@@ -95,6 +96,7 @@ app.include_router(email_templates.router)
 app.include_router(intake.router)
 app.include_router(crm.router)
 app.include_router(crm_inbound.router)
+app.include_router(scheduler.router)
 app.include_router(deals.router)
 app.include_router(integrations.router)
 app.include_router(meta_webhooks.router)

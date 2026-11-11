@@ -278,7 +278,9 @@ export function DialerView({
         subtitle={connected.length ? `${connected.map((card) => card.display_name).join(", ")} connected` : "Call history across your phone providers"}
         actions={<>
           <FeatureGuide topic="calls" compact />
-          <Button icon="refresh" onClick={() => { setRefreshing(true); setRevision((value) => value + 1); }} disabled={refreshing}>{refreshing ? "Refreshing…" : "Refresh"}</Button>
+          <Button icon="refresh" onClick={() => { setRefreshing(true); setRevision((value) => value + 1); }} disabled={refreshing} title="Load the latest history from connected phone providers">
+            {refreshing ? "Refreshing…" : "Refresh calls"}
+          </Button>
           {canViewLeads && <Button kind="filled" icon="phone" onClick={() => { setCallLead(null); setDialing(true); }} disabled={dialerCallActive}>New call</Button>}
         </>}
       />

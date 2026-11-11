@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     crm_inbound_default_interval_seconds: int = 60
     crm_inbound_batch_limit: int = 500
     crm_inbound_page_size: int = 100
+    cron_secret: str = Field(default="", repr=False, exclude=True)
+    vercel_scheduled_sync_limit: int = 10
     outlook_initial_sync_days: int = 30
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"
@@ -219,6 +221,8 @@ class Settings(BaseSettings):
             raise ValueError("CRM_INBOUND_BATCH_LIMIT must be between 1 and 5000")
         if not 1 <= self.crm_inbound_page_size <= 200:
             raise ValueError("CRM_INBOUND_PAGE_SIZE must be between 1 and 200")
+        if not 1 <= self.vercel_scheduled_sync_limit <= 100:
+            raise ValueError("VERCEL_SCHEDULED_SYNC_LIMIT must be between 1 and 100")
         if not 1 <= self.outlook_initial_sync_days <= 365:
             raise ValueError("OUTLOOK_INITIAL_SYNC_DAYS must be between 1 and 365")
         if self.export_sync_limit < 1 or self.export_sync_limit > 100_000:

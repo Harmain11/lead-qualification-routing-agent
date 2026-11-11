@@ -6,6 +6,16 @@ from pathlib import Path
 
 from lead_agent.worker.celery_app import _resolve_celery_transport
 
+
+def test_vercel_declares_a_bounded_scheduled_sync() -> None:
+    import json
+    from pathlib import Path
+
+    config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+    assert config["crons"] == [
+        {"path": "/v1/internal/scheduled-sync", "schedule": "*/10 * * * *"}
+    ]
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 

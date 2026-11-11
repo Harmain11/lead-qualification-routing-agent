@@ -9,6 +9,7 @@ import {
   listIntegrations,
   listLeads,
   listWorkspaceEmailDrafts,
+  runInboundSync,
 } from "../api";
 import { EmailComposer, type GmailComposerSeed } from "../components/EmailComposer";
 import { getProviderEmailPreview, ProviderEmailBody } from "../components/ProviderEmailBody";
@@ -139,7 +140,9 @@ export function EmailWorkspace({
   const [loadingAccounts, setLoadingAccounts] = useState(initialMailbox.accounts.length === 0);
   const [loadingMessages, setLoadingMessages] = useState(Boolean(initialMailbox.connectionId && !initialMailbox.cached));
   const [loadingThread, setLoadingThread] = useState(false);
+  const [syncingMailbox, setSyncingMailbox] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [threadRevision, setThreadRevision] = useState(0);
   const [composeSeed, setComposeSeed] = useState<GmailComposerSeed | null>(null);
@@ -476,6 +479,35 @@ export function EmailWorkspace({
     }}
   />;
 
+  async function syncCurrentMailbox() {
+    if (!connectionId || syncingMailbox) return;
+    setSyncingMailbox(true);
+    setError(null);
+    try {
+      const result = await runInboundSync(connectionId, "manual", "gmail");
+      // The source may have changed while Corral was open. Drop only this
+      // account's cached views, then load the current folder again.
+      for (const key of mailboxCache.keys()) {
+        if (key.includes(connectionId)) mailboxCache.delete(key);
+      }
+      for (const key of threadCache.keys()) {
+        if (key.includes(connectionId)) threadCache.delete(key);
+      }
+      forceMailboxRefresh.current = true;
+      setRevision((current) => current + 1);
+      setThreadRevision((current) => current + 1);
+      setNotice(
+        "message" in result
+          ? result.message
+          : `Gmail sync finished: ${result.records_created} new and ${result.records_updated} updated leads.`,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Gmail could not be synced. Check the connected account and try again.");
+    } finally {
+      setSyncingMailbox(false);
+    }
+  }
+
   return <div className="mailbox">
     <PageHeader
       title="Inbox"
@@ -483,6 +515,7 @@ export function EmailWorkspace({
       actions={<><FeatureGuide topic="inbox" compact /><Button kind="filled" icon="edit" onClick={beginCompose} disabled={!canSend || !accounts.length} title={!canSend ? "Your role can’t send email" : !accounts.length ? "Connect Gmail to send email" : undefined}>New email</Button></>}
     />
     {error && <Banner tone="danger" title={error} action={<Button kind="plain" size="sm" onClick={() => setError(null)}>Dismiss</Button>} />}
+    {notice && <Banner title={notice} action={<Button kind="plain" size="sm" onClick={() => setNotice(null)}>Dismiss</Button>} />}
     {composeSeed && composerMode === "sheet" && (
       <Sheet title={activeDraft ? "Edit draft" : composeSeed.subject?.startsWith("Fwd") ? "Forward" : "New email"} onClose={() => { setComposeSeed(null); setActiveDraft(null); }} width={760}>
         {composer}
@@ -524,6 +557,9 @@ export function EmailWorkspace({
             </li>
           ))}
         </ul>
+        <Button kind="plain" size="sm" icon="refresh" onClick={() => void syncCurrentMailbox()} disabled={!connectionId || syncingMailbox}>
+          {syncingMailbox ? "Syncing Gmail…" : "Sync Gmail"}
+        </Button>
         <Button kind="plain" size="sm" icon="refresh" onClick={() => { forceMailboxRefresh.current = true; setRevision((current) => current + 1); }} disabled={!connectionId || loadingMessages}>
           {loadingMessages ? "Refreshing…" : "Refresh"}
         </Button>

@@ -520,6 +520,9 @@ export function LeadsScreen({
         actions={
           <>
             <FeatureGuide topic="lead" compact />
+            <Button icon="refresh" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}>
+              {loading && loadedOnce.current ? "Refreshing…" : "Refresh leads"}
+            </Button>
             {canExport && <Button icon="share" onClick={() => setShowExport(true)}>Export</Button>}
             {canEdit && <Button kind="filled" icon="plus" onClick={() => setShowForm(true)}>New Lead</Button>}
           </>
