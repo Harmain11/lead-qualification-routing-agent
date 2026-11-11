@@ -484,6 +484,8 @@ function SlackRoutingEditor({
 export function IntegrationsView({ permissions, selectedSection = "" }: { permissions: ReadonlySet<string>; selectedSection?: string }) {
   const [cards, setCards] = useState<IntegrationCard[]>([]);
   const [activeCategory, setActiveCategory] = useState<IntegrationCategory>("all");
+  const [integrationQuery, setIntegrationQuery] = useState("");
+  const [connectedOnly, setConnectedOnly] = useState(false);
   const [selectedAIProvider, setSelectedAIProvider] = useState("openai");
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(() => new Set());
   const [slackGuideOpen, setSlackGuideOpen] = useState(false);
@@ -1261,10 +1263,18 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       description: "Connect additional tools that support your lead operations.",
     },
   ];
+  const overviewCards = cards.filter((card) => {
+    const query = integrationQuery.trim().toLowerCase();
+    const matchesQuery = !query || [card.display_name, card.provider, card.category, card.directionality.description]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query));
+    const matchesConnection = !connectedOnly || connectionTone(card.connection?.status) === "ok";
+    return matchesQuery && matchesConnection;
+  });
   const sections = [
     ...categorySections.map((section) => ({
       ...section,
-      providers: cards
+      providers: overviewCards
         .filter((card) => card.availability === "available" && integrationCategory(card) === section.id)
         .map((card) => card.provider),
     })),
@@ -1277,7 +1287,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     },
   ];
   const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
-  const categoryCounts = cards.filter((card) => card.availability === "available").reduce<Record<string, number>>((counts, card) => {
+  const categoryCounts = overviewCards.filter((card) => card.availability === "available").reduce<Record<string, number>>((counts, card) => {
     const category = integrationCategory(card);
     counts[category] = (counts[category] ?? 0) + 1;
     return counts;
@@ -1314,7 +1324,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
   const providerCards = cards.filter((card) => card.availability === "available");
   const connectedCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "ok").length;
   const attentionCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "error").length;
-  const comingSoonCards = cards.filter((card) => card.availability === "future");
+  const comingSoonCards = overviewCards.filter((card) => card.availability === "future");
   return <div className={`page-view operational-page integrations-page${selectedProvider || aiSection || callingSection ? " focused-page" : ""}`} data-integration-page={selectedProvider || (aiSection ? "ai" : callingSection ? "calling" : "overview")}>
     <header className="v-pagehead" data-tour="integrations">
       <div className="v-pagehead-text">
@@ -1328,14 +1338,23 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       <div><span className="eyebrow">Gmail · AI review active</span><strong>{state?.status === "cancel_requested" ? "Stopping Gmail sync" : "Sync is still running"}</strong><p>{feedback?.message || "Checking recent messages and matching them to existing leads…"}</p></div>
       <span className="gmail-sync-active-state">{state?.status === "cancel_requested" ? "Stopping" : "In progress"}</span>
     </section>)}
-    {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <nav className="int-categories" aria-label="Integration categories">
-      {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => (
-        <button type="button" key={id} aria-pressed={activeCategory === id} onClick={() => setActiveCategory(id)}>
-          {id === "all" ? "All" : label}
-          <span className="num">{id === "all" ? providerCards.length : categoryCounts[id]}</span>
-        </button>
-      ))}
-    </nav>}
+    {!selectedProvider && !aiSection && !callingSection && cards.length > 0 && <div className="int-toolbar">
+      <label className="int-search">
+        <span className="sr-only">Search integrations</span>
+        <Icon name="search" size={16} aria-hidden="true" />
+        <input value={integrationQuery} onChange={(event) => setIntegrationQuery(event.target.value)} placeholder="Search integrations" />
+        {integrationQuery && <button type="button" className="int-search-clear" onClick={() => setIntegrationQuery("")} aria-label="Clear integration search">×</button>}
+      </label>
+      <label className="int-connected-filter"><input type="checkbox" checked={connectedOnly} onChange={(event) => setConnectedOnly(event.target.checked)} /> Connected only</label>
+      <nav className="int-categories" aria-label="Integration categories">
+        {integrationCategoryOptions.filter(([id]) => id === "all" || categoryCounts[id] > 0).map(([id, label]) => (
+          <button type="button" key={id} aria-pressed={activeCategory === id} onClick={() => setActiveCategory(id)}>
+            {id === "all" ? "All" : label}
+            <span className="num">{id === "all" ? overviewCards.filter((card) => card.availability === "available").length : categoryCounts[id]}</span>
+          </button>
+        ))}
+      </nav>
+    </div>}
     {notice && (() => {
       const noticeState = Object.values(operationFeedback).find((item) => item.message === notice)?.state;
       return <div className={`notice${noticeState ? ` notice-${noticeState}` : ""}`} role="status">{notice}</div>;
@@ -1750,6 +1769,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
        </article>;
     })}</div>
     </section>)}
+      {!selectedProvider && !aiSection && !callingSection && overviewCards.length === 0 && cards.length > 0 && <div className="int-empty-filter" role="status"><strong>No integrations match these filters.</strong><span>Try a different search or show all connections.</span><button type="button" onClick={() => { setIntegrationQuery(""); setConnectedOnly(false); setActiveCategory("all"); }}>Clear filters</button></div>}
       {!selectedProvider && !aiSection && !callingSection && comingSoonCards.length > 0 && activeCategory === "all" && <section className="int-coming-soon" aria-label="Coming soon">
         <h2>Coming soon</h2>
         <p>{comingSoonCards.map((card) => card.display_name).join(", ")}</p>

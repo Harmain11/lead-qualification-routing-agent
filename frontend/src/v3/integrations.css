@@ -1,7 +1,15 @@
 /* Integrations: categories, provider cards and setup panels on the v3 system. */
 .v-app .integrations-page { display: grid; gap: var(--s5); width: 100%; max-width: 1180px; margin: 0 auto; padding: 0; background: none; }
 
-.int-categories { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.int-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); }
+.int-search { display: inline-flex; align-items: center; gap: var(--s2); min-width: min(100%, 260px); height: 36px; padding: 0 var(--s3); border: var(--hairline) solid var(--separator); border-radius: var(--r-pill); background: var(--surface); color: var(--label-3); }
+.int-search:focus-within { border-color: var(--tint); box-shadow: 0 0 0 3px var(--focus); }
+.int-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--label); font: var(--t-subhead); }
+.int-search input::placeholder { color: var(--label-3); }
+.int-search-clear { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%; background: var(--fill-hover); color: var(--label-2); font-size: 18px; line-height: 1; cursor: pointer; }
+.int-connected-filter { display: inline-flex; align-items: center; gap: var(--s2); height: 36px; padding: 0 var(--s3); border: var(--hairline) solid var(--separator); border-radius: var(--r-pill); background: var(--surface); color: var(--label-2); font: var(--t-subhead); white-space: nowrap; }
+.int-connected-filter input { width: 15px; height: 15px; accent-color: var(--tint); }
+.int-categories { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: var(--s2); }
 .int-categories button {
   display: inline-flex; align-items: center; gap: var(--s2); height: 32px; padding: 0 var(--s3);
   border: var(--hairline) solid var(--separator-strong); border-radius: var(--r-pill);
@@ -80,8 +88,15 @@
 .int-coming-soon { display: grid; gap: var(--s1); padding: var(--s4); border: var(--hairline) dashed var(--separator-strong); border-radius: var(--r-lg); }
 .int-coming-soon h2 { font: var(--t-callout); font-weight: 600; color: var(--label-2); }
 .int-coming-soon p { margin: 0; font: var(--t-subhead); color: var(--label-3); }
+.int-empty-filter { display: grid; justify-items: start; gap: var(--s1); padding: var(--s5); border: var(--hairline) dashed var(--separator-strong); border-radius: var(--r-lg); background: var(--surface); }
+.int-empty-filter strong { font: var(--t-callout); color: var(--label); }
+.int-empty-filter span { font: var(--t-subhead); color: var(--label-3); }
+.int-empty-filter button { margin-top: var(--s2); height: var(--control-h); padding: 0 var(--s3); border: 0; border-radius: var(--r-sm); background: var(--tint); color: var(--on-tint); font: var(--t-callout); font-weight: 600; cursor: pointer; }
 
 @media (max-width: 560px) {
+  .int-search { flex: 1 1 100%; }
+  .int-categories { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+  .int-categories button { flex: 0 0 auto; }
   .int-head { grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "mark id" "mark status" ". action"; }
   .int-toggle { justify-self: start; margin-top: var(--s2); }
 }
