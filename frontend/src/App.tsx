@@ -1374,7 +1374,17 @@ function App() {
           title={toolbarTitle}
           leading={
             isMobile ? (
-              <img className="v-toolbar-mark" src={branding.logo_url || "/asset/brand/corral-mark.png"} alt={branding.name || "Corral"} width={26} height={26} />
+              <img
+                className="v-toolbar-mark"
+                src={branding.logo_url || "/asset/brand/corral-mark.png"}
+                alt={branding.name || "Corral"}
+                width={26}
+                height={26}
+                onError={(event) => {
+                  const fallback = "/asset/brand/corral-mark.png";
+                  if (!event.currentTarget.src.endsWith(fallback)) event.currentTarget.src = fallback;
+                }}
+              />
             ) : (
               <IconButton
                 icon="sidebar"

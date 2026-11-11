@@ -86,7 +86,7 @@ export function GmailAccountsPanel({
         <h3 id="gmail-mailbox-heading">Mailboxes</h3>
         {canConnect && (
           <button type="button" className="gm-add" onClick={onAdd} disabled={busy}>
-            {connecting ? "Connecting…" : "Add account"}
+            {connecting ? "Connecting…" : accounts.length > 0 ? "Add another account" : "Add account"}
           </button>
         )}
       </header>

@@ -32,8 +32,8 @@ from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     gmail_history_messages,
 )
-from lead_agent.application.meeting_email import _active_gmail_connection_for_source
 from lead_agent.application.lead_approval import update_lead_approval_policy
+from lead_agent.application.meeting_email import _active_gmail_connection_for_source
 from lead_agent.application.services import process_lead, process_source_event
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
@@ -1725,7 +1725,7 @@ def test_inbound_api_exposes_safe_run_and_state_without_provider_payloads(tmp_pa
             )
             state = client.get(f"/v1/integrations/connections/{connection.id}/inbound-sync/state")
             runs = client.get(f"/v1/integrations/connections/{connection.id}/inbound-sync/runs")
-        assert configured.status_code == 200
+        assert configured.status_code == 200, configured.text
         assert started.status_code == 200
         assert started.json()["records_created"] == 1
         assert state.status_code == 200
@@ -1746,6 +1746,10 @@ def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
 
     session = _session(tmp_path)
     connection = _connection(session, uuid4(), provider_type="gmail")
+    mailbox_owner = uuid4()
+    connection.owner_user_id = mailbox_owner
+    connection.connection_type = "personal"
+    session.commit()
     provider = FakeInboundProvider(connection.id, [])
     queued: list[dict[str, object]] = []
     monkeypatch.setattr(
@@ -1762,8 +1766,12 @@ def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
     app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
         workspace_id=connection.workspace_id,
         actor_id="manager",
+        user_id=mailbox_owner,
         role="sales_manager",
-        permissions=frozenset({"crm.sync", "integrations.manage", "integrations.view"}),
+        permissions=frozenset({
+            "crm.sync", "integrations.manage", "integrations.view", "mailbox.sync_own",
+            "mailbox.view_own",
+        }),
     )
     try:
         with TestClient(app) as client:
@@ -1781,12 +1789,74 @@ def test_gmail_manual_sync_is_accepted_and_status_is_pollable(
             runs = client.get(
                 f"/v1/integrations/connections/{connection.id}/inbound-sync/runs?limit=1"
             )
-        assert configured.status_code == 200
+        assert configured.status_code == 200, configured.text
         assert response.status_code == 202
         assert response.json()["status"] == "queued"
         assert queued[0]["requested_mode"] == "review_recent"
         assert state.json()["status"] == "queued"
         assert runs.json() == []
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_gmail_manual_sync_runs_in_vercel_without_a_celery_worker(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = _session(tmp_path)
+    connection = _connection(session, uuid4(), provider_type="gmail")
+    mailbox_owner = uuid4()
+    connection.owner_user_id = mailbox_owner
+    connection.connection_type = "personal"
+    session.commit()
+
+    class GmailProvider:
+        provider_name = "gmail"
+
+        def __init__(self, connection_id: UUID) -> None:
+            self.connection_id = connection_id
+
+        def list_records(self, *, object_type, cursor, limit):
+            del cursor, limit
+            assert object_type == "message"
+            return InboundCrmPage(records=[])
+
+    provider = GmailProvider(connection.id)
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_workspace_inbound_crm_resolver] = lambda: ResolverStub(provider)
+    app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
+        workspace_id=connection.workspace_id,
+        actor_id="manager",
+        user_id=mailbox_owner,
+        role="sales_manager",
+        permissions=frozenset({
+            "crm.sync", "integrations.manage", "integrations.view", "mailbox.sync_own",
+            "mailbox.view_own",
+        }),
+    )
+    monkeypatch.setenv("VERCEL", "1")
+    try:
+        with TestClient(app) as client:
+            configured = client.put(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/configuration",
+                json={"enabled": True, "object_type": "message", "interval_seconds": 300},
+            )
+            response = client.post(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync",
+                json={"mode": "review_recent", "object_type": "message", "limit": 20},
+            )
+            state = client.get(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync/state?object_type=message"
+            )
+        assert configured.status_code == 200
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+        assert response.json()["records_fetched"] == 0
+        assert state.json()["status"] == "ready"
     finally:
         app.dependency_overrides.clear()
         session.close()

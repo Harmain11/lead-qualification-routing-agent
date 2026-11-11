@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
@@ -157,56 +158,63 @@ def synchronize_inbound_crm(
                 status_code=409,
                 detail="an inbound synchronization run is already active",
             )
-        state.status = "queued"
-        state.last_error = None
-        state.error_category = None
-        state.error_code = None
-        state.next_sync_at = queued_at + timedelta(seconds=state.sync_interval_seconds)
-        state.updated_at = queued_at
-        session.commit()
-        try:
-            task_kwargs = {
-                "requested_mode": request.mode,
-                "requested_limit": request.limit,
-                "requested_page_size": request.page_size,
-                "requested_actor_id": workspace.actor_id,
-                "requested_send_confirmation_email": False
-                if request.mode in {"review_recent", "review_previous"}
-                else request.send_confirmation_email,
-            }
-            if get_settings().app_env == "development":
-                from lead_agent.worker.preview_sync import enqueue_manual_sync
-
-                enqueue_manual_sync(str(state.id), **task_kwargs)
-            else:
-                from lead_agent.worker.celery_app import run_scheduled_crm_inbound_sync
-
-                run_scheduled_crm_inbound_sync.apply_async(
-                    args=[str(state.id)],
-                    kwargs=task_kwargs,
-                )
-        except Exception as error:
-            state.status = "failed"
-            state.error_category = "temporarily_unavailable"
-            state.error_code = "gmail_sync_queue_unavailable"
-            state.last_error = "Gmail sync could not be queued because the worker is unavailable."
-            state.updated_at = datetime.now(UTC)
+        # Vercel Functions have no long-lived Celery worker. Execute the bounded
+        # user-initiated batch in this request there, so a healthy Gmail account
+        # never fails solely because a queue consumer is absent. Other runtimes
+        # retain the existing background-worker flow.
+        if os.environ.get("VERCEL") != "1":
+            state.status = "queued"
+            state.last_error = None
+            state.error_category = None
+            state.error_code = None
+            state.next_sync_at = queued_at + timedelta(seconds=state.sync_interval_seconds)
+            state.updated_at = queued_at
             session.commit()
-            _LOGGER.warning(
-                "gmail.inbound_sync_queue_failed",
-                extra={
-                    "fields": {
-                        "connection_id": str(connection.id),
-                        "error_class": error.__class__.__name__,
-                    }
-                },
+            try:
+                task_kwargs = {
+                    "requested_mode": request.mode,
+                    "requested_limit": request.limit,
+                    "requested_page_size": request.page_size,
+                    "requested_actor_id": workspace.actor_id,
+                    "requested_send_confirmation_email": False
+                    if request.mode in {"review_recent", "review_previous"}
+                    else request.send_confirmation_email,
+                }
+                if get_settings().app_env == "development":
+                    from lead_agent.worker.preview_sync import enqueue_manual_sync
+
+                    enqueue_manual_sync(str(state.id), **task_kwargs)
+                else:
+                    from lead_agent.worker.celery_app import run_scheduled_crm_inbound_sync
+
+                    run_scheduled_crm_inbound_sync.apply_async(
+                        args=[str(state.id)],
+                        kwargs=task_kwargs,
+                    )
+            except Exception as error:
+                state.status = "failed"
+                state.error_category = "temporarily_unavailable"
+                state.error_code = "gmail_sync_queue_unavailable"
+                state.last_error = (
+                    "Gmail sync could not be queued because the worker is unavailable."
+                )
+                state.updated_at = datetime.now(UTC)
+                session.commit()
+                _LOGGER.warning(
+                    "gmail.inbound_sync_queue_failed",
+                    extra={
+                        "fields": {
+                            "connection_id": str(connection.id),
+                            "error_class": error.__class__.__name__,
+                        }
+                    },
+                )
+                raise HTTPException(status_code=503, detail=state.last_error) from None
+            response.status_code = 202
+            return CrmInboundSyncAcceptedResponse(
+                queued_at=queued_at,
+                message="Gmail sync queued. Progress and results will update here.",
             )
-            raise HTTPException(status_code=503, detail=state.last_error) from None
-        response.status_code = 202
-        return CrmInboundSyncAcceptedResponse(
-            queued_at=queued_at,
-            message="Gmail sync queued. Progress and results will update here.",
-        )
     try:
         provider = resolver.resolve(
             session,

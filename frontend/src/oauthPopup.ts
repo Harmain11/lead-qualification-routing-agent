@@ -16,6 +16,16 @@ export function isOAuthPopupResult(value: unknown): value is OAuthPopupResult {
     && (result.message === undefined || typeof result.message === "string");
 }
 
+export function shouldCloseOAuthPopupCallback(
+  params: URLSearchParams,
+  windowName: string,
+  hasOpener: boolean,
+) {
+  return (windowName.startsWith("corral-oauth-") || hasOpener)
+    && params.get("integration") !== null
+    && (params.get("status") === "connected" || params.get("status") === "failed");
+}
+
 export function relayOAuthCallbackFromPopup() {
   const params = new URLSearchParams(window.location.search);
   const provider = params.get("integration");
@@ -35,5 +45,12 @@ export function relayOAuthCallbackFromPopup() {
     channel.close();
   } else if (window.opener) {
     window.opener.postMessage(result, window.location.origin);
+  }
+
+  // This page is only a relay for a window Corral opened for provider OAuth.
+  // Close it after the parent receives the result so the user returns to the
+  // integration card instead of being left on a small, duplicate app window.
+  if (shouldCloseOAuthPopupCallback(params, window.name, Boolean(window.opener))) {
+    window.setTimeout(() => window.close(), 40);
   }
 }
