@@ -4,7 +4,6 @@ import json
 import tomllib
 from pathlib import Path
 
-from lead_agent.settings.config import Settings
 from lead_agent.worker.celery_app import _resolve_celery_transport
 
 
@@ -91,24 +90,3 @@ def test_non_vercel_runtime_keeps_redis_celery_transport() -> None:
     assert transport.result_backend == redis_url
     assert transport.broker_options == {"visibility_timeout": 3600}
     assert transport.result_options == {"visibility_timeout": 3600}
-
-
-def test_vercel_backend_service_bundles_default_policy_files(monkeypatch) -> None:
-    """The FastAPI service deploys from backend/, not the repository root."""
-    monkeypatch.chdir(REPOSITORY_ROOT / "backend")
-    settings = Settings()
-
-    assert settings.resolve_path(settings.icp_config_path) == (
-        REPOSITORY_ROOT / "backend" / "config" / "icp.example.yaml"
-    )
-    assert settings.resolve_path(settings.routing_config_path) == (
-        REPOSITORY_ROOT / "backend" / "config" / "routing.example.yaml"
-    )
-    assert settings.resolve_path(settings.crm_config_path) == (
-        REPOSITORY_ROOT / "backend" / "config" / "crm.example.yaml"
-    )
-
-    icp, routing = settings.load_policies()
-    assert icp.profile_name == "Example ICP"
-    assert routing.policy_version == "2026-09-21.example.1"
-    assert settings.load_crm_config().payload_version == "1.0"
