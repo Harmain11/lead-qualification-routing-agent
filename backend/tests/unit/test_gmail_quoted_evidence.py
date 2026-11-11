@@ -270,6 +270,18 @@ def test_unrelated_addresses_are_not_internal_brand_matches(address):
     assert not _is_internal_address(address, set(), set())
 
 
+def test_internal_message_without_external_candidate_is_never_imported_as_lead():
+    body = (
+        "From: Morgan West <morgan@agency.example>\n"
+        "To: Reese Example <reese@agency.example>\n"
+        "Subject: Internal planning\n\n"
+        "Let's review the account plan before the customer call."
+    )
+    provider = _provider(lambda **_: _extraction([]))
+    with pytest.raises(ValueError, match="internal_workspace_message"):
+        provider.normalize_records(_record(body))
+
+
 def test_nested_ingenuity_forwarder_and_named_internal_rep_are_not_leads():
     body = (
         "From: Reese Example <reese@ingenuity-systems.cloud>\n"

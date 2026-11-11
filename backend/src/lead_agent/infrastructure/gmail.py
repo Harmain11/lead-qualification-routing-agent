@@ -1879,6 +1879,27 @@ class GmailInboundProvider:
             for name, address in outreach_recipients
             if address not in known_participant_emails
         )
+        # Do not send internal-only workspace traffic through AI qualification.
+        # Internal messages are useful context when an external participant is
+        # present, but an internal sender with no external participant cannot
+        # be a prospect and should be suppressed before classification.
+        if (
+            _is_internal_address(
+                original_sender_email, self.internal_domains, self.internal_emails
+            )
+            and not eligible_participants
+            and not any(
+                not _is_internal_address(
+                    address, self.internal_domains, self.internal_emails
+                )
+                for address in re.findall(
+                    r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}",
+                    thread_context,
+                    flags=re.IGNORECASE,
+                )
+            )
+        ):
+            raise ValueError("internal_workspace_message")
         internal_participant_names: set[str] = {"ingenuity", "ingenuity systems"}
         signature_contacts: list[dict[str, str]] = []
         for message in participant_messages:
