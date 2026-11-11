@@ -2433,6 +2433,16 @@ class GmailInboundProvider:
         payload = base.normalized_payload
         candidates = payload.get("gmail_prospect_candidates")
         if not isinstance(candidates, list) or not candidates:
+            # A thread authored by a workspace member is context for an
+            # external prospect, not itself a prospect. Fail closed here when
+            # extraction produced no external candidate instead of allowing
+            # the raw internal message to enter qualification as a lead.
+            if _is_internal_address(
+                str(payload.get("email") or ""),
+                self.internal_domains,
+                self.internal_emails,
+            ):
+                raise ValueError("internal_workspace_message")
             outreach = payload.get("gmail_outreach_recipient_emails", [])
             if len(set(outreach)) > 1:
                 raise ValueError("multiple_forwarded_outreach_candidates_require_manual_review")

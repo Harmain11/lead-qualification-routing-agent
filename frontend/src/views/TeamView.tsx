@@ -235,7 +235,32 @@ function cycleOverride(
   };
 }
 
+const DISPLAY_PERMISSION_GROUPS = [
+  ...PERMISSION_GROUPS.filter((group) => !group.label.startsWith("Integration · ")),
+  {
+    label: "Provider access",
+    permissions: PERMISSION_GROUPS
+      .filter((group) => group.label.startsWith("Integration · "))
+      .flatMap((group) => group.permissions.map((permission) => ({
+        ...permission,
+        label: `${group.label.replace("Integration · ", "")} · ${permission.label}`,
+      }))),
+  },
+];
+
 function PermissionEditor({ overrides, effective, readOnly, onChange }: PermissionEditorProps) {
+  const [query, setQuery] = useState("");
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(["Leads", "Collaboration", "Integrations"]));
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleGroups = DISPLAY_PERMISSION_GROUPS.map((group) => ({
+    ...group,
+    permissions: group.permissions.filter((permission) => !normalizedQuery || `${group.label} ${permission.label}`.toLowerCase().includes(normalizedQuery)),
+  })).filter((group) => group.permissions.length > 0);
+  const toggleGroup = (label: string) => setOpenGroups((current) => {
+    const next = new Set(current);
+    if (next.has(label)) next.delete(label); else next.add(label);
+    return next;
+  });
   return (
     <div className="permission-editor">
       <div className="permission-legend" aria-label="Permission state legend">
@@ -243,12 +268,28 @@ function PermissionEditor({ overrides, effective, readOnly, onChange }: Permissi
         <span><i className="permission-dot grant" /> Custom grant</span>
         <span><i className="permission-dot deny" /> Explicit deny</span>
       </div>
-      <p className="permission-edit-hint">Click an inherited permission to deny it, or a missing one to grant it. Click a custom choice again to reset.</p>
+      <div className="permission-toolbar">
+        <label className="permission-search">
+          <span className="sr-only">Search permissions</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search permissions or groups" />
+        </label>
+        <span className="permission-count">{visibleGroups.reduce((count, group) => count + group.permissions.length, 0)} shown</span>
+      </div>
+      <p className="permission-edit-hint">Click an inherited permission to deny it, or a missing one to grant it. Provider access is grouped below so common team controls stay easy to find.</p>
       <div className="permission-groups">
-        {PERMISSION_GROUPS.map((group) => (
+        {visibleGroups.map((group) => {
+          const open = Boolean(normalizedQuery) || openGroups.has(group.label);
+          const activeCount = group.permissions.filter((permission) => {
+            const state = overrideState(permission.id, overrides, effective);
+            return state === "grant" || state === "inherited";
+          }).length;
+          return (
           <section className="permission-group" key={group.label}>
-            <h3>{group.label}</h3>
-            <div>
+            <button type="button" className="permission-group-heading" aria-expanded={open} onClick={() => toggleGroup(group.label)}>
+              <span><b>{group.label}</b><small>{activeCount} of {group.permissions.length} active</small></span>
+              <i aria-hidden="true">{open ? "−" : "+"}</i>
+            </button>
+            {open && <div>
               {group.permissions.map((permission) => {
                 const state = overrideState(permission.id, overrides, effective);
                 return (
@@ -266,9 +307,11 @@ function PermissionEditor({ overrides, effective, readOnly, onChange }: Permissi
                   </button>
                 );
               })}
-            </div>
+            </div>}
           </section>
-        ))}
+          );
+        })}
+        {!visibleGroups.length && <p className="permission-empty">No permissions match “{query}”.</p>}
       </div>
     </div>
   );
@@ -452,7 +495,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
             <div className="team-summary panel"><span className="eyebrow">Invitations</span><strong>{invitations.filter((invitation) => invitation.status === "pending").length}</strong><small>Waiting to be accepted</small></div>
             <div className="team-summary panel"><span className="eyebrow">Your access</span><strong>{actor ? roleLabel(actor.role) : "Resolving…"}</strong><small>{actorPermissions.size} permissions</small></div>
           </section>
-          <section className="panel" style={{ padding: 20 }} aria-label="Role access defaults">
+          <section className="panel role-access-panel" style={{ padding: 20 }} aria-label="Role access defaults">
             <h2>Role access defaults</h2>
             <p>Owners and Admins have workspace access. Managers see explicitly managed teams; Sales Reps see assigned or shared leads only. Personal coaching remains limited to its recipient and authorized managers.</p>
             <label className="team-field"><span>Inspect a role</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{Object.entries(ROLE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>

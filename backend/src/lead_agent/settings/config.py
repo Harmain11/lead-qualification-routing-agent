@@ -103,7 +103,10 @@ class Settings(BaseSettings):
     gemini_default_model: str = "gemini-3.8-flash"
     claude_supported_models: str = "claude-fable-5,claude-opus-5,claude-opus-4-8,claude-opus-4-7,claude-opus-4-6,claude-sonnet-5,claude-sonnet-4-6,claude-haiku-4-5-20251001"
     claude_default_model: str = "claude-sonnet-4-6"
-    deepseek_supported_models: str = "deepseek-flash,deepseek-v4-pro"
+    # Keep current model IDs and the provider's compatibility aliases visible
+    # in the model picker. Deployments can override this list with the provider
+    # catalog they have enabled without changing application code.
+    deepseek_supported_models: str = "deepseek-flash,deepseek-v4-pro,deepseek-chat,deepseek-reasoner"
     deepseek_default_model: str = "deepseek-flash"
     xai_supported_models: str = "grok-4.7"
     xai_default_model: str = "grok-4.7"

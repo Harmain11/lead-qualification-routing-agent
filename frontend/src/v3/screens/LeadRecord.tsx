@@ -390,7 +390,7 @@ export function LeadRecord({
       <section className="v-record-facts" aria-label="At a glance">
         {canManageRouting && route ? (
           <Menu
-            label="Change owner"
+            label="Sub-assign lead"
             triggerKind="plain"
             triggerClassName="v-fact v-fact-btn"
             trigger={
@@ -402,7 +402,7 @@ export function LeadRecord({
           >
             {(close) => (
               <>
-                <span className="v-menu-label">Assign to</span>
+                <span className="v-menu-label">Sub-assign to a teammate</span>
                 {assignmentOptions.map((option) => (
                   <MenuItem key={option.user_id} icon={option.user_id === route.assigned_rep_id ? "check" : undefined} onSelect={() => { close(); void assign(option.user_id); }}>{option.display_name}</MenuItem>
                 ))}

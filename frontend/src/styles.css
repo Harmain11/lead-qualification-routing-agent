@@ -1244,6 +1244,49 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .app-shell .button-quiet:hover, .app-shell .secondary-button:hover, .app-shell .invitation-actions button:hover { border-color: #80AE94; background: var(--surface-sunken); color: var(--tint-text); }
 .app-shell .primary-button, .app-shell .slack-routing-actions > button { background: linear-gradient(135deg, var(--tint), var(--tint)); border-color: var(--tint); color: #fff; box-shadow: 0 8px 22px rgba(30,107,82,.17); }
 
+/* Shared integration actions: every primary connection/sync action keeps readable
+   white text, including provider-specific OAuth buttons such as Salesforce. */
+.app-shell .integration-card .card-actions > button:not(.button-quiet):not(.int-tertiary),
+.app-shell .integration-card .oauth-button,
+.app-shell .integration-card .manual-credential button:not(.button-quiet) {
+  border-color: var(--tint);
+  background: var(--tint);
+  color: #fff;
+  font-weight: 700;
+}
+.app-shell .integration-card .card-actions > button:not(.button-quiet):not(.int-tertiary):hover,
+.app-shell .integration-card .oauth-button:hover,
+.app-shell .integration-card .manual-credential button:not(.button-quiet):hover {
+  background: var(--tint-hover, #176b52);
+  color: #fff;
+}
+.app-shell .integration-card .card-actions { align-items: center; min-height: 40px; }
+.app-shell .integration-card .card-actions > button { white-space: nowrap; }
+
+/* Permission navigation stays compact while preserving every permission and
+   keeping the editor usable in the member drawer and invite dialog. */
+.permission-toolbar { display: flex; align-items: center; gap: 10px; }
+.permission-search { min-width: 0; flex: 1; }
+.permission-search input { width: 100%; min-height: 38px; padding: 0 11px; border: 1px solid var(--separator-strong); border-radius: 8px; background: var(--surface); color: var(--label); font-size: 13px; }
+.permission-search input:focus { border-color: var(--tint); outline: 2px solid rgba(30,107,82,.15); outline-offset: 1px; }
+.permission-count { flex: 0 0 auto; color: var(--label-3); font: 12px var(--font-mono); white-space: nowrap; }
+.permission-group { padding: 0; overflow: hidden; }
+.permission-group-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 0; background: transparent; color: var(--label); text-align: left; cursor: pointer; }
+.permission-group-heading:hover { background: var(--surface-sunken); }
+.permission-group-heading > span { min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.permission-group-heading b { font-size: 13px; font-weight: 700; }
+.permission-group-heading small { color: var(--label-3); font-size: 12px; }
+.permission-group-heading > i { flex: 0 0 auto; color: var(--tint-text); font-size: 18px; font-style: normal; line-height: 1; }
+.permission-group > div { padding: 0 10px 10px; }
+.permission-empty { margin: 0; padding: 18px; border: 1px dashed var(--separator-strong); border-radius: 8px; color: var(--label-2); font-size: 13px; text-align: center; }
+.role-access-panel > h2 { margin-bottom: 6px; }
+.role-access-panel > .permission-editor { margin-top: 18px; }
+
+@media (max-width: 600px) {
+  .permission-toolbar { align-items: stretch; flex-direction: column; }
+  .permission-count { align-self: flex-start; }
+}
+
 /* Corral dark mode */
 
 /* Corral dark mode */

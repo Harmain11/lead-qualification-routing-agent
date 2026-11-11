@@ -112,7 +112,18 @@ def _safe_metadata(metadata: dict[str, object]) -> dict[str, object]:
 def _validate_manual_credentials(
     provider: str, auth_type: str, credentials: dict[str, str]
 ) -> dict[str, str]:
-    credentials = dict(credentials)
+    # Provider tokens are commonly pasted with a trailing newline from a
+    # console. Normalize token-like fields at the boundary so the first
+    # verification uses the same value that is stored and later retrieved.
+    credentials = {
+        key: value.strip()
+        if any(
+            fragment in key.lower()
+            for fragment in ("token", "secret", "api_key", "client_id", "refresh")
+        )
+        else value
+        for key, value in dict(credentials).items()
+    }
     if provider == "openai" and "api_key" in credentials:
         # Pasted boundary whitespace is not part of an OpenAI key. Normalize
         # both initial setup and replacement before persisting the secret.

@@ -1732,13 +1732,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
               const label = field === "bot_token" ? "Bot User OAuth Token (secure)" : field === "from_number" ? "Phone number (+country code)" : field.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
               const inputProps = {
                 spellCheck: false,
+                name: `corral-${card.provider}-${field}`,
                 placeholder: openAI ? "OpenAI project API key" : field === "from_number" ? "+14155550123" : undefined,
                 value: providerCredentials[field] ?? "",
                 onChange: (event: React.ChangeEvent<HTMLInputElement>) => setCredentials((current) => ({ ...current, [card.provider]: { ...(current[card.provider] ?? {}), [field]: event.target.value } })),
               };
               return <label key={field}>{label}{secret
                 ? <input type="password" autoComplete="new-password" {...inputProps} />
-                : <input type={field === "from_number" ? "tel" : "text"} autoComplete="off" {...inputProps} />}
+                : <input type={field === "from_number" ? "tel" : "text"} autoComplete={/token|secret|jwt|api_key/.test(field) ? "new-password" : "off"} {...inputProps} />}
               </label>;
             })}
             <button disabled={Boolean(busy) || requiredManualFields.some((field) => !providerCredentials[field]?.trim())} onClick={() => void act(card.provider, async () => {
