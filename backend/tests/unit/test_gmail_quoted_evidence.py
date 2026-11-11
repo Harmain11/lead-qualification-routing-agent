@@ -335,6 +335,64 @@ def test_nested_ingenuity_forwarder_and_named_internal_rep_are_not_leads():
     assert observed[0]["internal-company-names"] == "Ingenuity,Ingenuity Systems"
 
 
+def test_ai_qualification_uses_external_messages_not_internal_replies():
+    external_text = "Could we discuss pricing for a website refresh?"
+    internal_text = "We can send our standard pricing deck after the call."
+    messages = [
+        {
+            "message_id": "internal-1",
+            "headers": {
+                "from": "Morgan West <morgan@agency.example>",
+                "to": "Reese Example <reese@agency.example>",
+                "subject": "Re: Website refresh",
+            },
+            "body": internal_text,
+        },
+        {
+            "message_id": "external-1",
+            "headers": {
+                "from": "Lee Taylor <lee@client.example>",
+                "to": "Morgan West <morgan@agency.example>",
+                "subject": "Website refresh",
+            },
+            "body": external_text,
+        },
+    ]
+    observed: list[str] = []
+
+    def extractor(**kwargs):
+        observed.append(kwargs["body"])
+        return _extraction([
+            GmailProspectCandidate(
+                role="direct_prospect",
+                is_genuine_inquiry=True,
+                confidence=0.95,
+                reason="The external sender requested pricing.",
+                inquiry_evidence=external_text,
+                full_name="Lee Taylor",
+                email="lee@client.example",
+                company_name="Lee Creative Studio",
+                evidence=[
+                    GmailEvidence(field="full_name", source="body", excerpt="Lee Taylor"),
+                    GmailEvidence(
+                        field="email", source="from_header", excerpt="lee@client.example"
+                    ),
+                ],
+            )
+        ])
+
+    record = _record(external_text + "\n\n" + internal_text)
+    record.values["headers"] = messages[0]["headers"]
+    record.values["thread_messages"] = messages
+    record.values["thread_context"] = (
+        "\n\n".join(f"From: {item['headers']['from']}\n{item['body']}" for item in messages)
+    )
+    [lead] = _provider(extractor).normalize_records(record)
+    assert lead.normalized_payload["email"] == "lee@client.example"
+    assert internal_text not in observed[0]
+    assert external_text in observed[0]
+
+
 def test_name_is_not_borrowed_from_a_different_correspondents_signature():
     body = (
         "From: Avery Lane <avery@client.example>\n"

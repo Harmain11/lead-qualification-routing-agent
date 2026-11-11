@@ -827,6 +827,16 @@ def _store_gmail_thread_history(
             lead_email=lead.email,
             mailbox_email=str(getattr(provider, "mailbox_email", "") or ""),
         )
+        # Gmail notification/forwarding wrappers may contain the prospect
+        # address only in the embedded payload, not in the wrapper's headers.
+        # The provider has already selected this exact thread for the lead, so
+        # retain its messages when address matching yields no rows.
+        if not messages:
+            messages = gmail_history_messages(
+                thread_messages,
+                lead_email="",
+                mailbox_email=str(getattr(provider, "mailbox_email", "") or ""),
+            )
     elif callable(fetch_thread):
         messages = fetch_thread(thread_id, lead_email=lead.email)
     else:

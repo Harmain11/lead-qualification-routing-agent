@@ -74,6 +74,7 @@ def gmail_history_messages(
 ) -> list[dict[str, str]]:
     target = lead_email.strip().lower()
     mailbox = mailbox_email.strip().lower()
+    include_all = not target
     rows: list[dict[str, str]] = []
     for item in thread_messages:
         headers = item.get("headers", {})
@@ -92,7 +93,7 @@ def gmail_history_messages(
             for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")])
             if address
         ]
-        if sender != target and target not in to_recipients:
+        if not include_all and sender != target and target not in to_recipients:
             continue
         sent_at = ""
         try:

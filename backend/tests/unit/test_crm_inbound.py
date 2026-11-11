@@ -1037,6 +1037,28 @@ def test_gmail_history_is_scoped_to_exact_sender_or_to_email_not_cc():
     assert rows[1]["direction"] == "inbound"
 
 
+def test_gmail_history_can_include_selected_wrapper_thread_when_identity_is_embedded():
+    messages = [
+        {
+            "message_id": "wrapper",
+            "headers": {
+                "from": "Gmail Notifications <notifications@google.com>",
+                "to": "inbox@example.test",
+                "subject": "New lead received",
+            },
+            "internal_date": "1792404000000",
+            "body": "Lead email: prospect@example.test",
+        }
+    ]
+    rows = gmail_history_messages(
+        messages,
+        lead_email="",
+        mailbox_email="inbox@example.test",
+    )
+    assert [row["message_id"] for row in rows] == ["wrapper"]
+    assert rows[0]["direction"] == "inbound"
+
+
 def test_gmail_sync_backfills_thread_ids_for_existing_message_events():
     connection_id = uuid4()
     events = [

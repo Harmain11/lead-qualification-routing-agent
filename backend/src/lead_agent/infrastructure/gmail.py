@@ -814,6 +814,60 @@ def _contact_authored_text(
     return "\n\n".join(texts), found_author
 
 
+def _external_thread_context(
+    messages: list[dict[str, Any]],
+    participants: list[tuple[str, str]],
+) -> str:
+    """Return only authored text from known external thread participants."""
+    participant_emails = {email.strip().casefold() for _name, email in participants}
+    sections: list[str] = []
+    seen: set[str] = set()
+    cleaned_messages, _removed_quoted_lines = _deduplicate_repeated_quoted_lines(messages)
+
+    def add_section(label: str, headers: dict[str, Any], body: str) -> None:
+        # The message sender is already known to be external. Preserve its
+        # quoted history as prospect context; internal-authored messages are
+        # excluded at the message boundary above.
+        authored = body.strip()
+        if not authored or authored in seen:
+            return
+        seen.add(authored)
+        header_lines = [
+            f"{key.title()}: {str(headers[key]).strip()}"
+            for key in ("from", "to", "cc", "subject", "date", "reply-to")
+            if headers.get(key)
+        ]
+        sections.append(
+            f"--- External prospect message from {label} ---\n"
+            + "\n".join(header_lines)
+            + "\n\n"
+            + authored
+        )
+
+    for message in cleaned_messages:
+        headers = message.get("headers", {})
+        headers = headers if isinstance(headers, dict) else {}
+        name, sender = parseaddr(str(headers.get("from") or ""))
+        sender = sender.strip().casefold()
+        if sender in participant_emails:
+            add_section(name.strip() or sender, headers, str(message.get("body") or ""))
+        for block in _forwarded_header_blocks(str(message.get("body") or "")):
+            block_headers = block.get("headers", {})
+            if not isinstance(block_headers, dict):
+                continue
+            block_name, block_sender = parseaddr(str(block_headers.get("from") or ""))
+            if block_sender.strip().casefold() not in participant_emails:
+                continue
+            unquoted = "\n".join(
+                re.sub(r"^\s*>\s?", "", line)
+                for line in str(block.get("body") or "").splitlines()
+            )
+            add_section(
+                block_name.strip() or block_sender.strip(), block_headers, unquoted
+            )
+    return "\n\n".join(sections)
+
+
 def _contact_phone_from_authored_text(text: str) -> dict[str, str | None] | None:
     matches = extract_international_phone_numbers(text)
     if not matches:
@@ -1992,7 +2046,20 @@ class GmailInboundProvider:
                 .replace(".", " ")
                 .title()
             )
-        authored_body = thread_context
+        # For ordinary conversations, qualify from prospect-authored messages
+        # only. Internal replies remain available in the stored timeline, but
+        # must not become AI evidence for the prospect's intent or profile.
+        # Notification wrappers are different: their internal body contains the
+        # provider's explicit embedded lead payload, so retain the full wrapper
+        # for that specialized parser.
+        prospect_context = _external_thread_context(
+            participant_messages, eligible_participants
+        )
+        authored_body = (
+            thread_context
+            if notification_wrapper
+            else prospect_context or thread_context
+        )
         if self.lead_extractor is None and selected_identity is None:
             raise ValueError("external_thread_participant_ambiguous")
         extracted: GmailLeadExtraction | None = None
@@ -2032,8 +2099,19 @@ class GmailInboundProvider:
                     extraction_headers["validation-feedback"] = str(
                         values["gmail_validation_feedback"]
                     )[:2000]
+                extraction_headers["external-participant-emails"] = ",".join(
+                    email for _name, email in eligible_participants
+                )
+                extraction_headers["qualification-context"] = (
+                    "provider notification wrapper; identify only embedded external lead"
+                    if notification_wrapper
+                    else (
+                        "external-authored messages only; internal replies are context, "
+                        "not prospect evidence"
+                    )
+                )
                 candidate = self.lead_extractor(
-                    headers=extraction_headers, subject=subject, body=thread_context
+                    headers=extraction_headers, subject=subject, body=authored_body
                 )
                 if not candidate.is_genuine_inquiry:
                     record.values.update(
@@ -2083,6 +2161,13 @@ class GmailInboundProvider:
                         f"Unverified {field.replace('_', ' ')} was left unknown."
                         for field in dropped_fields
                     ]
+                candidate_email = (candidate.email or "").strip().lower()
+                if (
+                    candidate_email
+                    and candidate_email not in eligible_by_email
+                    and not candidate.candidates
+                ):
+                    raise ValueError("ai_email_not_a_thread_candidate")
                 if any(
                     not _evidence_is_from_source(
                         evidence_sources[item.source], item.excerpt
@@ -2119,7 +2204,6 @@ class GmailInboundProvider:
                         ):
                             raise ValueError(f"ai_evidence_missing_or_mismatched:{field_name}")
                 candidate_name = (candidate.full_name or "").strip()
-                candidate_email = (candidate.email or "").strip().lower()
                 if (
                     _is_notification_label(candidate_name)
                     or candidate_name.casefold() in internal_participant_names
