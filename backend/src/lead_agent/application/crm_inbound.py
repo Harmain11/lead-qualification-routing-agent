@@ -1704,7 +1704,11 @@ def run_inbound_sync(
                     else provider.normalize_record
                 )
                 normalization_cancelled = False
-                with ThreadPoolExecutor(max_workers=min(2, len(normalize_records) or 1)) as pool:
+                # Gmail enforces a per-user request quota.  Fetching several
+                # message bodies and their full threads concurrently can exhaust
+                # it even for a modest manual review batch.  Keep Gmail imports
+                # paced; successful records are still committed independently.
+                with ThreadPoolExecutor(max_workers=1) as pool:
                     futures = {
                         pool.submit(
                             copy_context().run, normalize, record
@@ -1963,6 +1967,17 @@ def run_inbound_sync(
                 )
             if page_provider_error is not None:
                 run.cursor_current = page_start
+                # A single throttled Gmail message must not invalidate already
+                # committed classifications from the same page.  Preserve the
+                # prior checkpoint so the next run retries the incomplete page,
+                # but finish this run as a partial success with a clear cause.
+                if connection.provider_type == "gmail" and page_provider_error.retryable:
+                    run.error_category = page_provider_error.category
+                    run.error_code = page_provider_error.code
+                    run.last_error = str(page_provider_error)[:2000]
+                    session.commit()
+                    cursor = page_start
+                    break
                 return _fail_run(session, state, run, page_provider_error, connection)
             final_checkpoint = page.checkpoint or final_checkpoint
             cursor = page.next_cursor or page.checkpoint

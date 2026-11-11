@@ -140,6 +140,19 @@ def synchronize_inbound_crm(
             status_code=400,
             detail="Previous-email review is only supported for Gmail messages.",
         )
+    if (
+        connection.provider_type == "gmail"
+        and request.object_type == "message"
+        and request.mode in {"review_recent", "review_previous"}
+        and request.limit > 50
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Gmail AI review is limited to 50 messages per batch to protect "
+                "the connected mailbox from Gmail rate limits."
+            ),
+        )
     if connection.provider_type == "gmail" and request.object_type == "message":
         state = get_inbound_sync_state(
             session, workspace.workspace_id, connection_id, request.object_type

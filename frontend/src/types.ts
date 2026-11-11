@@ -787,6 +787,8 @@ export type CrmInboundSyncRun = {
   status: string;
   mode: "initial" | "incremental" | "manual" | "review_recent" | "review_previous";
   created_at: string;
+  error_category: string | null;
+  error_code: string | null;
   last_error: string | null;
   records_fetched: number;
   records_created: number;

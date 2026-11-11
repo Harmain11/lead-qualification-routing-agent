@@ -612,7 +612,7 @@ def test_single_record_failure_does_not_abort_the_remaining_batch(tmp_path, icp,
         assert session.scalar(select(func.count()).select_from(LeadORM)) == 1
 
 
-def test_gmail_rate_limited_message_does_not_discard_other_valid_leads(tmp_path, icp, routing):
+def test_gmail_rate_limited_message_keeps_other_valid_leads_and_finishes_partial(tmp_path, icp, routing):
     class GmailBatchProvider(FakeInboundProvider):
         provider_name = "gmail"
 
@@ -639,7 +639,7 @@ def test_gmail_rate_limited_message_does_not_discard_other_valid_leads(tmp_path,
             session, connection, provider, icp, routing,
             object_type="message", mode="review_recent", page_size=2,
         )
-        assert run.status == "failed"
+        assert run.status == "completed_with_errors"
         assert run.error_code == "gmail_rate_limited"
         assert run.records_failed == 1
         assert run.records_created == 1
@@ -1857,6 +1857,38 @@ def test_gmail_manual_sync_runs_in_vercel_without_a_celery_worker(
         assert response.json()["status"] == "completed"
         assert response.json()["records_fetched"] == 0
         assert state.json()["status"] == "ready"
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+def test_gmail_ai_review_rejects_unsafe_batch_sizes(tmp_path) -> None:
+    session = _session(tmp_path)
+    connection = _connection(session, uuid4(), provider_type="gmail")
+    mailbox_owner = uuid4()
+    connection.owner_user_id = mailbox_owner
+    connection.connection_type = "personal"
+    session.commit()
+
+    def override_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_workspace_context] = lambda: WorkspaceContext(
+        workspace_id=connection.workspace_id,
+        actor_id="manager",
+        user_id=mailbox_owner,
+        role="sales_manager",
+        permissions=frozenset({"crm.sync", "integrations.manage", "mailbox.sync_own"}),
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/v1/integrations/connections/{connection.id}/inbound-sync",
+                json={"mode": "review_recent", "object_type": "message", "limit": 51},
+            )
+        assert response.status_code == 422
+        assert "limited to 50 messages" in response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
         session.close()

@@ -312,9 +312,13 @@ class GmailTransport:
                 raise error
             retry_after = response.headers.get("Retry-After", "")
             try:
-                delay = min(2.0, max(0.0, float(retry_after)))
+                # A Gmail 403 userRateLimitExceeded often includes a cooldown
+                # longer than the former two-second cap.  Honouring a bounded
+                # amount of that cooldown avoids immediately repeating the same
+                # request burst, while keeping a request within its runtime.
+                delay = min(15.0, max(0.5, float(retry_after)))
             except ValueError:
-                delay = 0.2 * (2**attempt)
+                delay = min(4.0, 0.5 * (2**attempt))
             time.sleep(delay)
         if response is None:
             raise ProviderOperationError(

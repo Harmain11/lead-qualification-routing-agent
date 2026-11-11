@@ -55,6 +55,10 @@ import type { CrmInboundSyncRun, CrmInboundSyncState, IntegrationCard, ProviderC
 function syncRunMessage(run: CrmInboundSyncRun) {
   const previous = run.mode === "review_previous";
   const review = run.mode === "review_recent" || previous;
+  if (run.error_code === "gmail_rate_limited") {
+    const delayed = run.records_failed === 1 ? "1 message" : `${run.records_failed} messages`;
+    return `Gmail temporarily limited ${delayed}. Leads already classified were saved; retry the incomplete messages after Gmail's cooldown.`;
+  }
   if (run.status === "completed") {
     return previous
       ? "Previous Gmail review finished; no more older messages remain."
@@ -958,7 +962,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       },
     }));
     try {
-      let result = await runInboundSync(connectionId, mode, provider, Number(reviewLimits[connectionId] ?? "100"));
+      let result = await runInboundSync(connectionId, mode, provider, Number(reviewLimits[connectionId] ?? "20"));
       if ("queued_at" in result) {
         const accepted = result;
         setSyncFeedback((current) => ({
@@ -1660,14 +1664,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             {syncState?.enabled && card.provider !== "gmail" && canSyncThisConnection && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
             {syncState && card.provider === "gmail" && canSyncThisConnection && <div className="gmail-sync-controls">
                 <label htmlFor={`review-limit-${connection.id}`}>Messages to scan
-                  <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
+                  <input id={`review-limit-${connection.id}`} type="number" min="1" max="50" step="1" value={reviewLimits[connection.id] ?? "20"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
                 </label>
-                <p>Recent email scans the last 30 days; previous email scans older messages. Both use AI and the usual lead review rules. Choose up to 5,000 messages per batch; run again to continue further back.</p>
+                <p>Recent email scans the last 30 days; previous email scans older messages. Both use AI and the usual lead review rules. Corral starts at 20 messages and caps each Gmail batch at 50 to avoid Gmail rate limits; run again to continue further back.</p>
                 <div className="gmail-sync-buttons">
-                  <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={!syncState.enabled || busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
+                  <button className="primary-button gmail-sync-button" onClick={() => void syncInbound(connection.id, card.provider, "review_recent")} disabled={!syncState.enabled || busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "20")) || Number(reviewLimits[connection.id] ?? "20") < 1 || Number(reviewLimits[connection.id] ?? "20") > 50}>
                     Sync recent emails
                   </button>
-                  <button className="button-quiet gmail-sync-button" title="Scans Gmail messages older than 30 days" onClick={() => void syncInbound(connection.id, card.provider, "review_previous")} disabled={!syncState.enabled || busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "100")) || Number(reviewLimits[connection.id] ?? "100") < 1 || Number(reviewLimits[connection.id] ?? "100") > 5000}>
+                  <button className="button-quiet gmail-sync-button" title="Scans Gmail messages older than 30 days" onClick={() => void syncInbound(connection.id, card.provider, "review_previous")} disabled={!syncState.enabled || busy === card.provider || !Number.isInteger(Number(reviewLimits[connection.id] ?? "20")) || Number(reviewLimits[connection.id] ?? "20") < 1 || Number(reviewLimits[connection.id] ?? "20") > 50}>
                     Sync previous emails
                   </button>
                   {syncingProvider === card.provider && syncFeedback[connection.id]?.kind === "progress" && <button className="button-quiet gmail-sync-cancel-button" type="button" onClick={() => void cancelGmailSync(connection.id)} disabled={syncCancelRequests[connection.id]} aria-label="Cancel Gmail AI sync">
