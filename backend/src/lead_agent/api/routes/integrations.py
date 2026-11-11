@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlencode
@@ -66,6 +67,7 @@ from lead_agent.domain.integrations import (
 )
 from lead_agent.domain.oauth_errors import OAuthProviderError
 from lead_agent.domain.provider_errors import ProviderOperationError
+from lead_agent.domain.rbac import normalize_role
 from lead_agent.domain.routing import NotificationMessage
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.communications import DIALERS, CommunicationsClient
@@ -569,6 +571,19 @@ def _enqueue_reasoning_backfill(
             "message": "There are no existing leads that need this provider configuration.",
         }
     try:
+        if settings.app_env == "production" and os.environ.get("VERCEL") == "1":
+            # Vercel Functions do not host a persistent Celery consumer. Keep
+            # the durable audit job queued; the authenticated Vercel schedule
+            # claims and runs it directly in a later bounded invocation.
+            return {
+                "status": "queued",
+                "job_id": job_id,
+                "queued_count": queued_count,
+                "message": (
+                    "AI re-analysis is queued and will run in the next "
+                    "scheduled processing window."
+                ),
+            }
         if use_preview_worker:
             from lead_agent.worker.preview_sync import enqueue_reserved_reasoning_backfill
 
@@ -644,7 +659,7 @@ def list_integrations(
     ensure_workspace(session, workspace.workspace_id)
     session.commit()
     connections = list_provider_connections(session, workspace.workspace_id)
-    dialer_only = (
+    dialer_only = normalize_role(workspace.role) not in {"owner", "admin"} and (
         "integrations.view" not in workspace.permissions
         and "mailbox.view_own" not in workspace.permissions
         and "agents.view" not in workspace.permissions

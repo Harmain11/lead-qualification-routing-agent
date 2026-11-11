@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import select
+
 from lead_agent.application.crm_inbound import (
     claim_due_inbound_sync_states,
     finish_queued_inbound_sync_cancellation,
@@ -19,7 +21,11 @@ from lead_agent.application.crm_inbound import (
     run_inbound_sync,
 )
 from lead_agent.infrastructure.crm.inbound_factory import get_workspace_inbound_crm_resolver
-from lead_agent.infrastructure.db.models import CrmInboundSyncStateORM, ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    CrmInboundSyncStateORM,
+    ProviderConnectionORM,
+    ProviderLifecycleAuditORM,
+)
 from lead_agent.infrastructure.db.session import get_session_factory
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.settings.config import get_settings
@@ -30,6 +36,14 @@ _SYSTEM_ACTOR = "system:crm-inbound-scheduler"
 
 @dataclass(frozen=True)
 class ScheduledSyncSummary:
+    claimed: int
+    completed: int
+    skipped: int
+    failed: int
+
+
+@dataclass(frozen=True)
+class ScheduledReasoningSummary:
     claimed: int
     completed: int
     skipped: int
@@ -168,4 +182,83 @@ def run_due_inbound_syncs(*, limit: int = 10) -> ScheduledSyncSummary:
             skipped += 1
     return ScheduledSyncSummary(
         claimed=len(state_ids), completed=completed, skipped=skipped, failed=failed
+    )
+
+
+def run_queued_reasoning_backfills(*, limit: int = 1) -> ScheduledReasoningSummary:
+    """Run queued AI backfills when no persistent Celery worker is available.
+
+    The durable lifecycle event is the queue. Only the latest event for a job
+    can be claimed, so each Vercel schedule executes a backfill once.
+    """
+
+    with get_session_factory()() as session:
+        queued_events = session.scalars(
+            select(ProviderLifecycleAuditORM)
+            .where(
+                ProviderLifecycleAuditORM.action == "reasoning_backfill",
+                ProviderLifecycleAuditORM.outcome == "queued",
+            )
+            .order_by(ProviderLifecycleAuditORM.created_at.asc())
+            .limit(limit * 4)
+        ).all()
+        jobs: list[tuple[str, str, str, str]] = []
+        for event in queued_events:
+            if (
+                event.connection_id is None
+                or not event.correlation_id
+                or not isinstance(event.details, dict)
+            ):
+                continue
+            config_key = event.details.get("config_key")
+            if not isinstance(config_key, str) or not config_key:
+                continue
+            latest_outcome = session.scalar(
+                select(ProviderLifecycleAuditORM.outcome)
+                .where(
+                    ProviderLifecycleAuditORM.workspace_id == event.workspace_id,
+                    ProviderLifecycleAuditORM.connection_id == event.connection_id,
+                    ProviderLifecycleAuditORM.action == "reasoning_backfill",
+                    ProviderLifecycleAuditORM.correlation_id == event.correlation_id,
+                )
+                .order_by(ProviderLifecycleAuditORM.created_at.desc())
+                .limit(1)
+            )
+            if latest_outcome != "queued":
+                continue
+            jobs.append(
+                (
+                    str(event.workspace_id),
+                    str(event.connection_id),
+                    event.correlation_id,
+                    config_key,
+                )
+            )
+            if len(jobs) >= limit:
+                break
+
+    completed = skipped = failed = 0
+    for workspace_id, connection_id, job_id, config_key in jobs:
+        try:
+            # Imported lazily to avoid the worker -> scheduler module cycle.
+            from lead_agent.worker.celery_app import reanalyze_workspace_leads
+
+            result = reanalyze_workspace_leads.run(
+                workspace_id, connection_id, job_id, config_key
+            )
+        except Exception:
+            failed += 1
+            _LOGGER.exception(
+                "scheduled_reasoning_backfill_failed",
+                extra={"fields": {"workspace_id": workspace_id, "job_id": job_id}},
+            )
+            continue
+        if result.startswith("completed"):
+            completed += 1
+        elif result.startswith("failed"):
+            failed += 1
+        else:
+            skipped += 1
+    return ScheduledReasoningSummary(
+        claimed=len(jobs), completed=completed, skipped=skipped, failed=failed
     )

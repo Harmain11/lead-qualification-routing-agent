@@ -5,7 +5,10 @@ from fastapi.testclient import TestClient
 from lead_agent.api.dependencies import get_runtime_settings
 from lead_agent.api.main import app
 from lead_agent.api.routes import scheduler
-from lead_agent.application.scheduled_sync import ScheduledSyncSummary
+from lead_agent.application.scheduled_sync import (
+    ScheduledReasoningSummary,
+    ScheduledSyncSummary,
+)
 from lead_agent.settings.config import Settings
 
 
@@ -31,7 +34,12 @@ def test_scheduled_sync_runs_bounded_due_work_with_a_valid_cron_secret(
         received_limits.append(limit)
         return ScheduledSyncSummary(claimed=3, completed=2, skipped=1, failed=0)
 
+    def run_reasoning_work(*, limit: int) -> ScheduledReasoningSummary:
+        assert limit == 1
+        return ScheduledReasoningSummary(claimed=1, completed=1, skipped=0, failed=0)
+
     monkeypatch.setattr(scheduler, "run_due_inbound_syncs", run_due_work)
+    monkeypatch.setattr(scheduler, "run_queued_reasoning_backfills", run_reasoning_work)
     try:
         with TestClient(app) as client:
             response = client.get(
@@ -39,7 +47,16 @@ def test_scheduled_sync_runs_bounded_due_work_with_a_valid_cron_secret(
                 headers={"Authorization": "Bearer unit-secret"},
             )
         assert response.status_code == 200, response.text
-        assert response.json() == {"claimed": 3, "completed": 2, "skipped": 1, "failed": 0}
+        assert response.json() == {
+            "claimed": 3,
+            "completed": 2,
+            "skipped": 1,
+            "failed": 0,
+            "reasoning_claimed": 1,
+            "reasoning_completed": 1,
+            "reasoning_skipped": 0,
+            "reasoning_failed": 0,
+        }
         assert received_limits == [7]
     finally:
         app.dependency_overrides.clear()

@@ -553,9 +553,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     || can(permissions, "mailbox.connect_own");
   const canDisconnect = can(permissions, "integrations.disconnect")
     || can(permissions, "mailbox.disconnect_own");
-  const canSync = can(permissions, "crm.sync");
   const canCallDialer = can(permissions, "dialer.call");
-  const canInboundSync = canSync || can(permissions, "mailbox.sync_own");
   useEffect(() => {
     if (isReasoningProvider(selectedSection)) {
       setSelectedAIProvider(selectedSection);
@@ -1384,6 +1382,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       const providerCredentials = credentials[card.provider] ?? {};
        const open = expandedProviders.has(card.provider);
       const syncState = connection ? syncStates[connection.id] : null;
+      const canSyncThisConnection = Boolean(connection?.allowed_actions?.includes("sync"));
       const crmDirection = card.category === "CRM";
       const gmailDirection = card.provider === "gmail";
       const outlookDirection = card.provider === "outlook";
@@ -1656,10 +1655,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
           <p>{syncState?.last_successful_sync_at ? `Last synced ${new Date(syncState.last_successful_sync_at).toLocaleString()} · ${syncState.records_processed.toLocaleString()} records processed.` : "No provider records have been imported yet."}</p>
           {mailDirection && <p>{syncState?.next_sync_at ? `Next sync ${new Date(syncState.next_sync_at).toLocaleString()}.` : `Status: ${syncState?.status ?? "not configured"}.`}{syncState?.status && ` Latest result: ${syncState.status.replaceAll("_", " ")}.`}</p>}
           {syncState?.last_error && <small>{syncState.error_code || "Sync failed"}: {syncState.last_error}</small>}
-           {(canInboundSync || canManage) && <div className={`card-actions${card.provider === "gmail" ? " gmail-sync-actions" : ""}`}>
-            {canManage && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${mailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (mailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (mailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
-            {syncState?.enabled && card.provider !== "gmail" && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
-            {syncState && card.provider === "gmail" && <div className="gmail-sync-controls">
+           {(canSyncThisConnection || canManage) && <div className={`card-actions${card.provider === "gmail" ? " gmail-sync-actions" : ""}`}>
+            {canManage && canSyncThisConnection && <button onClick={() => void act(card.provider, () => configureInboundSync(connection.id, !syncState?.enabled, card.provider), `${mailDirection ? "Automatic inbound" : "Inbound sync"} ${syncState?.enabled ? "disabled" : "enabled"}.`)} disabled={busy === card.provider}>{syncState?.enabled ? (mailDirection ? "Disable automatic inbound" : "Disable inbound sync") : (mailDirection ? "Enable automatic inbound" : "Enable inbound sync")}</button>}
+            {syncState?.enabled && card.provider !== "gmail" && canSyncThisConnection && <button className="button-quiet" onClick={() => void syncInbound(connection.id, card.provider, syncState.initial_import_completed ? "manual" : "initial")} disabled={busy === card.provider}>{syncingProvider === card.provider ? "Syncing…" : "Sync now"}</button>}
+            {syncState && card.provider === "gmail" && canSyncThisConnection && <div className="gmail-sync-controls">
                 <label htmlFor={`review-limit-${connection.id}`}>Messages to scan
                   <input id={`review-limit-${connection.id}`} type="number" min="1" max="5000" step="1" value={reviewLimits[connection.id] ?? "100"} disabled={busy === card.provider} onChange={(event) => setReviewLimits((current) => ({ ...current, [connection.id]: event.target.value }))} />
                 </label>
@@ -1676,6 +1675,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
                   </button>}
                 </div>
             </div>}
+            {!canSyncThisConnection && <p className="integration-permission-note" role="note">An owner or admin must grant this connection’s sync permission before it can be synchronized.</p>}
             {syncFeedback[connection.id] && (syncFeedback[connection.id].kind === "progress"
               ? <div className="gmail-sync-progress" role="status" aria-live="polite"><span className="gmail-sync-spinner" aria-hidden="true" /><span>{syncFeedback[connection.id].message}</span></div>
               : syncResults[connection.id]

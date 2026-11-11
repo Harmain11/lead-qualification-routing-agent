@@ -473,6 +473,8 @@ def test_verified_reasoning_connection_automatically_enqueues_backfill(
 def test_reasoning_backfill_deduplicates_an_active_configuration(
     tmp_path, icp, routing, monkeypatch
 ) -> None:
+    from types import SimpleNamespace
+
     class FakeRedis:
         values: dict[str, str] = {}
 
@@ -505,12 +507,17 @@ def test_reasoning_backfill_deduplicates_an_active_configuration(
     from lead_agent.worker.celery_app import reanalyze_workspace_leads
 
     monkeypatch.setattr(reanalyze_workspace_leads, "delay", lambda *args: queued.append(args))
+    production_settings = SimpleNamespace(
+        app_env="production",
+        redis_required=True,
+        redis_url="redis://unused",
+    )
     workspace_id = uuid4()
     with _session(tmp_path) as session:
         connection = _connection(session, workspace_id, "openai")
         process_lead(session, _payload(), icp, routing, workspace_id=workspace_id)
-        first = _enqueue_reasoning_backfill(session, connection, get_settings())
-        second = _enqueue_reasoning_backfill(session, connection, get_settings())
+        first = _enqueue_reasoning_backfill(session, connection, production_settings)
+        second = _enqueue_reasoning_backfill(session, connection, production_settings)
         assert first["status"] == "queued"
         assert second["status"] == "already_queued"
         assert first["job_id"] == second["job_id"]
