@@ -1,0 +1,81 @@
+# Safe example only. Replace with the approved demo ICP during discovery.
+schema_version: 1
+profile_name: "Example ICP"
+profile_version: "2026-09-21.example.1"
+target_industries:
+  - "technology"
+  - "saas"
+  - "professional services"
+target_geographies:
+  - "United States"
+  - "United Kingdom"
+  - "United Arab Emirates"
+  - "Singapore"
+  - "Australia"
+company_size:
+  employees_min: 10
+  employees_max: 500
+  revenue_currency: "USD"
+  annual_revenue_min: 0
+  annual_revenue_max: 0
+buyer_roles:
+  decision_makers:
+    - "founder"
+    - "chief executive officer"
+    - "vp"
+    - "director"
+  influencers:
+    - "head of marketing"
+    - "operations manager"
+    - "product manager"
+budget:
+  currency: "USD"
+  minimum: 10000
+  typical: 25000
+pain_points:
+  - "slow response"
+  - "missed leads"
+  - "manual qualification"
+  - "fragmented channels"
+disqualifiers:
+  - code: "student_or_hobbyist"
+    description: "Student, school project, or hobby inquiry is not a sales opportunity."
+    severity: "hard"
+    keywords: ["student", "school project", "homework", "hobby project"]
+  - code: "direct_competitor"
+    description: "Direct competitors are excluded from the sales qualification flow."
+    severity: "hard"
+    keywords: ["direct competitor", "competing agency", "we offer the same service"]
+  - code: "spam"
+    description: "Obvious spam or prohibited solicitation is excluded."
+    severity: "hard"
+    keywords: ["casino", "viagra", "crypto giveaway", "buy backlinks"]
+scoring:
+  weights:
+    icp_fit: 40
+    intent_urgency: 35
+    engagement_quality: 25
+  component_points:
+    icp_fit:
+      industry_match: 12
+      company_size_fit: 10
+      geography_match: 8
+      buyer_role_match: 5
+      budget_fit: 5
+    intent_urgency:
+      urgency: 15
+      buying_stage: 10
+      budget_signal: 5
+      specific_request: 5
+    engagement_quality:
+      message_detail: 10
+      contact_completeness: 5
+      pain_clarity: 5
+      channel_context: 5
+  message_detail_chars: 240
+  signals:
+    urgent: ["asap", "urgent", "this week", "within a week", "immediately", "deadline"]
+    ready_to_buy: ["ready to", "proposal", "quote", "pricing", "book a call", "implement"]
+    budget: ["budget", "per month", "$", "usd", "investment"]
+    specific_request: ["integration", "workflow", "audit", "demo", "scope", "timeline"]
+    pain_point: ["problem", "need", "struggle", "manual", "missed", "slow"]
