@@ -3,7 +3,6 @@
 import re
 from email.utils import parseaddr
 
-
 _COMPANY = re.compile(
     r"\b(?:my|our) company(?:'s)?(?:\s+name)?\s+(?:is called|is named|is)\s+"
     r"([^\n.!?;:,]{2,100})"
@@ -21,6 +20,11 @@ _INDUSTRY_PATTERNS = (
     re.compile(
         r"\b(?:we|I) (?:work|operate) in (?:the\s+)?"
         r"([^\n.!?;:,]{2,100}?)\s+industry\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:we|I) (?:work|operate) in (?:the\s+)?"
+        r"([^\n.!?;:,]{2,100})",
         re.IGNORECASE,
     ),
     re.compile(r"\bworking in\s+([^\n.!?;:,]{2,100})", re.IGNORECASE),
@@ -53,12 +57,22 @@ def extract_stated_gmail_profile(
             continue
         body = str(message.get("body") or "")[:12_000]
         # Quoted replies, forwarded content, and signatures can describe others.
-        body = re.split(r"(?im)^\s*(?:on .+wrote:|forwarded message|from:|>+)", body, maxsplit=1)[0]
+        body = re.split(
+            r"(?im)^\s*(?:on .+wrote:|forwarded message|from:|>+)",
+            body,
+            maxsplit=1,
+        )[0]
         if company is None:
             match = _COMPANY.search(body)
             if match:
-                candidate = next((group for group in match.groups() if group), "").strip().strip('"\'')
-                candidate = re.split(r"\s+(?:as|and|where|which|that)\b", candidate, maxsplit=1, flags=re.I)[0].strip()
+                candidate = next((group for group in match.groups() if group), "")
+                candidate = candidate.strip().strip('"\'')
+                candidate = re.split(
+                    r"\s+(?:as|and|where|which|that)\b",
+                    candidate,
+                    maxsplit=1,
+                    flags=re.I,
+                )[0].strip()
                 if candidate.lower() not in _PLACEHOLDERS:
                     company = candidate
         if industry is None:

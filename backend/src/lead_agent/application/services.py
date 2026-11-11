@@ -27,6 +27,7 @@ from lead_agent.domain.analysis import (
     ReasoningProviderError,
     ReasoningProviderTimeout,
     ReasoningProviderUnavailable,
+    load_persisted_analysis,
     manual_review_reasons,
 )
 from lead_agent.domain.configuration import IcpConfig, ManualReviewConfig, RoutingConfig
@@ -593,8 +594,24 @@ def _analyze_and_qualify(
         analysis = analysis.model_copy(
             update={"analysis_request_fingerprint": fingerprint}
         )
+    scoring_analysis = analysis
+    # A transient AI/provider failure must not erase a previously verified AI
+    # intent score.  Keep the error status on ``analysis`` so the worker can
+    # retry, but qualify with the last successful structured output when one is
+    # available.  Otherwise a rate limit or timeout would make the same lead
+    # jump down to a deterministic zero-intent score until the next retry.
+    if analysis.status == "provider_error" and session is not None:
+        existing = session.get(LeadORM, lead.id)
+        stored = getattr(getattr(existing, "analysis", None), "structured_output", None)
+        if isinstance(stored, dict):
+            try:
+                previous = load_persisted_analysis(stored)
+            except Exception:
+                previous = None
+            if previous is not None and previous.status in {"completed", "manual_review"}:
+                scoring_analysis = previous
     result = qualify_lead(
-        analysis_lead, icp, routing, analysis, include_icp=icp_enabled
+        analysis_lead, icp, routing, scoring_analysis, include_icp=icp_enabled
     )
     summary = analysis.summary.model_copy(
         update={

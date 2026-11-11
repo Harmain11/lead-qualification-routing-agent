@@ -2293,7 +2293,10 @@ class GmailInboundProvider:
                 else extracted.phone if extracted else None
             ),
             "company_name": (
-                (extracted.company_name if extracted else None) or explicit_company or company or "Unknown company"
+                explicit_company
+                or (extracted.company_name if extracted else None)
+                or company
+                or "Unknown company"
             ),
             "industry": (
                 (extracted.industry if extracted else None) or explicit_industry
