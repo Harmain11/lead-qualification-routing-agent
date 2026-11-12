@@ -42,6 +42,7 @@ import type {
   TimeSeriesAnalytics,
   AuthSession,
   AccessPolicy,
+  PermissionRegistry,
   PermissionOverrides,
   WorkspaceAuditEvent,
   WorkspaceInvitation,
@@ -1473,6 +1474,10 @@ export const markAssignmentNotificationRead = (id: string) =>
 
 export function listMembers(signal?: AbortSignal): Promise<WorkspaceMember[]> {
   return jsonRequest<WorkspaceMember[]>("/v1/members", { signal });
+}
+
+export function getPermissionRegistry(signal?: AbortSignal): Promise<PermissionRegistry> {
+  return jsonRequest<PermissionRegistry>("/v1/permission-registry", { signal });
 }
 
 export function listInvitations(signal?: AbortSignal): Promise<WorkspaceInvitation[]> {

@@ -395,7 +395,7 @@ export function LeadRecord({
             triggerClassName="v-fact v-fact-btn"
             trigger={
               <>
-                <span className="v-fact-label">Owner</span>
+                <span className="v-fact-label">Sub-assign lead</span>
                 <span className="v-fact-value"><span className="b-avatar" aria-hidden="true">{owner.slice(0, 1)}</span>{assigning ? "Saving…" : owner}<Icon name="chevronDown" size={12} /></span>
               </>
             }

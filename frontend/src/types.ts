@@ -619,6 +619,30 @@ export type PermissionOverrides = {
   denies: string[];
 };
 
+export type PermissionRegistryItem = {
+  id: string;
+  label: string;
+};
+
+export type PermissionRegistryCategory = {
+  id: string;
+  label: string;
+  description: string;
+  sensitive: boolean;
+  feature_permissions: PermissionRegistryItem[];
+  providers: PermissionRegistryItem[];
+  provider_actions: PermissionRegistryItem[];
+};
+
+export type PermissionRegistry = {
+  categories: PermissionRegistryCategory[];
+  roles: Array<{
+    id: string;
+    label: string;
+    default_permissions: string[];
+  }>;
+};
+
 export type AccessPolicy = {
   scopes: Record<string, "none" | "own" | "team" | "all" | "custom">;
 };

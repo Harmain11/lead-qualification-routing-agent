@@ -35,7 +35,7 @@ import {
   SITE_ACCESS_REQUIRED_EVENT,
 } from "./api";
 import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
-import { can } from "./permissions";
+import { can, canSubAssignLeads } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { SiteAccessGate } from "./components/SiteAccessGate";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
@@ -508,6 +508,7 @@ function App() {
     () => new Set(activeWorkspace?.effective_permissions ?? []),
     [activeWorkspace],
   );
+  const canManageLeadAssignments = canSubAssignLeads(activeWorkspace?.role, workspacePermissions);
   const {
     notifications: assignmentNotifications,
     markRead: markAssignmentRead,
@@ -1553,7 +1554,7 @@ function App() {
                       onInspect={handleInspectLead}
                       onClose={closeLead}
                       canEdit={can(workspacePermissions, "leads.edit")}
-                      canManageRouting={can(workspacePermissions, "leads.reassign")}
+                      canManageRouting={canManageLeadAssignments}
                       canViewComments={can(workspacePermissions, "comments.view")}
                       canAddComments={can(workspacePermissions, "comments.add")}
                       canManageManualReview={can(workspacePermissions, "manual_review.manage")}

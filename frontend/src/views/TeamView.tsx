@@ -6,6 +6,7 @@ import { useCallback,useEffect,useMemo,useState } from "react";
 import {
 ApiError,
 deleteConnectionGrant,
+getPermissionRegistry,
 inviteMember,
 listConnectionGrants,
 listIntegrations,
@@ -23,12 +24,22 @@ updateMemberRole,
 updateMemberSlackLink,
 updateConnectionGrant,
 } from "../api";
-import { can,defaultPermissionsForRole,PERMISSION_GROUPS,ROLE_LABELS,ROLE_OPTIONS,roleLabel,statusLabel } from "../permissions";
+import {
+applyProviderDecision,
+categoryAccessSummary,
+permissionDisplayState,
+permissionIsGranted,
+providerActionSummary,
+setPermissionDecision,
+} from "../permissionEditorModel";
+import { can,ROLE_LABELS,ROLE_OPTIONS,roleLabel,statusLabel } from "../permissions";
 import type {
 AuthSession,
 AccessPolicy,
 IntegrationCard,
 PermissionOverrides,
+PermissionRegistry,
+PermissionRegistryCategory,
 ProviderConnection,
 WorkspaceAuditEvent,
 WorkspaceInvitation,
@@ -43,10 +54,15 @@ type TeamViewProps = {
 };
 
 type PermissionEditorProps = {
+  registry: PermissionRegistry;
   overrides: PermissionOverrides;
-  effective?: ReadonlySet<string>;
+  inherited: ReadonlySet<string>;
   readOnly?: boolean;
   onChange?: (overrides: PermissionOverrides) => void;
+  dirty?: boolean;
+  saving?: boolean;
+  onSave?: () => void;
+  onDiscard?: () => void;
 };
 
 type Confirmation = {
@@ -208,143 +224,232 @@ function formatDate(value: string | null | undefined) {
   return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-function overrideState(
-  permission: string,
-  overrides: PermissionOverrides,
-  effective?: ReadonlySet<string>,
-): "grant" | "deny" | "inherited" | "none" {
-  if (overrides.denies.includes(permission)) return "deny";
-  if (overrides.grants.includes(permission)) return "grant";
-  return effective?.has(permission) ? "inherited" : "none";
-}
+const stateLabel = (state: ReturnType<typeof permissionDisplayState> | "mixed" | "unselected") => ({
+  inherited: "Inherited · granted",
+  granted: "Granted",
+  denied: "Denied",
+  "exception-grant": "Exception · granted",
+  "exception-deny": "Exception · denied",
+  mixed: "Mixed across selection",
+  unselected: "Select providers to edit",
+}[state]);
 
-function cycleOverride(
-  permission: string,
-  overrides: PermissionOverrides,
-  effective?: ReadonlySet<string>,
-): PermissionOverrides {
-  const current = overrideState(permission, overrides, effective);
-  const next = current === "inherited" ? "deny" : current === "none" ? "grant" : current === "grant" ? "deny" : "none";
-  return {
-    grants: next === "grant"
-      ? [...overrides.grants.filter((item) => item !== permission), permission].sort()
-      : overrides.grants.filter((item) => item !== permission),
-    denies: next === "deny"
-      ? [...overrides.denies.filter((item) => item !== permission), permission].sort()
-      : overrides.denies.filter((item) => item !== permission),
-  };
-}
-
-const INTEGRATION_CATEGORY_PROVIDERS: Array<[string, string[]]> = [
-  ["CRM integrations", ["Salesforce", "Hubspot", "Gohighlevel"]],
-  ["Email & calendar", ["Gmail", "Outlook", "Google Calendar", "Calendly"]],
-  ["Dialer & calling", ["Cloudtalk", "Twilio", "Aircall", "Ringcentral", "Vapi", "Retell"]],
-  ["AI providers", ["Openai", "Gemini", "Claude", "Deepseek", "Xai"]],
-  ["Social & sources", ["Slack", "Linkedin", "Instagram", "Messenger", "Whatsapp Business", "Clutch"]],
-];
-
-const CORE_PERMISSION_CATEGORIES: Array<[string, string[]]> = [
-  ["Leads", ["Leads"]],
-  ["Collaboration", ["Collaboration"]],
-  ["Analytics", ["Analytics"]],
-  ["Review & routing", ["Manual review", "Routing"]],
-  ["Integration settings", ["Integrations"]],
-  ["ICP", ["ICP"]],
-  ["Team & workspace", ["Team", "Workspace"]],
-  ["AI & automation", ["AI / Agents"]],
-  ["Dialer & calling", ["Dialer", "Calls & recordings"]],
-  ["Mailbox", ["Mailbox"]],
-  ["Sensitive fields", ["Sensitive fields"]],
-];
-
-const permissionGroupsByLabel = new Map(PERMISSION_GROUPS.map((group) => [group.label, group]));
-const corePermissionGroups = CORE_PERMISSION_CATEGORIES.map(([label, sourceLabels]) => ({
+function PermissionDecisionControl({
+  permission,
   label,
-  permissions: sourceLabels.flatMap((sourceLabel) => {
-    const group = permissionGroupsByLabel.get(sourceLabel);
-    return group?.permissions.map((permission) => sourceLabels.length > 1
-      ? { ...permission, label: `${sourceLabel} · ${permission.label}` }
-      : permission) ?? [];
-  }),
-}));
-
-const DISPLAY_PERMISSION_GROUPS = [
-  ...corePermissionGroups,
-  ...INTEGRATION_CATEGORY_PROVIDERS.map(([label, providers]) => ({
-    label,
-    permissions: PERMISSION_GROUPS
-      .filter((group) => providers.includes(group.label.replace("Integration · ", "")))
-      .flatMap((group) => group.permissions.map((permission) => ({
-        ...permission,
-        label: `${group.label.replace("Integration · ", "")} · ${permission.label}`,
-      }))),
-  })),
-];
-
-function PermissionEditor({ overrides, effective, readOnly, onChange }: PermissionEditorProps) {
-  const [query, setQuery] = useState("");
-  // Keep the editor scannable: open the highest-signal group only, while
-  // search still reveals matching permissions across every group.
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(["Leads"]));
-  const normalizedQuery = query.trim().toLowerCase();
-  const visibleGroups = DISPLAY_PERMISSION_GROUPS.map((group) => ({
-    ...group,
-    permissions: group.permissions.filter((permission) => !normalizedQuery || `${group.label} ${permission.label}`.toLowerCase().includes(normalizedQuery)),
-  })).filter((group) => group.permissions.length > 0);
-  const toggleGroup = (label: string) => setOpenGroups((current) => {
-    const next = new Set(current);
-    if (next.has(label)) next.delete(label); else next.add(label);
-    return next;
-  });
-  return (
-    <div className="permission-editor">
-      <div className="permission-toolbar">
-        <label className="permission-search">
-          <span className="sr-only">Search permissions</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search permissions or groups" />
-        </label>
-        <span className="permission-count">{visibleGroups.reduce((count, group) => count + group.permissions.length, 0)} shown</span>
-      </div>
-      <p className="permission-edit-hint">Click an inherited permission to deny it, or a missing one to grant it. Integration access is grouped by work area, with each provider still controlled separately.</p>
-      <div className="permission-groups">
-        {visibleGroups.map((group) => {
-          const open = Boolean(normalizedQuery) || openGroups.has(group.label);
-          const activeCount = group.permissions.filter((permission) => {
-            const state = overrideState(permission.id, overrides, effective);
-            return state === "grant" || state === "inherited";
-          }).length;
-          return (
-          <section className="permission-group" key={group.label}>
-            <button type="button" className="permission-group-heading" aria-expanded={open} onClick={() => toggleGroup(group.label)}>
-              <span><b>{group.label}</b><small>{activeCount} of {group.permissions.length} active</small></span>
-              <i aria-hidden="true">{open ? "−" : "+"}</i>
-            </button>
-            {open && <div>
-              {group.permissions.map((permission) => {
-                const state = overrideState(permission.id, overrides, effective);
-                return (
-                  <button
-                    type="button"
-                    key={permission.id}
-                    className={`permission-toggle ${state}`}
-                    disabled={readOnly}
-                    aria-label={`${permission.label}: ${state}`}
-                    aria-pressed={state === "grant" || state === "inherited"}
-                    onClick={() => onChange?.(cycleOverride(permission.id, overrides, effective))}
-                  >
-                    <i aria-hidden="true">{state === "deny" ? "–" : state === "none" ? "·" : "✓"}</i>
-                    <span><b>{permission.label}</b><small>{state === "inherited" ? "From role" : state === "grant" ? "Custom grant" : state === "deny" ? "Explicit deny" : "Not granted"}</small></span>
-                  </button>
-                );
-              })}
-            </div>}
-          </section>
-          );
-        })}
-        {!visibleGroups.length && <p className="permission-empty">No permissions match “{query}”.</p>}
-      </div>
+  overrides,
+  inherited,
+  readOnly,
+  onChange,
+}: {
+  permission: string;
+  label: string;
+  overrides: PermissionOverrides;
+  inherited: ReadonlySet<string>;
+  readOnly?: boolean;
+  onChange?: (overrides: PermissionOverrides) => void;
+}) {
+  const state = permissionDisplayState(permission, overrides, inherited);
+  return <div className="permission-rule">
+    <div className="permission-rule-copy">
+      <b>{label}</b>
+      <span className={`permission-state ${state}`}>{stateLabel(state)}</span>
     </div>
-  );
+    {!readOnly && <div className="permission-decision" role="group" aria-label={`${label} permission`}>
+      {(["inherit", "grant", "deny"] as const).map((decision) => {
+        const selected = decision === "inherit"
+          ? !overrides.grants.includes(permission) && !overrides.denies.includes(permission)
+          : decision === "grant"
+            ? overrides.grants.includes(permission)
+            : overrides.denies.includes(permission);
+        return <button
+          type="button"
+          key={decision}
+          className={selected ? "active" : ""}
+          aria-pressed={selected}
+          onClick={() => onChange?.(setPermissionDecision(overrides, permission, decision))}
+        >{decision === "inherit" ? "Use role" : decision === "grant" ? "Grant" : "Deny"}</button>;
+      })}
+    </div>}
+  </div>;
+}
+
+function categorySummaryLabel(
+  category: PermissionRegistryCategory,
+  overrides: PermissionOverrides,
+  inherited: ReadonlySet<string>,
+) {
+  const summary = categoryAccessSummary(category, overrides, inherited);
+  const parts: string[] = [];
+  if (summary.totalPermissions) parts.push(`${summary.activePermissions} permissions`);
+  if (summary.totalProviders) parts.push(`${summary.activeProviders} providers`);
+  return parts.length ? parts.join(" · ") : "No access configured";
+}
+
+function PermissionEditor({
+  registry,
+  overrides,
+  inherited,
+  readOnly,
+  onChange,
+  dirty,
+  saving,
+  onSave,
+  onDiscard,
+}: PermissionEditorProps) {
+  const [selectedCategoryId, setSelectedCategoryId] = useState(registry.categories[0]?.id ?? "");
+  const [providerSelections, setProviderSelections] = useState<Record<string, string[]>>({});
+  const [confirmSelectAll, setConfirmSelectAll] = useState(false);
+  const selectedCategory = registry.categories.find((category) => category.id === selectedCategoryId)
+    ?? registry.categories[0];
+  const selectedProviders = selectedCategory
+    ? providerSelections[selectedCategory.id]
+      ?? (selectedCategory.providers[0] ? [selectedCategory.providers[0].id] : [])
+    : [];
+
+  useEffect(() => {
+    if (!registry.categories.some((category) => category.id === selectedCategoryId)) {
+      setSelectedCategoryId(registry.categories[0]?.id ?? "");
+    }
+  }, [registry, selectedCategoryId]);
+
+  if (!selectedCategory) {
+    return <div className="permission-empty" role="status">No permission categories are configured.</div>;
+  }
+
+  const setSelectedProviders = (providers: string[]) => setProviderSelections((current) => ({
+    ...current,
+    [selectedCategory.id]: providers,
+  }));
+  const selectAllProviders = () => {
+    const apply = () => setSelectedProviders(selectedCategory.providers.map((provider) => provider.id));
+    if (selectedCategory.sensitive && selectedCategory.providers.length > 1) {
+      setConfirmSelectAll(true);
+    } else {
+      apply();
+    }
+  };
+
+  return <div className="permission-editor">
+    <div className="permission-workspace">
+      <nav className="permission-category-list" aria-label="Permission categories">
+        {registry.categories.map((category) => {
+          const active = category.id === selectedCategory.id;
+          return <button
+            type="button"
+            key={category.id}
+            className={active ? "active" : ""}
+            aria-current={active ? "page" : undefined}
+            onClick={() => setSelectedCategoryId(category.id)}
+          >
+            <span>{category.label}</span>
+            <small>{categorySummaryLabel(category, overrides, inherited)}</small>
+          </button>;
+        })}
+      </nav>
+      <section className="permission-category-detail" aria-labelledby={`permission-category-${selectedCategory.id}`}>
+        <header>
+          <div>
+            <span className="eyebrow">Access category</span>
+            <h4 id={`permission-category-${selectedCategory.id}`}>{selectedCategory.label}</h4>
+            <p>{selectedCategory.description}</p>
+          </div>
+          <span className="permission-category-summary">{categorySummaryLabel(selectedCategory, overrides, inherited)}</span>
+        </header>
+
+        {selectedCategory.feature_permissions.length > 0 && <div className="permission-rule-section">
+          <div className="permission-section-title"><b>Feature permissions</b><span>Applies within this category</span></div>
+          {selectedCategory.feature_permissions.map((permission) => <PermissionDecisionControl
+            key={permission.id}
+            permission={permission.id}
+            label={permission.label}
+            overrides={overrides}
+            inherited={inherited}
+            readOnly={readOnly}
+            onChange={onChange}
+          />)}
+        </div>}
+
+        {selectedCategory.providers.length > 0 && <div className="permission-provider-section">
+          <div className="permission-section-title permission-provider-heading">
+            <div><b>Providers</b><span>Choose the providers that the shared permission controls should update.</span></div>
+            <div className="permission-bulk-actions">
+              <button type="button" disabled={readOnly} onClick={selectAllProviders}>Select all</button>
+              <button type="button" disabled={readOnly || selectedProviders.length === 0} onClick={() => setSelectedProviders([])}>Clear</button>
+            </div>
+          </div>
+          <div className="permission-provider-grid" role="group" aria-label={`${selectedCategory.label} providers`}>
+            {selectedCategory.providers.map((provider) => {
+              const checked = selectedProviders.includes(provider.id);
+              const activeActions = selectedCategory.provider_actions.filter((action) => permissionIsGranted(permissionDisplayState(
+                `integrations.${provider.id}.${action.id}`,
+                overrides,
+                inherited,
+              ))).length;
+              return <label className={checked ? "selected" : ""} key={provider.id}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={readOnly}
+                  onChange={() => setSelectedProviders(checked
+                    ? selectedProviders.filter((id) => id !== provider.id)
+                    : [...selectedProviders, provider.id])}
+                />
+                <span><b>{provider.label}</b><small>{activeActions} actions granted</small></span>
+              </label>;
+            })}
+          </div>
+          <div className="permission-rule-section provider-actions">
+            <div className="permission-section-title"><b>Shared provider permissions</b><span>{selectedProviders.length ? `Updates ${selectedProviders.length} selected provider${selectedProviders.length === 1 ? "" : "s"} only.` : "Select at least one provider."}</span></div>
+            {selectedCategory.provider_actions.map((action) => {
+              const summary = providerActionSummary(overrides, inherited, selectedProviders, action.id);
+              return <div className="permission-rule" key={action.id}>
+                <div className="permission-rule-copy">
+                  <b>{action.label}</b>
+                  <span className={`permission-state ${summary}`}>{stateLabel(summary)}</span>
+                </div>
+                {!readOnly && <div className="permission-decision" role="group" aria-label={`${action.label} for selected providers`}>
+                  {(["inherit", "grant", "deny"] as const).map((decision) => {
+                    const selected = decision === "inherit"
+                      ? summary === "inherited" || summary === "denied"
+                      : decision === "grant"
+                        ? summary === "exception-grant"
+                        : summary === "exception-deny";
+                    return <button
+                      type="button"
+                      key={decision}
+                      className={selected ? "active" : ""}
+                      aria-pressed={selected}
+                      disabled={!selectedProviders.length}
+                      onClick={() => onChange?.(applyProviderDecision(overrides, selectedProviders, action.id, decision))}
+                    >{decision === "inherit" ? "Use role" : decision === "grant" ? "Grant" : "Deny"}</button>;
+                  })}
+                </div>}
+              </div>;
+            })}
+          </div>
+        </div>}
+      </section>
+    </div>
+
+    {!readOnly && <div className={`permission-savebar ${dirty ? "dirty" : ""}`} role="status" aria-live="polite">
+      <span>{dirty ? "Unsaved permission changes" : "Permissions are up to date"}</span>
+      {dirty && <div>
+        <button type="button" className="button-quiet" disabled={saving} onClick={onDiscard}>Discard</button>
+        <button type="button" className="secondary-button" disabled={saving} onClick={onSave}>{saving ? "Saving…" : "Save permissions"}</button>
+      </div>}
+    </div>}
+
+    {confirmSelectAll && <OperationsDialog
+      title={`Select all ${selectedCategory.label} providers?`}
+      className="team-modal confirm-modal panel"
+      showHeader={false}
+      onClose={() => setConfirmSelectAll(false)}
+    >
+      <div className="team-modal-head"><div><span className="eyebrow">Confirm broad selection</span><h2>Select all providers?</h2><p>This category can expose sensitive data or external actions. Selecting all does not change access until you choose Grant or Deny.</p></div></div>
+      <div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setConfirmSelectAll(false)}>Cancel</button><button type="button" className="primary-button" onClick={() => { setSelectedProviders(selectedCategory.providers.map((provider) => provider.id)); setConfirmSelectAll(false); }}>Select all</button></div>
+    </OperationsDialog>}
+  </div>;
 }
 
 function MemberStatus({ status }: { status: string }) {
@@ -378,6 +483,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [audit, setAudit] = useState<WorkspaceAuditEvent[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationCard[]>([]);
+  const [permissionRegistry, setPermissionRegistry] = useState<PermissionRegistry | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -406,17 +512,17 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     if (preserve) setRefreshing(true); else setLoading(true);
     if (!suppressErrors) setError(null);
     try {
-      const [nextMembers, nextInvitations, nextAudit, nextIntegrations] = await Promise.all([
+      const [nextMembers, nextInvitations, nextAudit, nextRegistry] = await Promise.all([
         listMembers(signal),
         canReadInvitations ? listInvitations(signal) : Promise.resolve([]),
         canReadAdminHistory ? listMemberAuditEvents(signal) : Promise.resolve([]),
-        canManageConnections ? listIntegrations() : Promise.resolve([] as IntegrationCard[]),
+        getPermissionRegistry(signal),
       ]);
       if (signal?.aborted) return false;
       setMembers(nextMembers);
       setInvitations(nextInvitations);
       setAudit(nextAudit);
-      setIntegrations(nextIntegrations);
+      setPermissionRegistry(nextRegistry);
       setSelectedId((current) => current && nextMembers.some((member) => member.id === current) ? current : null);
       return true;
     } catch (requestError) {
@@ -428,7 +534,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
         setRefreshing(false);
       }
     }
-  }, [canManageConnections, canReadAdminHistory, canReadInvitations]);
+  }, [canReadAdminHistory, canReadInvitations]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -436,12 +542,27 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
     return () => controller.abort();
   }, [load, auth.current_workspace_id]);
 
+  useEffect(() => {
+    if (!canManageConnections) {
+      setIntegrations([]);
+      return;
+    }
+    let active = true;
+    void listIntegrations()
+      .then((next) => { if (active) setIntegrations(next); })
+      .catch(() => { if (active) setIntegrations([]); });
+    return () => { active = false; };
+  }, [auth.current_workspace_id, canManageConnections]);
+
   const actor = useMemo(() => members.find((member) => member.user_id === auth.user.id), [auth.user.id, members]);
   const actorPermissions = useMemo(() => new Set(actor?.effective_permissions ?? []), [actor]);
   const selected = members.find((member) => member.id === selectedId) ?? null;
   const canView = can(actorPermissions, "members.view");
   const canInvite = can(actorPermissions, "members.invite");
   const canManage = can(actorPermissions, "members.manage");
+  const roleDefaults = useCallback((role: string) => new Set(
+    permissionRegistry?.roles.find((item) => item.id === role)?.default_permissions ?? [],
+  ), [permissionRegistry]);
   const delegatableConnections = useMemo(
     () => integrations.flatMap((card) => card.connections).filter(
       (connection, index, all) =>
@@ -528,8 +649,10 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           <section className="panel role-access-panel" style={{ padding: 20 }} aria-label="Role access defaults">
             <h2>Role access defaults</h2>
             <p>Owners and Admins have workspace access. Managers see explicitly managed teams; Sales Reps see assigned or shared leads only. Personal coaching remains limited to its recipient and authorized managers.</p>
-            <label className="team-field"><span>Inspect a role</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{Object.entries(ROLE_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-            <PermissionEditor overrides={emptyOverrides()} effective={defaultPermissionsForRole(matrixRole)} readOnly />
+            <label className="team-field"><span>Inspect a role</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{(permissionRegistry?.roles ?? []).map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
+            {permissionRegistry
+              ? <PermissionEditor registry={permissionRegistry} overrides={emptyOverrides()} inherited={roleDefaults(matrixRole)} readOnly />
+              : <div className="permission-loading" aria-busy="true">Loading access categories…</div>}
             <p className="permission-edit-hint">These are role defaults. Select a member to inspect their effective permissions and explicit exceptions.</p>
           </section>
           <section className="team-layout team-roster-layout">
@@ -565,13 +688,14 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
               <div className="panel team-audit-panel"><div className="section-heading"><div><span className="eyebrow">Durable administration trail</span><h2>Recent activity</h2></div><span className="panel-action">Last {Math.min(audit.length, 6)} events</span></div>{audit.length ? <ul className="team-audit-list">{audit.slice(0, 6).map((event) => <AuditLine key={event.id} event={event} members={members} />)}</ul> : <div className="compact-empty"><span>No administration activity recorded yet.</span></div>}</div>
             </div>
           </section>
-          {selected && <div className="team-member-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null); }}>
+          {selected && permissionRegistry && <div className="team-member-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedId(null); }}>
             <section className="team-member-drawer" role="dialog" aria-modal="true" aria-label={`Edit ${selected.display_name}`}>
               <button className="team-back" type="button" onClick={() => setSelectedId(null)}><Icon name="chevronLeft" size={14} />Back to members</button>
               <MemberDetail
               member={selected}
               actor={actor}
               canManage={canManage}
+              registry={permissionRegistry}
               connections={delegatableConnections}
               collapsed={detailsCollapsed}
               onToggleCollapsed={() => setDetailsCollapsed((current) => !current)}
@@ -623,7 +747,7 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           </div>}
         </>
       )}
-      {inviteOpen && <InviteDialog email={inviteEmail} role={inviteRole} overrides={inviteOverrides} accessPolicy={inviteAccessPolicy} busy={inviteBusy} onEmail={setInviteEmail} onRole={setInviteRole} onOverrides={setInviteOverrides} onAccessPolicy={setInviteAccessPolicy} onClose={() => setInviteOpen(false)} onSubmit={submitInvitation} />}
+      {inviteOpen && permissionRegistry && <InviteDialog registry={permissionRegistry} email={inviteEmail} role={inviteRole} overrides={inviteOverrides} accessPolicy={inviteAccessPolicy} busy={inviteBusy} onEmail={setInviteEmail} onRole={setInviteRole} onOverrides={setInviteOverrides} onAccessPolicy={setInviteAccessPolicy} onClose={() => setInviteOpen(false)} onSubmit={submitInvitation} />}
       {generatedInvite?.access_code && <InviteCodeDialog invitation={generatedInvite} onClose={() => setGeneratedInvite(null)} workspaceId={auth.current_workspace_id} />}
       {confirmation && <ConfirmDialog confirmation={confirmation} busy={actionBusy} onClose={() => !actionBusy && setConfirmation(null)} onConfirm={() => void runAction(confirmation.action, confirmation.confirmLabel.endsWith("?") ? "Action completed." : `${confirmation.confirmLabel.replace("?", "")} completed.`)} />}
       {toast && <div className="team-toast" role="status">✓ {toast}</div>}
@@ -635,6 +759,7 @@ function MemberDetail({
   member,
   actor,
   canManage,
+  registry,
   connections,
   collapsed,
   onToggleCollapsed,
@@ -649,6 +774,7 @@ function MemberDetail({
   member: WorkspaceMember | null;
   actor: WorkspaceMember | undefined;
   canManage: boolean;
+  registry: PermissionRegistry;
   connections: ProviderConnection[];
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -685,7 +811,10 @@ function MemberDetail({
   const isSelf = actor?.id === member.id;
   const canEdit = canManage && !isOwner && !isSelf;
   const editable = canEdit && editing;
-  const effective = new Set(member.effective_permissions);
+  const inherited = new Set(
+    registry.roles.find((item) => item.id === member.role)?.default_permissions ?? [],
+  );
+  const permissionsDirty = JSON.stringify(overrides) !== JSON.stringify(member.permission_overrides);
   async function saveRole() { setSaving(true); try { await onSaveRole(role); } finally { setSaving(false); } }
   async function savePermissions() { setSaving(true); try { await onSavePermissions(overrides); } finally { setSaving(false); } }
   async function saveAccessPolicy() { setSaving(true); try { await onSaveAccessPolicy(accessPolicy); } finally { setSaving(false); } }
@@ -739,8 +868,17 @@ function MemberDetail({
             <div><span className="eyebrow">Role + exceptions</span><h3>Effective permissions</h3></div>
             {editable && (overrides.grants.length > 0 || overrides.denies.length > 0) && <button className="button-quiet" disabled={saving} onClick={() => setOverrides(emptyOverrides())}>Reset to role defaults</button>}
           </div>
-          <PermissionEditor overrides={overrides} effective={effective} readOnly={!editable || saving} onChange={setOverrides} />
-          {editable && JSON.stringify(overrides) !== JSON.stringify(member.permission_overrides) && <button className="secondary-button" disabled={saving} onClick={() => void savePermissions()}>{saving ? "Saving…" : "Save permissions"}</button>}
+          <PermissionEditor
+            registry={registry}
+            overrides={overrides}
+            inherited={inherited}
+            readOnly={!editable || saving}
+            onChange={setOverrides}
+            dirty={permissionsDirty}
+            saving={saving}
+            onDiscard={() => setOverrides(member.permission_overrides)}
+            onSave={() => void savePermissions()}
+          />
         </div>
         <div className="detail-editor-section">
           <div className="section-heading">
@@ -771,6 +909,7 @@ function MemberDetail({
 }
 
 function InviteDialog({
+  registry,
   email,
   role,
   overrides,
@@ -783,6 +922,7 @@ function InviteDialog({
   onClose,
   onSubmit,
 }: {
+  registry: PermissionRegistry;
   email: string;
   role: string;
   overrides: PermissionOverrides;
@@ -797,11 +937,14 @@ function InviteDialog({
 }) {
   const [step, setStep] = useState<"details" | "review">("details");
   const roleInfo = ROLE_OPTIONS.find((item) => item.id === role) ?? ROLE_OPTIONS[0];
+  const inherited = new Set(
+    registry.roles.find((item) => item.id === role)?.default_permissions ?? [],
+  );
   function review(event: React.FormEvent) {
     event.preventDefault();
     setStep("review");
   }
-  return <OperationsDialog title="Invite team member" className="team-modal panel" showHeader={false} onClose={() => { if (!busy) onClose(); }}><div className="team-modal-head"><div><span className="eyebrow">Add workspace staff · {step === "details" ? "01 Details" : "02 Review"}</span><h2 id="invite-title">Invite team member</h2><p>{step === "details" ? "Choose an email, role, record scope and deliberate permission exceptions." : "Review the access package before creating the pending invitation."}</p></div><button className="modal-close" onClick={onClose} aria-label="Close invitation dialog">×</button></div><form onSubmit={step === "details" ? review : onSubmit}>{step === "details" ? <><label className="team-field"><span>Work email</span><input required type="email" value={email} onChange={(event) => onEmail(event.target.value)} placeholder="name@company.com" autoFocus /></label><label className="team-field"><span>Workspace role</span><select value={role} onChange={(event) => onRole(event.target.value)}>{ROLE_OPTIONS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><small>{roleInfo.description}</small></label><div className="invite-permission-custom"><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Record scopes</h3></div></div><AccessScopeEditor policy={accessPolicy} onChange={onAccessPolicy} /><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Permission overrides</h3></div><span className="panel-action">Tap to cycle: grant · deny · reset</span></div><PermissionEditor overrides={overrides} effective={defaultPermissionsForRole(role)} onChange={onOverrides} /></div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={onClose}>Cancel</button><button className="primary-button">Review invitation ›</button></div></> : <><div className="invite-review-card"><span className="member-avatar large">{email.slice(0, 1).toUpperCase()}</span><div><b>{email}</b><RolePill role={role} /><p>{roleInfo.description}</p></div></div><div className="invite-review-facts"><span>Custom grants <b>{overrides.grants.length}</b></span><span>Explicit denies <b>{overrides.denies.length}</b></span><span>Scope overrides <b>{Object.keys(accessPolicy.scopes).length}</b></span><span>Access <b>One-time code</b></span></div><div className="notice">The code is shown once after creation. Share it privately with the invited staff member; resending invalidates the previous code.</div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setStep("details")} disabled={busy}>‹ Edit details</button><button className="primary-button" disabled={busy}>{busy ? "Creating…" : "Create access code"}</button></div></>}</form></OperationsDialog>;
+  return <OperationsDialog title="Invite team member" className="team-modal panel" showHeader={false} onClose={() => { if (!busy) onClose(); }}><div className="team-modal-head"><div><span className="eyebrow">Add workspace staff · {step === "details" ? "01 Details" : "02 Review"}</span><h2 id="invite-title">Invite team member</h2><p>{step === "details" ? "Choose an email, role, record scope and deliberate permission exceptions." : "Review the access package before creating the pending invitation."}</p></div><button className="modal-close" onClick={onClose} aria-label="Close invitation dialog">×</button></div><form onSubmit={step === "details" ? review : onSubmit}>{step === "details" ? <><label className="team-field"><span>Work email</span><input required type="email" value={email} onChange={(event) => onEmail(event.target.value)} placeholder="name@company.com" autoFocus /></label><label className="team-field"><span>Workspace role</span><select value={role} onChange={(event) => onRole(event.target.value)}>{ROLE_OPTIONS.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select><small>{roleInfo.description}</small></label><div className="invite-permission-custom"><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Record scopes</h3></div></div><AccessScopeEditor policy={accessPolicy} onChange={onAccessPolicy} /><div className="section-heading"><div><span className="eyebrow">Optional customization</span><h3>Permission exceptions</h3></div><span className="panel-action">Unselected providers remain unchanged</span></div><PermissionEditor registry={registry} overrides={overrides} inherited={inherited} onChange={onOverrides} /></div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={onClose}>Cancel</button><button className="primary-button">Review invitation ›</button></div></> : <><div className="invite-review-card"><span className="member-avatar large">{email.slice(0, 1).toUpperCase()}</span><div><b>{email}</b><RolePill role={role} /><p>{roleInfo.description}</p></div></div><div className="invite-review-facts"><span>Custom grants <b>{overrides.grants.length}</b></span><span>Explicit denies <b>{overrides.denies.length}</b></span><span>Scope overrides <b>{Object.keys(accessPolicy.scopes).length}</b></span><span>Access <b>One-time code</b></span></div><div className="notice">The code is shown once after creation. Share it privately with the invited staff member; resending invalidates the previous code.</div><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setStep("details")} disabled={busy}>‹ Edit details</button><button className="primary-button" disabled={busy}>{busy ? "Creating…" : "Create access code"}</button></div></>}</form></OperationsDialog>;
 }
 
 function InviteCodeDialog({ invitation, workspaceId, onClose }: { invitation: WorkspaceInvitation; workspaceId: string; onClose: () => void }) {
