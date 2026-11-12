@@ -70,7 +70,7 @@ from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
-from lead_agent.domain.rbac import effective_permissions
+from lead_agent.domain.rbac import can_sub_assign_leads, effective_permissions
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -651,6 +651,8 @@ def lead_assignment_options(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> list[LeadAssignmentOptionResponse]:
+    if not can_sub_assign_leads(workspace.role):
+        raise HTTPException(403, "lead sub-assignment requires a manager role")
     members = session.execute(
         select(WorkspaceMembershipORM, UserORM)
         .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
@@ -956,6 +958,8 @@ def update_lead_assignment(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> LeadResponse:
+    if not can_sub_assign_leads(workspace.role):
+        raise HTTPException(403, "lead sub-assignment requires a manager role")
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")

@@ -10,6 +10,7 @@ from lead_agent.application.integration_access import (
     allowed_connection_actions,
     can_view_provider,
     grant_connection_access,
+    has_provider_action,
     is_protected_owner_mailbox,
     revoke_connection_access,
 )
@@ -191,6 +192,35 @@ def test_provider_cards_are_role_and_provider_specific():
     assert can_view_provider(rep, "openai")
     assert not can_view_provider(rep, "salesforce")
     assert not can_view_provider(viewer, "gmail")
+
+
+def test_provider_action_checks_category_provider_and_action_exactly():
+    workspace_id = uuid4()
+    context = WorkspaceContext(
+        workspace_id=workspace_id,
+        role="sales_rep",
+        permissions=frozenset(
+            {
+                "integrations.salesforce.view",
+                "integrations.salesforce.sync",
+            }
+        ),
+    )
+    assert has_provider_action(context, "crm", "salesforce", "view")
+    assert has_provider_action(context, "crm", "salesforce", "sync")
+    assert not has_provider_action(context, "crm", "hubspot", "sync")
+    assert not has_provider_action(context, "calling", "salesforce", "sync")
+    assert not has_provider_action(context, "crm", "salesforce", "configure")
+
+
+def test_unregistered_provider_is_denied_even_for_owner():
+    workspace_id = uuid4()
+    context = WorkspaceContext(
+        workspace_id=workspace_id,
+        role="owner",
+        permissions=role_permissions("owner"),
+    )
+    assert not can_view_provider(context, "future_provider")
 
 
 def test_connection_grants_reject_personal_mailboxes_and_revoke_shared_access():

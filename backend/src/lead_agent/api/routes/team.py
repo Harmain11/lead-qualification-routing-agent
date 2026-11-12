@@ -34,6 +34,7 @@ from lead_agent.domain.rbac import (
     effective_permissions,
     normalize_access_policy,
     normalize_role,
+    permission_registry,
 )
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.models import (
@@ -216,6 +217,13 @@ def list_members(
         _member_response(row, user)
         for row, user in list_workspace_members(session, workspace.workspace_id)
     ]
+
+
+@router.get("/v1/permission-registry")
+def get_permission_registry(
+    _workspace: WorkspaceContext = Depends(require_permission("members.view")),
+) -> dict[str, Any]:
+    return permission_registry()
 
 
 @router.patch("/v1/members/{membership_id}/slack-link", response_model=MemberResponse)

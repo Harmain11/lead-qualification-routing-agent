@@ -11,19 +11,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from lead_agent.application.mailbox_access import connection_owner_id
-from lead_agent.domain.rbac import normalize_role
+from lead_agent.domain.rbac import PROVIDER_CATEGORY_BY_KEY, normalize_role
 from lead_agent.domain.workspaces import WorkspaceContext
-from lead_agent.infrastructure.communications import DIALERS
 from lead_agent.infrastructure.db.models import (
     ProviderConnectionORM,
     WorkspaceAdminAuditEventORM,
     WorkspaceMembershipORM,
 )
 from lead_agent.infrastructure.db.teams import ConnectionAccessGrantORM
-from lead_agent.infrastructure.reasoning.configuration import REASONING_PROVIDERS
 
 MAILBOX_PROVIDERS = frozenset({"gmail", "outlook"})
-PERSONAL_PROVIDERS = frozenset({"gmail", "outlook", "google_calendar", "calendly"})
 CONNECTION_ACTIONS = frozenset(
     {
         "view",
@@ -47,32 +44,36 @@ def provider_permission(provider: str, action: str) -> str:
     return f"integrations.{provider}.{aliases.get(action, action)}"
 
 
+def has_provider_action(
+    workspace: WorkspaceContext,
+    category: str,
+    provider: str,
+    action: str,
+) -> bool:
+    """Check the exact registry category, provider and action permission."""
+    if PROVIDER_CATEGORY_BY_KEY.get(provider) != category:
+        return False
+    return provider_permission(provider, action) in workspace.permissions
+
+
 def can_view_provider(workspace: WorkspaceContext, provider: str) -> bool:
-    role = normalize_role(workspace.role)
-    if role in {"owner", "admin"}:
-        return True
-    if provider_permission(provider, "view") in workspace.permissions:
-        return True
-    if provider in MAILBOX_PROVIDERS:
-        return "mailbox.view_own" in workspace.permissions
-    if provider in DIALERS:
-        return "dialer.call" in workspace.permissions
-    if provider in REASONING_PROVIDERS:
-        return "agents.view" in workspace.permissions
-    return False
+    category = PROVIDER_CATEGORY_BY_KEY.get(provider)
+    return bool(category and has_provider_action(workspace, category, provider, "view"))
 
 
 def provider_card_actions(workspace: WorkspaceContext, provider: str) -> frozenset[str]:
     if not can_view_provider(workspace, provider):
         return frozenset()
-    role = normalize_role(workspace.role)
     actions = {"view"}
-    if role in {"owner", "admin"}:
-        actions.update({"connect", "configure", "manage_credentials"})
-    if provider_permission(provider, "connect_own") in workspace.permissions or (
-        provider in MAILBOX_PROVIDERS and "mailbox.connect_own" in workspace.permissions
-    ):
+    category = PROVIDER_CATEGORY_BY_KEY.get(provider)
+    if not category:
+        return frozenset()
+    if has_provider_action(workspace, category, provider, "connect_own"):
         actions.add("connect_own")
+    if has_provider_action(workspace, category, provider, "configure"):
+        actions.add("configure")
+    if has_provider_action(workspace, category, provider, "manage_credentials"):
+        actions.add("manage_credentials")
     return frozenset(actions)
 
 
@@ -156,6 +157,9 @@ def allowed_connection_actions(
 
     allowed: set[str] = set()
     provider = connection.provider_type
+    category = PROVIDER_CATEGORY_BY_KEY.get(provider)
+    if category is None:
+        return frozenset()
     if own:
         if provider in MAILBOX_PROVIDERS:
             if "mailbox.view_own" in workspace.permissions:
@@ -175,20 +179,8 @@ def allowed_connection_actions(
     elif not personal:
         allowed.update(_delegated_actions(session, workspace, connection))
 
-    # Provider-specific denies still win because the permission is absent from
-    # the effective workspace permission set.
     for action in tuple(allowed):
-        permission = provider_permission(provider, action)
-        legacy_ok = (
-            (provider in DIALERS and action == "use" and "dialer.call" in workspace.permissions)
-            or (
-                provider in REASONING_PROVIDERS
-                and action in {"view", "view_status", "use"}
-                and "agents.view" in workspace.permissions
-            )
-            or (provider in MAILBOX_PROVIDERS and own)
-        )
-        if permission not in workspace.permissions and not legacy_ok and role != "owner":
+        if not has_provider_action(workspace, category, provider, action):
             allowed.discard(action)
     return frozenset(allowed)
 
@@ -229,10 +221,10 @@ def assert_manage_connection_grants(
         raise HTTPException(404, "connection not found")
     if connection.connection_type == "personal":
         raise HTTPException(403, "personal connections cannot be delegated")
+    category = PROVIDER_CATEGORY_BY_KEY.get(connection.provider_type)
     permission = provider_permission(connection.provider_type, "manage_shared")
-    if (
-        normalize_role(workspace.role) not in {"owner", "admin"}
-        and permission not in workspace.permissions
+    if category is None or not has_provider_action(
+        workspace, category, connection.provider_type, "manage_shared"
     ):
         raise HTTPException(403, f"permission required: {permission}")
 

@@ -111,6 +111,7 @@ def test_generated_marker_and_manual_assignment_persist(tmp_path, icp, routing) 
         workspace_id=workspace_id,
         actor_id="lead-row-editor",
         user_id=viewer.id,
+        role="sales_manager",
         permissions=frozenset({"leads.view", "leads.edit", "leads.reassign"}),
     )
     workspace_context = viewer_context

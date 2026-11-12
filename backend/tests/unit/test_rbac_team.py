@@ -22,10 +22,13 @@ from lead_agent.application.team import (
 )
 from lead_agent.domain.auth import AuthorizationError
 from lead_agent.domain.rbac import (
+    ACCESS_CATEGORY_REGISTRY,
     PERMISSION_CATALOG,
+    can_sub_assign_leads,
     effective_permissions,
     normalize_overrides,
     normalize_role,
+    permission_registry,
     role_permissions,
 )
 from lead_agent.infrastructure.db.base import Base
@@ -40,6 +43,14 @@ from lead_agent.infrastructure.db.models import (
 from lead_agent.infrastructure.db.teams import WorkspaceTeamORM
 
 
+def test_lead_sub_assignment_requires_manager_role() -> None:
+    assert can_sub_assign_leads("owner")
+    assert can_sub_assign_leads("admin")
+    assert can_sub_assign_leads("sales_manager")
+    assert not can_sub_assign_leads("sales_rep")
+    assert not can_sub_assign_leads("viewer")
+
+
 def _user(email: str) -> UserORM:
     now = datetime.now(UTC)
     return UserORM(
@@ -51,6 +62,49 @@ def _user(email: str) -> UserORM:
         created_at=now,
         updated_at=now,
     )
+
+
+def test_permission_registry_has_unique_categories_and_permissions() -> None:
+    registry = permission_registry()
+    category_ids = [category["id"] for category in registry["categories"]]
+    assert len(category_ids) == len(set(category_ids))
+    assert category_ids == [category["id"] for category in ACCESS_CATEGORY_REGISTRY]
+    assert "calling" in category_ids
+    assert "email_calendar" in category_ids
+    assert sum(category["label"] == "Calling" for category in registry["categories"]) == 1
+
+    exposed: set[str] = set()
+    for category in registry["categories"]:
+        exposed.update(item["id"] for item in category["feature_permissions"])
+        for provider in category["providers"]:
+            exposed.update(
+                f"integrations.{provider['id']}.{action['id']}"
+                for action in category["provider_actions"]
+            )
+    assert exposed == PERMISSION_CATALOG
+
+
+def test_provider_exceptions_are_exact_and_broad_denies_keep_explicit_grants() -> None:
+    baseline = effective_permissions("sales_manager")
+    assert "integrations.cloudtalk.use" in baseline
+    assert "integrations.twilio.use" in baseline
+
+    exact_deny = effective_permissions(
+        "sales_manager",
+        {"grants": [], "denies": ["integrations.cloudtalk.use"]},
+    )
+    assert "integrations.cloudtalk.use" not in exact_deny
+    assert "integrations.twilio.use" in exact_deny
+
+    broad_deny_with_exception = effective_permissions(
+        "sales_manager",
+        {
+            "grants": ["integrations.cloudtalk.use"],
+            "denies": ["dialer.call"],
+        },
+    )
+    assert "integrations.cloudtalk.use" in broad_deny_with_exception
+    assert "integrations.twilio.use" not in broad_deny_with_exception
 
 
 @pytest.fixture
