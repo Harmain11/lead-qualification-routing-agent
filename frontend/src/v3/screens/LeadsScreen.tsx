@@ -40,7 +40,6 @@ import { LeadRecord, type LeadIntent } from "./LeadRecord";
 import { providerLabel, queueLabel, sourceLabel } from "./leadFormat";
 import { confirmAction } from "../ui/confirm";
 import { FeatureGuide } from "../../components/FeatureGuide";
-import { roleLabel } from "../../permissions";
 
 const LEAD_PAGE_SIZE = 50;
 
@@ -129,8 +128,6 @@ type Props = {
   canMailboxSync?: boolean;
   canViewEmail?: boolean;
   canUseAgent?: boolean;
-  currentUserId?: string;
-  currentUserRole?: string;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
   boardViews?: DealView[];
@@ -168,8 +165,6 @@ export function LeadsScreen({
   canMailboxSync = false,
   canViewEmail = false,
   canUseAgent = false,
-  currentUserId,
-  currentUserRole,
   dialerPhoneConnectionId = null,
   onNavigateToDialer,
   boardViews,
@@ -739,8 +734,6 @@ export function LeadsScreen({
                   canCall={canCall}
                   canEmail={canViewEmail && canEdit}
                   canQuote={canEdit}
-                  currentUserId={currentUserId}
-                  currentUserRole={currentUserRole}
                 />
                 );
               })}
@@ -865,8 +858,6 @@ const LeadRow = memo(function LeadRow({
   canCall,
   canEmail,
   canQuote,
-  currentUserId,
-  currentUserRole,
 }: {
   stageLabel: string;
   stageId: string;
@@ -874,8 +865,6 @@ const LeadRow = memo(function LeadRow({
   canCall: boolean;
   canEmail: boolean;
   canQuote: boolean;
-  currentUserId?: string;
-  currentUserRole?: string;
   lead: Lead;
   lens: Lens;
   isNew: boolean;
@@ -893,10 +882,6 @@ const LeadRow = memo(function LeadRow({
   const sourceDetail = origin ? "CRM import" : lead.source_detail || "";
   const name = lead.full_name || "Unnamed lead";
   const [a, b] = lensValues(lead, lens);
-  const roleFor = (userId: string | null | undefined) =>
-    userId ? assignmentOptions.find((option) => option.user_id === userId)?.role ?? null : null;
-  const ownerRole = lead.owner_id === currentUserId ? currentUserRole ?? roleFor(lead.owner_id) : roleFor(lead.owner_id);
-  const subLeadRole = roleFor(lead.routing?.assigned_rep_id);
   return (
     <tr
       data-selected={checked || undefined}
@@ -946,7 +931,6 @@ const LeadRow = memo(function LeadRow({
           <td className="c-b">
             <span className="v-two">
               <span className="v-owner-name" title={lead.owner_name || "Unassigned"}>{lead.owner_name || "Unassigned"}</span>
-              <small>{ownerRole ? roleLabel(ownerRole) : lead.owner_id ? "Assigned owner" : "Awaiting owner"}</small>
             </span>
           </td>
           <td className="c-sublead">
@@ -966,12 +950,10 @@ const LeadRow = memo(function LeadRow({
                   )}
                   {assignmentOptions.map((option) => <option key={option.user_id} value={option.user_id}>{option.display_name}</option>)}
                 </select>
-                <small>{savingAssignment ? "Saving…" : [subLeadRole && roleLabel(subLeadRole), queueLabel(lead.routing.assigned_queue)].filter(Boolean).join(" · ")}</small>
               </span>
             ) : (
               <span className="v-two">
                 <span>{lead.routing ? lead.routing.assigned_rep_name || "Unassigned" : "Routing pending"}</span>
-                {lead.routing && <small>{[subLeadRole && roleLabel(subLeadRole), queueLabel(lead.routing.assigned_queue)].filter(Boolean).join(" · ")}</small>}
               </span>
             )}
           </td>
