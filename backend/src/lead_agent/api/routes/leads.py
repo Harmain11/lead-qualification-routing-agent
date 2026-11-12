@@ -70,7 +70,7 @@ from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
-from lead_agent.domain.rbac import can_sub_assign_leads, effective_permissions
+from lead_agent.domain.rbac import can_sub_assign_leads, effective_permissions, normalize_role
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -666,7 +666,8 @@ def lead_assignment_options(
     return [
         LeadAssignmentOptionResponse(user_id=user.id, display_name=user.display_name)
         for membership, user in members
-        if "leads.edit"
+        if normalize_role(membership.role) in {"sales_manager", "sales_rep"}
+        and "leads.edit"
         in effective_permissions(membership.role, membership.permission_overrides)
     ]
 
@@ -2014,3 +2015,4 @@ def retry_saved_meeting_booking(
         message=message,
         booking_error=booking_error,
     )
+

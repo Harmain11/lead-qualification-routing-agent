@@ -11,6 +11,7 @@ import {
   listLeadTrash,
   listLeads,
   restoreLeadFromTrash,
+  runInboundSync,
   updateLeadAssignment,
   type LeadExportColumn,
   type LeadTrashItem,
@@ -124,6 +125,7 @@ type Props = {
   canManageAi?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
+  canMailboxSync?: boolean;
   canViewEmail?: boolean;
   canUseAgent?: boolean;
   dialerPhoneConnectionId?: string | null;
@@ -160,6 +162,7 @@ export function LeadsScreen({
   canManageAi = false,
   canExport = false,
   canCrmSync = false,
+  canMailboxSync = false,
   canViewEmail = false,
   canUseAgent = false,
   dialerPhoneConnectionId = null,
@@ -182,6 +185,7 @@ export function LeadsScreen({
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [syncingSources, setSyncingSources] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const loadedOnce = useRef(false);
@@ -260,6 +264,44 @@ export function LeadsScreen({
       .catch(() => { if (active) { setCrmProviders([]); setReasoningConnectionId(null); } });
     return () => { active = false; };
   }, [canCrmSync, canManageAi]);
+
+  const refreshLeadsAndSources = async () => {
+    if (syncingSources) return;
+    setSyncingSources(true);
+    setControlError(null);
+    try {
+      const cards = await listIntegrations();
+      const syncable = cards.flatMap((card) => {
+        const provider = card.provider.toLowerCase();
+        const isCrm = ["salesforce", "hubspot", "gohighlevel"].includes(provider);
+        const isMailbox = ["gmail", "outlook"].includes(provider);
+        if (!isCrm && !isMailbox) return [];
+        if (isCrm && !canCrmSync) return [];
+        if (isMailbox && !canMailboxSync) return [];
+        const connections = card.connections?.length ? card.connections : card.connection ? [card.connection] : [];
+        return connections
+          .filter((connection) => connection.is_active && connection.verification_status === "verified")
+          .map((connection) => ({ connectionId: connection.id, provider }));
+      });
+      const results = await Promise.allSettled(syncable.map(({ connectionId, provider }) =>
+        runInboundSync(connectionId, "manual", provider),
+      ));
+      const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      const succeeded = results.length - failures.length;
+      if (results.length && succeeded === 0) {
+        throw failures[0]?.reason instanceof Error ? failures[0].reason : new Error("Connected sources could not be synchronized.");
+      }
+      setNotice(results.length
+        ? `Sync requested for ${succeeded} connected source${succeeded === 1 ? "" : "s"}. New leads will appear when processing completes.`
+        : "No verified Gmail, Salesforce, or HubSpot sources are available to sync.");
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setControlError(error instanceof Error ? `Source sync failed: ${error.message}` : "Source sync failed. Try again.");
+      setRefreshKey((value) => value + 1);
+    } finally {
+      setSyncingSources(false);
+    }
+  };
 
   useEffect(() => {
     setPage(0);
@@ -547,8 +589,8 @@ export function LeadsScreen({
         actions={
           <>
             <FeatureGuide topic="lead" compact />
-            <Button icon="refresh" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}>
-              {loading && loadedOnce.current ? "Refreshing…" : "Refresh leads"}
+            <Button icon="refresh" onClick={() => void refreshLeadsAndSources()} disabled={loading || syncingSources} title="Sync verified Gmail, Salesforce, and HubSpot connections, then refresh the lead list">
+              {syncingSources ? "Syncing sources…" : loading && loadedOnce.current ? "Refreshing…" : "Refresh leads"}
             </Button>
             {canManageAi && <Button kind="gray" icon="sparkle" onClick={() => void reanalyzeAll()} disabled={reanalyzeAllBusy || !reasoningConnectionId} title={reasoningConnectionId ? "Re-analyze every eligible lead with the verified AI provider" : "Connect and verify an AI analysis provider first"}>
               {reanalyzeAllBusy ? "Starting AI analysis…" : "Re-analyze all"}
@@ -661,7 +703,7 @@ export function LeadsScreen({
                 <th scope="col" className="c-lead">Lead</th>
                 <th scope="col" className="c-score">Score</th>
                 <th scope="col" className="c-a">{colA}</th>
-                <th scope="col" className="c-b">{colB}</th>
+                <th scope="col" className="c-b">{lens === "overview" ? "Sub-lead" : colB}</th>
                 <th scope="col" className="c-stage">Stage</th>
                 <th scope="col" className="c-value">Value</th>
                 <th scope="col" className="c-date">Received</th>
@@ -1129,3 +1171,4 @@ function ExportSheet({ count, selectedIds, filters, onClose }: { count: number; 
     </Sheet>
   );
 }
+

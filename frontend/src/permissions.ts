@@ -41,9 +41,14 @@ export function canSubAssignLeads(
   role: string | null | undefined,
   permissions: ReadonlySet<string> | Iterable<string>,
 ) {
+  // The API accepts the friendly `manager` alias as well as the canonical
+  // `sales_manager` role. Normalize both forms here so the main Leads table
+  // does not hide the assignment control for managers returned with the
+  // friendly label.
+  const canonicalRole = role?.trim().toLowerCase().replaceAll("-", " ");
   return Boolean(
-    role
-      && ["owner", "admin", "sales_manager"].includes(role)
+    canonicalRole
+      && ["owner", "admin", "sales_manager", "sales manager", "manager"].includes(canonicalRole)
       && can(permissions, "leads.reassign"),
   );
 }
@@ -51,3 +56,4 @@ export function canSubAssignLeads(
 export function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
 }
+
