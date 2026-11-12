@@ -129,6 +129,8 @@ type Props = {
   canMailboxSync?: boolean;
   canViewEmail?: boolean;
   canUseAgent?: boolean;
+  currentUserId?: string;
+  currentUserRole?: string;
   dialerPhoneConnectionId?: string | null;
   onNavigateToDialer: () => void;
   boardViews?: DealView[];
@@ -166,6 +168,8 @@ export function LeadsScreen({
   canMailboxSync = false,
   canViewEmail = false,
   canUseAgent = false,
+  currentUserId,
+  currentUserRole,
   dialerPhoneConnectionId = null,
   onNavigateToDialer,
   boardViews,
@@ -735,6 +739,8 @@ export function LeadsScreen({
                   canCall={canCall}
                   canEmail={canViewEmail && canEdit}
                   canQuote={canEdit}
+                  currentUserId={currentUserId}
+                  currentUserRole={currentUserRole}
                 />
                 );
               })}
@@ -859,6 +865,8 @@ const LeadRow = memo(function LeadRow({
   canCall,
   canEmail,
   canQuote,
+  currentUserId,
+  currentUserRole,
 }: {
   stageLabel: string;
   stageId: string;
@@ -866,6 +874,8 @@ const LeadRow = memo(function LeadRow({
   canCall: boolean;
   canEmail: boolean;
   canQuote: boolean;
+  currentUserId?: string;
+  currentUserRole?: string;
   lead: Lead;
   lens: Lens;
   isNew: boolean;
@@ -885,7 +895,7 @@ const LeadRow = memo(function LeadRow({
   const [a, b] = lensValues(lead, lens);
   const roleFor = (userId: string | null | undefined) =>
     userId ? assignmentOptions.find((option) => option.user_id === userId)?.role ?? null : null;
-  const ownerRole = roleFor(lead.owner_id);
+  const ownerRole = lead.owner_id === currentUserId ? currentUserRole ?? roleFor(lead.owner_id) : roleFor(lead.owner_id);
   const subLeadRole = roleFor(lead.routing?.assigned_rep_id);
   return (
     <tr
@@ -935,7 +945,7 @@ const LeadRow = memo(function LeadRow({
           </td>
           <td className="c-b">
             <span className="v-two">
-              <span>{lead.owner_name || "Unassigned"}</span>
+              <span className="v-owner-name" title={lead.owner_name || "Unassigned"}>{lead.owner_name || "Unassigned"}</span>
               <small>{ownerRole ? roleLabel(ownerRole) : lead.owner_id ? "Assigned owner" : "Awaiting owner"}</small>
             </span>
           </td>

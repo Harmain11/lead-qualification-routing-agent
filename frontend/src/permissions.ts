@@ -30,7 +30,9 @@ export const ROLE_LABELS: Record<string, string> = {
 };
 
 export function roleLabel(role: string) {
-  return ROLE_LABELS[role] ?? role.replaceAll("_", " ");
+  const normalized = role.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
+  const canonical = normalized === "manager" ? "sales_manager" : normalized === "rep" ? "sales_rep" : normalized;
+  return ROLE_LABELS[canonical] ?? role.replaceAll("_", " ");
 }
 
 export function can(permissions: ReadonlySet<string> | Iterable<string>, permission: string) {

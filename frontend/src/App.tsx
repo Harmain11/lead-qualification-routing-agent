@@ -1590,6 +1590,8 @@ function App() {
                         || can(workspacePermissions, "integrations.gmail.view")
                       }
                       canUseAgent={can(workspacePermissions, "agents.execute")}
+                      currentUserId={auth.user.id}
+                      currentUserRole={activeWorkspace?.role}
                       dialerPhoneConnectionId={
                         can(workspacePermissions, "dialer.call") && isDialerPhoneAvailable(selectedDialer) ? selectedDialer?.id ?? null : null
                       }
