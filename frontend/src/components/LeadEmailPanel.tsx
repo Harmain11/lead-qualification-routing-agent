@@ -71,6 +71,7 @@ export function LeadEmailPanel({
   onConversationSynced,
   onAskAgent,
   hideComposeButton = false,
+  showAppointmentDrafts = false,
 }: {
   lead: Lead;
   active: boolean;
@@ -79,6 +80,7 @@ export function LeadEmailPanel({
   onConversationSynced: () => void;
   onAskAgent?: (prompt?: string) => void;
   hideComposeButton?: boolean;
+  showAppointmentDrafts?: boolean;
 }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [events, setEvents] = useState<LeadPipelineEvent[]>([]);
@@ -314,7 +316,7 @@ export function LeadEmailPanel({
     <MeetingOfferDrafts
       leadId={lead.id}
       leadEmail={lead.email}
-      active={active}
+      active={active && Boolean(showAppointmentDrafts)}
       canSend={canSend}
       accounts={accounts}
       onSent={() => {
@@ -404,3 +406,4 @@ function relative(date: Date) {
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
+
