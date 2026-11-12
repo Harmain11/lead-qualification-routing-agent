@@ -677,8 +677,16 @@ def _available_offer_slots(
     lead: LeadORM,
     source: dict[str, str],
     actor_id: str,
+    *,
+    limit: int = 3,
+    keep_requested_date: bool = False,
 ) -> tuple[ProviderConnectionORM, list[dict[str, Any]]] | None:
-    """Get five current, provider-backed times for a numbered Gmail offer."""
+    """Get current, provider-backed times for a numbered Gmail offer.
+
+    A lead who states a date without a time must never be offered a slot on a
+    different date.  That would silently turn a clear preference into an
+    unrelated suggestion.
+    """
     reference = _parse_datetime(source.get("sent_at"))
     contact_zone = lead_time_zone(lead)
     for provider_name in ("calendly", "google_calendar"):
@@ -706,7 +714,7 @@ def _available_offer_slots(
                 slots = recommend_google_calendar_slots(
                     client, account_name=connection.account_name, **params,
                 )
-            if not slots:
+            if not slots and not keep_requested_date:
                 params["requested_text"] = None
                 if provider_name == "calendly":
                     slots = recommend_calendly_slots(client, **params)
@@ -716,7 +724,7 @@ def _available_offer_slots(
                     )
             if slots:
                 ordered = sorted(slots, key=lambda slot: str(slot["start_at"]))
-                return connection, ordered[:5]
+                return connection, ordered[:limit]
         except ProviderOperationError as error:
             _LOGGER.warning(
                 "meeting_email.slot_availability_failed",
@@ -742,7 +750,11 @@ def _attempt_requested_time_booking(
     """Book a clearly stated future date/time only if a connected calendar accepts it."""
     if requested_meeting_time(request_text) is None:
         return False
-    if re.search(r"\b(?:or|either|between)\b", request_text, re.I):
+    if re.search(
+        r"\b(?:or|either|between|around|about|maybe|perhaps|sometime|anytime)\b",
+        request_text,
+        re.I,
+    ):
         return False
     clock_mentions = re.findall(
         r"\b\d{1,2}(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)\b|"
@@ -968,11 +980,28 @@ def _send_options(
     except OutreachBlocked:
         return "needs_attention"
 
-    # Email-triggered meeting requests always produce a reviewed booking-link
-    # draft. Never book a time or send numbered slot options from this path.
-    selected_calendar = _calendar_options(
-        session, workspace_id, source, actor_id, lead=lead,
+    # A final date without a final time gets up to three live options on that
+    # date.  When no date is known, a booking link remains the safe fallback.
+    reference = _parse_datetime(source.get("sent_at"))
+    contact_zone = lead_time_zone(lead) or "UTC"
+    requested_date = requested_meeting_date(
+        source.get("excerpt", ""), reference=reference, time_zone=contact_zone
     )
+    requested_time = requested_meeting_time(source.get("excerpt", ""))
+    if requested_date is not None and requested_time is None:
+        selected_calendar = _available_offer_slots(
+            session,
+            workspace_id,
+            lead,
+            source,
+            actor_id,
+            limit=3,
+            keep_requested_date=True,
+        )
+    else:
+        selected_calendar = _calendar_options(
+            session, workspace_id, source, actor_id, lead=lead,
+        )
     if selected_calendar is None:
         return "no_calendar_availability"
     calendar_connection, slots = selected_calendar
@@ -1025,10 +1054,12 @@ def _send_options(
         body=body,
         rationale=(
             "Personalized meeting booking link prepared for human review before sending."
-            if booking_link_mode else "Five verified meeting times prepared for human review."
+            if booking_link_mode else "Verified meeting times prepared for human review."
         ),
         generation_method="meeting_request",
-        generation_note="Meeting booking link" if booking_link_mode else "Five meeting options",
+        generation_note=(
+            "Meeting booking link" if booking_link_mode else "Up to three meeting options"
+        ),
         status="draft",
         attempts=0,
         created_at=now,
@@ -2128,6 +2159,17 @@ def process_gmail_meeting_thread(
                         message.get("rfc_message_id") or source.get("rfc_message_id") or ""
                     ),
                 }
+                if _attempt_requested_time_booking(
+                    session,
+                    lead,
+                    workspace_id,
+                    actor_id,
+                    str(message.get("message_id") or ""),
+                    str(gmail_connection.id),
+                    reply_excerpt,
+                    sent_at,
+                ):
+                    return "booked"
                 return _send_options(
                     session,
                     lead,
@@ -2212,6 +2254,17 @@ def process_gmail_meeting_thread(
     gmail_connection_id = source.get("gmail_connection_id")
     if gmail_connection_id and gmail_connection_id != str(gmail_connection.id):
         return "wrong_gmail_connection"
+    if _attempt_requested_time_booking(
+        session,
+        lead,
+        workspace_id,
+        actor_id,
+        source["message_id"],
+        str(gmail_connection.id),
+        source.get("excerpt", ""),
+        _parse_datetime(source.get("sent_at")),
+    ):
+        return "booked"
     return _send_options(
         session,
         lead,

@@ -649,7 +649,7 @@ def test_meeting_request_detection_accepts_a_relative_exact_time_proposal() -> N
     assert source["message_id"] == "message-1"
 
 
-def test_exact_time_request_creates_a_draft_instead_of_booking(
+def test_exact_time_request_books_after_calendar_verification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lead_id = uuid4()
@@ -694,7 +694,7 @@ def test_exact_time_request_creates_a_draft_instead_of_booking(
     monkeypatch.setattr(
         meeting_email,
         "_attempt_requested_time_booking",
-        lambda *_args, **_kwargs: pytest.fail("exact-time requests should not auto-book"),
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         meeting_email,
@@ -711,11 +711,11 @@ def test_exact_time_request_creates_a_draft_instead_of_booking(
         actor_id="workspace-owner",
     )
 
-    assert result == "draft_created"
-    assert captured[0][5] == source
+    assert result == "booked"
+    assert captured == []
 
 
-def test_exact_time_meeting_request_creates_booking_link_draft(
+def test_request_without_a_date_creates_booking_link_draft(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid4()
@@ -732,7 +732,7 @@ def test_exact_time_meeting_request_creates_booking_link_draft(
     source = {
         "thread_id": "thread-1", "message_id": "message-1",
         "gmail_connection_id": str(gmail.id), "subject": "Meeting",
-        "excerpt": "Can we meet tomorrow at 2 pm?", "sent_at": now.isoformat(),
+        "excerpt": "Can we meet sometime next week?", "sent_at": now.isoformat(),
     }
     slots = [{
         "provider": "google_calendar",
@@ -747,10 +747,6 @@ def test_exact_time_meeting_request_creates_booking_link_draft(
     monkeypatch.setattr(
         meeting_email, "_calendar_options",
         lambda *_args, **_kwargs: (calendar, slots),
-    )
-    monkeypatch.setattr(
-        meeting_email, "_attempt_requested_time_booking",
-        lambda *_args: pytest.fail("an exact-time request must not be booked automatically"),
     )
     monkeypatch.setattr(
         meeting_email,
@@ -776,7 +772,7 @@ def test_exact_time_meeting_request_creates_booking_link_draft(
     assert "Reply with" not in draft.body
 
 
-def test_new_exact_time_reply_creates_a_draft_instead_of_booking(
+def test_new_exact_time_reply_books_after_calendar_verification(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lead_id = uuid4()
@@ -870,7 +866,7 @@ def test_new_exact_time_reply_creates_a_draft_instead_of_booking(
     monkeypatch.setattr(
         meeting_email,
         "_attempt_requested_time_booking",
-        lambda *_args, **_kwargs: pytest.fail("a newly proposed time should not auto-book"),
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         meeting_email,
@@ -887,10 +883,63 @@ def test_new_exact_time_reply_creates_a_draft_instead_of_booking(
         actor_id="workspace-owner",
     )
 
-    assert result == "draft_created"
+    assert result == "booked"
     assert offer.status == "superseded"
     assert offer.details["closed_reason"] == "lead_requested_new_time"
-    assert captured[0][5]["excerpt"] == messages[-1]["body"]
+    assert captured == []
+
+
+def test_date_only_request_creates_three_slots_on_requested_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid4()
+    lead = SimpleNamespace(
+        id=uuid4(), full_name="Kathi", email="kathi@example.test",
+        phone="+923016057779", geography="Pakistan",
+    )
+    gmail = SimpleNamespace(id=uuid4())
+    calendar = SimpleNamespace(
+        id=uuid4(), provider_type="calendly", account_name="Sales",
+    )
+    now = datetime.now(UTC)
+    source = {
+        "thread_id": "thread-1", "message_id": "message-1",
+        "gmail_connection_id": str(gmail.id), "subject": "Meeting",
+        "excerpt": "Can we meet tomorrow?", "sent_at": now.isoformat(),
+    }
+    slots = [
+        {
+            "provider": "calendly",
+            "connection_id": str(calendar.id),
+            "source_message_id": source["message_id"],
+            "source_gmail_connection_id": str(gmail.id),
+            "start_at": (now + timedelta(days=1, hours=index + 1)).isoformat(),
+            "end_at": (now + timedelta(days=1, hours=index + 1, minutes=30)).isoformat(),
+            "time_zone": "Asia/Karachi",
+            "event_type_name": "30 Minute Meeting",
+        }
+        for index in range(5)
+    ]
+    session = MagicMock()
+    monkeypatch.setattr(meeting_email, "_thread_offer", lambda *_args: None)
+    monkeypatch.setattr(
+        meeting_email, "_available_offer_slots", lambda *_args, **_kwargs: (calendar, slots[:3])
+    )
+    monkeypatch.setattr(meeting_email, "assert_outreach_allowed", lambda *_args: None)
+    monkeypatch.setattr(meeting_email, "_notify_meeting_draft", lambda *_args, **_kwargs: None)
+
+    result = meeting_email._send_options(
+        session, lead, workspace_id, gmail, [], source, "owner",
+    )
+
+    assert result == "draft_created"
+    offer, draft = (call.args[0] for call in session.add.call_args_list)
+    assert offer.details["booking_link_mode"] is False
+    assert len(offer.details["options"]) == 3
+    assert "1. " in draft.body
+    assert "2. " in draft.body
+    assert "3. " in draft.body
+    assert "4. " not in draft.body
 
 
 def test_exact_time_booking_uses_contact_timezone_and_source_mailbox(
