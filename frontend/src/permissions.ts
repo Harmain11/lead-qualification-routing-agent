@@ -19,6 +19,20 @@ const providerLabel = (value: string) => value.split("_").map((part) =>
   part.charAt(0).toUpperCase() + part.slice(1),
 ).join(" ");
 
+const providerActionLabel = (action: string) => ({
+  view: "View connection",
+  view_status: "View connection status",
+  connect_own: "Connect own account",
+  use: "Use integration",
+  sync: "Sync records",
+  send: "Send through integration",
+  disconnect_own: "Disconnect own account",
+  manage_own: "Manage own account",
+  manage_shared: "Manage shared accounts",
+  configure: "Configure settings",
+  manage_credentials: "Manage credentials",
+}[action] ?? providerLabel(action));
+
 export const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     label: "Leads",
@@ -157,7 +171,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: `Integration · ${providerLabel(provider)}`,
     permissions: PROVIDER_ACTIONS.map((action) => ({
       id: `integrations.${provider}.${action}`,
-      label: providerLabel(action),
+      label: providerActionLabel(action),
     })),
   })),
 ];

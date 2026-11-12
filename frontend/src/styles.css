@@ -867,10 +867,6 @@ html[data-theme="dark"] .app-shell .routing-capacity-block { background: transpa
 .member-danger-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; padding-top: 15px; border-top: 1px solid var(--separator-strong); }
 .permission-editor { display: grid; gap: 11px; }
 .permission-edit-hint { margin: -5px 0 0; color: var(--label-3); font-size: 13px; line-height: 1.45; }
-.permission-legend { display: flex; flex-wrap: wrap; gap: 9px; color: var(--label-3); font-size: 13px; }
-.permission-legend span { display: inline-flex; align-items: center; gap: 4px; }
-.permission-dot { width: 6px; height: 6px; display: inline-block; border-radius: 50%; background: var(--label-3); }
-.permission-dot.inherited { background: var(--tint); }.permission-dot.grant { background: var(--tint); }.permission-dot.deny { background: var(--danger); }
 .permission-groups { display: grid; gap: 8px; max-height: 410px; overflow: auto; padding-right: 3px; scrollbar-width: thin; }
 .permission-group { padding: 10px; border: 1px solid rgba(255,255,255,.055); border-radius: 9px; background: rgba(255,255,255,.018); }
 .permission-group h3 { margin: 0 0 7px; color: var(--label-2); font: 13px var(--font-mono); letter-spacing: .01em; text-transform: none; }

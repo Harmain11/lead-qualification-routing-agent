@@ -235,17 +235,50 @@ function cycleOverride(
   };
 }
 
+const INTEGRATION_CATEGORY_PROVIDERS: Array<[string, string[]]> = [
+  ["CRM integrations", ["Salesforce", "Hubspot", "Gohighlevel"]],
+  ["Email & calendar", ["Gmail", "Outlook", "Google Calendar", "Calendly"]],
+  ["Dialer & calling", ["Cloudtalk", "Twilio", "Aircall", "Ringcentral", "Vapi", "Retell"]],
+  ["AI providers", ["Openai", "Gemini", "Claude", "Deepseek", "Xai"]],
+  ["Social & sources", ["Slack", "Linkedin", "Instagram", "Messenger", "Whatsapp Business", "Clutch"]],
+];
+
+const CORE_PERMISSION_CATEGORIES: Array<[string, string[]]> = [
+  ["Leads", ["Leads"]],
+  ["Collaboration", ["Collaboration"]],
+  ["Analytics", ["Analytics"]],
+  ["Review & routing", ["Manual review", "Routing"]],
+  ["Integration settings", ["Integrations"]],
+  ["ICP", ["ICP"]],
+  ["Team & workspace", ["Team", "Workspace"]],
+  ["AI & automation", ["AI / Agents"]],
+  ["Dialer & calling", ["Dialer", "Calls & recordings"]],
+  ["Mailbox", ["Mailbox"]],
+  ["Sensitive fields", ["Sensitive fields"]],
+];
+
+const permissionGroupsByLabel = new Map(PERMISSION_GROUPS.map((group) => [group.label, group]));
+const corePermissionGroups = CORE_PERMISSION_CATEGORIES.map(([label, sourceLabels]) => ({
+  label,
+  permissions: sourceLabels.flatMap((sourceLabel) => {
+    const group = permissionGroupsByLabel.get(sourceLabel);
+    return group?.permissions.map((permission) => sourceLabels.length > 1
+      ? { ...permission, label: `${sourceLabel} · ${permission.label}` }
+      : permission) ?? [];
+  }),
+}));
+
 const DISPLAY_PERMISSION_GROUPS = [
-  ...PERMISSION_GROUPS.filter((group) => !group.label.startsWith("Integration · ")),
-  {
-    label: "Provider access",
+  ...corePermissionGroups,
+  ...INTEGRATION_CATEGORY_PROVIDERS.map(([label, providers]) => ({
+    label,
     permissions: PERMISSION_GROUPS
-      .filter((group) => group.label.startsWith("Integration · "))
+      .filter((group) => providers.includes(group.label.replace("Integration · ", "")))
       .flatMap((group) => group.permissions.map((permission) => ({
         ...permission,
         label: `${group.label.replace("Integration · ", "")} · ${permission.label}`,
       }))),
-  },
+  })),
 ];
 
 function PermissionEditor({ overrides, effective, readOnly, onChange }: PermissionEditorProps) {
@@ -265,11 +298,6 @@ function PermissionEditor({ overrides, effective, readOnly, onChange }: Permissi
   });
   return (
     <div className="permission-editor">
-      <div className="permission-legend" aria-label="Permission state legend">
-        <span><i className="permission-dot inherited" /> Inherited</span>
-        <span><i className="permission-dot grant" /> Custom grant</span>
-        <span><i className="permission-dot deny" /> Explicit deny</span>
-      </div>
       <div className="permission-toolbar">
         <label className="permission-search">
           <span className="sr-only">Search permissions</span>
@@ -277,7 +305,7 @@ function PermissionEditor({ overrides, effective, readOnly, onChange }: Permissi
         </label>
         <span className="permission-count">{visibleGroups.reduce((count, group) => count + group.permissions.length, 0)} shown</span>
       </div>
-      <p className="permission-edit-hint">Click an inherited permission to deny it, or a missing one to grant it. Provider access is grouped below so common team controls stay easy to find.</p>
+      <p className="permission-edit-hint">Click an inherited permission to deny it, or a missing one to grant it. Integration access is grouped by work area, with each provider still controlled separately.</p>
       <div className="permission-groups">
         {visibleGroups.map((group) => {
           const open = Boolean(normalizedQuery) || openGroups.has(group.label);
