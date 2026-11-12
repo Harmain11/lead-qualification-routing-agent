@@ -35,7 +35,7 @@ import {
   SITE_ACCESS_REQUIRED_EVENT,
 } from "./api";
 import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
-import { can, canIntegration, canSubAssignLeads } from "./permissions";
+import { can, canSubAssignLeads } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { SiteAccessGate } from "./components/SiteAccessGate";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
@@ -1222,11 +1222,10 @@ function App() {
       .map((group) => ({
         id: group.id,
         label: group.label,
-        children: group.providers
-          .filter(([provider]) => canIntegration(workspacePermissions, provider, "view"))
-          .map(([id, label]) => ({ id, label })),
+        // Keep the provider visible for orientation. The integration card
+        // itself filters every action using backend allowed_actions.
+        children: group.providers.map(([id, label]) => ({ id, label })),
       }))
-      .filter((group) => group.children.length > 0)
       .map((group) => ({
         id: group.id,
         label: group.label,
@@ -1249,8 +1248,8 @@ function App() {
     countTone: item.id === "review" ? "attention" : item.id === "leads" ? "tint" : undefined,
     children: item.id === "integrations" ? [
       ...visibleIntegrationGroups(),
-      ...(canIntegration(workspacePermissions, "slack", "view") ? [{ id: "slack", label: "Slack" }] : []),
-      ...(can(workspacePermissions, "dialer.call") ? [{ id: "calling", label: "All phone connections" }] : []),
+      { id: "slack", label: "Slack" },
+      { id: "calling", label: "All phone connections" },
     ] : ["analytics", "dialer", "settings", "dashboard"].includes(item.id)
       ? navigationChildren(item.id).filter((child) => !child.view).map((child) => ({ id: child.id, label: child.label }))
       : undefined,

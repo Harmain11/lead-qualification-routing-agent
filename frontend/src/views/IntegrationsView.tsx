@@ -1265,11 +1265,11 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       description: "Connect additional tools that support your lead operations.",
     },
   ];
-  // `allowed_actions` is the provider-scoped authorization result from the
-  // backend.  Keep cards with no provider view grant out of every list and
-  // dropdown; broad integrations.view alone must not reveal another
-  // provider's connection or settings.
-  const visibleCards = cards.filter((card) =>
+  // Keep all providers visible for orientation. Provider-specific actions are
+  // still gated by the backend-provided allowed_actions below; dropdowns use
+  // only providers for which the member has an explicit view grant.
+  const visibleCards = cards;
+  const permittedCards = cards.filter((card) =>
     card.allowed_actions.includes("view") || card.allowed_actions.includes("view_status"),
   );
   const overviewCards = visibleCards.filter((card) => {
@@ -1465,7 +1465,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             title={section.id === "ai" ? `AI analysis · ${card.display_name}` : card.display_name}
             subtitle={<span className="int-status" data-tone={comingSoon ? "idle" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}{connection?.account_name && connection.status !== "disconnected" ? ` · ${connection.account_name}` : ""}</span>}
           >
-         {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{visibleCards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
+         {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{permittedCards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && connection.last_validation_result.message !== operationFeedback[card.provider]?.message && connection.last_validation_result.message !== actionErrors[card.provider] && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}

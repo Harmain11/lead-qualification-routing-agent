@@ -37,20 +37,6 @@ export function can(permissions: ReadonlySet<string> | Iterable<string>, permiss
   return permissions instanceof Set ? permissions.has(permission) : new Set(permissions).has(permission);
 }
 
-/**
- * Provider access is intentionally checked separately from the broad
- * integrations permission.  The backend returns the same provider/action
- * grants, so the UI must not expose a provider merely because someone can
- * open the Integrations page.
- */
-export function canIntegration(
-  permissions: ReadonlySet<string> | Iterable<string>,
-  provider: string,
-  action: string,
-) {
-  return can(permissions, `integrations.${provider}.${action}`);
-}
-
 export function canSubAssignLeads(
   role: string | null | undefined,
   permissions: ReadonlySet<string> | Iterable<string>,
