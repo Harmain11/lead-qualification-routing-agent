@@ -245,7 +245,8 @@ html[data-theme="dark"] { --field-ring: rgba(238, 242, 240, 0.4); }
 .v-app .gmail-inquiry-raw > summary::-webkit-details-marker { display: none; }
 .v-app .gmail-inquiry-raw > summary:hover { background: var(--fill-press, var(--fill)); }
 .v-app .gmail-inquiry-raw[open] > summary { margin-bottom: 10px; }
-.v-app .gmail-inquiry-raw pre { margin: 0; padding: 14px 16px; border: 0; border-radius: var(--r-md); background: var(--surface-sunken); color: var(--label-2); font: 400 12.5px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.v-app .gmail-inquiry-raw { min-width: 0; max-width: 100%; overflow: hidden; }
+.v-app .gmail-inquiry-raw pre { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 0; padding: 14px 16px; border: 0; border-radius: var(--r-md); background: var(--surface-sunken); color: var(--label-2); font: 400 12.5px/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-height: 320px; overflow: auto; }
 
 /* Ask Corral as a lead tab: a single card with a scrolling conversation */
 .v-panel .lead-agent { display: flex; flex-direction: column; max-width: 860px; min-height: 560px; margin: 0 auto; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }

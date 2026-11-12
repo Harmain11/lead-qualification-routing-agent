@@ -1606,7 +1606,7 @@ function ProgressAndHistory({
             {timeline.map((entry) => (
               <li key={entry.id}>
                 <span className="v-timeline-icon"><Icon name={entry.icon} size={15} /></span>
-                <div className="v-timeline-body">
+                <div className={`v-timeline-body${entry.icon === "mail" ? " is-email" : ""}`}>
                   <div className="v-timeline-head">
                     <b>{entry.title}</b>
                     <time dateTime={entry.when}>{new Date(entry.when).toLocaleString()}</time>
