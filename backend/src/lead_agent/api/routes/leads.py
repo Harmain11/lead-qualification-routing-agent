@@ -976,20 +976,21 @@ def update_lead_assignment(
     if request.assigned_rep_id is None:
         routing.assigned_rep_id = None
         routing.assigned_rep_name = None
-        assign_lead(
-            session, row, None, actor=workspace, reason="manual unassignment",
-        )
     else:
-        assign_lead(
-            session,
-            row,
-            request.assigned_rep_id,
-            actor=workspace,
-            reason="manual reassignment",
-        )
-        user = session.get(UserORM, request.assigned_rep_id)
-        if user is None:  # assign_lead already validates; retain a fail-closed guard.
-            raise HTTPException(status_code=422, detail="Choose an active workspace member.")
+        member, user = session.execute(
+            select(WorkspaceMembershipORM, UserORM)
+            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+                WorkspaceMembershipORM.user_id == request.assigned_rep_id,
+                WorkspaceMembershipORM.status == "active",
+                UserORM.status == "active",
+            )
+        ).one_or_none() or (None, None)
+        if member is None or user is None:
+            raise HTTPException(status_code=422, detail="Choose an active team member.")
+        if normalize_role(member.role) not in {"sales_manager", "sales_rep"}:
+            raise HTTPException(status_code=422, detail="Choose a sales team member.")
         routing.assigned_rep_id = str(user.id)
         routing.assigned_rep_name = user.display_name
 

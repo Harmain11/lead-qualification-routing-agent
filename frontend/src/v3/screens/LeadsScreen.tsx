@@ -703,7 +703,8 @@ export function LeadsScreen({
                 <th scope="col" className="c-lead">Lead</th>
                 <th scope="col" className="c-score">Score</th>
                 <th scope="col" className="c-a">{colA}</th>
-                <th scope="col" className="c-b">{lens === "overview" ? "Sub-lead" : colB}</th>
+                <th scope="col" className="c-b">{lens === "overview" ? "Lead owner" : colB}</th>
+                {lens === "overview" && <th scope="col" className="c-sublead">Sub-lead</th>}
                 <th scope="col" className="c-stage">Stage</th>
                 <th scope="col" className="c-value">Value</th>
                 <th scope="col" className="c-date">Received</th>
@@ -928,6 +929,12 @@ const LeadRow = memo(function LeadRow({
             </span>
           </td>
           <td className="c-b">
+            <span className="v-two">
+              <span>{lead.owner_name || "Unassigned"}</span>
+              <small>{lead.owner_id ? "Manager / owner" : "Awaiting owner"}</small>
+            </span>
+          </td>
+          <td className="c-sublead">
             {canManageRouting && lead.routing ? (
               <span className="v-two">
                 <select

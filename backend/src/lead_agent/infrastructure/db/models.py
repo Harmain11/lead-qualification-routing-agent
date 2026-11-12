@@ -820,6 +820,9 @@ class LeadORM(Base):
     current_owner_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    current_owner: Mapped[UserORM | None] = relationship(
+        "UserORM", foreign_keys=[current_owner_id], lazy="joined"
+    )
     primary_team_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workspace_teams.id", ondelete="SET NULL"), nullable=True
     )
@@ -1307,3 +1310,4 @@ class LeadWinNotificationORM(Base):
 from lead_agent.infrastructure.db import calling as calling_models  # noqa: E402,F401
 from lead_agent.infrastructure.db import operations as operations_models  # noqa: E402,F401
 from lead_agent.infrastructure.db import teams as team_models  # noqa: E402,F401
+

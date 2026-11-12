@@ -282,6 +282,8 @@ export type Lead = {
   /** Internal compatibility field; do not display sequential lead numbers in the UI. */
   lead_number: number;
   workspace_id: string;
+  owner_id?: string | null;
+  owner_name?: string | null;
   source: string;
   source_detail: string | null;
   external_id: string | null;
@@ -1264,3 +1266,4 @@ export type GmailSendResult = {
   recipient: string;
   sent_at: string;
 };
+

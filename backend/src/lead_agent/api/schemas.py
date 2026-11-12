@@ -223,6 +223,8 @@ class LeadResponse(BaseModel):
     id: UUID
     lead_number: int
     workspace_id: UUID
+    owner_id: UUID | None = None
+    owner_name: str | None = None
     source: str
     source_detail: str | None
     external_id: str | None
@@ -641,6 +643,8 @@ def lead_response(
         id=row.id,
         lead_number=row.lead_number,
         workspace_id=row.workspace_id,
+        owner_id=row.current_owner_id,
+        owner_name=row.current_owner.display_name if row.current_owner else None,
         source=row.source,
         source_detail=row.source_detail,
         external_id=row.external_id,
@@ -703,3 +707,4 @@ def outcome_response(
             for item in sorted(row.win_notifications, key=lambda item: item.destination)
         ],
     )
+
