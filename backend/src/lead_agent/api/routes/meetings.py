@@ -469,7 +469,7 @@ def _meeting_recommendations(
         except ProviderOperationError:
             pass
     automation_message = (
-        "Corral prepares five available times in a draft in the lead’s Emails tab. "
+        "Corral prepares three available times in a draft in the lead’s Emails tab. "
         "Review and send it when ready. A clear reply choosing one time books the "
         "meeting after the connected calendar confirms availability."
     )
@@ -642,7 +642,10 @@ def _meeting_recommendations(
         source_subject=source["subject"] or None,
         source_excerpt=source["excerpt"] or None,
         integrations=_integration_states(connections),
-        suggestions=suggestions[:5],
+        # A short choice set is easier to compare in an email and avoids turning a
+        # meeting reply into a scheduling worksheet.  The booking flow still
+        # rechecks the selected slot before it creates the event.
+        suggestions=suggestions[:3],
         calendly_event_types=[
             MeetingCalendlyEventType.model_validate(event_type)
             for event_type in calendly_event_types

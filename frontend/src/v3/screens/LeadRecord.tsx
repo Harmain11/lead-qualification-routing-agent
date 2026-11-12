@@ -143,6 +143,7 @@ export function LeadRecord({
   const [meetingRefresh, setMeetingRefresh] = useState(0);
   const [activityRefresh, setActivityRefresh] = useState(0);
   const [compose, setCompose] = useState<{ subject?: string; body?: string; quoteId?: string; nonce: number } | null>(null);
+  const [showAppointmentDrafts, setShowAppointmentDrafts] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState<{ text: string; nonce: number } | null>(null);
   const [newQuote, setNewQuote] = useState(false);
   const [move, setMove] = useState<DealStage | null>(null);
@@ -163,6 +164,9 @@ export function LeadRecord({
     setVisited((current) => (current.has(shownSection) ? current : new Set([...current, shownSection])));
   }, [shownSection]);
   useEffect(() => { setVisited(new Set([shownSection])); }, [lead.id]);
+  useEffect(() => {
+    if (shownSection !== "email") setShowAppointmentDrafts(false);
+  }, [shownSection]);
   const updatedRef = useRef(onUpdated);
   useEffect(() => { updatedRef.current = onUpdated; }, [onUpdated]);
   useEffect(() => {
@@ -560,6 +564,7 @@ export function LeadRecord({
         completingReview={completingManualReview}
         onCompleteReview={() => void completeManualReview()}
         onOpenSection={(section) => onSectionChange(section)}
+        onOpenAppointmentDraft={() => setShowAppointmentDrafts(true)}
         onEditDetails={() => { setProfileDraft(createLeadProfileDraft(lead)); setEditingProfile(true); setNotice(null); }}
         onRefreshMeeting={() => setMeetingRefresh((value) => value + 1)}
         formatDate={formatMeetingDate}
@@ -803,7 +808,7 @@ export function LeadRecord({
             onOpenBoard={onOpenPipeline}
             updates={<ProgressAndHistory part="update" lead={lead} canEdit={canEdit} refreshToken={activityRefresh} activeSection={shownSection} onConversationSynced={synced} />}
             onMove={(target) => setMove(target)}
-            onDraftCreated={() => onSectionChange("email")}
+            onDraftCreated={() => { setShowAppointmentDrafts(true); onSectionChange("email"); }}
             onMeetingStatusChange={handleMeetingStatusChange}
           />
         )}
@@ -823,6 +828,7 @@ export function LeadRecord({
               canSend={canEdit}
               onAskAgent={(prompt) => { if (prompt) setAgentPrompt({ text: prompt, nonce: Date.now() }); onSectionChange("agent"); }}
               onConversationSynced={synced}
+              showAppointmentDrafts={showAppointmentDrafts}
             />
           </div>}
         </div>

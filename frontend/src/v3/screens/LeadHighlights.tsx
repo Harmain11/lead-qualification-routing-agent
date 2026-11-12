@@ -28,6 +28,7 @@ type Props = {
   completingReview: boolean;
   onCompleteReview: () => void;
   onOpenSection: (section: "email" | "pipeline" | "ai") => void;
+  onOpenAppointmentDraft?: () => void;
   onEditDetails: () => void;
   onRefreshMeeting: () => void;
   formatDate: (value: string) => string;
@@ -88,7 +89,7 @@ export function buildLeadHighlights(props: Props): LeadHighlight[] {
 
   if (meeting) {
     const openEmail = props.canViewEmail
-      ? <Button kind="tinted" size="sm" onClick={() => props.onOpenSection("email")}>Open draft</Button>
+      ? <Button kind="tinted" size="sm" onClick={() => { props.onOpenAppointmentDraft?.(); props.onOpenSection("email"); }}>Open draft</Button>
       : undefined;
     const followUp = <Button kind="plain" size="sm" onClick={() => props.onOpenSection("pipeline")}>Open meetings</Button>;
     const meetingItem: Record<LeadMeetingIndicator["kind"], Omit<LeadHighlight, "id" | "icon">> = {

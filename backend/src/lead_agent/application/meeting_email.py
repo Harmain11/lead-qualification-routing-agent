@@ -614,7 +614,7 @@ def manual_selected_slot_body_is_intact(details: dict[str, Any], body: str) -> b
     options = details.get("options")
     if not isinstance(options, list) or not options:
         return not details.get("manual_selected_slot")
-    if len(options) > 5 or not all(isinstance(option, dict) for option in options):
+    if len(options) > 3 or not all(isinstance(option, dict) for option in options):
         return False
     expected = [
         _format_slot(index, option).casefold()

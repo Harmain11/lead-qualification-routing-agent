@@ -221,12 +221,14 @@
 .lm-message > details > summary { display: grid; grid-template-columns: auto minmax(120px, 190px) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 18px; list-style: none; cursor: pointer; transition: background-color 120ms ease; }
 .lm-message > details > summary::-webkit-details-marker { display: none; }
 .lm-message > details > summary:hover { background: var(--fill); }
+.lm-message > details > summary:focus-visible,
+.lm-thread > summary:focus-visible { outline: 2px solid var(--tint); outline-offset: -2px; }
 .lm-from { display: grid; min-width: 0; gap: 2px; }
 .lm-from b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 14px/1.3 var(--font); }
 .lm-from small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-footnote); color: var(--label-3); }
 .lm-snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-subhead); color: var(--label-3); }
 .lm-message > details[open] > summary .lm-snippet { visibility: hidden; }
-.lm-message-time { display: grid; justify-items: end; gap: 4px; }
+.lm-message-time { display: grid; justify-items: end; gap: 4px; min-width: 0; }
 .lm-message time { font: var(--t-footnote); color: var(--label-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .lm-latest-badge { background: var(--fill); color: var(--label-2); }
 .lm-message[data-outbound] > details[open] > .lm-body { background: color-mix(in srgb, var(--tint-soft) 45%, transparent); }
@@ -249,6 +251,8 @@
   .lm-message > details > summary { grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; padding-inline: 14px; }
   .lm-from b { font-size: 13px; }
   .lm-message-time time { font-size: 11px; }
+  .lm-thread-meta { gap: 4px 7px; }
+  .lm-thread-state, .lm-latest-badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 }
 
 /* ===================================== Inbox: groups, filters, shortcuts */

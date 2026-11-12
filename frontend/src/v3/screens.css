@@ -47,6 +47,7 @@
 .v-table tbody tr[data-selected] { background: var(--tint-soft); }
 .v-table .c-check { width: 44px; padding: 0 4px 0 16px; }
 .v-table .c-score { width: 190px; }
+.v-table .c-sublead { width: 170px; }
 .v-table .c-date { width: 100px; text-align: right; padding-right: 20px; color: var(--label-2); white-space: nowrap; }
 .v-table th.c-date { text-align: right; padding-right: 20px; }
 .v-lead-table[data-lens="overview"] .c-a { width: 18%; }
@@ -59,6 +60,7 @@
 .v-score-cell .v-ring b { font-size: 11px !important; }
 .v-two { display: grid; gap: 2px; min-width: 0; max-width: 240px; }
 .v-two > span, .v-two > select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v-two > .v-owner-name { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
 .v-two small { font: var(--t-footnote); color: var(--label-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v-two .v-popup { margin-left: -8px; }
 .v-two .v-popup + small { padding-left: 0; }
@@ -95,7 +97,7 @@
   .v-table .c-score { grid-area: score; width: auto; }
   .v-table .c-score .v-badge { display: none; }
   .v-table .c-a { grid-area: meta; }
-  .v-table .c-b { display: none !important; }
+  .v-table .c-b, .v-table .c-sublead { display: none !important; }
   .v-table .c-date { grid-area: date; width: auto; padding: 0; font: var(--t-footnote); align-self: center; }
   .v-lead-cell { min-width: 0; }
   .v-lead-cell .v-mono { display: none; }

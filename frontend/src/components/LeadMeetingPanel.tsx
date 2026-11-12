@@ -535,7 +535,7 @@ export function LeadMeetingPanel({
 
         {!draftCreated && reviewing && !bookedOfferForCurrentRequest && <div className="lmp-review" role="group" aria-label="Create appointment draft">
           <div className="lmp-review-title"><span className="lmp-review-badge">Final review</span> {recommendations.offer_can_be_replaced ? "Replace the unbooked appointment draft?" : "Prepare the meeting offer?"}</div>
-          <p>This saves an editable reply in Emails with up to five current calendar times. A clear numbered choice books after another availability check. If no times are available, the reply uses the connected booking link.</p>
+          <p>This saves an editable reply in Emails with up to three current calendar times. A clear numbered choice books after another availability check. If no times are available, the reply uses the connected booking link.</p>
           {recommendations.offer_can_be_replaced && <div className="lmp-booking-warning" role="status">
             <b>Replaces the unbooked offer</b>
             <p>The previous email remains in history. The new draft uses the latest calendar availability.</p>

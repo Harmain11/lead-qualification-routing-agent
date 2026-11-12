@@ -71,6 +71,7 @@ export function LeadEmailPanel({
   onConversationSynced,
   onAskAgent,
   hideComposeButton = false,
+  showAppointmentDrafts = false,
 }: {
   lead: Lead;
   active: boolean;
@@ -79,6 +80,7 @@ export function LeadEmailPanel({
   onConversationSynced: () => void;
   onAskAgent?: (prompt?: string) => void;
   hideComposeButton?: boolean;
+  showAppointmentDrafts?: boolean;
 }) {
   const [accounts, setAccounts] = useState<ProviderConnection[]>([]);
   const [events, setEvents] = useState<LeadPipelineEvent[]>([]);
@@ -314,7 +316,7 @@ export function LeadEmailPanel({
     <MeetingOfferDrafts
       leadId={lead.id}
       leadEmail={lead.email}
-      active={active}
+      active={active && Boolean(showAppointmentDrafts)}
       canSend={canSend}
       accounts={accounts}
       onSent={() => {
@@ -355,9 +357,14 @@ export function LeadEmailPanel({
             const replyToAddress = stringDetail(details, "reply_to");
             const mailboxName = accounts.find((account) => account.id === stringDetail(details, "gmail_connection_id"))?.account_name;
             const isLatest = index === 0;
+            // Gmail keeps the newest message easy to read, but a forwarded or
+            // quoted chain should not take over the whole lead record.  The
+            // provider body keeps the full content available after the user
+            // opens the message.
+            const shouldExpand = isLatest && body.length <= 1_500;
             const who = outbound ? "You" : (sender.replace(/<.*>/, "").trim() || sender || "Lead");
             return <li key={event.id} className="lm-message" data-outbound={outbound || undefined} data-latest={isLatest || undefined}>
-              <details open={isLatest || undefined}>
+              <details open={shouldExpand || undefined}>
                 <summary>
                   <Monogram text={outbound ? (mailboxName || "You") : who} size={32} />
                   <span className="lm-from"><b>{who}</b><small>{messageDirectionLabel(event)}</small></span>

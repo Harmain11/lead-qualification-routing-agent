@@ -1269,6 +1269,7 @@ body { background: radial-gradient(circle at 68% -10%, rgba(34, 49, 93, .22), tr
 .permission-group { padding: 0; overflow: hidden; }
 .permission-group-heading { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 0; background: transparent; color: var(--label); text-align: left; cursor: pointer; }
 .permission-group-heading:hover { background: var(--surface-sunken); }
+.permission-group-heading:focus-visible { outline: 2px solid var(--tint); outline-offset: -2px; }
 .permission-group-heading > span { min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .permission-group-heading b { font-size: 13px; font-weight: 700; }
 .permission-group-heading small { color: var(--label-3); font-size: 12px; }

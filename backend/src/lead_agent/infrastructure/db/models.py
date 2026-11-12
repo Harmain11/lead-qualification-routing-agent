@@ -820,6 +820,9 @@ class LeadORM(Base):
     current_owner_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    current_owner: Mapped[UserORM | None] = relationship(
+        "UserORM", foreign_keys=[current_owner_id], lazy="joined"
+    )
     primary_team_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workspace_teams.id", ondelete="SET NULL"), nullable=True
     )

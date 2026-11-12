@@ -70,7 +70,7 @@ from lead_agent.domain.lead_assistant import LeadProfileChanges
 from lead_agent.domain.lead_sources import MANUAL_SOURCE, MANUAL_SOURCE_DETAIL
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.provider_errors import ProviderOperationError
-from lead_agent.domain.rbac import can_sub_assign_leads, effective_permissions
+from lead_agent.domain.rbac import can_sub_assign_leads, effective_permissions, normalize_role
 from lead_agent.domain.routing import NotificationProvider
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.domain.workspaces import WorkspaceContext
@@ -171,6 +171,7 @@ class LeadShareResponse(BaseModel):
 class LeadAssignmentOptionResponse(BaseModel):
     user_id: UUID
     display_name: str
+    role: str
 
 
 class LeadProfileUpdateRequest(LeadProfileChanges):
@@ -664,9 +665,14 @@ def lead_assignment_options(
         .order_by(UserORM.display_name)
     ).all()
     return [
-        LeadAssignmentOptionResponse(user_id=user.id, display_name=user.display_name)
+        LeadAssignmentOptionResponse(
+            user_id=user.id,
+            display_name=user.display_name,
+            role=normalize_role(membership.role),
+        )
         for membership, user in members
-        if "leads.edit"
+        if normalize_role(membership.role) in {"sales_manager", "sales_rep"}
+        and "leads.edit"
         in effective_permissions(membership.role, membership.permission_overrides)
     ]
 
@@ -975,20 +981,21 @@ def update_lead_assignment(
     if request.assigned_rep_id is None:
         routing.assigned_rep_id = None
         routing.assigned_rep_name = None
-        assign_lead(
-            session, row, None, actor=workspace, reason="manual unassignment",
-        )
     else:
-        assign_lead(
-            session,
-            row,
-            request.assigned_rep_id,
-            actor=workspace,
-            reason="manual reassignment",
-        )
-        user = session.get(UserORM, request.assigned_rep_id)
-        if user is None:  # assign_lead already validates; retain a fail-closed guard.
-            raise HTTPException(status_code=422, detail="Choose an active workspace member.")
+        member, user = session.execute(
+            select(WorkspaceMembershipORM, UserORM)
+            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+                WorkspaceMembershipORM.user_id == request.assigned_rep_id,
+                WorkspaceMembershipORM.status == "active",
+                UserORM.status == "active",
+            )
+        ).one_or_none() or (None, None)
+        if member is None or user is None:
+            raise HTTPException(status_code=422, detail="Choose an active team member.")
+        if normalize_role(member.role) not in {"sales_manager", "sales_rep"}:
+            raise HTTPException(status_code=422, detail="Choose a sales team member.")
         routing.assigned_rep_id = str(user.id)
         routing.assigned_rep_name = user.display_name
 

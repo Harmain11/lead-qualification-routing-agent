@@ -59,6 +59,16 @@ class _Session:
         return iter(self.rows)
 
 
+def _editable_owner(workspace_id, actor_id: str = "owner") -> WorkspaceContext:
+    """Use the same explicit permission shape provided by the request dependency."""
+    return WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id=actor_id,
+        role="owner",
+        permissions=frozenset({"leads.edit", "integrations.gmail.use"}),
+    )
+
+
 @pytest.fixture(autouse=True)
 def _mock_workspace_meeting_ai(monkeypatch: pytest.MonkeyPatch) -> None:
     class TestReasoningProvider:
@@ -150,11 +160,14 @@ def test_manual_offer_draft_uses_only_a_freshly_available_slot(
         event_type_uri=request.event_type_uri,
         event_type_name=request.event_type_name,
     )
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    lead = SimpleNamespace(
+        id=lead_id, workspace_id=workspace_id, email="buyer@example.test"
+    )
     workspace = WorkspaceContext(
         workspace_id=workspace_id,
         actor_id=actor_id,
         role="owner",
+        permissions=frozenset({"leads.edit"}),
     )
     draft_id = uuid4()
     received: list[dict[str, object]] = []
@@ -211,11 +224,14 @@ def test_manual_offer_draft_rejects_a_slot_missing_from_fresh_availability(
         event_type_uri="https://api.calendly.com/event_types/type-1",
         event_type_name="30 Minute Meeting",
     )
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    lead = SimpleNamespace(
+        id=lead_id, workspace_id=workspace_id, email="buyer@example.test"
+    )
     workspace = WorkspaceContext(
         workspace_id=workspace_id,
         actor_id=str(uuid4()),
         role="owner",
+        permissions=frozenset({"leads.edit"}),
     )
     monkeypatch.setattr(
         "lead_agent.api.routes.meetings._lead_or_404",
@@ -1065,6 +1081,9 @@ def test_calendly_invitee_location_checks_event_type_configuration() -> None:
 def test_exact_calendly_booking_skips_disconnected_event_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    requested_start = (datetime.now(UTC) + timedelta(days=2)).replace(
+        hour=14, minute=0, second=0, microsecond=0
+    )
     connection = SimpleNamespace(
         id=uuid4(), provider_type="calendly", account_name="admin@example.test"
     )
@@ -1112,7 +1131,7 @@ def test_exact_calendly_booking_skips_disconnected_event_type(
                 )
             if event_type_uri.endswith("/no-open-times"):
                 return []
-            return [{"start_time": "2026-11-06T14:00:00Z"}]
+            return [{"start_time": requested_start.isoformat()}]
 
     monkeypatch.setattr(
         meeting_email,
@@ -1141,8 +1160,11 @@ def test_exact_calendly_booking_skips_disconnected_event_type(
         "actor-1",
         "source-message-1",
         str(uuid4()),
-        "November 6, 2026 at 2:00 PM",
-        datetime(2026, 10, 5, 10, tzinfo=UTC),
+        (
+            f"{requested_start.strftime('%B')} {requested_start.day}, "
+            f"{requested_start.year} at 2:00 PM"
+        ),
+        datetime.now(UTC),
     )
 
     assert booked is True
@@ -1335,7 +1357,7 @@ def test_confirm_meeting_reuses_existing_booking_and_closes_pending_offer() -> N
         lead_id,
         request,
         session=session,  # type: ignore[arg-type]
-        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="admin"),
+        workspace=_editable_owner(workspace_id, "admin"),
     )
 
     assert result.provider_event_id == "calendar-event-1"
@@ -1459,7 +1481,7 @@ def test_confirm_meeting_reconciles_existing_calendly_event_before_availability(
         lead_id,
         request,
         session=session,  # type: ignore[arg-type]
-        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="admin"),
+        workspace=_editable_owner(workspace_id, "admin"),
     )
 
     assert result.provider_event_id == "event-123"
@@ -1582,7 +1604,7 @@ def test_confirm_meeting_sends_event_type_location_to_calendly_invitee(
         lead_id,
         request,
         session=session,  # type: ignore[arg-type]
-        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="admin"),
+        workspace=_editable_owner(workspace_id, "admin"),
     )
 
     assert result.provider_event_id == "event-location-123"
@@ -1599,8 +1621,12 @@ def test_gmail_refresh_retries_only_a_previously_confirmed_booking(
     workspace_id = uuid4()
     gmail_connection_id = uuid4()
     reply_id = "gmail-reply-confirmed"
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
-    gmail_connection = SimpleNamespace(id=gmail_connection_id)
+    lead = SimpleNamespace(
+        id=lead_id, workspace_id=workspace_id, email="buyer@example.test"
+    )
+    gmail_connection = SimpleNamespace(
+        id=gmail_connection_id, workspace_id=workspace_id
+    )
     offer = SimpleNamespace(
         status="needs_attention",
         details={
@@ -1671,7 +1697,9 @@ def test_gmail_reply_ai_ordinal_confirmation_books_the_selected_offer(
     gmail_connection_id = uuid4()
     now = datetime.now(UTC)
     reply_id = "gmail-reply-ordinal"
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    lead = SimpleNamespace(
+        id=lead_id, workspace_id=workspace_id, email="buyer@example.test"
+    )
     gmail_connection = SimpleNamespace(id=gmail_connection_id)
     options = [
         {
@@ -1860,8 +1888,16 @@ def test_direct_booking_retry_fetches_the_saved_gmail_thread(
     lead_id = uuid4()
     workspace_id = uuid4()
     gmail_connection_id = uuid4()
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
-    gmail_connection = SimpleNamespace(id=gmail_connection_id)
+    lead = SimpleNamespace(
+        id=lead_id, workspace_id=workspace_id, email="buyer@example.test"
+    )
+    gmail_connection = SimpleNamespace(
+        id=gmail_connection_id,
+        workspace_id=workspace_id,
+        provider_type="gmail",
+        connection_type="workspace_managed",
+        connection_metadata={},
+    )
     offer = SimpleNamespace(
         status="needs_attention",
         details={
@@ -1923,7 +1959,7 @@ def test_direct_booking_retry_fetches_the_saved_gmail_thread(
         RetryConfirmedMeetingBookingRequest(offer_source_message_id="gmail-source-1"),
         session=session,  # type: ignore[arg-type]
         resolver=Resolver(),  # type: ignore[arg-type]
-        workspace=WorkspaceContext(workspace_id=workspace_id, actor_id="owner"),
+        workspace=_editable_owner(workspace_id),
     )
 
     assert result.status == "booked"
@@ -1937,7 +1973,11 @@ def test_recommendations_expose_saved_offer_source_message_id(
     lead_id = uuid4()
     workspace_id = uuid4()
     gmail_connection_id = str(uuid4())
-    lead = SimpleNamespace(id=lead_id, email="buyer@example.test")
+    lead = SimpleNamespace(
+        id=lead_id,
+        workspace_id=workspace_id,
+        email="buyer@example.test",
+    )
     offer = SimpleNamespace(
         status="needs_attention",
         details={
