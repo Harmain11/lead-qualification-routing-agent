@@ -211,6 +211,7 @@ function EmailMessage({
   source,
   leadEmail,
   receivedAt,
+  showTypeBadge = true,
 }: {
   prepared: PreparedMessage;
   index: number;
@@ -218,6 +219,7 @@ function EmailMessage({
   source: string;
   leadEmail: string;
   receivedAt: string;
+  showTypeBadge?: boolean;
 }) {
   const { message } = prepared;
   const sender = senderDisplay(message.from);
@@ -241,7 +243,7 @@ function EmailMessage({
       </div>
       <div className="gmail-inquiry-message-meta">
         <div className="gmail-inquiry-badges">
-          {label === "Earlier email" && <span className="gmail-inquiry-type-badge">{label}</span>}
+          {showTypeBadge && (label === "Latest email" || label === "Earlier email") && <span className={`gmail-inquiry-type-badge${label === "Latest email" ? " latest" : ""}`}>{label}</span>}
           <span className="gmail-inquiry-direction-badge">{direction}</span>
         </div>
         {date && <time dateTime={dateTimeValue(date)}><span>{dateLabel}</span> {formatDate(date)}</time>}
@@ -327,10 +329,11 @@ export function GmailInquiryView({
       {original && <EmailMessage
         prepared={original}
         index={0}
-        label="Original inquiry"
+        label="Latest email"
         source={source}
         leadEmail={leadEmail}
         receivedAt={receivedAt}
+        showTypeBadge={inquiry.messages.length > 1}
       />}
       {earlierMessages.length > 0 && <details className="gmail-inquiry-history">
         <summary>View {earlierMessages.length} earlier {earlierMessages.length === 1 ? "email" : "emails"}</summary>
@@ -343,6 +346,7 @@ export function GmailInquiryView({
             source={source}
             leadEmail={leadEmail}
             receivedAt=""
+            showTypeBadge
           />)}
         </div>
       </details>}

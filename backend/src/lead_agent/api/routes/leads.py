@@ -43,6 +43,7 @@ from lead_agent.application.field_privacy import assert_field_writes
 from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     lead_history_context,
+    stored_prospect_context,
 )
 from lead_agent.application.gmail_profile import extract_stated_gmail_profile
 from lead_agent.application.governance import operations_policy
@@ -1112,6 +1113,8 @@ def complete_lead_manual_review(
             session,
             workspace_id=workspace.workspace_id,
             lead_id=row.id,
+            prospect_only=True,
+            prospect_email=row.email,
         )
         normalized = replace(
             normalize_lead(
@@ -1131,8 +1134,11 @@ def complete_lead_manual_review(
                     "budget": row.budget,
                     "product_or_service": row.product_or_service,
                     "message": (
-                        f"{row.message}\n\nVerified lead history (oldest first):\n"
-                        f"{progress_context}"
+                        f"Verified prospect history (oldest first):\n{progress_context}"
+                        if progress_context
+                        else stored_prospect_context(
+                            str(row.message or ""), lead_email=str(row.email or "")
+                        ) or row.message
                     ),
                     "received_at": row.received_at,
                     "raw_payload": row.raw_payload,
@@ -1539,6 +1545,8 @@ def _reanalyze_lead_with_history(
         session,
         workspace_id=workspace_id,
         lead_id=row.id,
+        prospect_only=True,
+        prospect_email=row.email,
     )
     payload = {
         "source": row.source,
@@ -1555,7 +1563,13 @@ def _reanalyze_lead_with_history(
         "geography": row.geography,
         "budget": row.budget,
         "product_or_service": row.product_or_service,
-        "message": f"{row.message}\n\nVerified lead history (oldest first):\n{progress_context}",
+        "message": (
+            f"Verified prospect history (oldest first):\n{progress_context}"
+            if progress_context
+            else stored_prospect_context(
+                str(row.message or ""), lead_email=str(row.email or "")
+            ) or row.message
+        ),
         "received_at": row.received_at,
         "raw_payload": row.raw_payload,
         "normalization_version": row.normalization_version,

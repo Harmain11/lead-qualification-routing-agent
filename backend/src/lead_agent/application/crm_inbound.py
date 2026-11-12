@@ -17,6 +17,7 @@ from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     gmail_history_messages,
     lead_history_context,
+    stored_prospect_context,
 )
 from lead_agent.application.services import process_source_event, reprocess_lead
 from lead_agent.domain.analysis import ReasoningProvider
@@ -876,19 +877,28 @@ def _prepare_reprocess_input(
         session,
         workspace_id=connection.workspace_id,
         lead_id=lead.id,
+        prospect_only=True,
+        prospect_email=lead.email,
     )
-    message_parts = [str(lead.message or "").strip()]
+    # ``lead.message`` is the durable display copy of the whole thread and
+    # may contain long Corral replies.  Do not feed that shared transcript to
+    # qualification as if the prospect authored it.  The normalized Gmail
+    # payload is already prospect-focused; verified stored history is the
+    # fallback for re-analysis of an existing lead.
+    message_parts = []
     if history_context:
-        message_parts.append(
-            f"Verified lead history (oldest first):\n{history_context}"
-        )
+        message_parts.append(f"Verified prospect history (oldest first):\n{history_context}")
     latest_message = str(reprocess_payload.get("message") or "").strip()
     if (
         latest_message
-        and latest_message != str(lead.message or "").strip()
         and latest_message not in history_context
     ):
         message_parts.append(f"Latest imported Gmail message:\n{latest_message}")
+    if not message_parts:
+        legacy_context = stored_prospect_context(
+            str(lead.message or ""), lead_email=str(lead.email or "")
+        )
+        message_parts.append(legacy_context or latest_message or str(lead.message or "").strip())
     reprocess_payload["message"] = "\n\n".join(
         part for part in message_parts if part
     )

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import html
 import json
@@ -10,6 +9,7 @@ import re
 import time
 import unicodedata
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.utils import getaddresses, parseaddr
@@ -20,6 +20,7 @@ from uuid import UUID
 
 import httpx
 
+from lead_agent.application.gmail_profile import extract_stated_gmail_profile
 from lead_agent.domain.crm_inbound import (
     CanonicalInboundLead,
     ExternalCrmRecord,
@@ -27,7 +28,6 @@ from lead_agent.domain.crm_inbound import (
     InboundCursor,
 )
 from lead_agent.domain.gmail import GmailEvidence, GmailLeadExtraction, GmailProspectCandidate
-from lead_agent.application.gmail_profile import extract_stated_gmail_profile
 from lead_agent.domain.integrations import ConnectionValidation
 from lead_agent.domain.operations import WorkspaceBusinessProfile
 from lead_agent.domain.provider_errors import ProviderOperationError
@@ -1499,11 +1499,6 @@ class GmailInboundProvider:
                 if isinstance(header, dict)
             }
             sender_name, sender = parseaddr(headers.get("from", ""))
-            reply_to = ", ".join(
-                address.strip().lower()
-                for _name, address in getaddresses([headers.get("reply-to", "")])
-                if address
-            )
             recipients = [
                 address.strip().lower()
                 for _name, address in getaddresses([headers.get("to", ""), headers.get("cc", "")])
@@ -2423,8 +2418,12 @@ class GmailInboundProvider:
             ),
             "message": (
                 "Thread role: direct prospect selected from parsed external participant "
-                f"headers.\n\n{thread_context}"
+                f"headers.\n\n{authored_body}"
             ),
+            # Keep the shared thread for timeline/display features.  The
+            # normalized message above is intentionally prospect-authored only
+            # so initial qualification cannot score Corral's own replies.
+            "gmail_display_thread": thread_context,
             "received_at": record.modified_at or datetime.now(UTC),
             "gmail_message_id": record.record_id,
             "gmail_thread_id": str(values.get("thread_id", "")),

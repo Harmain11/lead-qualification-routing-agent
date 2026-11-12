@@ -1086,6 +1086,9 @@ function App() {
         leadSectionHref(selectedLead.id, section),
       );
       setLeadSection(section);
+      window.requestAnimationFrame(() => {
+        document.getElementById(`lead-panel-${section}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
     },
     [selectedLead, leadSection],
   );

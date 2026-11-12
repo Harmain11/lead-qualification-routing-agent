@@ -70,15 +70,14 @@ def test_request_for_context_with_unsettled_service_and_signature_name_is_a_lead
     body = (
         "From: Morgan West <morgan@agency.example>\n"
         "To: <lee@studio.example>\nSubject: More information\n\n"
-        "I am with Lee Creative Studio, a digital marketing agency. "
-        "Our team has 18 employees, our annual revenue is $2,400,000, "
-        "our budget is $25,000, and we are based in Karachi, Pakistan. "
-        "We build an AI layer for your existing systems.\n\n"
+        "Thanks for getting back to us; we can share more context.\n\n"
         "> Subject: More information\n> Date: Monday\n"
         '> From: "lee studio.example" <lee@studio.example>\n'
         "> To: Morgan West <morgan@agency.example>\n\n"
-        "> Give me a little more context\n>\n> Lee Taylor\n"
-        "> Creative Director / Owner\n> lee@studio.example\n"
+        "> Give me a little more context. I am with Lee Creative Studio, a digital "
+        "marketing agency. Our team has 18 employees, our annual revenue is $2,400,000, "
+        "> our budget is $25,000, and we are based in Karachi, Pakistan.\n>\n"
+        "> Lee Taylor\n> Creative Director / Owner\n> lee@studio.example\n"
     )
     candidate = GmailProspectCandidate(
         role="direct_prospect", is_genuine_inquiry=True, confidence=0.94,
@@ -391,6 +390,9 @@ def test_ai_qualification_uses_external_messages_not_internal_replies():
     assert lead.normalized_payload["email"] == "lee@client.example"
     assert internal_text not in observed[0]
     assert external_text in observed[0]
+    assert internal_text not in lead.normalized_payload["message"]
+    assert external_text in lead.normalized_payload["message"]
+    assert internal_text in lead.normalized_payload["gmail_display_thread"]
 
 
 def test_name_is_not_borrowed_from_a_different_correspondents_signature():

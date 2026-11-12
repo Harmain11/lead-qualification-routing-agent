@@ -31,6 +31,8 @@ from lead_agent.application.crm_inbound import (
 from lead_agent.application.gmail_history import (
     append_gmail_thread_messages,
     gmail_history_messages,
+    lead_history_context,
+    stored_prospect_context,
 )
 from lead_agent.application.lead_approval import update_lead_approval_policy
 from lead_agent.application.meeting_email import _active_gmail_connection_for_source
@@ -59,6 +61,8 @@ from lead_agent.infrastructure.db.models import (
     PipelineEventORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
+    UserORM,
+    WorkspaceMembershipORM,
 )
 from lead_agent.infrastructure.db.session import get_db
 from lead_agent.infrastructure.reasoning.deterministic import DeterministicReasoningProvider
@@ -1057,6 +1061,112 @@ def test_gmail_history_can_include_selected_wrapper_thread_when_identity_is_embe
     )
     assert [row["message_id"] for row in rows] == ["wrapper"]
     assert rows[0]["direction"] == "inbound"
+
+
+def test_prospect_only_history_excludes_internal_replies_from_analysis(tmp_path):
+    with _session(tmp_path) as session:
+        workspace_id = uuid4()
+        lead_id = uuid4()
+        user_id = uuid4()
+        now = datetime.now(UTC)
+        session.add(
+            UserORM(
+                id=user_id,
+                email="rep@ingenuitysys.com",
+                display_name="Corral Rep",
+                password_hash="test",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            ProviderConnectionORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                provider_type="gmail",
+                account_name="rep@ingenuitysys.com",
+                auth_type="oauth",
+                status="connected",
+                credential_state="verified",
+                connection_metadata={"gmail_email": "rep@ingenuitysys.com"},
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            WorkspaceMembershipORM(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                user_id=user_id,
+                role="member",
+                status="active",
+                permission_overrides={},
+                access_policy={},
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add_all(
+            [
+                PipelineEventORM(
+                    id=uuid4(),
+                    workspace_id=workspace_id,
+                    lead_id=lead_id,
+                    stage="gmail_message",
+                    status="inbound",
+                    details={
+                        "direction": "inbound",
+                        "sender": "les@leslehman.com",
+                        "subject": "Re: Can I call you on Thursday?",
+                        "body": "Give me a little more context.",
+                    },
+                    created_at=now,
+                ),
+                PipelineEventORM(
+                    id=uuid4(),
+                    workspace_id=workspace_id,
+                    lead_id=lead_id,
+                    stage="gmail_message",
+                    status="outbound",
+                    details={
+                        "direction": "outbound",
+                        "sender": "rep@ingenuitysys.com",
+                        "subject": "Re: Can I call you on Thursday?",
+                        "body": "A long Corral response that must not be scored as prospect intent.",
+                    },
+                    created_at=now + timedelta(minutes=1),
+                ),
+            ]
+        )
+        session.commit()
+
+        context, evidence = lead_history_context(
+            session,
+            workspace_id=workspace_id,
+            lead_id=lead_id,
+            prospect_only=True,
+            prospect_email="les@leslehman.com",
+        )
+
+        assert "Give me a little more context." in context
+        assert "long Corral response" not in context
+        assert len(evidence) == 1
+
+
+def test_legacy_flattened_thread_extracts_only_prospect_from_block():
+    flattened = (
+        "From: Rep <rep@ingenuitysys.com> To: les@leslehman.com "
+        "Hi Les, here is our context. "
+        "From: Les Lehman <les@leslehman.com> To: rep@ingenuitysys.com "
+        "Give me a little more context. "
+        "From: Other Rep <other@ingenuitysys.com> To: les@leslehman.com "
+        "Can we meet next week?"
+    )
+    context = stored_prospect_context(flattened, lead_email="les@leslehman.com")
+    assert "Give me a little more context." in context
+    assert "here is our context" not in context
+    assert "Can we meet next week" not in context
 
 
 def test_gmail_sync_backfills_thread_ids_for_existing_message_events():

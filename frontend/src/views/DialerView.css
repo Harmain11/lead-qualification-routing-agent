@@ -282,6 +282,9 @@
 .call-insights > h4 { margin:0; font-size:15px; }
 .call-insight-summary { min-width:0; padding:14px 15px; border:1px solid color-mix(in srgb,var(--tint) 16%,var(--separator-strong)); border-left:3px solid var(--tint); border-radius:10px; background:color-mix(in srgb,var(--tint) 4%,var(--surface)); }
 .call-insight-summary p { margin:6px 0 0; color:var(--label); line-height:1.6; overflow-wrap:anywhere; }
+.call-coaching { display:grid; gap:5px; min-width:0; padding:14px 15px; border:1px solid color-mix(in srgb,var(--tint) 24%,var(--separator-strong)); border-radius:10px; background:color-mix(in srgb,var(--tint-soft) 60%,var(--surface)); }
+.call-coaching strong { min-width:0; color:var(--label); font-size:14px; line-height:1.35; overflow-wrap:anywhere; }
+.call-coaching p { margin:0; color:var(--label-2); font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
 .call-insight-label { display:block; margin-bottom:4px; color:var(--label-2); font-size:11px; font-weight:800; letter-spacing:.01em; text-transform: none; }
 .call-insight-sentiment { justify-self:start; padding:4px 9px; border:1px solid var(--separator-strong); border-radius:999px; color:var(--label-2); font-size:12px; font-weight:700; text-transform:capitalize; }
 .call-insight-group ul { display:grid; gap:8px; margin:7px 0 0; padding:0; list-style:none; }

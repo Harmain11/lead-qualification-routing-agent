@@ -250,7 +250,9 @@ const DISPLAY_PERMISSION_GROUPS = [
 
 function PermissionEditor({ overrides, effective, readOnly, onChange }: PermissionEditorProps) {
   const [query, setQuery] = useState("");
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(["Leads", "Collaboration", "Integrations"]));
+  // Keep the editor scannable: open the highest-signal group only, while
+  // search still reveals matching permissions across every group.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(["Leads"]));
   const normalizedQuery = query.trim().toLowerCase();
   const visibleGroups = DISPLAY_PERMISSION_GROUPS.map((group) => ({
     ...group,

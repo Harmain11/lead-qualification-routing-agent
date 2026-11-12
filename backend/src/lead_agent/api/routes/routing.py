@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from math import isclose, isfinite
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -19,6 +19,7 @@ from lead_agent.api.schemas import (
     routing_response,
 )
 from lead_agent.application.coaching_privacy import PRIVATE_INSIGHT_KINDS
+from lead_agent.application.gmail_history import stored_prospect_context
 from lead_agent.application.manual_review import workspace_manual_review_settings
 from lead_agent.application.routing import retry_current_notification, route_and_notify
 from lead_agent.domain.configuration import ManualReviewSettings, RoutingConfig
@@ -269,8 +270,8 @@ def retrieve_pipeline_history(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("activity.view")),
 ) -> list[PipelineEventResponse]:
-    _lead_or_404(lead_id, session, workspace.workspace_id)
-    return [
+    lead = _lead_or_404(lead_id, session, workspace.workspace_id)
+    rows = [
         PipelineEventResponse(
             id=row.id,
             stage=row.stage,
@@ -281,6 +282,49 @@ def retrieve_pipeline_history(
         for row in list_pipeline_events(session, lead_id, workspace.workspace_id)
         if row.stage not in PRIVATE_INSIGHT_KINDS
     ]
+    # Some early Gmail imports persisted the flattened lead message but did
+    # not create individual inbound timeline events.  Surface a read-only
+    # synthetic prospect message so the Emails tab is useful immediately;
+    # never expose the mixed internal/outbound copy as prospect-authored text.
+    gmail_events = [row for row in rows if row.stage == "gmail_message"]
+    has_prospect_event = any(
+        str(event.details.get("sender") or "").strip().casefold()
+        == str(lead.email or "").strip().casefold()
+        for event in gmail_events
+    )
+    if not has_prospect_event and lead.source == "email" and lead.email:
+        raw_payload = lead.raw_payload if isinstance(lead.raw_payload, dict) else {}
+        legacy_thread = str(
+            raw_payload.get("gmail_display_thread") or lead.message or ""
+        )
+        prospect_body = stored_prospect_context(
+            legacy_thread, lead_email=str(lead.email)
+        ) or str(raw_payload.get("message") or lead.message or "").strip()
+        if prospect_body:
+            thread_id = str(raw_payload.get("gmail_thread_id") or f"legacy-{lead.id}")
+            synthetic_time = lead.received_at or lead.created_at
+            rows.append(
+                PipelineEventResponse(
+                    id=uuid5(NAMESPACE_URL, f"corral:legacy-gmail-event:{lead.id}"),
+                    stage="gmail_message",
+                    status="inbound",
+                    details={
+                        "message_id": str(
+                            raw_payload.get("gmail_message_id") or f"legacy-{lead.id}"
+                        ),
+                        "thread_id": thread_id,
+                        "gmail_thread_id": thread_id,
+                        "sender": str(lead.email),
+                        "recipients": str(raw_payload.get("gmail_mailbox") or ""),
+                        "subject": str(raw_payload.get("subject") or "(no subject)"),
+                        "body": prospect_body,
+                        "direction": "inbound",
+                        "legacy_thread_fallback": True,
+                    },
+                    created_at=synthetic_time,
+                )
+            )
+    return sorted(rows, key=lambda row: (row.created_at, str(row.id)))
 
 
 @router.post(

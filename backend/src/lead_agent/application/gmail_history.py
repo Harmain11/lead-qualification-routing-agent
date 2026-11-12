@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from email.utils import getaddresses, parseaddr
 from typing import Any
@@ -10,7 +11,34 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.domain.models import RecordedLeadEvidence
-from lead_agent.infrastructure.db.models import PipelineEventORM, ProviderConnectionORM
+from lead_agent.infrastructure.db.models import (
+    PipelineEventORM,
+    ProviderConnectionORM,
+    UserORM,
+    WorkspaceMembershipORM,
+)
+
+
+def stored_prospect_context(message: str, *, lead_email: str) -> str:
+    """Extract prospect-authored blocks from a legacy flattened Gmail thread."""
+    target = lead_email.strip().casefold()
+    if not target:
+        return ""
+    matches = list(
+        re.finditer(
+            r"(?i)\bFrom:\s*(?:[^<\r\n]{0,180})?<\s*([^>\s]+)\s*>",
+            message or "",
+        )
+    )
+    sections: list[str] = []
+    for index, match in enumerate(matches):
+        if match.group(1).strip().casefold() != target:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(message)
+        block = message[match.end():end].strip(" :-")
+        if block and block not in sections:
+            sections.append(block)
+    return "\n\n".join(sections)
 
 
 def lead_history_context(
@@ -19,8 +47,17 @@ def lead_history_context(
     workspace_id: UUID,
     lead_id: UUID,
     limit: int = 60,
+    prospect_only: bool = False,
+    prospect_email: str | None = None,
 ) -> tuple[str, tuple[RecordedLeadEvidence, ...]]:
-    """Return recent verified lead history for analysis and scoring."""
+    """Return recent verified lead history.
+
+    ``prospect_only`` is used for qualification/re-analysis.  A Gmail thread
+    is a shared conversation, so its stored timeline can contain long replies
+    written by several Corral members.  Those replies remain available to the
+    UI, but must not be passed to the prospect's intent scorer as if the lead
+    authored them.
+    """
     events = list(
         session.scalars(
             select(PipelineEventORM)
@@ -34,6 +71,59 @@ def lead_history_context(
         )
     )
     events.reverse()
+    target_prospect = (prospect_email or "").strip().casefold()
+    internal_emails: set[str] = set()
+    internal_domains: set[str] = set()
+    if prospect_only:
+        internal_emails = {
+            str(email).strip().casefold()
+            for email in session.scalars(
+                select(UserORM.email)
+                .join(WorkspaceMembershipORM, WorkspaceMembershipORM.user_id == UserORM.id)
+                .where(
+                    WorkspaceMembershipORM.workspace_id == workspace_id,
+                    WorkspaceMembershipORM.status == "active",
+                )
+            )
+            if str(email).strip()
+        }
+        # A former teammate may still appear in a historical Gmail thread
+        # after their membership is inactive.  Treat the verified workspace
+        # mailbox domain as internal too, while never treating consumer
+        # mailbox domains (gmail.com, outlook.com, etc.) as company domains.
+        consumer_domains = {
+            "gmail.com", "googlemail.com", "outlook.com", "hotmail.com",
+            "live.com", "yahoo.com", "icloud.com", "aol.com", "proton.me",
+            "protonmail.com",
+        }
+        member_domains = {
+            email.rsplit("@", 1)[-1].casefold()
+            for email in internal_emails
+            if "@" in email
+        }
+        mailbox_values = session.execute(
+            select(ProviderConnectionORM.account_name, ProviderConnectionORM.connection_metadata)
+            .where(
+                ProviderConnectionORM.workspace_id == workspace_id,
+                ProviderConnectionORM.provider_type == "gmail",
+                ProviderConnectionORM.is_active.is_(True),
+            )
+        )
+        for account_name, metadata in mailbox_values:
+            candidates = [account_name]
+            if isinstance(metadata, dict):
+                candidates.extend(
+                    metadata.get(key) for key in ("gmail_email", "email", "account_email")
+                )
+            for value in candidates:
+                mailbox = str(value or "").strip().casefold()
+                if "@" in mailbox:
+                    domain = mailbox.rsplit("@", 1)[-1]
+                    if domain not in consumer_domains:
+                        internal_domains.add(domain)
+        internal_domains.update(
+            domain for domain in member_domains if domain not in consumer_domains
+        )
     context_lines: list[str] = []
     evidence: list[RecordedLeadEvidence] = []
     for event in events:
@@ -51,6 +141,22 @@ def lead_history_context(
             )
         else:
             direction = details.get("direction", "email")
+            sender = str(details.get("sender") or "").strip().casefold()
+            if prospect_only and (
+                direction == "outbound"
+                or (
+                    target_prospect
+                    and sender
+                    and sender != target_prospect
+                )
+                or (sender and sender in internal_emails)
+                or (
+                    sender.rsplit("@", 1)[-1] in internal_domains
+                    if "@" in sender
+                    else False
+                )
+            ):
+                continue
             context = (
                 f"Gmail {direction} email ({details.get('sent_at', '')}) "
                 f"{details.get('subject', '')}: {details.get('body', '')}"

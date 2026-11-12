@@ -38,6 +38,22 @@ function InsightList({ title, items }: { title: string; items: string[] }) {
   return <section className="call-insight-group"><h5>{title}</h5><ul>{available.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul></section>;
 }
 
+function CoachingNextStep({ insights, notes }: { insights: CallInsightsData; notes: SmartNotes | undefined }) {
+  const action = notes?.action_items.find(nonEmpty);
+  const question = notes?.open_questions.find(nonEmpty);
+  const risk = notes?.risks_and_issues.find(nonEmpty);
+  const decision = notes?.decisions_made.find(nonEmpty);
+  const detail = action || question || risk || decision;
+  if (!detail && !nonEmpty(insights?.summary)) return null;
+
+  const label = action ? "Follow through on the action item" : question ? "Resolve the open question" : risk ? "Address the call risk" : decision ? "Confirm the decision" : "Use the call summary for the next touch";
+  return <section className="call-coaching" aria-label="Coaching and next step">
+    <span className="call-insight-label">Coaching &amp; next step</span>
+    <strong>{label}</strong>
+    <p>{detail || insights?.summary}</p>
+  </section>;
+}
+
 export function CallInsights({ insights }: { insights: CallInsightsData }) {
   const notes = insights?.smart_notes;
   const topics = (insights?.topics ?? []).filter((item) => nonEmpty(item.topic));
@@ -49,6 +65,7 @@ export function CallInsights({ insights }: { insights: CallInsightsData }) {
       {nonEmpty(insights?.summary) && <div className="call-insight-summary"><span className="call-insight-label">Summary</span><p>{insights.summary}</p></div>}
       {nonEmpty(insights?.overall_sentiment) && <span className="call-insight-sentiment">{insights.overall_sentiment}</span>}
       {topics.length > 0 && <section className="call-insight-group call-insight-topics"><h5>Topics</h5><ul>{topics.map((item, index) => <li key={`${item.topic}-${index}`}>{item.topic}</li>)}</ul></section>}
+      <CoachingNextStep insights={insights} notes={notes} />
       <div className="call-insight-notes">
         <InsightList title="Action items" items={notes?.action_items ?? []} />
         <InsightList title="Decisions" items={notes?.decisions_made ?? []} />

@@ -2081,3 +2081,20 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
   .v-app .integrations-page .gm-row .gm-status { grid-column: 2; justify-self: start; }
   .v-app .integrations-page .gm-remove { grid-column: 3; grid-row: 1 / span 2; min-width: 0; }
 }
+
+/* Mail chronology should remain obvious even when a thread contains several
+   replies: the newest visible message is explicitly marked, while older
+   messages stay behind the existing disclosure. */
+.v-app .v-inquiry .gmail-inquiry-type-badge.latest { border-color: color-mix(in srgb, var(--tint) 35%, var(--separator-strong)); background: var(--tint-soft); color: var(--tint-text); }
+.v-app .v-inquiry .gmail-inquiry-message-meta { min-width: 0; }
+.v-app .v-inquiry .gmail-inquiry-message-meta time { white-space: nowrap; }
+
+/* Cross-screen content safety: imported mail, transcripts, provider errors and
+   generated AI text must wrap inside their cards instead of widening or
+   clipping the page. Compact list rows keep their intentional ellipsis. */
+.v-app :is(.provider-email-body, .provider-email-body-main, .lm-body, .lm-message, .call-review-details, .call-insights, .call-insight-group, .call-coaching, .v-card, .v-panel) { min-width: 0; max-width: 100%; }
+.v-app :is(.provider-email-body-main, .lm-body, .call-transcript-text, .call-insight-group li, .call-coaching p, .call-coaching strong) { overflow-wrap: anywhere; word-break: normal; }
+.v-app :is(.provider-email-body-main, .lm-body) img, .v-app :is(.provider-email-body-main, .lm-body) video, .v-app :is(.provider-email-body-main, .lm-body) iframe { max-width: 100%; height: auto; }
+.v-app :is(.provider-email-body-main, .lm-body) pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.v-app .permission-group-heading { min-height: 48px; }
+.v-app .permission-group-heading:focus-visible, .v-app .permission-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
