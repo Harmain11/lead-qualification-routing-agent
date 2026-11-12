@@ -206,9 +206,14 @@
 .lm-thread { border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
 .lm-thread > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; list-style: none; cursor: pointer; }
 .lm-thread > summary::-webkit-details-marker { display: none; }
-.lm-thread-title { display: grid; gap: 2px; min-width: 0; }
+.lm-thread-title { display: grid; gap: 3px; min-width: 0; }
+.lm-thread-kicker { color: var(--label-3); font: 600 11px/1 var(--font); letter-spacing: .04em; text-transform: uppercase; }
 .lm-thread-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 16px/1.3 var(--font); }
-.lm-thread-title small { font: var(--t-footnote); color: var(--label-3); }
+.lm-thread-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.lm-thread-meta small { font: var(--t-footnote); color: var(--label-3); }
+.lm-thread-state, .lm-latest-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 2px 8px; border-radius: var(--r-pill); font: 600 11px/1 var(--font); white-space: nowrap; }
+.lm-thread-state.is-replied { background: var(--tint-soft); color: var(--tint-text); }
+.lm-thread-state.is-waiting { background: var(--attention-soft); color: var(--attention-text); }
 .lm-chevron { flex: none; width: 8px; height: 8px; border-right: 1.75px solid var(--label-3); border-bottom: 1.75px solid var(--label-3); transform: rotate(45deg); transition: transform 180ms cubic-bezier(.23, 1, .32, 1); }
 .lm-thread[open] > summary .lm-chevron { transform: rotate(-135deg); }
 .lm-messages { display: grid; margin: 0; padding: 0 0 6px; list-style: none; border-top: 1px solid var(--separator); }
@@ -216,12 +221,14 @@
 .lm-message > details > summary { display: grid; grid-template-columns: auto minmax(120px, 190px) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 18px; list-style: none; cursor: pointer; transition: background-color 120ms ease; }
 .lm-message > details > summary::-webkit-details-marker { display: none; }
 .lm-message > details > summary:hover { background: var(--fill); }
-.lm-from { display: grid; min-width: 0; }
+.lm-from { display: grid; min-width: 0; gap: 2px; }
 .lm-from b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 14px/1.3 var(--font); }
 .lm-from small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-footnote); color: var(--label-3); }
 .lm-snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-subhead); color: var(--label-3); }
 .lm-message > details[open] > summary .lm-snippet { visibility: hidden; }
+.lm-message-time { display: grid; justify-items: end; gap: 4px; }
 .lm-message time { font: var(--t-footnote); color: var(--label-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lm-latest-badge { background: var(--fill); color: var(--label-2); }
 .lm-message[data-outbound] > details[open] > .lm-body { background: color-mix(in srgb, var(--tint-soft) 45%, transparent); }
 .lm-body { display: grid; gap: 12px; padding: 4px 18px 16px 62px; }
 .lm-addresses { display: flex; flex-wrap: wrap; gap: 4px 14px; font: var(--t-footnote); color: var(--label-3); }
@@ -235,6 +242,13 @@
   .lm-message > details > summary { grid-template-columns: auto minmax(0, 1fr) auto; }
   .lm-snippet { display: none; }
   .lm-body { padding-left: 18px; }
+}
+@media (max-width: 520px) {
+  .lm-thread > summary { padding: 13px 14px; }
+  .lm-thread-title strong { font-size: 14px; }
+  .lm-message > details > summary { grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; padding-inline: 14px; }
+  .lm-from b { font-size: 13px; }
+  .lm-message-time time { font-size: 11px; }
 }
 
 /* ===================================== Inbox: groups, filters, shortcuts */

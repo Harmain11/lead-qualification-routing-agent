@@ -28,6 +28,20 @@ function threadIdForEvent(event: LeadPipelineEvent): string {
   );
 }
 
+function conversationSubject(value: string): string {
+  const subject = value.replace(/^(?:\s*(?:re|fw|fwd)\s*:\s*)+/i, "").trim();
+  return subject.replace(/^lead\s+sent\s*:\s*/i, "").trim();
+}
+
+function conversationKey(event: LeadPipelineEvent): string {
+  const subject = conversationSubject(stringDetail(event.details, "subject"));
+  return subject ? `subject:${subject.toLocaleLowerCase()}` : threadIdForEvent(event) || `message-${event.id}`;
+}
+
+function messageDirectionLabel(event: LeadPipelineEvent): string {
+  return stringDetail(event.details, "direction") === "outbound" ? "Sent by your team" : "Received from lead";
+}
+
 function LeadEmailEmptyState({
   title,
   description,
@@ -120,7 +134,10 @@ export function LeadEmailPanel({
 
   const groups = new Map<string, LeadPipelineEvent[]>();
   for (const event of dedupeGmailEvents(events)) {
-    const threadId = threadIdForEvent(event) || `message-${event.id}`;
+    // Gmail can expose a reply and a forwarded copy with different provider
+    // ids. Group the visible conversation by its normalized subject so the
+    // timeline stays understandable without changing reply targeting.
+    const threadId = conversationKey(event);
     groups.set(threadId, [...(groups.get(threadId) ?? []), event]);
   }
   const orderedThreads = [...groups.entries()]
@@ -312,12 +329,20 @@ export function LeadEmailPanel({
     />}
     <div className="lm-threads">
       {!loading && orderedThreads.map(({ threadId, messages }, threadIndex) => {
-        const subject = stringDetail(messages[0]?.details ?? {}, "subject") || "(no subject)";
+        const subject = conversationSubject(stringDetail(messages[0]?.details ?? {}, "subject")) || "Untitled conversation";
         const latest = messages[0];
+        const latestOutbound = stringDetail(latest?.details ?? {}, "direction") === "outbound";
         const canReply = canSend && messages.some((message) => stringDetail(message.details, "rfc_message_id"));
         return <details className="lm-thread" key={threadId} open={threadIndex === 0 || undefined}>
           <summary>
-            <span className="lm-thread-title"><strong>{subject}</strong><small>{messages.length} {messages.length === 1 ? "email" : "emails"} · last {latest ? new Date(latest.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</small></span>
+            <span className="lm-thread-title">
+              <span className="lm-thread-kicker">Conversation</span>
+              <strong>{subject}</strong>
+              <span className="lm-thread-meta">
+                <small>{messages.length} {messages.length === 1 ? "message" : "messages"} · latest {latest ? new Date(latest.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</small>
+                <span className={`lm-thread-state${latestOutbound ? " is-waiting" : " is-replied"}`}>{latestOutbound ? "Awaiting reply" : "Lead replied"}</span>
+              </span>
+            </span>
             <span className="lm-chevron" aria-hidden="true" />
           </summary>
           <ol className="lm-messages">{messages.map((event, index) => {
@@ -331,13 +356,13 @@ export function LeadEmailPanel({
             const mailboxName = accounts.find((account) => account.id === stringDetail(details, "gmail_connection_id"))?.account_name;
             const isLatest = index === 0;
             const who = outbound ? "You" : (sender.replace(/<.*>/, "").trim() || sender || "Lead");
-            return <li key={event.id} className="lm-message" data-outbound={outbound || undefined}>
+            return <li key={event.id} className="lm-message" data-outbound={outbound || undefined} data-latest={isLatest || undefined}>
               <details open={isLatest || undefined}>
                 <summary>
                   <Monogram text={outbound ? (mailboxName || "You") : who} size={32} />
-                  <span className="lm-from"><b>{who}</b></span>
+                  <span className="lm-from"><b>{who}</b><small>{messageDirectionLabel(event)}</small></span>
                   <span className="lm-snippet">{getProviderEmailPreview(body, 110)}</span>
-                  <time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+                  <span className="lm-message-time"><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>{isLatest && <span className="lm-latest-badge">Latest</span>}</span>
                 </summary>
                 <div className="lm-body">
                   <ProviderEmailBody content={body} />
