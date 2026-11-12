@@ -315,6 +315,7 @@ export type Lead = {
 export type LeadAssignmentOption = {
   user_id: string;
   display_name: string;
+  role: string;
 };
 
 export type LeadOutcome = {

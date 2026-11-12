@@ -171,6 +171,7 @@ class LeadShareResponse(BaseModel):
 class LeadAssignmentOptionResponse(BaseModel):
     user_id: UUID
     display_name: str
+    role: str
 
 
 class LeadProfileUpdateRequest(LeadProfileChanges):
@@ -664,7 +665,11 @@ def lead_assignment_options(
         .order_by(UserORM.display_name)
     ).all()
     return [
-        LeadAssignmentOptionResponse(user_id=user.id, display_name=user.display_name)
+        LeadAssignmentOptionResponse(
+            user_id=user.id,
+            display_name=user.display_name,
+            role=normalize_role(membership.role),
+        )
         for membership, user in members
         if normalize_role(membership.role) in {"sales_manager", "sales_rep"}
         and "leads.edit"
