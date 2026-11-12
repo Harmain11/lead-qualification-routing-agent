@@ -648,8 +648,8 @@ export function LeadRecord({
               onOpenSection={(section) => onSectionChange(section)}
               onEmail={() => startEmail()}
             />
-            {/* The inquiry leads the page while the lead is new; later it folds away. */}
-            <details className="v-card v-card-pad ls-inquiry" open={dealView.stage === "new" || undefined}>
+            {/* Keep the full inquiry available without reopening it after re-analysis or refresh. */}
+            <details className="v-card v-card-pad ls-inquiry">
               <summary>
                 <span>
                   <h2 className="v-card-title">{lead.source_detail === "manual-control-center" ? "Inquiry and context" : "Original inquiry"}</h2>

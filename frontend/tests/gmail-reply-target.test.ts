@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { latestGmailReplyTarget, newestFirstGmailEvents, newestFirstGmailThread } from "../src/utils/gmailEvents.ts";
+import { dedupeGmailEvents, latestGmailReplyTarget, newestFirstGmailEvents, newestFirstGmailThread } from "../src/utils/gmailEvents.ts";
 import type { GmailThreadMessage, LeadPipelineEvent } from "../src/types.ts";
 
 function message(id: string, createdAt: string, details: Record<string, unknown>): LeadPipelineEvent {
@@ -14,6 +14,23 @@ test("orders a lead email thread newest first without mutating the original list
 
   assert.deepEqual(newestFirstGmailEvents(input).map((event) => event.id), ["newest", "oldest"]);
   assert.deepEqual(input.map((event) => event.id), ["oldest", "newest"]);
+});
+
+test("removes duplicate Gmail history events even when a legacy event has no message id", () => {
+  const duplicateA = message("event-a", "2026-10-20T08:00:00Z", {
+    thread_id: "thread-a", gmail_connection_id: "mailbox-a", direction: "outbound",
+    sender: "sales@example.com", recipients: "lead@example.com", subject: "Re: Quick meeting", body: "Same body",
+  });
+  const duplicateB = message("event-b", "2026-10-20T08:00:00Z", {
+    thread_id: "thread-a", gmail_connection_id: "mailbox-a", direction: "outbound",
+    sender: "sales@example.com", recipients: "lead@example.com", subject: "Re: Quick meeting", body: "Same body",
+  });
+  const distinct = message("event-c", "2026-10-20T09:00:00Z", {
+    thread_id: "thread-a", gmail_connection_id: "mailbox-a", direction: "outbound",
+    sender: "sales@example.com", recipients: "lead@example.com", subject: "Re: Quick meeting", body: "A later reply",
+  });
+
+  assert.deepEqual(dedupeGmailEvents([duplicateA, duplicateB, distinct]).map((event) => event.id), ["event-a", "event-c"]);
 });
 
 test("orders mailbox conversation messages newest first", () => {

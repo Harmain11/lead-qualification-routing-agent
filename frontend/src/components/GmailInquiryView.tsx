@@ -30,12 +30,20 @@ function dateTimeValue(value: string) {
 }
 
 function senderDisplay(value: string) {
-  const match = value.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
+  // Gmail exports occasionally append an empty angle-bracket token and a
+  // direction/date label to the sender header. Keep those transport details
+  // out of the human-facing sender name; the message meta already owns them.
+  const cleaned = value
+    .replace(/\s*<>\s*/g, " ")
+    .replace(/\s+(?:sent|received|inbound|outbound):\s+.*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  const match = cleaned.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
   if (match) {
     return { name: match[1].replace(/^["']|["']$/g, "").trim(), email: match[2].trim() };
   }
-  const email = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
-  return { name: value.replace(email, "").trim(), email };
+  const email = cleaned.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+  return { name: cleaned.replace(email, "").trim(), email };
 }
 
 function emailAddresses(value: string) {
@@ -316,7 +324,10 @@ export function GmailInquiryView({
 
   const role = inquiry.role.replace(/\b\w/g, (letter) => letter.toUpperCase());
   const seenFooters = new Set<string>();
-  const preparedMessages = inquiry.messages.map((item) => prepareMessage(item, seenFooters));
+  const preparedMessages = inquiry.messages
+    .map((item, index) => ({ item, index, date: parseEmailDate(item.date)?.getTime() ?? 0 }))
+    .sort((left, right) => right.date - left.date || left.index - right.index)
+    .map(({ item }) => prepareMessage(item, seenFooters));
   const [original, ...earlierMessages] = preparedMessages;
 
   return <div className="gmail-inquiry-view">

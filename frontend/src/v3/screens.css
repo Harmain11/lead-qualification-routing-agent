@@ -332,6 +332,8 @@ details[open] > summary .v-disclose { transform: rotate(180deg); }
 .v-timeline-body.is-email { min-width: 0; }
 .v-timeline-body.is-email > summary { list-style: none; cursor: pointer; }
 .v-timeline-body.is-email > summary::-webkit-details-marker { display: none; }
+.v-timeline-body.is-email > summary:focus { outline: none; }
+.v-timeline-body.is-email > summary:focus-visible { outline: none; background: var(--fill); border-radius: var(--r-md); }
 .v-timeline-body.is-email > summary::after { content: ""; flex: 0 0 auto; width: 7px; height: 7px; margin-left: 4px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms ease; }
 .v-timeline-body.is-email[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
 .v-timeline-body.is-email:not([open]) { gap: 0; }

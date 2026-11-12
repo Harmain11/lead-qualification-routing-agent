@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState, type FormEvent } from "react";
 import {
+  backfillReasoning,
   bulkDeleteLeads,
   bulkSendLeadsToCrm,
   createLead,
@@ -120,6 +121,7 @@ type Props = {
   canViewComments?: boolean;
   canAddComments?: boolean;
   canManageManualReview?: boolean;
+  canManageAi?: boolean;
   canExport?: boolean;
   canCrmSync?: boolean;
   canViewEmail?: boolean;
@@ -155,6 +157,7 @@ export function LeadsScreen({
   canViewComments = false,
   canAddComments = false,
   canManageManualReview = false,
+  canManageAi = false,
   canExport = false,
   canCrmSync = false,
   canViewEmail = false,
@@ -195,6 +198,8 @@ export function LeadsScreen({
   const [assignmentOptions, setAssignmentOptions] = useState<LeadAssignmentOption[]>([]);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [reasoningConnectionId, setReasoningConnectionId] = useState<string | null>(null);
+  const [reanalyzeAllBusy, setReanalyzeAllBusy] = useState(false);
   const [savingAssignment, setSavingAssignment] = useState<Set<string>>(new Set());
   const [enrollment, setEnrollment] = useState<{ kind: "sequence" | "playbook"; leadId: string; leadLabel: string } | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -234,7 +239,7 @@ export function LeadsScreen({
   }, [canManageRouting]);
 
   useEffect(() => {
-    if (!canCrmSync) return;
+    if (!canCrmSync && !canManageAi) return;
     let active = true;
     void listIntegrations()
       .then((cards) => {
@@ -244,10 +249,17 @@ export function LeadsScreen({
           .map((card) => card.provider);
         setCrmProviders(providers);
         setBulkProvider((current) => (providers.includes(current) ? current : providers.length === 1 ? providers[0] : ""));
+        const reasoning = cards.find((card) =>
+          card.category.toLowerCase().includes("ai analysis")
+          && card.connection?.is_active
+          && card.connection.verification_status === "verified"
+          && card.connection.id,
+        );
+        setReasoningConnectionId(reasoning?.connection?.id ?? null);
       })
-      .catch(() => { if (active) setCrmProviders([]); });
+      .catch(() => { if (active) { setCrmProviders([]); setReasoningConnectionId(null); } });
     return () => { active = false; };
-  }, [canCrmSync]);
+  }, [canCrmSync, canManageAi]);
 
   useEffect(() => {
     setPage(0);
@@ -400,6 +412,21 @@ export function LeadsScreen({
       setNotice(error instanceof Error ? error.message : "Bulk CRM transfer failed");
     }
   };
+  const reanalyzeAll = async () => {
+    if (!reasoningConnectionId || reanalyzeAllBusy) return;
+    setReanalyzeAllBusy(true);
+    setNotice(null);
+    try {
+      const queued = await backfillReasoning(reasoningConnectionId);
+      setNotice(queued.queued_count
+        ? `AI re-analysis queued for ${queued.queued_count.toLocaleString()} leads. Results will appear as each lead is processed.`
+        : queued.message || "There are no leads that need re-analysis right now.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "AI re-analysis could not be started.");
+    } finally {
+      setReanalyzeAllBusy(false);
+    }
+  };
 
   const pageCount = Math.max(1, Math.ceil(total / LEAD_PAGE_SIZE));
   const firstRecord = total === 0 ? 0 : page * LEAD_PAGE_SIZE + 1;
@@ -523,6 +550,9 @@ export function LeadsScreen({
             <Button icon="refresh" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}>
               {loading && loadedOnce.current ? "Refreshing…" : "Refresh leads"}
             </Button>
+            {canManageAi && <Button kind="gray" icon="sparkle" onClick={() => void reanalyzeAll()} disabled={reanalyzeAllBusy || !reasoningConnectionId} title={reasoningConnectionId ? "Re-analyze every eligible lead with the verified AI provider" : "Connect and verify an AI analysis provider first"}>
+              {reanalyzeAllBusy ? "Starting AI analysis…" : "Re-analyze all"}
+            </Button>}
             {canExport && <Button icon="share" onClick={() => setShowExport(true)}>Export</Button>}
             {canEdit && <Button kind="filled" icon="plus" onClick={() => setShowForm(true)}>New Lead</Button>}
           </>

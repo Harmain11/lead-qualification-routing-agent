@@ -1557,6 +1557,7 @@ function App() {
                       canViewComments={can(workspacePermissions, "comments.view")}
                       canAddComments={can(workspacePermissions, "comments.add")}
                       canManageManualReview={can(workspacePermissions, "manual_review.manage")}
+                      canManageAi={can(workspacePermissions, "integrations.manage")}
                       canExport={can(workspacePermissions, "leads.export")}
                       canCrmSync={can(workspacePermissions, "crm.sync")}
                       canViewEmail={

@@ -28,10 +28,17 @@ export function dedupeGmailEvents(
   const seen = new Set<string>();
   return events.filter((event) => {
     const messageId = detail(event.details, "message_id");
-    if (!messageId) return true;
-
     const mailbox = mailboxForEvent(event);
-    const identity = `${mailbox || "unknown-mailbox"}:${messageId}`;
+    const threadId = detail(event.details, "thread_id") || detail(event.details, "gmail_thread_id");
+    const identity = messageId
+      ? `${mailbox || "unknown-mailbox"}:message:${messageId}`
+      : [
+        mailbox || "unknown-mailbox",
+        threadId || "unknown-thread",
+        detail(event.details, "direction") || event.status,
+        detail(event.details, "subject"),
+        detail(event.details, "body"),
+      ].join(":");
     if (seen.has(identity)) return false;
     seen.add(identity);
     return true;
