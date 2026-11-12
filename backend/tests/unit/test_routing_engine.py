@@ -6,7 +6,7 @@ from uuid import uuid4
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
-from lead_agent.application.routing import retry_current_notification
+from lead_agent.application.routing import _action_plan_excerpt, retry_current_notification
 from lead_agent.application.services import process_lead
 from lead_agent.domain.configuration import RepConfig, RoutingRuleConfig
 from lead_agent.domain.routing import NotificationDelivery
@@ -52,6 +52,15 @@ def session_for(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'routing.db'}")
     Base.metadata.create_all(engine)
     return Session(engine)
+
+
+def test_action_plan_excerpt_keeps_word_boundaries() -> None:
+    pain = "Automate dense workflows and reduce manual assembly across tariff classification validation reviews."
+
+    excerpt = _action_plan_excerpt(pain, limit=48)
+
+    assert excerpt == "Automate dense workflows and reduce manual…"
+    assert not excerpt.endswith("manu…")
 
 
 def test_live_workspaces_assign_their_own_lowest_load_sales_rep(icp, routing, tmp_path) -> None:

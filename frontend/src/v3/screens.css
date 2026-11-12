@@ -196,10 +196,12 @@
 .v-card-headrow { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .v-mini-title { margin-bottom: 8px; font: 600 13px/1.2 var(--font); color: var(--label-2); }
 .v-twocol { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 18px; }
+.v-twocol > * { min-width: 0; }
 .v-twocol-cards { margin-top: 0; }
 .v-twocol-cards .v-group + .v-group { margin-top: 0; }
 @media (max-width: 760px) { .v-twocol { grid-template-columns: 1fr; } }
 .v-bullets { display: grid; gap: 6px; margin: 0; padding-left: 18px; font: var(--t-callout); }
+.v-bullets li { overflow-wrap: anywhere; }
 .v-bullets li::marker { color: var(--label-4); }
 .v-steps { display: grid; gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; counter-reset: step; }
 .v-steps li { display: grid; grid-template-columns: 26px 1fr; gap: 12px; font: var(--t-callout); counter-increment: step; }

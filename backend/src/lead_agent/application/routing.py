@@ -175,6 +175,17 @@ def _unknown_questions(analysis: LeadContextAnalysis | None) -> list[str]:
     return [questions[field] for field in analysis.unknown_fields if field in questions]
 
 
+def _action_plan_excerpt(value: str, *, limit: int = 180) -> str:
+    """Keep a compact action-plan summary without ending in a partial word."""
+    normalized = " ".join(value.split())
+    if len(normalized) <= limit:
+        return normalized
+    boundary = normalized.rfind(" ", 0, limit + 1)
+    if boundary <= 0:
+        return f"{normalized[:limit].rstrip()}…"
+    return f"{normalized[:boundary].rstrip(' ,;:.')}…"
+
+
 def _build_action_plan(
     routing: RoutingConfig,
     qualification: QualificationResult,
@@ -199,7 +210,7 @@ def _build_action_plan(
             evidence.extend(f"{item.source_field}: {item.excerpt}" for item in field.evidence[:1])
     talking_points = list(action.talking_points)
     if pain != "Unknown":
-        talking_points.insert(0, f"Address the stated pain: {pain[:180]}")
+        talking_points.insert(0, f"Address the stated pain: {_action_plan_excerpt(pain)}")
     questions = _unknown_questions(analysis)[:5]
     if qualification.hard_disqualified or qualification.classification == "disqualify":
         strategy = [
