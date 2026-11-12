@@ -1603,18 +1603,29 @@ function ProgressAndHistory({
         )}
         {timeline.length > 0 && (
           <ol className="v-timeline">
-            {timeline.map((entry) => (
+            {timeline.map((entry, index) => (
               <li key={entry.id}>
                 <span className="v-timeline-icon"><Icon name={entry.icon} size={15} /></span>
-                <div className={`v-timeline-body${entry.icon === "mail" ? " is-email" : ""}`}>
-                  <div className="v-timeline-head">
-                    <b>{entry.title}</b>
-                    <time dateTime={entry.when}>{new Date(entry.when).toLocaleString()}</time>
+                {entry.icon === "mail" ? (
+                  <details className="v-timeline-body is-email" open={index === 0}>
+                    <summary className="v-timeline-head">
+                      <b>{entry.title}</b>
+                      <time dateTime={entry.when}>{new Date(entry.when).toLocaleString()}</time>
+                    </summary>
+                    {entry.body && <p>{entry.body}</p>}
+                    {entry.meta && <small>{entry.meta}</small>}
+                  </details>
+                ) : (
+                  <div className="v-timeline-body">
+                    <div className="v-timeline-head">
+                      <b>{entry.title}</b>
+                      <time dateTime={entry.when}>{new Date(entry.when).toLocaleString()}</time>
+                    </div>
+                    {entry.body && <p>{entry.body}</p>}
+                    {entry.meta && <small>{entry.meta}</small>}
+                    {entry.link && <a href={entry.link} target="_blank" rel="noreferrer">Open event <Icon name="arrowUpRight" size={12} /></a>}
                   </div>
-                  {entry.body && <p>{entry.body}</p>}
-                  {entry.meta && <small>{entry.meta}</small>}
-                  {entry.link && <a href={entry.link} target="_blank" rel="noreferrer">Open event <Icon name="arrowUpRight" size={12} /></a>}
-                </div>
+                )}
               </li>
             ))}
           </ol>

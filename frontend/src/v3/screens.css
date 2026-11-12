@@ -329,6 +329,12 @@ details[open] > summary .v-disclose { transform: rotate(180deg); }
 .v-timeline li:not(:last-child)::before { content: ""; position: absolute; left: 15.5px; top: 34px; bottom: 2px; width: 1px; background: var(--separator-strong); }
 .v-timeline-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--surface); color: var(--tint-text); }
 .v-timeline-body { display: grid; gap: 6px; padding: 14px 16px; border-radius: var(--r-lg); background: var(--surface); }
+.v-timeline-body.is-email { min-width: 0; }
+.v-timeline-body.is-email > summary { list-style: none; cursor: pointer; }
+.v-timeline-body.is-email > summary::-webkit-details-marker { display: none; }
+.v-timeline-body.is-email > summary::after { content: ""; flex: 0 0 auto; width: 7px; height: 7px; margin-left: 4px; border-right: 1.6px solid var(--label-3); border-bottom: 1.6px solid var(--label-3); transform: rotate(45deg) translateY(-2px); transition: transform 160ms ease; }
+.v-timeline-body.is-email[open] > summary::after { transform: rotate(225deg) translateY(-1px); }
+.v-timeline-body.is-email:not([open]) { gap: 0; }
 .v-timeline-head { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; min-width: 0; }
 .v-timeline-head b { min-width: 0; font: var(--t-headline); overflow-wrap: anywhere; }
 .v-timeline-head time { flex: 0 1 auto; min-width: 0; color: var(--label-3); font: var(--t-footnote); white-space: normal; text-align: right; }
