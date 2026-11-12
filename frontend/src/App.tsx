@@ -35,7 +35,7 @@ import {
   SITE_ACCESS_REQUIRED_EVENT,
 } from "./api";
 import type { AuthSession, IntegrationCard, Lead, TimeRange } from "./types";
-import { can, canSubAssignLeads } from "./permissions";
+import { can, canIntegration, canSubAssignLeads } from "./permissions";
 import { AuthView } from "./views/AuthView";
 import { SiteAccessGate } from "./components/SiteAccessGate";
 import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
@@ -294,6 +294,15 @@ function permissionsForWorkspace(
   const workspace = session?.workspaces.find((item) => item.id === workspaceId);
   return new Set(workspace?.effective_permissions ?? []);
 }
+
+const INTEGRATION_PROVIDER_GROUPS = [
+  { id: "email", label: "Email", providers: [["gmail", "Gmail"], ["outlook", "Outlook"]] },
+  { id: "crm", label: "CRM", providers: [["salesforce", "Salesforce"], ["hubspot", "HubSpot"], ["gohighlevel", "GoHighLevel"]] },
+  { id: "calling", label: "Phone connections", providers: [["cloudtalk", "CloudTalk"], ["twilio", "Twilio"], ["aircall", "Aircall"], ["ringcentral", "RingCentral"], ["vapi", "Vapi"], ["retell", "Retell AI"]] },
+  { id: "calendar", label: "Calendar", providers: [["google_calendar", "Google Calendar"], ["calendly", "Calendly"]] },
+  { id: "social", label: "Social & sources", providers: [["linkedin", "LinkedIn"], ["instagram", "Instagram"], ["messenger", "Messenger"], ["whatsapp_business", "WhatsApp Business"], ["clutch", "Clutch"]] },
+  { id: "ai", label: "AI connections", providers: [["openai", "OpenAI"], ["gemini", "Gemini"], ["claude", "Claude"], ["deepseek", "DeepSeek"], ["xai", "xAI"]] },
+] as const;
 
 function App() {
   useEffect(() => {
@@ -1208,6 +1217,23 @@ function App() {
     return item.id === "agents" && navigationChildren("agents").some((child) => child.view === view) && !navigation.some((entry) => entry.id === view);
   }
 
+  function visibleIntegrationGroups() {
+    return INTEGRATION_PROVIDER_GROUPS
+      .map((group) => ({
+        id: group.id,
+        label: group.label,
+        children: group.providers
+          .filter(([provider]) => canIntegration(workspacePermissions, provider, "view"))
+          .map(([id, label]) => ({ id, label })),
+      }))
+      .filter((group) => group.children.length > 0)
+      .map((group) => ({
+        id: group.id,
+        label: group.label,
+        children: group.children,
+      }));
+  }
+
 
   const visibleNavigation = navigation.filter((item) =>
     hasViewPermission(item.id, workspacePermissions),
@@ -1222,12 +1248,9 @@ function App() {
     count: item.id === "leads" ? unseenLeadIds.length : item.id === "review" ? reviewTotal : 0,
     countTone: item.id === "review" ? "attention" : item.id === "leads" ? "tint" : undefined,
     children: item.id === "integrations" ? [
-      { id: "email", label: "Email", children: [{ id: "gmail", label: "Gmail" }, { id: "outlook", label: "Outlook" }] },
-      { id: "crm", label: "CRM", children: [{ id: "salesforce", label: "Salesforce" }, { id: "hubspot", label: "HubSpot" }, { id: "gohighlevel", label: "GoHighLevel" }] },
-      { id: "calling", label: "Calling", children: [{ id: "calling", label: "All dialers" }, { id: "cloudtalk", label: "CloudTalk" }, { id: "twilio", label: "Twilio" }, { id: "aircall", label: "Aircall" }, { id: "ringcentral", label: "RingCentral" }, { id: "vapi", label: "Vapi" }, { id: "retell", label: "Retell AI" }] },
-      { id: "calendar", label: "Calendar", children: [{ id: "google_calendar", label: "Google Calendar" }, { id: "calendly", label: "Calendly" }] },
-      { id: "social", label: "Social & sources", children: [{ id: "linkedin", label: "LinkedIn" }, { id: "instagram", label: "Instagram" }, { id: "messenger", label: "Messenger" }, { id: "whatsapp_business", label: "WhatsApp Business" }, { id: "clutch", label: "Clutch" }] },
-      { id: "ai", label: "AI connections" }, { id: "slack", label: "Slack" },
+      ...visibleIntegrationGroups(),
+      ...(canIntegration(workspacePermissions, "slack", "view") ? [{ id: "slack", label: "Slack" }] : []),
+      ...(can(workspacePermissions, "dialer.call") ? [{ id: "calling", label: "All phone connections" }] : []),
     ] : ["analytics", "dialer", "settings", "dashboard"].includes(item.id)
       ? navigationChildren(item.id).filter((child) => !child.view).map((child) => ({ id: child.id, label: child.label }))
       : undefined,
@@ -1561,6 +1584,7 @@ function App() {
                       canManageAi={can(workspacePermissions, "integrations.manage")}
                       canExport={can(workspacePermissions, "leads.export")}
                       canCrmSync={can(workspacePermissions, "crm.sync")}
+                      canMailboxSync={can(workspacePermissions, "mailbox.sync_own") || can(workspacePermissions, "integrations.gmail.sync") || can(workspacePermissions, "integrations.outlook.sync")}
                       canViewEmail={
                         can(workspacePermissions, "integrations.view")
                         || can(workspacePermissions, "mailbox.view_own")
@@ -2028,3 +2052,4 @@ function LoadingState() {
 }
 
 export default App;
+

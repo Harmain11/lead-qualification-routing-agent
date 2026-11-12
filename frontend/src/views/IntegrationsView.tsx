@@ -1265,7 +1265,14 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       description: "Connect additional tools that support your lead operations.",
     },
   ];
-  const overviewCards = cards.filter((card) => {
+  // `allowed_actions` is the provider-scoped authorization result from the
+  // backend.  Keep cards with no provider view grant out of every list and
+  // dropdown; broad integrations.view alone must not reveal another
+  // provider's connection or settings.
+  const visibleCards = cards.filter((card) =>
+    card.allowed_actions.includes("view") || card.allowed_actions.includes("view_status"),
+  );
+  const overviewCards = visibleCards.filter((card) => {
     const query = integrationQuery.trim().toLowerCase();
     const matchesQuery = !query || [card.display_name, card.provider, card.category, card.directionality.description]
       .filter(Boolean)
@@ -1285,10 +1292,10 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       eyebrow: "Release roadmap",
       title: "Coming Soon",
       description: "Visible for planning only. Connection and setup actions remain unavailable.",
-      providers: cards.filter((card) => card.availability === "future").map((card) => card.provider),
+      providers: visibleCards.filter((card) => card.availability === "future").map((card) => card.provider),
     },
   ];
-  const cardByProvider = new Map(cards.map((card) => [card.provider, card]));
+  const cardByProvider = new Map(visibleCards.map((card) => [card.provider, card]));
   const categoryCounts = overviewCards.filter((card) => card.availability === "available").reduce<Record<string, number>>((counts, card) => {
     const category = integrationCategory(card);
     counts[category] = (counts[category] ?? 0) + 1;
@@ -1309,7 +1316,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
     .filter((section) => section.providers.length > 0);
 
   const focusedLabel = selectedProvider ? cardByProvider.get(selectedProvider)?.display_name || selectedProvider : aiSection ? "AI connection" : callingSection ? "All dialers" : "";
-  const activeGmailSyncs = cards
+  const activeGmailSyncs = visibleCards
     .filter((card) => card.provider === "gmail")
     .flatMap((card) => (card.connections.length ? card.connections : card.connection ? [card.connection] : [])
       .map((connection) => ({
@@ -1323,7 +1330,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
       || state?.status === "cancel_requested"
       || (syncingProvider === "gmail" && feedback?.kind === "progress"),
     );
-  const providerCards = cards.filter((card) => card.availability === "available");
+  const providerCards = visibleCards.filter((card) => card.availability === "available");
   const connectedCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "ok").length;
   const attentionCount = providerCards.filter((card) => connectionTone(card.connection?.status) === "error").length;
   const comingSoonCards = overviewCards.filter((card) => card.availability === "future");
@@ -1458,7 +1465,7 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
             title={section.id === "ai" ? `AI analysis · ${card.display_name}` : card.display_name}
             subtitle={<span className="int-status" data-tone={comingSoon ? "idle" : connectionTone(connection?.status)}><i aria-hidden="true" />{statusLabel}{connection?.account_name && connection.status !== "disconnected" ? ` · ${connection.account_name}` : ""}</span>}
           >
-         {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{cards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
+         {section.id === "ai" && <label className="ai-provider-picker ai-provider-picker-details"><span>Provider</span><select value={card.provider} onChange={(event) => { const provider = event.target.value; setSelectedAIProvider(provider); setExpandedProviders((current) => new Set(current).add(provider)); }} aria-label="AI analysis provider">{visibleCards.filter((item) => integrationCategory(item) === "ai").map((item) => <option value={item.provider} key={item.provider}>{item.display_name}</option>)}</select></label>}
          {connection?.status === "connection_failed" && typeof connection.last_validation_result.message === "string" && connection.last_validation_result.message !== operationFeedback[card.provider]?.message && connection.last_validation_result.message !== actionErrors[card.provider] && <div className="notice" role="alert">{connection.last_validation_result.message}</div>}
           {gmailDirection && gmailConnections.length > 0 && <GmailAccountsPanel
             accounts={gmailConnections}
@@ -1790,3 +1797,4 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
      />}
    </div>;
 }
+
