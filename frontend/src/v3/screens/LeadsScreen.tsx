@@ -951,14 +951,7 @@ const LeadRow = memo(function LeadRow({
           </td>
           <td className="c-b">
             {canManageRouting ? (
-              <select
-                className="v-popup"
-                aria-label={`Lead owner for ${lead.full_name}`}
-                value={lead.owner_id || ""}
-                disabled={savingAssignment || assignmentDisabled}
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) => onOwnerAssignmentChange(lead.id, event.target.value || null)}
-              >
+              <select className="v-popup" aria-label={`Lead owner for ${lead.full_name}`} value={lead.owner_id || ""} disabled={savingAssignment || assignmentDisabled} onClick={(event) => event.stopPropagation()} onChange={(event) => onOwnerAssignmentChange(lead.id, event.target.value || null)}>
                 <option value="">Unassigned</option>
                 {lead.owner_id && !ownerAssignmentOptions.some((option) => option.user_id === lead.owner_id) && <option value={lead.owner_id}>{lead.owner_name || "Current owner"}</option>}
                 {ownerAssignmentOptions.map((option) => <option key={option.user_id} value={option.user_id}>{option.display_name}</option>)}
@@ -966,9 +959,7 @@ const LeadRow = memo(function LeadRow({
             ) : <span className="v-owner-name" title={lead.owner_name || "Unassigned"}>{lead.owner_name || "Unassigned"}</span>}
           </td>
           <td className="c-status">
-            {lead.has_unread_update
-              ? <span className="v-status-chip v-status-updated">Needs review</span>
-              : <span className="v-muted">Up to date</span>}
+            {lead.has_unread_update ? <span className="v-status-chip v-status-updated">Needs review</span> : <span className="v-muted">Up to date</span>}
           </td>
           <td className="c-sublead">
             {canManageRouting && lead.routing ? (
@@ -1212,3 +1203,4 @@ function ExportSheet({ count, selectedIds, filters, onClose }: { count: number; 
     </Sheet>
   );
 }
+

@@ -1671,3 +1671,4 @@ function OutcomeReceipt({ outcome, canEdit, busy, onRetry }: { outcome: LeadOutc
     </section>
   );
 }
+

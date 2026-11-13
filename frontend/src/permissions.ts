@@ -58,3 +58,4 @@ export function canSubAssignLeads(
 export function statusLabel(status: string) {
   return status.charAt(0).toUpperCase() + status.slice(1).replaceAll("_", " ");
 }
+

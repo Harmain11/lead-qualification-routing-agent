@@ -1269,3 +1269,4 @@ export type GmailSendResult = {
   recipient: string;
   sent_at: string;
 };
+

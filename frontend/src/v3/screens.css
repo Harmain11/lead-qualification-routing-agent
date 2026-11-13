@@ -453,3 +453,4 @@ details[open] > summary .v-disclose { transform: rotate(180deg); }
   .v-highlight { flex-wrap: wrap; align-items: flex-start; }
   .v-highlight-action { width: 100%; padding-left: calc(30px + var(--s3)); }
 }
+

@@ -712,3 +712,4 @@ def outcome_response(
             for item in sorted(row.win_notifications, key=lambda item: item.destination)
         ],
     )
+

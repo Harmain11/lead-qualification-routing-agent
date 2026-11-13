@@ -1310,3 +1310,4 @@ class LeadWinNotificationORM(Base):
 from lead_agent.infrastructure.db import calling as calling_models  # noqa: E402,F401
 from lead_agent.infrastructure.db import operations as operations_models  # noqa: E402,F401
 from lead_agent.infrastructure.db import teams as team_models  # noqa: E402,F401
+

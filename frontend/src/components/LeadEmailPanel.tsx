@@ -357,14 +357,9 @@ export function LeadEmailPanel({
             const replyToAddress = stringDetail(details, "reply_to");
             const mailboxName = accounts.find((account) => account.id === stringDetail(details, "gmail_connection_id"))?.account_name;
             const isLatest = index === 0;
-            // Gmail keeps the newest message easy to read, but a forwarded or
-            // quoted chain should not take over the whole lead record.  The
-            // provider body keeps the full content available after the user
-            // opens the message.
-            const shouldExpand = isLatest && body.length <= 1_500;
             const who = outbound ? "You" : (sender.replace(/<.*>/, "").trim() || sender || "Lead");
             return <li key={event.id} className="lm-message" data-outbound={outbound || undefined} data-latest={isLatest || undefined}>
-              <details open={shouldExpand || undefined}>
+              <details open={isLatest || undefined}>
                 <summary>
                   <Monogram text={outbound ? (mailboxName || "You") : who} size={32} />
                   <span className="lm-from"><b>{who}</b><small>{messageDirectionLabel(event)}</small></span>
@@ -411,3 +406,4 @@ function relative(date: Date) {
   const days = Math.round(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
+

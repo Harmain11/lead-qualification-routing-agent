@@ -696,7 +696,6 @@ def lead_owner_assignment_options(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> list[LeadAssignmentOptionResponse]:
-    """Return the people eligible to own a lead, separate from sub-assignees."""
     if not can_sub_assign_leads(workspace.role):
         raise HTTPException(403, "lead assignment requires a manager role")
     members = session.execute(
@@ -1092,14 +1091,12 @@ def update_lead_owner_assignment(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
 ) -> LeadResponse:
-    """Set the accountable lead owner without changing its sales sub-assignee."""
     if not can_sub_assign_leads(workspace.role):
         raise HTTPException(403, "lead assignment requires a manager role")
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     assert_lead_action(session, workspace, row, "reassign")
-
     recipient_id = request.assigned_rep_id
     if recipient_id is not None:
         member, user = session.execute(
@@ -1116,7 +1113,6 @@ def update_lead_owner_assignment(
             raise HTTPException(status_code=422, detail="Choose an active team member.")
         if normalize_role(member.role) not in {"owner", "admin", "sales_manager"}:
             raise HTTPException(status_code=422, detail="Choose a manager for lead ownership.")
-
     previous_owner_id = row.current_owner_id
     assign_lead(session, row, recipient_id, actor=workspace, reason="lead owner assignment")
     if recipient_id is not None and recipient_id != previous_owner_id:
@@ -2135,3 +2131,4 @@ def retry_saved_meeting_booking(
         message=message,
         booking_error=booking_error,
     )
+

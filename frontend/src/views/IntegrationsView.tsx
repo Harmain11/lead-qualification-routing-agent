@@ -1797,3 +1797,4 @@ export function IntegrationsView({ permissions, selectedSection = "" }: { permis
      />}
    </div>;
 }
+
