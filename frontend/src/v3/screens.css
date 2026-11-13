@@ -48,6 +48,9 @@
 .v-table .c-check { width: 44px; padding: 0 4px 0 16px; }
 .v-table .c-score { width: 190px; }
 .v-table .c-sublead { width: 170px; }
+.v-table .c-status { width: 108px; }
+.v-status-chip { display: inline-flex; align-items: center; min-height: 26px; padding: 0 9px; border-radius: var(--r-pill); font: 600 12px/1 var(--font); }
+.v-status-updated { color: var(--tint-text); background: var(--tint-soft); }
 .v-table .c-date { width: 100px; text-align: right; padding-right: 20px; color: var(--label-2); white-space: nowrap; }
 .v-table th.c-date { text-align: right; padding-right: 20px; }
 .v-lead-table[data-lens="overview"] .c-a { width: 18%; }
@@ -97,7 +100,7 @@
   .v-table .c-score { grid-area: score; width: auto; }
   .v-table .c-score .v-badge { display: none; }
   .v-table .c-a { grid-area: meta; }
-  .v-table .c-b, .v-table .c-sublead { display: none !important; }
+  .v-table .c-b, .v-table .c-sublead, .v-table .c-status { display: none !important; }
   .v-table .c-date { grid-area: date; width: auto; padding: 0; font: var(--t-footnote); align-self: center; }
   .v-lead-cell { min-width: 0; }
   .v-lead-cell .v-mono { display: none; }

@@ -94,7 +94,7 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceORM,
 )
 from lead_agent.infrastructure.db.session import get_db
-from lead_agent.infrastructure.db.teams import LeadAccessGrantORM
+from lead_agent.infrastructure.db.teams import LeadAccessGrantORM, LeadReadReceiptORM
 from lead_agent.infrastructure.notifications.factory import get_notification_provider
 from lead_agent.infrastructure.reasoning.factory import resolve_workspace_reasoning_provider
 from lead_agent.infrastructure.repositories import (
@@ -596,6 +596,16 @@ def list_all_leads(
             .limit(limit)
         ).unique()
     )
+    receipts = {
+        receipt.lead_id: receipt.seen_at
+        for receipt in session.scalars(
+            select(LeadReadReceiptORM).where(
+                LeadReadReceiptORM.workspace_id == workspace.workspace_id,
+                LeadReadReceiptORM.user_id == workspace.user_id,
+                LeadReadReceiptORM.lead_id.in_([row.id for row in rows]),
+            )
+        )
+    } if workspace.user_id and rows else {}
 
     def current_routing(row: LeadORM) -> RoutingDecisionORM | None:
         current = [item for item in row.routing_decisions if item.is_current]
@@ -614,6 +624,7 @@ def list_all_leads(
             _current_confirmation_email(session, row.id, workspace.workspace_id),
             lead_manual_review_reasons(session, row, routing),
             permissions=workspace.permissions,
+            has_unread_update=receipts.get(row.id, datetime.min.replace(tzinfo=UTC)) < row.updated_at,
         )
 
     return LeadListResponse(
@@ -671,9 +682,42 @@ def lead_assignment_options(
             role=normalize_role(membership.role),
         )
         for membership, user in members
-        if normalize_role(membership.role) in {"sales_manager", "sales_rep"}
+        if normalize_role(membership.role) == "sales_rep"
         and "leads.edit"
         in effective_permissions(membership.role, membership.permission_overrides)
+    ]
+
+
+@router.get(
+    "/owner-assignment-options",
+    response_model=list[LeadAssignmentOptionResponse],
+)
+def lead_owner_assignment_options(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
+) -> list[LeadAssignmentOptionResponse]:
+    """Return the people eligible to own a lead, separate from sub-assignees."""
+    if not can_sub_assign_leads(workspace.role):
+        raise HTTPException(403, "lead assignment requires a manager role")
+    members = session.execute(
+        select(WorkspaceMembershipORM, UserORM)
+        .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+        .where(
+            WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+            WorkspaceMembershipORM.status == "active",
+            UserORM.status == "active",
+        )
+        .order_by(UserORM.display_name)
+    ).all()
+    return [
+        LeadAssignmentOptionResponse(
+            user_id=user.id,
+            display_name=user.display_name,
+            role=normalize_role(membership.role),
+        )
+        for membership, user in members
+        if normalize_role(membership.role) in {"owner", "admin", "sales_manager"}
+        and "leads.edit" in effective_permissions(membership.role, membership.permission_overrides)
     ]
 
 
@@ -811,6 +855,18 @@ def retrieve_lead(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
+    if workspace.user_id is not None:
+        receipt = session.get(LeadReadReceiptORM, (row.id, workspace.user_id))
+        if receipt is None:
+            session.add(LeadReadReceiptORM(
+                lead_id=row.id,
+                user_id=workspace.user_id,
+                workspace_id=workspace.workspace_id,
+                seen_at=datetime.now(UTC),
+            ))
+        else:
+            receipt.seen_at = datetime.now(UTC)
+        session.commit()
     routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(
         row,
@@ -819,6 +875,7 @@ def retrieve_lead(
         _current_confirmation_email(session, row.id, workspace.workspace_id),
         lead_manual_review_reasons(session, row, routing),
         permissions=workspace.permissions,
+        has_unread_update=False,
     )
 
 
@@ -994,8 +1051,11 @@ def update_lead_assignment(
         ).one_or_none() or (None, None)
         if member is None or user is None:
             raise HTTPException(status_code=422, detail="Choose an active team member.")
-        if normalize_role(member.role) not in {"sales_manager", "sales_rep"}:
-            raise HTTPException(status_code=422, detail="Choose a sales team member.")
+        if normalize_role(member.role) != "sales_rep":
+            raise HTTPException(
+                status_code=422,
+                detail="Choose an eligible sales representative for sub-assignment.",
+            )
         routing.assigned_rep_id = str(user.id)
         routing.assigned_rep_name = user.display_name
 
@@ -1013,6 +1073,60 @@ def update_lead_assignment(
 
     routing.is_manually_assigned = True
     row.updated_at = datetime.now(UTC)
+    session.commit()
+    routing = get_current_routing(session, row.id, workspace.workspace_id)
+    return lead_response(
+        row,
+        routing,
+        get_current_crm_sync(session, row.id, workspace_id=workspace.workspace_id),
+        _current_confirmation_email(session, row.id, workspace.workspace_id),
+        lead_manual_review_reasons(session, row, routing),
+        permissions=workspace.permissions,
+    )
+
+
+@router.patch("/{lead_id}/owner-assignment", response_model=LeadResponse)
+def update_lead_owner_assignment(
+    lead_id: UUID,
+    request: LeadAssignmentUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("leads.reassign")),
+) -> LeadResponse:
+    """Set the accountable lead owner without changing its sales sub-assignee."""
+    if not can_sub_assign_leads(workspace.role):
+        raise HTTPException(403, "lead assignment requires a manager role")
+    row = get_lead(session, lead_id, workspace.workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    assert_lead_action(session, workspace, row, "reassign")
+
+    recipient_id = request.assigned_rep_id
+    if recipient_id is not None:
+        member, user = session.execute(
+            select(WorkspaceMembershipORM, UserORM)
+            .join(UserORM, UserORM.id == WorkspaceMembershipORM.user_id)
+            .where(
+                WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+                WorkspaceMembershipORM.user_id == recipient_id,
+                WorkspaceMembershipORM.status == "active",
+                UserORM.status == "active",
+            )
+        ).one_or_none() or (None, None)
+        if member is None or user is None:
+            raise HTTPException(status_code=422, detail="Choose an active team member.")
+        if normalize_role(member.role) not in {"owner", "admin", "sales_manager"}:
+            raise HTTPException(status_code=422, detail="Choose a manager for lead ownership.")
+
+    previous_owner_id = row.current_owner_id
+    assign_lead(session, row, recipient_id, actor=workspace, reason="lead owner assignment")
+    if recipient_id is not None and recipient_id != previous_owner_id:
+        notify_assigned_member(
+            session,
+            workspace_id=workspace.workspace_id,
+            lead_id=row.id,
+            recipient_user_id=recipient_id,
+            assigned_by_user_id=workspace.user_id,
+        )
     session.commit()
     routing = get_current_routing(session, row.id, workspace.workspace_id)
     return lead_response(

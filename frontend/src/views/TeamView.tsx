@@ -484,6 +484,8 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const [audit, setAudit] = useState<WorkspaceAuditEvent[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationCard[]>([]);
   const [permissionRegistry, setPermissionRegistry] = useState<PermissionRegistry | null>(null);
+  const [roleBaselineOverrides, setRoleBaselineOverrides] = useState<PermissionOverrides>(emptyOverrides);
+  const [roleBaselineSaving, setRoleBaselineSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -563,6 +565,26 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
   const roleDefaults = useCallback((role: string) => new Set(
     permissionRegistry?.roles.find((item) => item.id === role)?.default_permissions ?? [],
   ), [permissionRegistry]);
+  useEffect(() => { setRoleBaselineOverrides(emptyOverrides()); }, [matrixRole]);
+  const applyRoleBaseline = async () => {
+    const affected = members.filter((member) => member.role === matrixRole);
+    if (!affected.length) return;
+    setRoleBaselineSaving(true);
+    try {
+      const updated = await Promise.all(affected.map(async (member) => {
+        const grants = new Set(member.permission_overrides.grants);
+        const denies = new Set(member.permission_overrides.denies);
+        roleBaselineOverrides.grants.forEach((permission) => { grants.add(permission); denies.delete(permission); });
+        roleBaselineOverrides.denies.forEach((permission) => { denies.add(permission); grants.delete(permission); });
+        return updateMemberPermissions(member.id, { grants: [...grants].sort(), denies: [...denies].sort() });
+      }));
+      const byId = new Map(updated.map((member) => [member.id, member]));
+      setMembers((current) => current.map((member) => byId.get(member.id) ?? member));
+      setRoleBaselineOverrides(emptyOverrides());
+      showToast(`Applied the access package to ${updated.length} ${roleLabel(matrixRole)} member${updated.length === 1 ? "" : "s"}.`);
+    } catch (requestError) { setError(friendlyError(requestError)); }
+    finally { setRoleBaselineSaving(false); }
+  };
   const delegatableConnections = useMemo(
     () => integrations.flatMap((card) => card.connections).filter(
       (connection, index, all) =>
@@ -649,11 +671,11 @@ export function TeamView({ auth, workspaceName, onBack }: TeamViewProps) {
           <section className="panel role-access-panel" style={{ padding: 20 }} aria-label="Role access defaults">
             <h2>Role access defaults</h2>
             <p>Owners and Admins have workspace access. Managers see explicitly managed teams; Sales Reps see assigned or shared leads only. Personal coaching remains limited to its recipient and authorized managers.</p>
-            <label className="team-field"><span>Inspect a role</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{(permissionRegistry?.roles ?? []).map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
+            <label className="team-field"><span>Role access package</span><select value={matrixRole} onChange={(event) => setMatrixRole(event.target.value)}>{(permissionRegistry?.roles ?? []).map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select></label>
             {permissionRegistry
-              ? <PermissionEditor registry={permissionRegistry} overrides={emptyOverrides()} inherited={roleDefaults(matrixRole)} readOnly />
+              ? <PermissionEditor registry={permissionRegistry} overrides={roleBaselineOverrides} inherited={roleDefaults(matrixRole)} readOnly={!canManage} onChange={setRoleBaselineOverrides} dirty={roleBaselineOverrides.grants.length > 0 || roleBaselineOverrides.denies.length > 0} saving={roleBaselineSaving} onDiscard={() => setRoleBaselineOverrides(emptyOverrides())} onSave={() => void applyRoleBaseline()} />
               : <div className="permission-loading" aria-busy="true">Loading access categories…</div>}
-            <p className="permission-edit-hint">These are role defaults. Select a member to inspect their effective permissions and explicit exceptions.</p>
+            <p className="permission-edit-hint">Saving applies only the selected Grant and Deny choices to current members in this role and preserves their other explicit exceptions.</p>
           </section>
           <section className="team-layout team-roster-layout">
             <TeamScopePanel members={members} canManage={canManage} />

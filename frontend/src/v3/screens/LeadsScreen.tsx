@@ -8,11 +8,13 @@ import {
   LEAD_EXPORT_COLUMNS,
   listIntegrations,
   listLeadAssignmentOptions,
+  listLeadOwnerAssignmentOptions,
   listLeadTrash,
   listLeads,
   restoreLeadFromTrash,
   runInboundSync,
   updateLeadAssignment,
+  updateLeadOwnerAssignment,
   type LeadExportColumn,
   type LeadTrashItem,
 } from "../../api";
@@ -200,6 +202,7 @@ export function LeadsScreen({
   const [crmProviders, setCrmProviders] = useState<string[]>([]);
   const [bulkProvider, setBulkProvider] = useState("");
   const [assignmentOptions, setAssignmentOptions] = useState<LeadAssignmentOption[]>([]);
+  const [ownerAssignmentOptions, setOwnerAssignmentOptions] = useState<LeadAssignmentOption[]>([]);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [reasoningConnectionId, setReasoningConnectionId] = useState<string | null>(null);
@@ -233,8 +236,12 @@ export function LeadsScreen({
     const controller = new AbortController();
     setAssignmentLoading(true);
     setAssignmentError(null);
-    void listLeadAssignmentOptions(controller.signal)
-      .then((options) => { if (active) setAssignmentOptions(options); })
+    void Promise.all([listLeadAssignmentOptions(controller.signal), listLeadOwnerAssignmentOptions(controller.signal)])
+      .then(([subAssignees, owners]) => {
+        if (!active) return;
+        setAssignmentOptions(subAssignees);
+        setOwnerAssignmentOptions(owners);
+      })
       .catch((error) => {
         if (active && !controller.signal.aborted) setAssignmentError(error instanceof Error ? error.message : "Unable to load workspace representatives.");
       })
@@ -401,6 +408,13 @@ export function LeadsScreen({
     try { updateRow(await updateLeadAssignment(leadId, repId)); }
     catch (error) { setControlError(error instanceof Error ? error.message : "Unable to update the assigned representative."); }
     finally { withSaving(setSavingAssignment, leadId, false); }
+  };
+  const changeOwnerAssignment = async (leadId: string, ownerId: string | null) => {
+    setControlError(null);
+    withSaving(setSavingAssignment, `${leadId}:owner`, true);
+    try { updateRow(await updateLeadOwnerAssignment(leadId, ownerId)); }
+    catch (error) { setControlError(error instanceof Error ? error.message : "Unable to update the lead owner."); }
+    finally { withSaving(setSavingAssignment, `${leadId}:owner`, false); }
   };
 
   const deleteSelected = async () => {
@@ -705,6 +719,7 @@ export function LeadsScreen({
                 <th scope="col" className="c-a">{colA}</th>
                 <th scope="col" className="c-b">{lens === "overview" ? "Lead owner" : colB}</th>
                 {lens === "overview" && <th scope="col" className="c-sublead">Sub-lead</th>}
+                {lens === "overview" && <th scope="col" className="c-status">Status</th>}
                 <th scope="col" className="c-stage">Stage</th>
                 <th scope="col" className="c-value">Value</th>
                 <th scope="col" className="c-date">Received</th>
@@ -723,11 +738,13 @@ export function LeadsScreen({
                   checked={selectedIds.has(lead.id)}
                   canManageRouting={canManageRouting}
                   assignmentOptions={assignmentOptions}
+                  ownerAssignmentOptions={ownerAssignmentOptions}
                   assignmentDisabled={assignmentLoading || Boolean(assignmentError)}
-                  savingAssignment={savingAssignment.has(lead.id)}
+                  savingAssignment={savingAssignment.has(lead.id) || savingAssignment.has(`${lead.id}:owner`)}
                   onToggle={toggleSelected}
                   onInspect={onInspect}
                   onAssignmentChange={changeAssignment}
+                  onOwnerAssignmentChange={changeOwnerAssignment}
                   stageLabel={stageInfo(view.stage).label}
                   stageId={view.stage}
                   value={view.value}
@@ -847,11 +864,13 @@ const LeadRow = memo(function LeadRow({
   checked,
   canManageRouting,
   assignmentOptions,
+  ownerAssignmentOptions,
   assignmentDisabled,
   savingAssignment,
   onToggle,
   onInspect,
   onAssignmentChange,
+  onOwnerAssignmentChange,
   stageLabel,
   stageId,
   value,
@@ -871,11 +890,13 @@ const LeadRow = memo(function LeadRow({
   checked: boolean;
   canManageRouting: boolean;
   assignmentOptions: LeadAssignmentOption[];
+  ownerAssignmentOptions: LeadAssignmentOption[];
   assignmentDisabled: boolean;
   savingAssignment: boolean;
   onToggle: (id: string) => void;
   onInspect: (id: string) => void;
   onAssignmentChange: (leadId: string, repId: string | null) => void;
+  onOwnerAssignmentChange: (leadId: string, ownerId: string | null) => void;
 }) {
   const origin = crmOrigin(lead);
   const review = Boolean(lead.analysis?.requires_manual_review || lead.routing?.manual_review);
@@ -929,9 +950,25 @@ const LeadRow = memo(function LeadRow({
             </span>
           </td>
           <td className="c-b">
-            <span className="v-two">
-              <span className="v-owner-name" title={lead.owner_name || "Unassigned"}>{lead.owner_name || "Unassigned"}</span>
-            </span>
+            {canManageRouting ? (
+              <select
+                className="v-popup"
+                aria-label={`Lead owner for ${lead.full_name}`}
+                value={lead.owner_id || ""}
+                disabled={savingAssignment || assignmentDisabled}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => onOwnerAssignmentChange(lead.id, event.target.value || null)}
+              >
+                <option value="">Unassigned</option>
+                {lead.owner_id && !ownerAssignmentOptions.some((option) => option.user_id === lead.owner_id) && <option value={lead.owner_id}>{lead.owner_name || "Current owner"}</option>}
+                {ownerAssignmentOptions.map((option) => <option key={option.user_id} value={option.user_id}>{option.display_name}</option>)}
+              </select>
+            ) : <span className="v-owner-name" title={lead.owner_name || "Unassigned"}>{lead.owner_name || "Unassigned"}</span>}
+          </td>
+          <td className="c-status">
+            {lead.has_unread_update
+              ? <span className="v-status-chip v-status-updated">Needs review</span>
+              : <span className="v-muted">Up to date</span>}
           </td>
           <td className="c-sublead">
             {canManageRouting && lead.routing ? (

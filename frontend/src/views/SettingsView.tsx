@@ -670,7 +670,7 @@ function RoutingWeightsPanel({
     config!.members.every((member) => {
       const percentage = percentages[member.user_id];
       return (
-        Number.isFinite(percentage) && percentage >= 0.01 && percentage <= 100
+        Number.isFinite(percentage) && percentage >= 0 && percentage <= 100
       );
     }) &&
     Math.abs(totalPercentage - 100) < 0.005;
@@ -782,7 +782,7 @@ function RoutingWeightsPanel({
                   <input
                     aria-label={`Routing percentage for ${member.display_name}`}
                     type="number"
-                    min="0.01"
+                    min="0"
                     max="100"
                     step="0.01"
                     disabled={!canManage || busy}

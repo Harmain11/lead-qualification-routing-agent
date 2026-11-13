@@ -105,6 +105,15 @@ def test_routing_config_accepts_percentages_and_preserves_legacy_weights(tmp_pat
                     }
                 },
             )
+            zero_share = client.put(
+                "/v1/routing/config",
+                json={
+                    "member_percentages": {
+                        str(user_id): 100,
+                        str(second_user_id): 0,
+                    }
+                },
+            )
             legacy = client.put(
                 "/v1/routing/config",
                 json={"member_weights": {str(user_id): 2.5}},
@@ -141,6 +150,11 @@ def test_routing_config_accepts_percentages_and_preserves_legacy_weights(tmp_pat
         assert weights == {str(user_id): 65.5, str(second_user_id): 34.5}
         assert invalid_total.status_code == 422
         assert invalid_total.json()["detail"] == "Routing percentages must total 100"
+        assert zero_share.status_code == 200
+        zero_share_weights = {
+            item["user_id"]: item["weight"] for item in zero_share.json()["members"]
+        }
+        assert zero_share_weights == {str(user_id): 100.0, str(second_user_id): 0.0}
         assert legacy.status_code == 200
         legacy_weights = {
             item["user_id"]: item["weight"] for item in legacy.json()["members"]

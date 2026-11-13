@@ -2141,8 +2141,8 @@ html[data-theme="dark"] { --pop-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 2
 .v-app .permission-provider-heading { align-items: center; }
 .v-app .permission-bulk-actions { display: inline-flex; gap: 3px; padding: 3px; border-radius: var(--r-control); background: var(--fill); }
 .v-app .permission-provider-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.v-app .permission-provider-grid label { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 9px 11px; border: 1px solid var(--separator); border-radius: var(--r-control); background: var(--surface); cursor: pointer; }
-.v-app .permission-provider-grid label:hover { background: var(--fill); }
+.v-app .permission-provider-grid label { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 9px 11px; border: 1px solid var(--separator); border-radius: var(--r-lg); background: var(--surface); cursor: pointer; transition: border-color var(--d-fast) ease, background-color var(--d-fast) ease; }
+.v-app .permission-provider-grid label:hover { background: var(--surface); }
 .v-app .permission-provider-grid label.selected { border-color: color-mix(in srgb, var(--tint) 48%, var(--separator)); background: var(--tint-soft); }
 .v-app .permission-provider-grid input { width: 18px; height: 18px; accent-color: var(--tint); }
 .v-app .permission-provider-grid input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

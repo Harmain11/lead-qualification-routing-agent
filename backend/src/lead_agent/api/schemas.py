@@ -244,6 +244,8 @@ class LeadResponse(BaseModel):
     received_at: datetime
     normalization_version: str
     created_at: datetime
+    updated_at: datetime
+    has_unread_update: bool = False
     qualification: QualificationResponse | None
     analysis: AnalysisResponse | None
     routing: RoutingDecisionResponse | None = None
@@ -627,6 +629,7 @@ def lead_response(
     confirmation_email: Any = None,
     review_reasons: list[str] | None = None,
     permissions: frozenset[str] | set[str] | None = None,
+    has_unread_update: bool = False,
 ) -> LeadResponse:
     analysis = row.analysis
     if review_reasons is None:
@@ -668,6 +671,8 @@ def lead_response(
         received_at=row.received_at,
         normalization_version=row.normalization_version,
         created_at=row.created_at,
+        updated_at=row.updated_at,
+        has_unread_update=has_unread_update,
         qualification=qualification_response(
             row.qualification, include_sensitive_evidence=can_communications,
         ),

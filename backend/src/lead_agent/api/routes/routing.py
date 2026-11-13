@@ -144,10 +144,10 @@ def update_routing_config(
                 status_code=422,
                 detail="Percentages must be provided for every active lead assignee",
             )
-        if any(not isfinite(value) or value <= 0 or value > 100 for value in percentages.values()):
+        if any(not isfinite(value) or value < 0 or value > 100 for value in percentages.values()):
             raise HTTPException(
                 status_code=422,
-                detail="Each routing percentage must be greater than 0 and no more than 100",
+                detail="Each routing percentage must be between 0 and 100",
             )
         if not isclose(sum(percentages.values()), 100, rel_tol=0, abs_tol=0.005):
             raise HTTPException(status_code=422, detail="Routing percentages must total 100")
@@ -162,10 +162,10 @@ def update_routing_config(
             status_code=422,
             detail="Weights may only be set for active lead assignees",
         )
-    if any(not isfinite(value) or value <= 0 or value > 100 for value in raw_weights.values()):
+    if any(not isfinite(value) or value < 0 or value > 100 for value in raw_weights.values()):
         raise HTTPException(
             status_code=422,
-            detail="Routing weights must be greater than 0 and no more than 100",
+            detail="Routing weights must be between 0 and 100",
         )
     weights = {str(user_id): round(value, 4) for user_id, value in raw_weights.items()}
     manual_review_settings = (

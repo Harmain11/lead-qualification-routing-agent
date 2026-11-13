@@ -303,6 +303,8 @@ export type Lead = {
   received_at: string;
   normalization_version: string;
   created_at: string;
+  updated_at: string;
+  has_unread_update?: boolean;
   qualification: Qualification | null;
   analysis: LeadAnalysis | null;
   routing: RoutingDecision | null;
@@ -558,7 +560,7 @@ export type GmailConversationSyncResult = {
 
 export type LeadPayload = Omit<
   Lead,
-  "id" | "lead_number" | "workspace_id" | "normalization_version" | "created_at" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail" | "is_generated"
+  "id" | "lead_number" | "workspace_id" | "normalization_version" | "created_at" | "updated_at" | "has_unread_update" | "received_at" | "qualification" | "analysis" | "routing" | "crm_sync" | "confirmation_email" | "outcome" | "external_id" | "source_detail" | "is_generated"
 > & {
   source: string;
   source_detail: string;

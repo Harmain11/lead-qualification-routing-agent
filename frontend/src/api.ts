@@ -985,10 +985,29 @@ export function updateLeadAssignment(
   });
 }
 
+export function updateLeadOwnerAssignment(
+  leadId: string,
+  ownerId: string | null,
+): Promise<Lead> {
+  return jsonRequest<Lead>(`/v1/leads/${leadId}/owner-assignment`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assigned_rep_id: ownerId }),
+  });
+}
+
 export function listLeadAssignmentOptions(
   signal?: AbortSignal,
 ): Promise<LeadAssignmentOption[]> {
   return jsonRequest<LeadAssignmentOption[]>("/v1/leads/assignment-options", {
+    signal,
+  });
+}
+
+export function listLeadOwnerAssignmentOptions(
+  signal?: AbortSignal,
+): Promise<LeadAssignmentOption[]> {
+  return jsonRequest<LeadAssignmentOption[]>("/v1/leads/owner-assignment-options", {
     signal,
   });
 }

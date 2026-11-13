@@ -108,6 +108,25 @@ class LeadAccessGrantORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class LeadReadReceiptORM(Base):
+    """Per-member acknowledgement used to distinguish new lead activity from read work."""
+
+    __tablename__ = "lead_read_receipts"
+    __table_args__ = (
+        Index("ix_lead_read_receipts_workspace_user", "workspace_id", "user_id"),
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True,
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False,
+    )
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now)
+
+
 class LeadAssignmentHistoryORM(Base):
     """Immutable assignment snapshots used for audit and historical attribution."""
 
